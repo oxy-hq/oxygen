@@ -3,29 +3,66 @@
 import type * as Config from "../config.ts";
 import { addedText } from "./diff.ts";
 import { matchesAny } from "./globs.ts";
-import type { DiffFile, Lens, LensPick, Plan } from "./types.ts";
+import type {
+  ChecklistItem,
+  ChecklistPick,
+  DiffFile,
+  Lens,
+  LensPick,
+  Plan,
+  Trigger
+} from "./types.ts";
 
 type PlanConfig = Pick<
   typeof Config,
-  "IGNORE" | "LENSES" | "MAX_LENSES" | "PATCH_EXCLUDE" | "LARGE_PR_LINES"
+  | "IGNORE"
+  | "LENSES"
+  | "MAX_LENSES"
+  | "PATCH_EXCLUDE"
+  | "LARGE_PR_LINES"
+  | "CHECKLIST"
+  | "MAX_CHECKLIST"
+  | "RULE_FILES"
 >;
 
-function lensTrigger(
-  lens: Lens,
+/** Why a lens or checklist item applies to these files, or null. */
+function triggerReason(
+  trigger: Trigger,
   files: readonly DiffFile[],
   patchExclude: readonly string[] = []
 ): string | null {
+  const { paths, patch, patchPaths } = trigger;
   for (const f of files) {
-    if (lens.paths.length && matchesAny(f.path, lens.paths)) return `touches \`${f.path}\``;
+    if (paths?.length && matchesAny(f.path, paths)) return `touches \`${f.path}\``;
   }
-  if (!lens.patch) return null;
+  if (!patch) return null;
   for (const f of files) {
-    if (lens.patchPaths && !matchesAny(f.path, lens.patchPaths)) continue;
+    if (patchPaths && !matchesAny(f.path, patchPaths)) continue;
     if (matchesAny(f.path, patchExclude)) continue;
-    const m = addedText(f).match(lens.patch);
+    const m = addedText(f).match(patch);
     if (m) return `adds \`${m[0].trim().slice(0, 40)}\` in \`${f.path}\``;
   }
   return null;
+}
+
+/**
+ * Checklist items these files trigger, in checklist order, capped at `max`. An
+ * incremental round passes only what changed since the last reviewed head: the general
+ * pass of the full review already answered an item for the lines it read.
+ */
+export function selectChecklist(
+  files: readonly DiffFile[],
+  items: readonly ChecklistItem[],
+  max: number,
+  patchExclude: readonly string[] = []
+): { selected: ChecklistPick[]; dropped: string[] } {
+  const triggered: ChecklistPick[] = [];
+  for (const item of items) {
+    const reason = triggerReason(item, files, patchExclude);
+    const { id, check, source } = item;
+    if (reason) triggered.push({ id, check, source, reason });
+  }
+  return { selected: triggered.slice(0, max), dropped: triggered.slice(max).map((i) => i.id) };
 }
 
 /**
@@ -51,10 +88,10 @@ function triggerFor(
   patchExclude: readonly string[],
   since: Since | null
 ): string | null {
-  if (!since) return lensTrigger(lens, files, patchExclude);
-  const now = lensTrigger(lens, since.delta, patchExclude);
+  if (!since) return triggerReason(lens, files, patchExclude);
+  const now = triggerReason(lens, since.delta, patchExclude);
   if (now || since.covered.has(lens.id)) return now;
-  const earlier = lensTrigger(lens, files, patchExclude);
+  const earlier = triggerReason(lens, files, patchExclude);
   return earlier && `${earlier} (no full review of this PR has run this lens)`;
 }
 
@@ -133,6 +170,12 @@ export function buildPlan({
     config.PATCH_EXCLUDE,
     since
   );
+  const checklist = selectChecklist(
+    since ? since.delta : inScope,
+    config.CHECKLIST,
+    config.MAX_CHECKLIST,
+    config.PATCH_EXCLUDE
+  );
   const lines = reviewable.reduce((n, f) => n + f.additions + f.deletions, 0);
   return {
     mode: changedSince ? "incremental" : "full",
@@ -149,10 +192,13 @@ export function buildPlan({
       id: l.id,
       reason: `more than ${config.MAX_LENSES} lenses triggered`
     })),
+    checklist: checklist.selected,
+    droppedChecklist: checklist.dropped,
     guidance: guidanceFor(
       inScope.map((f) => f.path),
       exists
     ),
+    editedRules: reviewable.map((f) => f.path).filter((p) => matchesAny(p, config.RULE_FILES)),
     size: { files: reviewable.length, lines },
     large: lines > config.LARGE_PR_LINES
   };

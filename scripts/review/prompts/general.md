@@ -35,6 +35,8 @@ whose edit in this PR does not match what landed. Report it as `repo-rule` at `s
 citing `CLAUDE.md: Committing (Roadmap)`, naming the behaviour and the line it belongs on
 (or that a new line is needed). Do not report an honest `none`.
 
+{{checklistBlock}}
+
 Useful tools: when the code-review-graph MCP tools are available,
 `get_impact_radius_tool` on the changed files answers "what breaks if this changes".
 `git blame` and `git log -L` tell you why a line you are about to call wrong exists.

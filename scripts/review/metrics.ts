@@ -14,8 +14,8 @@ import { attribute, introducedBy, isFixTitle, wasFlagged } from "./src/escapes.t
 import { git } from "./src/exec.ts";
 import type { Fetched } from "./src/fetch-merged.ts";
 import { fetchMerged, fetchPrs } from "./src/fetch-merged.ts";
-import type { Aggregate, PrRecord } from "./src/metrics.ts";
-import { aggregate, prRecord } from "./src/metrics.ts";
+import type { Aggregate, GuardrailCrossCut, PrRecord } from "./src/metrics.ts";
+import { aggregate, guardrailCrossCut, prRecord } from "./src/metrics.ts";
 import { headline, renderReport } from "./src/report.ts";
 import type { PrMeta } from "./src/types.ts";
 
@@ -124,7 +124,8 @@ function write(
   report: string,
   agg: Aggregate,
   escapes: readonly Escape[],
-  records: readonly PrRecord[]
+  records: readonly PrRecord[],
+  crossCut: GuardrailCrossCut
 ): void {
   console.log(report);
   if (process.env.GITHUB_STEP_SUMMARY)
@@ -139,7 +140,17 @@ function write(
   );
   writeFileSync(
     join(args.out, "metrics.json"),
-    JSON.stringify({ window: { since, now }, agg, escapes, records }, null, 2)
+    JSON.stringify(
+      {
+        window: { since, now },
+        agg,
+        guardrailCrossCut: crossCut,
+        escapes,
+        records
+      },
+      null,
+      2
+    )
   );
 }
 
@@ -150,4 +161,5 @@ const records = merged.map((m) => m.rec);
 const escapes = await escapesFor(merged);
 const agg = aggregate(records);
 const window = { from: since.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
-write(renderReport({ agg, escapes, window }), agg, escapes, records);
+const crossCut = guardrailCrossCut(records, escapes);
+write(renderReport({ agg, escapes, crossCut, window }), agg, escapes, records, crossCut);

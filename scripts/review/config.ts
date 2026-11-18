@@ -158,6 +158,26 @@ export const STAGGER_MAX_WAIT_MS = 20_000;
 export const TASK_TOKENS = { general: 400_000, lens: 150_000, verify: 200_000, recheck: 100_000 };
 
 export const MAX_LENSES = 3;
+// From this many review rounds that each added findings (the current one among them),
+// the summary asks the author to step back rather than patch the next flagged line.
+export const STEP_BACK_ROUNDS = 3;
+// Incident-checklist items (checklist.ts) the general pass is given at most. They cost
+// prompt lines, not a pass, but a long list dilutes each item.
+export const MAX_CHECKLIST = 6;
+export { CHECKLIST } from "./checklist.ts";
+
+// The written rules a review judges code by. When a PR edits one, every pass is told to
+// judge the code by the merge base's copy: a change must not grade itself by a rule it
+// rewrites. Only the internal docs the prompts enforce as rules: most PRs update some
+// other doc to describe what they ship, and that is not rewriting a rule. Add a doc here
+// when a lens starts enforcing it.
+export const RULE_FILES: readonly string[] = [
+  "**/CLAUDE.md",
+  "**/AGENTS.md",
+  "**/.claude/skills/**",
+  "product-context.md",
+  "internal-docs/{architecture-review-checklist,backend-architecture,compile-boundary,customer-apps-performance,data-placement,domain-boundaries,revert-safe-migrations,roles-and-authorization,task-spec-registry}.md"
+];
 export const MAX_FINDINGS_PER_PASS = 12;
 export const MAX_NITS = 3;
 export const MAX_INLINE = 8;

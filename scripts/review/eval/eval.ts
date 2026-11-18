@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BUDGET } from "../config.ts";
 import { git, run } from "../src/exec.ts";
-import type { GoldenCase, Score } from "../src/score.ts";
+import type { GoldenCase, Hit, Score, Stage, StageDebug } from "../src/score.ts";
 import { scoreCase, summarize } from "../src/score.ts";
 import type { ReviewState } from "../src/types.ts";
 
@@ -58,7 +58,15 @@ async function review(kase: GoldenCase, tree: string, out: string): Promise<Scor
   if (!existsSync(join(out, "state.json")))
     throw new Error(`review.ts exited ${result.code}: ${result.stderr.slice(-1500)}`);
   const state = JSON.parse(readFileSync(join(out, "state.json"), "utf8")) as ReviewState;
+  const debugPath = join(out, "result.json");
+  const debug = existsSync(debugPath)
+    ? {
+        ...(JSON.parse(readFileSync(debugPath, "utf8")) as Omit<StageDebug, "complete">),
+        complete: state.status === "complete"
+      }
+    : undefined;
   return scoreCase(kase, {
+    debug,
     findings: state.findings.filter((f) => f.status === "open"),
     possible: state.possible ?? [],
     cost: state.rounds.at(-1)?.cost ?? 0
@@ -75,7 +83,7 @@ async function runCase(kase: GoldenCase): Promise<Score> {
     return {
       id: kase.id,
       pr: kase.pr,
-      hits: (kase.expect ?? []).map((e) => ({ what: e.what, result: "error" })),
+      hits: (kase.expect ?? []).map((e) => ({ what: e.what, result: "error", stage: "unknown" })),
       extra: [],
       cleanFalseAlarms: 0,
       cost: reserve,
@@ -85,6 +93,19 @@ async function runCase(kase: GoldenCase): Promise<Score> {
     await git(["worktree", "remove", "--force", tree]).catch(() => undefined);
   }
 }
+
+const LOST: Record<Stage, string> = {
+  posted: "posted",
+  possible: "uncertain after verify",
+  filtered: "dropped by a filter",
+  rejected: "rejected by verify",
+  "never-found": "no pass saw it",
+  unknown: "stage unknown"
+};
+const describe = (h: Hit): string =>
+  h.result === "missed" || h.result === "possible-only"
+    ? `${h.result} (${LOST[h.stage]})`
+    : h.result;
 
 const scores: Score[] = [];
 let spent = 0;
@@ -100,7 +121,7 @@ for (const kase of cases) {
   scores.push(s);
   const extra = s.extra.length ? ` · ${s.extra.length} other finding(s)` : "";
   console.log(
-    `${s.id} (#${s.pr}) $${s.cost}: ${s.hits.map((h) => h.result).join(", ") || "clean case"}${extra}`
+    `${s.id} (#${s.pr}) $${s.cost}: ${s.hits.map(describe).join(", ") || "clean case"}${extra}`
   );
 }
 const summary = summarize(scores);

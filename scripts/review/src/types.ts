@@ -60,13 +60,32 @@ export interface DiffFile {
   hunks: Hunk[];
 }
 
-export interface Lens {
-  id: string;
-  prompt: string;
-  paths: readonly string[];
+/** When a lens or a checklist item applies: `paths` match any changed file; `patch` is
+ * tested against added lines, only in files matching `patchPaths` when given. */
+export interface Trigger {
+  paths?: readonly string[];
   patch?: RegExp;
   patchPaths?: readonly string[];
 }
+
+export interface Lens extends Trigger {
+  id: string;
+  prompt: string;
+}
+
+/**
+ * One item of the incident checklist (checklist.ts): a question a past incident taught,
+ * asked only of a diff whose shape calls for it, and the incident it came from.
+ */
+export interface ChecklistItem extends Trigger {
+  id: string;
+  /** What to check in this diff, in a sentence or two: the failure and how it shows. */
+  check: string;
+  /** The incident or PR behind it (`#3158`, or a doc section). An untraceable item is pruned. */
+  source: string;
+}
+
+export type ChecklistPick = Pick<ChecklistItem, "id" | "check" | "source"> & { reason: string };
 
 export interface LensPick {
   id: string;
@@ -93,7 +112,13 @@ export interface Plan {
   ignored: string[];
   lenses: LensPick[];
   droppedLenses: Skipped[];
+  /** Checklist items the diff triggers, for the general pass, capped at MAX_CHECKLIST. */
+  checklist: ChecklistPick[];
+  /** Ids of triggered items past the cap, named in the summary's Coverage. */
+  droppedChecklist: string[];
   guidance: string[];
+  /** Files under RULE_FILES this PR edits: every pass judges code by their merge-base copy. */
+  editedRules: string[];
   size: { files: number; lines: number };
   large: boolean;
 }

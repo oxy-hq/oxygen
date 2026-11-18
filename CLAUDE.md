@@ -88,6 +88,13 @@ Many crates carry their own `CLAUDE.md` — all `agentic/*`, `authz`, `cameras`,
   `just wt-release`. Details, and `just target-gc` for disk: `internal-docs/rust-build-performance.md`.
 - **Build and test through `just`, not bare `cargo`.** The heavy recipes queue on a machine-wide
   build lease so parallel agents don't thrash one box; a waiting `build-lease:` line is normal.
+- **A flaky test is a bug, not a retry.** Never skip it, add a sleep, or re-run until green: an
+  agent that learns re-running works stops fixing code. Find the cause (usually the clock, an
+  unordered result, or a wait on a duration instead of a condition), or delete the test and
+  say why in the PR.
+- **Three rounds, then a person.** When a check still fails after three fix attempts, or three
+  pushes running each draw new review findings, stop patching: post what you tried with the
+  evidence and ask. The failure is now the thing a person needs to see.
 
 **Never verify with a bare `cargo nextest run`.** That builds and links every test
 target in 84 crates. The cost of a test run here is *linking*, not asserting: each

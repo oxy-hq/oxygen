@@ -1,7 +1,7 @@
 // The weekly report, in Markdown: figures first, one line per item.
 
 import type { Escape } from "./escapes.ts";
-import type { Aggregate, Bucket, PassTotals } from "./metrics.ts";
+import type { Aggregate, Bucket, GuardrailCrossCut, PassTotals } from "./metrics.ts";
 
 const pct = (v: number | null): string => (v === null ? "n/a" : `${v}%`);
 const secs = (ms: number | null): string => (ms === null ? "n/a" : `${Math.round(ms / 1000)}s`);
@@ -114,6 +114,27 @@ export function escapedCount(escapes: readonly Escape[]): number {
   ).size;
 }
 
+/** Revert rate and the empty-verification share: the checks that time was saved, not moved. */
+export function guardrailLine(agg: Aggregate): string {
+  const { reverts, verification } = agg.guardrails;
+  return `Guardrails: ${reverts.prs.length} revert(s) (${pct(reverts.ratePct)} of merged PRs); ${pct(verification.emptyPct)} of PRs state no verification (observe only).`;
+}
+
+function guardrailsSection(agg: Aggregate, x: GuardrailCrossCut | undefined): string {
+  const { reverts, verification: v } = agg.guardrails;
+  const empty = v.emptyPrs.length;
+  return [
+    `- Reverts: ${reverts.prs.length} of ${agg.prs} merged PRs (${pct(reverts.ratePct)}): ${prs(reverts.prs)}. Reverted: ${prs(reverts.reverted)}`,
+    `- "How it was verified" section: ${agg.prs - empty} stated, ${empty} empty or missing (${pct(v.emptyPct)}). Observe mode: reported, never blocks.`,
+    ...(x
+      ? [
+          `- Possible escaped-bug source PRs merged in the window (older ones are not counted): ${x.escaped.empty} with an empty verification section, ${x.escaped.stated} with a stated one`,
+          `- Reverted PRs merged in the window: ${x.reverted.empty} empty, ${x.reverted.stated} stated`
+        ]
+      : [])
+  ].join("\n");
+}
+
 /** The figures, one line each: the report's opening and the whole Slack post. */
 export function headline({
   agg,
@@ -131,6 +152,7 @@ export function headline({
     `${f.n} findings from the review pipeline: ${pct(f.addressedPct)} addressed before merge, ${pct(f.withdrawnPct)} withdrawn as wrong, ${pct(f.openPct)} still open at merge.`,
     `Cost $${agg.cost.total.toFixed(2)} (about $${agg.cost.perPr.toFixed(2)} per PR). Review time p50 ${secs(agg.cost.p50ms)}, p90 ${secs(agg.cost.p90ms)}.`,
     ...(split ? [split] : []),
+    guardrailLine(agg),
     `Possible escaped bugs: ${escapedCount(escapes)} fix PR(s) changed lines whose original PR the pipeline reviewed without flagging them; ${legacy} more trace to PRs the previous reviewer saw.`
   ];
 }
@@ -138,10 +160,13 @@ export function headline({
 export function renderReport({
   agg,
   escapes,
+  crossCut,
   window
 }: {
   agg: Aggregate;
   escapes: readonly Escape[];
+  /** Escaped-bug and reverted PRs by verification stamp; the section omits it when absent. */
+  crossCut?: GuardrailCrossCut;
   window: { from: string; to: string };
 }): string {
   const c = agg.coverage;
@@ -175,6 +200,9 @@ export function renderReport({
     "",
     "### Cost",
     passTable(agg.byPass),
+    "### Guardrails",
+    guardrailsSection(agg, crossCut),
+    "",
     "### Escaped bugs",
     escapesSection(escapes),
     "",

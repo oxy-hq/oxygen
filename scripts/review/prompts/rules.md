@@ -50,8 +50,13 @@ A performance problem on a request path is never a nit.
   fence. The author commits it in one click, so leave it out when the fix touches any
   other line or file, needs a decision, or you are not sure it compiles. A finding
   without one is fine; a wrong one costs the author's trust in the next.
+- One finding per root cause. When the same mistake appears in several places in the diff,
+  report it once, at its first place, and list every other place in `reasoning` and `fix`,
+  so one push fixes them all. A finding per instance makes the author fix one line and the
+  next push find the next.
 - `rule`: when the finding breaks written repo guidance, name it (`CLAUDE.md:
-  Authorization`, `oxy-data-placement`, `R-M2`). Otherwise leave it empty.
+  Authorization`, `oxy-data-placement`, `R-M2`, `checklist:<id>`). Otherwise leave it
+  empty.
 - `category`: the closest listed category.
 
 Report at most {{maxFindings}} findings, worst first. Fewer defended findings beat many

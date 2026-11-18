@@ -5,7 +5,7 @@ import { run } from "./exec.ts";
 import type { GhUser, IssueComment, PrMeta, PrReview, ReviewComment } from "./types.ts";
 
 const PR_FIELDS = `
-  number title mergedAt additions deletions headRefOid baseRefName
+  number title body mergedAt additions deletions headRefOid baseRefName
   baseRepository { defaultBranchRef { name } }
   mergeCommit { oid }
   author { login __typename }
@@ -25,6 +25,7 @@ interface Author {
 export interface PrNode {
   number: number;
   title: string;
+  body: string | null;
   mergedAt: string | null;
   additions: number;
   deletions: number;
@@ -88,7 +89,7 @@ export function fromGraphql(node: PrNode): Fetched {
     pr: {
       number: node.number,
       title: node.title,
-      body: null,
+      body: node.body ?? null,
       draft: false,
       merged_at: node.mergedAt,
       additions: node.additions,

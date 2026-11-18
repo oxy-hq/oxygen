@@ -5,6 +5,7 @@ import type { TouchedArea } from "./gate.ts";
 import { isClosed } from "./state.ts";
 import { longestTickRun } from "./text.ts";
 import type {
+  ChecklistPick,
   Finding,
   LensPick,
   Mode,
@@ -45,6 +46,32 @@ export interface SummaryView {
   carriedFrom?: string | null;
   /** HIGH_RISK areas the PR touches, so the summary says why it needs a person. */
   highRisk?: readonly TouchedArea[];
+  /** Incident-checklist items the general pass was given, and ids past the cap. */
+  checklist?: readonly ChecklistPick[];
+  droppedChecklist?: readonly string[];
+  /** STEP_BACK_ROUNDS: from this many rounds that each added findings, ask for a step back. */
+  stepBackAfter?: number;
+}
+
+/**
+ * When review after review keeps finding new problems, patching each line as it is
+ * flagged is not converging: say so once the last `after` reviews in a row, this one
+ * included, each added findings. A round that ran no model (a push that changed no PR
+ * file, a skipped review) neither counts nor breaks the run. Empty otherwise.
+ */
+export function convergenceNote(state: ReviewState, after: number | undefined): string {
+  if (!after) return "";
+  const ran = state.rounds.filter((r) => r.cost > 0);
+  let run = 0;
+  for (let i = ran.length - 1; i >= 0 && ran[i]?.added.length; i--) run++;
+  if (run < after) return "";
+  return [
+    "",
+    `> **The last ${run} reviews of this PR each found something new.** Fixing each`,
+    "> line as it is flagged is not converging. Step back: is there a class of bug behind these",
+    "> findings, or a simpler approach? Fix every instance at once, or ask a person to look at the design.",
+    ""
+  ].join("\n");
 }
 
 const sha = (s: string | null | undefined): string => `\`${(s ?? "").slice(0, 9)}\``;
@@ -159,6 +186,12 @@ function coverageSection(view: SummaryView, roadmap: RoadmapJudgement | undefine
   );
   for (const l of view.lenses ?? []) lines.push(`- Lens **${l.id}**: ${l.reason}`);
   for (const l of view.skippedLenses ?? []) lines.push(`- Lens **${l.id}** not run: ${l.reason}`);
+  if (view.checklist?.length)
+    lines.push(
+      `- Incident checklist: ${view.checklist.map((c) => `\`${c.id}\``).join(", ")} (\`scripts/review/checklist.ts\`)`
+    );
+  if (view.droppedChecklist?.length)
+    lines.push(`- Checklist items past the cap, not asked: ${view.droppedChecklist.join(", ")}`);
   for (const p of view.failedPasses ?? [])
     lines.push(`- Pass **${p.name}** did not finish (${p.subtype}); its findings are missing`);
   for (const n of view.notReviewed ?? []) lines.push(`- Not reviewed: ${oneLine(n)}`);
@@ -206,6 +239,7 @@ export function renderSummary(
       "",
       state.status === "incomplete" ? incompleteBody(view) : counts(state, open, view),
       state.status === "skipped" ? `\n${view.reason ?? ""}` : "",
+      convergenceNote(state, view.stepBackAfter),
       "",
       table(open),
       "",

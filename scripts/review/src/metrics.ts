@@ -2,6 +2,7 @@
 // Pure: metrics.ts does the fetching.
 
 import type * as Config from "../config.ts";
+import type { Escape } from "./escapes.ts";
 import { isBot, threadReplies } from "./feedback.ts";
 import { matchesAny } from "./globs.ts";
 import { decodeState, findSummaryComment } from "./state.ts";
@@ -69,6 +70,63 @@ export interface PrRecord {
   ms?: number[];
   /** What each pass cost over every round of this PR, by pass name. */
   passes?: Record<string, PassTotals>;
+  /** Observe mode: whether the PR body says how the change was verified. */
+  verification?: Verification;
+  /** Set when this PR reverts an earlier one; `of` is that PR's number when the text names it. */
+  revert?: { of: number | null } | null;
+}
+
+export type Verification = "stated" | "empty";
+
+/** A record from before the stamp was kept counts as empty. */
+const verificationOf = (r: PrRecord): Verification => r.verification ?? "empty";
+
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+const VERIFIED_HEADING = /^##(?!#)[ \t]+how it was verified[ \t]*$/im;
+const NEXT_HEADING = /^##(?!#)[ \t]/m;
+/** A bare non-answer: nothing after it, so it gives no reason. */
+const BARE_NONE = /^(?:none|n\/a|na|nothing|-+|\u2013|\u2014|\.)\.?$/i;
+
+/**
+ * Whether a PR body states how the change was verified. Observe mode: this reports, it
+ * never gates. HTML comments are stripped first (the template's placeholder is one). The
+ * section is "empty" when it is missing, blank, or only a bare `none` / `n/a` / `-`.
+ * `None -- needs a live account; covered by X` is "stated": it names a reason, which is
+ * the point of the stamp. A bare `none` is an honest "unverified" and counts as empty.
+ */
+export function verificationState(body: string | null | undefined): Verification {
+  const text = (body ?? "").replace(HTML_COMMENT, "");
+  const m = VERIFIED_HEADING.exec(text);
+  if (!m) return "empty";
+  const rest = text.slice(m.index + m[0].length);
+  const end = rest.search(NEXT_HEADING);
+  const section = (end < 0 ? rest : rest.slice(0, end)).trim();
+  return section && !BARE_NONE.test(section) ? "stated" : "empty";
+}
+
+const REVERT_TITLE = /^revert(?:\([^)]*\))?!?:|^revert "/i;
+const REVERT_BODY = /\b(?:reverts|this reverts)\s+(?:[\w.-]+\/[\w.-]+)?#(\d+)/i;
+const QUOTED_TITLE = /^revert "(.*)"(?:\s*\(#\d+\))?\s*$/i;
+const TITLE_PR_REF = /\(#(\d+)\)\s*$/;
+
+/**
+ * Whether a merged PR reverts an earlier one: GitHub's `Revert "..."` title or a
+ * conventional `revert:` one. `of` is the reverted PR's number from the body
+ * (`Reverts owner/repo#123`, `This reverts #123`) or the `(#123)` in the quoted title,
+ * or null when the text does not name one.
+ */
+export function detectRevert(
+  title: string,
+  body: string | null | undefined,
+  self?: number
+): { of: number | null } | null {
+  const t = title.trim();
+  if (!REVERT_TITLE.test(t)) return null;
+  const fromBody = REVERT_BODY.exec(body ?? "")?.[1];
+  const quoted = QUOTED_TITLE.exec(t)?.[1] ?? "";
+  const fromTitle = TITLE_PR_REF.exec(quoted)?.[1];
+  const n = Number(fromBody ?? fromTitle ?? NaN);
+  return { of: Number.isFinite(n) && n !== self ? n : null };
 }
 
 /**
@@ -190,7 +248,9 @@ export function prRecord({
     lines: (pr.additions ?? 0) + (pr.deletions ?? 0),
     override: labels.includes(config.OVERRIDE_LABEL),
     approved: approvals.length > 0,
-    highRisk
+    highRisk,
+    verification: verificationState(pr.body),
+    revert: detectRevert(pr.title, pr.body, pr.number)
   };
   if (!state) {
     const legacy = legacyReview(comments, lastCommitAt);
@@ -235,7 +295,9 @@ export function prRecord({
   };
 }
 
-const pct = (a: number, b: number): number | null => (b ? Math.round((100 * a) / b) : null);
+/** `a` as a percentage of `b`, to `digits` decimals; null when `b` is 0. */
+const pct = (a: number, b: number, digits = 0): number | null =>
+  b ? Math.round((100 * 10 ** digits * a) / b) / 10 ** digits : null;
 
 function quantile(values: readonly number[], q: number): number | null {
   if (!values.length) return null;
@@ -324,6 +386,56 @@ export interface Aggregate {
     overrides: number[];
   };
   recurring: { rule: string; prs: number[] }[];
+  /** Guardrails: did the time saved turn into breakage? */
+  guardrails: {
+    verification: { emptyPct: number | null; emptyPrs: number[] };
+    reverts: { ratePct: number | null; prs: number[]; reverted: number[] };
+  };
+}
+
+export interface GuardrailCrossCut {
+  /** Source PRs of the possible escaped bugs, split by their verification section. */
+  escaped: { stated: number; empty: number };
+  /** Reverted PRs that merged in the window, split the same way. */
+  reverted: { stated: number; empty: number };
+}
+
+const split = (nums: Iterable<number>, by: Map<number, Verification>) => {
+  const out = { stated: 0, empty: 0 };
+  for (const n of nums) {
+    const v = by.get(n);
+    if (v) out[v]++;
+  }
+  return out;
+};
+
+/** The escaped-bug source PRs and reverted PRs, by whether they stated a verification. */
+export function guardrailCrossCut(
+  records: readonly PrRecord[],
+  escapes: readonly Escape[]
+): GuardrailCrossCut {
+  const by = new Map(records.map((r) => [r.number, verificationOf(r)] as const));
+  const sources = new Set(
+    escapes.flatMap((e) => (!e.broad && e.flagged === false && !e.unreviewed ? [e.intro] : []))
+  );
+  const reverted = new Set(records.flatMap((r) => (r.revert?.of ? [r.revert.of] : [])));
+  return { escaped: split(sources, by), reverted: split(reverted, by) };
+}
+
+function guardrails(records: readonly PrRecord[]): Aggregate["guardrails"] {
+  const empty = records.filter((r) => verificationOf(r) === "empty");
+  const reverts = records.filter((r) => r.revert);
+  return {
+    verification: {
+      emptyPct: pct(empty.length, records.length),
+      emptyPrs: empty.map((r) => r.number)
+    },
+    reverts: {
+      ratePct: pct(reverts.length, records.length, 1),
+      prs: reverts.map((r) => r.number),
+      reverted: reverts.flatMap((r) => (r.revert?.of ? [r.revert.of] : []))
+    }
+  };
 }
 
 function sumPasses(records: readonly PrRecord[]): Record<string, PassTotals> {
@@ -384,6 +496,7 @@ export function aggregate(records: readonly PrRecord[]): Aggregate {
         .map((r) => ({ number: r.number, areas: r.highRisk, approved: r.approved })),
       overrides: records.filter((r) => r.override).map((r) => r.number)
     },
-    recurring: recurringRules(v2)
+    recurring: recurringRules(v2),
+    guardrails: guardrails(records)
   };
 }

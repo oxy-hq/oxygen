@@ -244,7 +244,13 @@ function promptsFor(load: RoundInput, repo: string, prior: readonly Finding[]): 
   const lines = roadmapLines(load.roadmapDoc);
   return {
     general: () =>
-      generalPrompt({ context, lenses: load.plan.lenses, maxFindings: max, roadmapLines: lines }),
+      generalPrompt({
+        context,
+        lenses: load.plan.lenses,
+        maxFindings: max,
+        roadmapLines: lines,
+        checklist: load.plan.checklist
+      }),
     lens: (lens) => lensPrompt({ lens, context, maxFindings: max }),
     recheck: () =>
       recheckPrompt({
@@ -383,6 +389,9 @@ function viewOf({
       ...skipped,
       ...(sifted.verify.skipped ? [{ id: "verify", reason: sifted.verify.skipped }] : [])
     ],
+    checklist: load.plan.checklist,
+    droppedChecklist: load.plan.droppedChecklist,
+    stepBackAfter: config.STEP_BACK_ROUNDS,
     failedPasses: all.filter((r) => !r.ok),
     notReviewed: sifted.notReviewed,
     ignored: load.plan.ignored,

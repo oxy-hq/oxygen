@@ -3,9 +3,15 @@ import { test } from "node:test";
 import * as config from "../config.ts";
 import type { Intro } from "./escapes.ts";
 import { attribute, introducedBy, isFixTitle, parseBlame, wasFlagged } from "./escapes.ts";
-import { finding, prMeta, round } from "./fixtures.ts";
+import { finding, must, prMeta, round } from "./fixtures.ts";
 import type { PrRecord } from "./metrics.ts";
-import { aggregate, prRecord } from "./metrics.ts";
+import {
+  aggregate,
+  detectRevert,
+  guardrailCrossCut,
+  prRecord,
+  verificationState
+} from "./metrics.ts";
 import { renderReport } from "./report.ts";
 import type { GoldenCase } from "./score.ts";
 import { scoreCase, summarize } from "./score.ts";
@@ -314,6 +320,7 @@ test("GraphQL PR nodes become the REST shapes the record reads", async () => {
   const node = {
     number: 5,
     title: "fix: x",
+    body: "## How it was verified\nran",
     mergedAt: "2026-10-10T00:00:00Z",
     additions: 3,
     deletions: 1,
@@ -477,4 +484,115 @@ test("the report splits spend by pass, and shows tokens only for rounds that rec
   const none = renderReport({ agg: aggregate([]), escapes: [], window: { from: "a", to: "b" } });
   assert.doesNotMatch(none, /Spend by pass/);
   assert.match(none, /No pass recorded its cost in this window\./);
+});
+
+const TEMPLATE_BODY = `## Why
+
+x
+
+## How it was verified
+
+<!-- What you ran or looked at.
+## not a heading -->
+
+## Demo
+
+None`;
+
+test("verification section: stated, template placeholder, missing, bare none, none with a reason", () => {
+  assert.equal(
+    verificationState("## How it was verified\n\nRan `just unit oxy-app`.\n\n## Demo"),
+    "stated"
+  );
+  assert.equal(verificationState("### x\n## HOW IT WAS VERIFIED\nlooked at it"), "stated");
+  assert.equal(verificationState(TEMPLATE_BODY), "empty", "only the HTML comment placeholder");
+  assert.equal(verificationState("## Why\n\nx"), "empty");
+  assert.equal(verificationState(null), "empty");
+  for (const bare of ["none", "None.", "n/a", "-", "  \n"])
+    assert.equal(verificationState(`## How it was verified\n${bare}\n## Demo\nx`), "empty", bare);
+  assert.equal(
+    verificationState("## How it was verified\n\nNone -- docs only\n\n## Demo"),
+    "stated",
+    "a reason makes it stated"
+  );
+  assert.equal(
+    verificationState("## How it was verified\n<!-- c -->\n### sub\ntested"),
+    "stated",
+    "a ### subheading does not end the section"
+  );
+});
+
+test("revert detection: GitHub button and conventional titles, number extraction", () => {
+  assert.deepEqual(
+    detectRevert('Revert "feat: x (#123)" (#130)', "Reverts oxy-hq/oxygen-internal#123", 130),
+    { of: 123 }
+  );
+  assert.deepEqual(
+    detectRevert('Revert "feat: x (#123)"', null, 130),
+    { of: 123 },
+    "from the title"
+  );
+  assert.deepEqual(detectRevert("revert: undo the cache (#9)", "This reverts #77.", 130), {
+    of: 77
+  });
+  assert.deepEqual(detectRevert("revert(web-app): undo", null, 130), { of: null });
+  assert.deepEqual(detectRevert('Revert "x"', "Reverts #130", 130), { of: null }, "never itself");
+  assert.equal(detectRevert("feat: revert button copy", "Reverts #5", 1), null);
+  assert.equal(detectRevert("fix: reverted state", null, 1), null);
+});
+
+test("guardrails: counts, rate, and the escaped/reverted cross-cut", () => {
+  const rec = (number: number, title: string, body: string | null) =>
+    prRecord({
+      pr: pr({ number, title, body }),
+      comments: [],
+      reviewComments: [],
+      reviews: [],
+      files: [],
+      lastCommitAt: null,
+      config
+    });
+  const ok = "## How it was verified\nran it";
+  const records = [
+    rec(1, "feat: a", ok),
+    rec(2, "feat: b", TEMPLATE_BODY),
+    rec(3, "feat: c", null),
+    rec(4, 'Revert "feat: b (#2)"', ok)
+  ];
+  const g = aggregate(records).guardrails;
+  assert.deepEqual(g.reverts, { ratePct: 25, prs: [4], reverted: [2] });
+  const [a, b, , revert] = records;
+  assert.equal(
+    aggregate([must(a), must(b), must(revert)]).guardrails.reverts.ratePct,
+    33.3,
+    "one decimal: a rate under 1% must not round to 0"
+  );
+  assert.deepEqual(g.verification, { emptyPct: 50, emptyPrs: [2, 3] });
+  const escapes = [
+    { fix: 9, fixTitle: "fix: z", intro: 3, files: [], flagged: false },
+    { fix: 10, fixTitle: "fix: y", intro: 1, files: [], flagged: true },
+    { fix: 11, fixTitle: "fix: w", intro: 2, files: [], flagged: false, unreviewed: true },
+    { broad: true as const, fix: 12, fixTitle: "fix: v" }
+  ];
+  const crossCut = guardrailCrossCut(records, escapes);
+  assert.deepEqual(crossCut, {
+    escaped: { stated: 0, empty: 1 },
+    reverted: { stated: 0, empty: 1 }
+  });
+  const report = renderReport({
+    agg: aggregate(records),
+    escapes,
+    crossCut,
+    window: { from: "a", to: "b" }
+  });
+  assert.match(
+    report,
+    /Guardrails: 1 revert\(s\) \(25% of merged PRs\); 50% of PRs state no verification/
+  );
+  assert.match(report, /Reverts: 1 of 4 merged PRs \(25%\): #4\. Reverted: #2/);
+  assert.match(report, /"How it was verified" section: 2 stated, 2 empty or missing \(50%\)/);
+  assert.match(
+    report,
+    /escaped-bug source PRs .*: 1 with an empty verification section, 0 with a stated one/
+  );
 });

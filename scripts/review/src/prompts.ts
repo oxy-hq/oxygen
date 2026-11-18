@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import type { RoadmapLine } from "./roadmap.ts";
-import type { Candidate, Finding, LensPick, Plan, PrMeta } from "./types.ts";
+import type { Candidate, ChecklistPick, Finding, LensPick, Plan, PrMeta } from "./types.ts";
 
 const DIR = new URL("../prompts/", import.meta.url);
 const MAX_FILES_LISTED = 200;
@@ -66,6 +66,33 @@ function priorBlock(prior: readonly Finding[]): string {
   ].join("\n");
 }
 
+/**
+ * Which crate guidance to read, and, when the PR edits a rule file, that the merge base's
+ * copy is the one that judges it: a change must not grade itself by a rule it rewrites.
+ */
+function guidanceBlock(plan: Plan, mergeBase: string): string {
+  const parts: string[] = [];
+  if (plan.guidance.length)
+    parts.push(
+      `\nCrate guidance for files in scope. Read the one for each area you review:\n${plan.guidance.map((g) => `- \`${g}\``).join("\n")}\n`
+    );
+  if (plan.editedRules.length)
+    parts.push(
+      [
+        "",
+        "This PR edits written rules that reviews judge code by:",
+        ...plan.editedRules.map((p) => `- \`${p}\``),
+        "",
+        `Judge the rest of the diff by the merge base's copy (\`git show ${mergeBase}:<path>\`), not the PR's,`,
+        "including any of these already in your context, which are the PR's. A file this PR adds",
+        "has no base copy: it judges nothing in this PR. Review the rule edit on its own merits; a",
+        "rule loosened in the same PR as code that needs the looser rule is a finding.",
+        ""
+      ].join("\n")
+    );
+  return parts.join("");
+}
+
 export interface ContextInput {
   repo: string;
   meta: PrMeta;
@@ -107,9 +134,7 @@ export function contextBlock({
     ignoredLine: plan.ignored.length
       ? `\nNot reviewed (lockfile, generated or binary): ${plan.ignored.length} file(s).`
       : "",
-    guidanceBlock: plan.guidance.length
-      ? `\nCrate guidance for files in scope. Read the one for each area you review:\n${plan.guidance.map((g) => `- \`${g}\``).join("\n")}\n`
-      : "",
+    guidanceBlock: guidanceBlock(plan, mergeBase),
     body: cleanBody(meta.body, bodyChars),
     conversationBlock: conversationBlock(conversation),
     priorBlock: priorBlock(prior)
@@ -131,22 +156,42 @@ function roadmapBlock(lines: readonly RoadmapLine[]): string {
   ].join("\n");
 }
 
+/** The incident-checklist items this diff triggered; empty when none did. */
+export function checklistBlock(items: readonly ChecklistPick[]): string {
+  if (!items.length) return "";
+  return [
+    "## Incident checklist",
+    "",
+    "Each item below comes from a past incident, and this diff has the shape that incident",
+    "had. For each, check whether the diff repeats the failure. When it does, report a",
+    "finding with `rule` set to `checklist:<id>`, at the severity its consequence earns.",
+    "When it does not, say nothing: an item that does not apply is not a finding.",
+    "",
+    "<checklist>",
+    ...items.map((i) => `- \`${i.id}\` (from ${i.source}; this diff ${i.reason}): ${i.check}`),
+    "</checklist>"
+  ].join("\n");
+}
+
 export function generalPrompt({
   context,
   lenses,
   maxFindings,
-  roadmapLines = []
+  roadmapLines = [],
+  checklist = []
 }: {
   context: string;
   lenses: readonly LensPick[];
   maxFindings: number;
   roadmapLines?: readonly RoadmapLine[];
+  checklist?: readonly ChecklistPick[];
 }): string {
   const lensNote = lenses.length
     ? `Focused reviewers are separately checking: ${lenses.map((l) => l.id).join(", ")}.`
     : "";
   return fill(template("general.md"), {
     lensNote,
+    checklistBlock: checklistBlock(checklist),
     roadmapBlock: roadmapBlock(roadmapLines),
     rules: fill(template("rules.md"), { maxFindings }),
     context
