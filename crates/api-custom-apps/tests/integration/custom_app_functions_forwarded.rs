@@ -1,10 +1,11 @@
 //! The forward-to-Factory arm of `server::invocation_placement`, over a real
 //! hop.
 //!
-//! `custom_app_functions_diskless` proves what a replica answers when it holds
-//! no working copy and no Factory is reachable: two refusals. In production a
-//! Factory is reachable — `OXY_IDE_UPSTREAM` names the ide Service — and a
-//! workspace a replica cannot serve is replayed there instead. That hop was
+//! `custom_app_functions_diskless` proves what a replica does when it holds no
+//! working copy and no Factory is configured: refuses a workspace with nothing
+//! compiled, and runs one with a file database, failing only a query against
+//! the file. With a Factory configured — `OXY_IDE_UPSTREAM` names the ide
+//! Service — a workspace a replica cannot serve is replayed there instead. That hop was
 //! covered by unit tests of the decision and of the rebuilt request only. Here
 //! it runs: this process is the `serve` replica (no working copy,
 //! `OXY_IDE_UPSTREAM` set), and the Factory is a server bound in this process
@@ -40,10 +41,12 @@
 //!
 //! The second test is the production case the first cannot show: the Factory
 //! configured but down (stopped, restarting), `OXY_IDE_UPSTREAM` naming a
-//! closed port. A replica must then answer the same 503s it gives with no
-//! Factory at all — `WorkspaceNotCompiled` with the recompile header and a
-//! queued compile, `WorkspaceNeedsWorkingCopy` naming the ide — not the
-//! generic ide-down 502, which carries neither. A separate test because
+//! closed port. A replica must then answer the documented 503s —
+//! `WorkspaceNotCompiled` with the recompile header and a queued compile,
+//! `WorkspaceNeedsWorkingCopy` naming the ide — not the generic ide-down 502,
+//! which carries neither. (With no Factory configured the second would run
+//! here instead; a configured one may have taken the request before the relay
+//! failed, so it is not run twice.) A separate test because
 //! `ide_upstream()` is read once per process, and nextest runs each test in
 //! its own.
 

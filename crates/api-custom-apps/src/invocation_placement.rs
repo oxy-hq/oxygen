@@ -23,13 +23,22 @@
 //! itself (`x-oxy-forwarded-via` this replica, `x-oxy-served-by` the
 //! Factory's), so the hop stays visible. For the first, a compile is enqueued
 //! on the way, so the workspace stops needing the Factory once it promotes.
-//! With no Factory to ask — none configured, or one that does not answer
-//! because it is stopped or restarting — the answer is a 503 that says which
-//! of the two it is, never a run against an empty config and never the
-//! generic ide-down 502 that would hide the retry contract.
+//!
+//! With **no Factory configured** (production since the ide went to zero
+//! replicas), the two part ways. Nothing promoted is a 503 to retry, never a
+//! run against an empty config. A file database runs here: its config is
+//! compiled, and the host fails a query against the file by name
+//! (`ConfigManager<ReadOnly>::try_resolve_file`) rather than answering empty,
+//! so only that query fails. Refusing the whole call took down every function
+//! on such a workspace, including all that never touch the file (INC-174).
+//!
+//! With a Factory **configured but not answering** (stopped, restarting), both
+//! are a 503 that says which it is, never the generic ide-down 502 that would
+//! hide the retry contract. The file case is not run here: the relay can fail
+//! after the request reached the Factory, and a second run could repeat it.
 //!
 //! The judgement is `servability`'s: anything it cannot prove file-free goes to
-//! the Factory, so the worst case is a hop that was not needed.
+//! a configured Factory, so the worst case is a hop that was not needed.
 //!
 //! Lives here, not in `custom_apps_functions`, because every fact it weighs is
 //! the fleet's — this process's role, the Factory upstream, the compile queue.
@@ -65,23 +74,44 @@ pub(crate) struct Arrived<'a> {
 /// Where an invocation goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placement {
-    /// This process can run it.
+    /// This process runs it: it can serve the workspace, or (a file database,
+    /// no Factory) it can serve every call that does not query the file.
     Here,
     /// This pod cannot; the Factory reads its disk. If it does not answer,
     /// the call is refused as [`Placement::Refuse`] would.
     Factory,
-    /// This pod cannot, and no Factory is configured — or this request
-    /// already came from a replica, so forwarding again would loop.
+    /// Nothing promoted, or a config not readable just now, and no Factory is
+    /// configured — or, whatever the workspace, this request already came from
+    /// a replica, so forwarding again would loop.
     Refuse,
 }
 
-fn place(holds_working_copy: bool, servability: Servability, factory_reachable: bool) -> Placement {
+/// The Factory this replica could forward to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Upstream {
+    /// `OXY_IDE_UPSTREAM` unset: there is none (production since the ide went
+    /// to zero replicas).
+    Unset,
+    /// Configured, not proven up: whether it answers is learned by asking.
+    Configured,
+    /// Configured, but the request carries the replica-to-Factory marker, so
+    /// forwarding again would loop. A client can send that header too, so it
+    /// widens nothing: it only refuses.
+    AlreadyForwarded,
+}
+
+fn place(holds_working_copy: bool, servability: Servability, upstream: Upstream) -> Placement {
     if holds_working_copy || servability == Servability::Anywhere {
-        Placement::Here
-    } else if factory_reachable {
-        Placement::Factory
-    } else {
-        Placement::Refuse
+        return Placement::Here;
+    }
+    match upstream {
+        Upstream::Configured => Placement::Factory,
+        // Compiled: the config is known and only the file is missing. The
+        // host fails a query against it by name, so every other call is
+        // served. Refused whole, every function on the workspace was down
+        // (INC-174).
+        Upstream::Unset if servability == Servability::NeedsWorkingCopy => Placement::Here,
+        Upstream::Unset | Upstream::AlreadyForwarded => Placement::Refuse,
     }
 }
 
@@ -122,9 +152,12 @@ async fn placed_elsewhere(
     }
     let servability = servability::servability(project_id).await;
     let upstream = ide_proxy::ide_upstream();
-    // Configured, not proven up: whether it answers is learned by asking.
-    let factory_reachable = upstream.is_some() && !ide_proxy::forwarded_once(arrived.headers);
-    let placement = place(false, servability, factory_reachable);
+    let reach = match upstream {
+        None => Upstream::Unset,
+        Some(_) if ide_proxy::forwarded_once(arrived.headers) => Upstream::AlreadyForwarded,
+        Some(_) => Upstream::Configured,
+    };
+    let placement = place(false, servability, reach);
     if placement == Placement::Here {
         return None;
     }
@@ -264,20 +297,31 @@ mod tests {
         body["error"].as_str().expect("an error name").to_string()
     }
 
+    const EVERY_UPSTREAM: [Upstream; 3] = [
+        Upstream::Unset,
+        Upstream::Configured,
+        Upstream::AlreadyForwarded,
+    ];
+
     #[test]
     fn a_servable_workspace_runs_on_any_pod() {
         // The case the route is `FleetOk` for: no working copy, and none
         // needed — whether or not a Factory exists.
-        assert_eq!(place(false, Servability::Anywhere, true), Placement::Here);
-        assert_eq!(place(false, Servability::Anywhere, false), Placement::Here);
+        for upstream in EVERY_UPSTREAM {
+            assert_eq!(
+                place(false, Servability::Anywhere, upstream),
+                Placement::Here
+            );
+        }
     }
 
     #[test]
     fn a_pod_holding_the_working_copy_runs_every_workspace() {
         // The ide, and every single-process deployment: unchanged.
         for servability in EVERY {
-            assert_eq!(place(true, servability, true), Placement::Here);
-            assert_eq!(place(true, servability, false), Placement::Here);
+            for upstream in EVERY_UPSTREAM {
+                assert_eq!(place(true, servability, upstream), Placement::Here);
+            }
         }
     }
 
@@ -285,22 +329,57 @@ mod tests {
     fn what_only_the_working_copy_can_answer_goes_to_the_factory() {
         // `Unknown` too: what cannot be proven file-free costs a hop at worst.
         for servability in NOT_HERE {
-            assert_eq!(place(false, servability, true), Placement::Factory);
+            assert_eq!(
+                place(false, servability, Upstream::Configured),
+                Placement::Factory
+            );
         }
     }
 
     #[test]
-    fn with_no_factory_to_ask_it_is_refused_not_run() {
+    fn with_no_factory_an_unknown_config_is_refused_not_run() {
+        // Nothing promoted would run against an empty config; an unreadable
+        // one cannot be judged at all.
+        for servability in [Servability::NotCompiled, Servability::Unknown] {
+            assert_eq!(
+                place(false, servability, Upstream::Unset),
+                Placement::Refuse
+            );
+        }
+    }
+
+    #[test]
+    fn with_no_factory_a_file_database_does_not_take_the_workspace_down() {
+        // INC-174: the config is compiled, so the call runs and only a query
+        // against the file fails, by name, in the host.
+        assert_eq!(
+            place(false, Servability::NeedsWorkingCopy, Upstream::Unset),
+            Placement::Here
+        );
+    }
+
+    #[test]
+    fn a_request_already_forwarded_is_refused_not_run_or_forwarded_again() {
+        // The loop guard: a replica that receives a replayed call (an upstream
+        // pointed at the fleet by mistake, or a client sending the header)
+        // neither forwards it again nor runs a file-database call that a
+        // configured Factory exists for.
         for servability in NOT_HERE {
-            assert_eq!(place(false, servability, false), Placement::Refuse);
+            assert_eq!(
+                place(false, servability, Upstream::AlreadyForwarded),
+                Placement::Refuse,
+                "{servability:?}"
+            );
         }
     }
 
     #[tokio::test]
-    async fn a_factory_that_does_not_answer_gets_the_same_refusal_as_none() {
+    async fn a_factory_that_does_not_answer_is_refused_with_the_documented_503() {
         // Configured but stopped or restarting: `forward_to_ide_opt` hands the
         // request back. The caller must see the 503 it retries on, not the
         // generic ide-down 502, and nothing may claim a hop that did not happen.
+        // A file database is refused too rather than run here: the relay can
+        // fail after the Factory took the request.
         let id = Uuid::new_v4();
         for servability in NOT_HERE {
             let unreachable = Err(Request::new(Body::empty()));

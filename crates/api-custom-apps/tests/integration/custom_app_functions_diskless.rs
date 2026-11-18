@@ -21,16 +21,18 @@
 //!
 //! The warehouse is Postgres because a replica can reach it.
 //!
-//! The other two cases are the workspaces a replica can NOT serve, and must
-//! not try to. In production each is replayed to the Factory; a test process
-//! has no `OXY_IDE_UPSTREAM`, so what is observable here is the refusal that
-//! stands in for the forward, and that the isolate never ran:
+//! The other two cases are the workspaces a replica cannot fully serve. With a
+//! Factory configured each is replayed there; a test process has no
+//! `OXY_IDE_UPSTREAM`, which is production since the ide went to zero
+//! replicas, so what is observable here is what a replica does alone:
 //!
 //! - **nothing compiled** — it must not run against an empty config. A
-//!   retryable 503, and a compile is enqueued;
-//! - **a database that is a file in the checkout** (a DuckDB `path:` with no S3
-//!   mirror) — a 503 naming the pod it needs, and NO compile: the workspace is
-//!   compiled already, and recompiling per call would be a storm.
+//!   retryable 503, a compile is enqueued, and the isolate never runs;
+//! - **a database that is a file in the checkout** (a DuckDB `dataset:` with no
+//!   S3 mirror, beside a Postgres) — the call runs: a function reading only
+//!   the Postgres answers, and a query against the file fails naming it. NO
+//!   compile: the workspace is compiled already, and recompiling per call
+//!   would be a storm. Refusing the whole call here was INC-174.
 //!
 //! The bundle comes from the filesystem build store here (`test_db` unsets
 //! `OXY_CUSTOMER_APPS_S3_BUCKET`); that is the state dir, not the working
@@ -229,31 +231,111 @@ async fn an_uncompiled_workspace_is_refused_on_a_replica_not_run_empty() {
     assert_eq!(leaks(), 0, "the refusal itself must not reach for the disk");
 }
 
+/// Reads the remote database only, as every function of the apps INC-174 took
+/// down did: none of them queried their workspace's file DuckDB.
+const READS_REMOTE_JS: &str = r#"
+export default async (req, ctx) => {
+  const remote = await ctx.warehouse.query("pg", "SELECT 'named' AS via");
+  return Response.json({ rows: remote.rows });
+};
+"#;
+
+/// Queries the file DuckDB by name and as the default, and hands back what the
+/// host answered each time.
+const READS_FILE_JS: &str = r#"
+export default async (req, ctx) => {
+  const refused = async (run) => {
+    try {
+      return { rows: (await run()).rows };
+    } catch (e) {
+      return String((e && e.message) || e);
+    }
+  };
+  return Response.json({
+    named: await refused(() => ctx.warehouse.query("duck", "SELECT 1 AS one")),
+    byDefault: await refused(() => ctx.query("SELECT 1 AS one")),
+  });
+};
+"#;
+
+const READS_REMOTE: &str = "reads-remote";
+const READS_FILE: &str = "reads-file";
+
+fn remote_and_file_functions() -> Vec<FunctionSpec> {
+    let manifest = || json!({ "route": true, "timeoutSeconds": 60 });
+    vec![
+        FunctionSpec {
+            name: READS_REMOTE,
+            manifest: manifest(),
+            js: READS_REMOTE_JS,
+        },
+        FunctionSpec {
+            name: READS_FILE,
+            manifest: manifest(),
+            js: READS_FILE_JS,
+        },
+    ]
+}
+
+/// INC-174. With the Factory gone, refusing every call to a workspace that
+/// declares a file database 503'd every function of every app on it, though
+/// none of them queried that database. The config is compiled, so a replica
+/// runs the call; only a query against the file fails, by name.
 #[tokio::test]
-async fn a_working_copy_database_keeps_its_workspace_off_a_replica() {
+async fn a_working_copy_database_fails_only_the_query_that_needs_it() {
     let t = throwaway_org(&seeded_tenant().await).await;
-    // A DuckDB file in the checkout. No `OXY_COMPILE_BLOB_S3_BUCKET` in a test
-    // process, so the compiler mirrors nothing to S3: the data is only here.
-    let root = write_config("  - name: duck\n    type: duckdb\n    path: local.duckdb\n");
+    // The incident's workspace: a DuckDB directory in the checkout (`local`,
+    // `dataset: .db/`) as the default database, and a remote Postgres
+    // (`clientmgmt`). No `OXY_COMPILE_BLOB_S3_BUCKET` in a test process, so the
+    // compiler mirrors nothing to S3: the data is only in the checkout, and the
+    // checkout is dropped below. Listed first, `duck` is the default.
+    let databases = format!(
+        "  - name: duck\n    type: duckdb\n    dataset: .db/\n{}",
+        postgres_entry("pg").await
+    );
+    let root = write_config(&databases);
     let workspace = compile(&t, root.path()).await;
     let slug = "working-copy-db";
-    let app = publish_app(&t, slug, workspace, &functions()).await;
+    let app = publish_app(&t, slug, workspace, &remote_and_file_functions()).await;
     drop(root);
 
     let _replica = AsDisklessReplica::enter();
-    let call = call_function_in(&t.org_slug, slug, READS, json!({})).await;
 
-    assert_eq!(call.status, StatusCode::SERVICE_UNAVAILABLE, "{}", call.raw);
-    let body: serde_json::Value = serde_json::from_str(&call.raw).expect("a JSON refusal");
-    assert_eq!(body["error"], "WorkspaceNeedsWorkingCopy", "{body}");
+    let remote = call_function_in(&t.org_slug, slug, READS_REMOTE, json!({})).await;
+    assert_eq!(
+        remote.status,
+        StatusCode::OK,
+        "a function that never touches the file database runs on the replica: {}",
+        remote.raw
+    );
+    let data = remote
+        .frame("data")
+        .unwrap_or_else(|| panic!("no data frame; stream: {}", remote.raw));
+    assert!(data["rows"].to_string().contains("named"), "{data}");
+    assert_eq!(
+        invocations(&t.db, app.app_id, READS_REMOTE).await.len(),
+        1,
+        "the isolate ran here"
+    );
+
+    let file = call_function_in(&t.org_slug, slug, READS_FILE, json!({})).await;
+    let data = file
+        .frame("data")
+        .unwrap_or_else(|| panic!("no data frame; stream: {}", file.raw));
+    for how in ["named", "byDefault"] {
+        let refused = data[how].as_str().unwrap_or_else(|| {
+            panic!("{how}: a query against data not on this node must fail, never answer: {data}")
+        });
+        assert!(
+            refused.contains("'duck'"),
+            "{how}: the failure names the database: {refused}"
+        );
+    }
+
     assert_eq!(
         queued_compiles(&t, workspace).await,
         0,
         "the workspace is compiled; a compile per call would change nothing"
     );
-    assert!(
-        invocations(&t.db, app.app_id, READS).await.is_empty(),
-        "the isolate must not run where the database cannot be read"
-    );
-    assert_eq!(leaks(), 0, "the refusal itself must not reach for the disk");
+    assert_eq!(leaks(), 0, "neither call may reach for the disk");
 }
