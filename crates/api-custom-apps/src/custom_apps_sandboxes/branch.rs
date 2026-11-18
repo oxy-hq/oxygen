@@ -91,6 +91,7 @@ mod tests {
             oltp_schema: None,
             created_by_token_id: token,
             schedules_enabled: false,
+            events_enabled: false,
             parent_name: None,
             fork_at: None,
             planes: serde_json::json!({}),

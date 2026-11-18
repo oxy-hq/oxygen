@@ -236,6 +236,7 @@ fn new_row(
         created_by_token_id: ActiveValue::Set(creator.token_id),
         // A new sandbox fires no schedule until staff turn it on.
         schedules_enabled: ActiveValue::NotSet,
+        events_enabled: ActiveValue::NotSet,
         parent_name: parent.map_or(ActiveValue::NotSet, |name| {
             ActiveValue::Set(Some(name.to_string()))
         }),

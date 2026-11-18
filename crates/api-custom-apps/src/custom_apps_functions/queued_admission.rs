@@ -3,7 +3,7 @@
 //! §4.5).
 //!
 //! Production runs every queued run, as it always has. Outside production a
-//! queued run is admitted only as one of four things, each by its own rule:
+//! queued run is admitted only as one of five things, each by its own rule:
 //!
 //! | Trigger | Admitted outside production when |
 //! | --- | --- |
@@ -11,11 +11,12 @@
 //! | **schedule_now** (Run now `as=schedule`) | the function declares a `schedule` — production included; the switch is not asked, it is a person's one-off |
 //! | **scheduled** (a cron fire) | it declares a `schedule`, the environment's schedules switch is on, and a sandbox is not past its idle expiry |
 //! | **webhook** | it declares a `webhook` block, and a sandbox is not past its idle expiry |
+//! | **event** (a published event) | it declares a non-empty `on`, the environment's events switch is on, and a sandbox is not past its idle expiry |
 //!
 //! "Declares" is read from the build the runner resolved, never trusted from
 //! whoever queued the task: the environment's pointer may have moved while the
 //! task waited. A deleting environment serves no build, so it never gets this
-//! far. The rule is pure ([`decide`]); [`environment_state`] reads the two
+//! far. The rule is pure ([`decide`]); [`environment_state`] reads the
 //! facts it needs about the environment, and only for the triggers that ask.
 
 use chrono::Utc;
@@ -34,6 +35,8 @@ pub(crate) struct Declared {
     pub check: bool,
     pub schedule: bool,
     pub webhook: bool,
+    /// A non-empty `on`: the function listens for published events.
+    pub on: bool,
 }
 
 impl Declared {
@@ -46,6 +49,7 @@ impl Declared {
             webhook: manifest
                 .and_then(super::function_webhook_contract)
                 .is_some(),
+            on: manifest.is_some_and(declares_on),
         }
     }
 }
@@ -56,11 +60,23 @@ pub(crate) fn declared_schedule(manifest: &serde_json::Value) -> Option<&str> {
     manifest.get("schedule").and_then(serde_json::Value::as_str)
 }
 
+/// Whether a manifest's `on` names at least one event: a non-empty string or
+/// a non-empty array. Anything else declares nothing.
+fn declares_on(manifest: &serde_json::Value) -> bool {
+    match manifest.get("on") {
+        Some(serde_json::Value::String(s)) => !s.is_empty(),
+        Some(serde_json::Value::Array(a)) => !a.is_empty(),
+        _ => false,
+    }
+}
+
 /// What the rule needs to know of a non-production environment.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct EnvironmentState {
     /// `app_environments.schedules_enabled`.
     pub schedules_enabled: bool,
+    /// `app_environments.events_enabled`.
+    pub events_enabled: bool,
     /// A sandbox idle past its expiry, not yet swept. Never staging.
     pub expired: bool,
 }
@@ -72,6 +88,8 @@ pub(crate) enum QueuedRefusal {
     NotScheduled,
     SchedulesOff,
     NoWebhook,
+    EventsOff,
+    NoOn,
     Expired,
 }
 
@@ -103,6 +121,14 @@ impl QueuedRefused {
             QueuedRefusal::NoWebhook => format!(
                 "the function declares no `webhook` block in the build the {env} environment \
                  serves"
+            ),
+            QueuedRefusal::EventsOff => format!(
+                "events are off in this environment ({env}); an operator turns them on per \
+                 environment"
+            ),
+            QueuedRefusal::NoOn => format!(
+                "the function declares no `on` in the build the {env} environment serves, so it \
+                 receives no events there"
             ),
             QueuedRefusal::Expired => format!(
                 "the sandbox {env} is past its idle expiry; publish to it or call a function in \
@@ -136,11 +162,16 @@ pub(crate) fn decide(
             refuse_unless(declared.webhook, QueuedRefusal::NoWebhook)?;
             refuse_unless(!state.expired, QueuedRefusal::Expired)
         }
+        QueuedTrigger::Event => {
+            refuse_unless(declared.on, QueuedRefusal::NoOn)?;
+            refuse_unless(state.events_enabled, QueuedRefusal::EventsOff)?;
+            refuse_unless(!state.expired, QueuedRefusal::Expired)
+        }
     }
 }
 
-/// The environment's state, for a cron fire or a webhook outside production —
-/// the two triggers whose rule reads it. `None` for every other run, which
+/// The environment's state, for a cron fire, a webhook or an event outside
+/// production — the triggers whose rule reads it. `None` for every other run, which
 /// pays no read.
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
 pub(crate) async fn environment_state<C: ConnectionTrait>(
@@ -149,7 +180,11 @@ pub(crate) async fn environment_state<C: ConnectionTrait>(
     resolved: &ResolvedEnvironment,
     trigger: QueuedTrigger,
 ) -> Result<Option<EnvironmentState>, DbErr> {
-    if resolved.is_production() || !matches!(trigger, QueuedTrigger::Cron | QueuedTrigger::Webhook)
+    if resolved.is_production()
+        || !matches!(
+            trigger,
+            QueuedTrigger::Cron | QueuedTrigger::Webhook | QueuedTrigger::Event
+        )
     {
         return Ok(None);
     }
@@ -164,6 +199,8 @@ pub(crate) async fn environment_state<C: ConnectionTrait>(
         && activity::is_past_idle_expiry(db, &row, Utc::now()).await?;
     Ok(Some(EnvironmentState {
         schedules_enabled: row.schedules_enabled,
+        // Read only for an event: the other triggers never ask.
+        events_enabled: trigger == QueuedTrigger::Event && row.events_enabled,
         expired,
     }))
 }

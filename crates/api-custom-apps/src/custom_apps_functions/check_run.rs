@@ -190,14 +190,17 @@ fn refused(why: QueuedRefusal, function: &str, environment: &AppEnvironment) -> 
             function,
             environment,
         },
-        // A check is the rule for a manual run; the other two need the
-        // environment's state, which a request-time decision never reads.
-        QueuedRefusal::NotACheck | QueuedRefusal::SchedulesOff | QueuedRefusal::Expired => {
-            TriggerError::NotACheck {
-                function,
-                environment,
-            }
-        }
+        // A check is the rule for a manual run; the others need the
+        // environment's state (or an event, which no request queues), which a
+        // request-time decision never reads.
+        QueuedRefusal::NotACheck
+        | QueuedRefusal::SchedulesOff
+        | QueuedRefusal::EventsOff
+        | QueuedRefusal::NoOn
+        | QueuedRefusal::Expired => TriggerError::NotACheck {
+            function,
+            environment,
+        },
     }
 }
 

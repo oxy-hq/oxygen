@@ -98,6 +98,7 @@ fn check_run_admits_a_cron_fire_only_with_the_switch_on() {
     let on = Some(EnvironmentState {
         schedules_enabled: true,
         expired: false,
+        ..EnvironmentState::default()
     });
     let admission = admit_queued(&resolved(dev.clone()), QueuedTrigger::Cron, scheduled, on)
         .expect("a scheduled function fires with the switch on");

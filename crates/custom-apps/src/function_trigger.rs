@@ -25,6 +25,9 @@ pub enum FunctionJobTrigger {
     /// policy (environments design §4.5, ruling 3). Its invocation `mode` is
     /// `manual`: a person asked.
     ScheduleNow,
+    /// An event another app published, delivered to a function that declares
+    /// it listens (`on`) in its manifest. Its invocation `mode` is `event`.
+    Event,
 }
 
 impl FunctionJobTrigger {
@@ -33,6 +36,7 @@ impl FunctionJobTrigger {
             Self::Manual => "manual",
             Self::Webhook => "webhook",
             Self::ScheduleNow => "schedule_now",
+            Self::Event => "event",
         }
     }
 
@@ -42,6 +46,7 @@ impl FunctionJobTrigger {
             Self::Manual => QueuedTrigger::Manual,
             Self::Webhook => QueuedTrigger::Webhook,
             Self::ScheduleNow => QueuedTrigger::ScheduleNow,
+            Self::Event => QueuedTrigger::Event,
         }
     }
 }
@@ -58,6 +63,8 @@ pub enum QueuedTrigger {
     ScheduleNow,
     /// A verified inbound webhook (`webhook`).
     Webhook,
+    /// A published event delivered to a listening function (`event`).
+    Event,
 }
 
 impl QueuedTrigger {
@@ -68,7 +75,23 @@ impl QueuedTrigger {
             Some("manual") => Self::Manual,
             Some("schedule_now") => Self::ScheduleNow,
             Some("webhook") => Self::Webhook,
+            Some("event") => Self::Event,
             _ => Self::Cron,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_trigger_round_trips_its_label() {
+        assert_eq!(FunctionJobTrigger::Event.as_str(), "event");
+        assert_eq!(FunctionJobTrigger::Event.queued(), QueuedTrigger::Event);
+        assert_eq!(
+            QueuedTrigger::from_label(Some("event")),
+            QueuedTrigger::Event
+        );
     }
 }

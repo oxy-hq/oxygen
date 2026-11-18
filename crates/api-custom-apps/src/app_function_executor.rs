@@ -304,6 +304,10 @@ fn invocation_mode(trigger: Option<&str>) -> String {
         // an operator's click — and distinct from `route` because there is no
         // HTTP caller to attribute it to.
         Some("webhook") => "webhook",
+        // A published event delivered to a listening function. Its own mode
+        // so a function can branch on it: the payload is another app's event,
+        // not a cron tick or a provider's webhook.
+        Some("event") => "event",
         _ => "schedule",
     }
     .to_string()
@@ -394,6 +398,7 @@ mod tests {
             (FunctionJobTrigger::Manual, "manual"),
             (FunctionJobTrigger::Webhook, "webhook"),
             (FunctionJobTrigger::ScheduleNow, "manual"),
+            (FunctionJobTrigger::Event, "event"),
         ] {
             let label = trigger.as_str();
             assert_eq!(
@@ -407,6 +412,11 @@ mod tests {
                 "the runner reads '{label}' as another trigger"
             );
         }
+    }
+
+    #[test]
+    fn an_event_run_reports_mode_event() {
+        assert_eq!(invocation_mode(Some("event")), "event");
     }
 
     /// Run now `as=schedule` in a sandbox: a `manual` invocation, read as the

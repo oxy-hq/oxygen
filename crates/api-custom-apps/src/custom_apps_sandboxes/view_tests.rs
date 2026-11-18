@@ -21,6 +21,7 @@ fn row(name: &str, kind: &str, planes: serde_json::Value) -> app_environments::M
         oltp_schema: None,
         created_by_token_id: None,
         schedules_enabled: false,
+        events_enabled: false,
         parent_name: None,
         fork_at: None,
         planes,

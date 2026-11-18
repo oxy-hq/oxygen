@@ -47,6 +47,9 @@ pub struct Model {
     /// it on per environment (`custom_apps_env_schedules`); `false` by
     /// default, and never read for `production`, whose schedules always run.
     pub schedules_enabled: bool,
+    /// Whether this environment receives published events. Off by default
+    /// and never read for `production`, which always receives them.
+    pub events_enabled: bool,
     /// The environment this one was cut from. `None` means the default parent
     /// for the kind (a sandbox's is `staging`, staging's is `production`),
     /// and always for `production`, which has none.

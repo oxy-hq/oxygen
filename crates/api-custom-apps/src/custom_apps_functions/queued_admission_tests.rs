@@ -2,7 +2,8 @@ use serde_json::json;
 
 use super::*;
 
-const ALL: [QueuedTrigger; 4] = [
+const ALL: [QueuedTrigger; 5] = [
+    QueuedTrigger::Event,
     QueuedTrigger::Cron,
     QueuedTrigger::Manual,
     QueuedTrigger::ScheduleNow,
@@ -14,6 +15,7 @@ fn declared(check: bool, schedule: bool, webhook: bool) -> Declared {
         check,
         schedule,
         webhook,
+        on: false,
     }
 }
 
@@ -21,6 +23,7 @@ fn state(schedules_enabled: bool, expired: bool) -> Option<EnvironmentState> {
     Some(EnvironmentState {
         schedules_enabled,
         expired,
+        ..EnvironmentState::default()
     })
 }
 
@@ -150,6 +153,105 @@ fn a_webhook_outside_production_needs_its_block_and_no_expiry() {
     );
 }
 
+fn listening() -> Declared {
+    Declared {
+        on: true,
+        ..Declared::default()
+    }
+}
+
+fn events_state(events_enabled: bool, expired: bool) -> Option<EnvironmentState> {
+    Some(EnvironmentState {
+        events_enabled,
+        expired,
+        ..EnvironmentState::default()
+    })
+}
+
+#[test]
+fn event_is_admitted_in_production() {
+    assert_eq!(
+        decide(QueuedTrigger::Event, Declared::default(), true, None),
+        Ok(())
+    );
+}
+
+#[test]
+fn event_is_refused_outside_production_when_the_switch_is_off() {
+    let refusal = decide(
+        QueuedTrigger::Event,
+        listening(),
+        false,
+        events_state(false, false),
+    );
+    assert_eq!(refusal, Err(QueuedRefusal::EventsOff));
+    let refused = QueuedRefused {
+        environment: AppEnvironment::Staging,
+        why: QueuedRefusal::EventsOff,
+    };
+    assert!(
+        refused
+            .message()
+            .contains("events are off in this environment")
+    );
+}
+
+#[test]
+fn event_is_admitted_outside_production_when_the_switch_is_on_and_on_is_declared() {
+    assert_eq!(
+        decide(
+            QueuedTrigger::Event,
+            listening(),
+            false,
+            events_state(true, false)
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn event_is_refused_when_the_function_declares_no_on() {
+    assert_eq!(
+        decide(
+            QueuedTrigger::Event,
+            Declared::default(),
+            false,
+            events_state(true, false)
+        ),
+        Err(QueuedRefusal::NoOn)
+    );
+}
+
+#[test]
+fn event_is_refused_in_a_sandbox_past_its_idle_expiry() {
+    assert_eq!(
+        decide(
+            QueuedTrigger::Event,
+            listening(),
+            false,
+            events_state(true, true)
+        ),
+        Err(QueuedRefusal::Expired)
+    );
+}
+
+#[test]
+fn on_is_read_from_the_manifest() {
+    for (on, declares) in [
+        (json!("a/b"), true),
+        (json!(["a/b"]), true),
+        (json!(""), false),
+        (json!([]), false),
+        (json!(5), false),
+    ] {
+        assert_eq!(
+            Declared::of(Some(&json!({ "on": on.clone() }))).on,
+            declares,
+            "{on}"
+        );
+    }
+}
+
 /// A check outside production is admitted for a manual run only: being a
 /// check opens no cron fire and no webhook.
 #[test]
@@ -187,7 +289,11 @@ fn every_label_reads_as_its_trigger_and_an_unknown_one_as_a_cron_fire() {
             "{cron:?}"
         );
     }
-    assert_eq!(ALL.len(), 4);
+    assert_eq!(
+        QueuedTrigger::from_label(Some("event")),
+        QueuedTrigger::Event
+    );
+    assert_eq!(ALL.len(), 5);
 }
 
 #[test]
@@ -214,6 +320,8 @@ fn every_refusal_names_its_environment() {
         QueuedRefusal::SchedulesOff,
         QueuedRefusal::NoWebhook,
         QueuedRefusal::Expired,
+        QueuedRefusal::EventsOff,
+        QueuedRefusal::NoOn,
     ] {
         let refused = QueuedRefused {
             environment: AppEnvironment::Dev {

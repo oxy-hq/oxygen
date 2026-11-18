@@ -108,6 +108,7 @@ fn row_with(planes: serde_json::Value) -> entity::app_environments::Model {
         oltp_schema: None,
         created_by_token_id: None,
         schedules_enabled: false,
+        events_enabled: false,
         parent_name: None,
         fork_at: None,
         planes,
