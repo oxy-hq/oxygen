@@ -247,6 +247,21 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_tenancy",
         function: "admin_partner_routes",
     },
+    // And its per-org data-plane provisioning fences, out of `oxy-app`'s
+    // `admin::{oltp, airhouse}` in the admin split (PR 4): a section each
+    // (`PlatformOltp`, `PlatformAirhouse`), so a seed each, on the same seam.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_tenancy",
+        function: "admin_oltp_routes",
+    },
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_tenancy",
+        function: "admin_airhouse_routes",
+    },
     // `oxy-api-workspace-health`: the console's health rollup, eval trigger and
     // history, through the same admin seam.
     Seed {

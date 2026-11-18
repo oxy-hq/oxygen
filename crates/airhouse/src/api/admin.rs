@@ -10,7 +10,7 @@
 //! and a null org must refuse for a bounded grant rather than pass unchecked.
 //!
 //! There is deliberately **no `router()` here**: the routes are
-//! declared by `oxy_app::server::api::admin::airhouse`, which fences each one
+//! declared by `oxy_api_tenancy::admin::airhouse`, which fences each one
 //! before delegating. The capability layer at the mount decides *whether you
 //! are staff*; only a handler can decide *which orgs you reach*.
 

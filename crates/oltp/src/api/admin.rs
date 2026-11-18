@@ -10,7 +10,7 @@
 //! exactly wrong for an operator who is not a member of the org at all.
 //!
 //! **There is deliberately no `router()` here.** These handlers are mounted by
-//! `oxy_app::server::api::admin::oltp`, which calls `scope::deny_out_of_scope`
+//! `oxy_api_tenancy::admin::oltp`, which calls `scope::deny_out_of_scope`
 //! on every org-keyed one before delegating. A router in this crate cannot do
 //! that — the fence reads `app_admins` through `server::authz::globals`, which
 //! lives above this crate — so one existed and was unfenced, and the belief

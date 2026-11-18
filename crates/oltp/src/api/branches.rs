@@ -1,7 +1,7 @@
 //! Staff-facing status and reset for an org's OLTP branch.
 //!
 //! Mounted, like the rest of the admin surface, by
-//! `oxy_app::server::api::admin::oltp`, which fences every org-keyed route
+//! `oxy_api_tenancy::admin::oltp`, which fences every org-keyed route
 //! before delegating here — see `admin.rs` for why there is no router in this
 //! crate.
 //!

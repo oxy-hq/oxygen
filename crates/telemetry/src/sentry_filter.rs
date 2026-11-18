@@ -907,6 +907,12 @@ mod tests {
             "oxy_api_tenancy::admin::partners::grant",
             "oxy_api_tenancy::admin::partners::membership",
             "oxy_api_tenancy::admin::partners::people",
+            // The admin split (PR 4): the per-org data-plane provisioning
+            // fences, kept and not the data plane as there. Their `error!`
+            // lines name a connect or workspace-lookup failure over Oxy's own
+            // Postgres, never a tenant's rows.
+            "oxy_api_tenancy::admin::oltp",
+            "oxy_api_tenancy::admin::airhouse",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1248,6 +1254,11 @@ mod tests {
             "oxy_api_tenancy::admin::partners::membership",
             "oxy_api_tenancy::admin::partners::people",
             "oxy_api_custom_apps::admin::app_publish_tokens",
+            // The admin split (PR 4): the OLTP and Airhouse consoles' shims.
+            // `airhouse::connector` is prefix-anchored, so a module merely
+            // NAMED `airhouse` elsewhere does not match it.
+            "oxy_api_tenancy::admin::oltp",
+            "oxy_api_tenancy::admin::airhouse",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -408,21 +408,34 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
             }
         }
     }
-    assert!(
-        routers.len() >= 8,
-        "parsed only {} routers from staff_surface — the merge block's shape changed and \
-         this test is now scanning almost nothing. Fix the parse before trusting a pass.",
-        routers.len()
-    );
 
     // Sections that arrive through `SurfaceSeams::admin` are merged into the
     // staff surface at boot, not named in it, so the parse above cannot see them.
-    // Listed here — and REQUIRED to exist, unlike the parsed ones: a section that
-    // moved again would otherwise drop out of this check with every test green,
+    // Listed here — and REQUIRED, unlike the parsed ones: each must exist, its
+    // router must parse, and it must mount at least one org- or workspace-keyed
+    // route. A section that moved again, or whose router this parse stopped
+    // reading, would otherwise drop out of this check with every test green,
     // which for `delete_org` is exactly the hole this test was written to close.
+    //
+    // Every extracted section whose org-keyed handlers spell the fence in their
+    // own body is here. Not here, because they fence through a helper this
+    // needle does not see (and so would fail it): `oxy-api-observability`'s
+    // `apps` / `cost` / `resources` (`connect_scoped`), and `oxy-api-custom-apps`'
+    // storage meter (`org_in_scope`). `oxy-api-airway`'s section is a directory
+    // and is pinned by `scoped_admin_writes_fence_before_touching_the_database`.
     let extracted_sections = [
         "crates/api-tenancy/src/admin/orgs.rs",
         "crates/api-tenancy/src/admin/workspaces.rs",
+        // An org's subdomain toggle (admin split, PR 1): the `/orgs/{org_id}`
+        // write this test's header names, not swept again until now.
+        "crates/api-tenancy/src/admin/org_subdomains.rs",
+        // Admin → Metrics' per-org LLM cost (admin split, PR 1).
+        "crates/api-observability/src/admin/metrics.rs",
+        // The data-plane provisioning shims (admin split, PR 4). While they sat
+        // in `oxy-app` the parse named them but never read them: their router
+        // is `fn router<S>()`, which the `fn router()` split did not match.
+        "crates/api-tenancy/src/admin/oltp.rs",
+        "crates/api-tenancy/src/admin/airhouse.rs",
     ];
     for file in extracted_sections {
         assert!(
@@ -430,13 +443,33 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
             "{file} moved — point this test at the admin section's new home"
         );
     }
+    // The floor counts the parsed staff-surface routers AND the extracted
+    // sections: both are what this sweep covers, and the admin split moves
+    // routers from the first to the second. The extracted ones are each
+    // required below, so they cannot pad it with files it never reads.
+    assert!(
+        routers.len() + extracted_sections.len() >= 8,
+        "parsed only {} routers from staff_surface (plus {} extracted sections) — the \
+         merge block's shape changed and this test is now scanning almost nothing. Fix \
+         the parse before trusting a pass.",
+        routers.len(),
+        extracted_sections.len()
+    );
     // Handlers can live outside their router's file (the logo trio, and `org_logo` is
     // reached through the org section), so search the admin tree plus its delegates.
-    let searched: Vec<String> = routers
+    let in_tree: Vec<String> = routers
         .iter()
         .map(|r| format!("crates/app/src/server/api/admin/{r}.rs"))
         .filter(|p| repo_root().join(p).exists())
+        .collect();
+    let router_files: Vec<String> = in_tree
+        .iter()
+        .cloned()
         .chain(extracted_sections.iter().map(|f| f.to_string()))
+        .collect();
+    let searched: Vec<String> = router_files
+        .iter()
+        .cloned()
         .chain(["crates/api-tenancy/src/org_logo.rs".to_string()])
         .collect();
     let bodies: String = searched
@@ -445,12 +478,28 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    for file in &searched {
+    // How many router files this sweep actually read a router out of: the
+    // floor above counts names, this counts what was scanned. Both are 8.
+    let mut swept = 0;
+    for file in &router_files {
         let src = read(file);
-        let Some(router) = src.split("fn router()").nth(1) else {
+        let required = extracted_sections.contains(&file.as_str());
+        // Generic too: `fn router<S>()` is how a shim generic over the state
+        // spells it, and a `fn router()`-only split skipped both such files.
+        let Some(router) = ["fn router()", "fn router<S>()"]
+            .iter()
+            .find_map(|sig| src.split(sig).nth(1))
+        else {
+            assert!(
+                !required,
+                "{file} has no `fn router()` / `fn router<S>()` this test can parse — \
+                 the admin section is mounted but nothing sweeps it"
+            );
             continue;
         };
+        swept += 1;
         let router = router.split("\n}\n").next().unwrap_or_default();
+        let mut scoped_routes = 0;
 
         // Per `.route(..)` CHUNK, not per line: the `/orgs/{org_id}/logo` mount spans
         // four lines (path on one, three handlers after), so a line-wise scan missed it
@@ -460,6 +509,7 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
             if !chunk.contains("{org_id}") && !chunk.contains("{workspace_id}") {
                 continue;
             }
+            scoped_routes += 1;
             for verb in ["get(", "post(", "patch(", "delete(", "put("] {
                 for piece in chunk.split(verb).skip(1) {
                     let name = piece
@@ -473,11 +523,16 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
                     if name.is_empty() || name.starts_with('|') {
                         continue;
                     }
-                    let Some(body) = bodies
-                        .split(&format!("fn {name}("))
-                        .nth(1)
-                        .map(|b| b.split("\n}\n").next().unwrap_or_default())
-                    else {
+                    // The router's own file first, then the shared search space:
+                    // two sections can each define a handler of the same name
+                    // (`oltp::provision`, `airhouse::provision`), and the first
+                    // match in the joined text would answer for both.
+                    let fn_body = |text: &str| {
+                        text.split(&format!("fn {name}("))
+                            .nth(1)
+                            .map(|b| b.split("\n}\n").next().unwrap_or_default().to_string())
+                    };
+                    let Some(body) = fn_body(&src).or_else(|| fn_body(&bodies)) else {
                         panic!(
                             "`{name}` is mounted on an org-scoped route in {file} but is not \
                              in this test's search space. A handler this test cannot see is \
@@ -492,7 +547,17 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
                 }
             }
         }
+        assert!(
+            !required || scoped_routes > 0,
+            "{file} is listed as an org-scoped admin section but this parse found no \
+             `{{org_id}}` / `{{workspace_id}}` route in its router — the sweep is reading \
+             nothing there"
+        );
     }
+    assert!(
+        swept >= 8,
+        "read a router out of only {swept} files — the sweep is scanning almost nothing"
+    );
 }
 
 /// Every scoped admin WRITE must fence before it touches the database.
@@ -557,15 +622,16 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
         ),
         (
             // The OLTP console. The handlers themselves are in `oxy-oltp`,
-            // which sits below `oxy-app` and cannot import the fence — so this
-            // file is a shim whose whole purpose is to hold it. Unfenced, a
+            // which cannot import the fence — so this file is a shim whose
+            // whole purpose is to hold it (`oxy-api-tenancy` since the admin
+            // split, PR 4). Unfenced, a
             // bounded grant reached `POST …/credentials` (a write DSN for any
             // tenant) and `DELETE …/oltp`, which destroys the database.
             //
             // `list_tenants` is absent deliberately: it is not org-keyed and
             // FILTERS by scope rather than refusing, which is the read-path
             // answer everywhere else on this console.
-            "crates/app/src/server/api/admin/oltp.rs",
+            "crates/api-tenancy/src/admin/oltp.rs",
             &[
                 "get_status",
                 // Opens a session to the tenant's database: it names the host
@@ -590,12 +656,12 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
         ),
         (
             // The Airhouse console, same shape as OLTP's: handlers in a crate
-            // below `oxy-app`, routes and fence here. Workspace-keyed, so the
+            // that cannot read `app_admins`, routes and fence here. Workspace-keyed, so the
             // fence is `deny_out_of_scope_opt` — the needle below matches both.
             //
             // `list_fleet` is absent deliberately: it FILTERS by scope rather
             // than refusing, which is the read-path answer on this console.
-            "crates/app/src/server/api/admin/airhouse.rs",
+            "crates/api-tenancy/src/admin/airhouse.rs",
             &["provision"],
         ),
     ];

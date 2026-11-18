@@ -7,7 +7,6 @@
 //! section escalates to the capability its surface is about, including the
 //! airway admission config (`Action::PlatformOperate`).
 
-pub mod airhouse;
 pub mod app_admins;
 pub mod assume;
 pub mod audit;
@@ -19,7 +18,6 @@ mod internal_jobs_failure_groups;
 mod internal_jobs_fleet;
 mod internal_jobs_reach;
 mod internal_jobs_rows;
-pub mod oltp;
 pub mod routing;
 pub mod usage_report;
 mod user_scope;
@@ -159,7 +157,10 @@ use crate::server::router::{AdminSection, AppState};
 /// (`/explorer/*`, `PlatformExplorer`) `oxy-api-threads`'. In PR 2: the
 /// partner registry (`/partners*`, `PlatformPartners`) is `oxy-api-tenancy`'s,
 /// its own section beside the org console's, and the CI publish tokens
-/// (`/app-publish-tokens*`, `PlatformApps`) `oxy-api-custom-apps`'.
+/// (`/app-publish-tokens*`, `PlatformApps`) `oxy-api-custom-apps`'. In PR 4:
+/// the per-org OLTP console (`/oltp`, `/orgs/{org_id}/oltp*`, `PlatformOltp`)
+/// and the Airhouse fleet (`/airhouse`, `/workspaces/{workspace_id}/airhouse/
+/// provision`, `PlatformAirhouse`) are `oxy-api-tenancy`'s, a section each.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per sub-router so only billing gets the strict
     // owner guard; everything else escalates to a capability, and anything
@@ -185,18 +186,13 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // `PlatformOrgs` — the capability they had here.
         .merge(users_admin::router().route_layer(cap(Action::PlatformUsers)))
         .merge(routing::router().route_layer(cap(Action::PlatformOperate)))
-        // Per-org OLTP: provisioning creates a billable project at the
-        // provider, so it sits behind `OperatePlatform`, not the staff door —
-        // an App Operator ships apps and must not spend money here.
-        // The scope-fenced shim, NOT `oxy_oltp::api::admin::router()` directly.
-        // `cap(..)` decides on a nil-org resource, so it lets a bounded
-        // `global_admin` through for every org; `oltp::router` adds the
-        // per-org fence. See that module's header.
-        .merge(oltp::router().route_layer(cap(Action::PlatformOltp)))
-        // Same RING as OLTP — both are "operate the platform's data plane on a
-        // tenant's behalf" — but its own ACTION, because the action name is what
-        // lands in an audit row and in the grant UI.
-        .merge(airhouse::router().route_layer(cap(Action::PlatformAirhouse)))
+        // Per-org OLTP (`PlatformOltp`) and a workspace's Airhouse tenant
+        // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4)
+        // and arrive through `extracted` below, each its own section behind the
+        // capability it had here. Provisioning creates a billable resource, so
+        // an App Operator, who ships apps, must not reach either; and `cap(..)`
+        // decides on a nil-org resource, so the scope-fenced shims there, not
+        // the handler crates' own routers, carry the per-org fence.
         // The weekly custom-app usage report. A cross-tenant read, so the handlers
         // narrow it to the orgs the caller's grant reaches (`scope::list_scope`);
         // this layer cannot. The same capability decides who is emailed the report
@@ -448,175 +444,7 @@ mod tests {
         }
     }
 
-    /// The same guard for the per-org OLTP routes, which shipped 404ing.
-    ///
-    /// They were declared as `/admin/orgs/{id}/oltp` while `admin::router()` is
-    /// already nested under `/admin` in `router::global` — so the real path was
-    /// `/admin/admin/orgs/...`. It compiled, the handler was reachable in
-    /// principle, and every request 404'd. Nothing but driving the real router
-    /// catches a doubled prefix.
-    #[tokio::test]
-    async fn oltp_admin_routes_are_mounted_on_the_real_router() {
-        let real_router = router(Vec::new()).with_state(test_app_state());
-        let org = "d9830be4-c6a4-4c1c-9c1e-000000000002";
-
-        for (method, path) in [
-            // All seven, not the original three. The three that matter most to
-            // get wrong sit together: visibility grants analytics read access to
-            // a tenant's live tables, `deprovision-writer` drops one app's
-            // schema, and the DELETE destroys the whole database. The last two
-            // are one path segment apart and differ by the entire tenant, which
-            // is why both are pinned here rather than trusted to review.
-            // `GET /oltp` additionally changed crates when the scope-fenced shim
-            // took over the mount.
-            ("GET", "/oltp".to_string()),
-            ("GET", format!("/orgs/{org}/oltp")),
-            ("POST", format!("/orgs/{org}/oltp/test-connection")),
-            ("POST", format!("/orgs/{org}/oltp/provision")),
-            ("POST", format!("/orgs/{org}/oltp/credentials")),
-            ("POST", format!("/orgs/{org}/oltp/visibility")),
-            ("POST", format!("/orgs/{org}/oltp/deprovision-writer")),
-            ("DELETE", format!("/orgs/{org}/oltp")),
-            // The staging branch: its status, and the reset that discards every
-            // app's staging data in the org.
-            ("GET", format!("/orgs/{org}/oltp/branches/staging")),
-            ("POST", format!("/orgs/{org}/oltp/branches/staging/reset")),
-            // Airhouse rides the same mount and would 404 the same way.
-            ("GET", "/airhouse".to_string()),
-            ("POST", format!("/workspaces/{org}/airhouse/provision")),
-        ] {
-            let req = Request::builder()
-                .method(method.as_ref() as &str)
-                .uri(&path)
-                .body(Body::empty())
-                .unwrap();
-            let resp = real_router.clone().oneshot(req).await.unwrap();
-            assert_ne!(
-                resp.status(),
-                StatusCode::NOT_FOUND,
-                "{method} {path} must be mounted on admin::router() — a 404 here means the \
-                 merge is missing or the route carries its own /admin prefix"
-            );
-        }
-
-        // Control: the doubled-prefix shape must NOT match, or the assertions
-        // above would pass for the very bug they exist to catch.
-        let doubled = Request::builder()
-            .uri(format!("/admin/orgs/{org}/oltp").as_str())
-            .body(Body::empty())
-            .unwrap();
-        assert_eq!(
-            real_router.oneshot(doubled).await.unwrap().status(),
-            StatusCode::NOT_FOUND,
-            "the /admin/admin/... shape must not be mounted"
-        );
-    }
-
-    /// The route list in this file's header must name every route the fenced
-    /// shims actually mount.
-    ///
-    /// That header is the inventory an operator greps, and it drifted twice in
-    /// one review — the routes were missing from it, and the path recorded in
-    /// `internal-docs/admin-surfaces.md` was `/admin/airhouse/{id}/provision`
-    /// when the real one is `/admin/workspaces/{id}/airhouse/provision`. A
-    /// wrong path in an inventory is worse than an absent one: it reads as
-    /// checked.
-    #[test]
-    fn the_header_inventory_names_every_shim_route() {
-        for shim in [include_str!("airhouse.rs"), include_str!("oltp.rs")] {
-            assert_header_lists_routes_of(shim);
-        }
-    }
-
-    fn assert_header_lists_routes_of(shim: &str) {
-        // Everything above `router()`: the module list and the route inventory
-        // that documents it. Deliberately NOT the whole file — the tests below
-        // quote paths in their own doc comments, and searching those would let
-        // this pass on the strength of a comment about the bug.
-        let header = include_str!("mod.rs")
-            .split_once("pub(crate) fn router()")
-            .expect("the inventory sits above `router()`")
-            .0;
-        assert!(
-            header.contains("/admin/orgs"),
-            "the header slice missed the route inventory entirely"
-        );
-
-        // Every `"/..."` literal inside the shim's `router()`. Matching
-        // `.route("` misses the shape rustfmt gives a long call — the path
-        // ends up on its own line — which would have left this guard checking
-        // one of the two routes and passing.
-        let body = shim
-            .split_once("pub fn router<S>()")
-            .expect("the shim mounts its routes in `router`")
-            .1;
-        let body = body.split_once("\nasync fn ").map_or(body, |(b, _)| b);
-        let mounted: Vec<&str> = body
-            .match_indices('"')
-            .filter_map(|(i, _)| {
-                let rest = &body[i + 1..];
-                let end = rest.find('"')?;
-                let lit = &rest[..end];
-                lit.starts_with('/').then_some(lit)
-            })
-            .collect();
-        assert!(
-            !mounted.is_empty(),
-            "the `.route(..)` scan matched nothing — the mount syntax changed \
-             and this guard is now vacuous"
-        );
-        for path in mounted {
-            // `admin::router()` supplies the `/admin` prefix at the mount, and
-            // the header records the externally visible path — which is the
-            // one an operator greps for and the one the docs got wrong.
-            let external = format!("/admin{path}");
-            assert!(
-                header.contains(&external),
-                "`{external}` is mounted but absent from the route list at the \
-                 top of this file"
-            );
-        }
-    }
-
-    /// The Airhouse admin routes, driven through the REAL `router()`.
-    ///
-    /// `test_router()` elsewhere in this file is a hand-rolled stub that
-    /// re-declares probe routes, so it cannot catch a missing `.merge(..)`
-    /// line. A 404 on a real path means the route is not mounted; the bogus
-    /// sibling below stays 404 as the control, because `route_layer` only wraps
-    /// MATCHED routes and an unmatched path bypasses it to axum's fallback.
-    #[tokio::test]
-    async fn airhouse_admin_routes_are_mounted_on_the_real_router() {
-        let real_router = router(Vec::new()).with_state(test_app_state());
-        let ws = "3c6e0b8a-9c15-224a-8236-000000000001";
-
-        for (method, path) in [
-            ("GET", "/airhouse".to_string()),
-            ("POST", format!("/workspaces/{ws}/airhouse/provision")),
-        ] {
-            let req = Request::builder()
-                .method(method)
-                .uri(&path)
-                .body(Body::empty())
-                .unwrap();
-            let resp = real_router.clone().oneshot(req).await.unwrap();
-            assert_ne!(
-                resp.status(),
-                StatusCode::NOT_FOUND,
-                "{method} {path} is not mounted"
-            );
-        }
-
-        // The control: an unmounted sibling must still 404, or the assertions
-        // above would pass for the very bug they exist to catch.
-        let bogus = Request::builder()
-            .uri("/airhouse/not-a-route")
-            .body(Body::empty())
-            .unwrap();
-        assert_eq!(
-            real_router.oneshot(bogus).await.unwrap().status(),
-            StatusCode::NOT_FOUND,
-            "an unmounted path must 404, otherwise this test proves nothing"
-        );
-    }
+    // The OLTP and Airhouse mount and route-inventory tests moved to
+    // `oxy-api-tenancy` with the sections (admin split, PR 4): its
+    // `tests/integration/admin_data_plane_mount.rs` and `admin::tests`.
 }

@@ -116,6 +116,12 @@ const REQUIRED_GROUPS: &[&str] = &[
     // section) and the CI publish tokens (`oxy-api-custom-apps`).
     "/api/admin/partners",
     "/api/admin/app-publish-tokens",
+    // The admin split (PR 4): the OLTP and Airhouse consoles' fleet lists
+    // (`oxy-api-tenancy`, a section each). Their org- and workspace-keyed
+    // routes sit under `/api/admin/orgs` and `/api/admin/workspaces`, already
+    // required, so the catalog diff against main is what proves those.
+    "/api/admin/oltp",
+    "/api/admin/airhouse",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",
