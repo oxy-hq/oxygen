@@ -263,6 +263,21 @@ pub enum Action {
     /// (`globals::platform_reaches(.., Cap::DevelopApps, org)`), which is its
     /// `existing_allow`.
     AppNonProduction,
+    /// Change what happens to an org's **app events**, the staff tools behind
+    /// `oxyc events` (app events design §6.8): redeliver, replay, discard and
+    /// purge, and a non-production environment's events switch. Oxy staff
+    /// whose grant carries `manage_apps` over the org (scope consulted, admin
+    /// ceiling), and nobody else.
+    ///
+    /// The same ring as [`Action::AppNonProduction`] with the lifecycle
+    /// capability instead of the build one: queueing an app's listener again,
+    /// deleting events and switching delivery on is operating the org's apps,
+    /// what `manage_apps` means. A separate action so the guard logs under its
+    /// own name. Deliberately NOT an org officer or an `app_members` admin
+    /// (they read these events, through [`Action::AppAdmin`], but customers do
+    /// not run their apps' plumbing), and not a partner. Membership neither
+    /// grants nor blocks it: this is a staff tool.
+    AppEventsManage,
     /// Rename a workspace (`ensure_org_admin_or_workspace_creator`): an org
     /// owner/admin, OR the plain member who CREATED that workspace. The creator half
     /// is the only place a `created_by` self-claim grants a workspace action, so it
@@ -440,7 +455,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 55] = [
+    pub const ALL: [Action; 56] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -468,6 +483,7 @@ impl Action {
         Action::AppAdmin,
         Action::AppAccessManage,
         Action::AppNonProduction,
+        Action::AppEventsManage,
         Action::WorkspaceRename,
         Action::NamespaceDelete,
         Action::WorkspaceOxyAccess,
@@ -530,6 +546,7 @@ impl Action {
             Action::AppAdmin => "app_admin",
             Action::AppAccessManage => "app_access_manage",
             Action::AppNonProduction => "app_non_production",
+            Action::AppEventsManage => "app_events_manage",
             Action::WorkspaceRename => "workspace_rename",
             Action::NamespaceDelete => "namespace_delete",
             Action::WorkspaceOxyAccess => "workspace_oxy_access",
@@ -592,6 +609,7 @@ impl Action {
             Action::AppAdmin => Ring::AppAdmin,
             Action::AppAccessManage => Ring::AppGrant,
             Action::AppNonProduction => Ring::StaffReach(Cap::DevelopApps),
+            Action::AppEventsManage => Ring::StaffReach(Cap::ManageApps),
             Action::WorkspaceRename | Action::NamespaceDelete => Ring::OrgAdminOrCreator,
             Action::WorkspaceOxyAccess => Ring::WorkspaceAdminStrict,
             Action::WorkspacePreview | Action::WorkspaceProvision => {

@@ -10,8 +10,9 @@
 //!
 //! The production store forces every event's environment to `production`
 //! (ruling R12), so no row from it reaches a non-production listener. The hold
-//! rules outside production are driven through [`fan_out`], the platform half a
-//! branch store's relay will hand its rows to.
+//! rules outside production are driven here through [`fan_out`], the platform
+//! half every store's rows reach; the branch store's own relay is
+//! `app_events_branches`'.
 
 use std::sync::Arc;
 
@@ -184,7 +185,7 @@ impl Relay {
         let conn = resolve_writer_connection_for_org(db, self.org(), writer)
             .await
             .expect("resolve the writer");
-        outbox::ensure_publishable(db, self.org(), &conn.role)
+        outbox::ensure_publishable(db, self.org(), &OutboxTarget::Production, &conn.role)
             .await
             .expect("ensure publishable");
         connect(&conn.dsn)
@@ -1233,14 +1234,33 @@ async fn a_flag_off_orgs_relay_does_nothing() {
     .await;
 }
 
-/// R28: until the branch stores are relayed, a pass for an environment
-/// whose store the platform does not relay does nothing and succeeds — no
-/// failed system run per staging publish — and the sweep queues production
-/// only, whatever a staging mark says.
+/// R28 reversed (Task 17): every environment's store is relayed. The sweep
+/// queues a settled staging mark as it does a production one, and passes a
+/// mark for a name that is no environment by. This org has no staging branch,
+/// so nothing was ever published to one: a staging or sandbox pass finds no
+/// store, succeeds (no failed system run) and drains its mark, which the
+/// sweep then leaves alone. A name the platform has no store for is a quiet
+/// no-op.
 #[tokio::test]
-async fn an_environment_with_no_relayed_store_is_a_quiet_no_op() {
+async fn without_a_staging_branch_a_branch_pass_drains_quietly() {
     with_relay(|r| async move {
-        for environment in ["staging", "dev-a1b2c3"] {
+        for environment in ["staging", "nowhere"] {
+            r.t.db
+                .execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "INSERT INTO app_event_outbox_marks (org_id, environment, published_at) \
+                     VALUES ($1, $2, now() - interval '10 minutes')",
+                    [r.org().into(), environment.into()],
+                ))
+                .await
+                .expect("a due mark");
+        }
+        assert_eq!(sweep_once(&r.t.db).await.expect("sweep").queued, 1);
+        let queued = r.relay_tasks().await;
+        assert_eq!(queued.len(), 1, "{queued:?}");
+        assert_eq!(queued[0].1["payload"]["environment"], json!("staging"));
+
+        for environment in ["dev-a1b2c3", "nowhere"] {
             let stats = relay_once(&r.t.db, r.org(), environment)
                 .await
                 .unwrap_or_else(|e| panic!("{environment}: {e}"));
@@ -1269,17 +1289,26 @@ async fn an_environment_with_no_relayed_store_is_a_quiet_no_op() {
         let outcome = running.outcomes.recv().await.expect("an outcome");
         assert!(matches!(outcome, TaskOutcome::Done { .. }), "{outcome:?}");
 
+        let mark = app_event_outbox_marks::Entity::find_by_id((r.org(), "staging".to_string()))
+            .one(&r.t.db)
+            .await
+            .expect("read the mark")
+            .expect("the staging mark");
+        assert!(mark.drained_at.is_some(), "drained: {mark:?}");
+        assert_eq!(mark.pending_since, None, "{mark:?}");
         r.t.db
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "INSERT INTO app_event_outbox_marks (org_id, environment, published_at) \
-                 VALUES ($1, 'staging', now() - interval '10 minutes')",
-                [r.org().into()],
+                "DELETE FROM agentic_task_queue WHERE task_id LIKE $1",
+                [format!("{RELAY_KIND}:{}:%", r.org()).into()],
             ))
             .await
-            .expect("a due staging mark");
-        assert_eq!(sweep_once(&r.t.db).await.expect("sweep").queued, 0);
-        assert!(r.relay_tasks().await.is_empty(), "production only");
+            .expect("clear this org's queued relay");
+        assert_eq!(
+            sweep_once(&r.t.db).await.expect("sweep").queued,
+            0,
+            "a drained mark is not queued again"
+        );
     })
     .await;
 }
@@ -1757,7 +1786,7 @@ async fn a_backlog_past_a_batch_still_alarms() {
         let conn = resolve_writer_connection_for_org(db, r.org(), &r.store.writer)
             .await
             .expect("resolve the writer");
-        outbox::ensure_publishable(db, r.org(), &conn.role)
+        outbox::ensure_publishable(db, r.org(), &OutboxTarget::Production, &conn.role)
             .await
             .expect("ensure publishable");
         let revision = live_revision(db, r.publisher, "production", QUIET)
@@ -1865,7 +1894,7 @@ async fn a_full_batch_queues_the_next_relay() {
         let conn = resolve_writer_connection_for_org(db, r.org(), &r.store.writer)
             .await
             .expect("resolve the writer");
-        outbox::ensure_publishable(db, r.org(), &conn.role)
+        outbox::ensure_publishable(db, r.org(), &OutboxTarget::Production, &conn.role)
             .await
             .expect("ensure publishable");
         let revision = live_revision(db, r.publisher, "production", QUIET)
@@ -1937,7 +1966,7 @@ async fn publish_jsonb_text(r: &Relay, name: &str, key: &str, body: &str) -> Uui
     let conn = resolve_writer_connection_for_org(db, r.org(), &r.store.writer)
         .await
         .expect("resolve the writer");
-    outbox::ensure_publishable(db, r.org(), &conn.role)
+    outbox::ensure_publishable(db, r.org(), &OutboxTarget::Production, &conn.role)
         .await
         .expect("ensure publishable");
     connect(&conn.dsn)

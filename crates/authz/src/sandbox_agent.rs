@@ -153,6 +153,7 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::AppAccess
         | Action::WorkspaceDataAccess
         | Action::AppAccessManage
+        | Action::AppEventsManage
         | Action::WorkspaceRename
         | Action::NamespaceDelete
         | Action::WorkspaceOxyAccess

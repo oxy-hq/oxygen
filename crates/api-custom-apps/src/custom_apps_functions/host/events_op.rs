@@ -13,9 +13,12 @@
 //! keys, which Postgres's `text` cannot hold; the payload against the build's
 //! schema revision; the depth. Then the environment decides where the
 //! row may go — production's store, or the OLTP branch the run (or the
-//! handle) was admitted to; held or refused anywhere else (`oltp_guard`) —
-//! and the writer is resolved, then granted the definer function
-//! (`ensure_publishable`).
+//! handle) was admitted to, which hosts staging's outbox and every schema
+//! sandbox's (`EnvPolicy::outbox_target`); held or refused anywhere else,
+//! a sandbox on an OLTP branch of its own included (`oltp_guard`) — and the
+//! writer is resolved, then granted the definer function on that store
+//! (`ensure_publishable`, per store: a grant on production's is none on the
+//! branch).
 //!
 //! **Nothing the caller sends names the row.** The id is derived,
 //! `event_id(org, environment, <app>/<name>, key)`, the id the relay derives
@@ -36,8 +39,8 @@
 //! own size refusal, should it ever see a payload the host passed, reaches the
 //! app as the host's `EventTooLarge`.) The marks are
 //! how the relay sweep finds an outbox without connecting to the org's store.
-//! Only a production publish queues a relay: the branch stores are not relayed
-//! yet.
+//! Every environment's outbox is relayed, so every publish queues its
+//! environment's relay.
 //!
 //! **A grant this process remembers but the store no longer holds** — the
 //! role was re-minted and its grants went with it — is forgotten, granted
@@ -53,7 +56,9 @@ use oxy_custom_apps::events::{
     qualified_type,
 };
 use oxy_oltp::entity::tenants::TenantStatus;
-use oxy_oltp::events::{EventsError, PUBLISH_SQL, ensure_publishable, forget_publishable};
+use oxy_oltp::events::{
+    EventsError, OutboxTarget, PUBLISH_SQL, ensure_publishable, forget_publishable,
+};
 use oxy_oltp::resolver::WriterConnection;
 use serde_json::{Value, json};
 
@@ -125,10 +130,10 @@ impl ProjectFunctionHost {
         }
         let checked = self.check_publish(host_op, &payload).await?;
         let decided = self.policy.decide(host_op);
-        self.admit_publish(host_op, decided, &checked.name).await?;
-        let conn = self.publish_writer(host_op).await?;
+        let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
+        let conn = self.publish_writer(host_op, &outbox).await?;
         let (id, params) = self.publish_params(&checked);
-        self.publish_alone(&conn, &params).await?;
+        self.publish_alone(&outbox, &conn, &params).await?;
         self.after_publish_commit().await;
         Ok(json!({ "eventId": id.to_string() }))
     }
@@ -161,10 +166,10 @@ impl ProjectFunctionHost {
         // The handle's home, never the run's: the publish runs on the
         // handle's connection, wherever its `begin` went.
         let decided = self.policy.decide_on_handle(host_op, opened_into);
-        self.admit_publish(host_op, decided, &checked.name).await?;
-        let conn = self.publish_writer(host_op).await?;
+        let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
+        let conn = self.publish_writer(host_op, &outbox).await?;
         let (event, params) = self.publish_params(&checked);
-        self.publish_on_handle(id, &conn, &params).await?;
+        self.publish_on_handle(&outbox, id, &conn, &params).await?;
         if let Some(audit) = self.tx_writes.lock().await.get_mut(&id) {
             audit.published = true;
         }
@@ -263,8 +268,12 @@ impl ProjectFunctionHost {
     /// The writer a publish is written as, resolved on the run's OLTP home —
     /// the writer first, so a missing writer role says so in `ctx.oltp`'s
     /// words, and an org with no OLTP store at all is told how to get one —
-    /// then granted the definer function.
-    async fn publish_writer(&self, op: HostOp) -> Result<WriterConnection, String> {
+    /// then granted the definer function on `outbox`, the store it writes.
+    async fn publish_writer(
+        &self,
+        op: HostOp,
+        outbox: &OutboxTarget,
+    ) -> Result<WriterConnection, String> {
         let writer = match &self.caps.events_writer {
             WriterCapability::Enabled { writer } => writer.as_str(),
             WriterCapability::SlugNotDerivable { slug } => {
@@ -284,7 +293,7 @@ impl ProjectFunctionHost {
             Err(e) => return Err(e),
         };
         with_db_timeout("grant", async {
-            ensure_publishable(&self.db, self.org_id, &conn.role)
+            ensure_publishable(&self.db, self.org_id, outbox, &conn.role)
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -336,8 +345,14 @@ impl ProjectFunctionHost {
         (id, params)
     }
 
-    /// The publish in a one-shot transaction of its own on `conn`.
-    async fn publish_alone(&self, conn: &WriterConnection, params: &[Value]) -> Result<(), String> {
+    /// The publish in a one-shot transaction of its own on `conn`, writing
+    /// `outbox`.
+    async fn publish_alone(
+        &self,
+        outbox: &OutboxTarget,
+        conn: &WriterConnection,
+        params: &[Value],
+    ) -> Result<(), String> {
         let summary = db_query_summary(PUBLISH_SQL);
         let (_, traceparent) = Self::trace_context();
         let tagged = data_audit::commented(PUBLISH_SQL, &self.identity, traceparent.as_deref());
@@ -364,7 +379,7 @@ impl ProjectFunctionHost {
                     if regranted || !is_insufficient_privilege(&e) {
                         return Err(definer_size_refusal(&e).unwrap_or(e));
                     }
-                    self.grant_again(&conn.role).await?;
+                    self.grant_again(outbox, &conn.role).await?;
                     regranted = true;
                 }
             }
@@ -377,6 +392,7 @@ impl ProjectFunctionHost {
     /// transaction.
     async fn publish_on_handle(
         &self,
+        outbox: &OutboxTarget,
         id: u64,
         conn: &WriterConnection,
         params: &[Value],
@@ -391,7 +407,7 @@ impl ProjectFunctionHost {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         if !may_publish {
-            self.grant_again(&conn.role).await?;
+            self.grant_again(outbox, &conn.role).await?;
             self.on_handle(id, SEE_NEW_GRANTS, &[]).await?;
         }
         let (_, traceparent) = Self::trace_context();
@@ -408,11 +424,12 @@ impl ProjectFunctionHost {
             .map(|_| ())
     }
 
-    /// Forget the remembered grant of `role` and grant it again.
-    async fn grant_again(&self, role: &str) -> Result<(), String> {
-        forget_publishable(self.org_id, role);
+    /// Forget the remembered grant of `role` in `outbox` and grant it again
+    /// there.
+    async fn grant_again(&self, outbox: &OutboxTarget, role: &str) -> Result<(), String> {
+        forget_publishable(self.org_id, outbox, role);
         with_db_timeout("grant", async {
-            ensure_publishable(&self.db, self.org_id, role)
+            ensure_publishable(&self.db, self.org_id, outbox, role)
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -445,10 +462,8 @@ impl ProjectFunctionHost {
 
     /// Queue a relay of this environment's outbox. The row is committed, so a
     /// failure here only delays it until the next sweep: logged, never thrown.
-    ///
-    /// Production only: the branch stores staging and the sandboxes publish
-    /// into are not relayed yet (Task 17), and a relay queued for one could
-    /// only end as a failed run. Their publishes are marked all the same.
+    /// Every environment a publish is admitted in has a relayed store:
+    /// production's, or the staging branch.
     async fn nudge_relay(&self) {
         let environment = self.policy.environment().name();
         if crate::app_events::relay::relayed_store(&environment).is_none() {

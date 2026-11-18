@@ -758,11 +758,20 @@ pub(crate) async fn lookup_by_pretty_path(
     Ok(app.map(|a| (org, a)))
 }
 
+/// Slugs no app may take: each names a route of the org's own beside the
+/// app slug routes under `/customer-apps/{org}/…`, and would shadow the
+/// app's. `events` is the org's app events endpoints (`app_events::api`):
+/// an app slugged `events` would lose `/customer-apps/{org}/events/health`,
+/// `/logs` and the rest to them.
+pub(crate) const RESERVED_APP_SLUGS: &[&str] = &["events"];
+
 /// Validate that a caller-supplied slug fits the URL-safe shape we
 /// auto-derive in [`slugify`]: lowercase ASCII letters/digits/dashes,
-/// 1–63 chars, no leading/trailing dash, no consecutive dashes.
+/// 1–63 chars, no leading/trailing dash, no consecutive dashes — and is not
+/// one of the [`RESERVED_APP_SLUGS`].
 pub(crate) fn is_valid_slug(s: &str) -> bool {
-    !s.is_empty()
+    !RESERVED_APP_SLUGS.contains(&s)
+        && !s.is_empty()
         && s.len() <= 63
         && !s.starts_with('-')
         && !s.ends_with('-')
@@ -871,7 +880,8 @@ pub(super) async fn unique_slug_for_name(
             internal(e)
         })?;
     let taken: std::collections::HashSet<&str> = taken.iter().map(|s| s.as_str()).collect();
-    if !taken.contains(base.as_str()) {
+    // A reserved slug is never free: a name slugifying to one takes `-2`.
+    if !taken.contains(base.as_str()) && !RESERVED_APP_SLUGS.contains(&base.as_str()) {
         return Ok(base);
     }
     for n in 2..=50 {

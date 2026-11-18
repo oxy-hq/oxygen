@@ -112,6 +112,12 @@ pub struct Model {
     pub owner_password_ciphertext: Option<Vec<u8>>,
 
     pub status: BranchStatus,
+    /// The platform-schema version (`crate::platform`) this branch is known
+    /// to carry: the tenant's as read before the cut or reset copied it, then
+    /// current once the events outbox's first touch reconciles it
+    /// (`crate::events`). 0 for a row cut before it was recorded, whose first
+    /// touch runs every step once, idempotently.
+    pub platform_schema_version: i32,
 
     pub created_at: DateTimeWithTimeZone,
     /// Last on-demand reset. The branch's data is as old as

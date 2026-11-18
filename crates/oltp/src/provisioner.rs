@@ -252,6 +252,7 @@ pub fn is_derived_project_name(name: &str) -> bool {
 // `provisioner.rs` beside a `provisioner/` directory — edition 2018 allows it,
 // so this needs no `#[path]` attribute and no invented `_parts` suffix.
 mod branch_ledger;
+mod branch_platform;
 mod branch_roles;
 mod branch_site;
 mod branch_state;
@@ -736,10 +737,9 @@ pub async fn reconcile_platform_schema_as_owner(
         return Ok(row.clone());
     }
 
-    let statements = platform::statements_since(from, &row.provider, &row.database_name)?;
     let password = owner_password(row, row.org_id)?;
     let dsn = dsn_for(row, &row.owner_role, &password);
-    sql.execute_batch(&dsn, &statements).await?;
+    apply_platform_steps(sql, &dsn, from, &row.provider, &row.database_name).await?;
 
     // Recorded only after the batch succeeds. A tenant left behind is
     // recoverable on its next touch; one recorded as current but missing
@@ -756,6 +756,25 @@ pub async fn reconcile_platform_schema_as_owner(
     );
     Ok(updated)
 }
+
+/// Run the platform steps after `from` against `dsn`, as its owner, in
+/// order: the one path a store's Oxy-owned objects are brought current by —
+/// a tenant's ([`reconcile_platform_schema_as_owner`]) and an org branch's
+/// ([`reconcile_branch_platform_schema_as_owner`]). The caller records the
+/// new version once this succeeds, never before.
+pub(crate) async fn apply_platform_steps(
+    sql: &dyn TenantSqlExecutor,
+    dsn: &str,
+    from: i32,
+    provider: &str,
+    database: &str,
+) -> Result<(), ProvisionerError> {
+    let statements = platform::statements_since(from, provider, database)?;
+    sql.execute_batch(dsn, &statements).await?;
+    Ok(())
+}
+
+pub(crate) use branch_platform::reconcile_branch_platform_schema_as_owner;
 
 fn owner_password(tenant: &oltp_tenants::Model, org_id: Uuid) -> Result<String, ProvisionerError> {
     let sealed = tenant

@@ -31,14 +31,15 @@
 //! A crash between 4 and 5 relays the rows again, and step 3's conflict makes
 //! that a no-op: an event already stored gets no second delivery.
 //!
-//! **The store decides an event's environment, never the row.** Production's
-//! store holds production's events only: a row there claiming any other
-//! environment is stored as production's with `relay_error` set and is not
-//! delivered, so whether an event crosses from non-production into production
-//! never rests on a column app SQL wrote. The branch stores (staging and the
-//! sandboxes) are not relayed yet; [`fan_out`] is the platform half their
-//! relay will hand its rows to, and holds a non-production delivery whose
-//! environment is not taking events (§6.7).
+//! **The store decides an event's environment, never the row** (R12,
+//! `relay::vouch`). Production's store holds production's events only: a row
+//! there claiming any other environment is stored as production's with
+//! `relay_error` set and is not delivered, so whether an event crosses from
+//! non-production into production never rests on a column app SQL wrote. The
+//! org's OLTP staging branch holds staging's events and those of each sandbox
+//! of the publishing app on a schema there; a row claiming anything else is
+//! stored as staging's with `relay_error` set. A non-production delivery whose
+//! environment is not taking events is held (§6.7).
 //!
 //! **Nor the row's id.** App SQL can call `oxy_events.publish` directly, so an
 //! event is stored under the id the relay derives itself (§6.1: org, the
@@ -80,10 +81,11 @@
 //! scale-to-zero store with nothing waiting is left asleep, and an org whose
 //! app SQL wrote a row without a publish is relayed by its next publish.
 //!
-//! **Only production's store is relayed** until the branch stores are (Task
-//! 17): a staging or sandbox publish is marked but never nudged, the sweep
-//! queues production only, and a pass for any other environment does nothing
-//! and succeeds, so no publish there queues a run that can only fail.
+//! **Every environment's store is relayed** (Task 17): production's, and the
+//! staging branch for staging and the sandboxes. A pass for a branch
+//! environment in an org with no branch finds no store and drains its mark:
+//! nothing was ever published there. A pass for a name that is no
+//! environment does nothing and succeeds.
 //!
 //! **Inert while the org's `app_events` flag is off:** a pass relays nothing
 //! and touches no store, and the sweep passes the org by.
@@ -111,7 +113,9 @@ use oxy_custom_apps::events::{
     MAX_DELAY_SECS, MAX_PAYLOAD_BYTES, OxyEvent, event_id, qualified_type,
 };
 use oxy_oltp::entity::roles::{self as oltp_roles, WriterKind};
-use oxy_oltp::events::{self as outbox, OutboxKey, OutboxRow, OutboxTarget};
+use oxy_oltp::events::{
+    self as outbox, EventsError, OutboxClaim, OutboxKey, OutboxRow, OutboxTarget,
+};
 use oxy_oltp::schema::app_writer_name;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
@@ -125,11 +129,17 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use super::envelope::{event_dataschema, event_source};
 use super::marks;
 use super::schema::live_revision;
 use super::subscriptions::{Listener, listeners};
 use crate::custom_apps_functions::function_task_policy;
 use crate::custom_apps_sandboxes::activity::is_past_idle_expiry;
+
+// Which store an environment's events wait in, and what a store vouches for.
+mod vouch;
+use vouch::Vouch;
+pub(crate) use vouch::relayed_store;
 
 /// The `TaskSpec::Custom` kind, and the run's `source_type`.
 pub const RELAY_KIND: &str = "app_events_relay";
@@ -303,10 +313,10 @@ async fn run_workspace(db: &DatabaseConnection, org_id: Uuid) -> Result<Option<U
 }
 
 /// Relay one batch of `org_id`'s `environment` outbox, in the order the
-/// module docs give. An environment whose store the platform does not relay
-/// yet (any but production, until the branch stores are), or an org with
+/// module docs give. A name that is no environment, or an org with
 /// `app_events` off, is nothing to do: `Ok` with empty stats, never a failed
-/// run, and no connection to the store.
+/// run, and no connection to the store. A branch environment in an org with
+/// no branch drains its mark the same way.
 pub async fn relay_once(
     db: &DatabaseConnection,
     org_id: Uuid,
@@ -323,9 +333,11 @@ pub async fn relay_once(
     }
     // On the platform's clock, which a publish's mark is on too.
     let started = marks::platform_now(db).await.map_err(|e| e.to_string())?;
-    let claim = outbox::claim(db, org_id, &target, BATCH)
-        .await
-        .map_err(|e| e.to_string())?;
+    let Some(claim) = claim_store(db, org_id, &target).await? else {
+        // No such branch: nothing was ever published to it.
+        settle(db, org_id, environment, started, None).await;
+        return Ok(RelayStats::default());
+    };
     // Read from the claim's own snapshot, taken with it: nothing to fail later.
     let left = claim.oldest_left_waiting();
     if claim.rows().is_empty() {
@@ -358,6 +370,20 @@ pub async fn relay_once(
     }
     settle(db, org_id, environment, started, left).await;
     Ok(stats)
+}
+
+/// Claim a batch of `target`'s waiting rows; `None` when `target` is a branch
+/// the org does not have.
+async fn claim_store(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    target: &OutboxTarget,
+) -> Result<Option<OutboxClaim>, String> {
+    match outbox::claim(db, org_id, target, BATCH).await {
+        Ok(claim) => Ok(Some(claim)),
+        Err(EventsError::NoBranch { .. }) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// After a pass that began claiming at `started` succeeded: bring the mark up
@@ -419,28 +445,6 @@ async fn retry_later(db: &DatabaseConnection, org_id: Uuid, environment: &str) {
     }
 }
 
-/// The store `environment`'s events wait in, when it is one the platform
-/// relays: production's only, until the branch stores are (Task 17).
-pub(crate) fn relayed_store(environment: &str) -> Option<OutboxTarget> {
-    (environment == PRODUCTION).then_some(OutboxTarget::Production)
-}
-
-/// The environment an event from `target` is in, and why the row's own claim
-/// is refused when it names another.
-fn vouched_environment(target: &OutboxTarget, claimed: &str) -> (String, Option<String>) {
-    match target {
-        OutboxTarget::Production => (
-            PRODUCTION.to_string(),
-            (claimed != PRODUCTION).then(|| {
-                format!(
-                    "published to production's outbox claiming environment `{claimed}`; \
-                     production's store holds production's events only"
-                )
-            }),
-        ),
-    }
-}
-
 /// What [`relay_rows`] made of a claimed batch.
 pub(crate) struct Relayed {
     pub(crate) stats: RelayStats,
@@ -463,48 +467,40 @@ pub(crate) async fn relay_rows(
         .await
         .map_err(|e| e.to_string())?;
     let mut apps_by_role: HashMap<String, Option<apps::Model>> = HashMap::new();
-    let mut schemas: HashMap<(Uuid, String), EventSchemas> = HashMap::new();
+    // By app, environment and name: a branch's rows are in several
+    // environments, each with its own live build.
+    let mut schemas: HashMap<(Uuid, String, String), EventSchemas> = HashMap::new();
+    let mut vouch = Vouch::new(db, target);
     let mut events = Vec::with_capacity(rows.len());
     // The row each event came from, by index.
     let mut sources = Vec::with_capacity(rows.len());
     let mut discard = Vec::new();
     let mut dropped = 0;
     for row in rows {
-        if !apps_by_role.contains_key(&row.writer_role) {
-            let app = writer_app(db, tenant.id, org_id, &row.writer_role)
-                .await
-                .map_err(failed)?;
-            apps_by_role.insert(row.writer_role.clone(), app);
-        }
-        let Some(app) = &apps_by_role[&row.writer_role] else {
+        let Some(app) = cached_app(db, &mut apps_by_role, tenant.id, org_id, &row.writer_role)
+            .await
+            .map_err(failed)?
+        else {
             // Nothing to store it under (`source_app_id` is an app), and left
             // in the outbox it would be claimed again on every pass.
-            tracing::error!(
-                %org_id,
-                event_id = %row.id,
-                writer_role = %row.writer_role,
-                name = %row.name,
-                "app events: dropped an outbox row whose writer role is no app of the org"
-            );
+            dropped_row(org_id, row);
             dropped += 1;
             discard.push(row.key());
             continue;
         };
-        let (environment, wrong_environment) = vouched_environment(target, &row.environment);
-        let key = (app.id, row.name.clone());
+        let (environment, wrong_environment) = vouch
+            .environment(&app, &row.environment)
+            .await
+            .map_err(failed)?;
+        let key = (app.id, environment.clone(), row.name.clone());
         if !schemas.contains_key(&key) {
             let found = EventSchemas::read(db, app.id, &environment, &row.name)
                 .await
                 .map_err(failed)?;
             schemas.insert(key.clone(), found);
         }
-        events.push(read_row(
-            app,
-            row,
-            environment,
-            wrong_environment,
-            &schemas[&key],
-        ));
+        let event = read_row(&app, row, environment, wrong_environment, &schemas[&key]);
+        events.push(event);
         sources.push(row);
     }
     let (mut stats, points_here) = store_and_fan_out(db, &events).await.map_err(failed)?;
@@ -517,6 +513,32 @@ pub(crate) async fn relay_rows(
         }
     }
     Ok(Relayed { stats, discard })
+}
+
+/// The app whose writer role is `role`, read once per pass.
+async fn cached_app(
+    db: &DatabaseConnection,
+    cache: &mut HashMap<String, Option<apps::Model>>,
+    tenant_row_id: Uuid,
+    org_id: Uuid,
+    role: &str,
+) -> Result<Option<apps::Model>, DbErr> {
+    if let Some(app) = cache.get(role) {
+        return Ok(app.clone());
+    }
+    let app = writer_app(db, tenant_row_id, org_id, role).await?;
+    cache.insert(role.to_string(), app.clone());
+    Ok(app)
+}
+
+fn dropped_row(org_id: Uuid, row: &OutboxRow) {
+    tracing::error!(
+        %org_id,
+        event_id = %row.id,
+        writer_role = %row.writer_role,
+        name = %row.name,
+        "app events: dropped an outbox row whose writer role is no app of the org"
+    );
 }
 
 /// The app whose OLTP writer role `role` is in the tenant `tenant_row_id`.
@@ -638,11 +660,9 @@ fn read_row(
         envelope: OxyEvent {
             specversion: "1.0".to_string(),
             id,
-            dataschema: revision
-                .map(|r| format!("{event_type}@{}", r.revision))
-                .unwrap_or_default(),
+            dataschema: event_dataschema(&event_type, revision.map(|r| r.revision)),
             event_type,
-            source: format!("/apps/{}", app.slug),
+            source: event_source(&app.slug),
             time: row.created_at,
             // The body stays in the org's store.
             data: Value::Null,
@@ -896,43 +916,48 @@ async fn deliver(
     Ok(())
 }
 
-/// One sweep: queue a production relay for every due mark
-/// ([`marks::due`]) of an org with `app_events` on that was published more
-/// than [`SETTLE`] ago, and log `app_events_outbox_stale` for every due mark
-/// whose work has waited more than [`STALE_AFTER`] — published lately or
-/// not, so neither continuous publishing nor a relay failing on every pass
-/// hides it.
+/// One sweep: queue a relay for every due mark ([`marks::due`]) of an org
+/// with `app_events` on that was published more than [`SETTLE`] ago, and log
+/// `app_events_outbox_stale` for every due mark whose work has waited more
+/// than [`STALE_AFTER`] — published lately or not, so neither continuous
+/// publishing nor a relay failing on every pass hides it. Every environment
+/// whose store is relayed is swept: production's, staging's and each
+/// sandbox's (Task 17); a mark for a name that is no environment is passed by.
 /// Reads the platform database only: it never connects to an org's store.
 /// A mark that cannot be queued is logged and skipped; one whose org has no
 /// app is marked drained, since nothing in its outbox could be stored.
 ///
-/// Production only: until the branch stores are relayed (Task 17) no other
-/// environment's outbox is read.
+/// **No backfill for marks from before the branch stores were relayed** (R28
+/// left staging and sandbox publishes marked but never relayed): there are
+/// none to speak of, since a publish is refused while the org's `app_events`
+/// flag is off, and it stayed off for every org until relaying the branch
+/// stores shipped. One that did exist is due at once, its relay finds nothing
+/// waiting (or relays what is), and the mark drains on that first pass.
 pub async fn sweep_once(db: &DatabaseConnection) -> Result<SweepReport, DbErr> {
     let mut report = SweepReport::default();
-    for due in marks::due(db, PRODUCTION, SETTLE, STALE_AFTER).await? {
-        let org_id = due.org_id;
-        if !super::enabled_for(org_id) {
+    for due in marks::due(db, SETTLE, STALE_AFTER).await? {
+        let (org_id, environment) = (due.org_id, due.environment.as_str());
+        if relayed_store(environment).is_none() || !super::enabled_for(org_id) {
             continue;
         }
         if due.waited > STALE_AFTER {
-            tracing::error!(%org_id, waited_seconds = due.waited.as_secs(), "app_events_outbox_stale");
+            tracing::error!(%org_id, environment, waited_seconds = due.waited.as_secs(), "app_events_outbox_stale");
             report.stale.push(org_id);
         }
         if !due.settled {
             // Its publish's own nudge has queued a relay.
             continue;
         }
-        match enqueue_relay(db, org_id, PRODUCTION).await {
+        match enqueue_relay(db, org_id, environment).await {
             Ok(true) => report.queued += 1,
             Ok(false) => match marks::platform_now(db).await {
-                Ok(now) => drained(db, org_id, PRODUCTION, now).await,
+                Ok(now) => drained(db, org_id, environment, now).await,
                 Err(e) => {
                     tracing::warn!(%org_id, error = %e, "app events sweep could not read the time")
                 }
             },
             Err(e) => {
-                tracing::warn!(%org_id, error = %e, "app events sweep could not queue a relay");
+                tracing::warn!(%org_id, environment, error = %e, "app events sweep could not queue a relay");
             }
         }
     }
@@ -1033,8 +1058,8 @@ async fn run_guarded(db: &DatabaseConnection, payload: &RelayPayload) -> TaskOut
 }
 
 /// The relay's halves the integration tests drive directly: [`fan_out`],
-/// what a branch store's relay will hand its rows to, and [`relay_rows`],
-/// the steps between a claim and its mark. Not an API.
+/// the platform half every store's rows reach, and [`relay_rows`], the steps
+/// between a claim and its mark. Not an API.
 #[doc(hidden)]
 pub mod testing {
     use super::*;
@@ -1078,23 +1103,5 @@ mod tests {
             })
             .is_err()
         );
-    }
-
-    #[test]
-    fn production_vouches_for_production_only() {
-        let (environment, error) = vouched_environment(&OutboxTarget::Production, "production");
-        assert_eq!((environment.as_str(), error), (PRODUCTION, None));
-        for claimed in ["staging", "dev-x", ""] {
-            let (environment, error) = vouched_environment(&OutboxTarget::Production, claimed);
-            assert_eq!(environment, PRODUCTION, "the store decides");
-            assert!(error.is_some(), "{claimed:?} is refused");
-        }
-    }
-
-    #[test]
-    fn only_production_has_a_store_to_relay() {
-        assert_eq!(relayed_store("production"), Some(OutboxTarget::Production));
-        assert_eq!(relayed_store("staging"), None);
-        assert_eq!(relayed_store("dev-a1b2c3"), None);
     }
 }

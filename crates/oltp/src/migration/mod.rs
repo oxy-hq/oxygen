@@ -32,6 +32,7 @@
 mod m20260804_000001_create_oltp_tables;
 mod m20260929_000001_create_oltp_branches;
 mod m20261102_000001_create_oltp_env_branches;
+mod m20261118_000001_oltp_branch_platform_version;
 
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::prelude::*;
@@ -50,6 +51,9 @@ impl MigratorTrait for OltpMigrator {
             // Its own tables, not a new `oltp_branches.kind`: a reverted binary
             // decodes every `kind` it finds.
             Box::new(m20261102_000001_create_oltp_env_branches::Migration),
+            // The platform version a staging branch carries, so the events
+            // outbox can bring a branch cut before it current.
+            Box::new(m20261118_000001_oltp_branch_platform_version::Migration),
         ]
     }
 

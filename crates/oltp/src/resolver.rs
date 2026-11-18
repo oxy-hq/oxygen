@@ -140,11 +140,35 @@ fn branch_fix(org_id: &Uuid, branch: &crate::OltpBranch, status: &str) -> String
 mod branch;
 // The provisioner asks the resolver's production question of the provider's answer.
 pub(crate) use branch::guard::names_production;
-pub(crate) use branch::{BranchOwner, resolve_branch_owner, resolve_branch_writer_in_schema};
+pub(crate) use branch::{
+    BranchOwner, branch_hosting, resolve_branch_owner, resolve_branch_writer_in_schema,
+};
 pub use branch::{
     BranchWriter, branch_is_active, resolve_branch_analyst_connection_for_org,
     resolve_branch_writer_connection_for_org, resolve_branch_writer_for_org,
 };
+
+/// The owner DSN of the OLTP branch hosting `environment`'s events: the
+/// org's staging branch, for staging and every sandbox on a schema there. For
+/// the events outbox (`crate::events`), which reads a non-production
+/// environment's events as the owner of the branch they wait in. Never handed
+/// to app code.
+///
+/// `Ok(None)`: `environment` is production or no environment a branch hosts,
+/// or the org has no such branch. A branch that is not active, or that names
+/// production's own database, is refused as by every branch resolver.
+pub async fn branch_owner_dsn(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    environment: &str,
+) -> Result<Option<String>, ResolveError> {
+    let Some(branch) = branch_hosting(environment) else {
+        return Ok(None);
+    };
+    Ok(resolve_branch_owner(db, org_id, branch)
+        .await?
+        .map(|owner| owner.dsn))
+}
 
 // A custom-app environment's own branch, beside the org's shared one.
 mod env_branch;

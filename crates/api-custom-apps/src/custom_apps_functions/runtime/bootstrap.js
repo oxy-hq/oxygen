@@ -238,6 +238,33 @@ const __runTx = async (signature, label, beginOp, beginPayload, fn) => {
   return result;
 };
 
+// The error a handler threw, its own `name` heading its stack. The invoke
+// script hands every thrown value through here (isolate_thread.rs).
+//
+// The stack is what the invocation's error records, and V8 writes its first
+// line the first time `stack` is read: a name given after that is missing from
+// it. An event delivery's executor reads the name there — a thrown
+// `NonRetryableError` kills the delivery instead of retrying it — so it must be
+// the error's own. Only a first line that does not start with the name is
+// rewritten, frames kept, so every other error reads exactly as it did.
+// Non-writable: an artifact cannot swap it for code of its own.
+Object.defineProperty(globalThis, "__oxyNamedError", {
+  value: (err) => {
+    try {
+      if (err === null || typeof err !== "object") return err;
+      const { name, stack } = err;
+      if (typeof name !== "string" || name === "" || typeof stack !== "string") return err;
+      const at = stack.indexOf("\n    at ");
+      const head = at < 0 ? stack : stack.slice(0, at);
+      if (head === name || head.startsWith(name + ":")) return err;
+      err.stack = Error.prototype.toString.call(err) + (at < 0 ? "" : stack.slice(at));
+    } catch (_) {
+      // A getter that throws or a frozen error: report it as it is.
+    }
+    return err;
+  },
+});
+
 globalThis.__buildCtx = (ctxData) => ({
   // `org_id` is a back-compat mirror of `orgId`. The host used to serialize the
   // field snake_cased, so `ctx.user.orgId` — the name the SDK types and the docs
@@ -262,6 +289,11 @@ globalThis.__buildCtx = (ctxData) => ({
   // page about the same build carry the same id. A value, not an op: fixed for
   // the invocation and frozen so a handler cannot relabel its own records.
   app: Object.freeze({ buildId: ctxData.buildId, environment: ctxData.channel }),
+  // Which attempt of an event's delivery this run is — { attempt,
+  // maxAttempts, listener } — so a handler can treat its last attempt
+  // differently. Set only on an event run; the host's facts, frozen like
+  // `app`.
+  delivery: ctxData.delivery ? Object.freeze({ ...ctxData.delivery }) : undefined,
   log: (...args) => Deno.core.ops.op_ctx_log("info", args.map(String).join(" ")),
   // Synchronous — pure CPU, so these skip the host-call channel entirely.
   //

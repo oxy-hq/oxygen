@@ -1611,6 +1611,16 @@ mod tests {
         assert!(is_valid_slug(&"a".repeat(63)));
     }
 
+    /// `events` would shadow the app's slug routes: `/customer-apps/{org}/events/…`
+    /// are the org's app events endpoints (`app_events::api`), so an app slugged
+    /// `events` would lose `/customer-apps/{org}/events/{health,logs,…}`.
+    #[test]
+    fn is_valid_slug_refuses_a_reserved_slug() {
+        assert!(!is_valid_slug("events"));
+        assert!(is_valid_slug("events-2"), "only the exact slug is reserved");
+        assert!(is_valid_slug("app-events"));
+    }
+
     #[test]
     fn is_valid_slug_rejects_bad_shapes() {
         assert!(!is_valid_slug(""));

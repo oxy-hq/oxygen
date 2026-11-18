@@ -28,10 +28,13 @@
 //! [`EventsError::NotProvisioned`], whose message names the operator step.
 //! Provisioning stays manual (`internal-docs/per-org-oltp-postgres.md`).
 //!
+//! **Each environment's events wait in its own store** ([`OutboxTarget`]):
+//! production's in the tenant database, staging's and every sandbox's in the
+//! org's OLTP staging branch (`events::branch`), each with its own grants
+//! (`events::grant`). A branch cut before the outbox existed gets it on its first
+//! grant or claim.
+//!
 //! Design: `internal-docs/2026-11-17-app-events-design.md` §6.2.
-
-use std::collections::HashSet;
-use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -39,12 +42,13 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::connect::pg_detail;
-use crate::entity::tenants::{self as oltp_tenants, TenantStatus};
-use crate::migrator::{MigrateError, owner_dsn, tenant_for_org};
-use crate::platform::{EVENTS_OUTBOX_TABLE, EVENTS_PUBLISH_FUNCTION, EVENTS_SCHEMA};
-use crate::provisioner::reconcile_platform_schema_as_owner;
-use crate::schema::{quote_ident, validate_name};
-use crate::sql::PgSqlExecutor;
+use crate::platform::EVENTS_OUTBOX_TABLE;
+
+mod branch;
+mod grant;
+mod store;
+
+pub use grant::{ensure_publishable, forget_publishable};
 
 /// One publish, run as the app's writer role inside the app's transaction.
 ///
@@ -66,6 +70,16 @@ pub enum EventsError {
     /// Opening, reconciling, granting or querying the store failed.
     #[error("events store: {0}")]
     Store(String),
+    /// [`read_body`] found the body, but it cannot be decoded into the JSON
+    /// Rust holds (a number past `f64`, say): reading it again never helps.
+    #[error("events store: decode the event body: {0}")]
+    Undecodable(String),
+    /// A grant or a claim on [`OutboxTarget::Branch`] in an org with no such
+    /// branch: nothing was ever published there (a publish without one is
+    /// held), or it went with the org. A read or a delete there finds
+    /// nothing instead.
+    #[error("events store: org {org_id} has no OLTP branch hosting `{environment}`")]
+    NoBranch { org_id: Uuid, environment: String },
 }
 
 /// Which store's outbox to read: each environment's events wait in that
@@ -74,6 +88,10 @@ pub enum EventsError {
 pub enum OutboxTarget {
     /// The org's production tenant database.
     Production,
+    /// The OLTP branch hosting the named non-production environment's events:
+    /// the org's staging branch, for staging and for every sandbox on a
+    /// schema there (`events::branch`).
+    Branch(String),
 }
 
 /// One outbox row's key: a writer's ids are its own, so a row is named by
@@ -247,110 +265,6 @@ fn store(what: &str, e: &tokio_postgres::Error) -> EventsError {
     EventsError::Store(format!("{what}: {}", pg_detail(e)))
 }
 
-/// The org's tenant row, refusing one that cannot be used.
-async fn active_tenant(
-    control: &DatabaseConnection,
-    org_id: Uuid,
-) -> Result<oltp_tenants::Model, EventsError> {
-    let tenant = tenant_for_org(control, org_id).await.map_err(|e| match e {
-        MigrateError::NotProvisioned(org_id) => EventsError::NotProvisioned { org_id },
-        other => EventsError::Store(format!("find the org's OLTP store: {other}")),
-    })?;
-    // A failed or deleting provision: the operator's remedy is the same.
-    if tenant.status != TenantStatus::Active {
-        return Err(EventsError::NotProvisioned { org_id });
-    }
-    Ok(tenant)
-}
-
-/// [`active_tenant`], brought current so a tenant provisioned before the
-/// outbox existed gets it on first use. For a publish's grant and a claim,
-/// which may be the first to touch the outbox; never for a read of what is
-/// already there.
-async fn current_tenant(
-    control: &DatabaseConnection,
-    org_id: Uuid,
-) -> Result<oltp_tenants::Model, EventsError> {
-    let tenant = active_tenant(control, org_id).await?;
-    reconcile_platform_schema_as_owner(control, &PgSqlExecutor, &tenant)
-        .await
-        .map_err(|e| EventsError::Store(format!("bring the org's OLTP store up to date: {e}")))
-}
-
-async fn owner_client(
-    tenant: &oltp_tenants::Model,
-    target: &OutboxTarget,
-) -> Result<tokio_postgres::Client, EventsError> {
-    let dsn = match target {
-        OutboxTarget::Production => owner_dsn(tenant)
-            .map_err(|e| EventsError::Store(format!("open the org's OLTP store: {e}")))?,
-    };
-    crate::connect::connect(&dsn, "oxy_events")
-        .await
-        .map_err(|e| store("open the org's OLTP store", &e))
-}
-
-/// `(org, writer role)` pairs already granted in this process.
-fn publishable() -> MutexGuard<'static, HashSet<(Uuid, String)>> {
-    static PUBLISHABLE: OnceLock<Mutex<HashSet<(Uuid, String)>>> = OnceLock::new();
-    PUBLISHABLE
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Let `writer_role` — the role's real name, qualified on a shared-cluster
-/// provider — call `oxy_events.publish` in the org's store. Asked before an
-/// app's first publish, the same lazy way `ctx.notify` prepares its inbox:
-/// brings the tenant's Oxy-owned objects current, then grants `USAGE` on the
-/// schema and `EXECUTE` on the function, through the owner.
-///
-/// Remembered per `(org, role)` for the life of the process; a failure is not,
-/// so the next publish asks again.
-pub async fn ensure_publishable(
-    control: &DatabaseConnection,
-    org_id: Uuid,
-    writer_role: &str,
-) -> Result<(), EventsError> {
-    let key = (org_id, writer_role.to_string());
-    let known = publishable().contains(&key);
-    if known {
-        return Ok(());
-    }
-    let grant = grant_publish_sql(writer_role)?;
-    let tenant = current_tenant(control, org_id).await?;
-    let client = owner_client(&tenant, &OutboxTarget::Production).await?;
-    client
-        .batch_execute(&grant)
-        .await
-        .map_err(|e| store(&format!("let {writer_role} publish events"), &e))?;
-    publishable().insert(key);
-    Ok(())
-}
-
-/// Drop what [`ensure_publishable`] remembers for `(org_id, writer_role)`, so
-/// the next call grants again. For a publish refused `42501` (insufficient
-/// privilege) though the pair was remembered: the grants went with the role
-/// (a re-mint's `DROP OWNED`) or the tenant, and this process cannot tell.
-pub fn forget_publishable(org_id: Uuid, writer_role: &str) {
-    publishable().remove(&(org_id, writer_role.to_string()));
-}
-
-/// The grants [`ensure_publishable`] makes, as one implicit transaction.
-///
-/// Serialised on an advisory lock: two sessions granting on one catalog row at
-/// once can fail with `tuple concurrently updated`, and every replica's first
-/// publish for an app grants.
-fn grant_publish_sql(writer_role: &str) -> Result<String, EventsError> {
-    validate_name(writer_role).map_err(|e| EventsError::Store(e.to_string()))?;
-    let role = quote_ident(writer_role);
-    Ok(format!(
-        "SELECT pg_advisory_xact_lock(hashtext('{EVENTS_PUBLISH_FUNCTION}')); \
-         GRANT USAGE ON SCHEMA {EVENTS_SCHEMA} TO {role}; \
-         GRANT EXECUTE ON FUNCTION {EVENTS_PUBLISH_FUNCTION} TO {role}"
-    ))
-}
-
 /// Lock up to `limit` of the oldest waiting rows no other claim holds, in an
 /// owner transaction the returned claim keeps open, and, in the same
 /// statement and so the same snapshot, find the oldest waiting row it did not
@@ -362,8 +276,7 @@ pub async fn claim(
     target: &OutboxTarget,
     limit: i64,
 ) -> Result<OutboxClaim, EventsError> {
-    let tenant = current_tenant(control, org_id).await?;
-    let client = owner_client(&tenant, target).await?;
+    let client = store::required_client(control, org_id, target, true).await?;
     client
         .batch_execute("BEGIN")
         .await
@@ -431,10 +344,12 @@ pub async fn claim(
 /// The body of the event `writer_role` published under `id`, read from
 /// `target`'s outbox log as the owner on one short connection. `None` when
 /// the row is gone (retention deleted it, or it never existed): the caller
-/// decides what a missing body means. Waiting and relayed rows alike.
+/// decides what a missing body means. Waiting and relayed rows alike. A body
+/// that is there but cannot be decoded is [`EventsError::Undecodable`].
 ///
 /// A read only: it never reconciles the store's platform schema. A body is
-/// only ever in a store the outbox step already reached.
+/// only ever in a store the outbox step already reached. A branch the org no
+/// longer has holds no body: `None`.
 pub async fn read_body(
     control: &DatabaseConnection,
     org_id: Uuid,
@@ -442,8 +357,9 @@ pub async fn read_body(
     writer_role: &str,
     id: Uuid,
 ) -> Result<Option<Value>, EventsError> {
-    let tenant = active_tenant(control, org_id).await?;
-    let client = owner_client(&tenant, target).await?;
+    let Some(client) = store::owner_client(control, org_id, target, false).await? else {
+        return Ok(None);
+    };
     let row = client
         .query_opt(
             &format!("SELECT data FROM {EVENTS_OUTBOX_TABLE} WHERE writer_role = $1 AND id = $2"),
@@ -453,7 +369,7 @@ pub async fn read_body(
         .map_err(|e| store("read the event body", &e))?;
     row.map(|r| r.try_get::<_, Value>(0))
         .transpose()
-        .map_err(|e| store("decode the event body", &e))
+        .map_err(|e| EventsError::Undecodable(pg_detail(&e)))
 }
 
 /// Delete the bodies of `keys` from `target`'s outbox log, as the owner on
@@ -469,9 +385,11 @@ pub async fn delete_bodies(
     if keys.is_empty() {
         return Ok(0);
     }
-    // Like a read, no reconcile: a body is only in a store the outbox reached.
-    let tenant = active_tenant(control, org_id).await?;
-    let client = owner_client(&tenant, target).await?;
+    // Like a read, no reconcile: a body is only in a store the outbox reached,
+    // and a branch that is gone took its bodies with it.
+    let Some(client) = store::owner_client(control, org_id, target, false).await? else {
+        return Ok(0);
+    };
     let (roles, ids) = key_arrays(keys);
     client
         .execute(
@@ -497,8 +415,9 @@ pub async fn delete_relayed_before(
     limit: i64,
 ) -> Result<u64, EventsError> {
     // Like a read, no reconcile: a body is only in a store the outbox reached.
-    let tenant = active_tenant(control, org_id).await?;
-    let client = owner_client(&tenant, target).await?;
+    let Some(client) = store::owner_client(control, org_id, target, false).await? else {
+        return Ok(0);
+    };
     client
         .execute(
             &format!(
@@ -517,6 +436,7 @@ pub async fn delete_relayed_before(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::EVENTS_PUBLISH_FUNCTION;
 
     #[test]
     fn a_missing_store_says_how_to_get_one() {
@@ -531,6 +451,18 @@ mod tests {
         );
     }
 
+    /// Its own variant, so a caller tells "never readable" from "not reached"
+    /// without matching on text; the message keeps the old wording.
+    #[test]
+    fn an_undecodable_body_is_its_own_error() {
+        let err = EventsError::Undecodable("number out of range".into());
+        assert_eq!(
+            err.to_string(),
+            "events store: decode the event body: number out of range"
+        );
+        assert!(!matches!(err, EventsError::Store(_)));
+    }
+
     #[test]
     fn a_claim_reads_the_payloads_size_never_the_payload() {
         let columns: Vec<&str> = OUTBOX_COLUMNS.split(',').map(str::trim).collect();
@@ -539,52 +471,6 @@ mod tests {
             columns.contains(&"octet_length(data::text)"),
             "{OUTBOX_COLUMNS}"
         );
-    }
-
-    #[test]
-    fn forgetting_drops_that_pair_alone() {
-        let org = Uuid::new_v4();
-        let other_org = Uuid::new_v4();
-        for pair in [
-            (org, "app_a_rw".to_string()),
-            (org, "app_b_rw".to_string()),
-            (other_org, "app_a_rw".to_string()),
-        ] {
-            publishable().insert(pair);
-        }
-
-        forget_publishable(org, "app_a_rw");
-
-        let cache = publishable();
-        assert!(!cache.contains(&(org, "app_a_rw".to_string())));
-        assert!(cache.contains(&(org, "app_b_rw".to_string())));
-        assert!(cache.contains(&(other_org, "app_a_rw".to_string())));
-    }
-
-    #[test]
-    fn the_grant_reaches_the_function_and_the_schema_only() {
-        let sql = grant_publish_sql("app_bookings_rw_1a2b3c4d").unwrap();
-        assert!(
-            sql.contains(r#"GRANT USAGE ON SCHEMA oxy_events TO "app_bookings_rw_1a2b3c4d""#),
-            "{sql}"
-        );
-        assert!(
-            sql.contains(&format!(
-                r#"GRANT EXECUTE ON FUNCTION {EVENTS_PUBLISH_FUNCTION} TO "app_bookings_rw_1a2b3c4d""#
-            )),
-            "{sql}"
-        );
-        assert!(!sql.contains("ON TABLE"), "never the table: {sql}");
-        assert!(
-            !sql.contains(" ALL "),
-            "never ALL PRIVILEGES or ON ALL: {sql}"
-        );
-    }
-
-    #[test]
-    fn a_role_name_is_validated_before_any_sql() {
-        assert!(grant_publish_sql("app_x\"; DROP SCHEMA oxy_events; --").is_err());
-        assert!(grant_publish_sql("").is_err());
     }
 
     #[test]

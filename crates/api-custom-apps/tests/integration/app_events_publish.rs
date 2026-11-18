@@ -1403,15 +1403,13 @@ async fn a_staging_publish_without_a_branch_is_held_and_writes_nothing() {
 /// staging `ctx.oltp.tx` handle — lands in the branch's outbox as
 /// `staging`, never in production's, and queues staging's relay.
 ///
-/// The branch is cut after the writer's grant on production, which the copy
-/// carries: the host grants on production's store only (`ensure_publishable`).
+/// R24: the branch is cut before the writer was granted anything, and the
+/// host grants it the definer function on the branch, the store the publish
+/// targets, never on production's.
 #[tokio::test]
 async fn a_staging_publish_lands_on_the_branch_and_never_in_production() {
     with_publisher(Publisher::new, |p| async move {
         make_guest_staff();
-        outbox::ensure_publishable(&p.t.db, p.org(), &p.writer().await.role)
-            .await
-            .expect("grant on production");
         let branch = p.store.provision_branch().await;
         let host = staging_host(&p.t, &p.slug);
         let (out, channel) = p
@@ -1464,16 +1462,32 @@ async fn a_staging_publish_lands_on_the_branch_and_never_in_production() {
                 ),
             ]
         );
-        // R28: staging's outbox is not relayed yet (the branch stores come
-        // later): marked, so the sweep will know of it, but never nudged
-        // into a relay that could only fail.
-        assert!(
-            p.relay_tasks().await.is_empty(),
-            "no staging relay is queued"
-        );
+        // R28 reversed: staging's outbox is relayed, so the publish is
+        // marked and nudges staging's relay.
+        let queued: Vec<String> = p.relay_tasks().await.into_iter().map(|(_, e)| e).collect();
+        assert_eq!(queued, ["staging"], "one staging relay is queued");
         assert!(
             p.mark("staging").await.is_some(),
             "the staging publish is marked"
+        );
+        let role = p.writer().await.role;
+        let may_publish = |db: tokio_postgres::Client| {
+            let role = role.clone();
+            async move {
+                db.query_one(
+                    "SELECT has_schema_privilege($1, 'oxy_events', 'USAGE')",
+                    &[&role],
+                )
+                .await
+                .expect("read the writer's privilege")
+                .get::<_, bool>(0)
+            }
+        };
+        assert!(may_publish(on_branch).await, "granted on the branch");
+        let production = connect(&on_database(&admin, &p.tenant().await.database_name)).await;
+        assert!(
+            !may_publish(production).await,
+            "never granted on production's store"
         );
     })
     .await;

@@ -369,9 +369,15 @@ pub(super) struct Finished<'a> {
     pub(super) request_id: Option<Uuid>,
     pub(super) clock: RunClock,
     /// Keep a successful result on the row: a queued run always (the run
-    /// detail reads it back), a route call only under an idempotency key, so
+    /// detail reads it back) except an event's delivery, whose output stays
+    /// out of Oxy's Postgres; a route call only under an idempotency key, so
     /// the audit table is not bloated with every function's output.
     pub(super) persist_result: bool,
+    /// Store the run's error capped
+    /// ([`cap_error`](crate::app_events::cap_error)): an event's delivery,
+    /// whose listener's thrown text may carry the event's body, which never
+    /// enters Oxy's Postgres whole. Every other run keeps its error as is.
+    pub(super) cap_error: bool,
 }
 
 /// What [`record`] settled, for the door to answer with.
@@ -384,6 +390,9 @@ pub(super) struct Recorded {
     /// The isolate's `console.*` / `ctx.log` lines, drained in one batch
     /// after the run (not live-tailed), already persisted to the log sink.
     pub(super) logs: Vec<LogLine>,
+    /// The isolate was terminated at its heap limit: an `error` the platform
+    /// ended, which an event delivery records as a crash.
+    pub(super) memory_limit: bool,
 }
 
 /// Settle the invocation row, page on a failure, and record the run and its
@@ -432,6 +441,33 @@ pub(super) async fn record(
         status,
         &finished.clock.meters,
     );
+    record_telemetry(
+        &finished,
+        status,
+        http_status,
+        duration_ms,
+        error_msg.as_deref(),
+    );
+    let logs = persist_logs(&finished);
+    Recorded {
+        status,
+        error: error_msg,
+        body,
+        http_status,
+        duration_ms,
+        logs,
+        memory_limit: matches!(typed_kind, Some(super::HostErrorKind::MemoryLimit)),
+    }
+}
+
+/// The run's telemetry event (`custom_apps_telemetry::record_function`).
+fn record_telemetry(
+    finished: &Finished<'_>,
+    status: &str,
+    http_status: u16,
+    duration_ms: i64,
+    error: Option<&str>,
+) {
     custom_apps_telemetry::record_function(FunctionEvent {
         org_id: finished.app.org_id,
         app_id: finished.app.id,
@@ -445,18 +481,9 @@ pub(super) async fn record(
         duration_ms: duration_ms.clamp(0, u32::MAX as i64) as u32,
         host_calls: finished.clock.meters.host_calls(),
         init_ms: finished.clock.meters.init_ms(),
-        error: error_msg.as_deref(),
+        error,
         environment: &finished.environment.name(),
     });
-    let logs = persist_logs(&finished);
-    Recorded {
-        status,
-        error: error_msg,
-        body,
-        http_status,
-        duration_ms,
-        logs,
-    }
 }
 
 /// What the run left on its row.
@@ -484,7 +511,13 @@ async fn settle_row(
     };
     update.status = Set(settled.status.to_string());
     update.duration_ms = Set(Some(settled.duration_ms));
-    update.error = Set(settled.error.map(str::to_string));
+    update.error = Set(settled.error.map(|error| {
+        if finished.cap_error {
+            crate::app_events::cap_error(error)
+        } else {
+            error.to_string()
+        }
+    }));
     update.failure_fingerprint = Set(settled.fingerprint.clone());
     update.error_kind = Set(settled.error_kind.map(str::to_string));
     if finished.persist_result && settled.status == "success" {

@@ -6,10 +6,14 @@
 //!
 //! 1. **Dead sync.** A `pending` delivery whose task row (`run_id`, ruling R3)
 //!    is `dead` or `failed` becomes `dead`, carrying the run's error. The
-//!    delivery keeps that status after the purger removes the task row.
+//!    delivery keeps that status after the purger removes the task row. An
+//!    attempt still open on it (its worker died during it) is closed as a
+//!    `crash`, as the next `begin` would have closed it.
 //! 2. **Expiry.** A `pending` or `held` delivery older than [`RETENTION_DAYS`]
-//!    becomes `expired`, and its task is cancelled if still waiting or
-//!    running.
+//!    (measured from its last redelivery, when it had one:
+//!    `app_event_delivery_budgets.restarted_at`) becomes `expired`, and its task is cancelled if still waiting or
+//!    running. An attempt still open on it is closed as a `crash`, as in
+//!    step 1.
 //! 3. **Events.** An event published more than [`RETENTION_DAYS`] ago with no
 //!    `pending` delivery is deleted, its deliveries and their attempts with it
 //!    (`ON DELETE CASCADE`), and **its body first**: the platform holds only
@@ -198,7 +202,11 @@ async fn in_batches(
 
 /// Step 1. The error is the run's own, else what the delivery already
 /// recorded, else the task's status; capped at
-/// [`MAX_ERROR_CHARS`](super::MAX_ERROR_CHARS) characters.
+/// [`MAX_ERROR_CHARS`](super::MAX_ERROR_CHARS) characters. An attempt still
+/// open on the delivery (its worker died during it) is closed as a `crash`,
+/// with [`CRASHED`](super::deliveries::CRASHED), as the next `begin` would
+/// have closed it, so no attempt stays open after its delivery is dead. The
+/// delivery's row is locked first, in `begin`'s order.
 pub(super) const DEAD_SQL: &str = "\
 WITH picked AS ( \
     SELECT d.id, \
@@ -212,7 +220,14 @@ WITH picked AS ( \
        AND e.org_id = ANY($2::uuid[]) \
      ORDER BY d.created_at \
      LIMIT $3 \
-       FOR UPDATE OF d SKIP LOCKED) \
+       FOR UPDATE OF d SKIP LOCKED), \
+crashed AS ( \
+    UPDATE app_event_delivery_attempts a \
+       SET finished_at = $1::timestamptz, \
+           outcome = 'crash', \
+           error = 'the attempt did not finish: its isolate or its worker died' \
+      FROM picked p \
+     WHERE a.delivery_id = p.id AND a.finished_at IS NULL) \
 UPDATE app_event_deliveries d \
    SET status = 'dead', last_error = p.err, updated_at = $1::timestamptz \
   FROM picked p \
@@ -226,18 +241,27 @@ async fn sync_dead(
     in_batches(db, DEAD_SQL, now, orgs).await
 }
 
-/// Step 2. A task still queued or claimed is cancelled with the delivery.
+/// Step 2. A task still queued or claimed is cancelled with the delivery,
+/// and an attempt still open on it is closed as a `crash`, as in step 1.
 const EXPIRE_SQL: &str = "\
 WITH picked AS ( \
     SELECT d.id, d.run_id \
       FROM app_event_deliveries d \
       JOIN app_events e ON e.id = d.event_id \
+      LEFT JOIN app_event_delivery_budgets b ON b.delivery_id = d.id \
      WHERE d.status IN ('pending', 'held') \
-       AND d.created_at < $1::timestamptz - make_interval(days => 30) \
+       AND GREATEST(d.created_at, b.restarted_at) < $1::timestamptz - make_interval(days => 30) \
        AND e.org_id = ANY($2::uuid[]) \
      ORDER BY d.created_at \
      LIMIT $3 \
        FOR UPDATE OF d SKIP LOCKED), \
+crashed AS ( \
+    UPDATE app_event_delivery_attempts a \
+       SET finished_at = $1::timestamptz, \
+           outcome = 'crash', \
+           error = 'the attempt did not finish: its isolate or its worker died' \
+      FROM picked p \
+     WHERE a.delivery_id = p.id AND a.finished_at IS NULL), \
 cancelled AS ( \
     UPDATE agentic_task_queue q \
        SET queue_status = 'cancelled', updated_at = now() \
@@ -385,8 +409,9 @@ async fn delete_org_events(
         let id: Uuid = row.try_get("", "id")?;
         let environment: String = row.try_get("", "environment")?;
         ids.push(id);
-        // An environment whose store is not relayed has no body in a store
-        // the platform reads (a branch store's go with the branch).
+        // Every environment's body is in a store the platform reads; a name
+        // that is no environment's has none. A branch that is gone took its
+        // bodies with it, and deleting them there finds nothing.
         if let Some(target) = super::relay::relayed_store(&environment) {
             bodies.entry(target).or_default().push(OutboxKey {
                 writer_role: row.try_get("", "writer_role")?,
@@ -434,7 +459,7 @@ async fn delete_org_events(
 
 /// Whether `org_id` has an OLTP store at all. One that has none holds no
 /// event body: there is nothing to delete, and nothing to wait for.
-async fn has_a_store(db: &DatabaseConnection, org_id: Uuid) -> Result<bool, DbErr> {
+pub(crate) async fn has_a_store(db: &DatabaseConnection, org_id: Uuid) -> Result<bool, DbErr> {
     match oxy_oltp::migrator::tenant_for_org(db, org_id).await {
         Ok(_) => Ok(true),
         Err(oxy_oltp::migrator::MigrateError::NotProvisioned(_)) => Ok(false),
@@ -636,3 +661,6 @@ pub async fn retire_environment_events(
     txn.commit().await?;
     Ok(deliveries + events)
 }
+
+#[cfg(test)]
+mod tests;

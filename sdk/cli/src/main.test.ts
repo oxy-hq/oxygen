@@ -429,15 +429,28 @@ describe("the bare-customer form", () => {
   });
 
   /**
-   * `oxyc events` calls the app events endpoints that ship with the events
-   * delivery work, which this version's server does not have: registered now,
-   * every verb would answer 404, read as "not found" (exit 5). Until those
-   * endpoints exist the group is not registered (`commands/events-cli.ts`):
-   * help does not offer it, and `oxyc events` is no command of its own.
+   * `oxyc events` calls the staff endpoints over app events, which ship with
+   * this version's server, so the group is registered (`commands/events-cli.ts`):
+   * help offers it, and `oxyc events --help` lists its verbs.
    */
-  it("does not offer `oxyc events` before its endpoints exist", () => {
-    expect(oxyc("--help").stdout).not.toMatch(/^\s+events\b/m);
-    expect(oxyc("events", "--help").stdout).not.toMatch(/listener health|redeliver|replay/);
+  it("offers `oxyc events` now that its endpoints exist", () => {
+    expect(oxyc("--help").stdout).toMatch(/^\s+events\b/m);
+    const help = oxyc("events", "--help");
+    expect(help.status).toBe(ExitCode.OK);
+    expect(help.stdout).toMatch(/listener health/);
+    for (const verb of [
+      "ls",
+      "show",
+      "find",
+      "tail",
+      "dead",
+      "redeliver",
+      "replay",
+      "discard",
+      "purge"
+    ]) {
+      expect(help.stdout).toMatch(new RegExp(`^\\s+${verb}\\b`, "m"));
+    }
   });
 
   it("does not swallow a flag", () => {

@@ -181,6 +181,8 @@ pub async fn move_wait_up(
 #[derive(Debug, Clone, PartialEq)]
 pub struct Due {
     pub org_id: Uuid,
+    /// Whose outbox: every environment's is relayed.
+    pub environment: String,
     /// How long work has waited in it: since it went from new or drained to
     /// due (`pending_since`).
     pub waited: Duration,
@@ -189,12 +191,11 @@ pub struct Due {
     pub settled: bool,
 }
 
-/// The `environment` marks that are due and either settled (published more
-/// than `settle` ago) or waiting longer than `stale_after`, longest waiting
-/// first. Reads the platform database only.
+/// The marks, of every environment, that are due and either settled
+/// (published more than `settle` ago) or waiting longer than `stale_after`,
+/// longest waiting first. Reads the platform database only.
 pub async fn due(
     db: &impl ConnectionTrait,
-    environment: &str,
     settle: Duration,
     stale_after: Duration,
 ) -> Result<Vec<Due>, DbErr> {
@@ -203,19 +204,17 @@ pub async fn due(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT org_id, \
+            "SELECT org_id, environment, \
                     EXTRACT(EPOCH FROM now() - COALESCE(pending_since, published_at))::float8 \
                         AS waited, \
-                    published_at < now() - make_interval(secs => $2) AS settled \
+                    published_at < now() - make_interval(secs => $1) AS settled \
                FROM app_event_outbox_marks \
-              WHERE environment = $1 \
-                AND published_at > COALESCE(drained_at, '-infinity') \
-                AND (published_at < now() - make_interval(secs => $2) \
+              WHERE published_at > COALESCE(drained_at, '-infinity') \
+                AND (published_at < now() - make_interval(secs => $1) \
                      OR COALESCE(pending_since, published_at) \
-                        < now() - make_interval(secs => $3)) \
+                        < now() - make_interval(secs => $2)) \
               ORDER BY COALESCE(pending_since, published_at)",
             [
-                environment.into(),
                 settle.as_secs_f64().into(),
                 stale_after.as_secs_f64().into(),
             ],
@@ -226,6 +225,7 @@ pub async fn due(
             let waited: f64 = row.try_get("", "waited")?;
             Ok(Due {
                 org_id: row.try_get("", "org_id")?,
+                environment: row.try_get("", "environment")?,
                 waited: Duration::try_from_secs_f64(waited.max(0.0)).unwrap_or_default(),
                 settled: row.try_get("", "settled")?,
             })

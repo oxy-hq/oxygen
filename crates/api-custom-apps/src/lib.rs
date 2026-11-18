@@ -746,7 +746,59 @@ pub fn public_routes() -> Router<AppState> {
         // the data-plane gate chain with `/query`. See `custom_apps_activity::post_event`.
         .route(
             "/customer-apps/{project_id}/events",
-            post(custom_apps_activity::post_event),
+            post(custom_apps_activity::post_event).get(app_events::api::handlers::list_chain),
+        )
+        // App events, the staff endpoints `oxyc events` calls
+        // (`app_events::api`): who publishes what and each listener's health,
+        // one event and its chain, an app's feed and dead letters, and the
+        // tools that redeliver, replay, discard and purge, and switch an
+        // environment's events. Inline authentication and oxy-authz roles,
+        // like the slug reads above; Postgres plus, for one event's body and a
+        // purge, the org's OLTP store: FleetOk. `GET …/{org}/events?root=`
+        // shares the path above with the bundle SDK's ingest.
+        .route(
+            "/customer-apps/{org_slug}/events/types",
+            get(app_events::api::handlers::list_types),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/find",
+            get(app_events::api::handlers::find_event),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/redeliver",
+            post(app_events::api::handlers::redeliver_bulk),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/replay",
+            post(app_events::api::handlers::replay_events),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/discard",
+            post(app_events::api::handlers::discard_deliveries),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/purge",
+            post(app_events::api::handlers::purge_events),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/{event_id}",
+            get(app_events::api::handlers::show_event),
+        )
+        .route(
+            "/customer-apps/{org_slug}/events/{event_id}/redeliver",
+            post(app_events::api::handlers::redeliver_event),
+        )
+        .route(
+            "/customer-apps/{org_slug}/{app_slug}/events/feed",
+            get(app_events::api::handlers::app_feed),
+        )
+        .route(
+            "/customer-apps/{org_slug}/{app_slug}/events/dead",
+            get(app_events::api::handlers::app_dead),
+        )
+        .route(
+            "/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events",
+            put(app_events::api::handlers::set_events_switch),
         )
 }
 
@@ -825,6 +877,17 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),
         fleet("/customer-apps/{project_id}/events"),
+        fleet("/customer-apps/{org_slug}/events/types"),
+        fleet("/customer-apps/{org_slug}/events/find"),
+        fleet("/customer-apps/{org_slug}/events/redeliver"),
+        fleet("/customer-apps/{org_slug}/events/replay"),
+        fleet("/customer-apps/{org_slug}/events/discard"),
+        fleet("/customer-apps/{org_slug}/events/purge"),
+        fleet("/customer-apps/{org_slug}/events/{event_id}"),
+        fleet("/customer-apps/{org_slug}/events/{event_id}/redeliver"),
+        fleet("/customer-apps/{org_slug}/{app_slug}/events/feed"),
+        fleet("/customer-apps/{org_slug}/{app_slug}/events/dead"),
+        fleet("/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events"),
     ];
     ROLES
 }

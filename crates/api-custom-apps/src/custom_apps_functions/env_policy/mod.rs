@@ -112,6 +112,7 @@ mod oltp_branch_sql;
 mod oltp_home;
 mod oltp_sandbox_sql;
 mod oltp_sql;
+mod outbox;
 mod plane_homes;
 #[cfg(test)]
 mod plane_homes_tests;
@@ -140,6 +141,7 @@ pub use oltp_sandbox_sql::{
     schema_named_in,
 };
 pub use oltp_sql::{HeldStatement, admit_oltp_statement};
+pub use outbox::ENV_BRANCH_EVENTS_FIX;
 pub use plane_homes::{
     FetchHome, MessagesHome, PlaneHomes, SecretsHome, StorageHome, WorkspaceActionsHome,
 };

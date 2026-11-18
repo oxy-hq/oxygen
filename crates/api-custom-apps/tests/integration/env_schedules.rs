@@ -321,6 +321,14 @@ async fn a_sandbox_row_fires_into_the_sandbox_and_is_not_activity() {
         .map(|r| (r.environment.as_str(), r.mode.as_str()))
         .collect();
     assert_eq!(seen, vec![("dev-a1", "schedule")], "in the sandbox only");
+    assert!(
+        rows[0]
+            .result_body
+            .as_deref()
+            .is_some_and(|body| body.contains("dev-a1")),
+        "a scheduled run keeps its result (only an event's delivery does not): {:?}",
+        rows[0].result_body
+    );
     assert_eq!(
         activity::last_invocation(&t.db, app.id, "dev-a1")
             .await

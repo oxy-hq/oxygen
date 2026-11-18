@@ -35,6 +35,11 @@ pub struct InvocationCtx {
     /// the event from its input, never from `ctx`, so it is not serialized.
     #[serde(skip)]
     pub event: Option<EventCause>,
+    /// `ctx.delivery`: which attempt of an event's delivery this invocation
+    /// is (`{ attempt, maxAttempts, listener }`). Absent, so `undefined` in
+    /// the isolate, for every other trigger.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<crate::app_events::deliveries::DeliveryInfo>,
 }
 
 /// The event an invocation handles, as a publish from it chains from it (app

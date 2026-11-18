@@ -1582,6 +1582,7 @@ async fn run_route(run: RouteRun<'_>, prepared: pipeline::PreparedRun) -> Respon
         // Only when a key was supplied, so the audit table isn't bloated with
         // every function's output.
         persist_result: call.idempotency_key.is_some(),
+        cap_error: false,
     };
     let recorded = pipeline::record(db, finished, run_outcome).await;
     client_gone.disarm();
@@ -1633,6 +1634,7 @@ async fn isolate_route(
         preagg: run.preagg,
         policy: prepared.policy,
         event: None,
+        delivery: None,
     };
     run_stage(args).await
 }
@@ -1766,6 +1768,33 @@ const MAX_LOG_EVENTS: usize = 500;
 #[cfg(feature = "custom-app-functions")]
 pub(crate) type RunEventSink = tokio::sync::mpsc::Sender<(String, serde_json::Value)>;
 
+/// What an event delivery hands the run of its listener: the event a publish
+/// from it chains from (`InvocationCtx::event`) and the attempt `ctx.delivery`
+/// reports.
+#[cfg(feature = "custom-app-functions")]
+pub(crate) struct EventRun {
+    pub cause: runtime::EventCause,
+    pub delivery: crate::app_events::deliveries::DeliveryInfo,
+}
+
+/// How a queued run that started ended, as its invocation row records it.
+/// The executor answers a plain run by `status` alone; an event delivery
+/// reads the rest to tell an answer outside 2xx, a timeout and a heap kill
+/// apart.
+#[cfg(feature = "custom-app-functions")]
+pub(crate) struct QueuedReport {
+    pub invocation_id: Uuid,
+    /// `success` (the isolate answered, whatever its status), `error`,
+    /// `timeout`, `cancelled` or `shed`.
+    pub status: &'static str,
+    /// The function's answer; read only on `success`.
+    pub http_status: u16,
+    pub body: String,
+    pub error: Option<String>,
+    /// The isolate was terminated at its heap limit.
+    pub memory_limit: bool,
+}
+
 /// Run a custom-app function on the SYSTEM path (a schedule fire or a manual
 /// job trigger) — bypassing auth / rate-limit / idempotency / cache. Resolves the
 /// app's active build + the function's artifact + manifest, runs the isolate under
@@ -1786,6 +1815,10 @@ pub(crate) type RunEventSink = tokio::sync::mpsc::Sender<(String, serde_json::Va
 /// build under that environment's policy (`run_policy`), the one a route call
 /// there gets. Every other non-production task is refused here rather than
 /// run on production's build and secrets.
+///
+/// `Err` is a run refused before it started, with no invocation row; a run
+/// that started answers its [`QueuedReport`], failed or not. `event_run` is
+/// set for an event's delivery only.
 #[cfg(feature = "custom-app-functions")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_scheduled_function(
@@ -1795,6 +1828,7 @@ pub(crate) async fn run_scheduled_function(
     function_name: &str,
     // The invocation `mode`, and the sandbox agent token that queued the run.
     queued: QueuedBy<'_>,
+    event_run: Option<EventRun>,
     // Request body handed to the isolate as `req` — the function's input params
     // (JSON), same shape a route invocation receives. Empty for a bare cron fire.
     input: Vec<u8>,
@@ -1804,7 +1838,7 @@ pub(crate) async fn run_scheduled_function(
     // Layer-1 preagg cache from the node draining the queue, so a scheduled
     // `ctx.semantic` resolves rollups like its HTTP-invoked twin.
     preagg: oxy_app_core::preagg_cache_ctx::PreaggCacheCtx,
-) -> Result<String, String> {
+) -> Result<QueuedReport, String> {
     let app = entity::apps::Entity::find_by_id(app_id)
         .one(db)
         .await
@@ -1839,8 +1873,9 @@ pub(crate) async fn run_scheduled_function(
         cancel,
         query_exec,
         preagg,
+        event_run,
     };
-    run_queued(run, prepared, input, events).await
+    Ok(run_queued(run, prepared, input, events).await)
 }
 
 /// Identity/actor of a queued run: the org owner (apps have no owner; a
@@ -1913,21 +1948,27 @@ struct QueuedRun<'a> {
     cancel: tokio_util::sync::CancellationToken,
     query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
     preagg: oxy_app_core::preagg_cache_ctx::PreaggCacheCtx,
+    event_run: Option<EventRun>,
 }
 
-/// Run the isolate, record the run, hand its events to the sink, and answer
-/// with the body on success or the error otherwise.
+/// Run the isolate, record the run, hand its events to the sink, and report
+/// how it ended.
 #[cfg(feature = "custom-app-functions")]
 async fn run_queued(
     run: QueuedRun<'_>,
     prepared: pipeline::PreparedRun,
     input: Vec<u8>,
     events: Option<RunEventSink>,
-) -> Result<String, String> {
+) -> QueuedReport {
     let clock = pipeline::RunClock::start();
     let (db, app, admitted) = (run.db, run.app, run.admitted);
     let (function_name, mode) = (run.function_name, run.queued.mode);
     let (owner_id, invocation_id) = (run.owner_id, run.invocation_id);
+    // An event's delivery keeps no output and only a capped error: what a
+    // listener returns or throws may carry the event's body, which never
+    // enters Oxy's Postgres (app events design §6.6). Every other queued run
+    // keeps both as they are, the output for the run detail.
+    let event = run.queued.trigger == queued_admission::QueuedTrigger::Event;
     let run_outcome = run_stage(system_run_args(run, prepared, input, &clock)).await;
     let finished = pipeline::Finished {
         app,
@@ -1940,7 +1981,8 @@ async fn run_queued(
         // No HTTP request behind a cron tick or an Airway step.
         request_id: None,
         clock,
-        persist_result: true,
+        persist_result: !event,
+        cap_error: event,
     };
     let recorded = pipeline::record(db, finished, run_outcome).await;
     emit_run_events(
@@ -1950,12 +1992,13 @@ async fn run_queued(
         &admitted.resolved.environment,
     )
     .await;
-    if recorded.status == "success" {
-        Ok(recorded.body)
-    } else {
-        Err(recorded
-            .error
-            .unwrap_or_else(|| "function failed".to_string()))
+    QueuedReport {
+        invocation_id,
+        status: recorded.status,
+        http_status: recorded.http_status,
+        body: recorded.body,
+        error: recorded.error,
+        memory_limit: recorded.memory_limit,
     }
 }
 
@@ -1969,6 +2012,10 @@ fn system_run_args<'a>(
 ) -> RunArgs<'a> {
     let (app, manifest, function_name) = (run.app, &run.admitted.manifest, run.function_name);
     let system_email = format!("schedule+{function_name}@system.oxy");
+    let (event, delivery) = match run.event_run {
+        Some(EventRun { cause, delivery }) => (Some(cause), Some(delivery)),
+        None => (None, None),
+    };
     RunArgs {
         db: run.db,
         query_exec: run.query_exec,
@@ -2009,7 +2056,10 @@ fn system_run_args<'a>(
         cancel: run.cancel,
         preagg: run.preagg,
         policy: prepared.policy,
-        event: None,
+        // An event's delivery: what a publish from it chains from, and the
+        // attempt `ctx.delivery` reports. `None` for every other queued run.
+        event,
+        delivery,
     }
 }
 
@@ -2224,6 +2274,8 @@ struct RunArgs<'a> {
     /// chains from. `None` for a route call, a schedule, an Airway step and a
     /// manual run.
     event: Option<runtime::EventCause>,
+    /// `ctx.delivery`, set with `event`.
+    delivery: Option<crate::app_events::deliveries::DeliveryInfo>,
 }
 
 /// The span the isolate thread runs under — see the call site in
@@ -2623,6 +2675,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         env: env.values,
         airhouse_schema: args.caps.airhouse.schema(),
         event: args.event,
+        delivery: args.delivery,
     };
 
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and

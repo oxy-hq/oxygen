@@ -263,6 +263,7 @@ mod m20261117_000010_function_invocation_recent_traces_index;
 mod m20261117_000011_apps_require_second_person_to_promote;
 mod m20261118_000001_app_environment_events_switch;
 mod m20261118_000002_app_events;
+mod m20261118_000003_app_event_delivery_budgets;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -548,6 +549,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261117_000011_apps_require_second_person_to_promote::Migration),
             Box::new(m20261118_000001_app_environment_events_switch::Migration),
             Box::new(m20261118_000002_app_events::Migration),
+            Box::new(m20261118_000003_app_event_delivery_budgets::Migration),
         ]
     }
 

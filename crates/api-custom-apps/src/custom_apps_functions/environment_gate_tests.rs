@@ -71,6 +71,7 @@ fn only_an_active_branch_is_the_oltp_home() {
         owner_role: "o".into(),
         owner_password_ciphertext: None,
         status,
+        platform_schema_version: 0,
         created_at: chrono::Utc::now().into(),
         last_reset_at: None,
         updated_at: chrono::Utc::now().into(),

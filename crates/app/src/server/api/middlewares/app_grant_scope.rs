@@ -131,6 +131,23 @@ pub const PUBLIC_ROUTES: &[(&str, bool)] = &[
     ("/customer-apps/health", false),
     ("/customer-apps/publish/oidc-exchange", false),
     ("/customer-apps/{project_id}/events", false),
+    ("/customer-apps/{org_slug}/events/types", false),
+    ("/customer-apps/{org_slug}/events/find", false),
+    ("/customer-apps/{org_slug}/events/redeliver", false),
+    ("/customer-apps/{org_slug}/events/replay", false),
+    ("/customer-apps/{org_slug}/events/discard", false),
+    ("/customer-apps/{org_slug}/events/purge", false),
+    ("/customer-apps/{org_slug}/events/{event_id}", false),
+    (
+        "/customer-apps/{org_slug}/events/{event_id}/redeliver",
+        false,
+    ),
+    ("/customer-apps/{org_slug}/{app_slug}/events/feed", false),
+    ("/customer-apps/{org_slug}/{app_slug}/events/dead", false),
+    (
+        "/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events",
+        false,
+    ),
 ];
 
 /// Whether `path` is exactly `shape`. `Some(app)` carries the id the path

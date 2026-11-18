@@ -14,6 +14,10 @@
 //! so concurrent reconciles end with the live build's rows.
 //! A row that is kept has `updated_at` set: it is when the row was last
 //! reconciled, which the staff endpoints show.
+//!
+//! A delivery asks the live build itself ([`listener_subscribes`]) when it
+//! runs: the listener may have stopped subscribing since the relay read these
+//! rows.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -356,4 +360,34 @@ pub async fn listeners(
             })
         })
         .collect())
+}
+
+/// Whether `function_name` of `app_id`, in the build `environment` serves
+/// now, still declares `event_type` in its `on`. No build, no such function or
+/// an `on` that cannot be read all listen to nothing.
+pub async fn listener_subscribes(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    environment: &AppEnvironment,
+    function_name: &str,
+    event_type: &str,
+) -> Result<bool, DbErr> {
+    let Some(app) = apps::Entity::find_by_id(app_id).one(db).await? else {
+        return Ok(false);
+    };
+    let Some(build_id) = resolve_function_environment(db, &app, environment)
+        .await?
+        .build_id
+    else {
+        return Ok(false);
+    };
+    let function = app_functions::Entity::find()
+        .filter(app_functions::Column::BuildId.eq(build_id))
+        .filter(app_functions::Column::Name.eq(function_name))
+        .one(db)
+        .await?;
+    Ok(function
+        .and_then(|f| f.manifest_json)
+        .and_then(|manifest| function_subscribes(&manifest).ok())
+        .is_some_and(|types| types.iter().any(|t| t == event_type)))
 }

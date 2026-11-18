@@ -140,6 +140,14 @@ impl AppStore {
             .expect("cut the org's staging branch")
     }
 
+    /// Delete the org's branches, as the org-deletion path does.
+    pub(crate) async fn delete_branches(&self) {
+        self.provisioner
+            .delete_branches(self.org_id)
+            .await
+            .expect("delete the org's branches");
+    }
+
     /// Re-copy the staging branch from production (`oxyc oltp reset`).
     pub(crate) async fn reset_branch(&self) -> oxy_oltp::entity::branches::Model {
         self.provisioner

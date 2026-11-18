@@ -61,6 +61,7 @@ import { runEnvReset, runEnvUpdate } from "./commands/env-planes.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
 import { runEnvEvents } from "./commands/events.js";
+import { registerEvents } from "./commands/events-cli.js";
 import { registerExperiments } from "./commands/experiments-cli.js";
 import { registerFlags } from "./commands/flags-cli.js";
 import { runFnCall } from "./commands/fn.js";
@@ -1456,6 +1457,7 @@ function buildProgram(): Command {
     });
   });
 
+  registerEvents(program, { withGlobals, globals });
   registerExperiments(program, { withGlobals, globals, collect });
   registerFlags(program, { withGlobals, globals, collect });
   registerHome(program, { withGlobals, globals, collect });

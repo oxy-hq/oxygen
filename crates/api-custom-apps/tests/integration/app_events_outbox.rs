@@ -60,9 +60,14 @@ async fn publishing_writer(fx: &Fx, base: &str) -> WriterCredentials {
         .ensure_writer(&fx.writer(base), GrantLevel::ReadWrite)
         .await
         .expect("ensure writer");
-    events::ensure_publishable(&fx.db, fx.org_id, &creds.role_name)
-        .await
-        .expect("ensure publishable");
+    events::ensure_publishable(
+        &fx.db,
+        fx.org_id,
+        &OutboxTarget::Production,
+        &creds.role_name,
+    )
+    .await
+    .expect("ensure publishable");
     creds
 }
 
@@ -447,7 +452,7 @@ async fn a_refused_ensure_publishable_is_not_remembered() {
             &writer.role_name(GrantLevel::ReadWrite),
         );
 
-        let err = events::ensure_publishable(&fx.db, fx.org_id, &role)
+        let err = events::ensure_publishable(&fx.db, fx.org_id, &OutboxTarget::Production, &role)
             .await
             .expect_err("no store yet");
         assert!(
@@ -460,7 +465,7 @@ async fn a_refused_ensure_publishable_is_not_remembered() {
             .provision(fx.org_id)
             .await
             .expect("provision");
-        let err = events::ensure_publishable(&fx.db, fx.org_id, &role)
+        let err = events::ensure_publishable(&fx.db, fx.org_id, &OutboxTarget::Production, &role)
             .await
             .expect_err("no role yet");
         assert!(matches!(err, EventsError::Store(_)), "{err}");
@@ -470,7 +475,7 @@ async fn a_refused_ensure_publishable_is_not_remembered() {
             .await
             .expect("ensure writer");
         assert_eq!(creds.role_name, role, "the role the refusals asked about");
-        events::ensure_publishable(&fx.db, fx.org_id, &role)
+        events::ensure_publishable(&fx.db, fx.org_id, &OutboxTarget::Production, &role)
             .await
             .expect("granted once the role exists");
         publish(
@@ -511,9 +516,14 @@ async fn a_store_from_before_the_outbox_gets_it_on_first_publish() {
             .await
             .expect("wind the tenant back to version 4");
 
-        events::ensure_publishable(&fx.db, fx.org_id, &creds.role_name)
-            .await
-            .expect("ensure publishable");
+        events::ensure_publishable(
+            &fx.db,
+            fx.org_id,
+            &OutboxTarget::Production,
+            &creds.role_name,
+        )
+        .await
+        .expect("ensure publishable");
 
         let tenant = fx.tenant_row().await.expect("tenant row");
         assert_eq!(
@@ -799,7 +809,7 @@ async fn a_forgotten_grant_is_made_again() {
             .expect("take the grants away");
         let writer = connect(&creds.dsn).await;
 
-        events::ensure_publishable(&fx.db, fx.org_id, role)
+        events::ensure_publishable(&fx.db, fx.org_id, &OutboxTarget::Production, role)
             .await
             .expect("remembered, so nothing is granted");
         let err = publish(&writer, Uuid::new_v4(), "a.thing", &json!({}))
@@ -812,8 +822,8 @@ async fn a_forgotten_grant_is_made_again() {
             rendered(&err)
         );
 
-        events::forget_publishable(fx.org_id, role);
-        events::ensure_publishable(&fx.db, fx.org_id, role)
+        events::forget_publishable(fx.org_id, &OutboxTarget::Production, role);
+        events::ensure_publishable(&fx.db, fx.org_id, &OutboxTarget::Production, role)
             .await
             .expect("granted again");
         publish(&writer, Uuid::new_v4(), "a.thing", &json!({}))

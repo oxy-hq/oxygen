@@ -5,6 +5,9 @@
 //! is `custom_apps_functions::run_scheduled_function` (org-owner identity,
 //! `mode="schedule"` invocation record). See
 //! `internal-docs/customer-apps-functions.md`.
+//!
+//! An event's delivery (trigger `event`) runs through [`delivery`], which
+//! records each attempt on the delivery it answers for.
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};
 use agentic_pipeline::app_function_task::AppFunctionTask;
@@ -22,6 +25,8 @@ use tracing::Instrument;
 /// The `kind` discriminator for a scheduled custom-app function Custom task.
 pub use agentic_pipeline::app_function_task::APP_FUNCTION_KIND;
 
+mod delivery;
+
 /// A queued task, read and checked: everything the job needs, typed.
 #[derive(Debug)]
 struct JobRequest {
@@ -36,6 +41,9 @@ struct JobRequest {
     /// The sandbox agent token that queued the run, admitted again before it
     /// starts (`app_function_agent`).
     credential_token_id: Option<uuid::Uuid>,
+    /// The `app_event_deliveries` row an event run answers for. Always set
+    /// for the `event` trigger, never read for another.
+    event_delivery_id: Option<uuid::Uuid>,
 }
 
 /// Read an `app_function` task.
@@ -81,15 +89,29 @@ fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
     };
     let credential_token_id =
         super::app_function_agent::token_of(task.credential_token_id.as_deref())?;
+    let trigger = QueuedTrigger::from_label(task.trigger.as_deref());
+    // An event run answers for its delivery: without one there is nothing to
+    // record the attempt on, and no event to hand the listener.
+    let event_delivery_id = match trigger {
+        QueuedTrigger::Event => Some(
+            task.event_delivery_id
+                .as_deref()
+                .ok_or("an event task names no delivery (`event_delivery_id`)")?
+                .parse()
+                .map_err(|e| format!("bad event_delivery_id: {e}"))?,
+        ),
+        _ => None,
+    };
     Ok(JobRequest {
         app_id,
         mode: invocation_mode(task.trigger.as_deref()),
-        trigger: QueuedTrigger::from_label(task.trigger.as_deref()),
+        trigger,
         function_name: task.function_name,
         input,
         traceparent: task.traceparent,
         environment,
         credential_token_id,
+        event_delivery_id,
     })
 }
 
@@ -108,37 +130,8 @@ pub struct AppFunctionTaskExecutor {
 #[async_trait]
 impl TaskExecutor for AppFunctionTaskExecutor {
     async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
-        let JobRequest {
-            app_id,
-            function_name,
-            mode,
-            trigger,
-            input,
-            traceparent,
-            environment,
-            credential_token_id,
-        } = read_task(&assignment.spec)?;
-
-        // The worker's run is a root trace of its own; this span is that root,
-        // linked — not parented — to the request that enqueued the task when
-        // the payload carries its `traceparent`. HyperDX shows the link both
-        // ways; the request's latency stays its own.
-        let job_span = tracing::info_span!(
-            "custom_app_function.job",
-            otel.name = %format!("job fn {function_name}"),
-            app_id = %app_id,
-            function = %function_name,
-            mode = %mode,
-            faas.trigger = if mode == "schedule" { "timer" } else { "other" },
-        );
-        if let Some(traceparent) = traceparent.as_deref()
-            && !oxy_telemetry::propagation::link_from_traceparent(&job_span, traceparent)
-        {
-            tracing::debug!(
-                traceparent,
-                "app_function: unusable traceparent on the task payload"
-            );
-        }
+        let request = read_task(&assignment.spec)?;
+        let job_span = job_span(&request);
 
         let (event_tx, event_rx) = mpsc::channel(16);
         let (outcome_tx, outcome_rx) = mpsc::channel(4);
@@ -146,21 +139,7 @@ impl TaskExecutor for AppFunctionTaskExecutor {
         // The runtime trips `cancel` (returned in ExecutingTask) to stop this
         // task; hand a clone to the run so the isolate actually terminates
         // mid-flight instead of running to its timeout.
-        let job = JobArgs {
-            db: self.db.clone(),
-            preagg: self.preagg.clone(),
-            executor: self.executor.clone(),
-            app_id,
-            environment,
-            credential_token_id,
-            function_name,
-            mode,
-            trigger,
-            input,
-            cancel: cancel.clone(),
-            event_tx,
-            outcome_tx,
-        };
+        let job = self.job(request, cancel.clone(), event_tx, outcome_tx);
         // A job has no request hub. Give it one tagged as a custom-app surface;
         // the isolate thread and host calls inherit it (`middlewares::sentry_surface`).
         tokio::spawn(
@@ -178,6 +157,77 @@ impl TaskExecutor for AppFunctionTaskExecutor {
     }
 }
 
+impl AppFunctionTaskExecutor {
+    /// The job `request` asks for, carried onto its spawned task with this
+    /// executor's handles, the task's cancel token and its channels.
+    fn job(
+        &self,
+        request: JobRequest,
+        cancel: CancellationToken,
+        event_tx: mpsc::Sender<(String, serde_json::Value)>,
+        outcome_tx: mpsc::Sender<TaskOutcome>,
+    ) -> JobArgs {
+        let JobRequest {
+            app_id,
+            function_name,
+            mode,
+            trigger,
+            input,
+            traceparent: _,
+            environment,
+            credential_token_id,
+            event_delivery_id,
+        } = request;
+        JobArgs {
+            db: self.db.clone(),
+            preagg: self.preagg.clone(),
+            executor: self.executor.clone(),
+            app_id,
+            environment,
+            credential_token_id,
+            function_name,
+            mode,
+            trigger,
+            input,
+            event_delivery_id,
+            cancel,
+            event_tx,
+            outcome_tx,
+        }
+    }
+}
+
+/// The worker's run is a root trace of its own; this span is that root,
+/// linked — not parented — to the request that enqueued the task when the
+/// payload carries its `traceparent`. HyperDX shows the link both ways; the
+/// request's latency stays its own.
+fn job_span(request: &JobRequest) -> tracing::Span {
+    let JobRequest {
+        app_id,
+        function_name,
+        mode,
+        traceparent,
+        ..
+    } = request;
+    let job_span = tracing::info_span!(
+        "custom_app_function.job",
+        otel.name = %format!("job fn {function_name}"),
+        app_id = %app_id,
+        function = %function_name,
+        mode = %mode,
+        faas.trigger = if mode == "schedule" { "timer" } else { "other" },
+    );
+    if let Some(traceparent) = traceparent.as_deref()
+        && !oxy_telemetry::propagation::link_from_traceparent(&job_span, traceparent)
+    {
+        tracing::debug!(
+            traceparent,
+            "app_function: unusable traceparent on the task payload"
+        );
+    }
+    job_span
+}
+
 /// Everything one job carries onto its spawned task.
 struct JobArgs {
     db: DatabaseConnection,
@@ -190,6 +240,7 @@ struct JobArgs {
     mode: String,
     trigger: QueuedTrigger,
     input: Vec<u8>,
+    event_delivery_id: Option<uuid::Uuid>,
     cancel: CancellationToken,
     event_tx: mpsc::Sender<(String, serde_json::Value)>,
     outcome_tx: mpsc::Sender<TaskOutcome>,
@@ -198,90 +249,122 @@ struct JobArgs {
 /// The job body: announce the start on the run's event log, run the function
 /// under the org owner's identity, report the outcome. Runs under the
 /// `custom_app_function.job` span `execute` builds.
-async fn run_job(args: JobArgs) {
-    let JobArgs {
-        db,
-        preagg,
-        executor,
-        app_id,
-        environment,
-        credential_token_id,
-        function_name,
-        mode,
-        trigger,
-        input,
-        cancel,
-        event_tx,
-        outcome_tx,
-    } = args;
+async fn run_job(mut args: JobArgs) {
     // A run a sandbox agent token queued starts only if that token would
     // still be admitted now. Otherwise it is cancelled, before the started
     // event and before any of the function runs.
-    if let Some(token_id) = credential_token_id
+    if let Some(token_id) = args.credential_token_id
         && let Err(why) =
-            super::app_function_agent::recheck(&db, token_id, app_id, &environment).await
+            super::app_function_agent::recheck(&args.db, token_id, args.app_id, &args.environment)
+                .await
     {
-        let _ = event_tx
+        let _ = args
+            .event_tx
             .send((
                 "app_function_cancelled".into(),
-                serde_json::json!({ "app_id": app_id, "function_name": function_name, "reason": why }),
+                serde_json::json!({ "app_id": args.app_id, "function_name": args.function_name, "reason": why }),
             ))
             .await;
-        let _ = outcome_tx.send(TaskOutcome::Cancelled).await;
+        let _ = args.outcome_tx.send(TaskOutcome::Cancelled).await;
         return;
     }
-    let _ = event_tx
+    let _ = args
+        .event_tx
         .send((
             "app_function_started".into(),
-            serde_json::json!({ "app_id": app_id, "function_name": function_name }),
+            serde_json::json!({ "app_id": args.app_id, "function_name": args.function_name }),
         ))
         .await;
 
-    #[cfg(feature = "custom-app-functions")]
-    let outcome = match crate::custom_apps_functions::run_scheduled_function(
-        &db,
-        app_id,
-        &environment,
-        &function_name,
+    let outcome = match args.event_delivery_id {
+        Some(delivery_id) => delivery::deliver(&args, delivery_id).await,
+        None => {
+            let input = std::mem::take(&mut args.input);
+            match run_function(&args, input, None).await {
+                Ok(run) if run.status == "success" => TaskOutcome::Done {
+                    answer: run.body,
+                    metadata: Some(serde_json::json!({
+                        "app_id": args.app_id,
+                        "function_name": args.function_name,
+                    })),
+                },
+                Ok(run) => {
+                    TaskOutcome::Failed(run.error.unwrap_or_else(|| "function failed".to_string()))
+                }
+                Err(refused) => TaskOutcome::Failed(refused),
+            }
+        }
+    };
+    let _ = args.outcome_tx.send(outcome).await;
+}
+
+/// How a run of the function ended, the fields of it this module reads.
+#[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+struct FunctionRun {
+    invocation_id: uuid::Uuid,
+    status: &'static str,
+    http_status: u16,
+    body: String,
+    error: Option<String>,
+    memory_limit: bool,
+}
+
+/// Run the function once under the org owner's identity; `event` is set for
+/// an event's delivery. `Err` is a run refused before it started.
+#[cfg(feature = "custom-app-functions")]
+async fn run_function(
+    job: &JobArgs,
+    input: Vec<u8>,
+    event: Option<crate::custom_apps_functions::EventRun>,
+) -> Result<FunctionRun, String> {
+    let report = crate::custom_apps_functions::run_scheduled_function(
+        &job.db,
+        job.app_id,
+        &job.environment,
+        &job.function_name,
         crate::custom_apps_functions::QueuedBy {
-            mode: &mode,
-            trigger,
-            credential_token_id,
+            mode: &job.mode,
+            trigger: job.trigger,
+            credential_token_id: job.credential_token_id,
         },
+        event,
         input,
-        cancel,
+        job.cancel.clone(),
         // Stream the run's log lines onto the run's event log so a
         // scheduled/manual function's output is persisted + observable.
-        Some(event_tx.clone()),
-        executor,
-        preagg,
+        Some(job.event_tx.clone()),
+        job.executor.clone(),
+        job.preagg.clone(),
     )
-    .await
-    {
-        Ok(body) => TaskOutcome::Done {
-            answer: body,
-            metadata: Some(serde_json::json!({ "app_id": app_id, "function_name": function_name })),
-        },
-        Err(e) => TaskOutcome::Failed(e),
-    };
-    #[cfg(not(feature = "custom-app-functions"))]
-    let outcome = {
-        let _ = (
-            &db,
-            app_id,
-            &environment,
-            &function_name,
-            &mode,
-            trigger,
-            credential_token_id,
-            input,
-            cancel,
-            &preagg,
-        );
-        TaskOutcome::Failed("custom-app-functions feature not enabled".to_string())
-    };
+    .await?;
+    Ok(FunctionRun {
+        invocation_id: report.invocation_id,
+        status: report.status,
+        http_status: report.http_status,
+        body: report.body,
+        error: report.error,
+        memory_limit: report.memory_limit,
+    })
+}
 
-    let _ = outcome_tx.send(outcome).await;
+#[cfg(not(feature = "custom-app-functions"))]
+async fn run_function(
+    job: &JobArgs,
+    input: Vec<u8>,
+    event: Option<()>,
+) -> Result<FunctionRun, String> {
+    let _ = (
+        (
+            &job.preagg,
+            &job.executor,
+            &job.cancel,
+            job.trigger,
+            &job.mode,
+        ),
+        input,
+        event,
+    );
+    Err("custom-app-functions feature not enabled".to_string())
 }
 
 /// The invocation `mode` a queued job reports, from the trigger its seeding path
@@ -314,128 +397,4 @@ fn invocation_mode(trigger: Option<&str>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{APP_FUNCTION_KIND, AppEnvironment, invocation_mode, read_task};
-    use crate::custom_apps_functions::FunctionJobTrigger;
-    use agentic_core::delegation::TaskSpec;
-    use serde_json::json;
-
-    fn spec(payload: serde_json::Value) -> TaskSpec {
-        TaskSpec::Custom {
-            kind: APP_FUNCTION_KIND.into(),
-            payload,
-        }
-    }
-
-    const APP: &str = "6f1c1f5e-4b2a-4d8e-9d59-0b8f8a3e2c11";
-
-    /// A task queued before `environment` existed is production, and runs.
-    #[test]
-    fn a_task_without_an_environment_runs_as_production() {
-        let job = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "trigger": "scheduled",
-        })))
-        .expect("a legacy task is runnable");
-        assert_eq!(job.app_id.to_string(), APP);
-        assert_eq!(job.mode, "schedule");
-        assert_eq!(job.environment, AppEnvironment::Production);
-    }
-
-    #[test]
-    fn a_task_naming_production_runs() {
-        let job = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "environment": "production",
-        })))
-        .expect("runnable");
-        assert_eq!(job.environment, AppEnvironment::Production);
-    }
-
-    /// The collision this reader prevents: a worker that ignored the field
-    /// would resolve the production build and run a staging task against it.
-    /// The environment rides to the runner, which refuses it unless the
-    /// function is a check there (`custom_apps::app_environments_phase_1b` and
-    /// `custom_app_functions_manual_run::environment_checks` drive both ends).
-    #[test]
-    fn a_task_for_a_non_production_environment_keeps_its_environment() {
-        let job = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "environment": "staging",
-        })))
-        .expect("a known environment is read");
-        assert_eq!(
-            job.environment,
-            AppEnvironment::Staging,
-            "never read as production"
-        );
-    }
-
-    #[test]
-    fn a_task_naming_an_unknown_environment_is_refused() {
-        let err = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "environment": "Production",
-        })))
-        .expect_err("names are exact; an unknown one is not production");
-        assert!(err.contains("unknown environment"), "{err}");
-    }
-
-    #[test]
-    fn the_input_rides_through_as_the_request_body() {
-        let job = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "trigger": "manual",
-            "input": { "store": 7 },
-        })))
-        .expect("runnable");
-        assert_eq!(job.input, br#"{"store":7}"#);
-        assert_eq!(job.mode, "manual");
-    }
-
-    /// Every label the seeding side can produce must have an arm here. Written
-    /// over the enum rather than string literals so adding a variant without an
-    /// arm fails this test instead of silently reporting `schedule` — and the
-    /// runner must read the label back as the trigger that wrote it.
-    #[test]
-    fn every_trigger_label_maps_to_its_own_mode() {
-        for (trigger, mode) in [
-            (FunctionJobTrigger::Manual, "manual"),
-            (FunctionJobTrigger::Webhook, "webhook"),
-            (FunctionJobTrigger::ScheduleNow, "manual"),
-            (FunctionJobTrigger::Event, "event"),
-        ] {
-            let label = trigger.as_str();
-            assert_eq!(
-                invocation_mode(Some(label)),
-                mode,
-                "trigger '{label}' is falling through to the legacy `schedule` default"
-            );
-            assert_eq!(
-                super::QueuedTrigger::from_label(Some(label)),
-                trigger.queued(),
-                "the runner reads '{label}' as another trigger"
-            );
-        }
-    }
-
-    #[test]
-    fn an_event_run_reports_mode_event() {
-        assert_eq!(invocation_mode(Some("event")), "event");
-    }
-
-    /// Run now `as=schedule` in a sandbox: a `manual` invocation, read as the
-    /// trigger whose rule admits a scheduled function there.
-    #[test]
-    fn a_schedule_now_task_is_a_manual_run_admitted_as_a_schedule() {
-        let job = read_task(&spec(json!({
-            "app_id": APP, "function_name": "refresh", "trigger": "schedule_now",
-            "environment": "dev-a1",
-        })))
-        .expect("runnable");
-        assert_eq!(job.mode, "manual");
-        assert_eq!(job.trigger, super::QueuedTrigger::ScheduleNow);
-        assert_eq!(job.environment.name(), "dev-a1");
-    }
-
-    /// A task queued before the field existed is a cron fire, and stays one.
-    #[test]
-    fn a_payload_without_a_trigger_is_a_schedule() {
-        assert_eq!(invocation_mode(None), "schedule");
-    }
-}
+mod tests;

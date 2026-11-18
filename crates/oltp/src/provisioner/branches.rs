@@ -141,7 +141,9 @@ impl OltpProvisioner {
             .filter(branch_roles::Column::BranchRowId.eq(row.id))
             .exec(&self.db)
             .await?;
-        let row = self.record_cut(row, &cut).await?;
+        let row = self
+            .record_cut(row, &cut, tenant.platform_schema_version)
+            .await?;
         self.seed_branch_ledger(&row.provider_branch_id, &snapshot)
             .await?;
         self.finish_branch(tenant, row).await

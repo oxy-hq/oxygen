@@ -368,25 +368,39 @@ impl ProjectFunctionHost {
     /// Where the environment lets an event publish go, decided before
     /// anything connects. `decided` is the op's decision — the handle's, for
     /// a publish on a `ctx.oltp.tx` handle (`EnvPolicy::decide_on_handle`).
-    /// `Ok` to write on production's store or the OLTP branch the run (or
-    /// the handle) is on; held or refused, logged, otherwise — never written
-    /// to production's store from outside production.
+    /// `Ok` with the outbox to write: production's store, or the OLTP branch
+    /// the run (or the handle) is on (`EnvPolicy::outbox_target`); held or
+    /// refused, logged, otherwise — never written to production's store from
+    /// outside production, nor to a branch no relay reads (a sandbox on an
+    /// OLTP branch of its own).
     pub(super) async fn admit_publish(
         &self,
         op: HostOp,
         decided: Decision,
         name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<oxy_oltp::events::OutboxTarget, String> {
         let target: HeldTarget<'_> = ("oltp", PLATFORM_EVENTS_SCHEMA, "PUBLISH", name);
+        let refuse = |fix| Decision::Refuse { fix };
+        let decided = match decided {
+            Decision::Allow | Decision::Isolate(Target::OltpBranch) => {
+                match self.policy.outbox_target() {
+                    Ok(outbox) => return Ok(outbox),
+                    Err(fix) => refuse(fix),
+                }
+            }
+            other => other,
+        };
         match decided {
-            Decision::Allow | Decision::Isolate(Target::OltpBranch) => Ok(()),
             Decision::Hold => {
                 self.note_held_oltp(op, target).await;
                 Err(self.with_branch_note(self.held_error(op)))
             }
             // A refusal in the policy's words; any other home is not one a
             // publish can be written to, and is refused rather than run.
-            other => self.admit_decided(op, other, target).await,
+            other => match self.admit_decided(op, other, target).await {
+                Err(refused) => Err(refused),
+                Ok(()) => Err(format!("ctx.{} has no outbox to write", op.name())),
+            },
         }
     }
 

@@ -210,7 +210,9 @@ async fn execute_isolate_inner<E: IsolateEngine>(
 }
 
 /// The script that calls the function's default export. Its completion value
-/// is the promise of `{ status, body }`.
+/// is the promise of `{ status, body }`. What the handler throws keeps its
+/// `name` in its stack (`__oxyNamedError`, `bootstrap.js`), which is the
+/// invocation's error.
 fn invoke_script(req_json: &str, ctx_json: &str) -> String {
     format!(
         r#"
@@ -223,7 +225,12 @@ fn invoke_script(req_json: &str, ctx_json: &str) -> String {
             if (typeof handler !== "function") {{
                 throw new Error("function module has no default export");
             }}
-            const res = await handler(req, ctx);
+            let res;
+            try {{
+                res = await handler(req, ctx);
+            }} catch (err) {{
+                throw globalThis.__oxyNamedError(err);
+            }}
             return {{
                 status: (res && res.status) || 200,
                 body: res && res.body !== undefined ? String(res.body) : "",

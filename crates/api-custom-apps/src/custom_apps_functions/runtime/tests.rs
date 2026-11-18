@@ -5,6 +5,7 @@ mod attachments_and_notify;
 mod broker_gates;
 mod crypto;
 mod decide_throughput;
+mod delivery;
 mod dropped_run;
 mod events;
 mod host_call_failures;
@@ -342,6 +343,7 @@ pub(super) fn test_ctx() -> InvocationCtx {
         channel: "production".into(),
         build_id: uuid::Uuid::nil(),
         event: None,
+        delivery: None,
     }
 }
 

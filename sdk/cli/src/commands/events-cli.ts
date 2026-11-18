@@ -2,12 +2,10 @@
  * Wires `oxyc events …` onto the program: who publishes what, listener
  * health, redelivery and replay.
  *
- * **Not registered yet.** Every verb calls an endpoint that lands with the
- * app events delivery work (Task 15), which this CLI version's server does
- * not have: registered now, each would answer 404, which `oxyc` reports as
- * "not found" (exit 5). `main.ts` calls {@link registerEvents} in the PR
- * that ships those endpoints; `main.test.ts` pins the group's absence until
- * then. The verbs themselves (`./events.ts`) are tested on their own.
+ * Registered by `main.ts` since the staff endpoints shipped (the server's
+ * `app_events::api`); `main.test.ts` pins that `oxyc --help` offers the
+ * group. The verbs themselves (`./events.ts`) are tested on their own, and
+ * the server pins the JSON keys they read (`app_events_api::contract`).
  */
 
 import type { Command } from "commander";

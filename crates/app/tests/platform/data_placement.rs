@@ -178,6 +178,13 @@ const TABLES: &[(&str, Placement)] = &[
         ),
     ),
     (
+        "app_event_delivery_budgets",
+        Control(
+            "per redelivered app event delivery, the attempt count its budget restarts from and \
+             when: two numbers and a timestamp",
+        ),
+    ),
+    (
         "app_event_outbox_marks",
         Control(
             "per org and environment, when an event was last published and when the relay last \

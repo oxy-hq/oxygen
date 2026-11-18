@@ -158,6 +158,19 @@ pub(crate) struct BranchOwner {
     pub owner_role: String,
     pub tenant: oltp_tenants::Model,
     pub cut: crate::branches::BranchCut,
+    /// The platform-schema version the branch's row records it carrying.
+    pub platform_schema_version: i32,
+}
+
+/// The org branch that hosts `environment`'s OLTP data: staging's, for
+/// staging and for every sandbox (`dev-<handle>`, whose schema is on it).
+/// `None` for production and for a name that is no environment. A sandbox on
+/// an OLTP branch of its own is in `oltp_env_branches`, never here.
+pub(crate) fn branch_hosting(environment: &str) -> Option<OltpBranch> {
+    let sandbox = environment
+        .strip_prefix("dev-")
+        .is_some_and(|handle| !handle.is_empty());
+    (environment == "staging" || sandbox).then_some(OltpBranch::Staging)
 }
 
 /// The owner of the org's active `branch`. `Ok(None)`: the org has no such
@@ -191,6 +204,7 @@ pub(crate) async fn resolve_branch_owner(
         ),
         owner_role: row.owner_role.clone(),
         cut: crate::branches::BranchCut::of(&row),
+        platform_schema_version: row.platform_schema_version,
         tenant,
     }))
 }
@@ -270,6 +284,20 @@ async fn branch_password(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_staging_branch_hosts_staging_and_every_sandbox_only() {
+        for hosted in ["staging", "dev-x", "dev-a1-b2"] {
+            assert_eq!(
+                branch_hosting(hosted),
+                Some(OltpBranch::Staging),
+                "{hosted}"
+            );
+        }
+        for not_hosted in ["production", "dev-", "", "Staging", "preview"] {
+            assert_eq!(branch_hosting(not_hosted), None, "{not_hosted:?}");
+        }
+    }
 
     /// Both branch errors must name the command that fixes them — they reach
     /// a staging function's author through `ctx.oltp`'s error, far from here.

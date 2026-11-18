@@ -162,6 +162,8 @@ impl OltpProvisioner {
             tenant_row_id: ActiveValue::Set(tenant.id),
             kind: ActiveValue::Set(kind),
             status: ActiveValue::Set(BranchStatus::Provisioning),
+            // Read before the copy: a lower bound of what the copy carries.
+            platform_schema_version: ActiveValue::Set(tenant.platform_schema_version),
             created_at: ActiveValue::Set(now.into()),
             last_reset_at: ActiveValue::Set(None),
             updated_at: ActiveValue::Set(now.into()),
@@ -171,16 +173,20 @@ impl OltpProvisioner {
         Ok(active.insert(&self.db).await?)
     }
 
-    /// Record a re-cut — only while the row is still `resetting`.
+    /// Record a re-cut — only while the row is still `resetting`. The copy
+    /// carries production's Oxy-owned objects again, at least
+    /// `platform_version`'s (the tenant's, read before the copy).
     pub(super) async fn record_cut(
         &self,
         row: oltp_branches::Model,
         cut: &ProjectBranch,
+        platform_version: i32,
     ) -> Result<oltp_branches::Model, ProvisionerError> {
         // Only the columns that change are Set; `update_many().set()` writes
         // exactly those.
         let mut changes = <oltp_branches::ActiveModel as Default>::default();
         apply_cut(&mut changes, cut)?;
+        changes.platform_schema_version = ActiveValue::Set(platform_version);
         changes.last_reset_at = ActiveValue::Set(Some(Utc::now().into()));
         changes.updated_at = ActiveValue::Set(Utc::now().into());
         self.update_if(changes, &row, BranchStatus::Resetting).await

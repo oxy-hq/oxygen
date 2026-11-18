@@ -1,9 +1,13 @@
 //! App events on the platform side of the publish: each event's schema stored
 //! as an immutable revision, checked for compatibility and used to validate a
-//! payload; who listens to what; and the relay that moves published events out
-//! of an org's outbox and onto the task queue. The pure shapes (names,
-//! catalogue, envelope) are in `oxy_custom_apps::events`.
+//! payload; who listens to what; the relay that moves published events out
+//! of an org's outbox and onto the task queue; and each delivery's attempts.
+//! The pure shapes (names, catalogue, envelope) are in
+//! `oxy_custom_apps::events`.
 
+pub mod api;
+pub mod deliveries;
+pub mod envelope;
 pub mod gate;
 pub mod marks;
 pub mod relay;

@@ -111,6 +111,7 @@ async fn isolate_sees_camel_case_identity_and_the_legacy_org_id_alias() {
             channel: "production".into(),
             build_id: uuid::Uuid::nil(),
             event: None,
+            delivery: None,
         },
     )
     .await;
@@ -156,6 +157,7 @@ async fn isolate_sees_the_build_id_it_was_started_with() {
             channel: "staging".into(),
             build_id: build,
             event: None,
+            delivery: None,
         },
     )
     .await;
