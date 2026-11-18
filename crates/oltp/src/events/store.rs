@@ -1,6 +1,7 @@
-//! Opening an outbox's store as its owner: production's tenant database, or
-//! the OLTP branch hosting a non-production environment ([`super::branch`]).
-//! Each call opens one short connection.
+//! Opening an outbox's store as its owner: production's tenant database,
+//! the OLTP branch hosting a non-production environment ([`super::branch`]),
+//! or a sandbox's own branch ([`super::env_branch`]). Each call opens one
+//! short connection.
 
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -66,6 +67,17 @@ pub(super) async fn owner_client(
                 None => return Ok(None),
             }
         }
+        OutboxTarget::EnvBranch {
+            app_id,
+            environment,
+        } => {
+            match super::env_branch::owner_dsn(control, org_id, *app_id, environment, bring_current)
+                .await?
+            {
+                Some(dsn) => dsn,
+                None => return Ok(None),
+            }
+        }
     };
     crate::connect::connect(&dsn, "oxy_events")
         .await
@@ -84,10 +96,12 @@ pub(super) async fn required_client(
     owner_client(control, org_id, target, bring_current)
         .await?
         .ok_or_else(|| match target {
-            OutboxTarget::Branch(environment) => EventsError::NoBranch {
-                org_id,
-                environment: environment.clone(),
-            },
+            OutboxTarget::Branch(environment) | OutboxTarget::EnvBranch { environment, .. } => {
+                EventsError::NoBranch {
+                    org_id,
+                    environment: environment.clone(),
+                }
+            }
             // Production's store is never `None`: a missing one is an error.
             OutboxTarget::Production => EventsError::NotProvisioned { org_id },
         })

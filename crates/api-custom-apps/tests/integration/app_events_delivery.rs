@@ -34,12 +34,13 @@ use oxy_api_custom_apps::app_events::MAX_ERROR_CHARS;
 use oxy_api_custom_apps::app_events::deliveries::{
     AttemptOutcome, BODY_GONE, CRASHED, DeliveryStart, begin, finish_err, finish_ok,
 };
+use oxy_api_custom_apps::app_events::provenance::{Provenance, sign_hex};
 use oxy_api_custom_apps::app_events::relay::relay_once;
 use oxy_api_custom_apps::app_events::retention::sweep_org;
 use oxy_api_custom_apps::app_events::schema::live_revision;
 use oxy_api_custom_apps::custom_apps_publish::{OrgRef, PublishInput, publish};
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
-use oxy_custom_apps::events::{event_id, qualified_type};
+use oxy_custom_apps::events::{event_id, jsonb_text_len, qualified_type};
 use oxy_oltp::WriterRef;
 use oxy_oltp::entity::tenants::{self as oltp_tenants, Entity as OltpTenants};
 use oxy_oltp::events::{self as outbox, OutboxKey, OutboxTarget, PUBLISH_SQL};
@@ -295,6 +296,26 @@ impl Fx {
         outbox::ensure_publishable(db, self.t.org_id, &OutboxTarget::Production, &conn.role)
             .await
             .expect("ensure publishable");
+        // Signed as the host signs a row it writes (R25(c)).
+        let event_type = self.event_type();
+        let mac = sign_hex(
+            self.t.org_id,
+            &Provenance {
+                id,
+                environment: "production",
+                event_type: &event_type,
+                key,
+                writer_role: &conn.role,
+                actor: Some("user:ada"),
+                root_id: root.unwrap_or(id),
+                causation_id: None,
+                depth: 0,
+                delay_seconds: 0,
+                data_bytes: jsonb_text_len(data) as i64,
+                schema_revision: revision,
+                invocation_id: None,
+            },
+        );
         connect(&conn.dsn)
             .await
             .query_one(
@@ -312,6 +333,7 @@ impl Fx {
                     &0i32,
                     &None::<Uuid>,
                     &0i32,
+                    &mac,
                 ],
             )
             .await

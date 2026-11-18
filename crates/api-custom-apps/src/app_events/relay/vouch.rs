@@ -12,6 +12,13 @@
 //!   production, another app's sandbox, one on an OLTP branch of its own, a
 //!   name that is no environment — is stored as staging's, the branch's own
 //!   environment, with a relay error, and never delivered.
+//! - **A sandbox's own branch** (its planes' `oltp` is `branch` or `empty`)
+//!   holds that one sandbox's events: a row its app wrote claiming that
+//!   sandbox. Anything else — staging, production, another sandbox, another
+//!   app's row — is stored as that sandbox's with a relay error, and never
+//!   delivered.
+//!
+//! Which store an environment's events wait in is `app_events::stores`'.
 //!
 //! A branch is a copy of production, so it starts with production's rows: one
 //! still waiting when the branch was cut claims `production` and is refused
@@ -34,18 +41,6 @@ const BRANCH_HOME: &str = "staging";
 /// The environment an event is stored in, and why the row's own claim was
 /// refused, when it was.
 pub(crate) type Vouched = (String, Option<String>);
-
-/// The store `environment`'s events wait in: production's for production,
-/// and the branch hosting it for staging and every sandbox. `None` for a name
-/// that is no environment, whose outbox nothing reads.
-pub(crate) fn relayed_store(environment: &str) -> Option<OutboxTarget> {
-    match AppEnvironment::parse(environment)? {
-        AppEnvironment::Production => Some(OutboxTarget::Production),
-        AppEnvironment::Staging | AppEnvironment::Dev { .. } => {
-            Some(OutboxTarget::Branch(environment.to_string()))
-        }
-    }
-}
 
 /// What a store vouches for, asked once per `(app, claimed environment)` in a
 /// pass.
@@ -71,8 +66,16 @@ impl<'a> Vouch<'a> {
         app: &apps::Model,
         claimed: &str,
     ) -> Result<Vouched, DbErr> {
-        if *self.target == OutboxTarget::Production {
-            return Ok(production(claimed));
+        match self.target {
+            OutboxTarget::Production => return Ok(production(claimed)),
+            OutboxTarget::EnvBranch {
+                app_id,
+                environment,
+            } => {
+                let home = (*app_id, environment.as_str());
+                return Ok(own_branch(home, (app.id, &app.slug), claimed));
+            }
+            OutboxTarget::Branch(_) => {}
         }
         let key = (app.id, claimed.to_string());
         if let Some(vouched) = self.seen.get(&key) {
@@ -94,6 +97,30 @@ pub(crate) fn production(claimed: &str) -> Vouched {
         )
     });
     (PRODUCTION.to_string(), refused)
+}
+
+/// A sandbox's own branch, `home` (the app whose sandbox it is, and the
+/// sandbox): the row's own claim when it is exactly that sandbox, written by
+/// that app; the sandbox's otherwise, refused. The branch is a copy of
+/// production at its cut (or production's structure), so a production row
+/// waiting then is refused here, never delivered twice.
+fn own_branch(home: (Uuid, &str), writer: (Uuid, &str), claimed: &str) -> Vouched {
+    let ((owner, sandbox), (app_id, slug)) = (home, writer);
+    if app_id == owner && claimed == sandbox {
+        return (claimed.to_string(), None);
+    }
+    let refused = if app_id == owner {
+        format!(
+            "published to {slug}'s own OLTP branch for {sandbox} claiming environment \
+             `{claimed}`; a sandbox's own branch holds that sandbox's events only"
+        )
+    } else {
+        format!(
+            "published by {slug} to another app's own OLTP branch for {sandbox}, claiming \
+             environment `{claimed}`; a sandbox's own branch holds that sandbox's events only"
+        )
+    };
+    (sandbox.to_string(), Some(refused))
 }
 
 /// The staging branch: the row's own claim when it is staging or, as
@@ -166,21 +193,27 @@ mod tests {
         }
     }
 
-    /// R28 reversed: every environment's store is relayed — production's,
-    /// and the staging branch for staging and the sandboxes — and a name that
-    /// is no environment has none.
+    /// A sandbox's own branch holds that sandbox's events only: a row its
+    /// app wrote claiming it stands; one claiming any other environment, or
+    /// written by another app, is the sandbox's, refused.
     #[test]
-    fn every_environment_has_a_store_to_relay() {
-        assert_eq!(relayed_store("production"), Some(OutboxTarget::Production));
-        for environment in ["staging", "dev-a1b2c3"] {
-            assert_eq!(
-                relayed_store(environment),
-                Some(OutboxTarget::Branch(environment.to_string())),
-                "{environment}"
-            );
+    fn a_sandbox_branch_vouches_for_its_own_sandbox_only() {
+        let owner = Uuid::from_u128(1);
+        let home = (owner, "dev-x");
+        assert_eq!(
+            own_branch(home, (owner, "locations"), "dev-x"),
+            ("dev-x".into(), None)
+        );
+        for claimed in ["staging", "production", "dev-y", ""] {
+            let (environment, error) = own_branch(home, (owner, "locations"), claimed);
+            assert_eq!(environment, "dev-x", "{claimed:?}");
+            let error = error.unwrap_or_else(|| panic!("{claimed:?} is refused"));
+            assert!(error.contains(&format!("`{claimed}`")), "{error}");
         }
-        for nothing in ["Production", "dev-", "dev-UPPER", "", "nowhere"] {
-            assert_eq!(relayed_store(nothing), None, "{nothing:?}");
-        }
+        let other = (Uuid::from_u128(2), "billing");
+        let (environment, error) = own_branch(home, other, "dev-x");
+        assert_eq!(environment, "dev-x");
+        let error = error.expect("another app's row is refused");
+        assert!(error.contains("billing"), "{error}");
     }
 }

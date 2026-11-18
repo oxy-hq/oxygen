@@ -14,10 +14,11 @@
 //!
 //! 1. claims up to [`BATCH`] waiting rows in the org's store (`FOR UPDATE
 //!    SKIP LOCKED`, so two relays never hold the same row);
-//! 2. reads each row: the app its writer role belongs to, the environment the
-//!    store vouches for, the event's id derived again from those, and whether
-//!    that environment's live build declares the event and the schema
-//!    revision it was published against is one recorded for it;
+//! 2. reads each row: the app its writer role belongs to, whether its
+//!    provenance MAC is the host's over its fields, the environment the store
+//!    vouches for, the event's id derived again from those, and whether that
+//!    environment's live build declares the event and the schema revision it
+//!    was published against is one recorded for it;
 //! 3. in **one platform transaction**, stores each event (`ON CONFLICT (id) DO
 //!    NOTHING`) and, for one it stored without a relay error, inserts a
 //!    delivery per listener, queuing an `app_function` task (trigger `event`)
@@ -26,7 +27,8 @@
 //! 5. marks the rows relayed in the outbox (`relayed_at`), where they stay as
 //!    the bodies' log. A row no stored event points at — its writer is no
 //!    app, or the event is stored under another id or another writer's row —
-//!    is deleted instead: nothing would ever read its body.
+//!    is deleted instead: nothing would ever read its body. Unless it was
+//!    quarantined for its provenance: that body is kept.
 //!
 //! A crash between 4 and 5 relays the rows again, and step 3's conflict makes
 //! that a no-op: an event already stored gets no second delivery.
@@ -41,6 +43,13 @@
 //! stored as staging's with `relay_error` set. A non-production delivery whose
 //! environment is not taking events is held (§6.7).
 //!
+//! **Nor a row the host did not sign** (R25(c), [`super::provenance`]). App
+//! SQL can call `oxy_events.publish` itself, around every check the host
+//! makes; the host signs each row it writes with the org's key, which never
+//! enters the store. A row whose MAC is missing or does not match its fields
+//! is stored with `relay_error` `unverified_provenance`, delivered to nobody,
+//! and its body kept; each pass logs how many, never a body.
+//!
 //! **Nor the row's id.** App SQL can call `oxy_events.publish` directly, so an
 //! event is stored under the id the relay derives itself (§6.1: org, the
 //! environment above, the type of the writer's own app, the row's key). A row
@@ -49,7 +58,8 @@
 //! another app's event before it is published.
 //!
 //! **Nor the payload's size.** A row whose payload is over
-//! [`MAX_PAYLOAD_BYTES`], measured in the store as `jsonb` text, is stored with
+//! [`MAX_PAYLOAD_BYTES`](oxy_custom_apps::events::MAX_PAYLOAD_BYTES), measured
+//! in the store as `jsonb` text, is stored with
 //! `relay_error` and its size, and is never delivered. The host measures a
 //! publish the same way
 //! ([`jsonb_text_len`](oxy_custom_apps::events::jsonb_text_len)) and the
@@ -81,11 +91,18 @@
 //! scale-to-zero store with nothing waiting is left asleep, and an org whose
 //! app SQL wrote a row without a publish is relayed by its next publish.
 //!
-//! **Every environment's store is relayed** (Task 17): production's, and the
-//! staging branch for staging and the sandboxes. A pass for a branch
-//! environment in an org with no branch finds no store and drains its mark:
-//! nothing was ever published there. A pass for a name that is no
-//! environment does nothing and succeeds.
+//! **Every environment's store is relayed** (Task 17): production's, the
+//! staging branch for staging and the schema sandboxes, and each sandbox's own
+//! OLTP branch (its planes' `oltp` is `branch` or `empty`): a pass for a
+//! sandbox claims from the staging branch and from every own branch of that
+//! name in the org (`app_events::stores`). A store the org does not have (no
+//! staging branch; a sandbox's branch gone with its teardown) holds nothing,
+//! so a pass that finds none drains its mark: it never retries a store that
+//! is gone. One that fails (an own branch whose credential is unreadable, say)
+//! holds up no other: the pass relays every other store, then fails naming
+//! each that did, and leaves the mark due, never settled, so the sweep
+//! retries. A pass for a name that is no environment does nothing and
+//! succeeds.
 //!
 //! **Inert while the org's `app_events` flag is off:** a pass relays nothing
 //! and touches no store, and the sweep passes the org by.
@@ -105,18 +122,14 @@ use agentic_pipeline::scheduler::{ScheduleError, enqueue_app_function_task_at};
 use agentic_runtime::crud::{TaskScope, enqueue_task, insert_run};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use entity::{app_environments, app_event_deliveries, app_event_schemas, app_events, apps};
+use chrono::Utc;
+use entity::{app_environments, app_event_deliveries, app_events, apps};
 use futures::FutureExt;
 use oxy_app_core::custom_app_environment::AppEnvironmentKind;
 use oxy_custom_apps::calls::SendTarget;
-use oxy_custom_apps::events::{
-    MAX_DELAY_SECS, MAX_PAYLOAD_BYTES, OxyEvent, event_id, qualified_type,
-};
+use oxy_custom_apps::events::{MAX_DELAY_SECS, OxyEvent};
 use oxy_oltp::entity::roles::{self as oltp_roles, WriterKind};
-use oxy_oltp::events::{
-    self as outbox, EventsError, OutboxClaim, OutboxKey, OutboxRow, OutboxTarget,
-};
+use oxy_oltp::events::{OutboxKey, OutboxRow, OutboxTarget};
 use oxy_oltp::schema::app_writer_name;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
@@ -130,9 +143,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::envelope::{event_dataschema, event_source};
 use super::marks;
-use super::schema::live_revision;
+use super::stores::is_relayed;
 use super::subscriptions::{Listener, listeners};
 use super::table_watch;
 use crate::custom_apps_functions::function_task_policy;
@@ -142,7 +154,13 @@ use oxy_custom_apps::events::table::is_table_event_type;
 // Which store an environment's events wait in, and what a store vouches for.
 mod vouch;
 use vouch::Vouch;
-pub(crate) use vouch::relayed_store;
+// A claimed row read as the event to store, and why it is refused.
+mod read;
+use read::{EventSchemas, read_row};
+// One pass over every store of an environment's outbox, and its mark.
+mod pass;
+use pass::drained;
+pub use pass::relay_once;
 
 /// The `TaskSpec::Custom` kind, and the run's `source_type`.
 pub const RELAY_KIND: &str = "app_events_relay";
@@ -324,139 +342,6 @@ pub(crate) async fn run_workspace(
     row.map(|r| r.try_get("", "project_id")).transpose()
 }
 
-/// Relay one batch of `org_id`'s `environment` outbox, in the order the
-/// module docs give. A name that is no environment, or an org with
-/// `app_events` off, is nothing to do: `Ok` with empty stats, never a failed
-/// run, and no connection to the store. A branch environment in an org with
-/// no branch drains its mark the same way.
-pub async fn relay_once(
-    db: &DatabaseConnection,
-    org_id: Uuid,
-    environment: &str,
-) -> Result<RelayStats, String> {
-    let Some(target) = relayed_store(environment) else {
-        tracing::debug!(%org_id, environment, "app events: this environment's outbox is not relayed");
-        return Ok(RelayStats::default());
-    };
-    if !super::enabled_for(org_id) {
-        // Inert: the rows wait, the store is not touched.
-        tracing::debug!(%org_id, environment, "app events: off for this org; nothing relayed");
-        return Ok(RelayStats::default());
-    }
-    // On the platform's clock, which a publish's mark is on too.
-    let started = marks::platform_now(db).await.map_err(|e| e.to_string())?;
-    let Some(claim) = claim_store(db, org_id, &target).await? else {
-        // No such branch: nothing was ever published to it.
-        settle(db, org_id, environment, started, None).await;
-        return Ok(RelayStats::default());
-    };
-    // Read from the claim's own snapshot, taken with it: nothing to fail later.
-    let left = claim.oldest_left_waiting();
-    if claim.rows().is_empty() {
-        // Nothing waiting, or another relay holds it all.
-        claim.release().await.map_err(|e| e.to_string())?;
-        settle(db, org_id, environment, started, left).await;
-        return Ok(RelayStats::default());
-    }
-    let full = claim.rows().len() as i64 >= BATCH;
-    let relayed = match relay_rows(db, org_id, &target, claim.rows()).await {
-        Ok(relayed) => relayed,
-        Err(e) => {
-            let _ = claim.release().await;
-            retry_later(db, org_id, environment).await;
-            return Err(e);
-        }
-    };
-    if let Err(e) = claim.mark_relayed_and_commit(&relayed.discard).await {
-        retry_later(db, org_id, environment).await;
-        return Err(format!(
-            "{e}; the events are stored, so the next relay of these rows adds nothing"
-        ));
-    }
-    let stats = relayed.stats;
-    if full {
-        // More may be waiting: drain it now rather than at the next sweep.
-        if let Err(e) = enqueue_relay(db, org_id, environment).await {
-            tracing::warn!(%org_id, environment, error = %e, "could not queue the next relay");
-        }
-    }
-    settle(db, org_id, environment, started, left).await;
-    Ok(stats)
-}
-
-/// Claim a batch of `target`'s waiting rows; `None` when `target` is a branch
-/// the org does not have.
-async fn claim_store(
-    db: &DatabaseConnection,
-    org_id: Uuid,
-    target: &OutboxTarget,
-) -> Result<Option<OutboxClaim>, String> {
-    match outbox::claim(db, org_id, target, BATCH).await {
-        Ok(claim) => Ok(Some(claim)),
-        Err(EventsError::NoBranch { .. }) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// After a pass that began claiming at `started` succeeded: bring the mark up
-/// to what is still waiting. Only a successful pass does — a failing one never
-/// moves the wait (`retry_later`).
-///
-/// - **Its claim left nothing waiting** (`left` is `None`, read in the claim
-///   statement's own snapshot): everything committed before it began is
-///   relayed, so the outbox is drained as of `started` ([`marks::mark_drained`];
-///   a publish since keeps the mark due, its wait moved up to `started`).
-/// - **It left rows** — held by another pass (passes overlap: `enqueue_relay`
-///   dedupes queued tasks only), or past a full batch: the mark stays due, and
-///   its wait follows the oldest row actually waiting
-///   ([`marks::move_wait_up`] to `started` less that row's age, measured in
-///   the store). So overlapping passes under steady publishing never pin the
-///   wait, while a hung holder's row, or a backlog the relay cannot keep up
-///   with, keeps ageing and trips the stale alarm.
-///
-/// A failure only leaves the mark as it was: the sweep queues one more pass.
-async fn settle(
-    db: &DatabaseConnection,
-    org_id: Uuid,
-    environment: &str,
-    started: DateTime<Utc>,
-    left: Option<std::time::Duration>,
-) {
-    let marked = match left {
-        None => marks::mark_drained(db, org_id, environment, started).await,
-        Some(age) => {
-            let since = chrono::Duration::from_std(age)
-                .ok()
-                .and_then(|age| started.checked_sub_signed(age))
-                .unwrap_or(DateTime::<Utc>::MIN_UTC);
-            marks::move_wait_up(db, org_id, environment, since).await
-        }
-    };
-    if let Err(e) = marked {
-        tracing::warn!(%org_id, environment, error = %e, "app events: could not mark the outbox after a pass");
-    }
-}
-
-/// Mark `org_id`'s `environment` outbox drained as of `now`, for the sweep's
-/// mark whose org has no app: nothing in its outbox could be stored. A failure
-/// only leaves the mark due.
-async fn drained(db: &DatabaseConnection, org_id: Uuid, environment: &str, now: DateTime<Utc>) {
-    if let Err(e) = marks::mark_drained(db, org_id, environment, now).await {
-        tracing::warn!(%org_id, environment, error = %e, "app events: could not mark the outbox drained");
-    }
-}
-
-/// A pass that failed leaves its rows waiting: reopen the mark
-/// ([`marks::reopen`], published now), so the sweep queues another pass even
-/// if a concurrent one (which skipped the rows this one held, and so began
-/// before this failure) marks it drained. The wait the alarm measures
-/// (`pending_since`) goes on.
-async fn retry_later(db: &DatabaseConnection, org_id: Uuid, environment: &str) {
-    if let Err(e) = marks::reopen(db, org_id, environment).await {
-        tracing::warn!(%org_id, environment, error = %e, "app events: could not mark the outbox for a retry");
-    }
-}
-
 /// What [`relay_rows`] made of a claimed batch.
 pub(crate) struct Relayed {
     pub(crate) stats: RelayStats,
@@ -500,27 +385,21 @@ pub(crate) async fn relay_rows(
             discard.push(row.key());
             continue;
         };
-        let (environment, wrong_environment) = vouch
+        let vouched = vouch
             .environment(&app, &row.environment)
             .await
             .map_err(failed)?;
-        let key = (app.id, environment.clone(), row.name.clone());
+        let key = (app.id, vouched.0.clone(), row.name.clone());
         let send = SendTarget::parse(&row.name);
         if send.is_none() && !schemas.contains_key(&key) {
-            let found = EventSchemas::read(db, app.id, &environment, &row.name)
+            let found = EventSchemas::read(db, app.id, &vouched.0, &row.name)
                 .await
                 .map_err(failed)?;
             schemas.insert(key.clone(), found);
         }
         let mut event = match &send {
-            Some(_) => read_row(
-                &app,
-                row,
-                environment,
-                wrong_environment,
-                &EventSchemas::directed(),
-            ),
-            None => read_row(&app, row, environment, wrong_environment, &schemas[&key]),
+            Some(_) => read_row(&app, row, vouched, &EventSchemas::directed()),
+            None => read_row(&app, row, vouched, &schemas[&key]),
         };
         if let (Some(target), None) = (&send, &event.relay_error) {
             match super::directed::resolve(db, org_id, &event.envelope.environment, &app, target)
@@ -535,14 +414,52 @@ pub(crate) async fn relay_rows(
     }
     let (mut stats, points_here) = store_and_fan_out(db, &events, None).await.map_err(failed)?;
     stats.rejected += dropped;
-    // A row is its event's body only when the event is stored under the
-    // row's own id and writer; any other row's body is never read.
-    for ((row, event), points_here) in sources.into_iter().zip(&events).zip(points_here) {
-        if row.id != event.envelope.id || !points_here {
-            discard.push(row.key());
-        }
-    }
+    log_quarantined(org_id, target, &events);
+    discard.extend(unread_bodies(&sources, &events, &points_here));
     Ok(Relayed { stats, discard })
+}
+
+/// The rows of `sources` whose body no stored event reads, which the claim
+/// deletes: a row is its event's body only when the event is stored under
+/// the row's own id and writer. Never a row quarantined for its provenance
+/// (R25(c)), whose body is kept for whoever looks into it; retention's
+/// orphan pass deletes it in time.
+fn unread_bodies(
+    sources: &[&OutboxRow],
+    events: &[RelayedEvent],
+    points_here: &[bool],
+) -> Vec<OutboxKey> {
+    sources
+        .iter()
+        .zip(events)
+        .zip(points_here)
+        .filter(|((row, event), points_here)| {
+            !unverified(event) && (row.id != event.envelope.id || !**points_here)
+        })
+        .map(|((row, _), _)| row.key())
+        .collect()
+}
+
+fn unverified(event: &RelayedEvent) -> bool {
+    event
+        .relay_error
+        .as_deref()
+        .is_some_and(super::provenance::is_unverified)
+}
+
+/// Log how many of `events`, read from `target`, were quarantined for their
+/// provenance: the count, never a body (the relay holds none).
+fn log_quarantined(org_id: Uuid, target: &OutboxTarget, events: &[RelayedEvent]) {
+    let quarantined = events.iter().filter(|e| unverified(e)).count();
+    if quarantined > 0 {
+        tracing::warn!(
+            %org_id,
+            store = ?target,
+            quarantined,
+            "app events: quarantined outbox rows whose provenance did not verify \
+             (unverified_provenance)"
+        );
+    }
 }
 
 /// The app whose writer role is `role`, read once per pass.
@@ -598,136 +515,6 @@ async fn writer_app(
         .filter(apps::Column::Slug.eq(slug))
         .one(db)
         .await
-}
-
-/// What the platform holds for one event name of one app.
-struct EventSchemas {
-    /// Whether the environment's live build declares the name.
-    declared: bool,
-    /// Every revision recorded for it, in any environment.
-    revisions: Vec<app_event_schemas::Model>,
-    /// A `ctx.apps.send`: nothing to declare, no revision to find.
-    directed: bool,
-}
-
-impl EventSchemas {
-    /// What a directed event is read against: it has no catalogue entry and
-    /// no schema revision, so neither can be missing.
-    fn directed() -> Self {
-        Self {
-            declared: true,
-            revisions: Vec::new(),
-            directed: true,
-        }
-    }
-
-    async fn read(
-        db: &DatabaseConnection,
-        app_id: Uuid,
-        environment: &str,
-        name: &str,
-    ) -> Result<Self, DbErr> {
-        Ok(Self {
-            declared: live_revision(db, app_id, environment, name)
-                .await?
-                .is_some(),
-            revisions: app_event_schemas::Entity::find()
-                .filter(app_event_schemas::Column::AppId.eq(app_id))
-                .filter(app_event_schemas::Column::EventName.eq(name))
-                .all(db)
-                .await?,
-            directed: false,
-        })
-    }
-}
-
-/// The size of `row`'s payload when it is over [`MAX_PAYLOAD_BYTES`]: its
-/// `jsonb` text length, as the claim read it from the store (and as the host
-/// measures a publish), never the body itself.
-fn oversized(row: &OutboxRow) -> Option<usize> {
-    let bytes = usize::try_from(row.data_bytes).unwrap_or(0);
-    (bytes > MAX_PAYLOAD_BYTES).then_some(bytes)
-}
-
-/// Row `row` of `app` as the event to store, in `environment` and under the
-/// id derived from it (§6.1). Refused, in this order: for `wrong_environment`;
-/// when the row's own id is not that id; when its payload is over
-/// [`MAX_PAYLOAD_BYTES`]; when the environment's live build declares no such
-/// event; when the revision it was published against is not one recorded for
-/// it. The body is never read: the envelope's `data` is `null`.
-fn read_row(
-    app: &apps::Model,
-    row: &OutboxRow,
-    environment: String,
-    wrong_environment: Option<String>,
-    schemas: &EventSchemas,
-) -> RelayedEvent {
-    let event_type = qualified_type(&app.slug, &row.name);
-    let id = event_id(app.org_id, &environment, &event_type, &row.key);
-    let revision = row
-        .schema_revision
-        .and_then(|r| schemas.revisions.iter().find(|s| s.id == r));
-    let oversized = oversized(row);
-    let relay_error = wrong_environment
-        .or_else(|| {
-            (row.id != id).then(|| {
-                format!(
-                    "published under id {}, which is not the id of `{event_type}` key `{}` in \
-                     {environment}",
-                    row.id, row.key
-                )
-            })
-        })
-        .or_else(|| {
-            oversized.map(|bytes| {
-                format!(
-                    "the payload is {bytes} bytes as jsonb text, over the \
-                     {MAX_PAYLOAD_BYTES}-byte limit"
-                )
-            })
-        })
-        .or_else(|| {
-            (!schemas.declared).then(|| {
-                format!(
-                    "{environment}'s build of {} declares no event `{}`",
-                    app.slug, row.name
-                )
-            })
-        })
-        .or_else(|| {
-            (revision.is_none() && !schemas.directed).then(|| {
-                format!("published against a schema revision recorded for no `{event_type}`")
-            })
-        });
-    RelayedEvent {
-        envelope: OxyEvent {
-            specversion: "1.0".to_string(),
-            id,
-            dataschema: event_dataschema(&event_type, revision.map(|r| r.revision)),
-            event_type,
-            source: event_source(&app.slug),
-            time: row.created_at,
-            // The body stays in the org's store.
-            data: Value::Null,
-            key: row.key.clone(),
-            environment,
-            invocation: row.invocation_id,
-            actor: row.actor.clone(),
-            causationid: row.causation_id,
-            rootid: row.root_id,
-            depth: row.depth,
-        },
-        org_id: app.org_id,
-        workspace_id: app.project_id,
-        source_app_id: Some(app.id),
-        writer_role: row.writer_role.clone(),
-        data_bytes: row.data_bytes,
-        schema_revision_id: row.schema_revision,
-        delay_seconds: row.delay_seconds,
-        relay_error,
-        directed: None,
-        only_listener: None,
-    }
 }
 
 /// Step 3 and 4: store `events` and fan each new one out to its listeners in
@@ -1035,7 +822,7 @@ pub async fn sweep_once(db: &DatabaseConnection) -> Result<SweepReport, DbErr> {
     let mut report = SweepReport::default();
     for due in marks::due(db, SETTLE, STALE_AFTER).await? {
         let (org_id, environment) = (due.org_id, due.environment.as_str());
-        if relayed_store(environment).is_none() || !super::enabled_for(org_id) {
+        if !is_relayed(environment) || !super::enabled_for(org_id) {
             continue;
         }
         if due.waited > STALE_AFTER {

@@ -30,7 +30,7 @@ use crate::schema::{SchemaError, analyst_role_for, validate_name};
 ///
 /// Recorded on `oltp_tenants.platform_schema_version`. A tenant below this is
 /// reconciled the next time anything touches it.
-pub const PLATFORM_SCHEMA_VERSION: i32 = 5;
+pub const PLATFORM_SCHEMA_VERSION: i32 = 6;
 
 /// Table recording which workspace migrations a tenant has applied.
 ///
@@ -95,9 +95,23 @@ pub const EVENT_MAX_KEY_CHARS: i32 = 200;
 pub const EVENT_MAX_DATA_TEXT_BYTES: i64 = 65_536;
 
 /// The definer function writers publish through, by its full signature — the
-/// form `GRANT` and `REVOKE` name it by.
+/// form `GRANT` and `REVOKE` name it by. Platform step 6's: the twelve
+/// arguments step 5 took, then the host's provenance MAC.
 pub const EVENTS_PUBLISH_FUNCTION: &str =
+    "oxy_events.publish(uuid,text,text,text,jsonb,uuid,text,uuid,uuid,int,uuid,int,bytea)";
+
+/// The definer function as platform step 5 created it, without the
+/// provenance MAC. Step 6 drops it, so a server still calling it fails
+/// rather than writing a row nothing signed.
+pub(crate) const EVENTS_PUBLISH_FUNCTION_V5: &str =
     "oxy_events.publish(uuid,text,text,text,jsonb,uuid,text,uuid,uuid,int,uuid,int)";
+
+/// The length of the provenance MAC the definer function takes and stores
+/// (`HMAC-SHA256`), and the only length it accepts.
+pub const EVENT_PROVENANCE_BYTES: i32 = 32;
+
+// The events outbox's later steps.
+mod outbox;
 
 /// One versioned change to the Oxy-owned state of a tenant database.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -312,10 +326,11 @@ BEGIN
 END
 $$"
                 ),
-                format!("REVOKE ALL ON FUNCTION {EVENTS_PUBLISH_FUNCTION} FROM PUBLIC"),
+                format!("REVOKE ALL ON FUNCTION {EVENTS_PUBLISH_FUNCTION_V5} FROM PUBLIC"),
                 format!("REVOKE ALL ON SCHEMA {EVENTS_SCHEMA} FROM {analyst}"),
             ],
         },
+        outbox::provenance_step(),
     ])
 }
 
@@ -448,9 +463,14 @@ mod tests {
     #[test]
     fn the_outbox_is_written_only_through_the_definer_function() {
         // A shared-cluster provider, so the analyst revoked is the qualified
-        // one that serves queries, not the bare decoy.
-        let sql = statements_since(4, "local", "oxy_org_x")
+        // one that serves queries, not the bare decoy. Step 5 alone: step 6
+        // replaces its function (`platform::outbox`).
+        let sql = steps_since(4, "local", "oxy_org_x")
             .unwrap()
+            .into_iter()
+            .filter(|step| step.version == 5)
+            .flat_map(|step| step.statements)
+            .collect::<Vec<_>>()
             .join("; ");
         assert!(
             sql.contains("CREATE SCHEMA IF NOT EXISTS oxy_events"),

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use futures::FutureExt as _;
 use oxy_api_custom_apps::app_events::marks;
-use oxy_api_custom_apps::app_events::relay::RELAY_KIND;
+use oxy_api_custom_apps::app_events::relay::{RELAY_KIND, RelayStats, relay_once};
 use oxy_api_custom_apps::app_events::schema::live_revision;
 use oxy_api_custom_apps::custom_apps_functions::InvocationIdentity;
 use oxy_api_custom_apps::custom_apps_functions::env_policy::EnvPolicy;
@@ -561,6 +561,76 @@ async fn publish_outside_a_tx_writes_one_outbox_row_and_queues_a_relay() {
                 .starts_with(&format!("{RELAY_KIND}:{}:production:", p.org())),
             "{relays:?}"
         );
+    })
+    .await;
+}
+
+/// R25(c): the host signs every row it writes — outside a transaction and on
+/// a `ctx.oltp.tx` handle, a handler's chained publish included — so each
+/// relays as before: stored without a relay error, none quarantined.
+#[tokio::test]
+async fn a_host_publish_is_signed_and_relays() {
+    with_publisher(Publisher::new, |p| async move {
+        let out = p
+            .drive(vec![
+                publish_step(EVENT, order(1), json!({ "key": "outside" })),
+                json!({
+                    "kind": "txPublish",
+                    "note": 2,
+                    "type": EVENT,
+                    "data": order(2),
+                    "opts": { "key": "on-handle", "delaySeconds": 5 },
+                }),
+            ])
+            .await;
+        for step in &out {
+            outcome(step).expect("the publish succeeds");
+        }
+        // A publish made while handling an event: the cause's chain is the
+        // host's, and signed with it.
+        let project = workspace(&duck("events")).await;
+        let cause = EventCause {
+            id: Uuid::new_v4(),
+            event_type: format!("orders/{EVENT}"),
+            actor: Some("user-9".into()),
+            root_id: Uuid::new_v4(),
+            depth: 3,
+        };
+        let host = p.host(&project, Uuid::new_v4(), Some(cause));
+        host.events(
+            "publish".into(),
+            json!({ "type": EVENT, "data": order(3), "key": "chained" }),
+        )
+        .await
+        .expect("the chained publish");
+        let rows = p.outbox().await;
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert!(
+            rows.iter()
+                .all(|r| r.provenance.as_ref().is_some_and(|m| m.len() == 32)),
+            "every row carries the host's MAC: {rows:?}"
+        );
+
+        let stats = relay_once(&p.t.db, p.org(), "production")
+            .await
+            .expect("relay");
+        assert_eq!(
+            stats,
+            RelayStats {
+                relayed: 3,
+                deliveries: 0,
+                rejected: 0
+            }
+        );
+        let events = entity::app_events::Entity::find()
+            .filter(entity::app_events::Column::OrgId.eq(p.org()))
+            .all(&p.t.db)
+            .await
+            .expect("read the events");
+        assert_eq!(events.len(), 3, "{events:?}");
+        for event in &events {
+            assert_eq!(event.relay_error, None, "{event:?}");
+        }
     })
     .await;
 }

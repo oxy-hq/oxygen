@@ -19,7 +19,7 @@ use crate::env_schedules::run_spec;
 
 impl Fx {
     /// `app`'s one delivery, if it has one.
-    async fn delivery_to(&self, app: Uuid) -> Option<deliveries::Model> {
+    pub(super) async fn delivery_to(&self, app: Uuid) -> Option<deliveries::Model> {
         let mut found: Vec<_> = self
             .deliveries()
             .await
@@ -31,7 +31,7 @@ impl Fx {
     }
 
     /// The delivery's queued task, by its `run_id`: what a worker claims.
-    async fn task(&self, delivery: &deliveries::Model) -> Value {
+    pub(super) async fn task(&self, delivery: &deliveries::Model) -> Value {
         let run_id = delivery.run_id.clone().expect("a pending delivery's run");
         let row = self
             .t
@@ -48,13 +48,13 @@ impl Fx {
     }
 
     /// Run the delivery's task once through the production executor.
-    async fn run(&self, delivery: &deliveries::Model) -> TaskOutcome {
+    pub(super) async fn run(&self, delivery: &deliveries::Model) -> TaskOutcome {
         let spec: TaskSpec =
             serde_json::from_value(self.task(delivery).await).expect("a task spec");
         run_spec(&self.t.db, spec).await
     }
 
-    async fn reload(&self, delivery: &deliveries::Model) -> deliveries::Model {
+    pub(super) async fn reload(&self, delivery: &deliveries::Model) -> deliveries::Model {
         deliveries::Entity::find_by_id(delivery.id)
             .one(&self.t.db)
             .await

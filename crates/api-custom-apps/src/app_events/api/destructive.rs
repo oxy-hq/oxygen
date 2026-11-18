@@ -23,8 +23,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::reply::ApiError;
-use crate::app_events::relay::relayed_store;
 use crate::app_events::retention::has_a_store;
+use crate::app_events::stores::Stores;
 
 /// The audit action of a discard, and of a purge.
 pub const DISCARDED: &str = "app.events_discarded";
@@ -196,7 +196,8 @@ async fn lock_events(
         .transpose()?
         .unwrap_or(0);
     let sql = format!(
-        "SELECT id, environment, writer_role, workspace_id {filter} ORDER BY published_at, id \
+        "SELECT id, environment, writer_role, source_app_id, workspace_id {filter} \
+         ORDER BY published_at, id \
          LIMIT {PURGE_BATCH} FOR UPDATE"
     );
     let rows = txn
@@ -208,6 +209,7 @@ async fn lock_events(
         .await?;
     let mut ids = Vec::with_capacity(rows.len());
     let mut bodies: HashMap<OutboxTarget, Vec<OutboxKey>> = HashMap::new();
+    let mut stores = Stores::new(txn);
     let mut workspaces: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
     for row in rows {
         let id: Uuid = row.try_get("", "id")?;
@@ -217,7 +219,8 @@ async fn lock_events(
             .entry(row.try_get("", "workspace_id")?)
             .or_default()
             .push(id);
-        if let Some(target) = relayed_store(&environment) {
+        let source_app: Option<Uuid> = row.try_get("", "source_app_id")?;
+        if let Some(target) = stores.of(source_app, &environment).await? {
             bodies.entry(target).or_default().push(OutboxKey {
                 writer_role: row.try_get("", "writer_role")?,
                 id,

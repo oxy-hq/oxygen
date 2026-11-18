@@ -3,13 +3,16 @@
 //! the type in the environment published in the window that it has none of —
 //! **retained events only**: the window starts no earlier than retention
 //! does, and an event whose body is no longer in the org's store is skipped
-//! and counted (`skippedBodyGone`). Each candidate's body is read to know it
-//! is kept, so a call takes at most [`BATCH`]; a store that cannot be reached
-//! answers `503` with nothing written.
+//! and counted (`skippedBodyGone`). Whether each candidate's body is kept is
+//! asked once per store its candidates' bodies are in (`existing_bodies`, no
+//! body read), and a call takes at most [`BATCH`]; a store that cannot be
+//! reached answers `503` with nothing written.
+
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 use entity::{app_event_deliveries as deliveries, app_events};
-use oxy_oltp::events::{EventsError, read_body};
+use oxy_oltp::events::{EventsError, OutboxKey, OutboxTarget, existing_bodies};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryResult, Statement, TransactionTrait,
@@ -19,8 +22,8 @@ use uuid::Uuid;
 
 use super::queue::Queuer;
 use super::reply::ApiError;
-use crate::app_events::relay::relayed_store;
 use crate::app_events::retention::RETENTION_DAYS;
+use crate::app_events::stores::Stores;
 
 /// The most events one call replays.
 const BATCH: i64 = 500;
@@ -83,7 +86,7 @@ pub(super) async fn replay(db: &DatabaseConnection, r: &Replay) -> Result<Replay
         .all(db)
         .await
         .map_err(read)?;
-    let (kept, gone) = kept_bodies(db, events).await?;
+    let (kept, gone) = kept_bodies(db, r.org_id, events).await?;
     let count = if r.dry_run {
         kept.len() as u64
     } else {
@@ -105,35 +108,59 @@ pub(super) fn floor(since: DateTime<Utc>, now: DateTime<Utc>) -> DateTime<Utc> {
     since.max(now - Duration::days(RETENTION_DAYS))
 }
 
-/// Of `events`, those whose body the org's store still keeps (publish order),
-/// and how many it does not.
+/// Of `events` (all `org_id`'s), those whose body the org's store still
+/// keeps (publish order), and how many it does not: one existence query per
+/// store their bodies are in ([`existing_bodies`], chunked), never one per
+/// event, and no body read. A store that cannot be reached answers `503`.
 async fn kept_bodies(
     db: &DatabaseConnection,
+    org_id: Uuid,
     mut events: Vec<app_events::Model>,
 ) -> Result<(Vec<app_events::Model>, u64), ApiError> {
     events.sort_by(|a, b| (a.published_at, a.id).cmp(&(b.published_at, b.id)));
-    let mut kept = Vec::new();
-    let mut gone = 0;
-    for event in events {
-        let Some(target) = relayed_store(&event.environment) else {
-            gone += 1;
-            continue;
-        };
-        match read_body(db, event.org_id, &target, &event.writer_role, event.id).await {
-            Ok(Some(_)) => kept.push(event),
-            // Gone, never readable, or no store (or branch) to hold it: no body.
-            Ok(None)
-            | Err(
-                EventsError::Undecodable(_)
-                | EventsError::NotProvisioned { .. }
-                | EventsError::NoBranch { .. },
-            ) => gone += 1,
-            Err(e @ EventsError::Store(_)) => {
+    let by_store = group_by_store(db, &events).await?;
+    let mut present = HashSet::new();
+    for (target, keys) in &by_store {
+        match existing_bodies(db, org_id, target, keys).await {
+            Ok(found) => present.extend(found),
+            // No store (or branch) to hold them: no body.
+            Err(EventsError::NotProvisioned { .. } | EventsError::NoBranch { .. }) => {}
+            Err(e @ (EventsError::Store(_) | EventsError::Undecodable(_))) => {
                 return Err(ApiError::StoreUnreachable(e.to_string()));
             }
         }
     }
-    Ok((kept, gone))
+    let (kept, gone): (Vec<_>, Vec<_>) = events
+        .into_iter()
+        .partition(|event| present.contains(&body_key(event)));
+    Ok((kept, gone.len() as u64))
+}
+
+/// The keys of `events`' bodies, by the store each is in. An event in a name
+/// that is no environment has no store, and so no body.
+async fn group_by_store(
+    db: &DatabaseConnection,
+    events: &[app_events::Model],
+) -> Result<HashMap<OutboxTarget, Vec<OutboxKey>>, ApiError> {
+    let mut stores = Stores::new(db);
+    let mut by_store: HashMap<OutboxTarget, Vec<OutboxKey>> = HashMap::new();
+    for event in events {
+        let found = stores
+            .of(event.source_app_id, &event.environment)
+            .await
+            .map_err(|e| ApiError::db("find the events' stores", e))?;
+        if let Some(target) = found {
+            by_store.entry(target).or_default().push(body_key(event));
+        }
+    }
+    Ok(by_store)
+}
+
+fn body_key(event: &app_events::Model) -> OutboxKey {
+    OutboxKey {
+        writer_role: event.writer_role.clone(),
+        id: event.id,
+    }
 }
 
 /// A pending delivery of each of `events` to the listener, its task queued,

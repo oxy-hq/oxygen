@@ -34,8 +34,9 @@ use uuid::Uuid;
 
 use super::super::envelope::TABLE_DATASCHEMA;
 use super::super::relay::{
-    CURSOR_MOVED, CursorMove, RelayStats, RelayedEvent, fan_out_with_cursor, relayed_store,
+    CURSOR_MOVED, CursorMove, RelayStats, RelayedEvent, fan_out_with_cursor,
 };
+use super::super::stores::shared_store_of;
 
 /// Why a change was not published.
 #[derive(Debug, thiserror::Error)]
@@ -72,7 +73,8 @@ fn prepare(
     data: Value,
     only_listener: Option<(Uuid, String)>,
 ) -> Result<Prepared, PublishError> {
-    let target = relayed_store(&cursor.environment).ok_or_else(|| {
+    // The platform's own event: its body goes where every app's shares.
+    let target = shared_store_of(&cursor.environment).ok_or_else(|| {
         PublishError::Failed(format!("`{}` has no relayed store", cursor.environment))
     })?;
     let event_type = table.event_type();

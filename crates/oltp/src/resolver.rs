@@ -172,6 +172,7 @@ pub async fn branch_owner_dsn(
 
 // A custom-app environment's own branch, beside the org's shared one.
 mod env_branch;
+pub(crate) use env_branch::resolve_env_branch_owner;
 pub use env_branch::{EnvBranchAccept, resolve_env_branch_writer_for_org};
 
 /// Read-only connection coordinates for a workspace's per-org OLTP database.

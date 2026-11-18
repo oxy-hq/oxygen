@@ -12,13 +12,19 @@
 //! `octet_length(data::text)`); no U+0000 in any of the payload's strings or
 //! keys, which Postgres's `text` cannot hold; the payload against the build's
 //! schema revision; the depth. Then the environment decides where the
-//! row may go — production's store, or the OLTP branch the run (or the
-//! handle) was admitted to, which hosts staging's outbox and every schema
-//! sandbox's (`EnvPolicy::outbox_target`); held or refused anywhere else,
-//! a sandbox on an OLTP branch of its own included (`oltp_guard`) — and the
+//! row may go — production's store, the OLTP branch the run (or the handle)
+//! was admitted to, which hosts staging's outbox and every schema sandbox's,
+//! or a sandbox's own OLTP branch (`EnvPolicy::outbox_target`); held or
+//! refused anywhere else (`oltp_guard`) — and the
 //! writer is resolved, then granted the definer function on that store
 //! (`ensure_publishable`, per store: a grant on production's is none on the
 //! branch).
+//!
+//! **Every row is signed** (R25(c)): once every check above has passed, the
+//! host signs the row's fields with the org's provenance key and passes the
+//! MAC as the definer's last argument (`app_events::provenance`), so the
+//! relay delivers this row and quarantines one app SQL wrote around these
+//! checks.
 //!
 //! **Nothing the caller sends names the row.** The id is derived,
 //! `event_id(org, environment, <app>/<name>, key)`, the id the relay derives
@@ -43,12 +49,17 @@
 //! environment's relay.
 //!
 //! **A grant this process remembers but the store no longer holds** — the
-//! role was re-minted and its grants went with it — is forgotten, granted
-//! again (`ensure_publishable`) and the publish tried once more. Outside a
-//! transaction that follows a publish refused `42501`, in a new transaction.
-//! On a handle a refused statement would abort the app's transaction, so the
-//! privilege is read first ([`MAY_PUBLISH_SQL`]), and the publish sent after
-//! the grant is in place and visible to the open transaction
+//! role was re-minted and its grants went with it, or a reset copied the
+//! store from a production at an older platform version, which has not the
+//! definer the host calls (or, from before the outbox, no `oxy_events`) — is
+//! forgotten, granted again (`ensure_publishable`, which brings the store
+//! current first) and the publish tried once more (`events_regrant`).
+//! Outside a transaction that follows a publish refused `42501`, `42883` or
+//! `3F000`, in a new transaction. On a handle a refused statement would abort
+//! the app's transaction, so the privilege on the current definer, by its
+//! exact signature, is read first ([`MAY_PUBLISH_SQL`]): an older definer a
+//! wound-back copy still grants does not pass for it. The publish is sent
+//! after the grant is in place and visible to the open transaction
 //! ([`SEE_NEW_GRANTS`]).
 
 use oxy_custom_apps::events::{
@@ -62,7 +73,10 @@ use oxy_oltp::events::{
 use oxy_oltp::resolver::WriterConnection;
 use serde_json::{Value, json};
 
+use crate::app_events::provenance::{self, Provenance};
+
 use super::super::env_policy::HostOp;
+use super::events_regrant::{MAY_PUBLISH_SQL, SEE_NEW_GRANTS, store_lost_the_definer_or_grant};
 use super::*;
 
 /// What a publish is refused with while the org's `app_events` flag is off.
@@ -84,23 +98,6 @@ const DELAY_INVALID: &str =
 const NOT_AN_OLTP_HANDLE: &str =
     "`id` must be a ctx.oltp.tx handle: an event is published in the app's own OLTP store";
 
-/// Whether the session's role may publish: `USAGE` on the events schema and
-/// `EXECUTE` on its definer function, read from the catalogs so the read
-/// itself never fails (naming the function would, without `USAGE`). `false`
-/// when the store has no such function.
-const MAY_PUBLISH_SQL: &str = "SELECT coalesce(bool_and(\
-     has_schema_privilege(n.oid, 'USAGE') AND has_function_privilege(p.oid, 'EXECUTE')\
-     ), false) AS may_publish \
-     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace \
-     WHERE n.nspname = 'oxy_events' AND p.proname = 'publish'";
-
-/// A read that locks a catalog no app statement touches, which makes the
-/// handle's session take in the catalog changes other sessions committed since
-/// its transaction began — the grant just made again among them. Without it
-/// the publish on the same transaction still sees the privilege as it was when
-/// the transaction first looked, and is refused.
-const SEE_NEW_GRANTS: &str = "SELECT 1 FROM pg_catalog.pg_seclabel LIMIT 0";
-
 // The host's payload limit is the definer function's: a payload the host
 // passes is one the store accepts, and so one the relay passes.
 const _: () = assert!(oxy_oltp::platform::EVENT_MAX_DATA_TEXT_BYTES as usize == MAX_PAYLOAD_BYTES);
@@ -111,6 +108,9 @@ pub(super) struct Checked {
     pub(super) key: String,
     pub(super) data: Value,
     pub(super) delay_seconds: i64,
+    /// The payload's size as `jsonb` text, as the store will report it:
+    /// signed with the row.
+    pub(super) data_bytes: usize,
     /// The schema revision of the running build's declaration, which the data
     /// was validated against. `None` for a `ctx.apps.send`, which has none.
     pub(super) revision: Option<Uuid>,
@@ -135,7 +135,7 @@ impl ProjectFunctionHost {
         let decided = self.policy.decide(host_op);
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
-        let (id, params) = self.publish_params(&checked);
+        let (id, params) = self.publish_params(&checked, &conn.role);
         self.publish_alone(&outbox, &conn, &params).await?;
         self.after_publish_commit().await;
         Ok(json!({ "eventId": id.to_string() }))
@@ -171,7 +171,7 @@ impl ProjectFunctionHost {
         let decided = self.policy.decide_on_handle(host_op, opened_into);
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
-        let (event, params) = self.publish_params(&checked);
+        let (event, params) = self.publish_params(&checked, &conn.role);
         self.publish_on_handle(&outbox, id, &conn, &params).await?;
         if let Some(audit) = self.tx_writes.lock().await.get_mut(&id) {
             audit.published = true;
@@ -256,6 +256,7 @@ impl ProjectFunctionHost {
             key,
             data,
             delay_seconds,
+            data_bytes: bytes,
             revision: Some(revision.id),
         })
     }
@@ -314,10 +315,17 @@ impl ProjectFunctionHost {
         }
     }
 
-    /// The event's id and [`PUBLISH_SQL`]'s twelve parameters, in its order:
+    /// The event's id and [`PUBLISH_SQL`]'s thirteen parameters, in its order:
     /// id, environment, name, key, data, schema revision, actor, causation id,
-    /// root id, depth, invocation id, delay seconds.
-    pub(super) fn publish_params(&self, checked: &Checked) -> (Uuid, Vec<Value>) {
+    /// root id, depth, invocation id, delay seconds, and the provenance MAC
+    /// over every one the relay trusts, the row's writer `writer_role` and
+    /// the payload's size included (`app_events::provenance`). Every check
+    /// has passed by now: the MAC is what tells the relay so.
+    pub(super) fn publish_params(
+        &self,
+        checked: &Checked,
+        writer_role: &str,
+    ) -> (Uuid, Vec<Value>) {
         let environment = self.policy.environment().name();
         let event_type = qualified_type(&self.identity.app_slug, &checked.name);
         let id = event_id(self.org_id, &environment, &event_type, &checked.key);
@@ -325,6 +333,28 @@ impl ProjectFunctionHost {
         let chain = self.chain();
         let actor = chain.actor.clone();
         let root = chain.root;
+        let causation = chain.causation;
+        let depth = self.publish_depth();
+        // Bounded by the checks: a day of seconds, and 64 KiB.
+        let delay = i32::try_from(checked.delay_seconds).unwrap_or(i32::MAX);
+        let mac = provenance::sign_hex(
+            self.org_id,
+            &Provenance {
+                id,
+                environment: &environment,
+                event_type: &event_type,
+                key: &checked.key,
+                writer_role,
+                actor: actor.as_deref(),
+                root_id: root,
+                causation_id: causation,
+                depth,
+                delay_seconds: delay,
+                data_bytes: i64::try_from(checked.data_bytes).unwrap_or(i64::MAX),
+                schema_revision: checked.revision,
+                invocation_id: Some(invocation),
+            },
+        );
         let params = vec![
             json!(id.to_string()),
             json!(environment),
@@ -335,13 +365,12 @@ impl ProjectFunctionHost {
                 .revision
                 .map_or(Value::Null, |r| json!(r.to_string())),
             actor.map_or(Value::Null, Value::String),
-            chain
-                .causation
-                .map_or(Value::Null, |id| json!(id.to_string())),
+            causation.map_or(Value::Null, |id| json!(id.to_string())),
             json!(root.to_string()),
-            json!(self.publish_depth()),
+            json!(depth),
             json!(invocation.to_string()),
-            json!(checked.delay_seconds),
+            json!(delay),
+            json!(mac),
         ];
         (id, params)
     }
@@ -377,7 +406,7 @@ impl ProjectFunctionHost {
                     // A rollback failure is moot: the dropped connection rolls
                     // back anyway, and it must not mask the real error.
                     let _ = tx.rollback().await;
-                    if regranted || !is_insufficient_privilege(&e) {
+                    if regranted || !store_lost_the_definer_or_grant(&e) {
                         return Err(definer_size_refusal(&e).unwrap_or(e));
                     }
                     self.grant_again(outbox, &conn.role).await?;
@@ -387,9 +416,10 @@ impl ProjectFunctionHost {
         }
     }
 
-    /// The publish on handle `id`'s own connection. The privilege is read
-    /// first: a grant this process remembers but the store lost is made again
-    /// before anything is sent, so a stale grant never aborts the app's
+    /// The publish on handle `id`'s own connection. The privilege on the
+    /// current definer is read first: a grant this process remembers but the
+    /// store lost, or a definer a reset took away, is made again (the store
+    /// brought current) before anything is sent, so neither aborts the app's
     /// transaction.
     async fn publish_on_handle(
         &self,
@@ -400,8 +430,11 @@ impl ProjectFunctionHost {
     ) -> Result<(), String> {
         let summary = db_query_summary(PUBLISH_SQL);
         data_audit::record_db_span(&summary, Some(&conn.schema), None);
-        let rows =
-            with_db_timeout("publish", self.transactions.query(id, MAY_PUBLISH_SQL, &[])).await?;
+        let rows = with_db_timeout(
+            "publish",
+            self.transactions.query(id, &MAY_PUBLISH_SQL, &[]),
+        )
+        .await?;
         let may_publish = rows
             .first()
             .and_then(|row| row.get("may_publish"))
@@ -464,10 +497,10 @@ impl ProjectFunctionHost {
     /// Queue a relay of this environment's outbox. The row is committed, so a
     /// failure here only delays it until the next sweep: logged, never thrown.
     /// Every environment a publish is admitted in has a relayed store:
-    /// production's, or the staging branch.
+    /// production's, the staging branch, or a sandbox's own branch.
     async fn nudge_relay(&self) {
         let environment = self.policy.environment().name();
-        if crate::app_events::relay::relayed_store(&environment).is_none() {
+        if !crate::app_events::stores::is_relayed(&environment) {
             return;
         }
         if let Err(e) =
@@ -517,12 +550,6 @@ pub(super) fn holds_nul(value: &Value) -> bool {
             .any(|(key, value)| key.contains('\0') || holds_nul(value)),
         Value::Null | Value::Bool(_) | Value::Number(_) => false,
     }
-}
-
-/// Postgres refused the statement for a missing privilege (SQLSTATE 42501),
-/// as the connector writes it (`query failed: [42501] …`).
-fn is_insufficient_privilege(error: &str) -> bool {
-    error.contains("[42501]")
 }
 
 /// The definer function's size refusal (SQLSTATE 22023, "data is N bytes as
@@ -644,16 +671,5 @@ mod tests {
             assert_eq!(kind, "bad_request", "{refusal}");
             assert!(!counts_toward_paging(kind), "{refusal}");
         }
-    }
-
-    #[test]
-    fn only_a_privilege_refusal_is_retried() {
-        assert!(is_insufficient_privilege(
-            "query failed: [42501] permission denied for function publish\nSQL: SELECT …"
-        ));
-        assert!(!is_insufficient_privilege(
-            "query failed: [23505] duplicate key value violates unique constraint"
-        ));
-        assert!(!is_insufficient_privilege("connection error: closed"));
     }
 }

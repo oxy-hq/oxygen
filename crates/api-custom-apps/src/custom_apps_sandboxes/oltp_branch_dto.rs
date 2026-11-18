@@ -82,6 +82,8 @@ mod tests {
             created_at: fork.fixed_offset(),
             last_reset_at: None,
             updated_at: fork.fixed_offset(),
+            platform_schema_version: 0,
+            platform_schema_cut_at: None,
         }
     }
 

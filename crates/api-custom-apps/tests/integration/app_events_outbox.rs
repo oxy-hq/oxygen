@@ -26,9 +26,18 @@ use tokio_postgres::error::SqlState;
 
 use crate::oltp_fx::{Fx, with_fx};
 
+// Platform step 6: the host's provenance MAC on every row (R25(c)).
+mod provenance;
+
 /// The definer function's signature, as `has_function_privilege` names it.
 const PUBLISH_FUNCTION: &str =
-    "oxy_events.publish(uuid,text,text,text,jsonb,uuid,text,uuid,uuid,int,uuid,int)";
+    "oxy_events.publish(uuid,text,text,text,jsonb,uuid,text,uuid,uuid,int,uuid,int,bytea)";
+
+/// A provenance MAC the definer stores without reading: it holds the column
+/// to 32 bytes, and only the relay checks one (`app_events_relay::provenance`).
+fn any_mac() -> String {
+    hex::encode([0u8; 32])
+}
 
 async fn connect(dsn: &str) -> tokio_postgres::Client {
     let (client, connection) = tokio_postgres::connect(dsn, tokio_postgres::NoTls)
@@ -100,6 +109,7 @@ async fn publish(
                 &0i32,
                 &None::<Uuid>,
                 &0i32,
+                &any_mac(),
             ],
         )
         .await?;
@@ -859,6 +869,7 @@ async fn publish_raw(
                 &depth,
                 &None::<Uuid>,
                 &delay_seconds,
+                &any_mac(),
             ],
         )
         .await?;

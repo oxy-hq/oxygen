@@ -33,6 +33,8 @@ mod m20260804_000001_create_oltp_tables;
 mod m20260929_000001_create_oltp_branches;
 mod m20261102_000001_create_oltp_env_branches;
 mod m20261118_000001_oltp_branch_platform_version;
+mod m20261118_000002_oltp_env_branch_platform_version;
+mod m20261118_000003_oltp_env_branch_platform_cut;
 
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::prelude::*;
@@ -54,6 +56,12 @@ impl MigratorTrait for OltpMigrator {
             // The platform version a staging branch carries, so the events
             // outbox can bring a branch cut before it current.
             Box::new(m20261118_000001_oltp_branch_platform_version::Migration),
+            // The same for a sandbox's own branch, whose outbox events now
+            // reach (app events §6.7).
+            Box::new(m20261118_000002_oltp_env_branch_platform_version::Migration),
+            // The cut that version was recorded on, so a reset by a binary
+            // that does not know the version is never trusted with it.
+            Box::new(m20261118_000003_oltp_env_branch_platform_cut::Migration),
         ]
     }
 

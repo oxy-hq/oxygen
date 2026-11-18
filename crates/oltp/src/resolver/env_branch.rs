@@ -12,7 +12,7 @@
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use super::branch::{BranchWriter, guard};
+use super::branch::{BranchOwner, BranchWriter, guard};
 use super::{ResolveError, WriterConnection, open, split_host_port};
 use crate::branches::BranchCut;
 use crate::entity::env_branches::{self, EnvBranchStatus};
@@ -109,6 +109,76 @@ pub async fn resolve_env_branch_writer_for_org(
     }))
 }
 
+/// The owner's connection to `app_id`'s `env_name` branch, for the events
+/// outbox there (a grant, the relay's claim, a body read or delete), and the
+/// cut it reaches. Never handed to app code.
+///
+/// `Ok(None)`: the environment has no branch row, or one not serving now —
+/// being cut, mid-reset or failed, whose database may be going away. A branch
+/// that serves (`ready`, or `migrating` while a publish applies its
+/// migrations) is reached; one that names production is refused, as every
+/// resolver here refuses it.
+pub(crate) async fn resolve_env_branch_owner(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    app_id: Uuid,
+    env_name: &str,
+) -> Result<Option<BranchOwner>, ResolveError> {
+    let key = EnvBranchKey {
+        org_id,
+        app_id,
+        env_name: env_name.to_string(),
+    };
+    let (tenant, row) = crate::env_branches::find_with_tenant(db, &key).await?;
+    let tenant = tenant.ok_or(ResolveError::NotProvisioned(org_id))?;
+    if tenant.status != TenantStatus::Active {
+        return Err(ResolveError::NotActive(org_id, tenant.status.as_str()));
+    }
+    let Some(row) = row else { return Ok(None) };
+    let (site, cut) = match servable(&tenant, &row, EnvBranchAccept::ReadyOrMigrating, &key) {
+        Ok(found) => found,
+        Err(ResolveError::EnvBranchNotReady { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let missing = || ResolveError::EnvBranchCredentialMissing {
+        app_id,
+        env_name: env_name.to_string(),
+        role: site.owner_role.clone(),
+    };
+    // The branch's own sealed owner password where it has one (Neon); the
+    // tenant's where branches share the tenant's roles (a local cluster).
+    let sealed = match &site.owner_password_ciphertext {
+        Some(sealed) => sealed.clone(),
+        None if schema::shares_role_namespace(&tenant.provider) => tenant
+            .owner_password_ciphertext
+            .clone()
+            .ok_or_else(missing)?,
+        None => return Err(missing()),
+    };
+    let password = open(&sealed)?;
+    Ok(Some(BranchOwner {
+        dsn: crate::provisioner::branch_dsn(&tenant.provider, &site, &site.owner_role, &password),
+        owner_role: site.owner_role.clone(),
+        platform_schema_version: version_on_cut(&row, &cut),
+        cut,
+        tenant,
+    }))
+}
+
+/// The platform version `row` records, trusted only on the cut it was
+/// recorded on, `cut` being the one the row describes now. On any other —
+/// a reset since by a binary that does not know the version, which stamps
+/// `last_reset_at` and leaves the version alone — the branch is a fresh copy
+/// of production at a version nobody read: 0, so its first touch replays
+/// every platform step, each idempotent.
+fn version_on_cut(row: &env_branches::Model, cut: &BranchCut) -> i32 {
+    if row.platform_schema_cut_at == Some(cut.cut_at) {
+        row.platform_schema_version
+    } else {
+        0
+    }
+}
+
 /// The row's site and cut, or the refusal. Production first: a row that names
 /// it is refused whatever its status, as it is the last door before a caller
 /// holds a connection.
@@ -191,6 +261,76 @@ mod tests {
         for status in [Cutting, Resetting, Failed] {
             assert!(!accept.serves(status), "{status:?}");
         }
+    }
+
+    /// A row the outbox recorded current on cut A, in the shape a cut leaves.
+    fn recorded_on(cut_at: chrono::DateTime<chrono::FixedOffset>) -> env_branches::Model {
+        use crate::entity::env_branches::EnvBranchMode;
+        env_branches::Model {
+            id: Uuid::from_u128(1),
+            tenant_row_id: Uuid::from_u128(2),
+            app_id: Uuid::from_u128(3),
+            env_name: "dev-a1".into(),
+            mode: EnvBranchMode::Branch,
+            status: EnvBranchStatus::Ready,
+            error: None,
+            provider_branch_id: Some("br-1".into()),
+            parent_branch_id: "br-0".into(),
+            host: Some("h".into()),
+            database_name: Some("d".into()),
+            owner_role: Some("o".into()),
+            owner_password_ciphertext: None,
+            fork_at: cut_at,
+            expires_at: cut_at,
+            created_at: cut_at,
+            last_reset_at: None,
+            updated_at: cut_at,
+            platform_schema_version: crate::platform::PLATFORM_SCHEMA_VERSION,
+            platform_schema_cut_at: Some(cut_at),
+        }
+    }
+
+    /// F3: the version holds on the cut it was recorded on. A reset by an
+    /// older binary moves the cut (`last_reset_at`) and leaves the version:
+    /// that branch reads as 0, as does one whose version was recorded before
+    /// the cut was (`None`), until the outbox records it on the new cut.
+    #[test]
+    fn a_recorded_version_holds_on_its_own_cut_alone() {
+        use chrono::TimeZone as _;
+        let a = chrono::Utc
+            .with_ymd_and_hms(2026, 11, 18, 9, 0, 0)
+            .unwrap()
+            .fixed_offset();
+        let row = recorded_on(a);
+        let cut = |row: &env_branches::Model| BranchCut::of_env(row).expect("a cut");
+        assert_eq!(
+            version_on_cut(&row, &cut(&row)),
+            crate::platform::PLATFORM_SCHEMA_VERSION
+        );
+
+        let b = a + chrono::Duration::hours(1);
+        let reset = env_branches::Model {
+            last_reset_at: Some(b),
+            ..row.clone()
+        };
+        assert_eq!(
+            version_on_cut(&reset, &cut(&reset)),
+            0,
+            "an older binary's reset"
+        );
+        let recorded_before = env_branches::Model {
+            platform_schema_cut_at: None,
+            ..row
+        };
+        assert_eq!(version_on_cut(&recorded_before, &cut(&recorded_before)), 0);
+        let recorded_again = env_branches::Model {
+            platform_schema_cut_at: Some(b),
+            ..reset
+        };
+        assert_eq!(
+            version_on_cut(&recorded_again, &cut(&recorded_again)),
+            crate::platform::PLATFORM_SCHEMA_VERSION
+        );
     }
 
     #[test]

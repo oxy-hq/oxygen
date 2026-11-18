@@ -477,7 +477,10 @@ async fn a_send_to_a_function_that_is_not_callable_is_stored_and_delivered_to_no
 }
 
 /// An outbox row `name` written as `sender`'s own writer through the definer
-/// function — what app SQL could do — with the actor `user:evil`.
+/// function, with the actor `user:evil`, and signed as the host signs a row
+/// (R25(c)): so the relay refuses it, when it does, for the call it names and
+/// never for its provenance — what a host bug letting a send through would
+/// write.
 async fn forge(
     fx: &crate::app_events_delivery::Fx,
     sender: &str,
@@ -497,6 +500,25 @@ async fn forge(
         .expect("grant the definer function");
     let type_ = oxy_custom_apps::events::qualified_type(sender, name);
     let id = oxy_custom_apps::events::event_id(t.org_id, "production", &type_, key);
+    let data = json!({ "n": 1 });
+    let mac = oxy_api_custom_apps::app_events::provenance::sign_hex(
+        t.org_id,
+        &oxy_api_custom_apps::app_events::provenance::Provenance {
+            id,
+            environment: "production",
+            event_type: &type_,
+            key,
+            writer_role: &conn.role,
+            actor: Some("user:evil"),
+            root_id: id,
+            causation_id: None,
+            depth: 0,
+            delay_seconds: 0,
+            data_bytes: oxy_custom_apps::events::jsonb_text_len(&data) as i64,
+            schema_revision: None,
+            invocation_id: None,
+        },
+    );
     let (client, connection) = tokio_postgres::connect(&conn.dsn, tokio_postgres::NoTls)
         .await
         .expect("connect");
@@ -511,7 +533,7 @@ async fn forge(
                 &"production",
                 &name,
                 &key,
-                &json!({ "n": 1 }),
+                &data,
                 &None::<uuid::Uuid>,
                 &Some("user:evil"),
                 &None::<uuid::Uuid>,
@@ -519,6 +541,7 @@ async fn forge(
                 &0i32,
                 &None::<uuid::Uuid>,
                 &0i32,
+                &mac,
             ],
         )
         .await

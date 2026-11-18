@@ -65,6 +65,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::schema::schema_sha256;
+use super::stores::Stores;
 
 /// The `fleet_job_claims` row the sweep claims each interval.
 pub const SWEEP_JOB: &str = "custom_app_event_retention";
@@ -297,7 +298,7 @@ SELECT DISTINCT org_id FROM app_events \
 /// instant, `$2` = the org, `$3` = the batch). An event any of whose
 /// deliveries is `pending` is left.
 const EXPIRED_EVENTS_SQL: &str = "\
-SELECT e.id, e.environment, e.writer_role FROM app_events e \
+SELECT e.id, e.environment, e.writer_role, e.source_app_id FROM app_events e \
  WHERE e.published_at < $1::timestamptz - make_interval(days => 30) \
    AND e.org_id = $2 \
    AND NOT EXISTS (SELECT 1 FROM app_event_deliveries d \
@@ -412,14 +413,17 @@ async fn delete_org_events(
         .await?;
     let mut ids = Vec::with_capacity(rows.len());
     let mut bodies: HashMap<OutboxTarget, Vec<OutboxKey>> = HashMap::new();
+    let mut stores = Stores::new(db);
     for row in &rows {
         let id: Uuid = row.try_get("", "id")?;
         let environment: String = row.try_get("", "environment")?;
         ids.push(id);
         // Every environment's body is in a store the platform reads; a name
-        // that is no environment's has none. A branch that is gone took its
-        // bodies with it, and deleting them there finds nothing.
-        if let Some(target) = super::relay::relayed_store(&environment) {
+        // that is no environment's has none. A branch that is gone (a
+        // sandbox's own, with its teardown) took its bodies with it, and
+        // deleting them there finds nothing.
+        let source_app: Option<Uuid> = row.try_get("", "source_app_id")?;
+        if let Some(target) = stores.of(source_app, &environment).await? {
             bodies.entry(target).or_default().push(OutboxKey {
                 writer_role: row.try_get("", "writer_role")?,
                 id,

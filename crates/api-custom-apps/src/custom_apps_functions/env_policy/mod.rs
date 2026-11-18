@@ -141,7 +141,6 @@ pub use oltp_sandbox_sql::{
     schema_named_in,
 };
 pub use oltp_sql::{HeldStatement, admit_oltp_statement};
-pub use outbox::ENV_BRANCH_EVENTS_FIX;
 pub use plane_homes::{
     FetchHome, MessagesHome, PlaneHomes, SecretsHome, StorageHome, WorkspaceActionsHome,
 };

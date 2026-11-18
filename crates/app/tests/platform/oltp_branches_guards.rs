@@ -289,6 +289,8 @@ async fn an_env_cut_is_not_current_once_its_row_is_re_cut() {
         created_at: ActiveValue::Set(now),
         last_reset_at: ActiveValue::Set(None),
         updated_at: ActiveValue::Set(now),
+        platform_schema_version: ActiveValue::Set(0),
+        platform_schema_cut_at: ActiveValue::Set(None),
     }
     .insert(&n.db)
     .await

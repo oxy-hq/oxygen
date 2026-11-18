@@ -20,19 +20,21 @@
 //! **The body never leaves the org's store** (data placement: the platform
 //! routes on an event, the org keeps its content). A relayed row is marked,
 //! not deleted: it is the body's log. A delivery reads one body with
-//! [`read_body`], and retention deletes the bodies of the events it deletes
-//! with [`delete_bodies`]. Each opens one short owner connection, as a claim
-//! does.
+//! [`read_body`], replay asks which of a batch are still kept with
+//! [`existing_bodies`] (no body read, one query per chunk), and retention
+//! deletes the bodies of the events it deletes with [`delete_bodies`]. Each
+//! opens one short owner connection, as a claim does.
 //!
 //! An org with no tenant has no outbox, so preparing to publish fails with
 //! [`EventsError::NotProvisioned`], whose message names the operator step.
 //! Provisioning stays manual (`internal-docs/per-org-oltp-postgres.md`).
 //!
 //! **Each environment's events wait in its own store** ([`OutboxTarget`]):
-//! production's in the tenant database, staging's and every sandbox's in the
-//! org's OLTP staging branch (`events::branch`), each with its own grants
-//! (`events::grant`). A branch cut before the outbox existed gets it on its first
-//! grant or claim.
+//! production's in the tenant database, staging's and every schema sandbox's
+//! in the org's OLTP staging branch (`events::branch`), and a sandbox on an
+//! OLTP branch of its own in that branch (`events::env_branch`), each with its
+//! own grants (`events::grant`). A branch cut before the outbox's current
+//! platform steps gets them on its first grant or claim.
 //!
 //! Design: `internal-docs/2026-11-17-app-events-design.md` §6.2.
 
@@ -44,23 +46,30 @@ use uuid::Uuid;
 use crate::connect::pg_detail;
 use crate::platform::EVENTS_OUTBOX_TABLE;
 
+mod bodies;
 mod branch;
+mod env_branch;
 mod grant;
 mod platform;
 mod store;
 
+pub use bodies::{EXISTING_CHUNK, existing_bodies};
 pub use grant::{ensure_publishable, forget_publishable};
 pub use platform::{PLATFORM_WRITER, PlatformBody, read_bodies, write_platform_body};
 
 /// One publish, run as the app's writer role inside the app's transaction.
 ///
 /// Parameters, in order: id, environment, name, key, data, schema revision,
-/// actor, causation id, root id, depth, invocation id, delay seconds. Returns
+/// actor, causation id, root id, depth, invocation id, delay seconds, and the
+/// host's provenance MAC as hex text (platform step 6; the host binds text,
+/// never `bytea`, decoded by the schema-qualified `pg_catalog.decode` so no
+/// function of the app's own can stand in for it and read the MAC). Returns
 /// the id. A writer repeating one of its own ids is `ON CONFLICT DO NOTHING`,
 /// never an error, so a retried publish cannot abort the app's transaction;
 /// the same id from another writer is another row (the key is
 /// `(writer_role, id)`).
-pub const PUBLISH_SQL: &str = "SELECT oxy_events.publish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)";
+pub const PUBLISH_SQL: &str = "SELECT oxy_events.publish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,\
+     pg_catalog.decode($13,'hex'))";
 
 #[derive(Debug, thiserror::Error)]
 pub enum EventsError {
@@ -94,6 +103,10 @@ pub enum OutboxTarget {
     /// the org's staging branch, for staging and for every sandbox on a
     /// schema there (`events::branch`).
     Branch(String),
+    /// The OLTP branch of its own that app `app_id`'s sandbox `environment`
+    /// runs `ctx.oltp` on (its planes' `oltp` is `branch` or `empty`): that
+    /// sandbox's events, and no one else's (`events::env_branch`).
+    EnvBranch { app_id: Uuid, environment: String },
 }
 
 /// One outbox row's key: a writer's ids are its own, so a row is named by
@@ -126,6 +139,9 @@ pub struct OutboxRow {
     pub invocation_id: Option<Uuid>,
     pub delay_seconds: i32,
     pub created_at: DateTime<Utc>,
+    /// The MAC the host signed the row with (platform step 6), which the
+    /// relay verifies: `None` on a row written before the step.
+    pub provenance: Option<Vec<u8>>,
 }
 
 impl OutboxRow {
@@ -249,10 +265,11 @@ impl OutboxClaim {
     }
 }
 
-/// Every column a claim reads: the metadata, and the payload's size computed
-/// in the store — never the payload.
+/// Every column a claim reads: the metadata, the host's provenance MAC, and
+/// the payload's size computed in the store — never the payload.
 const OUTBOX_COLUMNS: &str = "id, writer_role, environment, name, key, octet_length(data::text), \
-     schema_revision, actor, causation_id, root_id, depth, invocation_id, delay_seconds, created_at";
+     schema_revision, actor, causation_id, root_id, depth, invocation_id, delay_seconds, created_at, \
+     provenance";
 
 /// The rows whose keys are `$1` / `$2`, parallel arrays of writer roles and
 /// ids ([`key_arrays`]).
@@ -313,7 +330,7 @@ pub async fn claim(
         .map_err(|e| store("claim outbox rows", &e))?;
     let oldest_left = rows
         .first()
-        .and_then(|r| r.get::<_, Option<f64>>(14))
+        .and_then(|r| r.get::<_, Option<f64>>(15))
         .map(|secs| std::time::Duration::from_secs_f64(secs.max(0.0)));
     let rows = rows
         .iter()
@@ -334,6 +351,7 @@ pub async fn claim(
             invocation_id: r.get(11),
             delay_seconds: r.get(12),
             created_at: r.get(13),
+            provenance: r.get(14),
         })
         .collect();
     Ok(OutboxClaim {
@@ -473,6 +491,14 @@ mod tests {
             columns.contains(&"octet_length(data::text)"),
             "{OUTBOX_COLUMNS}"
         );
+    }
+
+    /// R25(c): the relay verifies the MAC the host signed, so a claim reads it
+    /// beside the fields it signs.
+    #[test]
+    fn a_claim_reads_the_provenance_mac() {
+        let columns: Vec<&str> = OUTBOX_COLUMNS.split(',').map(str::trim).collect();
+        assert!(columns.contains(&"provenance"), "{OUTBOX_COLUMNS}");
     }
 
     #[test]

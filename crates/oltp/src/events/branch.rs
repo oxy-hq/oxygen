@@ -63,7 +63,7 @@ pub(super) async fn owner_dsn(
 /// What a failed branch lookup means to the outbox: no usable tenant is the
 /// operator step production's store names; anything else (a branch mid-reset,
 /// one naming production) is a store error, never a fallback.
-fn resolve_error(org_id: Uuid, e: ResolveError) -> EventsError {
+pub(super) fn resolve_error(org_id: Uuid, e: ResolveError) -> EventsError {
     match e {
         ResolveError::NotProvisioned(_) | ResolveError::NotActive(..) => {
             EventsError::NotProvisioned { org_id }

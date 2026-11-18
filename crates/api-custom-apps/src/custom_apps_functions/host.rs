@@ -41,6 +41,7 @@ mod email_idempotency;
 mod env_guard;
 mod env_homes;
 mod events_op;
+mod events_regrant;
 mod fallback_secrets;
 mod held_log;
 mod notify_op;

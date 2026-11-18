@@ -94,9 +94,7 @@ pub async fn track_once(
     org_id: Uuid,
     environment: &str,
 ) -> Result<TrackStats, String> {
-    if !super::super::enabled_for(org_id)
-        || super::super::relay::relayed_store(environment).is_none()
-    {
+    if !super::super::enabled_for(org_id) || !super::super::stores::is_relayed(environment) {
         return Ok(TrackStats::default());
     }
     let reader = reader();

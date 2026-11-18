@@ -30,7 +30,7 @@ use chrono::{DateTime, Utc};
 use entity::{app_events, apps};
 use oxy_cameras::airhouse::escape::{sql_opt_str, sql_str, sql_ts};
 use oxy_custom_apps::events::table::TableRef;
-use oxy_oltp::events::read_bodies;
+use oxy_oltp::events::{OutboxTarget, read_bodies};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect, Statement,
@@ -38,7 +38,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::envelope::event_source;
-use super::relay::relayed_store;
+use super::stores::Stores;
 
 pub const SCHEMA: &str = "oxy_event_log";
 pub const TABLE: &str = "oxy_event_log.events";
@@ -418,21 +418,24 @@ async fn logged(
         .map(|a| (a.id, a.slug))
         .collect();
     let mut bodies: HashMap<Uuid, serde_json::Value> = HashMap::new();
-    let mut by_store: HashMap<String, Vec<(String, Uuid)>> = HashMap::new();
+    // By the store each body is in: a sandbox on an OLTP branch of its own
+    // keeps its events' bodies there, not on the staging branch.
+    let mut stores = Stores::new(db);
+    let mut by_store: HashMap<OutboxTarget, Vec<(String, Uuid)>> = HashMap::new();
     for e in events {
+        let Some(target) = stores.of(e.source_app_id, &e.environment).await? else {
+            continue;
+        };
         by_store
-            .entry(e.environment.clone())
+            .entry(target)
             .or_default()
             .push((e.writer_role.clone(), e.id));
     }
-    for (environment, keys) in by_store {
-        let Some(target) = relayed_store(&environment) else {
-            continue;
-        };
+    for (target, keys) in by_store {
         match read_bodies(db, org_id, &target, &keys).await {
             Ok(found) => bodies.extend(found),
             Err(e) => {
-                tracing::debug!(%org_id, environment, error = %e, "app events: bodies not read for the log")
+                tracing::debug!(%org_id, store = ?target, error = %e, "app events: bodies not read for the log")
             }
         }
     }

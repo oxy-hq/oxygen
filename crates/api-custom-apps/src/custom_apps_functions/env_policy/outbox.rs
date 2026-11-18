@@ -3,20 +3,13 @@
 //!
 //! Production writes production's store. Staging and a sandbox on a schema of
 //! the org's OLTP staging branch write the branch, named by the environment
-//! ([`OutboxTarget::Branch`]): that is the store the relay reads their events
-//! from. A sandbox on an OLTP branch of its own is refused: its `ctx.oltp`
-//! reaches a database no relay reads, so an event written there would never
-//! be delivered.
+//! ([`OutboxTarget::Branch`]). A sandbox on an OLTP branch of its own writes
+//! that branch ([`OutboxTarget::EnvBranch`]). Each is the store the relay
+//! reads those events from (`app_events::stores`).
 
 use oxy_oltp::events::OutboxTarget;
 
 use super::{EnvPolicy, OltpHome};
-
-/// The refusal's fix for an event published from a sandbox on an OLTP branch
-/// of its own.
-pub const ENV_BRANCH_EVENTS_FIX: &str = "a sandbox on an OLTP branch of its own cannot publish \
-     events yet: they are relayed from the org's OLTP staging branch, which this sandbox's \
-     `ctx.oltp` does not reach. Publish from a sandbox whose OLTP plane is `schema`";
 
 impl EnvPolicy {
     /// The store an event published under this policy is written to, or the
@@ -30,7 +23,10 @@ impl EnvPolicy {
             OltpHome::StagingBranch(_) | OltpHome::SandboxSchema(_) => {
                 Ok(OutboxTarget::Branch(self.environment().name()))
             }
-            OltpHome::EnvironmentBranch(_) => Err(ENV_BRANCH_EVENTS_FIX),
+            OltpHome::EnvironmentBranch(home) => Ok(OutboxTarget::EnvBranch {
+                app_id: home.app_id,
+                environment: home.env_name.clone(),
+            }),
             OltpHome::SandboxUnready(why) => Err(why.fix()),
             OltpHome::EnvironmentBranchUnready(why) => Err(why.fix()),
             OltpHome::Production => Err(super::NO_BRANCH_NOTE),
@@ -77,16 +73,24 @@ mod tests {
         assert!(environment.starts_with("dev-"), "{environment}");
     }
 
-    /// A sandbox on its own OLTP branch is refused rather than written where
-    /// no relay reads, and no home a publish is never admitted to falls back
-    /// to production's store.
+    /// A sandbox on an OLTP branch of its own writes that branch's outbox,
+    /// where its `ctx.oltp` writes, and the relay reads it from there.
+    #[test]
+    fn a_sandbox_on_its_own_branch_writes_that_branch() {
+        assert_eq!(
+            sandbox().with_oltp_home(own_branch()).outbox_target(),
+            Ok(OutboxTarget::EnvBranch {
+                app_id: uuid::Uuid::from_u128(8),
+                environment: "dev-luong".into(),
+            })
+        );
+    }
+
+    /// No home a publish is never admitted to falls back to production's
+    /// store.
     #[test]
     fn nothing_else_has_an_outbox() {
         let refused = [
-            (
-                sandbox().with_oltp_home(own_branch()),
-                ENV_BRANCH_EVENTS_FIX,
-            ),
             (
                 sandbox().with_oltp_home(OltpHome::SandboxUnready(SandboxUnready::Seeding)),
                 SandboxUnready::Seeding.fix(),

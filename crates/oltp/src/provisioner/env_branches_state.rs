@@ -125,6 +125,10 @@ impl OltpProvisioner {
             } else {
                 ActiveValue::NotSet
             },
+            // A fresh copy of production, at a version nobody read: the
+            // outbox's first touch there replays every platform step.
+            platform_schema_version: ActiveValue::Set(0),
+            platform_schema_cut_at: ActiveValue::Set(None),
             updated_at: ActiveValue::Set(now),
             ..Default::default()
         };

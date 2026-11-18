@@ -13,7 +13,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use tracing::info;
 
 use super::ProvisionerError;
-use crate::branches::BranchCut;
+use crate::branches::{BranchCut, CutScope};
 use crate::platform::PLATFORM_SCHEMA_VERSION;
 use crate::resolver::BranchOwner;
 use crate::sql::TenantSqlExecutor;
@@ -56,15 +56,37 @@ pub(crate) async fn reconcile_branch_platform_schema_as_owner(
     Ok(())
 }
 
+/// The org's staging branch's record: `$1` the version, `$2` the row,
+/// `$3` the provider's branch and `$4` the cut, as [`record_current`] binds
+/// them.
+const RECORD_ORG_BRANCH_SQL: &str = "UPDATE oltp_branches \
+       SET platform_schema_version = $1, updated_at = now() \
+     WHERE id = $2 AND status = 'active' AND provider_branch_id = $3 \
+       AND COALESCE(last_reset_at, created_at) = $4 AND platform_schema_version < $1";
+
+/// A sandbox's own branch's record, the version with the cut it holds on
+/// (`oltp_env_branches.platform_schema_cut_at`): a row recorded on another
+/// cut is recorded again, whatever version it names.
+const RECORD_ENV_BRANCH_SQL: &str = "UPDATE oltp_env_branches \
+       SET platform_schema_version = $1, platform_schema_cut_at = $4, updated_at = now() \
+     WHERE id = $2 AND status IN ('ready', 'migrating') AND provider_branch_id = $3 \
+       AND COALESCE(last_reset_at, created_at) = $4 \
+       AND (platform_schema_version < $1 OR platform_schema_cut_at IS DISTINCT FROM $4)";
+
 /// Record `cut`'s branch at [`PLATFORM_SCHEMA_VERSION`], in one statement
-/// that matches only the row still describing that cut, active: a reset or a
-/// re-cut since copied production again, and recorded that copy itself.
+/// that matches only the row still describing that cut, serving: a reset or
+/// a re-cut since copied production again, and recorded that copy itself.
+/// The org's staging branch is an `oltp_branches` row, a sandbox's own branch
+/// an `oltp_env_branches` one (`ready`, or `migrating` while a publish applies
+/// its migrations), which also records the cut the version holds on.
 async fn record_current(db: &DatabaseConnection, cut: &BranchCut) -> Result<(), ProvisionerError> {
+    let sql = match cut.scope {
+        CutScope::OrgBranch => RECORD_ORG_BRANCH_SQL,
+        CutScope::Environment => RECORD_ENV_BRANCH_SQL,
+    };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE oltp_branches SET platform_schema_version = $1, updated_at = now() \
-          WHERE id = $2 AND status = 'active' AND provider_branch_id = $3 \
-            AND COALESCE(last_reset_at, created_at) = $4 AND platform_schema_version < $1",
+        sql,
         [
             PLATFORM_SCHEMA_VERSION.into(),
             cut.row_id.into(),

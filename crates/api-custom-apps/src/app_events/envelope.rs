@@ -17,7 +17,7 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::relay::relayed_store;
+use super::stores::store_of;
 
 /// What a delivery's envelope is built from: its event, the slugs of its
 /// listener's and its publisher's apps, and the revision it was published
@@ -131,16 +131,23 @@ impl BodyError {
 }
 
 /// The store `event`'s body is in: the outbox log of the store its
-/// environment's events were relayed from (production's, or the staging
-/// branch for staging and the sandboxes).
-fn body_store(event: &app_events::Model) -> Result<OutboxTarget, BodyError> {
-    relayed_store(&event.environment).ok_or_else(|| {
-        BodyError::Permanent(format!(
-            "event {} is in `{}`, whose outbox the platform does not relay: its body \
-             cannot be read",
-            event.id, event.environment
-        ))
-    })
+/// publisher's environment's events wait in (production's, the staging branch
+/// for staging and the schema sandboxes, or a sandbox's own branch;
+/// `app_events::stores`). Reading the publisher's planes may fail and pass.
+async fn body_store(
+    db: &DatabaseConnection,
+    event: &app_events::Model,
+) -> Result<OutboxTarget, BodyError> {
+    store_of(db, event.source_app_id, &event.environment)
+        .await
+        .map_err(|e| BodyError::Transient(format!("find the event's store: {e}")))?
+        .ok_or_else(|| {
+            BodyError::Permanent(format!(
+                "event {} is in `{}`, whose outbox the platform does not relay: its body \
+                 cannot be read",
+                event.id, event.environment
+            ))
+        })
 }
 
 /// The body of `event`, read from the org's OLTP store by `(writer_role, id)`
@@ -152,7 +159,7 @@ pub async fn load_event_data(
     db: &DatabaseConnection,
     event: &app_events::Model,
 ) -> Result<Option<Value>, BodyError> {
-    let target = body_store(event)?;
+    let target = body_store(db, event).await?;
     read_body(db, event.org_id, &target, &event.writer_role, event.id)
         .await
         .map_err(|e| BodyError::from_store(event.id, e))
@@ -260,10 +267,11 @@ mod tests {
         }
     }
 
-    /// Every environment's body is in a store the platform reads (Task 17):
-    /// production's, or the staging branch. An event in a name that is no
-    /// environment has none: dead, and no store is ever touched (a
-    /// disconnected handle would fail any query).
+    /// Every environment's body is in a store the platform reads: production's,
+    /// the staging branch, or a sandbox's own branch (`stores`, which reads a
+    /// sandbox's planes). An event in a name that is no environment has none:
+    /// dead, and no store is ever touched (a disconnected handle would fail
+    /// any query).
     #[tokio::test]
     async fn an_environment_with_no_relayed_store_is_permanent() {
         let nowhere = event("nowhere");
@@ -273,16 +281,14 @@ mod tests {
         };
         assert!(reason.contains(&nowhere.id.to_string()), "{reason}");
         assert!(reason.contains("`nowhere`"), "{reason}");
+        let db = DatabaseConnection::default();
         assert_eq!(
-            body_store(&event("production")),
+            body_store(&db, &event("production")).await,
             Ok(OutboxTarget::Production)
         );
-        for branch in ["staging", "dev-x"] {
-            assert_eq!(
-                body_store(&event(branch)),
-                Ok(OutboxTarget::Branch(branch.to_string())),
-                "{branch}"
-            );
-        }
+        assert_eq!(
+            body_store(&db, &event("staging")).await,
+            Ok(OutboxTarget::Branch("staging".to_string()))
+        );
     }
 }

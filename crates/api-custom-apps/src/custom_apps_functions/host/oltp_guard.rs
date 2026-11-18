@@ -86,18 +86,23 @@ const SEARCH_PATH_REFUSAL: &str = "OltpPlatformSchema: `search_path` may be set 
 /// **What it cannot see** is SQL built while it runs: a `DO` block, or a
 /// function the app defined (in its migrations, or with `CREATE FUNCTION`
 /// here), that executes concatenated text or sets `search_path` from it. The
-/// writer holds `EXECUTE` on `oxy_events.publish`, so such SQL can publish.
-/// No lexical rule closes that — the app writes its own functions — and
-/// refusing `DO` alone would close nothing while changing what production
-/// sends today. What holds there: the definer function records the calling
-/// writer role and refuses a depth outside 0–8, a delay outside 0–86 400 s, a
-/// key outside 1–200 characters and data over 64 KiB as `jsonb` text (platform
-/// step 5: the relay's own limit, by the relay's own measure); the
-/// relay derives the id and environment itself, takes only names the live
-/// build declares and revisions recorded for them, and quarantines an
-/// oversized payload. **Not enforced against such SQL:** the function's own
+/// writer holds `EXECUTE` on `oxy_events.publish`, so such SQL can write an
+/// outbox row. No lexical rule closes that — the app writes its own functions
+/// — and refusing `DO` alone would close nothing while changing what
+/// production sends today. What holds there: the definer function records the
+/// calling writer role and refuses a depth outside 0–8, a delay outside
+/// 0–86 400 s, a key outside 1–200 characters, data over 64 KiB as `jsonb`
+/// text and a provenance MAC that is not 32 bytes (platform steps 5 and 6).
+/// And such a row is never delivered (R25(c)): the host signs every row it
+/// writes, after every check this SQL skips — the function's own
 /// `events.publish` list, the org's `app_events` flag, schema validation of
-/// the data, and the actor, root and causation it claims.
+/// the data, the actor, root and causation — with a key that never enters the
+/// isolate or the store (`app_events::provenance`), and the relay quarantines
+/// a row whose MAC does not match its fields (`unverified_provenance`),
+/// keeping its body. **What such SQL can still do:** fill the outbox with
+/// rows the relay stores as quarantined events, within the definer's bounds,
+/// and pre-empt one of its own app's events by writing that id first (the
+/// host's row is then the `ON CONFLICT` no-op); both harm the app alone.
 pub(super) fn refuse_platform_schema(sql: &str) -> Result<(), String> {
     let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
         return refuse_in_text(sql);
@@ -371,8 +376,8 @@ impl ProjectFunctionHost {
     /// `Ok` with the outbox to write: production's store, or the OLTP branch
     /// the run (or the handle) is on (`EnvPolicy::outbox_target`); held or
     /// refused, logged, otherwise — never written to production's store from
-    /// outside production, nor to a branch no relay reads (a sandbox on an
-    /// OLTP branch of its own).
+    /// outside production. A sandbox on an OLTP branch of its own writes that
+    /// branch, which the relay reads.
     pub(super) async fn admit_publish(
         &self,
         op: HostOp,

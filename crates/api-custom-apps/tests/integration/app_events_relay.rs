@@ -25,6 +25,7 @@ use entity::{
 };
 use futures::FutureExt as _;
 use oxy_api_custom_apps::app_events::marks;
+use oxy_api_custom_apps::app_events::provenance::{Provenance, sign_hex};
 use oxy_api_custom_apps::app_events::relay::testing::{fan_out, relay_rows};
 use oxy_api_custom_apps::app_events::relay::{
     BATCH, RELAY_KIND, RelayExecutor, RelayPayload, RelayStats, RelayedEvent, enqueue_relay,
@@ -33,11 +34,11 @@ use oxy_api_custom_apps::app_events::relay::{
 use oxy_api_custom_apps::app_events::schema::live_revision;
 use oxy_api_custom_apps::custom_apps_publish::{OrgRef, PublishInput, publish};
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
-use oxy_custom_apps::events::{OxyEvent, event_id, qualified_type};
+use oxy_custom_apps::events::{OxyEvent, event_id, jsonb_text_len, qualified_type};
 use oxy_oltp::WriterRef;
 use oxy_oltp::entity::tenants::{self as oltp_tenants, Entity as OltpTenants};
 use oxy_oltp::events::{self as outbox, OutboxTarget, PUBLISH_SQL};
-use oxy_oltp::resolver::resolve_writer_connection_for_org;
+use oxy_oltp::resolver::{WriterConnection, resolve_writer_connection_for_org};
 use oxy_oltp::schema::app_writer_name;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -49,6 +50,9 @@ use uuid::Uuid;
 
 use crate::custom_app_functions_fixture::{FunctionSpec, Tenant, seeded_tenant, throwaway_org};
 use crate::custom_app_functions_shape_zoo_oltp::AppStore;
+
+// Provenance: the relay delivers only rows the host signed (R25(c)).
+mod provenance;
 
 const EVENT: &str = "statement.uploaded";
 /// Declared by the publisher, listened to by nobody.
@@ -178,9 +182,19 @@ impl Relay {
         id
     }
 
-    /// One `oxy_events.publish` call as `writer`, exactly as `row` says: what
-    /// an app's own SQL can do without the host.
+    /// One `oxy_events.publish` call as `writer`, exactly as `row` says, with
+    /// the MAC the host signs for it: what an app's own SQL can write without
+    /// the host, were it to hold the org's key. A row that does not match its
+    /// MAC is [`provenance`]'s.
     async fn publish_row(&self, writer: &WriterRef, row: &Row<'_>) {
+        let conn = self.publishable_writer(writer).await;
+        let lineage = Lineage::top_level(row.id);
+        let mac = self.host_mac(writer, &conn.role, row, &lineage);
+        self.call_publish(&conn, row, &lineage, &mac).await;
+    }
+
+    /// `writer`'s connection on production's store, granted the definer.
+    async fn publishable_writer(&self, writer: &WriterRef) -> WriterConnection {
         let db = &self.t.db;
         let conn = resolve_writer_connection_for_org(db, self.org(), writer)
             .await
@@ -188,6 +202,48 @@ impl Relay {
         outbox::ensure_publishable(db, self.org(), &OutboxTarget::Production, &conn.role)
             .await
             .expect("ensure publishable");
+        conn
+    }
+
+    /// The MAC the host signs for `row`, published by `writer` (logging in as
+    /// `role`) with `lineage`, at depth 0 and from no invocation.
+    fn host_mac(
+        &self,
+        writer: &WriterRef,
+        role: &str,
+        row: &Row<'_>,
+        lineage: &Lineage<'_>,
+    ) -> String {
+        let event_type = qualified_type(&writer_slug(writer), row.name);
+        sign_hex(
+            self.org(),
+            &Provenance {
+                id: row.id,
+                environment: row.environment,
+                event_type: &event_type,
+                key: row.key,
+                writer_role: role,
+                actor: lineage.actor,
+                root_id: lineage.root,
+                causation_id: lineage.causation,
+                depth: 0,
+                delay_seconds: row.delay,
+                data_bytes: jsonb_text_len(&row.data) as i64,
+                schema_revision: row.revision,
+                invocation_id: None,
+            },
+        )
+    }
+
+    /// One `oxy_events.publish` call on `conn`: `row` with `lineage`, at depth
+    /// 0, carrying `mac` (hex) whatever it signs.
+    async fn call_publish(
+        &self,
+        conn: &WriterConnection,
+        row: &Row<'_>,
+        lineage: &Lineage<'_>,
+        mac: &str,
+    ) {
         connect(&conn.dsn)
             .await
             .query_one(
@@ -199,12 +255,13 @@ impl Relay {
                     &row.key,
                     &row.data,
                     &row.revision,
-                    &Some("user:test"),
-                    &None::<Uuid>,
-                    &row.id,
+                    &lineage.actor,
+                    &lineage.causation,
+                    &lineage.root,
                     &0i32,
                     &None::<Uuid>,
                     &row.delay,
+                    &mac,
                 ],
             )
             .await
@@ -214,18 +271,25 @@ impl Relay {
     /// `row` inserted into the outbox by the owner, as `writer`'s: a row the
     /// definer function would now refuse, as one written before it bounded
     /// its arguments can still be.
+    /// Signed as the host would sign it, so the row is refused for what it
+    /// holds, never for its provenance.
     async fn insert_as_owner(&self, writer: &WriterRef, row: &Row<'_>) {
         let role = resolve_writer_connection_for_org(&self.t.db, self.org(), writer)
             .await
             .expect("resolve the writer")
             .role;
+        let lineage = Lineage {
+            actor: None,
+            ..Lineage::top_level(row.id)
+        };
+        let mac = self.host_mac(writer, &role, row, &lineage);
         let dsn = oxy_oltp::migrator::owner_dsn(&self.tenant().await).expect("owner dsn");
         connect(&dsn)
             .await
             .execute(
                 "INSERT INTO oxy_events.outbox (id, writer_role, environment, name, key, data, \
-                 schema_revision, root_id, depth, delay_seconds) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $1, 0, $8)",
+                 schema_revision, root_id, depth, delay_seconds, provenance) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $1, 0, $8, decode($9, 'hex'))",
                 &[
                     &row.id,
                     &role,
@@ -235,6 +299,7 @@ impl Relay {
                     &row.data,
                     &row.revision,
                     &row.delay,
+                    &mac,
                 ],
             )
             .await
@@ -440,6 +505,33 @@ impl Relay {
             directed: None,
             only_listener: None,
         }
+    }
+}
+
+/// Who one `oxy_events.publish` call says caused the event.
+struct Lineage<'a> {
+    actor: Option<&'a str>,
+    root: Uuid,
+    causation: Option<Uuid>,
+}
+
+impl Lineage<'_> {
+    /// What the host writes for a publish of `id` no event's handler made,
+    /// called by a person.
+    fn top_level(id: Uuid) -> Self {
+        Self {
+            actor: Some("user:test"),
+            root: id,
+            causation: None,
+        }
+    }
+}
+
+/// The slug of the app `writer` is: its writer name with each `_` a `-`, as
+/// the relay reads it back.
+fn writer_slug(writer: &WriterRef) -> String {
+    match writer {
+        WriterRef::App(name) | WriterRef::Pipeline(name) => name.replace('_', "-"),
     }
 }
 
@@ -1800,6 +1892,20 @@ async fn a_backlog_past_a_batch_still_alarms() {
         for n in 0..=BATCH {
             let key = format!("report:{n}");
             let id = event_id(r.org(), "production", &event_type, &key);
+            let row = Row {
+                id,
+                environment: "production",
+                name: QUIET,
+                key: &key,
+                revision,
+                delay: 0,
+                data: json!({}),
+            };
+            let lineage = Lineage {
+                actor: None,
+                ..Lineage::top_level(id)
+            };
+            let mac = r.host_mac(&r.store.writer, &conn.role, &row, &lineage);
             writer
                 .query_one(
                     PUBLISH_SQL,
@@ -1816,6 +1922,7 @@ async fn a_backlog_past_a_batch_still_alarms() {
                         &0i32,
                         &None::<Uuid>,
                         &0i32,
+                        &mac,
                     ],
                 )
                 .await
@@ -1908,6 +2015,20 @@ async fn a_full_batch_queues_the_next_relay() {
         for n in 0..=BATCH {
             let key = format!("report:{n}");
             let id = event_id(r.org(), "production", &event_type, &key);
+            let row = Row {
+                id,
+                environment: "production",
+                name: QUIET,
+                key: &key,
+                revision,
+                delay: 0,
+                data: json!({}),
+            };
+            let lineage = Lineage {
+                actor: None,
+                ..Lineage::top_level(id)
+            };
+            let mac = r.host_mac(&r.store.writer, &conn.role, &row, &lineage);
             writer
                 .query_one(
                     PUBLISH_SQL,
@@ -1924,6 +2045,7 @@ async fn a_full_batch_queues_the_next_relay() {
                         &0i32,
                         &None::<Uuid>,
                         &0i32,
+                        &mac,
                     ],
                 )
                 .await
@@ -1971,10 +2093,37 @@ async fn publish_jsonb_text(r: &Relay, name: &str, key: &str, body: &str) -> Uui
     outbox::ensure_publishable(db, r.org(), &OutboxTarget::Production, &conn.role)
         .await
         .expect("ensure publishable");
-    connect(&conn.dsn)
+    let writer = connect(&conn.dsn).await;
+    // The size the store will report, which the host signs: Rust cannot hold
+    // this body, so Postgres measures it.
+    let data_bytes: i32 = writer
+        .query_one("SELECT octet_length($1::text::jsonb::text)", &[&body])
         .await
+        .expect("measure the body")
+        .get(0);
+    let event_type = r.event_type(name);
+    let mac = sign_hex(
+        r.org(),
+        &Provenance {
+            id,
+            environment: "production",
+            event_type: &event_type,
+            key,
+            writer_role: &conn.role,
+            actor: None,
+            root_id: id,
+            causation_id: None,
+            depth: 0,
+            delay_seconds: 0,
+            data_bytes: i64::from(data_bytes),
+            schema_revision: revision,
+            invocation_id: None,
+        },
+    );
+    writer
         .query_one(
-            "SELECT oxy_events.publish($1,$2,$3,$4,$5::text::jsonb,$6,$7,$8,$9,$10,$11,$12)",
+            "SELECT oxy_events.publish($1,$2,$3,$4,$5::text::jsonb,$6,$7,$8,$9,$10,$11,$12,\
+             pg_catalog.decode($13, 'hex'))",
             &[
                 &id,
                 &"production",
@@ -1988,6 +2137,7 @@ async fn publish_jsonb_text(r: &Relay, name: &str, key: &str, body: &str) -> Uui
                 &0i32,
                 &None::<Uuid>,
                 &0i32,
+                &mac,
             ],
         )
         .await

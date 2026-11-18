@@ -62,10 +62,11 @@ pub async fn ensure_publishable(
 }
 
 /// Drop what [`ensure_publishable`] remembers for `writer_role` in `target`,
-/// so the next call grants again there. For a publish refused `42501`
-/// (insufficient privilege) though the grant was remembered: it went with the
-/// role (a re-mint's `DROP OWNED`), the tenant or the branch (a reset copies
-/// production again), and this process cannot tell.
+/// so the next call grants again there, bringing the store current first. For
+/// a publish refused though the grant was remembered: `42501` (insufficient
+/// privilege), the grant gone with the role (a re-mint's `DROP OWNED`), the
+/// tenant or the branch; `42883` or `3F000`, a reset copied production from
+/// before the current definer or the outbox. This process cannot tell.
 pub fn forget_publishable(org_id: Uuid, target: &OutboxTarget, writer_role: &str) {
     publishable().remove(&(org_id, target.clone(), writer_role.to_string()));
 }
@@ -116,6 +117,14 @@ mod tests {
         assert!(
             !cache.contains(&(org, OutboxTarget::Branch("dev-x".into()), "app_a_rw".into())),
             "one branch environment's grant is not another's"
+        );
+        let own = OutboxTarget::EnvBranch {
+            app_id: Uuid::new_v4(),
+            environment: "staging".into(),
+        };
+        assert!(
+            !cache.contains(&(org, own, "app_a_rw".into())),
+            "a sandbox's own branch is a store of its own: the staging branch's grant is not its"
         );
     }
 

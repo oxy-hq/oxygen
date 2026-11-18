@@ -12,9 +12,11 @@ pub mod envelope;
 pub mod gate;
 pub mod marks;
 pub mod mirror;
+pub mod provenance;
 pub mod relay;
 pub mod retention;
 pub mod schema;
+pub(crate) mod stores;
 pub mod subscriptions;
 pub mod table_watch;
 

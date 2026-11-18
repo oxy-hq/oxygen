@@ -114,6 +114,17 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub last_reset_at: Option<DateTimeWithTimeZone>,
     pub updated_at: DateTimeWithTimeZone,
+    /// The platform-schema version the branch is known to carry on the cut
+    /// [`Self::platform_schema_cut_at`] names, and only on that one: 0 after
+    /// every cut and reset (a fresh copy of production at a version nobody
+    /// read), brought current by the events outbox's first grant or claim
+    /// there (`events::env_branch`).
+    pub platform_schema_version: i32,
+    /// The cut (`COALESCE(last_reset_at, created_at)`) the version was
+    /// recorded on. Any other cut — a reset by a binary that does not know
+    /// the version, which leaves it as it was — reads as version 0. `None`
+    /// until the outbox records the branch current.
+    pub platform_schema_cut_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(
         belongs_to,
         from = "tenant_row_id",

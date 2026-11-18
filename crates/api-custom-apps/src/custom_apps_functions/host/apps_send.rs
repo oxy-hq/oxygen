@@ -38,7 +38,7 @@ impl ProjectFunctionHost {
         let decided = self.policy.decide(host_op);
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
-        let (id, params) = self.publish_params(&checked);
+        let (id, params) = self.publish_params(&checked, &conn.role);
         self.publish_alone(&outbox, &conn, &params).await?;
         self.after_publish_commit().await;
         Ok(json!({ "eventId": id.to_string() }))
@@ -73,6 +73,7 @@ impl ProjectFunctionHost {
             key,
             data: target.body.clone(),
             delay_seconds,
+            data_bytes: bytes,
             revision: None,
         })
     }

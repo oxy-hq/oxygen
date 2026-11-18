@@ -14,6 +14,14 @@
 //!   branch store gets its own writer grant, which the grant audit accepts;
 //!   a branch row claiming production or a sandbox not hosted there is
 //!   quarantined (R12); a mark with nothing waiting drains on its first relay.
+//! - **`own_branch`**: a sandbox on an OLTP branch of its own publishes into
+//!   that branch's outbox, relayed and delivered from there, and the branch
+//!   quarantines a row claiming staging or production; one app's own
+//!   branch that cannot be opened holds up no other app's events.
+//! - **`reset_publish`**: after a reset wound a sandbox's own branch back to
+//!   platform version 5, while the host still remembers its grant there, a
+//!   publish (one-shot and on a `ctx.oltp.tx` handle) brings the branch
+//!   current and lands signed.
 //! - **`delivery`**: staging reaches a staging listener whose switch is on,
 //!   end to end, and holds otherwise; `dev-x` reaches `dev-x` only and holds
 //!   for an app without it; a staging event never reaches production; a
@@ -21,19 +29,22 @@
 //!   teardown stands once its store is gone.
 
 mod delivery;
+mod own_branch;
+mod reset_publish;
 mod store;
 
 use std::sync::Arc;
 
 use entity::{app_environments, app_event_deliveries as deliveries, app_events};
 use futures::FutureExt as _;
+use oxy_api_custom_apps::app_events::provenance::{Provenance, sign_hex};
 use oxy_api_custom_apps::app_events::relay::{RelayStats, relay_once};
 use oxy_api_custom_apps::app_events::schema::live_revision;
 use oxy_api_custom_apps::custom_apps_publish::{PublishInput, PublishTarget, publish, publish_to};
-use oxy_custom_apps::events::{event_id, qualified_type};
+use oxy_custom_apps::events::{event_id, jsonb_text_len, qualified_type};
 use oxy_oltp::OltpBranch;
 use oxy_oltp::events::{self as outbox, OutboxTarget, PUBLISH_SQL};
-use oxy_oltp::resolver::{branch_owner_dsn, resolve_branch_writer_for_org};
+use oxy_oltp::resolver::{WriterConnection, branch_owner_dsn, resolve_branch_writer_for_org};
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Statement};
 use serde_json::{Value, json};
@@ -178,12 +189,48 @@ impl Fx {
         outbox::ensure_publishable(db, self.org(), &target, &conn.role)
             .await
             .expect("grant on the branch");
+        self.publish_signed(&conn, environment, key, id).await;
+    }
+
+    /// One `oxy_events.publish` call on `conn`, already granted the definer
+    /// in its store, claiming `environment` under `id`, signed as the host
+    /// signs a row it writes.
+    async fn publish_signed(
+        &self,
+        conn: &WriterConnection,
+        environment: &str,
+        key: &str,
+        id: Uuid,
+    ) {
+        let db = &self.t.db;
         // Against a revision recorded for the event (none for a name that is
         // no environment, which the relay refuses first anyway).
         let revision = live_revision(db, self.publisher, "production", EVENT)
             .await
             .expect("read the live revision")
             .map(|r| r.id);
+        let data = json!({ "period": "2026-11" });
+        // Signed as the host signs a row it writes, so the relay trusts it
+        // (R25(c)): only the claimed environment is under test here.
+        let event_type = self.event_type();
+        let mac = sign_hex(
+            self.org(),
+            &Provenance {
+                id,
+                environment,
+                event_type: &event_type,
+                key,
+                writer_role: &conn.role,
+                actor: Some("user:test"),
+                root_id: id,
+                causation_id: None,
+                depth: 0,
+                delay_seconds: 0,
+                data_bytes: jsonb_text_len(&data) as i64,
+                schema_revision: revision,
+                invocation_id: None,
+            },
+        );
         connect(&conn.dsn)
             .await
             .query_one(
@@ -193,7 +240,7 @@ impl Fx {
                     &environment,
                     &EVENT,
                     &key,
-                    &json!({ "period": "2026-11" }),
+                    &data,
                     &revision,
                     &Some("user:test"),
                     &None::<Uuid>,
@@ -201,6 +248,7 @@ impl Fx {
                     &0i32,
                     &None::<Uuid>,
                     &0i32,
+                    &mac,
                 ],
             )
             .await
