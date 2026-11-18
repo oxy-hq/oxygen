@@ -295,40 +295,93 @@
   flex: 1;
 }
 
-.oxy-modeswitch-seg {
-  box-sizing: border-box;
+/* The nav sheet's form (option A, chosen 18 Nov): one footer row under a `--border-subtle`
+   hairline, "Appearance" in the muted ink on the left, its left edge on the nav rows' icons (the
+   bottom's 12px plus 12px = the nav's 8px, a row's 12px and the icon box's 4px), and on the right a
+   switch of three icon-only buttons on a quiet track with no outer edge: a 2px inset on `--accent`,
+   a step off the drawer's ground. The selected button takes the secondary button's fill
+   (`--btn-surface`) and full ink; the others are muted ink on transparent, `--btn-surface-hover`
+   on hover. The switch is drawn only with theme.css (above), but apps set `--btn-surface*` and
+   `--border-subtle` for themselves, so those are switched by --oxy-shell-themed like the Ask
+   button's; the inks and the track are the shell's host tokens. */
+.oxy-navsheet__bottom:has(.oxy-modeswitch-row) {
+  border-top-color: color-mix(
+    in srgb,
+    var(--border-subtle, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--rail-border, var(--oxy-shell-border))
+  );
+}
+
+.oxy-modeswitch-row {
   display: flex;
   min-width: 0;
   flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.oxy-modeswitch-row__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding-left: 0.75rem;
+  color: var(--oxy-shell-muted-fg);
+  font-family: var(--oxy-shell-font);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oxy-modeswitch-seg {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
   gap: 0.125rem;
-  border: 1px solid var(--card-border, var(--oxy-shell-border));
   border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
+  background: var(--oxy-shell-accent);
   padding: 0.125rem;
 }
 
 .oxy-modeswitch-seg__option {
   box-sizing: border-box;
+  position: relative;
   display: inline-flex;
-  min-width: 0;
-  min-height: var(--control-h-lg, 2.75rem);
-  flex: 1;
+  width: 2.75rem;
+  min-height: 2.5rem;
   align-items: center;
   justify-content: center;
-  gap: 0.375rem;
   border: none;
-  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 4px)));
+  border-radius: max(0px, calc(var(--radius-control, var(--oxy-shell-radius)) - 2px));
   background: transparent;
   color: var(--oxy-shell-muted-fg);
-  padding: 0 0.5rem;
-  font-family: var(--oxy-shell-font);
-  font-size: 13px;
+  padding: 0;
   cursor: pointer;
 }
 
-.oxy-modeswitch-seg__option--on {
-  background: var(--oxy-shell-muted);
+/* The 44px reach: the button is 40 tall inside the track's 2px inset, so its tap area runs out
+   over the inset, top and bottom, to the track's full 44px. */
+.oxy-modeswitch-seg__option::before {
+  content: "";
+  position: absolute;
+  inset: -0.125rem 0;
+}
+
+.oxy-modeswitch-seg__option:hover {
+  background: color-mix(
+    in srgb,
+    var(--btn-surface-hover, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-shell-accent)
+  );
+}
+
+.oxy-modeswitch-seg__option--on,
+.oxy-modeswitch-seg__option--on:hover {
+  background: color-mix(
+    in srgb,
+    var(--btn-surface, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-shell-muted)
+  );
   color: var(--oxy-shell-foreground);
-  font-weight: 500;
 }
 
 .oxy-modeswitch-seg__option:focus-visible {

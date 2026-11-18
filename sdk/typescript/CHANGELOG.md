@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.1] - 2026-11-18
+
+### Changed
+
+- **The phone nav sheet's appearance control is one footer row.** With `theme.css`, the
+  Light / Dark / System control at the bottom of the nav sheet is now "Appearance" in the
+  muted ink on the left and a compact switch of three icon-only buttons (sun, moon, monitor)
+  on the right, on a quiet `--accent` track with no outer edge, under a `--border-subtle`
+  hairline. The selected button takes the secondary button's fill (`--btn-surface`) and full
+  ink; the others are muted ink, `--btn-surface-hover` on hover. Each button is 44px wide and
+  40px tall inside a 44px tap area. The group is labelled by "Appearance"; each button has an
+  `aria-label` and `aria-pressed` (it was a `radiogroup` of `radio`s with visible words).
+  The modes, the stored choice, the sync with the person's Oxygen setting and the rail's
+  switch are unchanged. Without `theme.css` there is no switch, as before.
+
 ## [2.29.0] - 2026-11-12
 
 ### Added

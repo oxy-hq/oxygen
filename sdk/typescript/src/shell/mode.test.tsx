@@ -220,10 +220,28 @@ describe("OxyShell and the person's mode, with the theme", () => {
     });
     await render();
     await click($('[data-testid="nav-sheet-trigger"]'));
-    const seg = $('.oxy-navsheet__bottom [role="radiogroup"]');
-    expect(seg?.getAttribute("aria-label")).toBe("Appearance");
+    // One footer row: the word on the left, labelling a group of three icon-only buttons.
+    const row = $(".oxy-navsheet__bottom .oxy-modeswitch-row");
+    const label = row?.querySelector(".oxy-modeswitch-row__label");
+    const seg = row?.querySelector('[role="group"]');
+    expect(label?.textContent).toBe("Appearance");
+    expect(seg?.getAttribute("aria-labelledby")).toBe(label?.id);
+    expect(label?.id).toBeTruthy();
+    const pressed = () =>
+      [...(seg?.querySelectorAll("button") ?? [])].map((b) => [
+        b.getAttribute("aria-label"),
+        b.getAttribute("aria-pressed"),
+        b.textContent
+      ]);
+    expect(pressed()).toEqual([
+      ["Light", "false", ""],
+      ["Dark", "true", ""],
+      ["System", "false", ""]
+    ]);
     await click(seg?.querySelector('[data-testid="shell-mode-system"]') ?? null);
     expect(calls.find((c) => c.method === "PUT")?.body).toBe(JSON.stringify({ mode: "system" }));
+    expect(pressed().map(([, p]) => p)).toEqual(["false", "false", "true"]);
+    expect(localStorage.getItem("oxy-person-mode")).toBe("system");
   });
 });
 

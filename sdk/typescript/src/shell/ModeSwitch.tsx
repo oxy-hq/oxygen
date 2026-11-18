@@ -2,9 +2,10 @@
 // slot (where Oxygen keeps its user menu), and the nav sheet's bottom on a phone. `OxyShell` draws
 // it only with theme.css applied, for a signed-in member on a server that carries the mode, and
 // with no pin (`mode.ts`). The rail form is one button opening a three-item menu; the sheet form is
-// a three-way control, since a phone has the width and no hover.
+// one footer row, "Appearance" on the left and a three-icon switch on the right (option A, chosen
+// 18 Nov), since a phone has the width and no hover.
 
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { OxyModeChoice } from "../theme/index";
 import { cx } from "./cx";
 import { ShellTooltip } from "./Tooltip";
@@ -16,11 +17,11 @@ const OPTIONS: { value: OxyModeChoice; label: string }[] = [
 ];
 
 /** Sun, moon and monitor (lucide outlines, inlined). */
-function ModeIcon({ mode }: { mode: OxyModeChoice }) {
+function ModeIcon({ mode, size = 16 }: { mode: OxyModeChoice; size?: number }) {
   return (
     <svg
-      width='16'
-      height='16'
+      width={size}
+      height={size}
       viewBox='0 0 24 24'
       fill='none'
       stroke='currentColor'
@@ -50,7 +51,7 @@ export interface ModeSwitchProps {
   /** The person's choice. */
   mode: OxyModeChoice;
   onChoose: (mode: OxyModeChoice) => void;
-  /** `rail`: a button and its menu. `sheet`: a three-way control with labels. */
+  /** `rail`: a button and its menu. `sheet`: a footer row with a three-icon switch. */
   variant: "rail" | "sheet";
 }
 
@@ -64,31 +65,35 @@ export function ModeSwitch({ mode, onChoose, variant }: ModeSwitchProps) {
 }
 
 function SheetModeSwitch({ mode, onChoose }: Omit<ModeSwitchProps, "variant">) {
+  const labelId = useId();
   return (
-    <div
-      role='radiogroup'
-      aria-label='Appearance'
-      data-testid='shell-mode-switch'
-      className='oxy-modeswitch-seg'
-    >
-      {OPTIONS.map(({ value, label }) => (
-        // biome-ignore lint/a11y/useSemanticElements: a segmented control, not a form's radio inputs
-        <button
-          key={value}
-          type='button'
-          role='radio'
-          aria-checked={mode === value}
-          data-testid={`shell-mode-${value}`}
-          className={cx(
-            "oxy-modeswitch-seg__option",
-            mode === value && "oxy-modeswitch-seg__option--on"
-          )}
-          onClick={() => onChoose(value)}
-        >
-          <ModeIcon mode={value} />
-          <span>{label}</span>
-        </button>
-      ))}
+    <div className='oxy-modeswitch-row'>
+      <span id={labelId} className='oxy-modeswitch-row__label'>
+        Appearance
+      </span>
+      <div
+        role='group'
+        aria-labelledby={labelId}
+        data-testid='shell-mode-switch'
+        className='oxy-modeswitch-seg'
+      >
+        {OPTIONS.map(({ value, label }) => (
+          <button
+            key={value}
+            type='button'
+            aria-label={label}
+            aria-pressed={mode === value}
+            data-testid={`shell-mode-${value}`}
+            className={cx(
+              "oxy-modeswitch-seg__option",
+              mode === value && "oxy-modeswitch-seg__option--on"
+            )}
+            onClick={() => onChoose(value)}
+          >
+            <ModeIcon mode={value} size={18} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

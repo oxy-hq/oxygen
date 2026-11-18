@@ -399,6 +399,69 @@ for (const { id } of THEMES) {
   }
 }
 
+// The phone drawer's appearance row (option A, 18 Nov): "Appearance" in the muted ink on the
+// drawer, and the switch's icons on their fills over the track over the drawer: the selected
+// button's `--btn-surface` with full ink, the others muted ink on the bare track and on
+// `--btn-surface-hover`. Every name is read out of shell.css; 4.5:1 for the 14px label, 3:1 for an
+// icon (WCAG 1.4.11) and for the focus ring beside the fills, in both modes.
+for (const { id } of THEMES) {
+  for (const mode of ["light", "dark"]) {
+    describe(`${id} ${mode}: the phone drawer's appearance row`, () => {
+      const { colour, surface } = palette(id, mode);
+      const over = (name: string | undefined, under: Rgb | undefined): Rgb | undefined => {
+        const c = name ? colour(name) : undefined;
+        return c && under && composite(c, under);
+      };
+      const drawerName = /background: var\((--[a-z0-9-]+),/.exec(
+        shellRule(".oxy-navsheet__panel")
+      )?.[1];
+      const drawer = drawerName ? surface(drawerName) : undefined;
+      const labelInk = plainRead(".oxy-modeswitch-row__label", "color");
+      const trackName = plainRead(".oxy-modeswitch-seg", "background");
+      const restInk = plainRead(".oxy-modeswitch-seg__option", "color");
+      const on = ".oxy-modeswitch-seg__option--on,\n.oxy-modeswitch-seg__option--on:hover";
+      const hoverFill = themedHalf(".oxy-modeswitch-seg__option:hover", "background");
+      const onFill = themedHalf(on, "background");
+      const onInk = plainRead(on, "color");
+      const ring = /var\(--focus-ring-width, 2px\)\s+var\((--focus-ring-color),/.exec(
+        shellRule(".oxy-modeswitch-seg__option:focus-visible")
+      )?.[1];
+
+      it("reads the reference's secondary pair on a quiet track", () => {
+        expect([drawerName, labelInk, trackName, restInk, hoverFill, onFill, onInk, ring]).toEqual([
+          "--rail-bg",
+          "--muted-foreground",
+          "--accent",
+          "--muted-foreground",
+          "--btn-surface-hover",
+          "--btn-surface",
+          "--foreground",
+          "--focus-ring-color"
+        ]);
+      });
+
+      const track = over(trackName, drawer);
+      const hover = over(hoverFill, track);
+      const onGround = over(onFill, track);
+      const cases: { what: string; fg: Rgb | undefined; bg: Rgb | undefined; min: number }[] = [
+        { what: "label on the drawer", fg: over(labelInk, drawer), bg: drawer, min: 4.5 },
+        { what: "icon at rest on the track", fg: over(restInk, track), bg: track, min: 3 },
+        { what: "icon on hover", fg: over(restInk, hover), bg: hover, min: 3 },
+        { what: "selected icon on --btn-surface", fg: over(onInk, onGround), bg: onGround, min: 3 },
+        { what: "ring beside the selected fill", fg: over(ring, drawer), bg: onGround, min: 3 },
+        { what: "ring on the drawer", fg: over(ring, drawer), bg: drawer, min: 3 }
+      ];
+      for (const c of cases) {
+        const ratio = c.fg && c.bg ? wcagRatio(c.fg, c.bg) : undefined;
+        it(`${c.what} >= ${c.min} (${ratio ? `WCAG ${ratio.toFixed(2)}` : "a colour is missing"})`, () => {
+          expect(ratio, `${c.what}: a colour is missing`).toBeDefined();
+          expect((ratio ?? 0) + 1e-9, c.what).toBeGreaterThanOrEqual(c.min);
+        });
+      }
+    });
+  }
+}
+
 it("lists only known failures that exist", () => {
   const labels = new Set(
     THEMES.flatMap(({ id }) =>

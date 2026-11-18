@@ -244,6 +244,8 @@ describe("shell.css follows the design system's own parts with the theme", () =>
     const hostReads = reads().filter((r) => HOST.has(r.name) && !HOST_READ_IN_2_28.has(r.name));
     const names = [...new Set(hostReads.map((r) => r.name))].sort();
     expect(names).toEqual([
+      // The phone drawer's appearance row's hairline (2.29.1).
+      "--border-subtle",
       "--btn-surface",
       "--btn-surface-hover",
       "--dim-foreground",
