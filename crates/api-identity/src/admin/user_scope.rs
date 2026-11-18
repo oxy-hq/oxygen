@@ -33,9 +33,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::server::authz::{Caller, globals};
 use oxy_server_authz::staff::stored_grant::{StoredGrant, delegatable, stored_grant_of};
 use oxy_server_authz::staff::{delegation, scope};
+use oxy_server_authz::{Caller, globals};
 
 /// Does a caller whose scope is `scope` (`None` = unbounded) reach **every** org of a
 /// user who is a member of `member_orgs`? What changing that user's status takes. A user

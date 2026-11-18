@@ -13,14 +13,14 @@
 //! no amount of grepping proves a commit boundary.
 //!
 //! Skips when `OXY_DATABASE_URL` is unset. To run:
-//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-app --test authz -E 'test(admin_membership_audit)'
+//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-api-identity --test integration -E 'test(admin_membership_audit)'
 
 use axum::Json;
 use axum::extract::Path;
 use entity::org_members::OrgRole;
 use entity::{app_admins, audit_events, org_members, organizations, users};
 use oxy::database::client::establish_connection;
-use oxy_app::server::api::admin::users_admin::{
+use oxy_api_identity::admin::users_admin::{
     AddToOrgBody, UpdateRoleBody, add_to_org, remove_from_org, update_role,
 };
 use oxy_app_core::audit::RequestActor;

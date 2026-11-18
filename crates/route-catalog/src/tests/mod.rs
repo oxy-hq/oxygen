@@ -122,6 +122,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     // required, so the catalog diff against main is what proves those.
     "/api/admin/oltp",
     "/api/admin/airhouse",
+    // The admin split (PR 5): the user directory (`oxy-api-identity`).
+    "/api/admin/users",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",

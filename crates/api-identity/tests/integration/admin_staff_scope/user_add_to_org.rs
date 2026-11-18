@@ -20,7 +20,7 @@ use chrono::Utc;
 use entity::org_members::{self, OrgRole};
 use entity::users::{self, UserStatus};
 use entity::{org_frontline_members, service_accounts};
-use oxy_app::server::api::admin::users_admin::{
+use oxy_api_identity::admin::users_admin::{
     AddToOrgBody, SetStatusBody, add_to_org, set_user_status,
 };
 use oxy_app_core::audit::RequestActor;

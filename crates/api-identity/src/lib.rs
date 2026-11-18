@@ -17,7 +17,8 @@
 //!   policies, the inventory of every token reaching the org, its token policy;
 //! - [`oidc_exchange`]: a GitHub Actions run trading its OIDC token for an
 //!   `oxy_ci_` token;
-//! - [`admin`]: the two staff-console sections;
+//! - [`admin`]: the staff-console sections (two token sections and the user
+//!   directory);
 //! - [`token_sweep`]: the periodic token hygiene the global driver runs.
 //!
 //! The lifecycle audit these write is `oxy-identity`'s
@@ -321,11 +322,26 @@ pub fn admin_sections() -> Vec<AdminSection> {
             routes: admin::standing_tokens::router(),
             decls: Vec::new(),
         },
+        // The cross-tenant user directory, behind the capability it had in
+        // `oxy-app` before the admin split (PR 5) moved it here. A bounded
+        // grant passes this gate; the handlers fence each person and org.
+        AdminSection {
+            capability: Action::PlatformUsers,
+            routes: admin_users_routes(),
+            decls: Vec::new(),
+        },
     ]
 }
 
-/// Both sections, relative to `/admin`, for the route catalog's seed only:
-/// [`admin_sections`] mounts them one capability each.
+/// The user directory (`/users*`), relative to `/admin`: its own section
+/// (`PlatformUsers`), and its own function so the route catalog can seed it.
+pub fn admin_users_routes() -> Router<AppState> {
+    Router::new().merge(admin::users_admin::router())
+}
+
+/// The two token sections, relative to `/admin`, for the route catalog's
+/// seed only: [`admin_sections`] mounts them one capability each. The user
+/// directory has its own seed, [`admin_users_routes`].
 pub fn admin_routes() -> Router<AppState> {
     admin::sandbox_agent_tokens::router().merge(admin::standing_tokens::router())
 }

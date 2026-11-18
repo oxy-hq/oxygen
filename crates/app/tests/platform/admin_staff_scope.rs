@@ -32,11 +32,13 @@
 
 mod audit_and_assume;
 mod compiles;
-mod directories;
 mod fences;
+// `oxy-api-identity`'s user-directory cases include this file by path; the
+// helpers only they use read as dead code from here.
+#[allow(dead_code)]
 mod fixture;
 mod internal_jobs;
-mod user_add_to_org;
-mod user_detail;
-mod user_directory;
-mod user_status;
+// The user directory's cases (`directories`, `user_add_to_org`,
+// `user_detail`, `user_directory`, `user_status`) moved with the handlers
+// to `oxy-api-identity`'s `admin_staff_scope` (admin split, PR 5), and
+// include `fixture` from here.

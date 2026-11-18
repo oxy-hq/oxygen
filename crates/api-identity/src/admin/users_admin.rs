@@ -40,8 +40,8 @@ use uuid::Uuid;
 
 use serde_json::json;
 
-use crate::server::api::admin::user_scope;
-use crate::server::router::AppState;
+use crate::admin::user_scope;
+use oxy_app_core::AppState;
 use oxy_app_core::audit;
 use oxy_server_authz::staff::scope;
 use sea_orm::ExprTrait;

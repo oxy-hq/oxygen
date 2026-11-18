@@ -14,7 +14,7 @@ use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::OrgRole;
 use entity::workspace_members::{self, WorkspaceRole};
 use entity::{partner_grants, partner_role_bindings};
-use oxy_app::server::api::admin::users_admin::{get_user_detail, list_org_memberships};
+use oxy_api_identity::admin::users_admin::{get_user_detail, list_org_memberships};
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;

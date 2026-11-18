@@ -14,8 +14,8 @@ use axum::http::{StatusCode, Uri};
 use entity::audit_events;
 use entity::org_members::OrgRole;
 use entity::users::{self, UserStatus};
-use oxy_app::server::api::admin::audit::{AuditQuery, list_audit};
-use oxy_app::server::api::admin::users_admin::{SetStatusBody, set_user_status};
+use oxy_api_identity::admin::users_admin::{SetStatusBody, set_user_status};
+use oxy_app::surface::testing::audit::{AuditQuery, list_audit};
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{

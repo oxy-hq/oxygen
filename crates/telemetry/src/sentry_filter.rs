@@ -913,6 +913,10 @@ mod tests {
             // Postgres, never a tenant's rows.
             "oxy_api_tenancy::admin::oltp",
             "oxy_api_tenancy::admin::airhouse",
+            // The admin split (PR 5): the user directory, Postgres only, kept
+            // and not the data plane as there.
+            "oxy_api_identity::admin::users_admin",
+            "oxy_api_identity::admin::user_scope",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1259,6 +1263,9 @@ mod tests {
             // NAMED `airhouse` elsewhere does not match it.
             "oxy_api_tenancy::admin::oltp",
             "oxy_api_tenancy::admin::airhouse",
+            // The admin split (PR 5): the user directory.
+            "oxy_api_identity::admin::users_admin",
+            "oxy_api_identity::admin::user_scope",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

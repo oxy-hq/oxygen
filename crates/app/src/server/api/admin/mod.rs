@@ -20,8 +20,9 @@ mod internal_jobs_reach;
 mod internal_jobs_rows;
 pub mod routing;
 pub mod usage_report;
-mod user_scope;
-pub mod users_admin;
+// `users_admin` and `user_scope` (the user directory, `/users*`) are
+// `oxy-api-identity`'s since the admin split's PR 5: a section behind
+// `PlatformUsers`, arriving through `extracted`.
 // `workspace_health` is the `oxy-api-workspace-health` surface's (an `AdminSection`
 // under `PlatformOperate`), its domain `oxy-workspace-health`.
 
@@ -161,6 +162,8 @@ use crate::server::router::{AdminSection, AppState};
 /// the per-org OLTP console (`/oltp`, `/orgs/{org_id}/oltp*`, `PlatformOltp`)
 /// and the Airhouse fleet (`/airhouse`, `/workspaces/{workspace_id}/airhouse/
 /// provision`, `PlatformAirhouse`) are `oxy-api-tenancy`'s, a section each.
+/// In PR 5: the user directory (`/users*`, `PlatformUsers`) is
+/// `oxy-api-identity`'s.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per sub-router so only billing gets the strict
     // owner guard; everything else escalates to a capability, and anything
@@ -184,7 +187,9 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // org's subdomain (`/orgs/{org_id}/subdomain`), moved to
         // `oxy-api-tenancy` and arrive through `extracted` below, behind
         // `PlatformOrgs` — the capability they had here.
-        .merge(users_admin::router().route_layer(cap(Action::PlatformUsers)))
+        // The user directory (`/users*`, `PlatformUsers`) moved to
+        // `oxy-api-identity` (admin split, PR 5) and arrives through
+        // `extracted` below, behind the capability it had here.
         .merge(routing::router().route_layer(cap(Action::PlatformOperate)))
         // Per-org OLTP (`PlatformOltp`) and a workspace's Airhouse tenant
         // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4)

@@ -436,6 +436,10 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         // is `fn router<S>()`, which the `fn router()` split did not match.
         "crates/api-tenancy/src/admin/oltp.rs",
         "crates/api-tenancy/src/admin/airhouse.rs",
+        // The user directory (admin split, PR 5): parsed out of
+        // `staff_surface` until it moved, now required here. Its membership
+        // writes are `/users/{user_id}/org-memberships/{org_id}`.
+        "crates/api-identity/src/admin/users_admin.rs",
     ];
     for file in extracted_sections {
         assert!(
@@ -579,7 +583,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
     // (file, handler, whether the fence must precede a transaction)
     let sites: &[(&str, &[&str])] = &[
         (
-            "crates/app/src/server/api/admin/users_admin.rs",
+            "crates/api-identity/src/admin/users_admin.rs",
             &["add_to_org", "update_role", "remove_from_org"],
         ),
         (

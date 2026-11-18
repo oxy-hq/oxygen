@@ -8,7 +8,7 @@
 use axum::extract::{OriginalUri, Query};
 use axum::http::{StatusCode, Uri};
 use entity::org_members::OrgRole;
-use oxy_app::server::api::admin::users_admin::{ListUsersQuery, list_users};
+use oxy_api_identity::admin::users_admin::{ListUsersQuery, list_users};
 use oxy_auth::types::AuthenticatedUser;
 use serde_json::Value;
 use uuid::Uuid;

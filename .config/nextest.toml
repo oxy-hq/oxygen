@@ -312,6 +312,18 @@ filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration) & !test(
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-identity`'s integration group: the user directory's staff-scope
+# cases, which moved out of oxy-app's `platform` binary with the handlers
+# (admin split, PR 5), use oxy-app's harness by path (`common::test_db_with`,
+# own database each), so they contend for the server, not a schema. The
+# exception is `admin_membership_audit` (from oxy-app's `authz` binary): it
+# calls `establish_connection()` on the shared database, so it is pinned
+# into `serial-db` below with the other shared-schema tests.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-identity) & binary(=integration) & !test(/^(admin_membership_audit)::/)"
+test-group = "db-per-test"
+retries = 2
+
 # `oxy-api-github`'s integration group: the installation-ownership tests drive
 # the real GitHub routes against a database cloned from the per-run template
 # (`common::test_db`, `oxy-app`'s harness by path), so they contend for the
@@ -331,8 +343,9 @@ retries = 2
 # querying those tables mid-DDL.
 #
 # Two routes in:
-#   * four call `oxy::database::client::establish_connection()` directly (and
-#     the six that were the `slack` binary's, now `oxy-api-slack`'s, below);
+#   * three call `oxy::database::client::establish_connection()` directly (and
+#     the six that were the `slack` binary's, now `oxy-api-slack`'s, and
+#     `admin_membership_audit`, now `oxy-api-identity`'s, below);
 #   * `local_mode_router`, `simulation_router` (now
 #     `oxy-api-experiment`) and `staging_preview_cookie_retired` (now
 #     `oxy-api-custom-apps`) call `api_router(..)`, which
@@ -352,7 +365,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|audit_append_only|local_mode_router)::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -362,6 +375,14 @@ retries = 2
 # stay parallel.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-slack) & binary(=integration) & test(/^(slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision)::/)"
+test-group = "serial-db"
+retries = 2
+
+# `oxy-api-identity`'s `admin_membership_audit`, which was the `authz`
+# binary's: it calls `establish_connection()` on the shared database (see
+# the note above).
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-identity) & binary(=integration) & test(/^(admin_membership_audit)::/)"
 test-group = "serial-db"
 retries = 2
 

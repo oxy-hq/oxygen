@@ -314,7 +314,7 @@ const SEEDS: &[Seed] = &[
     // the CLI's halves, the ticket redeem, the OIDC exchange and leak reports
     // ride `SurfaceSeams::public`; the legacy
     // `/api-tokens` rides `SurfaceSeams::workspace`; the two
-    // token sections ride `SurfaceSeams::admin`.
+    // token sections and the user directory ride `SurfaceSeams::admin`.
     Seed {
         surface: "org",
         prefix: "/api",
@@ -338,6 +338,14 @@ const SEEDS: &[Seed] = &[
         prefix: "/api/admin",
         module: "oxy_api_identity",
         function: "admin_routes",
+    },
+    // Its user directory, out of `oxy-app`'s `admin::users_admin` in the
+    // admin split (PR 5): its own section (`PlatformUsers`), so its own seed.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_identity",
+        function: "admin_users_routes",
     },
     // `oxy-api-slack` fills the same two seams as frontline: the org's install
     // and installation at `/orgs/{org_id}/slack/*` ride `SurfaceSeams::api`,

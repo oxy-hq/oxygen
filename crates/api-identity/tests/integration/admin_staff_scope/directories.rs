@@ -11,7 +11,7 @@ use axum::http::{StatusCode, Uri};
 use chrono::{Duration, Utc};
 use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::OrgRole;
-use oxy_app::server::api::admin::users_admin::revoke_user_invitation;
+use oxy_api_identity::admin::users_admin::revoke_user_invitation;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_server_authz::staff::scope::list_scope;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};

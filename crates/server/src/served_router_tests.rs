@@ -3139,3 +3139,454 @@ fn the_composition_carries_the_fourth_split_sections() {
         );
     }
 }
+
+/// The fifth admin split section: the user directory (`oxy-api-identity`,
+/// `PlatformUsers`). As `(method, path, body, what the Global Owner gets for
+/// ids that do not exist)`, read off the served router on `main` (6b0cd95ef)
+/// before the move: the listings answer 200, everything naming a person or an
+/// invitation that does not exist 404. `{u}`, `{o}` and `{i}` are a user, an
+/// org and an invitation.
+const ADMIN_SPLIT_PR5_ROUTES: &[(&str, &str, Option<&str>, u16)] = &[
+    ("GET", "/admin/users", None, 200),
+    ("GET", "/admin/users/{u}", None, 404),
+    (
+        "PATCH",
+        "/admin/users/{u}/status",
+        Some(r#"{"status":"active"}"#),
+        404,
+    ),
+    ("GET", "/admin/users/{u}/org-memberships", None, 200),
+    (
+        "POST",
+        "/admin/users/{u}/org-memberships",
+        Some(r#"{"org_id":"{o}","role":"member"}"#),
+        404,
+    ),
+    (
+        "PATCH",
+        "/admin/users/{u}/org-memberships/{o}",
+        Some(r#"{"role":"member"}"#),
+        404,
+    ),
+    ("DELETE", "/admin/users/{u}/org-memberships/{o}", None, 404),
+    ("DELETE", "/admin/users/{u}/invitations/{i}", None, 404),
+];
+
+/// What a Global Admin bounded to org A gets for a person who is a member of
+/// org B only, an invitation from B, and B itself — on `main`, the same order
+/// as [`ADMIN_SPLIT_PR5_ROUTES`]. The directory lists (200, narrowed to A);
+/// every read of the person and every write is the per-person or per-org
+/// fence's 404, never 403: the grant holds `PlatformUsers`, so the section's
+/// capability layer admits it and the handler is what refuses.
+const ADMIN_SPLIT_PR5_OUT_OF_SCOPE: &[u16] = &[200, 404, 404, 404, 404, 404, 404, 404];
+
+/// [`ADMIN_SPLIT_PR5_ROUTES`] with the ids filled in: `(method, path, body)`.
+fn admin_split_pr5_routes(u: &str, o: &str, i: &str) -> Vec<(Method, String, Option<String>)> {
+    ADMIN_SPLIT_PR5_ROUTES
+        .iter()
+        .map(|(m, p, body, _)| {
+            (
+                Method::from_bytes(m.as_bytes()).unwrap(),
+                p.replace("{u}", u).replace("{o}", o).replace("{i}", i),
+                body.map(|b| b.replace("{o}", o)),
+            )
+        })
+        .collect()
+}
+
+/// One request, with its JSON body when it has one.
+async fn admin_split_send(
+    router: &Router,
+    method: &Method,
+    path: &str,
+    body: Option<&str>,
+) -> StatusCode {
+    let mut req = Request::builder().method(method).uri(path);
+    let body = match body {
+        Some(b) => {
+            req = req.header("content-type", "application/json");
+            Body::from(b.to_string())
+        }
+        None => Body::empty(),
+    };
+    router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
+        .expect("oneshot")
+        .status()
+}
+
+/// A user row, for the bounded callers below to ask about.
+async fn admin_split_pr5_user(db: &sea_orm::DatabaseConnection, tag: &str) -> uuid::Uuid {
+    use sea_orm::{ActiveModelTrait, ActiveValue};
+    let id = uuid::Uuid::new_v4();
+    entity::users::ActiveModel {
+        id: ActiveValue::Set(id),
+        email: ActiveValue::Set(Some(format!("{tag}-{id}@admin-split-5.test"))),
+        name: ActiveValue::Set(format!("admin split 5 {tag}")),
+        picture: ActiveValue::Set(None),
+        email_verified: ActiveValue::Set(true),
+        magic_link_token: ActiveValue::Set(None),
+        magic_link_token_expires_at: ActiveValue::Set(None),
+        status: ActiveValue::Set(entity::users::UserStatus::Active),
+        created_at: ActiveValue::NotSet,
+        last_login_at: ActiveValue::NotSet,
+    }
+    .insert(db)
+    .await
+    .expect("seed a user");
+    id
+}
+
+/// The served router mounts the fifth split's section inside `/api/admin`,
+/// behind the same layers `admin::router` gave it in `oxy-app`, answering what
+/// `main` answered before the move:
+///
+/// * the guest, who is not staff: 403 on every route, TRACE included;
+/// * the guest as the Global Owner: TRACE 405 (mounted), and each route's
+///   handler speaking ([`ADMIN_SPLIT_PR5_ROUTES`]);
+/// * the same owner while acting as a tenant: 403 everywhere;
+/// * the guest as a partner: 403 everywhere, with the partner console's 200
+///   as the control;
+/// * the guest as an App Operator bounded to one org: 403 everywhere — it
+///   does not hold `PlatformUsers`, so the section's layer refuses it;
+/// * the guest as a Global Admin bounded to org A, asking about a person in
+///   org B: the per-person and per-org fences' 404s
+///   ([`ADMIN_SPLIT_PR5_OUT_OF_SCOPE`]), and nothing the writes named moved;
+///   asking about a person in A, the reads answer 200 (the control);
+///
+/// with a path nobody mounts answering 404 throughout.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_fifth_split_section_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+    let router = served(ServeMode::Cloud).await;
+    let (x, y, z) = (
+        uuid::Uuid::new_v4().to_string(),
+        uuid::Uuid::new_v4().to_string(),
+        uuid::Uuid::new_v4().to_string(),
+    );
+    let routes = admin_split_pr5_routes(&x, &y, &z);
+    let control = "/admin/nothing-mounts-this";
+    let refused_everywhere = |who: &'static str, routes: Vec<(Method, String, Option<String>)>| {
+        let router = router.clone();
+        async move {
+            assert_eq!(
+                status(&router, &Method::GET, control).await,
+                StatusCode::NOT_FOUND,
+                "{who}: control"
+            );
+            for (method, path, body) in &routes {
+                let got = admin_split_send(&router, method, path, body.as_deref()).await;
+                assert_eq!(
+                    got,
+                    StatusCode::FORBIDDEN,
+                    "{who} {method} {path}: got {got}"
+                );
+                let got = admin_split_send(&router, &Method::TRACE, path, None).await;
+                assert_eq!(got, StatusCode::FORBIDDEN, "{who} TRACE {path}: got {got}");
+            }
+        }
+    };
+
+    for (method, path, _) in &routes {
+        assert_eq!(
+            classify(method.as_str(), &format!("/api{path}")),
+            RouteRole::FleetOk,
+            "{method} {path} is Postgres only and must stay FleetOk"
+        );
+    }
+
+    refused_everywhere("non-staff", routes.clone()).await;
+
+    let owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    for ((method, path, body), (_, _, _, expected)) in routes.iter().zip(ADMIN_SPLIT_PR5_ROUTES) {
+        let got = admin_split_send(&router, &Method::TRACE, path, None).await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{path} must be mounted for staff, got {got}"
+        );
+        let got = admin_split_send(&router, method, path, body.as_deref()).await;
+        assert_eq!(got.as_u16(), *expected, "owner {method} {path}: got {got}");
+    }
+
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let now = chrono::Utc::now();
+    let org = |name: &'static str| {
+        let id = uuid::Uuid::new_v4();
+        entity::organizations::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(name.into()),
+            slug: ActiveValue::Set(format!("admin-split-5-{}", id.simple())),
+            ..Default::default()
+        }
+    };
+    let membership = |user: uuid::Uuid, org: uuid::Uuid, role| entity::org_members::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_id: ActiveValue::Set(org),
+        user_id: ActiveValue::Set(user),
+        role: ActiveValue::Set(role),
+        created_at: ActiveValue::Set(now.into()),
+        updated_at: ActiveValue::Set(now.into()),
+    };
+
+    // Acting as a tenant closes the console, this section included.
+    let acting = org("Admin split 5")
+        .insert(&db)
+        .await
+        .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router admin split 5".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    let mut acting_answers = Vec::new();
+    for (method, path, body) in &routes {
+        acting_answers.push((
+            method.clone(),
+            path.clone(),
+            admin_split_send(&router, method, path, body.as_deref()).await,
+        ));
+        acting_answers.push((
+            Method::TRACE,
+            path.clone(),
+            admin_split_send(&router, &Method::TRACE, path, None).await,
+        ));
+    }
+    let acting_control = status(&router, &Method::GET, control).await;
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    assert_eq!(acting_control, StatusCode::NOT_FOUND);
+    for (method, path, got) in acting_answers {
+        assert_eq!(
+            got,
+            StatusCode::FORBIDDEN,
+            "acting {method} {path}: got {got}"
+        );
+    }
+
+    // A partner, not staff: the section refuses, the partner console answers.
+    drop(owner);
+    let partner = org("Admin split 5 partner")
+        .insert(&db)
+        .await
+        .expect("seed the partner org");
+    entity::partner_grants::ActiveModel {
+        org_id: ActiveValue::Set(partner.id),
+        status: ActiveValue::Set("active".into()),
+        created_by: ActiveValue::Set(None),
+        created_at: ActiveValue::Set(now.into()),
+    }
+    .insert(&db)
+    .await
+    .expect("seed the grant");
+    let member = membership(user_id, partner.id, entity::org_members::OrgRole::Admin)
+        .insert(&db)
+        .await
+        .expect("seed the membership");
+    entity::partner_role_bindings::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_member_id: ActiveValue::Set(member.id),
+        created_at: ActiveValue::Set(now.into()),
+    }
+    .insert(&db)
+    .await
+    .expect("seed partner access");
+    let (got, mine) = get_json(&router, "/partners").await;
+    assert_eq!(got, StatusCode::OK, "GET /partners: {mine}");
+    assert!(
+        mine.as_array().is_some_and(|all| all
+            .iter()
+            .any(|p| p["partner_id"] == partner.id.to_string())),
+        "the guest must read as a partner of the seeded org, or the refusals below \
+         prove nothing beyond the non-staff ones: {mine}"
+    );
+    refused_everywhere("partner", routes.clone()).await;
+    entity::organizations::Entity::delete_by_id(partner.id)
+        .exec(&db)
+        .await
+        .expect("remove the partner org");
+
+    // Staff bounded to org A. A person in org B only, with a pending
+    // invitation from B; and a person in A only, the in-scope control.
+    let in_scope = org("Admin split 5 in scope")
+        .insert(&db)
+        .await
+        .expect("org A");
+    let out_of_scope = org("Admin split 5 out of scope")
+        .insert(&db)
+        .await
+        .expect("org B");
+    let person_b = admin_split_pr5_user(&db, "in-b").await;
+    membership(
+        person_b,
+        out_of_scope.id,
+        entity::org_members::OrgRole::Member,
+    )
+    .insert(&db)
+    .await
+    .expect("a member of org B");
+    let person_a = admin_split_pr5_user(&db, "in-a").await;
+    membership(person_a, in_scope.id, entity::org_members::OrgRole::Member)
+        .insert(&db)
+        .await
+        .expect("a member of org A");
+    let invitation_b = entity::org_invitations::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_id: ActiveValue::Set(out_of_scope.id),
+        email: ActiveValue::Set(format!("invitee-{person_b}@admin-split-5.test")),
+        role: ActiveValue::Set(entity::org_members::OrgRole::Member),
+        invited_by: ActiveValue::Set(user_id),
+        token: ActiveValue::Set(format!("admin-split-5-{}", uuid::Uuid::new_v4())),
+        status: ActiveValue::Set(entity::org_invitations::InviteStatus::Pending),
+        expires_at: ActiveValue::Set((now + chrono::Duration::days(7)).into()),
+        created_at: ActiveValue::NotSet,
+    }
+    .insert(&db)
+    .await
+    .expect("an invitation from org B");
+    let elsewhere = admin_split_pr5_routes(
+        &person_b.to_string(),
+        &out_of_scope.id.to_string(),
+        &invitation_b.id.to_string(),
+    );
+    let at_home = admin_split_pr5_routes(
+        &person_a.to_string(),
+        &in_scope.id.to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+    );
+    for role in ["app_operator", "global_admin"] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the bounded grant");
+        entity::app_admin_scope_orgs::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            app_admin_id: ActiveValue::Set(grant.id),
+            org_id: ActiveValue::Set(in_scope.id),
+            created_at: ActiveValue::Set(now.into()),
+            created_by: ActiveValue::Set(None),
+        }
+        .insert(&db)
+        .await
+        .expect("bound it to org A");
+        // The grant read is cached per process, and the guest's "no grant"
+        // from the non-staff pass above is in it.
+        oxy_server_authz::globals::invalidate_admin_cache();
+        let mut answers = Vec::new();
+        for (method, path, body) in &elsewhere {
+            answers.push((
+                method.clone(),
+                path.clone(),
+                admin_split_send(&router, method, path, body.as_deref()).await,
+            ));
+        }
+        // The reads about a person in A: the control that the 404s above are
+        // the fence, not a section that answers nothing.
+        let mut home_answers = Vec::new();
+        for (method, path, _) in at_home.iter().filter(|(m, _, _)| *m == Method::GET) {
+            home_answers.push((path.clone(), status(&router, method, path).await));
+        }
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+        for ((method, path, got), main) in answers.iter().zip(ADMIN_SPLIT_PR5_OUT_OF_SCOPE) {
+            let expected = if role == "app_operator" { 403 } else { *main };
+            assert_eq!(got.as_u16(), expected, "{role} {method} {path}: got {got}");
+        }
+        for (path, got) in home_answers {
+            let expected = if role == "app_operator" { 403 } else { 200 };
+            assert_eq!(
+                got.as_u16(),
+                expected,
+                "{role} in scope GET {path}: got {got}"
+            );
+        }
+    }
+
+    // Nothing the out-of-scope writes named moved.
+    let still_member = entity::org_members::Entity::find()
+        .filter(entity::org_members::Column::UserId.eq(person_b))
+        .filter(entity::org_members::Column::OrgId.eq(out_of_scope.id))
+        .one(&db)
+        .await
+        .expect("read the membership");
+    assert!(still_member.is_some(), "org B's membership was removed");
+    let still_invited = entity::org_invitations::Entity::find_by_id(invitation_b.id)
+        .one(&db)
+        .await
+        .expect("read the invitation");
+    assert!(still_invited.is_some(), "org B's invitation was revoked");
+
+    for id in [in_scope.id, out_of_scope.id] {
+        entity::organizations::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded org");
+    }
+    for id in [person_a, person_b] {
+        entity::users::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded user");
+    }
+}
+
+/// The composition hands the admin seam the fifth split's section behind
+/// `PlatformUsers`, the capability `admin::router` gave it in `oxy-app`. It
+/// declares nothing (the console's `/{*rest}` FleetOk wildcard places it).
+#[test]
+fn the_composition_carries_the_fifth_split_section() {
+    use oxy_app::surface::Action;
+    let seams = surface_seams();
+    let sections: Vec<_> = seams
+        .admin
+        .iter()
+        .filter(|s| s.capability == Action::PlatformUsers)
+        .collect();
+    assert_eq!(sections.len(), 1, "sections behind PlatformUsers");
+    assert!(
+        sections[0].decls.is_empty(),
+        "PlatformUsers declares nothing"
+    );
+}

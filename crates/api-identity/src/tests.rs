@@ -87,11 +87,19 @@ fn concrete(path: &str) -> String {
         .join("/")
 }
 
-/// The two staff sections keep the capabilities they had in-tree.
+/// The staff sections keep the capabilities they had in-tree: the two token
+/// sections, and the user directory (admin split, PR 5).
 #[test]
 fn the_admin_sections_keep_their_capabilities() {
     let caps: Vec<Action> = admin_sections().iter().map(|s| s.capability).collect();
-    assert_eq!(caps, vec![Action::PlatformOperate, Action::PlatformGrants]);
+    assert_eq!(
+        caps,
+        vec![
+            Action::PlatformOperate,
+            Action::PlatformGrants,
+            Action::PlatformUsers
+        ]
+    );
 }
 
 /// The legacy key operations are **out** of the served OpenAPI document.
