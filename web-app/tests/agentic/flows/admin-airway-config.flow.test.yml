@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
 # Verify the admin Airway configuration page (`/admin/airway`) mounts and
-# both its tiers resolve: the per-source-kind admission-policy cards and the
+# both its tiers resolve: the per-source-kind admission-policy table and the
 # deployment-wide operational config (web-app/src/pages/admin/AdminAirway/
 # index.tsx). Global-Owner-only surface (see AdminSidebar's `ownerOnly` gate
 # and `App.tsx`'s comment on this route). Nothing under /admin covers Airway
@@ -30,12 +30,13 @@
 # zero-seed database (`GET /api/admin/airway/config` before any `oxy seed`
 # ran) that all five kinds are present with `global: null, overrides: []` —
 # so, unlike the fleet pages, this flow can assert on the specific kind
-# cards rather than falling back to an "empty state" tolerance.
+# rows rather than falling back to an "empty state" tolerance. Each row keeps
+# the `admin-airway-card-<kind>` testid it had when it was a card.
 #
 # Read-only: tightening a kind's contract policy "can silently halt every
 # pipeline whose resources don't satisfy it" (index.tsx's own doc comment),
 # so this flow only navigates and reads — it does not touch the Preview,
-# Save, or Clear controls on any card.
+# Save, or Clear controls on any row.
 
 name: admin Airway configuration page
 target: ide
@@ -52,19 +53,19 @@ setup:
   - "goto:/dev-login?email=e2e@oxy.tech&next=/admin/airway"
 
 cases:
-  - name: source-kind policy cards and deployment config both resolve
+  - name: source-kind policy table and deployment config both resolve
     tags: [admin, airway, regression]
     steps:
       # data-testid='admin-airway-source-kind-list'
-      #   — web-app/src/pages/admin/AdminAirway/index.tsx:64
+      #   — web-app/src/pages/admin/AdminAirway/SourceKindTable/index.tsx
       - wait_for: "selector:[data-testid=admin-airway-source-kind-list];timeout_ms=30000"
 
-      # data-testid='admin-airway-card-weather' — one of the fixed kinds
-      #   — web-app/src/pages/admin/AdminAirway/SourceKindCard/index.tsx:125
+      # data-testid='admin-airway-card-weather' — one of the fixed kinds' rows
+      #   — web-app/src/pages/admin/AdminAirway/SourceKindRow/index.tsx
       - wait_for: "selector:[data-testid=admin-airway-card-weather]"
 
       # The Deployment section (airway's operational tier) is its own query,
-      # independent of the source-kind cards above — wait for its heading
+      # independent of the source-kind table above — wait for its heading
       # separately so a failure in one tier doesn't mask the other.
       - wait_for: "selector:text=Deployment;timeout_ms=30000"
 
@@ -77,16 +78,18 @@ cases:
       - assert: "selector [data-testid=admin-airway-empty] is not visible"
 
       - judge: |
-          The page is at /admin/airway and shows the "Airway configuration"
-          heading and intro text, followed by a stack of source-kind cards —
-          at minimum "weather", "toast", and "quickbooks" — each naming its
-          admission contract policy, and a separate "Deployment" section
-          below the cards for airway's deployment-wide operational settings.
+          The page is at /admin/airway and shows the "Airway" heading and a
+          one-line description, a strip of counts (Configured, Tightened,
+          Sandbox, Overrides), then a table with one row per source kind —
+          at minimum "weather", "toast", and "quickbooks" — each row naming
+          its contract policy and environment, and a separate "Deployment"
+          section below the table for airway's deployment-wide operational
+          settings.
 
           Fail if ANY of the following is true:
           (a) an error banner reading "Failed to load airway admission
               config" is visible;
-          (b) the page shows "No known source kinds." instead of real cards;
+          (b) the page shows "No known source kinds." instead of real rows;
           (c) the page is a blank white screen or a loading skeleton that
               never resolved;
           (d) any visible text contains a raw filesystem path or "os error".

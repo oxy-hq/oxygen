@@ -30,7 +30,7 @@ const GROUPS = ["transport", "retry", "extraction", "tls"] as const;
  * The `/admin/airway` **Deployment** region — airway's operational tier
  * (`airway_deployment_config`), a singleton row of eight settings.
  *
- * Distinct from the source-kind cards above it in both scope and lifetime:
+ * Distinct from the source-kind table above it in both scope and lifetime:
  * those are per source kind and resolved on every run, this is per *process*
  * and installed once at worker startup. That difference is the whole design
  * here — see `DeploymentStateBanner` for why a save is not live, and why the

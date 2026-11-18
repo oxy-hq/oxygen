@@ -1,8 +1,4 @@
-import { RotateCcw } from "lucide-react";
-import { useState } from "react";
-import { Button } from "@/components/ui/shadcn/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/shadcn/card";
-import { Spinner } from "@/components/ui/shadcn/spinner";
+import { useId, useState } from "react";
 import { usePolicyPreview } from "@/hooks/api/airwayConfig/usePolicyPreview";
 import {
   useDeleteAirwayGlobalConfig,
@@ -15,39 +11,41 @@ import {
   asContractPolicy,
   asEnvironment
 } from "@/services/api/airwayConfig";
-import { PolicyFields } from "../components/PolicyFields";
 import { SaveConfirmDialog } from "../components/SaveConfirmDialog";
-import { PolicyPreview } from "../PolicyPreview";
-import { computeSaveGate, formatUpdatedAt } from "../utils";
-import { WorkspaceOverrides } from "../WorkspaceOverrides";
+import { unrecognisedFields } from "../summary";
+import { computeSaveGate } from "../utils";
+import { SourceKindEditor } from "./components/SourceKindEditor";
+import { SourceKindLine } from "./components/SourceKindLine";
 
 /**
- * One source kind's admission policy: the global row's two editable fields
- * (`contract_policy`, `environment`), a lazy preview disclosure, and its
- * per-workspace overrides. Changing either select never saves by itself —
- * it only arms the Save button and drops any preview already on screen, so
- * an operator can never save policy B while looking at a preview of policy A.
+ * One source kind in the `/admin/airway` table: a one-line summary of its stored
+ * global row, and (expanded) the editor for it — the two selects, a lazy preview,
+ * and its per-workspace overrides.
+ *
+ * Changing either select never saves by itself — it only arms Save and drops any
+ * preview already on screen, so an operator can never save policy B while looking at
+ * a preview of policy A. The drafts live here rather than in the editor, so
+ * collapsing a row keeps an unsaved edit and the line still says "Unsaved" with a
+ * Save beside it. Collapsing does close the preview: a preview the operator is not
+ * looking at is not one (see `computeSaveGate`'s `never-previewed`).
  */
-export function SourceKindCard({ kind }: { kind: AirwaySourceKindConfig }) {
+export function SourceKindRow({ kind }: { kind: AirwaySourceKindConfig }) {
   // Narrowed at the boundary: the column is free text (no CHECK — see the
   // migration), so a row written by raw SQL or by a build that knew a different
   // spelling arrives as a string outside the union. Seeding the select with it
   // renders a blank `SelectValue` and fails only at `PUT`, with a 400. An
   // unrecognised value therefore seeds "inherit" and is reported explicitly
-  // below instead of being silently shown as a blank field.
+  // (in the line, and in full in the editor) instead of a blank field.
   const serverPolicy = asContractPolicy(kind.global?.contract_policy);
   const serverEnv = asEnvironment(kind.global?.environment);
-  const unrecognised = [
-    ["Contract policy", kind.global?.contract_policy, serverPolicy] as const,
-    ["Environment", kind.global?.environment, serverEnv] as const
-  ]
-    .filter(([, stored, known]) => stored != null && known === null)
-    .map(([label, stored]) => `${label} = "${stored}"`);
+  const unrecognised = unrecognisedFields(kind.global);
 
+  const [open, setOpen] = useState(false);
   const [draftPolicy, setDraftPolicy] = useState<AirwayContractPolicy | null>(serverPolicy);
   const [draftEnv, setDraftEnv] = useState<AirwayEnvironment | null>(serverEnv);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const editorId = useId();
 
   const dirty = draftPolicy !== serverPolicy || draftEnv !== serverEnv;
 
@@ -71,7 +69,7 @@ export function SourceKindCard({ kind }: { kind: AirwaySourceKindConfig }) {
   // was computed for that exact `(contract_policy, environment)`. See
   // `computeSaveGate`'s doc for the full list of what "unknown" covers.
   //
-  // `"global"`: this card writes the kind's fleet-wide row, so a preview the
+  // `"global"`: this row writes the kind's fleet-wide row, so a preview the
   // server fenced to this operator's platform scope answered only part of the
   // question. That is the one tier where a non-zero `out_of_scope_pipelines`
   // must confirm.
@@ -82,8 +80,9 @@ export function SourceKindCard({ kind }: { kind: AirwaySourceKindConfig }) {
     "global"
   );
 
-  function invalidatePreview() {
-    setPreviewOpen(false);
+  function toggle() {
+    if (open) setPreviewOpen(false);
+    setOpen(!open);
   }
 
   function doSave() {
@@ -116,93 +115,51 @@ export function SourceKindCard({ kind }: { kind: AirwaySourceKindConfig }) {
       onSuccess: () => {
         setDraftPolicy(null);
         setDraftEnv(null);
-        invalidatePreview();
+        setPreviewOpen(false);
       }
     });
   }
 
   return (
-    <Card data-testid={`admin-airway-card-${kind.source_kind}`}>
-      <CardHeader className='flex flex-row items-start justify-between gap-4 space-y-0'>
-        <div>
-          <h3 className='font-semibold text-sm'>{kind.source_kind}</h3>
-          <p className='mt-0.5 text-muted-foreground text-xs'>
-            {formatUpdatedAt(kind.global?.updated_at)}
-          </p>
-        </div>
-        <div className='flex shrink-0 items-center gap-1.5'>
-          {kind.global !== null && (
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              disabled={upsert.isPending || deleteGlobal.isPending}
-              onClick={handleClearClick}
-              data-testid={`admin-airway-clear-${kind.source_kind}`}
-              tooltip="Remove this kind's global row — every workspace falls back to airway's built-in default"
-            >
-              {deleteGlobal.isPending ? (
-                <Spinner className='size-3.5' />
-              ) : (
-                <RotateCcw className='size-3.5' />
-              )}
-              Clear
-            </Button>
-          )}
-          <Button
-            type='button'
-            size='sm'
-            disabled={!dirty || upsert.isPending}
-            onClick={handleSaveClick}
-            data-testid={`admin-airway-save-${kind.source_kind}`}
-          >
-            {upsert.isPending && <Spinner className='size-3.5' />}
-            Save
-          </Button>
-        </div>
-      </CardHeader>
+    <li
+      className='col-span-full grid grid-cols-subgrid border-border/50 border-b last:border-b-0'
+      data-testid={`admin-airway-card-${kind.source_kind}`}
+      data-state={open ? "open" : "closed"}
+    >
+      <SourceKindLine
+        kind={kind}
+        open={open}
+        onToggle={toggle}
+        editorId={editorId}
+        dirty={dirty}
+        saving={upsert.isPending}
+        onSave={handleSaveClick}
+      />
 
-      <CardContent className='space-y-4'>
-        {unrecognised.length > 0 && (
-          <p
-            className='rounded-md border border-status-warning-text/40 bg-status-warning-bg px-3 py-2 text-status-warning-text text-xs'
-            data-testid={`admin-airway-unrecognised-${kind.source_kind}`}
-          >
-            This kind's stored row holds a value this build does not recognise (
-            {unrecognised.join(", ")}). Airway refuses it at run time rather than falling back, so
-            these pipelines are already failing. The fields below show "inherit"; saving replaces
-            the stored value.
-          </p>
-        )}
-
-        <PolicyFields
-          idSuffix={kind.source_kind}
+      {open ? (
+        <SourceKindEditor
+          id={editorId}
+          kind={kind}
+          unrecognised={unrecognised}
           draftPolicy={draftPolicy}
           draftEnv={draftEnv}
           onPolicyChange={(value) => {
             setDraftPolicy(value);
-            invalidatePreview();
+            setPreviewOpen(false);
           }}
           onEnvChange={(value) => {
             setDraftEnv(value);
-            invalidatePreview();
+            setPreviewOpen(false);
           }}
-        />
-
-        <PolicyPreview
-          sourceKind={kind.source_kind}
-          open={previewOpen}
+          previewOpen={previewOpen}
           onRequestPreview={() => setPreviewOpen(true)}
-          onHide={() => setPreviewOpen(false)}
+          onHidePreview={() => setPreviewOpen(false)}
           preview={preview}
+          clearing={deleteGlobal.isPending}
+          clearDisabled={upsert.isPending || deleteGlobal.isPending}
+          onClear={handleClearClick}
         />
-
-        <WorkspaceOverrides
-          sourceKind={kind.source_kind}
-          overrides={kind.overrides}
-          global={kind.global}
-        />
-      </CardContent>
+      ) : null}
 
       <SaveConfirmDialog
         testIdSuffix={kind.source_kind}
@@ -211,8 +168,13 @@ export function SourceKindCard({ kind }: { kind: AirwaySourceKindConfig }) {
         gate={gate}
         onOpenChange={setConfirmOpen}
         onConfirm={doSave}
-        onPreviewInstead={() => setPreviewOpen(true)}
+        // From a collapsed row too: the fix for "unknown impact" is to look, so
+        // open the row as well as the preview.
+        onPreviewInstead={() => {
+          setOpen(true);
+          setPreviewOpen(true);
+        }}
       />
-    </Card>
+    </li>
   );
 }

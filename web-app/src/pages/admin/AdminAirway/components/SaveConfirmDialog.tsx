@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/shadcn/button";
 import type { SaveGate } from "../utils";
 
 interface SaveConfirmDialogProps {
-  /** Distinguishes testids across the global-row card and per-kind add-override dialogs. */
+  /** Distinguishes testids across the global row and per-kind add-override dialogs. */
   testIdSuffix: string;
   open: boolean;
   pending: boolean;

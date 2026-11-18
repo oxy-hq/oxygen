@@ -6,35 +6,12 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
+import { cn } from "@/libs/shadcn/utils";
 import type { AirwayContractPolicy, AirwayEnvironment } from "@/services/api/airwayConfig";
+import { ENV_OPTIONS, POLICY_OPTIONS } from "../policyOptions";
 
 /** Sentinel select value for "no explicit value stored — inherit the built-in default." */
 const INHERIT = "inherit";
-
-const POLICY_OPTIONS: Array<{ value: AirwayContractPolicy; label: string; description: string }> = [
-  {
-    value: "permissive",
-    label: "Permissive",
-    description: "Every resource is admitted, declared or not — today's default."
-  },
-  {
-    value: "forbid_opaque",
-    label: "Forbid opaque",
-    description:
-      "Rejects resources whose vendor contract is a confirmed opaque fact. Undeclared resources still pass."
-  },
-  {
-    value: "require_declared",
-    label: "Require declared",
-    description:
-      "Rejects anything without a checked immutable or versioned contract — opaque and undeclared alike."
-  }
-];
-
-const ENV_OPTIONS: Array<{ value: AirwayEnvironment; label: string }> = [
-  { value: "production", label: "Production" },
-  { value: "sandbox", label: "Sandbox" }
-];
 
 interface PolicyFieldsProps {
   /** Distinguishes testids when several `PolicyFields` instances render on one page (per kind, or inside a dialog). */
@@ -53,13 +30,15 @@ interface PolicyFieldsProps {
   inheritPolicyLabel?: string;
   inheritEnvLabel?: string;
   inheritPolicyHelp?: string;
+  className?: string;
 }
 
 /**
  * The two editable selects — `contract_policy` and `environment`. Neither
  * onChange saves; the caller treats any change here as "arm Save, drop the
- * preview" (see `SourceKindCard`'s `invalidatePreview`). Shared by the
- * global row (`SourceKindCard`) and the per-workspace override form
+ * preview" (see `SourceKindRow`'s `onPolicyChange` / `onEnvChange`, which close the
+ * preview). Shared by the
+ * global row (`SourceKindRow`) and the per-workspace override form
  * (`AddOverrideDialog`) — both are "two independently-nullable fields",
  * which is exactly what makes a sparse override (only one field set)
  * expressible for free: `null` is just "inherit" either way.
@@ -72,10 +51,11 @@ export function PolicyFields({
   onEnvChange,
   inheritPolicyLabel = "Inherit default (permissive)",
   inheritEnvLabel = "Inherit default (production)",
-  inheritPolicyHelp
+  inheritPolicyHelp,
+  className
 }: PolicyFieldsProps) {
   return (
-    <div className='grid gap-4 sm:grid-cols-2'>
+    <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
       <Field label='Contract policy'>
         <Select
           value={draftPolicy ?? INHERIT}
@@ -95,7 +75,7 @@ export function PolicyFields({
         </Select>
         {/* The chosen policy's one-line description. Inheriting says nothing more: the
             select already reads "Inherit default (permissive)", and repeating it under
-            every kind's card was the same sentence four times down the page. */}
+            every kind was the same sentence four times down the page. */}
         {draftPolicy ? (
           <p className='mt-1 text-muted-foreground text-xs'>
             {POLICY_OPTIONS.find((o) => o.value === draftPolicy)?.description}

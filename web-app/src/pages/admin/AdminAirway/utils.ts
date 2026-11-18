@@ -168,7 +168,7 @@ function describesSubject(data: AirwayPolicyPreviewResponse, subject: PreviewSub
 }
 
 /**
- * Shared by the global row (`SourceKindCard`) and the override form
+ * Shared by the global row (`SourceKindRow`) and the override form
  * (`AddOverrideDialog`) — both save through the same gate.
  *
  * `subject` is the draft about to be saved. A preview is trusted only when the

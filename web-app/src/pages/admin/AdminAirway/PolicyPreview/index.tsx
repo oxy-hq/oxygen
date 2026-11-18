@@ -20,9 +20,31 @@ interface PolicyPreviewProps {
 }
 
 /**
- * The preview disclosure for one source-kind card. Closed by default — the
+ * The button that opens a preview. Exported on its own so a caller with an
+ * action bar (`SourceKindEditor`) can put it there and render the results
+ * panel below; `PolicyPreview` renders the same button while closed.
+ */
+export function PolicyPreviewTrigger({
+  sourceKind,
+  onRequestPreview
+}: Pick<PolicyPreviewProps, "sourceKind" | "onRequestPreview">) {
+  return (
+    <Button
+      type='button'
+      variant='outline'
+      size='sm'
+      onClick={onRequestPreview}
+      data-testid={`admin-airway-preview-trigger-${sourceKind}`}
+    >
+      Preview this policy
+    </Button>
+  );
+}
+
+/**
+ * The preview disclosure for one source kind. Closed by default — the
  * underlying `usePolicyPreview` query is lazy, so nothing fires until the
- * operator explicitly asks. `SourceKindCard` owns `open`/the query itself
+ * operator explicitly asks. `SourceKindRow` owns `open`/the query itself
  * (via `preview`) so it can gate the Save confirm on the same data this
  * renders; this component is presentation-only.
  */
@@ -34,17 +56,7 @@ export function PolicyPreview({
   preview
 }: PolicyPreviewProps) {
   if (!open) {
-    return (
-      <Button
-        type='button'
-        variant='outline'
-        size='sm'
-        onClick={onRequestPreview}
-        data-testid={`admin-airway-preview-trigger-${sourceKind}`}
-      >
-        Preview this policy
-      </Button>
-    );
+    return <PolicyPreviewTrigger sourceKind={sourceKind} onRequestPreview={onRequestPreview} />;
   }
 
   return (

@@ -6,8 +6,8 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useDeleteAirwayWorkspaceOverride } from "@/hooks/api/airwayConfig/useUpsertAirwayConfig";
 import { ADMIN_HEADER_ROW_CLASS, AdminTh } from "@/pages/admin/components/AdminTable";
+import { relativeTime } from "@/pages/admin/utils";
 import type { AirwayConfigValues, AirwayWorkspaceOverride } from "@/services/api/airwayConfig";
-import { formatUpdatedAt } from "../utils";
 import { AddOverrideDialog } from "./components/AddOverrideDialog";
 import { RemoveOverrideDialog } from "./components/RemoveOverrideDialog";
 
@@ -24,7 +24,7 @@ import { RemoveOverrideDialog } from "./components/RemoveOverrideDialog";
  * override it replaces — the same outage the save gate exists to prevent,
  * reached by a different button.
  *
- * `global` is threaded in from `SourceKindCard` and goes to **both** dialogs:
+ * `global` is threaded in from `SourceKindRow` and goes to **both** dialogs:
  * `RemoveOverrideDialog` names the policy taking over rather than describing
  * the fallback in the abstract, and `AddOverrideDialog` needs it to resolve
  * what an "inherit" field will actually run under — a preview computed without
@@ -110,8 +110,11 @@ export function WorkspaceOverrides({
                     <span className='text-muted-foreground'>Inherits</span>
                   )}
                 </TableCell>
-                <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                  {formatUpdatedAt(o.values.updated_at)}
+                <TableCell
+                  className='text-muted-foreground text-xs tabular-nums'
+                  title={new Date(o.values.updated_at).toLocaleString()}
+                >
+                  {relativeTime(o.values.updated_at)}
                 </TableCell>
                 <TableCell className='text-right'>
                   <Button
@@ -121,6 +124,7 @@ export function WorkspaceOverrides({
                     className='size-7 text-muted-foreground hover:text-destructive'
                     disabled={deleteOverride.isPending}
                     onClick={() => setPendingRemoval(o)}
+                    aria-label={`Remove ${o.workspace_name ?? o.workspace_id}'s override`}
                     data-testid={`admin-airway-override-remove-${sourceKind}-${o.workspace_id}`}
                   >
                     {deleteOverride.isPending && pendingRemoval?.workspace_id === o.workspace_id ? (
