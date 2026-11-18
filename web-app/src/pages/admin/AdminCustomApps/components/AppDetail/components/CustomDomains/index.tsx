@@ -9,6 +9,7 @@ import {
   useRemoveAppDomain,
   useVerifyAppDomain
 } from "@/hooks/api/customApps/useAppDomains";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { CustomDomain } from "@/types/apps";
 import { LifecycleConfirm } from "../../../AppLifecycle";
 import { DomainRow } from "./DomainRow";
@@ -91,9 +92,15 @@ export const CustomDomains = ({ appId }: { appId: string }) => {
       {/* What adding one does, said before it is done (`custom_domain_host.rs`:
           a custom domain is read as production). The form gave no hint, so "will
           staging move to it?" was answered only by trying. */}
-      <p className='text-muted-foreground text-xs' data-testid='admin-app-domain-help'>
-        A custom domain serves production only. Staging and sandboxes stay on their platform hosts,
-        and the app&rsquo;s existing URLs keep working.
+      <p
+        className='flex items-center gap-1.5 text-muted-foreground text-xs'
+        data-testid='admin-app-domain-help'
+      >
+        Serves production only.
+        <AdminInfo>
+          Staging and sandboxes stay on their platform hosts, and the app&rsquo;s existing URLs keep
+          working.
+        </AdminInfo>
       </p>
 
       <LifecycleConfirm

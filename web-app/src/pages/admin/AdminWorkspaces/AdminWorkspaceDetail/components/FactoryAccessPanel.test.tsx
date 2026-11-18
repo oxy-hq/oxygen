@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminFactoryAccess } from "@/services/api/adminTenants";
@@ -53,10 +54,14 @@ describe("FactoryAccessPanel", () => {
     expect(mutate).toHaveBeenLastCalledWith({ userId: "u-granted", granted: false });
   });
 
-  it("says who can use the Factory", () => {
+  it("says who can use the Factory: the default on the page, the rest one hover away", async () => {
     access = { members: [member({})] };
     render(<FactoryAccessPanel workspaceId='ws-1' />);
-    expect(screen.getByText(/the members granted here can use/)).toBeInTheDocument();
+    expect(screen.getByText(/Owners and admins already have access/)).toBeInTheDocument();
+    await userEvent.hover(screen.getByRole("button", { name: "More information" }));
+    expect((await screen.findByRole("tooltip")).textContent).toMatch(
+      /the members granted here can use/
+    );
   });
 
   /// A grant whose holder left the org opens nothing, but must stay removable.

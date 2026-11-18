@@ -7,6 +7,7 @@ import {
   useSetAdminFactoryAccess
 } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import ROUTES from "@/libs/utils/routes";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { AdminFactoryAccessMember } from "@/services/api/adminTenants";
 import { AdminAsync } from "../../../components/AdminAsync";
 import { AdminEmptyState } from "../../../components/AdminEmptyState";
@@ -73,9 +74,12 @@ export default function FactoryAccessPanel({
             >
               Factory access
             </AdminSectionLabel>
-            <p className='text-muted-foreground text-xs'>
-              Oxy staff, the organization's owners and admins, and the members granted here can use
-              this workspace's Factory. Owners and admins already have access without a grant.
+            <p className='flex items-center gap-1.5 text-muted-foreground text-xs'>
+              Owners and admins already have access by role.
+              <AdminInfo>
+                Oxy staff, the organization&rsquo;s owners and admins, and the members granted here
+                can use this workspace&rsquo;s Factory.
+              </AdminInfo>
             </p>
             <ul className='divide-y divide-border/60 rounded-lg border border-border/60 bg-card'>
               {data.members.map((m) => (

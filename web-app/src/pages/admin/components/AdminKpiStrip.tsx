@@ -51,13 +51,27 @@ export const AdminKpiStrip = ({
 }) => (
   // Every cell draws its own right and bottom hairline; the grid sits one pixel past
   // the frame on both edges so the last column's and last row's lines fall under the
-  // frame's clip. That is what keeps a strip of five on a three-column phone layout
-  // from showing a stray line under a half-empty row.
+  // frame's clip. That is what keeps a strip of five on a three-column layout from
+  // showing a stray line under a half-empty row.
+  //
+  // Columns follow the strip's own width (`@container`), not the viewport's: the same
+  // strip sits across a page, in a console column, and in the dossier docked beside a
+  // preview at a quarter of the screen, where viewport breakpoints gave four 70px cells
+  // and truncated every value.
   <div
     data-testid={dataTestId}
-    className={cn("overflow-hidden rounded-lg border border-border/60 bg-card", className)}
+    className={cn(
+      "@container overflow-hidden rounded-lg border border-border/60 bg-card",
+      className
+    )}
   >
-    <div className={cn("-mr-px -mb-px grid grid-cols-2 sm:grid-cols-3", LG_COLUMNS[items.length])}>
+    <div
+      className={cn(
+        "-mr-px -mb-px grid grid-cols-2",
+        MD_COLUMNS[Math.min(items.length, 3)],
+        WIDE_COLUMNS[items.length]
+      )}
+    >
       {items.map((item) => (
         <KpiCell key={item.id} item={item} testId={dataTestId} />
       ))}
@@ -66,13 +80,20 @@ export const AdminKpiStrip = ({
 );
 
 /** Static class names, so Tailwind sees each one. Six is the most a strip holds. */
-const LG_COLUMNS: Record<number, string> = {
-  1: "lg:grid-cols-1",
-  2: "lg:grid-cols-2",
-  3: "lg:grid-cols-3",
-  4: "lg:grid-cols-4",
-  5: "lg:grid-cols-5",
-  6: "lg:grid-cols-6"
+const MD_COLUMNS: Record<number, string> = {
+  1: "@md:grid-cols-1",
+  2: "@md:grid-cols-2",
+  3: "@md:grid-cols-3"
+};
+
+/** From a container of 42rem: every cell on one row. */
+const WIDE_COLUMNS: Record<number, string> = {
+  1: "@2xl:grid-cols-1",
+  2: "@2xl:grid-cols-2",
+  3: "@2xl:grid-cols-3",
+  4: "@2xl:grid-cols-4",
+  5: "@2xl:grid-cols-5",
+  6: "@2xl:grid-cols-6"
 };
 
 const KpiCell = ({ item, testId }: { item: AdminKpi; testId?: string }) => {

@@ -1,6 +1,7 @@
 import { Users } from "lucide-react";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAppActivityVisitors } from "@/hooks/api/customApps/useCustomApps";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { VisitorRow } from "@/services/api/customApps";
 import { relativeTime } from "../relativeTime";
 
@@ -71,12 +72,14 @@ export const ActivityVisitors = ({ appId }: { appId: string }) => {
         <Skeleton className='h-32 w-full' />
       ) : (data?.length ?? 0) === 0 ? (
         <p
-          className='text-muted-foreground text-xs'
+          className='flex items-center gap-1.5 text-muted-foreground text-xs'
           data-testid='admin-app-activity-visitors-empty'
         >
-          No views yet. Custom apps record a view when a user opens the app's HTML — bundle assets /
-          API fetches are excluded so this counts page loads, not request volume. Recording is
-          automatic: an app needs no tracking code to appear here.
+          No views yet.
+          <AdminInfo>
+            A view is recorded when someone opens the app's HTML: page loads, not bundle assets or
+            API fetches. It is automatic; an app needs no tracking code to appear here.
+          </AdminInfo>
         </p>
       ) : (
         <div className='overflow-hidden rounded-md border'>

@@ -5,6 +5,7 @@ import {
   useAppActivityEventGroups,
   useAppActivityEventOccurrences
 } from "@/hooks/api/customApps/useCustomApps";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import { relativeTime } from "../relativeTime";
 
 /**
@@ -25,10 +26,15 @@ export const ActivityEvents = ({ appId }: { appId: string }) => {
       {groups.isLoading ? (
         <Skeleton className='h-24 w-full' />
       ) : (groups.data?.length ?? 0) === 0 ? (
-        <p className='text-muted-foreground text-xs' data-testid='admin-app-activity-events-empty'>
-          No custom events recorded yet. Engineers call{" "}
-          <code>useTrackEvent(&quot;name&quot;, payload)</code> from the bundle to log interactions
-          (button clicks, filter changes, etc.); they surface here grouped by name.
+        <p
+          className='flex items-center gap-1.5 text-muted-foreground text-xs'
+          data-testid='admin-app-activity-events-empty'
+        >
+          No custom events yet.
+          <AdminInfo>
+            The bundle logs interactions with <code>useTrackEvent("name", payload)</code>; they
+            appear here grouped by name.
+          </AdminInfo>
         </p>
       ) : (
         <div className='overflow-hidden rounded-md border'>

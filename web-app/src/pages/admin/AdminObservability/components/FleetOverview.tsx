@@ -2,6 +2,7 @@ import { Coins } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { Fleet } from "@/services/api/adminObservability";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { ADMIN_TONE } from "../../components/adminTone";
@@ -65,11 +66,13 @@ export const FleetOverview = ({ fleet, query }: { fleet: Fleet; query: string })
         <div className='grid items-start gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(22rem,1fr)]'>
           <section className='rounded-lg border border-border/60 bg-card'>
             <header className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-border/60 border-b px-4 py-2.5'>
-              <h3 className='font-semibold text-sm'>Cost against work</h3>
-              <p className='text-muted-foreground text-xs'>
-                Both axes log. Diagonals are cost per run; higher and further left costs more for
-                what it does.
-              </p>
+              <h3 className='flex items-center gap-1.5 font-semibold text-sm'>
+                Cost against work
+                <AdminInfo>
+                  Both axes are log scale. Diagonals are cost per run; higher and further left costs
+                  more for what it does.
+                </AdminInfo>
+              </h3>
             </header>
             <div className='px-2 pt-3 pb-1'>
               <CostUsageMap

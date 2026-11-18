@@ -10,6 +10,7 @@ import { useAppDebug } from "@/hooks/api/customApps/useCustomApps";
 import { cn } from "@/libs/shadcn/utils";
 import { resolveBundleUrl } from "@/pages/admin/AdminCustomApps/resolveBundleUrl";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { CustomApp } from "@/types/apps";
 import { CopyButton } from "../../../UrlActions";
 
@@ -74,9 +75,15 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
               {/* What an operator copying these needs to know: they are built from the
                   slugs, so a slug change moves every link (and is refused while the app
                   has an OLTP store, `handlers.rs`), and they serve production. */}
-              <p className='text-muted-foreground text-xs' data-testid='admin-app-urls-help'>
-                Built from the org and app slugs, so renaming the app&rsquo;s slug changes both.
-                Both serve production; staging and sandboxes have hosts of their own.
+              <p
+                className='flex items-center gap-1.5 text-muted-foreground text-xs'
+                data-testid='admin-app-urls-help'
+              >
+                Production
+                <AdminInfo>
+                  Built from the org and app slugs, so renaming the app&rsquo;s slug changes both.
+                  Both serve production; staging and sandboxes have hosts of their own.
+                </AdminInfo>
               </p>
               <UrlRow label='Subpath' url={app.url} />
               {app.url_subdomain && (

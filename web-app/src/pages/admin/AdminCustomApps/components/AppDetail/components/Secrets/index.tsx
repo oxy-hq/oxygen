@@ -5,6 +5,7 @@ import { useAppEnvironments } from "@/hooks/api/customApps/useAppEnvironments";
 import { useAppSecrets } from "@/hooks/api/customApps/useAppSecrets";
 import { isForbidden } from "@/hooks/api/httpStatus";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import { PRODUCTION } from "@/types/appEnvironments";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { environmentLabel, STAGING } from "./environmentLabel";
@@ -205,9 +206,15 @@ const NonProductionRefused = ({
  * so the next person sees the list, or just set one now.
  */
 const EmptyState = () => (
-  <p className='text-muted-foreground text-xs' data-testid='admin-app-secrets-empty'>
-    No secrets yet. Add an <code>env</code> block to <code>oxy-app.json</code> to list the keys this
-    app expects, or set one below. Functions read them as <code>ctx.env.&lt;KEY&gt;</code>.
+  <p
+    className='flex items-center gap-1.5 text-muted-foreground text-xs'
+    data-testid='admin-app-secrets-empty'
+  >
+    No secrets yet.
+    <AdminInfo>
+      Add an <code>env</code> block to <code>oxy-app.json</code> to list the keys this app expects,
+      or set one below. Functions read them as <code>ctx.env.&lt;KEY&gt;</code>.
+    </AdminInfo>
   </p>
 );
 
