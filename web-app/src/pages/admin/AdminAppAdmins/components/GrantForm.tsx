@@ -17,6 +17,7 @@ import { ROLE_LABELS, useAppAdmins, useCreateAppAdmin } from "@/hooks/api/access
 import type { DelegationBound } from "@/hooks/api/access/useDelegationBound";
 import { useDrainedAdminOrgs } from "@/hooks/api/adminTenants";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import type { AppAdmin, PlatformRoleId } from "@/types/access";
 
 /**
@@ -154,9 +155,20 @@ export function GrantForm({
               />
             </div>
             <div className='sm:w-56'>
-              <Label htmlFor='grant-role' className='text-xs'>
-                Role
-              </Label>
+              <div className='flex items-center gap-1'>
+                <Label htmlFor='grant-role' className='text-xs'>
+                  Role
+                </Label>
+                {/* Why Global Admin may be missing from the list: an explanation, so it
+                    sits behind the ⓘ. What the chosen role grants is a consequence of
+                    pressing Grant, so it stays on the form, under the select. Owners can
+                    issue every role, so they get no ⓘ at all. */}
+                {!bound.issuableRoles.includes("global_admin") ? (
+                  <AdminInfo data-testid='admin-app-admins-role-note'>
+                    Only a Global Owner can grant Global Admin.
+                  </AdminInfo>
+                ) : null}
+              </div>
               <Select value={role} onValueChange={(v) => setRole(v as PlatformRoleId)}>
                 <SelectTrigger
                   id='grant-role'
@@ -182,15 +194,9 @@ export function GrantForm({
             </div>
           </div>
 
-          <p className='text-muted-foreground text-xs'>{ROLE_BLURB[role]}</p>
-
-          {/* The absence above, explained in the place it bites. Owners see nothing —
-              they can issue every role, so there is no gap to account for. */}
-          {!bound.issuableRoles.includes("global_admin") && (
-            <p className='text-muted-foreground text-xs' data-testid='admin-app-admins-role-note'>
-              Only a Global Owner can grant Global Admin.
-            </p>
-          )}
+          <p className='text-muted-foreground text-xs' data-testid='admin-app-admins-role-blurb'>
+            {ROLE_BLURB[role]}
+          </p>
 
           {replacing && (
             <div

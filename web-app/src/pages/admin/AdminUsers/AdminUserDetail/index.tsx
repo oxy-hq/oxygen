@@ -38,7 +38,7 @@ import {
 import ROUTES from "@/libs/utils/routes";
 import type { OrgRoleId } from "@/services/api/adminTenants";
 import { AdminAsync } from "../../components/AdminAsync";
-import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
+import { AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../components/AdminLinkedRow";
@@ -129,18 +129,6 @@ export default function AdminUserDetail({
       className={embedded ? "space-y-6 p-4" : "mx-auto max-w-7xl space-y-6 p-6 lg:px-10 lg:py-10"}
     >
       <AdminDetailHeader
-        eyebrow={
-          embedded ? undefined : (
-            <AdminDetailEyebrow
-              segments={[
-                { label: "Admin", to: ROUTES.ADMIN.TENANTS },
-                { label: "Tenants", to: ROUTES.ADMIN.TENANTS },
-                { label: "Users", to: ROUTES.ADMIN.TENANTS_OF("users") },
-                { label: detail.name || detail.email }
-              ]}
-            />
-          )
-        }
         icon={User}
         title={detail.name || detail.email}
         subtitle={
@@ -225,7 +213,11 @@ export default function AdminUserDetail({
           Organization memberships
         </AdminSectionLabel>
         {detail.org_memberships.length === 0 ? (
-          <AdminEmptyState icon={Building2} title='Not a member of any organization' />
+          <AdminEmptyState
+            size='inline'
+            icon={Building2}
+            title='Not a member of any organization'
+          />
         ) : (
           <AdminLinkedList>
             {detail.org_memberships.map((m) => (
@@ -361,6 +353,7 @@ export default function AdminUserDetail({
         </AdminSectionLabel>
         {detail.workspace_memberships.length === 0 ? (
           <AdminEmptyState
+            size='inline'
             icon={FolderOpen}
             title='No direct workspace memberships'
             description='Access flows through the organization role only.'

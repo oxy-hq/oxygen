@@ -50,6 +50,7 @@ export const OrgBillingTab = ({ orgId }: { orgId: string }) => {
     return (
       <div className='space-y-4'>
         <AdminEmptyState
+          size='inline'
           icon={Receipt}
           title='No subscription on file'
           description='This organization has no Stripe subscription, or billing details are unavailable.'

@@ -98,7 +98,16 @@ export const WorkspaceRow = ({
               status: "ready" is true of a workspace serving an old revision while every
               compile since has failed. Colour only when it is wrong. */}
           <div className='flex flex-col leading-tight'>
-            <span className={cn("flex items-center gap-1.5 font-medium", ADMIN_TONE[tone].text)}>
+            {/* "Up to date" is most rows on a healthy fleet: it fades, so the failing
+                and behind rows are the ones that read. */}
+            <span
+              className={cn(
+                "flex items-center gap-1.5",
+                state === "ok"
+                  ? "text-muted-foreground/70"
+                  : cn("font-medium", ADMIN_TONE[tone].text)
+              )}
+            >
               {tone !== "muted" ? (
                 <span className={cn("size-1.5 rounded-full", ADMIN_TONE[tone].dot)} aria-hidden />
               ) : null}

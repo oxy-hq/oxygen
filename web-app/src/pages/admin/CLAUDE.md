@@ -84,8 +84,11 @@ few numbers, rows are one line, and how something is measured is one hover away.
 | `AdminKpiStrip` | the four to six numbers a page leads with: tiny label, hero number, one-line caption. `null` is "not measured", drawn as a dash; `quiet` fades a zero; `tone` only when something is wrong |
 | `AdminCount` | a count in a table that fades at zero, so the eye lands on what exists |
 | `AdminPage`'s `info` | the page's rationale, rules and caveats; `description` is one short line at most |
+| `AdminEmptyState size='inline'` | one empty section of a detail page ("No direct members"): one line, not a 180px box |
 
 - **One line under a title, at most.** Everything else goes in `info`.
+- **No eyebrow above a title.** The top bar's breadcrumb says where a page sits; a second,
+  uppercase copy of it above the heading is one more line to read past.
 - **An empty state states the default** in one line ("No overrides. Every workspace follows
   the policy above."), not why the feature exists.
 - **Consequences stay where you act.** A toggle, a form field or a confirm dialog still says

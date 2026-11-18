@@ -33,7 +33,7 @@ import {
 import ROUTES from "@/libs/utils/routes";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import { AdminAsync } from "../../components/AdminAsync";
-import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
+import { AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminDetailTabPanel, AdminDetailTabs } from "../../components/AdminDetailTabs";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
@@ -136,18 +136,6 @@ export default function AdminWorkspaceDetail({
       className={embedded ? "space-y-6 p-4" : "mx-auto max-w-7xl space-y-6 p-6 lg:px-10 lg:py-10"}
     >
       <AdminDetailHeader
-        eyebrow={
-          embedded ? undefined : (
-            <AdminDetailEyebrow
-              segments={[
-                { label: "Admin", to: ROUTES.ADMIN.TENANTS },
-                { label: "Tenants", to: ROUTES.ADMIN.TENANTS },
-                { label: "Workspaces", to: ROUTES.ADMIN.WORKSPACES },
-                { label: detail.name }
-              ]}
-            />
-          )
-        }
         icon={FolderOpen}
         title={detail.name}
         subtitle={
@@ -267,6 +255,7 @@ export default function AdminWorkspaceDetail({
                 </AdminLinkedList>
               ) : (
                 <AdminEmptyState
+                  size='inline'
                   icon={Building2}
                   title='No parent organization'
                   description='This workspace is not attached to any organization.'
@@ -312,6 +301,7 @@ export default function AdminWorkspaceDetail({
               </AdminSectionLabel>
               {detail.members.length === 0 ? (
                 <AdminEmptyState
+                  size='inline'
                   icon={Users}
                   title='No direct members'
                   description='Members of the parent organization may still have access via their org role.'
@@ -347,7 +337,7 @@ export default function AdminWorkspaceDetail({
             Members
           </AdminSectionLabel>
           {detail.members.length === 0 ? (
-            <AdminEmptyState icon={Users} title='No direct members' />
+            <AdminEmptyState size='inline' icon={Users} title='No direct members' />
           ) : (
             <AdminLinkedList>
               {detail.members.map((m) => (

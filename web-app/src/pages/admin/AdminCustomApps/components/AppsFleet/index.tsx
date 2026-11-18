@@ -261,8 +261,7 @@ export const AppsFleet = ({
             data-testid='admin-apps-fleet-evaluated'
             title={new Date(fleet.evaluated_at).toLocaleString()}
           >
-            Health evaluated {timeAgo(fleet.evaluated_at)} · re-checked every minute while this page
-            is open.
+            Health {timeAgo(fleet.evaluated_at)} · every minute
           </p>
         )}
 

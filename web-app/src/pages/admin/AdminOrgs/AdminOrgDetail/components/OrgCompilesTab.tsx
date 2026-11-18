@@ -45,6 +45,7 @@ export const OrgCompilesTab = ({
       isEmpty={(d) => d.rows.length === 0}
       empty={
         <AdminEmptyState
+          size='inline'
           icon={FileCheck}
           title='No compiles yet'
           description="Revisions appear here once this org's workspaces are compiled."

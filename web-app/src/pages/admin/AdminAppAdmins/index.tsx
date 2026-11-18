@@ -23,15 +23,18 @@ import {
 } from "@/components/ui/shadcn/table";
 import { ROLE_LABELS, useAppAdmins, useRemoveAppAdmin } from "@/hooks/api/access/useAppAdmins";
 import { useDelegationBound } from "@/hooks/api/access/useDelegationBound";
+import { timeAgo } from "@/libs/utils/date";
 import type { AppAdmin } from "@/types/access";
 import { AdminAsync } from "../components/AdminAsync";
 import { AdminEmptyState } from "../components/AdminEmptyState";
 import { AdminPage } from "../components/AdminPage";
 import { GrantForm } from "./components/GrantForm";
 
-function formatGrantedAt(value: string): string {
-  return new Date(value).toLocaleString();
-}
+/** "3d ago", with the exact time on hover: a full timestamp in two columns pushed the
+ *  row's actions off the right edge. */
+const GrantedAt = ({ value }: { value: string }) => (
+  <span title={new Date(value).toLocaleString()}>{timeAgo(value)}</span>
+);
 
 /**
  * `/admin/app-admins` — management of **platform grants**.
@@ -99,7 +102,7 @@ export default function AdminAppAdmins() {
     // `space-y-0`: the GrantForm card carries its own `mb-6`, so the kit's rhythm
     // would stack on top of it.
     <AdminPage
-      width='default'
+      width='wide'
       bodyClassName='space-y-0'
       description='Each grant is a role plus the organizations it reaches.'
       info='You can issue a grant weaker than your own, never one equal to it, so a grant can never widen itself. Only a Global Owner can add another Global Admin.'
@@ -178,14 +181,16 @@ export default function AdminAppAdmins() {
                         )}
                       </TableCell>
                       <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                        {formatGrantedAt(admin.created_at)}
+                        <GrantedAt value={admin.created_at} />
                       </TableCell>
                       <TableCell className='text-muted-foreground text-xs tabular-nums'>
                         {/* A grant is upserted in place, so "Added" alone leaves the role
                           beside it unexplained. Em-dash when it has never changed. */}
-                        {admin.updated_at === admin.created_at
-                          ? "—"
-                          : formatGrantedAt(admin.updated_at)}
+                        {admin.updated_at === admin.created_at ? (
+                          "—"
+                        ) : (
+                          <GrantedAt value={admin.updated_at} />
+                        )}
                       </TableCell>
                       <TableCell>
                         {/* Disabled, not hidden. An operator who cannot find the Edit

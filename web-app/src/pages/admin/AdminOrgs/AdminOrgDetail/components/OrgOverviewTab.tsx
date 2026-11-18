@@ -108,6 +108,7 @@ export const OrgOverviewTab = ({
             isEmpty={(d) => d.items.length === 0}
             empty={
               <AdminEmptyState
+                size='inline'
                 icon={Play}
                 title='No runs yet'
                 description='Agent runs for this organization appear here.'
@@ -142,6 +143,7 @@ export const OrgOverviewTab = ({
           </AdminSectionLabel>
           {detail.workspaces.length === 0 ? (
             <AdminEmptyState
+              size='inline'
               icon={FolderOpen}
               title='No workspaces yet'
               description='Workspaces appear here when members import a repository.'
@@ -182,6 +184,7 @@ export const OrgOverviewTab = ({
           </AdminSectionLabel>
           {detail.owners.length === 0 ? (
             <AdminEmptyState
+              size='inline'
               icon={Users}
               title='No members yet'
               description='Add members via the organization settings page.'

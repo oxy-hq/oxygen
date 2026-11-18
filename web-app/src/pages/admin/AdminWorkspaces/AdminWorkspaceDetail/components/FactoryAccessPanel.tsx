@@ -55,6 +55,7 @@ export default function FactoryAccessPanel({
         isEmpty={(d) => d.members.length === 0}
         empty={
           <AdminEmptyState
+            size='inline'
             icon={Wrench}
             title='No members'
             description="Nobody in this workspace's organization can be let into its Factory yet."

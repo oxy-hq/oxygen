@@ -40,7 +40,7 @@ import { CopyableId } from "@/pages/admin/components/CopyableId";
 import { OltpTenantPanel } from "@/pages/admin/components/OltpTenantPanel";
 import { OrgLogoEditor } from "@/pages/admin/components/OrgLogoEditor";
 import { AdminAsync } from "../../components/AdminAsync";
-import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
+import { AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../components/AdminLinkedRow";
@@ -180,18 +180,6 @@ export default function AdminOrgDetail({
       className={embedded ? "space-y-6 p-4" : "mx-auto max-w-7xl space-y-6 p-6 lg:px-10 lg:py-10"}
     >
       <AdminDetailHeader
-        eyebrow={
-          embedded ? undefined : (
-            <AdminDetailEyebrow
-              segments={[
-                { label: "Admin", to: ROUTES.ADMIN.TENANTS },
-                { label: "Tenants", to: ROUTES.ADMIN.TENANTS },
-                { label: "Organizations", to: ROUTES.ADMIN.TENANTS_OF("orgs") },
-                { label: detail.name }
-              ]}
-            />
-          )
-        }
         icon={Building2}
         title={detail.name}
         subtitle={
@@ -308,7 +296,7 @@ export default function AdminOrgDetail({
           Members
         </AdminSectionLabel>
         {detail.owners.length === 0 ? (
-          <AdminEmptyState icon={Users} title='No members yet' />
+          <AdminEmptyState size='inline' icon={Users} title='No members yet' />
         ) : (
           <AdminLinkedList>
             {detail.owners.map((m) => (
@@ -334,7 +322,7 @@ export default function AdminOrgDetail({
           Workspaces
         </AdminSectionLabel>
         {detail.workspaces.length === 0 ? (
-          <AdminEmptyState icon={FolderOpen} title='No workspaces yet' />
+          <AdminEmptyState size='inline' icon={FolderOpen} title='No workspaces yet' />
         ) : (
           <AdminLinkedList>
             {detail.workspaces.map((w) => (

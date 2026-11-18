@@ -99,6 +99,7 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
         isEmpty={(entry) => entry === null}
         empty={
           <AdminEmptyState
+            size='inline'
             icon={HeartPulse}
             title='No health data'
             description='This workspace does not appear in the current health rollup.'
