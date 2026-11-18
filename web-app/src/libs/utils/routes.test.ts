@@ -3,13 +3,13 @@ import ROUTES from "./routes";
 
 describe("IDE.EXPERIMENTS", () => {
   it("is nested under the org's ide, naming no workspace", () => {
-    const routes = ROUTES.ORG("acme").WORKSPACE("ws1").IDE.EXPERIMENTS;
+    const routes = ROUTES.ORG("acme").WORKSPACE().IDE.EXPERIMENTS;
     expect(routes.ROOT).toBe("/acme/ide/experiments");
     expect(routes.DETAIL("beverage_promo")).toBe("/acme/ide/experiments/beverage_promo");
   });
 
   it("encodes the name and drops the prefix for an empty org slug", () => {
-    const routes = ROUTES.ORG("").WORKSPACE("ws1").IDE.EXPERIMENTS;
+    const routes = ROUTES.ORG("").WORKSPACE().IDE.EXPERIMENTS;
     expect(routes.ROOT).toBe("/ide/experiments");
     expect(routes.DETAIL("a b")).toBe("/ide/experiments/a%20b");
   });
@@ -17,10 +17,9 @@ describe("IDE.EXPERIMENTS", () => {
 
 describe("WORKSPACE", () => {
   it("addresses the org's pages by the org alone", () => {
-    const ws = ROUTES.ORG("acme").WORKSPACE("ws1");
+    const ws = ROUTES.ORG("acme").WORKSPACE();
     expect(ws.THREAD("t-1")).toBe("/acme/threads/t-1");
     expect(ws.IDE.ROOT).toBe("/acme/ide");
-    expect(ROUTES.ORG("acme").WORKSPACE("ws2").IDE.ROOT).toBe(ws.IDE.ROOT);
   });
 
   // `/<org>` is the org dispatcher, so the workspace's landing is the home.

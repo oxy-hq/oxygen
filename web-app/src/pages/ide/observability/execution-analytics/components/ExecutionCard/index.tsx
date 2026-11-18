@@ -6,7 +6,6 @@ import { encodeBase64 } from "@/libs/encoding";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { formatTimeAgo } from "../../../utils";
 import type { ExecutionDetail } from "../../types";
 import DataDisplay from "./DataDisplay";
@@ -27,16 +26,11 @@ function formatDuration(ms: number): string {
 
 export default function ExecutionCard({ execution }: ExecutionCardProps) {
   const navigate = useNavigate();
-  const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleViewTrace = (traceId: string) => {
-    navigate(
-      ROUTES.ORG(orgSlug)
-        .WORKSPACE(project?.id || "")
-        .IDE.OBSERVABILITY.TRACE(traceId)
-    );
+    navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACE(traceId));
   };
 
   const isSuccess = execution.status === "success";
@@ -72,11 +66,7 @@ export default function ExecutionCard({ execution }: ExecutionCardProps) {
             <button
               onClick={() => {
                 const pathb64 = encodeBase64(execution.sourceRef);
-                navigate(
-                  ROUTES.ORG(orgSlug)
-                    .WORKSPACE(project?.id || "")
-                    .IDE.FILES.FILE(pathb64)
-                );
+                navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64));
               }}
               className='text-left font-mono text-muted-foreground text-xs underline-offset-4 transition-colors hover:text-primary hover:underline'
             >
@@ -105,11 +95,7 @@ export default function ExecutionCard({ execution }: ExecutionCardProps) {
                 <button
                   onClick={() => {
                     const pathb64 = encodeBase64(execution.automationRef || "");
-                    navigate(
-                      ROUTES.ORG(orgSlug)
-                        .WORKSPACE(project?.id || "")
-                        .IDE.FILES.FILE(pathb64)
-                    );
+                    navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64));
                   }}
                   className='text-left font-mono text-xs underline-offset-4 transition-colors hover:text-primary hover:underline'
                 >
@@ -125,11 +111,7 @@ export default function ExecutionCard({ execution }: ExecutionCardProps) {
                 <button
                   onClick={() => {
                     const pathb64 = encodeBase64(execution.agentRef || "");
-                    navigate(
-                      ROUTES.ORG(orgSlug)
-                        .WORKSPACE(project?.id || "")
-                        .IDE.FILES.FILE(pathb64)
-                    );
+                    navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64));
                   }}
                   className='text-left font-mono text-xs underline-offset-4 transition-colors hover:text-primary hover:underline'
                 >

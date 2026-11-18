@@ -169,7 +169,7 @@ const DetectionsPage: React.FC = () => {
   );
 
   const openInPlayback = (r: ComplianceReport) => {
-    const playback = ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).IDE.EDGE.PLAYBACK;
+    const playback = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.PLAYBACK;
     navigate(
       `${playback}?camera=${encodeURIComponent(r.camera_id)}&event=${encodeURIComponent(r.report_id)}`
     );

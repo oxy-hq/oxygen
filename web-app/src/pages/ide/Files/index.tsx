@@ -34,7 +34,7 @@ const FilesPage = () => {
   const selectedPath = useSelectedPath();
 
   const cloneCommand = oxycCloneCommand(project.id);
-  const filesRoutes = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES;
+  const filesRoutes = ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES;
   const open = (entry: RevisionFileEntry) => navigate(filesRoutes.FILE(encodeBase64(entry.path)));
 
   return (

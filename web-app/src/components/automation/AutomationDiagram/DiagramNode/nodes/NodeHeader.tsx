@@ -126,10 +126,10 @@ const SubAutomationNavigateButton = ({ task }: SubAutomationNavigateButtonProps)
   const handleClick = () => {
     if (!projectId) return;
     const pathb64 = encodeBase64(task.src);
-    let automationPath = ROUTES.ORG(orgSlug).WORKSPACE(projectId).WORKFLOW(pathb64).ROOT;
-    const ideRoute = ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.ROOT;
+    let automationPath = ROUTES.ORG(orgSlug).WORKSPACE().WORKFLOW(pathb64).ROOT;
+    const ideRoute = ROUTES.ORG(orgSlug).WORKSPACE().IDE.ROOT;
     if (location.pathname.startsWith(ideRoute)) {
-      automationPath = ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.FILES.FILE(pathb64);
+      automationPath = ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64);
     }
     navigate(automationPath);
   };

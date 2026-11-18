@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import useFleetMembers from "@/hooks/api/cameras/useFleetMembers";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import ROUTES from "@/libs/utils/routes";
 import type { EdgeBoxSummary } from "@/services/api/cameras";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -57,9 +56,8 @@ const isTabId = (s: string | null): s is TabId =>
 const EdgeBoxDetailPage: React.FC = () => {
   const { boxId } = useParams<{ boxId: string }>();
   const { workspace } = useCurrentWorkspace();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const back = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.DEVICES;
+  const back = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.DEVICES;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");

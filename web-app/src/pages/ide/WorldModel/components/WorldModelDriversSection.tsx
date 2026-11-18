@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TooltipWrapper } from "@/components/ui/shadcn/utils/with-tooltip";
 import { useSensitivity } from "@/hooks/api/useMetricTree";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import { EMPTY_SCENARIO, encodeScenario } from "@/pages/ide/MetricTree/scenario/scenarioUrl";
@@ -26,7 +25,6 @@ import { WorldModelWhatIf } from "./WorldModelWhatIf";
  * query string — so all three key sets share one URL.
  */
 function useScenarioHref(nodeId: string): string {
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   return useMemo(() => {
     const params = encodeScenario({
@@ -42,9 +40,9 @@ function useScenarioHref(nodeId: string): string {
     });
     params.set("view", "metric-tree");
     params.set("mode", "scenario");
-    const semanticRoot = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.SEMANTIC.ROOT;
+    const semanticRoot = ROUTES.ORG(orgSlug).WORKSPACE().IDE.SEMANTIC.ROOT;
     return `${semanticRoot}?${params.toString()}`;
-  }, [nodeId, orgSlug, project.id]);
+  }, [nodeId, orgSlug]);
 }
 
 const DIRECTION_GLYPH: Record<string, string> = {

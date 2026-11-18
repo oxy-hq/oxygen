@@ -13,7 +13,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAuth } from "@/contexts/AuthContext";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -63,38 +62,36 @@ const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { authConfig } = useAuth();
-  const { project } = useCurrentProjectBranch();
-  const projectId = project.id;
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
-  const filesRoot = ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.FILES.ROOT;
+  const filesRoot = ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.ROOT;
   const currentViewMode = getViewModeFromPath(location.pathname, filesRoot);
 
   const handleNavigate = (mode: SidebarViewMode) => {
     switch (mode) {
       case SidebarViewMode.WORLD_MODEL:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.WORLD_MODEL.ROOT);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.WORLD_MODEL.ROOT);
         break;
       case SidebarViewMode.FILES:
         navigate(filesRoot);
         break;
       case SidebarViewMode.DATABASE:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.DATABASE.ROOT);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.DATABASE.ROOT);
         break;
       case SidebarViewMode.COORDINATOR:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.COORDINATOR.OVERVIEW);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.COORDINATOR.OVERVIEW);
         break;
       case SidebarViewMode.OBSERVABILITY:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.TRACES);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACES);
         break;
       case SidebarViewMode.SEMANTIC:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.SEMANTIC.ROOT);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.SEMANTIC.ROOT);
         break;
       case SidebarViewMode.EXPERIMENTS:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.EXPERIMENTS.ROOT);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.EXPERIMENTS.ROOT);
         break;
       case SidebarViewMode.EDGE:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.EDGE.ROOT);
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.ROOT);
         break;
     }
   };

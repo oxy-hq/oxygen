@@ -2,7 +2,6 @@ import { ArrowLeft, FileCog } from "lucide-react";
 import type React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { encodeBase64 } from "@/libs/encoding";
 import ROUTES from "@/libs/utils/routes";
 import type { TaskTreeNode } from "@/services/api/coordinator";
@@ -33,7 +32,6 @@ export const RunHeader: React.FC<{
 }> = ({ root, jobType, nodeCount }) => {
   const routes = useCoordinatorRoutes();
   const isSystem = isSystemSource(root.source_type);
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   // Cross-link to the IDE file editor for runs whose source is a
@@ -41,7 +39,7 @@ export const RunHeader: React.FC<{
   // backing file — analytics agents by `agent_id`, builder runs,
   // preagg daemons.
   const editHref = root.source_ref
-    ? ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES.FILE(encodeBase64(root.source_ref))
+    ? ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(encodeBase64(root.source_ref))
     : null;
 
   return (

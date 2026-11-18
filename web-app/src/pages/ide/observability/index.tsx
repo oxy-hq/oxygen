@@ -15,7 +15,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from "@/components/ui/shadcn/sidebar";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import ROUTES from "@/libs/utils/routes";
 import { SidebarHeader } from "@/pages/ide/components/SidebarHeader";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -24,8 +23,6 @@ const ObservabilitySidebar: React.FC<{
   setSidebarOpen: (open: boolean) => void;
 }> = ({ setSidebarOpen }) => {
   const location = useLocation();
-  const { project } = useCurrentProjectBranch();
-  const projectId = project.id;
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   return (
@@ -38,11 +35,10 @@ const ObservabilitySidebar: React.FC<{
               <SidebarMenuButton
                 asChild
                 isActive={
-                  location.pathname ===
-                  ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.TRACES
+                  location.pathname === ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACES
                 }
               >
-                <Link to={ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.TRACES}>
+                <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACES}>
                   <Zap className='h-4 w-4' />
                   <span>Traces</span>
                 </Link>
@@ -52,11 +48,10 @@ const ObservabilitySidebar: React.FC<{
               <SidebarMenuButton
                 asChild
                 isActive={
-                  location.pathname ===
-                  ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.CLUSTERS
+                  location.pathname === ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.CLUSTERS
                 }
               >
-                <Link to={ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.CLUSTERS}>
+                <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.CLUSTERS}>
                   <Server className='h-4 w-4' />
                   <span>Clusters</span>
                 </Link>
@@ -66,11 +61,10 @@ const ObservabilitySidebar: React.FC<{
               <SidebarMenuButton
                 asChild
                 isActive={
-                  location.pathname ===
-                  ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.METRICS
+                  location.pathname === ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.METRICS
                 }
               >
-                <Link to={ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.METRICS}>
+                <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.METRICS}>
                   <BarChart3 className='h-4 w-4' />
                   <span>Metrics</span>
                 </Link>
@@ -81,14 +75,10 @@ const ObservabilitySidebar: React.FC<{
                 asChild
                 isActive={
                   location.pathname ===
-                  ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.EXECUTION_ANALYTICS
+                  ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.EXECUTION_ANALYTICS
                 }
               >
-                <Link
-                  to={
-                    ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.OBSERVABILITY.EXECUTION_ANALYTICS
-                  }
-                >
+                <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.EXECUTION_ANALYTICS}>
                   <LucideActivity className='h-4 w-4' />
                   <span>Execution Analytics</span>
                 </Link>

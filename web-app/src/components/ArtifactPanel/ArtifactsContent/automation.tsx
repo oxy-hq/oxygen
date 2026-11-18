@@ -14,7 +14,6 @@ import { Link } from "react-router-dom";
 import OutputLogs from "@/components/automation/output/Logs";
 import EmptyState from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/shadcn/button";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { decodeBase64 } from "@/libs/encoding";
 import { objectNameFromPath } from "@/libs/utils/objectName";
 import ROUTES from "@/libs/utils/routes";
@@ -47,12 +46,11 @@ export const AutomationArtifactHeader = ({
 );
 
 const AutomationArtifactPanel = ({ artifact, onArtifactClick }: Props) => {
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const pathB64 = artifact.content.value.ref;
   // The automation's plain name, never its file path.
   const displayPath = objectNameFromPath(decodeBase64(pathB64));
-  const href = ROUTES.ORG(orgSlug).WORKSPACE(project.id).WORKFLOW(pathB64).ROOT;
+  const href = ROUTES.ORG(orgSlug).WORKSPACE().WORKFLOW(pathB64).ROOT;
   const logs = artifact.content.value.output ?? [];
   return (
     <div className='flex h-full flex-col'>

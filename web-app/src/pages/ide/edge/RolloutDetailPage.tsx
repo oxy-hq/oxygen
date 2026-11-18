@@ -22,7 +22,6 @@ import {
   TableRow
 } from "@/components/ui/shadcn/table";
 import { useRolloutConvergence, useRolloutPlans } from "@/hooks/api/cameras/useRolloutPlans";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import type { RolloutConvergenceRow } from "@/services/api/cameras";
@@ -62,9 +61,8 @@ const statusLabel = (status: RolloutConvergenceRow["convergence_status"]) => {
 const RolloutDetailPage: React.FC = () => {
   const { planId } = useParams<{ planId: string }>();
   const { workspace } = useCurrentWorkspace();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const back = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.ROLLOUTS;
+  const back = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.ROLLOUTS;
 
   // We pull the plan summary off the list query so a deep-link to
   // a detail page doesn't double-fetch — the user almost always

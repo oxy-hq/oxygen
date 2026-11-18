@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { formatDuration, formatTimeAgo } from "../../utils/index";
 
 interface TraceHeaderProps {
@@ -14,13 +13,12 @@ interface TraceHeaderProps {
 }
 
 export function TraceHeader({ traceId, totalDurationMs, spansCount, startTime }: TraceHeaderProps) {
-  const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   return (
     <div className='flex items-center justify-between border-b px-2 py-1'>
       <div className='flex items-center gap-3'>
         <Button variant='ghost' size='icon' className='h-8 w-8' asChild>
-          <Link to={ROUTES.ORG(orgSlug).WORKSPACE(project?.id || "").IDE.OBSERVABILITY.TRACES}>
+          <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACES}>
             <ArrowLeft className='h-4 w-4' />
           </Link>
         </Button>

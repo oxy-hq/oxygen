@@ -28,7 +28,7 @@ export function DockHeader() {
 
   const openFull = () => {
     if (!threadId || !project?.id) return;
-    const to = ROUTES.ORG(orgSlug).WORKSPACE(project.id).THREAD(threadId);
+    const to = ROUTES.ORG(orgSlug).WORKSPACE().THREAD(threadId);
     close();
     navigate(to);
   };

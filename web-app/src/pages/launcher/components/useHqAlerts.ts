@@ -30,7 +30,7 @@ export function useHqAlerts(): HqSignal[] {
   const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { data: apps = [] } = useCustomAppsWithVerdict(project?.id ?? "");
-  const coreRoute = ROUTES.ORG(orgSlug).WORKSPACE(project?.id ?? "").IDE.ROOT;
+  const coreRoute = ROUTES.ORG(orgSlug).WORKSPACE().IDE.ROOT;
 
   const seeds: HqSignalSeed[] = healthSeeds(apps);
 

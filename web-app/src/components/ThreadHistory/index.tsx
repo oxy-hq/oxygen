@@ -4,7 +4,6 @@ import { ThreadRow } from "@/components/ThreadRow";
 import { Input } from "@/components/ui/shadcn/input";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useThreads from "@/hooks/api/threads/useThreads";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -39,9 +38,8 @@ export function ThreadHistory({
   onSelect,
   showLabel = true
 }: ThreadHistoryProps) {
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(project.id);
+  const ws = ROUTES.ORG(orgSlug).WORKSPACE();
 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");

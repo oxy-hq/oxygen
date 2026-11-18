@@ -3,7 +3,6 @@ import type React from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/shadcn/button";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
 import { encodeBase64 } from "@/libs/encoding";
 import { objectNameFromPath } from "@/libs/utils/objectName";
@@ -21,7 +20,6 @@ const AutomationPageHeader: React.FC<AutomationPageHeaderProps> = ({ path }) => 
   const showEdit = useFactoryAccess();
   const pathb64 = encodeBase64(path);
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   return (
@@ -38,7 +36,7 @@ const AutomationPageHeader: React.FC<AutomationPageHeaderProps> = ({ path }) => 
             variant='ghost'
             aria-label='Edit'
             onClick={() => {
-              const fileUri = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES.FILE(pathb64);
+              const fileUri = ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64);
               navigate(fileUri);
             }}
           >

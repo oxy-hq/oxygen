@@ -14,7 +14,6 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import { Textarea } from "@/components/ui/shadcn/textarea";
 import { useAnomalyExplain, useRefreshAnomalyExplain } from "@/hooks/api/useMetricAnomalies";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import ROUTES from "@/libs/utils/routes";
 import { ExplainNodeRow } from "@/pages/ide/MetricTree/components/ExplainTree";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -49,7 +48,6 @@ interface Props {
  */
 export default function ExplainDrawer({ anomaly, onOpenChange }: Props) {
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const [followUp, setFollowUp] = useState("");
 
@@ -72,7 +70,7 @@ export default function ExplainDrawer({ anomaly, onOpenChange }: Props) {
 
   if (!anomaly) return null;
 
-  const homePath = ROUTES.ORG(orgSlug).WORKSPACE(project.id).HOME;
+  const homePath = ROUTES.ORG(orgSlug).WORKSPACE().HOME;
   const canSubmit = !!explain.data && followUp.trim().length > 0;
 
   const submitFollowUp = () => {

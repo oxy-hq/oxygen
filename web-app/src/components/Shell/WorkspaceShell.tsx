@@ -32,7 +32,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const { workspace } = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
   const org = ROUTES.ORG(orgSlug);
-  const ws = org.WORKSPACE(wsId);
+  const ws = org.WORKSPACE();
 
   // The rail's app marks are the org's: every app the person can open across its
   // workspaces, the same list the org home's grid shows.

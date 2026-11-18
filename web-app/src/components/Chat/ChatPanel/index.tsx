@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useThreadMutation from "@/hooks/api/threads/useThreadMutation";
 import useRunAutomationThread from "@/hooks/automation/useRunAutomationThread";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useEnterSubmit } from "@/hooks/useEnterSubmit";
 import ROUTES from "@/libs/utils/routes";
 import { getShortTitle } from "@/libs/utils/string";
@@ -44,8 +43,6 @@ const ChatPanel = ({
   hideAgentPicker?: boolean;
 }) => {
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
-  const projectId = project.id;
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   const { run: runAutomation } = useRunAutomationThread();
@@ -75,7 +72,7 @@ const ChatPanel = ({
     if (onThreadCreated) {
       onThreadCreated(data.id);
     } else {
-      navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).THREAD(data.id));
+      navigate(ROUTES.ORG(orgSlug).WORKSPACE().THREAD(data.id));
     }
   });
 

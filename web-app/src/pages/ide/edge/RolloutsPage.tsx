@@ -37,7 +37,6 @@ import {
   useCreateRolloutPlan,
   useRolloutPlans
 } from "@/hooks/api/cameras/useRolloutPlans";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import ROUTES from "@/libs/utils/routes";
 import type { RolloutPlan } from "@/services/api/cameras";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -84,7 +83,6 @@ const formatWhen = (iso: string | null) => (iso ? new Date(iso).toLocaleString()
 
 const RolloutsPage: React.FC = () => {
   const { workspace } = useCurrentWorkspace();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const navigate = useNavigate();
   const { data: plans = [], isLoading, error, refetch } = useRolloutPlans(workspace?.id);
@@ -160,13 +158,11 @@ const RolloutsPage: React.FC = () => {
                   key={p.id}
                   data-testid={`rollout-row-${p.id}`}
                   className='cursor-pointer hover:bg-muted/40'
-                  onClick={() =>
-                    navigate(ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.ROLLOUT(p.id))
-                  }
+                  onClick={() => navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.ROLLOUT(p.id))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      navigate(ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.ROLLOUT(p.id));
+                      navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.ROLLOUT(p.id));
                     }
                   }}
                   role='link'

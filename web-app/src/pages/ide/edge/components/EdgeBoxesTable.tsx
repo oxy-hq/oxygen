@@ -38,7 +38,6 @@ import useFleetMembers from "@/hooks/api/cameras/useFleetMembers";
 import useRemoveFleetMember from "@/hooks/api/cameras/useRemoveFleetMember";
 import useSites from "@/hooks/api/cameras/useSites";
 import useWorkspaceCost from "@/hooks/api/cameras/useWorkspaceCost";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useSelectedSite } from "@/hooks/useSelectedSite";
 import ROUTES from "@/libs/utils/routes";
 import {
@@ -102,9 +101,8 @@ function formatBytes(b: number | null | undefined): string {
 
 const EdgeBoxesTable: React.FC = () => {
   const { workspace } = useCurrentWorkspace();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const boxHref = (id: string) => ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.BOX(id);
+  const boxHref = (id: string) => ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.BOX(id);
   const { data: fleetMembers = [], isLoading, error, refetch } = useFleetMembers(workspace?.id);
 
   // Split the merged feed into the two table sections:

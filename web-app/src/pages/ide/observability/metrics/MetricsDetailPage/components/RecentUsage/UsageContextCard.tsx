@@ -6,7 +6,6 @@ import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import type { RecentUsage } from "@/services/api/metrics";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { CONTEXT_TYPE_CONFIG } from "../../constants";
 import { getTimeAgo, parseContextItems } from "../../utils";
 import ContextItemDisplay from "./ContextItemDisplay";
@@ -25,7 +24,6 @@ export default function UsageContextCard({
   onTraceClick
 }: UsageContextCardProps) {
   const navigate = useNavigate();
-  const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const [isExpanded, setIsExpanded] = useState(false);
   const contextItems = parseContextItems(usage.context);
@@ -84,11 +82,7 @@ export default function UsageContextCard({
             <button
               onClick={() => {
                 const pathb64 = encodeBase64(usage.source_ref);
-                navigate(
-                  ROUTES.ORG(orgSlug)
-                    .WORKSPACE(project?.id || "")
-                    .IDE.FILES.FILE(pathb64)
-                );
+                navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.FILES.FILE(pathb64));
               }}
               className='text-left font-mono text-muted-foreground text-xs underline-offset-4 transition-colors hover:text-primary hover:underline'
             >

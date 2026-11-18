@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { encodeBase64 } from "@/libs/encoding";
 import ROUTES from "@/libs/utils/routes";
 import type { AutomationTaskConfigWithId, TaskConfigWithId } from "@/stores/useAutomation";
@@ -23,7 +22,6 @@ type Props = {
  */
 export function AutomationTaskNode({ task }: Props) {
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const subSrc = (task as AutomationTaskConfigWithId).src;
   const expandable = !!subSrc;
@@ -31,7 +29,7 @@ export function AutomationTaskNode({ task }: Props) {
   const onExpandClick = () => {
     if (!subSrc) return;
     const pathB64 = encodeBase64(subSrc);
-    navigate(ROUTES.ORG(orgSlug).WORKSPACE(project.id).WORKFLOW(pathB64).ROOT);
+    navigate(ROUTES.ORG(orgSlug).WORKSPACE().WORKFLOW(pathB64).ROOT);
   };
 
   return (

@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import useThreads from "@/hooks/api/threads/useThreads";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { timeAgo } from "@/libs/utils/date";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -53,9 +52,8 @@ export function useRecentQuestions(): { rows: RecentQuestion[]; settled: boolean
  * it loads, and nothing when there are no questions yet.
  */
 export function HomeRecentQuestions({ rows }: { rows: RecentQuestion[] }) {
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(project.id);
+  const ws = ROUTES.ORG(orgSlug).WORKSPACE();
   if (rows.length === 0) return null;
 
   return (

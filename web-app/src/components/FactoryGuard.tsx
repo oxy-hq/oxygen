@@ -18,7 +18,7 @@ export function FactoryGuard({ children }: { children: ReactNode }) {
   const { workspace } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   if (workspace && !canUseFactory(workspace)) {
-    return <Navigate to={ROUTES.ORG(orgSlug).WORKSPACE(workspace.id).HOME} replace />;
+    return <Navigate to={ROUTES.ORG(orgSlug).WORKSPACE().HOME} replace />;
   }
   return <>{children}</>;
 }

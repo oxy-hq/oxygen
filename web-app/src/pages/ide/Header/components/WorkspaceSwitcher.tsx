@@ -53,7 +53,7 @@ export function WorkspaceSwitcher() {
   }
 
   const orgRoutes = ROUTES.ORG(org?.slug ?? "");
-  const currentRoot = workspace ? orgRoutes.WORKSPACE(workspace.id).IDE.ROOT : "";
+  const currentRoot = workspace ? orgRoutes.WORKSPACE().IDE.ROOT : "";
   const goTo = (workspaceId: string) => {
     setOpen(false);
     if (workspaceId === workspace?.id) return;

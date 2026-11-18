@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
 /**
  * The breadcrumb label for the current core-app page. The TopBar is hidden
@@ -13,8 +12,7 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 export function usePageName(): string {
   const { pathname } = useLocation();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const { workspace } = useCurrentWorkspace();
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(workspace?.id ?? "");
+  const ws = ROUTES.ORG(orgSlug).WORKSPACE();
 
   return useMemo(() => {
     // Most specific first.

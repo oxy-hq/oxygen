@@ -186,7 +186,7 @@ export default function HomeV3() {
               <WorldModelCard
                 model={worldModel}
                 title={worldModelTitle()}
-                to={ROUTES.ORG(org?.slug ?? "").WORKSPACE(project?.id ?? "").WORLD_MODEL}
+                to={ROUTES.ORG(org?.slug ?? "").WORKSPACE().WORLD_MODEL}
                 compact
               />
             )}

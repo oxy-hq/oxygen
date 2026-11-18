@@ -198,11 +198,9 @@ const ROUTES = {
       /**
        * The org's pages, at `/<org>/<page>`. An org has one workspace, so the
        * address names only the org and the shell loads its workspace
-       * (`OrgWorkspace`). The id is no longer read: every caller still passes
-       * one, and dropping the parameter is a follow-up.
+       * (`OrgWorkspace`).
        */
-      WORKSPACE: (_wsId?: string) =>
-        isLocal ? workspaceRoutes("", "") : workspaceRoutes(base, `${base}/home`),
+      WORKSPACE: () => (isLocal ? workspaceRoutes("", "") : workspaceRoutes(base, `${base}/home`)),
 
       /**
        * A link that opens one particular workspace: `/<org>/workspaces/<id>/<page>`

@@ -20,7 +20,6 @@ import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import useCameras from "@/hooks/api/cameras/useCameras";
 import useEdgeBoxes from "@/hooks/api/cameras/useEdgeBoxes";
 import useSites from "@/hooks/api/cameras/useSites";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -137,7 +136,6 @@ const TopologyContent: React.FC<{
   onToggleDirection: () => void;
 }> = ({ direction, onToggleDirection }) => {
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { workspace } = useCurrentWorkspace();
   const wsId = workspace?.id;
@@ -155,7 +153,7 @@ const TopologyContent: React.FC<{
     const ns: FlowNode<EdgeNodeData>[] = [];
     const es: FlowEdge[] = [];
 
-    const playback = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.PLAYBACK;
+    const playback = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.PLAYBACK;
 
     // Bottom-up cross-axis layout — assign cross-axis per leaf
     // (camera) first, then center each box on its cameras, sites on
@@ -298,7 +296,7 @@ const TopologyContent: React.FC<{
     }
 
     return { nodes: ns, edges: es };
-  }, [sites, edgeBoxes, cameras, workspace?.name, orgSlug, project.id, direction]);
+  }, [sites, edgeBoxes, cameras, workspace?.name, orgSlug, direction]);
 
   const handleNodeClick = (_: unknown, node: FlowNode<EdgeNodeData>) => {
     if (node.data.href) navigate(node.data.href);

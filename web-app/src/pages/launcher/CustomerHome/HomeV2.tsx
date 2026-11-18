@@ -154,7 +154,7 @@ export default function HomeV2() {
   }
 
   const canAsk = !readiness.shouldDisableChat;
-  const worldModelTo = ROUTES.ORG(org?.slug ?? "").WORKSPACE(project?.id ?? "").WORLD_MODEL;
+  const worldModelTo = ROUTES.ORG(org?.slug ?? "").WORKSPACE().WORLD_MODEL;
   const showWorldModel = !!worldModel && worldModel.entities.length > 0;
   // The layout may leave insights out; apps always have their place.
   const showInsights = sections.some((s) => s.kind === "insights");

@@ -3,7 +3,6 @@ import type React from "react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import useCameras from "@/hooks/api/cameras/useCameras";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useSelectedSite } from "@/hooks/useSelectedSite";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -28,7 +27,6 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
  */
 const SetupNeededBanner: React.FC = () => {
   const { workspace } = useCurrentWorkspace();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { siteId: selectedSite } = useSelectedSite();
   const { data: cameras = [] } = useCameras(workspace?.id);
@@ -40,7 +38,7 @@ const SetupNeededBanner: React.FC = () => {
 
   if (pending.length === 0) return null;
 
-  const devicesUrl = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE.DEVICES;
+  const devicesUrl = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.DEVICES;
   // Preserve the active site in the deep-link so the destination
   // table is filtered to the same scope the banner counted. Without
   // this, "3 cameras awaiting review" in Site A would land on a

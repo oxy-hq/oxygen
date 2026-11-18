@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useRecoveryStats from "@/hooks/api/coordinator/useRecoveryStats";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import type { AgentStats, RecoveredRunEntry } from "@/services/api/coordinator";
@@ -78,15 +77,10 @@ const AgentTable: React.FC<{ agents: AgentStats[] }> = ({ agents }) => {
 
 // ── Recovered runs list ─────────────────────────────────────────────────────
 
-const RecoveredRunRow: React.FC<{ run: RecoveredRunEntry; projectId: string }> = ({
-  run,
-  projectId
-}) => {
+const RecoveredRunRow: React.FC<{ run: RecoveredRunEntry }> = ({ run }) => {
   const navigate = useNavigate();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const runTreeHref = ROUTES.ORG(orgSlug)
-    .WORKSPACE(projectId)
-    .IDE.COORDINATOR.RUN_DETAIL(run.run_id);
+  const runTreeHref = ROUTES.ORG(orgSlug).WORKSPACE().IDE.COORDINATOR.RUN_DETAIL(run.run_id);
 
   return (
     <button
@@ -120,8 +114,6 @@ const RecoveredRunRow: React.FC<{ run: RecoveredRunEntry; projectId: string }> =
 // ── Page ────────────────────────────────────────────────────────────────────
 
 const RecoveryPage: React.FC = () => {
-  const { project } = useCurrentProjectBranch();
-  const projectId = project.id;
   const { data, isPending, error, refetch } = useRecoveryStats();
 
   if (isPending) {
@@ -206,9 +198,7 @@ const RecoveryPage: React.FC = () => {
                 No recovered runs in this window
               </p>
             ) : (
-              data.recovered_runs.map((run) => (
-                <RecoveredRunRow key={run.run_id} run={run} projectId={projectId} />
-              ))
+              data.recovered_runs.map((run) => <RecoveredRunRow key={run.run_id} run={run} />)
             )}
           </div>
         </div>

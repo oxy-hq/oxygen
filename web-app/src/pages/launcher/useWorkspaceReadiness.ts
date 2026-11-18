@@ -203,7 +203,7 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
 
   // Absolute paths: `home` and `onboarding` are siblings in WorkspaceLayout,
   // so relative `to='onboarding'` resolves to `/home/onboarding` (404).
-  const routes = ROUTES.ORG(orgSlug).WORKSPACE(project.id);
+  const routes = ROUTES.ORG(orgSlug).WORKSPACE();
 
   const isSetupComplete = hasDatabases && hasPublicAgents;
   // On API error we don't render any gap rows (we can't trust the data), so

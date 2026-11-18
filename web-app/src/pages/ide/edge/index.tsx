@@ -7,7 +7,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/shadcn/dropdown-menu";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -24,9 +23,8 @@ import SitePicker from "./components/SitePicker";
  * even as more tabs land.
  */
 const EdgeLayout: React.FC = () => {
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const edge = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.EDGE;
+  const edge = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE;
   const { pathname } = useLocation();
   // Carry global selections (notably `?site=` from `SitePicker`)
   // across tab navigation. Without this, NavLinks below would drop

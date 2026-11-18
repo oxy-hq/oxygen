@@ -9,7 +9,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/shadcn/dropdown-menu";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -49,9 +48,8 @@ const CoordinatorTab: React.FC<{ tab: TabDef; active: boolean }> = ({ tab, activ
 
 const CoordinatorLayout: React.FC = () => {
   const location = useLocation();
-  const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const coord = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.COORDINATOR;
+  const coord = ROUTES.ORG(orgSlug).WORKSPACE().IDE.COORDINATOR;
 
   const tabs: TabDef[] = [
     {

@@ -6,7 +6,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import ROUTES from "@/libs/utils/routes";
 import PageHeader from "@/pages/ide/components/PageHeader";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import TraceCharts from "./components/Charts";
 import { CompareSelectionBar } from "./components/CompareSelectionBar";
 import { CompareTracesDialog } from "./components/CompareTracesDialog";
@@ -44,7 +43,6 @@ function ObservabilityNotConfiguredBanner() {
 
 export default function TracesPage() {
   const navigate = useNavigate();
-  const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { authConfig } = useAuth();
   const observabilityConfigured = authConfig.observability_enabled;
@@ -54,11 +52,7 @@ export default function TracesPage() {
   const totalPages = Math.ceil(ctl.total / ctl.pageSize);
 
   const goToTrace = (traceId: string) =>
-    navigate(
-      ROUTES.ORG(orgSlug)
-        .WORKSPACE(project?.id || "")
-        .IDE.OBSERVABILITY.TRACE(traceId)
-    );
+    navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACE(traceId));
 
   const timeRangeAction = observabilityConfigured ? (
     <TimeRangeControl value={ctl.timeRange} onChange={ctl.setTimeRange} />

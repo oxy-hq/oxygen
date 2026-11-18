@@ -14,7 +14,6 @@ import TablePagination from "@/components/ui/TablePagination";
 import { useMetricsList } from "@/hooks/api/metrics";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import type { DaysValue, ViewMode } from "../../constants";
 import { METRICS_PAGE_SIZE } from "../../constants";
 import MetricCard from "./MetricCard";
@@ -27,7 +26,6 @@ interface MetricsGridProps {
 
 export default function MetricsGrid({ viewMode, daysFilter }: MetricsGridProps) {
   const navigate = useNavigate();
-  const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const [currentPage, setCurrentPage] = useState(1);
   const offset = (currentPage - 1) * METRICS_PAGE_SIZE;
@@ -48,13 +46,9 @@ export default function MetricsGrid({ viewMode, daysFilter }: MetricsGridProps) 
 
   const handleMetricClick = useCallback(
     (metricName: string) => {
-      navigate(
-        ROUTES.ORG(orgSlug)
-          .WORKSPACE(project?.id || "")
-          .IDE.OBSERVABILITY.METRIC(metricName)
-      );
+      navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.METRIC(metricName));
     },
-    [navigate, project?.id, orgSlug]
+    [navigate, orgSlug]
   );
 
   const renderContent = () => {

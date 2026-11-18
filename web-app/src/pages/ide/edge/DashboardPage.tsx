@@ -161,9 +161,9 @@ const DashboardPage: React.FC = () => {
 
   const chartOptions = useTimeSeriesOptions(rollup?.hourly ?? []);
 
-  const detections = ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).IDE.EDGE.DETECTIONS;
-  const playback = ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).IDE.EDGE.PLAYBACK;
-  const devices = ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).IDE.EDGE.DEVICES;
+  const detections = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.DETECTIONS;
+  const playback = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.PLAYBACK;
+  const devices = ROUTES.ORG(orgSlug).WORKSPACE().IDE.EDGE.DEVICES;
 
   return (
     <div

@@ -7,7 +7,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem
 } from "@/components/ui/shadcn/sidebar";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useDatabaseClient from "@/stores/useDatabaseClient";
@@ -41,8 +40,6 @@ const TableRow: React.FC<TableRowProps> = ({ table, dialect, databaseName, label
   const [isOpen, setIsOpen] = React.useState(false);
   const { addTab } = useDatabaseClient();
   const navigate = useNavigate();
-  const { project } = useCurrentProjectBranch();
-  const projectId = project.id;
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const displayLabel = label ?? table.name;
 
@@ -63,7 +60,7 @@ const TableRow: React.FC<TableRowProps> = ({ table, dialect, databaseName, label
     if (!result.success) {
       toast.error(result.error);
     }
-    navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.DATABASE.ROOT);
+    navigate(ROUTES.ORG(orgSlug).WORKSPACE().IDE.DATABASE.ROOT);
   };
 
   const hasColumns = table.columns.length > 0;

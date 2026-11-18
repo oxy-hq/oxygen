@@ -28,7 +28,7 @@ const Header = () => {
   });
 
   const handleHomeClick = () => {
-    navigate(workspace?.id ? ROUTES.ORG(orgSlug).WORKSPACE(workspace.id).HOME : ROUTES.ROOT);
+    navigate(workspace?.id ? ROUTES.ORG(orgSlug).WORKSPACE().HOME : ROUTES.ROOT);
   };
 
   return (
