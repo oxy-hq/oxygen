@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use airway::connector::SourceConnector;
+use airway::connector::sources::amazon_ads::{AmazonAdsConfig, AmazonAdsSource};
 use airway::connector::sources::besttime::{BestTimeConfig, besttime_source};
 use airway::connector::sources::filesystem::{FilesystemSource, SourceFileFormat};
 use airway::connector::sources::google_sheets::GoogleSheetsSource;
@@ -252,6 +253,7 @@ fn build_source_connector_inner(
         "overpass" => build_overpass(&config.config),
         "netsuite" => build_netsuite(&config.config),
         "sp_api" => build_sp_api(&config.config),
+        "amazon_ads" => build_amazon_ads(&config.config),
         "ubereats" => build_ubereats(&config.config),
         other => Err(AirwayError::Other(format!(
             "unsupported source kind `{other}`. Wire it up in \
@@ -1689,6 +1691,116 @@ fn build_sp_api(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> {
     Ok(Box::new(source))
 }
 
+// ── amazon_ads (Amazon Ads API, Sponsored Products reports) ───────────────────
+
+/// `.airway.yml` config for `kind: amazon_ads`, read-only Sponsored Products
+/// reports (`sp_search_term`, `sp_placement`) for one advertiser profile.
+///
+/// Its own struct rather than airway's `AmazonAdsConfig`, which does not
+/// derive `Deserialize`, and so that `deny_unknown_fields` refuses a typo here
+/// at build time instead of ignoring it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AmazonAdsParams {
+    /// LWA application client id. An identifier: it names the app, not the
+    /// advertiser.
+    client_id: String,
+    /// LWA application client secret. `default` for the same reason as
+    /// `SpApiParams::client_secret`: an unset secret arrives absent, and the
+    /// refusal below names the `_var` to set rather than serde's
+    /// `missing field`.
+    #[serde(default)]
+    client_secret: String,
+    /// The advertiser's LWA refresh token: the credential to rotate if access
+    /// must be revoked.
+    #[serde(default)]
+    refresh_token: String,
+    /// Ads API region. Only `NA` is reachable today; airway refuses the rest by
+    /// name.
+    #[serde(default = "default_amazon_ads_region")]
+    region: String,
+    /// The advertiser profile, all digits. Accepts a bare YAML integer, since
+    /// an unquoted profile id would otherwise fail as `invalid type: integer`.
+    #[serde(deserialize_with = "de_string_or_number")]
+    profile_id: String,
+    /// Where a resource with no cursor starts, `YYYY-MM-DD`. Required, as for
+    /// `sp_api`: airway clamps it to Amazon's ~90-day retention, but too
+    /// recent loses history with nothing to signal it.
+    #[serde(default)]
+    default_start: Option<String>,
+    /// How long one report may build before the resource fails transiently and
+    /// the next run resumes it. Airway's default (60) when absent; 1 to 240.
+    #[serde(default)]
+    poll_budget_minutes: Option<u64>,
+}
+
+fn default_amazon_ads_region() -> String {
+    "NA".to_string()
+}
+
+/// Hand-written: `{params:?}` must not put the advertiser's refresh token or
+/// the app secret in a log.
+impl std::fmt::Debug for AmazonAdsParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AmazonAdsParams")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
+            .field("refresh_token", &"<redacted>")
+            .field("region", &self.region)
+            .field("profile_id", &self.profile_id)
+            .field("default_start", &self.default_start)
+            .field("poll_budget_minutes", &self.poll_budget_minutes)
+            .finish()
+    }
+}
+
+fn build_amazon_ads(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> {
+    let params: AmazonAdsParams = serde_json::from_value(raw.clone())
+        .map_err(|e| AirwayError::Other(format!("invalid amazon_ads config: {e}")))?;
+
+    // Covers absent and hand-written-empty alike; see `client_secret`'s doc.
+    for (name, value) in [
+        ("client_secret", &params.client_secret),
+        ("refresh_token", &params.refresh_token),
+    ] {
+        if value.trim().is_empty() {
+            return Err(AirwayError::Other(format!(
+                "amazon_ads config: `{name}` is empty or unset — set `{name}_var` to the \
+                 secret name so the executor can resolve it before the pipeline runs"
+            )));
+        }
+    }
+
+    let default_start = match params.default_start.as_deref() {
+        Some(raw) => chrono::NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
+            AirwayError::Other(format!(
+                "amazon_ads config: `default_start` must be `YYYY-MM-DD`, got {raw:?}"
+            ))
+        })?,
+        None => {
+            return Err(AirwayError::Other(
+                "amazon_ads config: `default_start` is required — it is where a first run \
+                 begins, and too recent loses history silently. Amazon keeps about 90 days, \
+                 and an earlier date is clamped to that"
+                    .to_string(),
+            ));
+        }
+    };
+
+    // airway validates the rest (region, all-digit profile id, poll budget
+    // range) and refuses by name.
+    let source = AmazonAdsSource::new(AmazonAdsConfig {
+        client_id: params.client_id,
+        client_secret: params.client_secret,
+        refresh_token: params.refresh_token,
+        region: params.region,
+        profile_id: params.profile_id,
+        default_start,
+        poll_budget_minutes: params.poll_budget_minutes,
+    })?;
+    Ok(Box::new(source))
+}
+
 // ── besttime (POST-then-extract foot-traffic forecasts) ────────────────────────
 
 fn build_besttime(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> {
@@ -1907,6 +2019,95 @@ mod tests {
         };
         assert!(msg.contains("ES512"), "{msg}");
         assert!(msg.contains("PS256"), "{msg}");
+    }
+
+    /// An amazon_ads config with everything valid, as BMG's pipeline writes it
+    /// (an unquoted profile id), plus `extra` over the top.
+    fn amazon_ads_cfg(extra: Value) -> SourceConfig {
+        let mut obj = json!({
+            "client_id": "amzn1.application-oa2-client.x",
+            "client_secret": "secret",
+            "refresh_token": "Atzr|refresh",
+            "profile_id": 4056823356009683u64,
+            "default_start": "2026-09-01",
+        })
+        .as_object()
+        .expect("object")
+        .clone();
+        obj.extend(extra.as_object().expect("object").clone());
+        cfg("amazon_ads", Value::Object(obj))
+    }
+
+    #[test]
+    fn amazon_ads_builds_both_resources() {
+        let source = build(&amazon_ads_cfg(json!({}))).expect("a valid config builds");
+        assert_eq!(source.name(), "amazon_ads");
+        let names: Vec<String> = source.resources().into_iter().map(|r| r.name).collect();
+        assert_eq!(names, ["sp_search_term", "sp_placement"]);
+        // The optional knobs are accepted.
+        build(&amazon_ads_cfg(
+            json!({ "region": "NA", "poll_budget_minutes": 120 }),
+        ))
+        .expect("region and poll budget are accepted");
+    }
+
+    /// Each refusal names what to fix, before any request is made.
+    #[test]
+    fn amazon_ads_refuses_a_bad_config_by_name() {
+        for (extra, needle) in [
+            (json!({ "client_secret": "" }), "client_secret_var"),
+            (json!({ "refresh_token": " " }), "refresh_token_var"),
+            (json!({ "default_start": "2026/09/01" }), "YYYY-MM-DD"),
+            (json!({ "region": "EU" }), "EU"),
+            (json!({ "profile_id": "12a" }), "profile_id"),
+            (json!({ "poll_budget_minutes": 241 }), "poll_budget_minutes"),
+            (json!({ "profile": "1" }), "unknown field"),
+        ] {
+            let msg = refusal(build(&amazon_ads_cfg(extra.clone())));
+            assert!(msg.contains(needle), "{extra}: {msg}");
+        }
+        let mut no_start = amazon_ads_cfg(json!({}));
+        no_start
+            .config
+            .as_object_mut()
+            .expect("object")
+            .remove("default_start");
+        let msg = refusal(build(&no_start));
+        assert!(
+            msg.contains("default_start") && msg.contains("loses history"),
+            "{msg}"
+        );
+    }
+
+    /// The executor strips `client_secret_var` / `refresh_token_var` and
+    /// writes the resolved values under the plain names; with
+    /// `deny_unknown_fields`, a rename on either side fails here.
+    #[test]
+    fn amazon_ads_params_read_the_resolved_secret_fields_and_redact_them() {
+        let params: AmazonAdsParams = serde_json::from_value(json!({
+            "client_id": "cid",
+            "client_secret": "S3CRET",
+            "refresh_token": "Atzr|R3FRESH",
+            "profile_id": "4056823356009683",
+            "default_start": "2026-09-01",
+        }))
+        .expect("parses");
+        assert_eq!(params.client_secret, "S3CRET");
+        assert_eq!(params.region, "NA");
+        let shown = format!("{params:?}");
+        assert!(
+            !shown.contains("S3CRET") && !shown.contains("R3FRESH"),
+            "{shown}"
+        );
+        assert!(
+            serde_json::from_value::<AmazonAdsParams>(json!({
+                "client_id": "cid",
+                "client_secret_var": "ADS_SECRET",
+                "profile_id": "1",
+            }))
+            .is_err(),
+            "an unresolved `_var` key must not be accepted silently"
+        );
     }
 
     /// An sp_api config with everything valid except the one field under test,

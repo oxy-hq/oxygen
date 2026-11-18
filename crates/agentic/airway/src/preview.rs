@@ -39,8 +39,9 @@ pub use sandbox::SandboxSource;
 
 /// Sources a preview never samples. `postgres_cdc` and `pgoutput` advance a
 /// replication slot production shares; `sp_api` is quota-limited and a report
-/// window cannot be pulled twice.
-pub const SAMPLE_REFUSED_KINDS: [&str; 3] = ["postgres_cdc", "pgoutput", "sp_api"];
+/// window cannot be pulled twice; `amazon_ads` creates report jobs in the
+/// advertiser's account that take Amazon 10 to 50 minutes to build.
+pub const SAMPLE_REFUSED_KINDS: [&str; 4] = ["postgres_cdc", "pgoutput", "sp_api", "amazon_ads"];
 
 /// Sources whose credential rotates when it is used: Intuit voids a QuickBooks
 /// refresh token when it issues the next one, so a second rotator bricks the

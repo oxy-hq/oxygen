@@ -1274,6 +1274,12 @@ impl PipelineTaskExecutor {
                 ("client_secret", "client_secret_var"),
                 ("refresh_token", "refresh_token_var"),
             ],
+            // Amazon Ads API: the same LWA login as sp_api, so the same two
+            // bearer credentials. `client_id` and `profile_id` are identifiers.
+            "amazon_ads" => &[
+                ("client_secret", "client_secret_var"),
+                ("refresh_token", "refresh_token_var"),
+            ],
             // The PEM private key behind OAuth 2.0 client-credentials (M2M).
             // `account_id` / `client_id` / `certificate_id` are identifiers —
             // the account id is in every API hostname — so the key is the only

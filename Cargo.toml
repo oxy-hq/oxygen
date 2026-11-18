@@ -1229,7 +1229,18 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # resource is in the SELLER roster, so a seller pipeline that omits
 # `resources:` WILL pull it on its next run: bmg's `amazon_sp` does, which
 # is the intent (its P&L will read fees from it).
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.64", default-features = false, features = [
+#
+# 0.1.65 carries airway-internal#254: a new `amazon_ads` source (Amazon Ads
+# API, Sponsored Products reports v3), read-only by an exact (method, path)
+# allowlist, with `sp_search_term` and `sp_placement` at daily grain. It is
+# wired here as `kind: amazon_ads` (`build_amazon_ads`, the executor's secret
+# table, and the preview refusal list). `git diff --name-only 0.1.64 0.1.65` is
+# the new `amazon_ads.rs`, its probe example, `sources/mod.rs`, six `sp_api`
+# helpers made `pub(crate)` with unchanged logic, `config/` (a doc-table row
+# and the test registries that list every source file), CHANGELOG and the
+# version lines: no trait change, no new dependency. No existing pipeline
+# names the kind, so nothing that runs today changes.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.65", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }

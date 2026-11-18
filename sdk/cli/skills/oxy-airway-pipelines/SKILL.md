@@ -50,9 +50,10 @@ the run's `unsupported source kind` error is the authority.
 
 ## Source kinds: what is wired
 
-**Wired (16):** `rest_api`, `http_file`, `filesystem`, `google_sheets`,
+**Wired (17):** `rest_api`, `http_file`, `filesystem`, `google_sheets`,
 `sql_database`, `postgres_cdc`, `clickhouse`, `toast`, `ubereats`, `sp_api`,
-`quickbooks`, `netsuite`, `weather`, `besttime`, `overture`, `overpass`.
+`amazon_ads`, `quickbooks`, `netsuite`, `weather`, `besttime`, `overture`,
+`overpass`.
 
 **Shipped by the engine but not wired — unavailable in Oxy:** `shopify`,
 `stripe`, `github`, `hubspot`, `salesforce`, `slack`, `jira`, `notion`,
@@ -127,6 +128,25 @@ provisioned under.
   nothing and refuses every named resource. A business with both accounts
   needs two pipelines.
 
+### `amazon_ads` (Amazon Ads): reports only, and slow
+
+- **Resources:** `sp_search_term` (Sponsored Products search terms) and
+  `sp_placement` (campaigns by placement: `top_of_search`, `rest_of_search`,
+  `product_pages`, `off_amazon`), both daily. The source only requests and
+  downloads reports; it never changes a bid, budget or campaign.
+- **Required:** `client_id`, `profile_id` (the advertiser profile, digits
+  only; a number or a string), and `default_start` (`YYYY-MM-DD`). A config
+  without `default_start` is refused. Amazon keeps about 90 days of these
+  reports, so an earlier date is clamped to that, and a later one loses
+  history silently.
+- **`region` is `NA` only** today; another value is refused.
+- **A report takes 10–50 minutes to build.** `poll_budget_minutes` (at most
+  240) bounds how long one run waits. A report still pending when the run
+  ends is picked up by the next run, but only on a destination that commits
+  per write (Airhouse).
+- **Previews refuse this kind:** a sample would create report jobs in the
+  advertiser's account.
+
 ## Credentials: per-kind `*_var` keys
 
 A `*_var` key names a secret **key**, never a value; the run resolves it from
@@ -139,6 +159,7 @@ not overlap — read the row for your kind, never borrow from another:**
 | `toast` | `client_id_var`, `client_secret_var` |
 | `quickbooks` | `client_secret_var`, `refresh_token_var`, `client_id_var` — or `access_token_var` alone (read-only custody) |
 | `sp_api` | `client_secret_var`, `refresh_token_var` |
+| `amazon_ads` | `client_secret_var`, `refresh_token_var` |
 | `netsuite` | `private_key_var` — a multi-line PEM; the secret store must keep its newlines |
 | `clickhouse` | `password_var` |
 | `sql_database`, `postgres_cdc` | `connection_string_var` (a whole DSN) |
