@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------------
 
 # Base image for Rust and Cargo Chef
-FROM lukemathwalker/cargo-chef:latest-rust-1.99.1-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.100.0-bookworm AS chef
 WORKDIR /app
 
 # `cargo chef cook` runs BEFORE `COPY . .`, so the repo's `.cargo/config.toml`
