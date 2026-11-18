@@ -50,7 +50,7 @@ runs:
       if: runner.os == 'Linux'
 
     - name: Prep Rust
-      uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml
+      uses: dtolnay/rust-toolchain@1.100.0 # keep in step with rust-toolchain.toml
       with:
         components: clippy, rustfmt
 

@@ -62,7 +62,7 @@ runs:
       if: runner.os == 'Linux'
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml
+      uses: dtolnay/rust-toolchain@1.100.0 # keep in step with rust-toolchain.toml
       with:
         targets: ${{ inputs.target }}
 
