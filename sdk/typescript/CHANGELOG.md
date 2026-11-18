@@ -106,13 +106,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clock keeps its whole 44px reach on a phone (its neighbour's reach took its right
   edge). The kit's segment track is `--segment-track`, so the selected segment steps off
   it as on the reference's desk strip (1.27:1 light; on the old track it was 1.00:1). The
-  tab bar's selected label is foreground ink, not the link blue: selection is
-  monochrome. In the top bar the breadcrumb's "/" is the muted ink at full strength
-  (6.85:1 light, 8.25:1 dark; at 40% it was 1.88:1 and 2.29:1, every desk screen's only
-  text under 4.5:1), the home link takes the one ring instead of the browser's outline,
-  and the Today clock is drawn in the shell's sans face with tabular figures, not
-  monospace. `--secondary`, `--segment-track`, `--segment-selected`, the tab label, the
-  "/" and the 11px are switched on `--oxy-theme-contract` rather than read as plain
+  phone tab bar's current tab, icon and label, stays the accent blue 2.28 drew, now the
+  theme's `--link` (7.77:1 on the bar in light, 7.09:1 in dark; the floors are 4.5:1 for
+  the 11px label and 3:1 for the icon), with its label at 600: on a phone the bottom
+  tab bar is the one selection drawn in blue, while the desk's navigation, tabs and
+  segments keep a monochrome selection. In the top bar the breadcrumb's "/" is the muted
+  ink at full strength (6.85:1 light, 8.25:1 dark; at 40% it was 1.88:1 and 2.29:1,
+  every desk screen's only text under 4.5:1), the home link takes the one ring instead of
+  the browser's outline, and the Today clock is drawn in the shell's sans face with
+  tabular figures, not monospace. `--secondary`, `--segment-track`,
+  `--segment-selected`, the current tab's `--link`, the "/" and the 11px are switched on
+  `--oxy-theme-contract` rather than read as plain
   names, because apps set those names for themselves; the clock's face and the home
   link's ring switch on it through a style query, which no colour mix can carry.
 - **With the theme, the kit's tones are the design system's status family**, the one the

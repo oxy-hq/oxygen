@@ -2491,13 +2491,17 @@
   transition: color var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
-/* The link blue as 2.28 drew it; with the theme, foreground ink (the label's weight below carries
-   it too), because selection is monochrome in the design system (the reference's `tabOn` and
-   `segmentOn`; blue is links, focus and the primary action). Switched by --oxy-shell-themed. */
+/* The current tab is the accent blue, icon and label, in light and dark; the label's 600 weight
+   below marks it too. This is the design system's rule for the phone's bottom tab bar only
+   (decided 18 Nov: keep the selection colour 2.28 drew): desk navigation, tabs and segmented
+   controls keep their monochrome selection. Without the theme it is 2.28's link blue;
+   with it, the theme's `--link`, the text-safe blue it draws links in, which holds 4.5:1 for the
+   11px label and 3:1 for the icon on the bar's `--topbar-bg` in both modes (contrast.test.ts).
+   Switched by --oxy-shell-themed. */
 .oxy-phone-tabbar__slot[aria-current="page"] {
   color: color-mix(
     in srgb,
-    var(--oxy-shell-foreground) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--link, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
     var(--oxy-shell-link)
   );
 }

@@ -496,10 +496,15 @@ describe("shell.css follows the design system's own parts with the theme", () =>
     expect(shipped.get("--segment-track")).not.toBe(shipped.get("--segment-selected"));
   });
 
-  it("draws the tab bar's selected label in foreground ink with the theme, the link blue without", () => {
+  it("draws the tab bar's current tab in the theme's --link with the theme, 2.28's link blue without", () => {
     expect(rule('.oxy-phone-tabbar__slot[aria-current="page"]')).toMatch(
-      /color: color-mix\(\s*in srgb,\s*var\(--oxy-shell-foreground\) calc\(var\(--oxy-shell-themed, 0\) \* 100%\),\s*var\(--oxy-shell-link\)\s*\);/
+      /color: color-mix\(\s*in srgb,\s*var\(--link, transparent\) calc\(var\(--oxy-shell-themed, 0\) \* 100%\),\s*var\(--oxy-shell-link\)\s*\);/
     );
+    // The icon and the label take the slot's colour, so that one rule marks both.
+    for (const part of [".oxy-phone-tabbar__icon", ".oxy-phone-tabbar__label"]) {
+      expect(rule(part), part).toMatch(/\S/);
+      expect(rule(part), part).not.toMatch(/(?:^|[\s;])color:/);
+    }
   });
 
   it("draws the breadcrumb's separator in the full muted ink with the theme, 40% of it without", () => {

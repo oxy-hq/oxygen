@@ -7,7 +7,7 @@
 //   when the tab is shown again (`GET /api/projects/:id/shell-context/mode`), and writes a choice
 //   from the shell's switch (`PUT` the same path), so Oxygen and the person's other apps follow.
 // - On a staging or sandbox host (`window.__OXY_APP__.environment` `staging` or `dev-<handle>`) a
-//   choice is that preview's only (Mars, 16 Nov): it is kept in this origin's copy, marked as made
+//   choice is that preview's only (decided 16 Nov): it is kept in this origin's copy, marked as made
 //   here, and never sent, so a preview never changes the person's real mode; the server refuses
 //   the write there too. Until a tester chooses, the preview shows the person's mode as read.
 // - An app pins one mode with `<html data-oxy-mode-pin="light">`, or for one screen with

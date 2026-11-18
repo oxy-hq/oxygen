@@ -367,6 +367,38 @@ for (const { id } of THEMES) {
   }
 }
 
+// The phone tab bar's current tab with the theme: the accent blue, icon and label (decided
+// 18 Nov). Its colour is read out of shell.css (the theme half of the slot's switched
+// colour) and measured on the bar's own ground, as the bar's rule names it: 4.5:1 for the 11px
+// label, 3:1 for the icon, in both modes.
+for (const { id } of THEMES) {
+  for (const mode of ["light", "dark"]) {
+    describe(`${id} ${mode}: the phone tab bar's current tab, the accent blue`, () => {
+      const { colour, surface } = palette(id, mode);
+      const ground = /background: var\((--[a-z0-9-]+),/.exec(shellRule(".oxy-phone-tabbar"))?.[1];
+      const bar = ground ? surface(ground) : undefined;
+      const current = themedHalf('.oxy-phone-tabbar__slot[aria-current="page"]', "color");
+      const c = current ? colour(current) : undefined;
+      const ink = c && bar ? composite(c, bar) : undefined;
+      const ratio = ink && bar ? wcagRatio(ink, bar) : undefined;
+
+      it("reads the theme's --link on the bar's --topbar-bg", () => {
+        expect([current, ground]).toEqual(["--link", "--topbar-bg"]);
+      });
+
+      for (const [what, min] of [
+        ["label, 11px text,", 4.5],
+        ["icon", 3]
+      ] as const) {
+        it(`${what} on the tab bar >= ${min} (${ratio ? `WCAG ${ratio.toFixed(2)}` : "a colour is missing"})`, () => {
+          expect(ratio, `${what}: a colour is missing`).toBeDefined();
+          expect((ratio ?? 0) + 1e-9, what).toBeGreaterThanOrEqual(min);
+        });
+      }
+    });
+  }
+}
+
 it("lists only known failures that exist", () => {
   const labels = new Set(
     THEMES.flatMap(({ id }) =>

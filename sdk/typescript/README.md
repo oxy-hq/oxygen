@@ -317,8 +317,10 @@ import "@oxy-hq/sdk/shell.css";
   forced colours show. The kit's primary button is the brand fill (`--button-primary-bg`,
   `--button-primary-fg`), its secondary button `--secondary` (the reference's
   `--btn-surface`) and its selected segment `--segment-selected` on a `--segment-track`
-  track; the tab bar's selected label is foreground ink, not the link blue (selection is
-  monochrome); `OxyChat`'s Ask is the primary pair too, its field and buttons on
+  track; the phone tab bar's current tab, icon and label, is the accent blue, the theme's
+  `--link` (7.77:1 on the bar light, 7.09:1 dark), the one selection drawn in blue, while
+  the desk's navigation, tabs and segments keep a monochrome selection; `OxyChat`'s Ask is
+  the primary pair too, its field and buttons on
   `--input-radius` and `--button-radius`. In the top bar the breadcrumb's "/" is the muted
   ink at full strength, its home link takes the one ring, and the Today clock is drawn in
   the shell's sans face with tabular figures. The kit's tones (`good`, `warn`, `bad`,
@@ -382,8 +384,8 @@ import "@oxy-hq/sdk/shell.css";
     `#eb3c3e`, 3:1 on every light ground a dot sits on), and their glows, which are those
     dots again at 0.7 by the reference's own rule.
 
-  Two more are a design choice, not a contrast fix: the overlay blur. Mars chose the blurred
-  overlays the Poke House apps had before the design system (17 Nov), so `--scrim-blur` is
+  Two more are a design choice, not a contrast fix: the overlay blur. The design system keeps
+  the blurred overlays the Poke House apps had before it (decided 17 Nov), so `--scrim-blur` is
   8px where the reference has none, and dark `--scrim` is black at 0.5 (the reference's
   0.35 leaves a dialog's card at 1.16:1 over the dimmed page and 0.5 at 1.17, both over the
   contract's 1.15 floor for a scrim that also blurs; 0.5 sets the dialog off a step more and
@@ -393,7 +395,7 @@ import "@oxy-hq/sdk/shell.css";
   old value still follows your `--radius`, `--border`, `--font-inter` and
   `--oxy-shell-*`. The parts that read names apps also set for themselves (`--secondary`,
   `--segment-track`, `--segment-selected`, the status pairs, dots and `--dim-foreground` for
-  the kit's tones, `--foreground` / `--muted-foreground` for the tab bar's label and
+  the kit's tones, `--link` for the tab bar's current tab, `--muted-foreground` for
   the breadcrumb's "/", and `--btn-surface`, `--btn-surface-hover` and `--foreground` for
   the Ask button), and the keyboard hint's 11px floor, are
   switched on the theme's own marker (`--oxy-theme-contract`) instead, so declaring them
