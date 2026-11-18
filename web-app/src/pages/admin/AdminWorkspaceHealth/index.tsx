@@ -7,6 +7,7 @@ import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHeal
 import { cn } from "@/libs/shadcn/utils";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
+import { AdminKpiStrip } from "@/pages/admin/components/AdminKpiStrip";
 import { AdminPage } from "@/pages/admin/components/AdminPage";
 import { CauseCard } from "./components/CauseCard";
 import { WorkspaceTable } from "./components/WorkspaceTable";
@@ -98,29 +99,33 @@ export default function AdminWorkspaceHealthPage() {
             <>
               {/* The headline the old page never stated: how many incidents, not how
                   many rows. Nine rows reading as nine problems was the whole defect. */}
-              <p
+              <AdminKpiStrip
                 data-testid='admin-workspace-health-summary'
-                className='text-muted-foreground text-xs'
-              >
-                <span className='font-medium text-foreground tabular-nums'>{unhealthy}</span> of{" "}
-                <span className='tabular-nums'>{data.workspaces.length}</span> workspaces need
-                attention
-                {causes.length > 0 ? (
-                  <>
-                    {" — from "}
-                    <span className='font-medium text-foreground tabular-nums'>
-                      {causes.length}
-                    </span>{" "}
-                    distinct cause{causes.length === 1 ? "" : "s"}
-                  </>
-                ) : null}
-                {healthy > 0 ? (
-                  <span className='tabular-nums'>
-                    {" · "}
-                    {healthy} healthy
-                  </span>
-                ) : null}
-              </p>
+                items={[
+                  {
+                    id: "attention",
+                    label: "Need attention",
+                    value: unhealthy,
+                    caption: `of ${data.workspaces.length} evaluated`,
+                    tone: "danger",
+                    quiet: unhealthy === 0
+                  },
+                  {
+                    id: "causes",
+                    label: "Distinct causes",
+                    value: causes.length,
+                    caption: "one failure, every workspace it hit",
+                    quiet: causes.length === 0
+                  },
+                  {
+                    id: "healthy",
+                    label: "Healthy",
+                    value: healthy,
+                    caption: "passing every check",
+                    quiet: healthy === 0
+                  }
+                ]}
+              />
 
               {view === "workspaces" ? (
                 <WorkspaceTable workspaces={data.workspaces} />
@@ -131,9 +136,9 @@ export default function AdminWorkspaceHealthPage() {
                   description='Nothing is failing across the fleet right now.'
                 />
               ) : (
-                <div className='space-y-3'>
-                  {causes.map((cause, i) => (
-                    <CauseCard key={cause.id} cause={cause} index={i} />
+                <div className='divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card'>
+                  {causes.map((cause) => (
+                    <CauseCard key={cause.id} cause={cause} />
                   ))}
                 </div>
               )}

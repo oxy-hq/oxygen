@@ -94,12 +94,8 @@ export default function AdminAudit() {
       // Was `max-w-[100rem]`, an arbitrary width off the kit's scale; `full` is
       // the closest role — this is a six-column stream an operator scans wide.
       width='full'
-      description={
-        <>
-          Every privileged action across the platform — partner grants, member changes, custom-app
-          deploys — newest first.
-        </>
-      }
+      description='Every privileged action across the platform, newest first.'
+      info='Partner grants, member changes, custom-app deploys and every other action that needs staff or partner standing.'
       data-testid='admin-audit'
     >
       <div className='flex flex-wrap items-center gap-2'>

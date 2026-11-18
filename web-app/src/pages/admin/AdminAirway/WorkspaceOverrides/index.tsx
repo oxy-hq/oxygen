@@ -72,11 +72,10 @@ export function WorkspaceOverrides({
 
       {overrides.length === 0 ? (
         <p
-          className='rounded-md border border-border/60 border-dashed bg-muted/30 px-3 py-4 text-center text-muted-foreground text-xs'
+          className='py-1 text-muted-foreground text-xs'
           data-testid={`admin-airway-overrides-empty-${sourceKind}`}
         >
-          No workspace overrides for {sourceKind} — every workspace inherits this kind's global
-          policy above.
+          No overrides. Every workspace follows the policy above.
         </p>
       ) : (
         <Table>

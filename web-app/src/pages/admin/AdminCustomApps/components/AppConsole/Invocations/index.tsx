@@ -84,7 +84,7 @@ export const InvocationsPanel = ({
     <ConsolePanel
       id='invocations'
       title='Invocations'
-      question='Q1 — what ran, and how it went'
+      info='Every function call in this environment over the window, newest first, from any trigger: a request, a schedule, an event, a check, a Run.'
       scope={scope}
       actions={
         <ToggleGroup

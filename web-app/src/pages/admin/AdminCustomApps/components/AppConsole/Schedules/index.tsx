@@ -5,7 +5,10 @@ import {
   useAppInvocationsMany,
   useEnvironmentSchedules
 } from "@/hooks/api/customApps/useAppInvocations";
+import { cn } from "@/libs/shadcn/utils";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { CustomApp } from "@/types/apps";
 import { environmentLabel } from "../../AppDetail/components/Secrets/environmentLabel";
 import { ConsolePanel } from "../../ConsolePanel";
@@ -65,13 +68,12 @@ export const SchedulesPanel = ({
     failed: switchRead.isError,
     status: isAxiosError(switchRead.error) ? switchRead.error.response?.status : undefined
   });
-  const where = environmentLabel(environment).toLowerCase();
 
   return (
     <ConsolePanel
       id='schedules'
       title='Schedules'
-      question='Q1 — what runs on a timer'
+      info="Functions that run on a timer in this environment's build, each with its next and last run. Whether they fire is the environment's schedules switch: production always fires; other environments are off until staff turn the switch on."
       scope={scope}
     >
       <AdminAsync
@@ -81,7 +83,7 @@ export const SchedulesPanel = ({
         isEmpty={() => schedules.length === 0}
         empty={
           <p className='text-muted-foreground text-xs' data-testid='admin-app-schedules-empty'>
-            No function declares a <code>schedule</code> in the build {where} serves.
+            No schedules in this build.
           </p>
         }
       >
@@ -111,33 +113,58 @@ export const SchedulesPanel = ({
   );
 };
 
-/** Whether this environment fires the schedules below, in one sentence. */
+/**
+ * Whether this environment fires the schedules below: a dot and a few words, the full
+ * sentence behind an ⓘ. It used to be two sentences above the list on every visit.
+ */
 const SwitchNote = ({ fired, label }: { fired: ScheduleSwitch; label: string }) => {
   const where = label.toLowerCase();
-  const sentence = (() => {
+  const { short, tone, sentence } = (() => {
     switch (fired.state) {
       case "always":
-        return "Production has no schedules switch: every schedule below fires.";
+        return {
+          short: "Every schedule fires",
+          tone: "ok" as const,
+          sentence: "Production has no schedules switch: every schedule below fires."
+        };
       case "on":
-        return `Schedules are on in ${where}: every schedule below fires, against ${where}'s data.`;
+        return {
+          short: "Switch on · schedules fire",
+          tone: "ok" as const,
+          sentence: `Schedules are on in ${where}: every schedule below fires, against ${where}'s data.`
+        };
       case "off":
-        return `Schedules are off in ${where} (the default): none below fires until staff turn the environment's switch on. Run now still runs one.`;
+        return {
+          short: "Switch off · nothing fires",
+          tone: "muted" as const,
+          sentence: `Schedules are off in ${where} (the default): none below fires until staff turn the environment's switch on. Run now still runs one.`
+        };
       default:
-        return fired.why === "forbidden"
-          ? `You may not read ${where}'s schedules switch.`
-          : fired.why === "missing"
-            ? `${label} has no environment row yet, so it has no switch to read.`
-            : fired.why === "loading"
-              ? "Reading the schedules switch…"
-              : "Couldn't read the schedules switch.";
+        return {
+          short: fired.why === "loading" ? "Reading the switch…" : "Switch unknown",
+          tone: "muted" as const,
+          sentence:
+            fired.why === "forbidden"
+              ? `You may not read ${where}'s schedules switch.`
+              : fired.why === "missing"
+                ? `${label} has no environment row yet, so it has no switch to read.`
+                : fired.why === "loading"
+                  ? "Reading the schedules switch…"
+                  : "Couldn't read the schedules switch."
+        };
     }
   })();
   return (
-    <p className='text-xs' data-testid='admin-app-schedules-switch' data-state={fired.state}>
-      {sentence}{" "}
-      <span className='text-muted-foreground'>
-        The switch is per environment; no single schedule can be paused.
-      </span>
+    <p
+      className='flex items-center gap-1.5 text-muted-foreground text-xs'
+      data-testid='admin-app-schedules-switch'
+      data-state={fired.state}
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", ADMIN_TONE[tone].dot)} />
+      <span>{short}</span>
+      <AdminInfo>
+        {sentence} The switch is per environment; no single schedule can be paused.
+      </AdminInfo>
     </p>
   );
 };

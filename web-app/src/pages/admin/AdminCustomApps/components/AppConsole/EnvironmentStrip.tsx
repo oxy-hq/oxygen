@@ -3,6 +3,7 @@ import { useAppEnvironments } from "@/hooks/api/customApps/useAppEnvironments";
 import { useSecretsGaps } from "@/hooks/api/customApps/useAppSecrets";
 import { isForbidden } from "@/hooks/api/httpStatus";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import { PRODUCTION } from "@/types/appEnvironments";
 import { STAGING } from "../AppDetail/components/Secrets/environmentLabel";
@@ -57,8 +58,12 @@ export const EnvironmentStrip = ({
       <span className={cn("font-semibold", tone.text)} data-testid='apps-console-environment-name'>
         {scope.label}
       </span>
-      <span className='min-w-0 flex-1 text-muted-foreground'>
-        {scope.what}. Functions and Secrets act here; Issues and availability show production only.
+      <span className='flex min-w-0 flex-1 items-center gap-1.5 text-muted-foreground'>
+        <span className='truncate'>{scope.what}</span>
+        <AdminInfo>
+          Pages that are one environment's follow this switch: Functions, Events, Data, Secrets.
+          Issues and availability always show production.
+        </AdminInfo>
       </span>
       {!locked && (
         <span className='flex items-center gap-1.5'>

@@ -80,7 +80,7 @@ export const ChecksPanel = ({
     <ConsolePanel
       id='checks'
       title='Checks'
-      question='Q1 — do its checks pass'
+      info='Functions marked "check": true in the build this environment serves, each with its last result. Run checks runs every one against this environment’s data.'
       scope={scope}
       actions={
         <Button
@@ -108,7 +108,7 @@ export const ChecksPanel = ({
         isEmpty={() => checks.length === 0}
         empty={
           <p className='text-muted-foreground text-xs' data-testid='admin-app-checks-empty'>
-            No function is marked <code>"check": true</code> in the build {where} serves.
+            No checks in this build.
           </p>
         }
       >

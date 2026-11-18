@@ -101,7 +101,8 @@ export default function AdminAppAdmins() {
     <AdminPage
       width='default'
       bodyClassName='space-y-0'
-      description='Each grant is a role plus the organizations it reaches. You can issue a grant weaker than your own, never one equal to it — so a grant can never widen itself, and only a Global Owner can add another Global Admin.'
+      description='Each grant is a role plus the organizations it reaches.'
+      info='You can issue a grant weaker than your own, never one equal to it, so a grant can never widen itself. Only a Global Owner can add another Global Admin.'
       data-testid='admin-app-admins'
     >
       <GrantForm key={editNonce} editing={editing} onCancel={closeEditor} bound={bound} />

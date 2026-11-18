@@ -106,11 +106,11 @@ export default function AdminCompilesPage() {
     <AdminPage
       width='wide'
       className='pb-20'
-      description={
+      info={
         <>
-          One row per workspace, expandable to its full revision history. GitHub pushes auto-enqueue
-          compiles with <code className='font-mono'>promote=true</code>; use the tools here for
-          ad-hoc, batch, and rollback operations.
+          One row per workspace, expandable to its full revision history. GitHub pushes enqueue
+          compiles with <code className='font-mono'>promote=true</code> on their own; the tools here
+          are for ad-hoc, batch and rollback compiles.
         </>
       }
       actions={

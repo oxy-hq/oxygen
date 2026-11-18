@@ -610,6 +610,12 @@ const customAppKeys = {
       : (["customApps", "recentTraces", id] as const),
   /** The app's failures grouped per `(function, fingerprint)`, over `days`. */
   issues: (id: string, days: number) => ["customApps", "issues", id, days] as const,
+  /** Every event type of an org, with each listener's queue health. Keyed by the org's
+   *  slug: one read serves every app of the org. */
+  eventTypes: (orgSlug: string) => ["customApps", "eventTypes", orgSlug] as const,
+  /** One app's dead event deliveries in one environment, grouped by how they died. */
+  eventsDead: (orgSlug: string, appSlug: string, environment: string) =>
+    ["customApps", "eventsDead", orgSlug, appSlug, environment] as const,
   /** The release timeline over `days`. Under the `customApps` prefix, so a production
    *  move refetches it. */
   releases: (id: string, days: number) => ["customApps", "releases", id, days] as const,

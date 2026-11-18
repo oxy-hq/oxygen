@@ -38,7 +38,8 @@ describe("FleetRow — Not from CI", () => {
   // nobody republished when a platform release required it.
   it("flags a live build a person published, and says what to do about it", async () => {
     renderRow(app({ live_published_via: "person" }));
-    expect(badge()?.textContent).toBe("Not from CI");
+    // A glyph, not a pill: the words are its accessible name and its tooltip.
+    expect(badge()?.getAttribute("aria-label")).toBe("Not from CI");
 
     await userEvent.hover(badge() as HTMLElement);
     expect((await screen.findByRole("tooltip")).textContent).toBe(NOT_FROM_CI_DETAIL);

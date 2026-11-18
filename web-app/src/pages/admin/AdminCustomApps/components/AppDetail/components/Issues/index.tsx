@@ -40,8 +40,7 @@ export const Issues = ({
       isEmpty={(data) => data.issues.length === 0}
       empty={
         <p className='text-muted-foreground text-xs' data-testid='admin-app-issues-empty'>
-          No function has failed in production in the last {ISSUE_WINDOW_DAYS} days. An app with no
-          Oxy Functions looks the same.
+          No failures in production in the last {ISSUE_WINDOW_DAYS} days.
         </p>
       }
     >

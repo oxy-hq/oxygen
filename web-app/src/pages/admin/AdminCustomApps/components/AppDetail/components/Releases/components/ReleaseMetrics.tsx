@@ -82,11 +82,7 @@ const ScreenTable = ({
     return <p className='text-muted-foreground text-xs'>Couldn't read Web Vitals.</p>;
   }
   if (release.vitals.length === 0) {
-    return (
-      <p className='text-muted-foreground text-xs'>
-        No Web Vitals recorded for this release (none sent, or the app has analytics off).
-      </p>
-    );
+    return <p className='text-muted-foreground text-xs'>No Web Vitals recorded.</p>;
   }
   const before = (path: string) => previous?.vitals.find((v) => v.path === path) ?? null;
   return (

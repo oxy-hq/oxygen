@@ -48,9 +48,7 @@ export const Availability = ({ app }: { app: AvailabilityApp }) => {
         className='px-4 pb-4 text-muted-foreground text-xs leading-relaxed'
         data-testid='admin-app-availability-none'
       >
-        No availability reading. The app may not be published, this deployment may not measure
-        availability, or the measurement could not be read. This says nothing about whether the app
-        is up.
+        Not measured: unpublished, unmeasured here, or unreadable. Not a sign the app is down.
       </p>
     );
   }

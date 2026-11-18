@@ -101,7 +101,8 @@ describe("Test notifications panel", () => {
 
   it("names where to declare kinds when the app has none", async () => {
     renderPanel({ reachable: true, kinds: [] });
-    expect(await screen.findByText("This app declares no notification kinds.")).toBeInTheDocument();
+    expect(await screen.findByText("No notification kinds declared.")).toBeInTheDocument();
+    expect(screen.getByText(/notifications\.kinds/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send to me" })).not.toBeInTheDocument();
   });
 

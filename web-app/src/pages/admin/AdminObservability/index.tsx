@@ -84,7 +84,7 @@ const FleetList = ({
     <AdminPage
       width='wide'
       data-testid='admin-observability'
-      description='What each organization costs us to serve, and what it did for it. Pick one to see why.'
+      description='What each organization costs us to serve, and what it did for it.'
       actions={
         <div className='flex items-center gap-2'>
           <Button asChild variant='ghost' size='sm' className='h-7 gap-1.5 text-xs'>

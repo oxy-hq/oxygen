@@ -27,13 +27,9 @@ export const TestNotifications = ({ app }: { app: CustomApp }) => {
     <ConsolePanel
       id='notifications'
       title='Test notifications'
-      question='Q1 — do its notifications arrive'
+      info={`Sends one notification as ${app.name} to you only, by push and in your inbox. Your mutes apply. Sign in on a phone as yourself to see it arrive.`}
     >
       <div className='flex flex-col gap-2' data-testid='admin-app-notification-test'>
-        <p className='text-muted-foreground text-xs'>
-          Sends one notification as {app.name} to you only, by push and in your inbox. Your mutes
-          apply. Sign in on a phone as yourself to see it arrive.
-        </p>
         <AdminAsync
           query={kinds}
           noun='this app&rsquo;s notification kinds'
@@ -42,8 +38,8 @@ export const TestNotifications = ({ app }: { app: CustomApp }) => {
           empty={
             <AdminEmptyState
               icon={BellOff}
-              title='This app declares no notification kinds.'
-              description='Add them to oxy-app.json under notifications.kinds, or to a function’s notify.kinds, and publish.'
+              title='No notification kinds declared.'
+              description='Declared in oxy-app.json under notifications.kinds, or a function’s notify.kinds.'
             />
           }
         >
@@ -71,8 +67,7 @@ const NotReachable = () => (
   >
     <TriangleAlert className={`mt-px size-3 shrink-0 ${ADMIN_TONE.warn.text}`} />
     <span className='text-muted-foreground'>
-      This app can&rsquo;t notify you: you aren&rsquo;t a member of its org. Join the org to test on
-      your own phone.
+      Join the org to test: it only notifies its members.
     </span>
   </div>
 );

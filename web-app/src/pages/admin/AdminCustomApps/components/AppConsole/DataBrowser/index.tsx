@@ -33,15 +33,19 @@ export const AppDataPanel = ({
   const [browsing, setBrowsing] = useState(false);
 
   return (
-    <ConsolePanel id='data' title='Data' question='Q1 — what it has stored' scope={scope}>
+    <ConsolePanel
+      id='data'
+      title='Data'
+      scope={scope}
+      info={`The tables ${app.name} stores with ctx.oltp in ${scope.label.toLowerCase()}, a page at a time. Read-only: nothing here can change the app's data, and every read is recorded in the audit log.`}
+    >
       <div className='flex min-w-0 flex-col gap-2' data-testid='admin-app-data'>
         <p
           className='flex items-center gap-1.5 text-muted-foreground text-xs'
           data-testid='admin-app-data-mode'
         >
           <Lock className='size-3 shrink-0' />
-          Read-only. Nothing here can change this app&rsquo;s data, and every read is recorded in
-          the audit log.
+          Read-only · every read is audited
         </p>
         {browsing ? (
           // Keyed by environment: a table and a page of staging's mean nothing in
@@ -52,10 +56,7 @@ export const AppDataPanel = ({
             className='flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 border-dashed px-3 py-2'
             data-testid='admin-app-data-gate'
           >
-            <span className='text-muted-foreground text-xs'>
-              The tables {app.name} stores with ctx.oltp in {scope.label.toLowerCase()}, a page at a
-              time.
-            </span>
+            <span className='font-mono text-muted-foreground text-xs'>ctx.oltp</span>
             <Button
               variant='outline'
               size='sm'

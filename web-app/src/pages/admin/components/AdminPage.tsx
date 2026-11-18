@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
 import { adminPageTitle } from "../AdminLayout/adminNav";
+import { AdminInfo } from "./AdminInfo";
 
 /**
  * The frame every admin page is built in: one width scale, one padding, one rhythm,
@@ -35,6 +36,7 @@ const WIDTH: Record<AdminPageWidth, string> = {
 export const AdminPage = ({
   title,
   description,
+  info,
   actions,
   width = "wide",
   className,
@@ -48,8 +50,14 @@ export const AdminPage = ({
    * page is *about* something the route can't name — an org, a user, a workspace.
    */
   title?: string;
-  /** One or two lines on what this surface is for. Optional; most tables need none. */
+  /**
+   * One short line on what this surface is for. Optional; most tables need none. The
+   * rationale, the rules and the caveats go in `info`, not here: a paragraph under the
+   * title is read once and scrolled past every visit after.
+   */
   description?: ReactNode;
+  /** The longer explanation, behind an ⓘ beside the title. */
+  info?: ReactNode;
   /** Page-level controls: refresh, a live indicator, the primary create button. */
   actions?: ReactNode;
   width?: AdminPageWidth;
@@ -69,7 +77,14 @@ export const AdminPage = ({
     >
       <header className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
         <div className='min-w-0 space-y-1'>
-          <h1 className='truncate font-semibold text-xl tracking-tight'>{heading}</h1>
+          <div className='flex min-w-0 items-center gap-1.5'>
+            <h1 className='truncate font-semibold text-xl tracking-tight'>{heading}</h1>
+            {info ? (
+              <AdminInfo side='bottom' data-testid='admin-page-info'>
+                {info}
+              </AdminInfo>
+            ) : null}
+          </div>
           {description ? (
             <div className='max-w-2xl text-muted-foreground text-xs'>{description}</div>
           ) : null}

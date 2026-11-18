@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { FleetHealthResponse } from "@/types/apps";
 
@@ -45,12 +46,12 @@ export const FleetStrip = ({
       <span className={cn("font-medium", ADMIN_TONE.warn.text)}>
         Observability capture is off — no app on this deployment is measured.
       </span>
-      <span className='text-muted-foreground'>
-        Every &ldquo;Not measured&rdquo; below is this one fact, not{" "}
+      <AdminInfo side='bottom'>
+        Every &ldquo;Not measured&rdquo; on these pages is this one fact, not{" "}
         <span className='tabular-nums'>{fleet.apps.length}</span> separate ones. Request counts and
         error rates are unavailable fleet-wide until{" "}
         <code className='font-mono'>OXY_OBSERVABILITY_BACKEND</code> is set.
-      </span>
+      </AdminInfo>
     </div>
   );
 };

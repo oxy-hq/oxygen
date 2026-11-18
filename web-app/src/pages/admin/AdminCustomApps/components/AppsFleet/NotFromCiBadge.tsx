@@ -1,5 +1,5 @@
+import { UserRound } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
-import { AdminStatusPill } from "@/pages/admin/components/AdminStatusPill";
 import type { CustomApp } from "@/types/apps";
 
 export const NOT_FROM_CI_DETAIL =
@@ -17,6 +17,10 @@ export const NOT_FROM_CI_DETAIL =
  * Only `person` earns it. `ci` is the path we want, and absent means there is nothing
  * to judge (nothing live, or a build older than the publisher column) — reporting
  * either as "not from CI" would be a guess dressed as a finding.
+ *
+ * A person glyph beside the publish time, not a pill: on a fleet where most apps were
+ * published by hand, a "Not from CI" pill on nearly every row was the loudest thing in
+ * the table while saying the least. The words are in the tooltip and the label.
  */
 export const NotFromCiBadge = ({ app }: { app: Pick<CustomApp, "live_published_via"> }) => {
   if (app.live_published_via !== "person") return null;
@@ -26,8 +30,13 @@ export const NotFromCiBadge = ({ app }: { app: Pick<CustomApp, "live_published_v
           handlers, and the pill does not forward them. Not a button either — this
           sits inside the row's `<Link>`. */}
       <TooltipTrigger asChild>
-        <span className='inline-flex' data-testid='admin-apps-fleet-not-from-ci'>
-          <AdminStatusPill tone='muted' label='Not from CI' />
+        <span
+          className='inline-flex text-muted-foreground/70'
+          role='img'
+          aria-label='Not from CI'
+          data-testid='admin-apps-fleet-not-from-ci'
+        >
+          <UserRound className='size-3' />
         </span>
       </TooltipTrigger>
       <TooltipContent className='max-w-xs'>{NOT_FROM_CI_DETAIL}</TooltipContent>

@@ -56,7 +56,7 @@ export const AppMapPanel = ({
     <ConsolePanel
       id='app-map'
       title='App map'
-      question='Q1 — what starts it, what it touches'
+      info='What starts each function (a route, a schedule, an event, a check) and what its recent runs touched: tables, secrets, other functions, outside hosts. Touches come from each function’s latest recorded runs.'
       scope={scope}
     >
       <div ref={frame} className='min-w-0' data-testid='admin-app-map'>
@@ -67,7 +67,7 @@ export const AppMapPanel = ({
           isEmpty={(fns) => fns.length === 0}
           empty={
             <p className='text-muted-foreground text-xs' data-testid='admin-app-map-empty'>
-              This build ships no Oxy Functions, so there is nothing to map.
+              No Oxy Functions in this build.
             </p>
           }
         >

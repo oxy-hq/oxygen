@@ -58,7 +58,7 @@ export default function AdminFeatureFlags() {
   return (
     <AdminPage
       width='wide'
-      description='Turn flags on or off, and choose which orgs get what. Changes apply immediately on this server.'
+      description='Which orgs get what. Changes apply immediately.'
       data-testid='admin-feature-flags'
     >
       <AdminAsync

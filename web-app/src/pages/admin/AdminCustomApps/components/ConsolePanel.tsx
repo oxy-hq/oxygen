@@ -1,25 +1,25 @@
 import type { ReactNode } from "react";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminInfo } from "@/pages/admin/components/AdminInfo";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 
 /**
  * One panel of the app console — the only content container this surface has.
  *
- * It replaces `DossierSection`, and the difference is the whole direction: a dossier
- * section is an **accordion**, collapsed by default, stacked in a side panel beside a
- * preview iframe that owned the stage. Nine of them meant an operator opened an app and
- * saw nine closed rows and a website. A panel is simply **open**. If something is not
- * worth showing, it does not get a panel; it does not get a collapsed one.
+ * It replaces `DossierSection`, an accordion collapsed by default. A panel is simply
+ * **open**: if something is not worth showing it does not get a panel, not a closed one.
  *
- * The `question` prop is the part worth keeping honest. Each panel names the operator
- * question it answers, from the six this console was designed against — so a reviewer
- * can check the claim "one viewport answers all six" by reading the eyebrows, and a
- * panel that cannot name its question is a panel that has not earned its place.
+ * Panels used to carry an eyebrow naming the operator question each answered ("Q1 — is
+ * it broken"). That was a design-review device, and on screen it was one more line of
+ * small caps per panel, twenty times down a page. The console is now split into pages
+ * by the job an operator came for (`consolePages.ts`), which is what the questions were
+ * standing in for; a panel says what it is with its title, and how it is measured with
+ * `info`, behind an ⓘ.
  */
 export const ConsolePanel = ({
   id,
   title,
-  question,
+  info,
   scope,
   actions,
   children,
@@ -28,8 +28,8 @@ export const ConsolePanel = ({
   /** Stable id — drives the testid, so renaming the visible title cannot break a test. */
   id: string;
   title: string;
-  /** The operator question this panel answers, e.g. "Q4 — who can open this app". */
-  question?: string;
+  /** What the panel shows and how it is measured, behind an ⓘ beside the title. */
+  info?: ReactNode;
   /**
    * Which environment the panel shows, when it is one environment's: "Production"
    * for panels that only read production, or the console's environment for panels
@@ -46,18 +46,14 @@ export const ConsolePanel = ({
     data-testid={`apps-console-panel-${id}`}
     className={cn("flex min-w-0 flex-col rounded-lg border border-border/60 bg-card", className)}
   >
-    <header className='flex items-baseline justify-between gap-3 border-border/60 border-b px-3 py-2'>
-      <div className='flex min-w-0 items-baseline gap-2'>
-        <h3 className='font-semibold text-sm'>{title}</h3>
-        {question ? (
-          <span className='truncate font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
-            {question}
-          </span>
-        ) : null}
+    <header className='flex min-h-10 items-center justify-between gap-3 border-border/60 border-b px-3 py-2'>
+      <div className='flex min-w-0 items-center gap-1.5'>
+        <h3 className='truncate font-semibold text-sm'>{title}</h3>
+        {info ? <AdminInfo data-testid={`apps-console-panel-${id}-info`}>{info}</AdminInfo> : null}
         {scope ? (
           <span
             className={cn(
-              "shrink-0 rounded-sm px-1 py-px font-medium text-[10px]",
+              "ml-0.5 shrink-0 rounded-sm px-1 py-px font-medium text-[10px]",
               scope.warn
                 ? cn(ADMIN_TONE.warn.bg, ADMIN_TONE.warn.text)
                 : "bg-muted text-muted-foreground"

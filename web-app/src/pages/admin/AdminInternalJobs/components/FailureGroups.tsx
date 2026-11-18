@@ -1,4 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useFailureGroups } from "@/hooks/api/internalJobs";
@@ -82,6 +83,7 @@ export function FailureGroups() {
 
 function GroupRow({ g, onShowJobs }: { g: FailureGroup; onShowJobs: () => void }) {
   const tone = ADMIN_TONE[groupTone(g)];
+  const [open, setOpen] = useState(false);
   return (
     <li
       className='col-span-full grid grid-cols-subgrid items-start gap-x-4 border-border/50 border-b px-3 py-2.5 text-xs last:border-b-0'
@@ -97,13 +99,22 @@ function GroupRow({ g, onShowJobs }: { g: FailureGroup; onShowJobs: () => void }
         <span className='block truncate text-muted-foreground'>{g.org_name ?? "—"}</span>
       </span>
       {/* The error is the most important text on this page, so it gets its own
-          column and wraps rather than truncating at the edge. */}
-      <span
-        className='whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/90'
+          column. It shows its first two lines, where a failure says what it is, and
+          prints in full on a click: a page of raw JSON errors in full was a wall to
+          read past to the next group. */}
+      <button
+        type='button'
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title={open ? undefined : "Show the whole error"}
+        className={cn(
+          "min-w-0 break-words text-left font-mono text-[11px] text-foreground/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          open ? "whitespace-pre-wrap" : "line-clamp-2 hover:text-foreground"
+        )}
         data-testid='admin-internal-jobs-group-error'
       >
         {g.latest_error ?? g.signature ?? "No error recorded on the run."}
-      </span>
+      </button>
       <span className='text-right tabular-nums'>
         <span className={cn("block font-semibold", tone.text)}>
           {g.occurrences.toLocaleString("en-US")}×

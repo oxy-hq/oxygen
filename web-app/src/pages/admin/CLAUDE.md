@@ -70,6 +70,31 @@ Anything that is not a status and not a role badge has no business being coloure
 for "may this principal see this". The console home and the ⌘K palette both filter
 through it, so neither can offer a room the server will 403.
 
+## Say less on the page: numbers first, explanations behind ⓘ
+
+Operators read these pages every day. A paragraph under a title is read once and scrolled
+past on every visit after, and a console that labelled twenty panels with the question each
+answered ("Q1 — is it broken") and a sentence under each was the complaint that led to this
+rule ("too much text, hard to see"). Encore's console is the reference: a page leads with a
+few numbers, rows are one line, and how something is measured is one hover away.
+
+| Use | For |
+| --- | --- |
+| `AdminInfo` | the ⓘ beside a title, a column or a number: what it is and how it is measured. Never a finding |
+| `AdminKpiStrip` | the four to six numbers a page leads with: tiny label, hero number, one-line caption. `null` is "not measured", drawn as a dash; `quiet` fades a zero; `tone` only when something is wrong |
+| `AdminCount` | a count in a table that fades at zero, so the eye lands on what exists |
+| `AdminPage`'s `info` | the page's rationale, rules and caveats; `description` is one short line at most |
+
+- **One line under a title, at most.** Everything else goes in `info`.
+- **An empty state states the default** in one line ("No overrides. Every workspace follows
+  the policy above."), not why the feature exists.
+- **Consequences stay where you act.** A toggle, a form field or a confirm dialog still says
+  what it changes; that text is read at the moment it matters.
+
+The custom-app console follows this with pages (`AppConsole/consolePages.ts`): an overview
+that leads with a KPI strip, then one short page per job, each at its own URL. These are
+pages of one app's console, not tabs over object types, so the rule below still holds.
+
 ## A shared template string is not a shared column
 
 A table built from per-row `display:grid` does **not** have columns. `max-content` and
@@ -117,6 +142,13 @@ give it a column of its own. Workspace health used to print a 206-character
 connector error into a table cell competing with three other columns, so it ran off
 the right edge with no way to read the end of it — nine times over, once per
 affected workspace, for a single underlying cause.
+
+**Clamp it in a list; never cut it.** Where failures are rows (workspace health's
+causes, internal jobs' failing groups, an app's dead letters), a row shows the first two
+lines (`line-clamp-2`, mono), which is where a failure says what it is, and prints the
+whole message on a click (`whitespace-pre-wrap break-words`). A list of five failures
+printed in full was five walls to read past; a truncated one could not be finished. Both
+were wrong, and the reader must always be able to reach the last character.
 
 **Group by cause, not by row.** A platform breaks in platform-shaped ways: one
 refused connection lands on every workspace that touches it. `groupByCause` in

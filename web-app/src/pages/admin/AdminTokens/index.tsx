@@ -60,8 +60,10 @@ import {
  * unbounded grant. A kind the viewer cannot list is not fetched; one the server refuses
  * anyway is named under the table, once, rather than blanking the page.
  */
-const DESCRIPTION =
-  "Every credential that acts on the platform without a person signed in: CI publish tokens, the tokens AI agents build sandboxed apps with, and personal tokens carrying staff or partner standing. Revoke one here when a laptop is lost or a secret leaks.";
+const DESCRIPTION = "Credentials that act without a person signed in.";
+
+const INFO =
+  "CI publish tokens, the tokens AI agents build sandboxed apps with, and personal tokens carrying staff or partner standing. Revoke one here when a laptop is lost or a secret leaks.";
 
 const REFUSALS: Record<"sandbox" | "standing", (error: unknown) => string> = {
   sandbox: () =>
@@ -181,6 +183,7 @@ export default function AdminTokens() {
     <AdminPage
       width='wide'
       description={DESCRIPTION}
+      info={INFO}
       actions={
         can("publish") ? (
           <Button

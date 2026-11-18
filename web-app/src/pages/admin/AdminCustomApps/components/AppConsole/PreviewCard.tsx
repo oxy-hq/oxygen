@@ -33,7 +33,7 @@ export const PreviewCard = ({ app, servedAt }: { app: CustomApp; servedAt: strin
   <ConsolePanel
     id='preview'
     title='Preview'
-    question='Q1 — what it is actually calling'
+    info='Inspect opens the full preview stage: device sizes, the staging view, and the request log, the one place that shows what a custom app calls.'
     actions={
       <>
         <Button asChild variant='ghost' size='sm' className='h-6 gap-1 px-1.5 text-xs'>
@@ -75,7 +75,6 @@ export const PreviewCard = ({ app, servedAt }: { app: CustomApp; servedAt: strin
           <p className='truncate font-mono text-[11px]' title={servedAt}>
             {servedAt}
           </p>
-          <p className='text-muted-foreground text-xs'>Served here — opens in its own tab.</p>
         </div>
       </div>
       <ul className='flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs'>

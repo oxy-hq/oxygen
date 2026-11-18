@@ -24,7 +24,11 @@ export const AppStoragePanel = ({ app }: { app: CustomApp }) => {
   const fleet = useFleetStorage();
 
   return (
-    <ConsolePanel id='storage' title='Storage' question='Q5 — what it is costing'>
+    <ConsolePanel
+      id='storage'
+      title='Storage'
+      info='What this app keeps in object storage, as the storage sweeper last measured it. Never measured is not the same as holding nothing.'
+    >
       <AdminAsync query={fleet} noun="this app's storage" rows={3}>
         {(data) => {
           const row = data.rows.find((r) => r.appId === app.id);
@@ -37,8 +41,7 @@ export const AppStoragePanel = ({ app }: { app: CustomApp }) => {
                 className='text-muted-foreground text-xs'
                 data-testid='apps-console-storage-unmeasured'
               >
-                Never measured. The storage sweeper has not walked this app yet — that is not the
-                same as it holding nothing.
+                Not measured yet.
               </p>
             );
           }

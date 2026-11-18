@@ -703,6 +703,10 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/apps/access' element={<AppsAccessAudit />} />
             <Route path='admin/apps/:orgSlug/:appSlug' element={<AdminCustomApps />} />
             <Route path='admin/apps/:orgSlug/:appSlug/preview' element={<AppsPreviewStage />} />
+            {/* One page of an app's console (`consolePages.ts`): activity, functions,
+                events, releases, data, secrets, settings. Static tails above
+                (`preview`, and `panel` outside the layout) outrank this. */}
+            <Route path='admin/apps/:orgSlug/:appSlug/:consolePage' element={<AdminCustomApps />} />
             {/* Tenant-management surfaces — list + master/detail via :id tail. */}
             <Route path='admin/tenants' element={<AdminTenantsCockpit />} />
             {/* The operator overview's findings moved onto the console home. */}

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminCount } from "@/pages/admin/components/AdminCount";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AppHealthRow, AppStorageUsageRow, CustomApp } from "@/types/apps";
 import { lifecycleVerdict } from "../../appStatus";
@@ -79,7 +80,7 @@ export const FleetRow = ({
         // same row, which correctly reads "Unknown".
         return health ? (
           <span className='tabular-nums'>
-            {health.requests}
+            <AdminCount value={health.requests} />
             {health.failed > 0 ? (
               <span className={cn("ml-1", ADMIN_TONE.danger.text)}>{health.failed} failed</span>
             ) : null}
@@ -90,7 +91,7 @@ export const FleetRow = ({
       case "storage":
         return storage ? (
           <span className='tabular-nums'>
-            {formatBytes(storage.bytes)}
+            <AdminCount value={storage.bytes} format={formatBytes} />
             {storage.measureStatus !== "ok" ? (
               <span
                 className={cn("ml-1", ADMIN_TONE.warn.text)}

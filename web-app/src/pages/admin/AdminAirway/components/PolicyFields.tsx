@@ -72,7 +72,7 @@ export function PolicyFields({
   onEnvChange,
   inheritPolicyLabel = "Inherit default (permissive)",
   inheritEnvLabel = "Inherit default (production)",
-  inheritPolicyHelp = "No explicit policy — falls back to airway's built-in default (permissive)."
+  inheritPolicyHelp
 }: PolicyFieldsProps) {
   return (
     <div className='grid gap-4 sm:grid-cols-2'>
@@ -93,11 +93,16 @@ export function PolicyFields({
             ))}
           </SelectContent>
         </Select>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          {draftPolicy
-            ? POLICY_OPTIONS.find((o) => o.value === draftPolicy)?.description
-            : inheritPolicyHelp}
-        </p>
+        {/* The chosen policy's one-line description. Inheriting says nothing more: the
+            select already reads "Inherit default (permissive)", and repeating it under
+            every kind's card was the same sentence four times down the page. */}
+        {draftPolicy ? (
+          <p className='mt-1 text-muted-foreground text-xs'>
+            {POLICY_OPTIONS.find((o) => o.value === draftPolicy)?.description}
+          </p>
+        ) : inheritPolicyHelp ? (
+          <p className='mt-1 text-muted-foreground text-xs'>{inheritPolicyHelp}</p>
+        ) : null}
       </Field>
 
       <Field label='Environment'>

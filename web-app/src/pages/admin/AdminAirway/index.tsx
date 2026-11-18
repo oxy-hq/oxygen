@@ -37,13 +37,8 @@ export default function AdminAirway() {
   return (
     <AdminPage
       width='default'
-      description={
-        <>
-          The contract policy each source kind admits pipelines under, plus the deployment-wide
-          operational settings airway installs at worker startup. Tightening a kind's policy can
-          halt every pipeline whose resources don't satisfy it — preview before saving.
-        </>
-      }
+      description="Each source kind's contract policy. Preview before tightening one."
+      info="The contract policy each source kind admits pipelines under, plus the deployment-wide operational settings airway installs at worker startup. Tightening a kind's policy can halt every pipeline whose resources don't satisfy it, so preview it first."
       data-testid='admin-airway'
     >
       <AdminAsync
