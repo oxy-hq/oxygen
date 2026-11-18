@@ -1,25 +1,30 @@
-//! What a pod with no working copy can do with a workspace.
+//! What a pod with no working copy can do with a workspace, and which
+//! database a query would need the working copy for.
+//!
+//! **The rule: a database is never a property of the whole workspace.** A
+//! compiled workspace is served by any pod, whatever its databases are. A
+//! database this pod cannot open fails the queries that name it, and only
+//! those, and says which database it is. It never routes a request elsewhere
+//! and never refuses one that does not query it. INC-174 and INC-175 broke
+//! that rule: one file DuckDB in a workspace's config (compiled before the
+//! compile gate refused them, 2026-10-29) sent every custom-app function call
+//! on the workspace to the Factory, and with the Factory at zero replicas
+//! every one answered 503, though none of them read that database.
+//! [`Servability`] has no variant for a database, so nothing can bring that
+//! back without changing this type.
 //!
 //! A database is *reachable from anywhere* when it can be queried without the
-//! workspace working copy: a remote warehouse, a DuckDB with a compiler-made S3
-//! mirror or a DuckLake, a key held in a secret. A raw local DuckDB or a key
-//! file lives in the checkout, and only the pod holding it can query it. The
-//! check is a conservative allowlist: anything not positively classified as
-//! file-free is treated as needing the working copy.
+//! working copy: a remote warehouse, a DuckDB with a compiler-made S3 mirror
+//! or a DuckLake, a key held in a secret. A raw local DuckDB or a key file
+//! lives in the checkout, and only a pod holding it can query it.
+//! [`first_needing_working_copy`] names such a database for a caller about to
+//! query it (the world model, which would otherwise report it as empty).
 //!
-//! Two callers: `invocation_placement` (in `oxy-api-custom-apps`), which
-//! replays a custom-app function to the Factory when a replica cannot serve its
-//! workspace, and the world model's source check, which names the database a
-//! query would need the checkout for. It used to also decide, behind
-//! `OXY_ANALYTICS_FLEET_UNPIN`, whether a replica could run `/analytics` itself;
-//! those routes are now served by any pod by declaration (factory-retirement.md
-//! phase 3d).
+//! Callers of [`servability`]: `invocation_placement` (in
+//! `oxy-api-custom-apps`), which refuses or replays a custom-app function call
+//! only when nothing is compiled.
 
-use std::num::NonZeroUsize;
-use std::sync::{Mutex, OnceLock};
-
-use lru::LruCache;
-use oxy::config::model::{Config, Database, DatabaseType, DuckDBOptions, SnowflakeAuthType};
+use oxy::config::model::{Database, DatabaseType, DuckDBOptions, SnowflakeAuthType};
 use uuid::Uuid;
 
 /// True when querying `db` needs no workspace working copy on the serving node.
@@ -87,101 +92,33 @@ pub fn first_needing_working_copy<'a>(
         .map(|db| db.name.clone())
 }
 
-/// True when every database in `config` is serve-safe. An agent with no
-/// databases has nothing to execute against and is trivially serve-safe.
-fn config_is_serve_safe(config: &Config) -> bool {
-    config.databases.iter().all(database_is_serve_safe)
-}
-
 /// What a pod with no working copy can do with a workspace.
+///
+/// There is deliberately no variant for "a database in the config is a file
+/// in the working copy". A compiled workspace is served by any pod whatever
+/// its databases hold; a query against one this pod cannot open fails by
+/// itself, naming the database. Answering for the whole workspace from one
+/// database is what INC-174 and INC-175 were.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Servability {
-    /// Promoted, and every database is reachable without the working copy.
+    /// A compiled revision this request can pin: any pod serves it.
     Anywhere,
-    /// Promoted, but a database lives in the working copy — a local DuckDB with
-    /// no S3 mirror, a key file. Waiting does not change that; only the pod
-    /// holding the checkout can query it.
-    NeedsWorkingCopy,
-    /// Nothing promoted: the only `config.yml` is the working copy's. A compile
-    /// changes that.
+    /// Nothing promoted, or nothing pinnable just now: the only `config.yml`
+    /// is the working copy's. A compile changes that.
     NotCompiled,
-    /// Promoted, but its config could not be read just now — a database blip.
-    /// Not a property of the workspace, so neither memoised nor fixed by a
-    /// compile; the next call asks again.
-    Unknown,
 }
 
-/// One live revision per invoked workspace plus a promote window's straggler,
-/// at ~100 bytes an entry and one config-row read a miss: 1024 overshoots cheaply.
-const REVISION_MEMO_CAP: usize = 1024;
-
-/// Serve-safety of a revision's config. A revision is immutable, so the answer
-/// holds for its lifetime and the hot path is one map read. An LRU, because
-/// every promote mints a new revision id and a superseded one is never asked
-/// about again.
-fn revision_safety_memo() -> &'static Mutex<LruCache<Uuid, bool>> {
-    static MEMO: OnceLock<Mutex<LruCache<Uuid, bool>>> = OnceLock::new();
-    MEMO.get_or_init(|| {
-        Mutex::new(LruCache::new(
-            NonZeroUsize::new(REVISION_MEMO_CAP).expect("REVISION_MEMO_CAP is non-zero"),
-        ))
-    })
-}
-
-/// [`workspace_is_serve_safe`] split into its refusals, for a caller that
-/// answers them differently: an uncompiled workspace is worth a compile and a
-/// retry, an unreadable config a retry alone, and one whose database is a file
-/// in the working copy neither.
+/// Whether a pod with no working copy can serve `workspace_id`.
 ///
 /// Reads the revision a request would be pinned to
-/// (`compiled_reader::resolve_request_revision`, last-known-good walk included)
-/// rather than the bare promoted pointer, so it judges the config the caller
-/// is about to build from. A lookup that fails is `Unknown` and is not
-/// memoised: it cannot be proven safe, and a compile would not fix a database
-/// blip.
+/// (`compiled_reader::resolve_request_revision`, last-known-good walk and the
+/// "its config deserialises" check included), so it judges the revision the
+/// caller is about to build from.
 pub async fn servability(workspace_id: Uuid) -> Servability {
     use crate::server::api::compiled_reader;
-    let Some(revision_id) = compiled_reader::resolve_request_revision(workspace_id, None).await
-    else {
-        return Servability::NotCompiled;
-    };
-    let known = revision_safety_memo()
-        .lock()
-        .ok()
-        .and_then(|mut memo| memo.get(&revision_id).copied());
-    let safe = match known {
-        Some(safe) => safe,
-        None => match compiled_reader::resolve_workspace_config_at(revision_id).await {
-            Ok(value) => {
-                let safe = compiled_config_is_serve_safe(value);
-                if let Ok(mut memo) = revision_safety_memo().lock() {
-                    memo.put(revision_id, safe);
-                }
-                safe
-            }
-            Err(e) => {
-                tracing::warn!(
-                    workspace_id = %workspace_id, %revision_id, error = ?e,
-                    "servability: compiled config lookup failed; servability unknown"
-                );
-                return Servability::Unknown;
-            }
-        },
-    };
-    if safe {
-        Servability::Anywhere
-    } else {
-        Servability::NeedsWorkingCopy
-    }
-}
-
-/// A revision with no config row compiled a workspace that has no `config.yml`:
-/// no databases, so nothing that could live in the working copy.
-fn compiled_config_is_serve_safe(value: Option<serde_json::Value>) -> bool {
-    match value.map(serde_json::from_value::<Config>) {
-        None => true,
-        Some(Ok(config)) => config_is_serve_safe(&config),
-        Some(Err(_)) => false,
+    match compiled_reader::resolve_request_revision(workspace_id, None).await {
+        Some(_) => Servability::Anywhere,
+        None => Servability::NotCompiled,
     }
 }
 
@@ -189,53 +126,6 @@ fn compiled_config_is_serve_safe(value: Option<serde_json::Value>) -> bool {
 mod tests {
     use super::*;
     use oxy::config::model::DuckDB;
-
-    #[test]
-    fn a_revision_with_no_config_row_has_no_database_to_be_unsafe() {
-        assert!(compiled_config_is_serve_safe(None));
-    }
-
-    #[test]
-    fn a_compiled_config_is_judged_by_its_databases() {
-        // The shape a promoted revision's config row merges back into.
-        let remote = serde_json::json!({
-            "defaults": null,
-            "builder_agent": null,
-            "models": [],
-            "databases": [{ "name": "pg", "type": "postgres", "host": "db", "database": "d" }],
-        });
-        assert!(compiled_config_is_serve_safe(Some(remote)));
-        let local = serde_json::json!({
-            "defaults": null,
-            "builder_agent": null,
-            "models": [],
-            "databases": [{ "name": "local", "type": "duckdb", "dataset": ".db/" }],
-        });
-        assert!(
-            !compiled_config_is_serve_safe(Some(local)),
-            "a local DuckDB with no mirror lives in the working copy"
-        );
-    }
-
-    #[test]
-    fn the_revision_memo_forgets_the_least_recent_past_its_cap() {
-        // A revision id per promote, for the life of the process: unbounded,
-        // this grew one entry per revision ever asked about.
-        let mut memo = revision_safety_memo().lock().unwrap();
-        let first = Uuid::new_v4();
-        memo.put(first, true);
-        for _ in 0..REVISION_MEMO_CAP {
-            memo.put(Uuid::new_v4(), true);
-        }
-        assert_eq!(memo.len(), REVISION_MEMO_CAP);
-        assert!(memo.peek(&first).is_none(), "the oldest verdict is evicted");
-    }
-
-    #[test]
-    fn a_config_that_does_not_deserialise_is_not_proven_safe() {
-        let broken = serde_json::json!({ "databases": "not-an-array" });
-        assert!(!compiled_config_is_serve_safe(Some(broken)));
-    }
 
     fn database(entry: serde_json::Value) -> Database {
         serde_json::from_value(entry).expect("a database entry")

@@ -367,10 +367,12 @@ async fn a_database_in_the_checkout_is_refused_by_name_not_listed_empty() {
                  queries read as an empty page or zero counts"
             )),
             Some((status, message)) => {
+                // A 409: the workspace's config, not the service's health, so
+                // it must stay out of the 5xx rate that pages (INC-174).
                 let named = message.contains("`duck`") && message.contains("working copy");
-                if status != StatusCode::SERVICE_UNAVAILABLE || !named {
+                if status != StatusCode::CONFLICT || !named {
                     wrong.push(format!(
-                        "{what}: expected a 503 naming `duck` and the working copy, got \
+                        "{what}: expected a 409 naming `duck` and the working copy, got \
                          {status}: {message}"
                     ));
                 }

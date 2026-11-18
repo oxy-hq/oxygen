@@ -5,40 +5,32 @@
 //! and the semantic model all come from the promoted revision — so any replica
 //! runs it, and a custom app does not go down with the Factory.
 //!
-//! Two workspaces a replica cannot serve, both because what the function needs
-//! exists only in the working copy, which a replica does not hold:
+//! One workspace a replica cannot serve: **nothing promoted.** The only
+//! `config.yml` is the one on disk. Building a context anyway reads a
+//! directory that is not on the node and hands the function an empty config,
+//! so `ctx.query` answers "no databases configured" for a workspace that has
+//! three — absent reported as empty, the shape behind the Toast outage
+//! (#2816). That invocation keeps the path every invocation took while the
+//! route was `IdeOnly`: replayed to a configured Factory, which reads its
+//! disk, and answered under the same headers `role_middleware` puts on a route
+//! it forwards itself (`x-oxy-forwarded-via` this replica, `x-oxy-served-by`
+//! the Factory's), so the hop stays visible. A compile is enqueued on the way,
+//! so the workspace stops needing the Factory once it promotes. With no
+//! Factory to ask — none configured (every deployment since the ide went to
+//! zero replicas), one that does not answer because it is stopped or
+//! restarting, or a request that already came from a replica — the answer is
+//! a 503 to retry, never a run against an empty config and never the generic
+//! ide-down 502 that would hide the retry contract.
 //!
-//! - **Nothing promoted.** The only `config.yml` is the one on disk. Building a
-//!   context anyway reads a directory that is not on the node and hands the
-//!   function an empty config, so `ctx.query` answers "no databases configured"
-//!   for a workspace that has three — absent reported as empty, the shape
-//!   behind the Toast outage (#2816).
-//! - **A database that is a file in the checkout** — a local DuckDB the compiler
-//!   could not mirror to S3, a BigQuery key file. The config is known; the data
-//!   is not here.
-//!
-//! Those invocations keep the path every invocation took while the route was
-//! `IdeOnly`: replayed to the Factory, which reads its disk, and answered
-//! under the same headers `role_middleware` puts on a route it forwards
-//! itself (`x-oxy-forwarded-via` this replica, `x-oxy-served-by` the
-//! Factory's), so the hop stays visible. For the first, a compile is enqueued
-//! on the way, so the workspace stops needing the Factory once it promotes.
-//!
-//! With **no Factory configured** (production since the ide went to zero
-//! replicas), the two part ways. Nothing promoted is a 503 to retry, never a
-//! run against an empty config. A file database runs here: its config is
-//! compiled, and the host fails a query against the file by name
-//! (`ConfigManager<ReadOnly>::try_resolve_file`) rather than answering empty,
-//! so only that query fails. Refusing the whole call took down every function
-//! on such a workspace, including all that never touch the file (INC-174).
-//!
-//! With a Factory **configured but not answering** (stopped, restarting), both
-//! are a 503 that says which it is, never the generic ide-down 502 that would
-//! hide the retry contract. The file case is not run here: the relay can fail
-//! after the request reached the Factory, and a second run could repeat it.
-//!
-//! The judgement is `servability`'s: anything it cannot prove file-free goes to
-//! a configured Factory, so the worst case is a hop that was not needed.
+//! **A database is never a reason to place a call.** A compiled workspace runs
+//! here whatever its databases are, a DuckDB file in the checkout or a key
+//! file included. The host fails a query against a database this pod cannot
+//! open, naming it (`ConfigManager<ReadOnly>::try_resolve_file`), so only that
+//! query fails. A file database used to send every call on its workspace to
+//! the Factory; with the Factory gone, every function on such a workspace
+//! answered 503, though none of them read that database (INC-174, INC-175).
+//! `Servability` has no variant for a database, so that cannot come back
+//! through here.
 //!
 //! Lives here, not in `custom_apps_functions`, because every fact it weighs is
 //! the fleet's — this process's role, the Factory upstream, the compile queue.
@@ -60,8 +52,6 @@ use oxy_app::surface::roles::current_process_role;
 /// The header a client retries on — the one `/api/projects/*` answers with
 /// when the boundary has nothing for a workspace.
 const HEADER_NEEDS_RECOMPILE: &str = "x-oxy-needs-recompile";
-/// The header every refusal that only the Factory can serve carries.
-const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
 
 /// The request as it arrived, borrowed so it can be replayed to the Factory.
 pub(crate) struct Arrived<'a> {
@@ -74,44 +64,25 @@ pub(crate) struct Arrived<'a> {
 /// Where an invocation goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placement {
-    /// This process runs it: it can serve the workspace, or (a file database,
-    /// no Factory) it can serve every call that does not query the file.
+    /// This process runs it: it holds the working copy, or the workspace is
+    /// compiled, whatever its databases are.
     Here,
-    /// This pod cannot; the Factory reads its disk. If it does not answer,
-    /// the call is refused as [`Placement::Refuse`] would.
+    /// Nothing promoted, and a Factory is configured: the Factory reads its
+    /// disk. If it does not answer, the call is refused as
+    /// [`Placement::Refuse`] would.
     Factory,
-    /// Nothing promoted, or a config not readable just now, and no Factory is
-    /// configured — or, whatever the workspace, this request already came from
-    /// a replica, so forwarding again would loop.
+    /// Nothing promoted, and no Factory is configured — or this request
+    /// already came from a replica, so forwarding again would loop.
     Refuse,
 }
 
-/// The Factory this replica could forward to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Upstream {
-    /// `OXY_IDE_UPSTREAM` unset: there is none (production since the ide went
-    /// to zero replicas).
-    Unset,
-    /// Configured, not proven up: whether it answers is learned by asking.
-    Configured,
-    /// Configured, but the request carries the replica-to-Factory marker, so
-    /// forwarding again would loop. A client can send that header too, so it
-    /// widens nothing: it only refuses.
-    AlreadyForwarded,
-}
-
-fn place(holds_working_copy: bool, servability: Servability, upstream: Upstream) -> Placement {
+fn place(holds_working_copy: bool, servability: Servability, factory_reachable: bool) -> Placement {
     if holds_working_copy || servability == Servability::Anywhere {
-        return Placement::Here;
-    }
-    match upstream {
-        Upstream::Configured => Placement::Factory,
-        // Compiled: the config is known and only the file is missing. The
-        // host fails a query against it by name, so every other call is
-        // served. Refused whole, every function on the workspace was down
-        // (INC-174).
-        Upstream::Unset if servability == Servability::NeedsWorkingCopy => Placement::Here,
-        Upstream::Unset | Upstream::AlreadyForwarded => Placement::Refuse,
+        Placement::Here
+    } else if factory_reachable {
+        Placement::Factory
+    } else {
+        Placement::Refuse
     }
 }
 
@@ -152,27 +123,21 @@ async fn placed_elsewhere(
     }
     let servability = servability::servability(project_id).await;
     let upstream = ide_proxy::ide_upstream();
-    let reach = match upstream {
-        None => Upstream::Unset,
-        Some(_) if ide_proxy::forwarded_once(arrived.headers) => Upstream::AlreadyForwarded,
-        Some(_) => Upstream::Configured,
-    };
-    let placement = place(false, servability, reach);
+    // Configured, not proven up: whether it answers is learned by asking. A
+    // request that already crossed from a replica is not forwarded again.
+    let factory_reachable = upstream.is_some() && !ide_proxy::forwarded_once(arrived.headers);
+    let placement = place(false, servability, factory_reachable);
     if placement == Placement::Here {
         return None;
     }
-    if servability == Servability::NotCompiled {
-        // Deduped across replicas and backed off on repeated failure, so a hot
-        // function on an uncompilable workspace does not queue a compile per
-        // call. Not for `NeedsWorkingCopy`: that workspace IS compiled, and
-        // recompiling it on every call would change nothing.
-        oxy_app::surface::enqueue_lazy_compile(db, project_id).await;
-    }
+    // Only a workspace with nothing compiled reaches this line. Deduped across
+    // replicas and backed off on repeated failure, so a hot function on an
+    // uncompilable workspace does not queue a compile per call.
+    oxy_app::surface::enqueue_lazy_compile(db, project_id).await;
     tracing::info!(
         %project_id,
-        ?servability,
         ?placement,
-        "function invocation: this pod holds no working copy and the workspace needs one"
+        "function invocation: this pod holds no working copy and the workspace has nothing compiled"
     );
     Some(match (placement, upstream) {
         (Placement::Factory, Some(upstream)) => relayed(
@@ -183,9 +148,8 @@ async fn placed_elsewhere(
             )
             .await,
             project_id,
-            servability,
         ),
-        _ => refusal(project_id, servability),
+        _ => refusal(project_id),
     })
 }
 
@@ -197,15 +161,11 @@ async fn placed_elsewhere(
 /// forwards itself (`x-oxy-forwarded-via: serve@…`, the Factory's
 /// `x-oxy-served-by`) — the only trace of the hop a caller or
 /// `fleet-assert.sh` has. A refusal was produced here and reads as such.
-fn relayed(
-    forwarded: Result<Response, Request<Body>>,
-    project_id: Uuid,
-    servability: Servability,
-) -> Response {
+fn relayed(forwarded: Result<Response, Request<Body>>, project_id: Uuid) -> Response {
     match forwarded {
         Ok(answer) => role_middleware::stamp_forwarded_via(answer, current_process_role()),
         // `forward_to_ide_opt` has logged the URL and the transport error.
-        Err(_unreachable) => refusal(project_id, servability),
+        Err(_unreachable) => refusal(project_id),
     }
 }
 
@@ -224,51 +184,23 @@ fn replay(arrived: &Arrived<'_>) -> Request<Body> {
 /// JSON, not an SSE frame: the client throws on a non-2xx before it reads the
 /// event stream, so this is the shape every other pre-stream refusal has.
 ///
-/// Three refusals, because the caller's next move differs: an uncompiled
-/// workspace is worth retrying once the queued compile lands; one whose config
-/// could not be read just now is worth retrying as it is; one whose database
-/// is a file in the checkout is not, and says which pod it needs.
-fn refusal(project_id: Uuid, servability: Servability) -> Response {
-    let (error, message) = match servability {
-        Servability::NotCompiled => (
-            "WorkspaceNotCompiled",
-            "this app's workspace has no compiled revision on this replica; a compile has \
-             been enqueued — retry shortly",
-        ),
-        Servability::Unknown => (
-            "WorkspaceConfigUnavailable",
-            "this app's workspace config could not be read on this replica just now, and no \
-             Factory is reachable to run it — retry shortly",
-        ),
-        // `Anywhere` never reaches a refusal; named so a new variant must be.
-        Servability::NeedsWorkingCopy | Servability::Anywhere => (
-            "WorkspaceNeedsWorkingCopy",
-            "this app's workspace cannot be served from this replica: a database in its \
-             config is a file in the working copy (a local DuckDB or a key file); no \
-             Factory is reachable to run it",
-        ),
-    };
+/// Retryable: a compile has been enqueued, and the next call after it promotes
+/// runs here.
+fn refusal(project_id: Uuid) -> Response {
     let mut response = (
         StatusCode::SERVICE_UNAVAILABLE,
-        axum::Json(serde_json::json!({ "error": error, "message": message })),
+        axum::Json(serde_json::json!({
+            "error": "WorkspaceNotCompiled",
+            "message": "this app's workspace has no compiled revision on this replica; a \
+                        compile has been enqueued — retry shortly",
+        })),
     )
         .into_response();
     let headers = response.headers_mut();
-    match servability {
-        Servability::NotCompiled => {
-            if let Ok(value) = HeaderValue::from_str(&project_id.to_string()) {
-                headers.insert(HEADER_NEEDS_RECOMPILE, value);
-            }
-            headers.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-        }
-        // Transient: retry, and no compile — one would not fix a database blip.
-        Servability::Unknown => {
-            headers.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-        }
-        Servability::NeedsWorkingCopy | Servability::Anywhere => {
-            headers.insert(HEADER_REQUIRED_ROLE, HeaderValue::from_static("ide"));
-        }
+    if let Ok(value) = HeaderValue::from_str(&project_id.to_string()) {
+        headers.insert(HEADER_NEEDS_RECOMPILE, value);
     }
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
     response
 }
 
@@ -276,18 +208,7 @@ fn refusal(project_id: Uuid, servability: Servability) -> Response {
 mod tests {
     use super::*;
 
-    const EVERY: [Servability; 4] = [
-        Servability::Anywhere,
-        Servability::NeedsWorkingCopy,
-        Servability::NotCompiled,
-        Servability::Unknown,
-    ];
-    /// Every workspace a replica cannot prove it can serve.
-    const NOT_HERE: [Servability; 3] = [
-        Servability::NeedsWorkingCopy,
-        Servability::NotCompiled,
-        Servability::Unknown,
-    ];
+    const EVERY: [Servability; 2] = [Servability::Anywhere, Servability::NotCompiled];
 
     async fn error_of(response: Response) -> String {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -297,80 +218,40 @@ mod tests {
         body["error"].as_str().expect("an error name").to_string()
     }
 
-    const EVERY_UPSTREAM: [Upstream; 3] = [
-        Upstream::Unset,
-        Upstream::Configured,
-        Upstream::AlreadyForwarded,
-    ];
-
     #[test]
-    fn a_servable_workspace_runs_on_any_pod() {
+    fn a_compiled_workspace_runs_on_any_pod() {
         // The case the route is `FleetOk` for: no working copy, and none
-        // needed — whether or not a Factory exists.
-        for upstream in EVERY_UPSTREAM {
-            assert_eq!(
-                place(false, Servability::Anywhere, upstream),
-                Placement::Here
-            );
-        }
+        // needed — whether or not a Factory exists, and whatever the
+        // workspace's databases are (`Servability` cannot say).
+        assert_eq!(place(false, Servability::Anywhere, true), Placement::Here);
+        assert_eq!(place(false, Servability::Anywhere, false), Placement::Here);
     }
 
     #[test]
     fn a_pod_holding_the_working_copy_runs_every_workspace() {
         // The ide, and every single-process deployment: unchanged.
         for servability in EVERY {
-            for upstream in EVERY_UPSTREAM {
-                assert_eq!(place(true, servability, upstream), Placement::Here);
-            }
+            assert_eq!(place(true, servability, true), Placement::Here);
+            assert_eq!(place(true, servability, false), Placement::Here);
         }
     }
 
     #[test]
-    fn what_only_the_working_copy_can_answer_goes_to_the_factory() {
-        // `Unknown` too: what cannot be proven file-free costs a hop at worst.
-        for servability in NOT_HERE {
-            assert_eq!(
-                place(false, servability, Upstream::Configured),
-                Placement::Factory
-            );
-        }
-    }
-
-    #[test]
-    fn with_no_factory_an_unknown_config_is_refused_not_run() {
-        // Nothing promoted would run against an empty config; an unreadable
-        // one cannot be judged at all.
-        for servability in [Servability::NotCompiled, Servability::Unknown] {
-            assert_eq!(
-                place(false, servability, Upstream::Unset),
-                Placement::Refuse
-            );
-        }
-    }
-
-    #[test]
-    fn with_no_factory_a_file_database_does_not_take_the_workspace_down() {
-        // INC-174: the config is compiled, so the call runs and only a query
-        // against the file fails, by name, in the host.
+    fn an_uncompiled_workspace_goes_to_a_reachable_factory() {
         assert_eq!(
-            place(false, Servability::NeedsWorkingCopy, Upstream::Unset),
-            Placement::Here
+            place(false, Servability::NotCompiled, true),
+            Placement::Factory
         );
     }
 
     #[test]
-    fn a_request_already_forwarded_is_refused_not_run_or_forwarded_again() {
-        // The loop guard: a replica that receives a replayed call (an upstream
-        // pointed at the fleet by mistake, or a client sending the header)
-        // neither forwards it again nor runs a file-database call that a
-        // configured Factory exists for.
-        for servability in NOT_HERE {
-            assert_eq!(
-                place(false, servability, Upstream::AlreadyForwarded),
-                Placement::Refuse,
-                "{servability:?}"
-            );
-        }
+    fn with_no_factory_an_uncompiled_workspace_is_refused_not_run() {
+        // Nothing promoted would run against an empty config. Also the loop
+        // guard: a request already forwarded counts as no Factory.
+        assert_eq!(
+            place(false, Servability::NotCompiled, false),
+            Placement::Refuse
+        );
     }
 
     #[tokio::test]
@@ -378,24 +259,19 @@ mod tests {
         // Configured but stopped or restarting: `forward_to_ide_opt` hands the
         // request back. The caller must see the 503 it retries on, not the
         // generic ide-down 502, and nothing may claim a hop that did not happen.
-        // A file database is refused too rather than run here: the relay can
-        // fail after the Factory took the request.
         let id = Uuid::new_v4();
-        for servability in NOT_HERE {
-            let unreachable = Err(Request::new(Body::empty()));
-            let response = relayed(unreachable, id, servability);
-            let expected = refusal(id, servability);
-            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-            assert!(!response.headers().contains_key("x-oxy-forwarded-via"));
-            for name in [HEADER_NEEDS_RECOMPILE, HEADER_REQUIRED_ROLE, "retry-after"] {
-                assert_eq!(
-                    response.headers().get(name),
-                    expected.headers().get(name),
-                    "{servability:?}: {name}"
-                );
-            }
-            assert_eq!(error_of(response).await, error_of(expected).await);
+        let response = relayed(Err(Request::new(Body::empty())), id);
+        let expected = refusal(id);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!response.headers().contains_key("x-oxy-forwarded-via"));
+        for name in [HEADER_NEEDS_RECOMPILE, "retry-after"] {
+            assert_eq!(
+                response.headers().get(name),
+                expected.headers().get(name),
+                "{name}"
+            );
         }
+        assert_eq!(error_of(response).await, error_of(expected).await);
     }
 
     #[test]
@@ -404,7 +280,7 @@ mod tests {
         answer
             .headers_mut()
             .insert("x-oxy-served-by", HeaderValue::from_static("ide@factory#1"));
-        let response = relayed(Ok(answer), Uuid::new_v4(), Servability::NotCompiled);
+        let response = relayed(Ok(answer), Uuid::new_v4());
         assert_eq!(response.status(), StatusCode::OK, "the Factory's status");
         assert_eq!(
             response.headers().get("x-oxy-served-by").unwrap(),
@@ -413,39 +289,17 @@ mod tests {
         assert!(response.headers().contains_key("x-oxy-forwarded-via"));
     }
 
-    #[test]
-    fn an_uncompiled_workspace_is_refused_as_retryable() {
+    #[tokio::test]
+    async fn an_uncompiled_workspace_is_refused_as_retryable() {
         let id = Uuid::new_v4();
-        let response = refusal(id, Servability::NotCompiled);
+        let response = refusal(id);
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             response.headers().get(HEADER_NEEDS_RECOMPILE).unwrap(),
             id.to_string().as_str()
         );
-        assert!(response.headers().contains_key(header::RETRY_AFTER));
-    }
-
-    #[test]
-    fn a_working_copy_database_is_refused_as_needing_the_factory() {
-        // Not retryable: no compile makes a file appear on a replica, so it
-        // must not carry the header a client retries on.
-        let response = refusal(Uuid::new_v4(), Servability::NeedsWorkingCopy);
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert!(!response.headers().contains_key(HEADER_NEEDS_RECOMPILE));
-        assert_eq!(response.headers().get(HEADER_REQUIRED_ROLE).unwrap(), "ide");
-    }
-
-    #[tokio::test]
-    async fn a_config_that_could_not_be_read_is_refused_as_transient() {
-        // A database blip, not a property of the workspace: retry as it is.
-        // Not the working-copy refusal (whose headers say "do not retry, find
-        // the ide"), and not the recompile one (a compile would change nothing).
-        let response = refusal(Uuid::new_v4(), Servability::Unknown);
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "5");
-        assert!(!response.headers().contains_key(HEADER_REQUIRED_ROLE));
-        assert!(!response.headers().contains_key(HEADER_NEEDS_RECOMPILE));
-        assert_eq!(error_of(response).await, "WorkspaceConfigUnavailable");
+        assert_eq!(error_of(response).await, "WorkspaceNotCompiled");
     }
 
     #[test]

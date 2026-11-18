@@ -5,9 +5,9 @@
 //! working copy and no Factory is configured: refuses a workspace with nothing
 //! compiled, and runs one with a file database, failing only a query against
 //! the file. With a Factory configured — `OXY_IDE_UPSTREAM` names the ide
-//! Service — a workspace a replica cannot serve is replayed there instead. That hop was
-//! covered by unit tests of the decision and of the rebuilt request only. Here
-//! it runs: this process is the `serve` replica (no working copy,
+//! Service — a workspace with nothing compiled is replayed there instead. That
+//! hop was covered by unit tests of the decision and of the rebuilt request
+//! only. Here it runs: this process is the `serve` replica (no working copy,
 //! `OXY_IDE_UPSTREAM` set), and the Factory is a server bound in this process
 //! that records every request reaching it and answers with a marker nothing on
 //! the replica's side produces.
@@ -21,19 +21,20 @@
 //! working copy present) is every other `custom_app_functions_*` test; this
 //! one proves the hop between the two.
 //!
-//! One process, one Factory, one replica, three apps — the three workspaces
-//! `invocation_placement` distinguishes, in one process because
+//! One process, one Factory, one replica, three apps, in one process because
 //! `ide_upstream()` is read once per process:
 //!
 //! - **servable** (Postgres, compiled): runs here, and the Factory sees
 //!   nothing — a reachable Factory does not pull a call it is not needed for;
-//! - **a database that is a file in the checkout** (local DuckDB, no S3
-//!   mirror): replayed. The Factory receives the request that arrived here —
-//!   method, path, body, content-type, the caller's `Idempotency-Key` — plus
-//!   the loop guard, and its answer is what the caller gets, headers included;
-//!   no compile is queued and no invocation row is written;
-//! - **nothing compiled**: replayed the same way, and a compile is queued so
-//!   the workspace stops needing the Factory.
+//! - **a database that is a file in the checkout** (INC-174's workspace: a
+//!   local DuckDB with no S3 mirror, the default, beside a Postgres): runs
+//!   here too, and the Factory sees nothing. A database is never a reason to
+//!   send a call elsewhere; only a query against the file fails;
+//! - **nothing compiled**: replayed. The Factory receives the request that
+//!   arrived here — method, path, body, content-type, the caller's
+//!   `Idempotency-Key` — plus the loop guard, and its answer is what the
+//!   caller gets, headers included; no invocation row is written, and a
+//!   compile is queued so the workspace stops needing the Factory.
 //!
 //! A relayed answer carries the pair an operator reads a hop from —
 //! `x-oxy-forwarded-via: <this process>` and the Factory's own
@@ -41,14 +42,12 @@
 //!
 //! The second test is the production case the first cannot show: the Factory
 //! configured but down (stopped, restarting), `OXY_IDE_UPSTREAM` naming a
-//! closed port. A replica must then answer the documented 503s —
-//! `WorkspaceNotCompiled` with the recompile header and a queued compile,
-//! `WorkspaceNeedsWorkingCopy` naming the ide — not the generic ide-down 502,
-//! which carries neither. (With no Factory configured the second would run
-//! here instead; a configured one may have taken the request before the relay
-//! failed, so it is not run twice.) A separate test because
-//! `ide_upstream()` is read once per process, and nextest runs each test in
-//! its own.
+//! closed port. A replica must then answer the documented 503 —
+//! `WorkspaceNotCompiled` with the recompile header and a queued compile —
+//! not the generic ide-down 502, which carries neither; and a file-database
+//! workspace still runs here, since it never needed the Factory. A separate
+//! test because `ide_upstream()` is read once per process, and nextest runs
+//! each test in its own.
 
 use axum::http::StatusCode;
 use oxy::workspace_fs_probe::leaks;
@@ -57,7 +56,8 @@ use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::custom_app_functions_diskless::{
-    AsDisklessReplica, READS, functions, queued_compiles, uncompiled_workspace, write_view,
+    AsDisklessReplica, READS, READS_REMOTE, file_database_beside_postgres, functions,
+    queued_compiles, remote_and_file_functions, uncompiled_workspace, write_view,
 };
 use crate::custom_app_functions_fixture::{
     FnCall, call_function_in, call_function_with, invocations, publish_app, seeded_tenant,
@@ -178,12 +178,12 @@ async fn what_a_replica_cannot_serve_is_replayed_to_the_factory() {
     publish_app(&t, "servable", servable, &functions()).await;
     drop(servable_root);
 
-    // A DuckDB file in the checkout. No `OXY_COMPILE_BLOB_S3_BUCKET` in a test
-    // process, so the compiler mirrors nothing: the data is only on the node
-    // that compiled it.
-    let duck_root = write_config("  - name: duck\n    type: duckdb\n    path: local.duckdb\n");
-    let needs_working_copy = compile(&t, duck_root.path()).await;
-    let duck_app = publish_app(&t, "working-copy-db", needs_working_copy, &functions()).await;
+    // A DuckDB file in the checkout beside a Postgres. No
+    // `OXY_COMPILE_BLOB_S3_BUCKET` in a test process, so the compiler mirrors
+    // nothing: the data is only on the node that compiled it.
+    let duck_root = write_config(&file_database_beside_postgres().await);
+    let file_db = compile(&t, duck_root.path()).await;
+    let duck_app = publish_app(&t, "working-copy-db", file_db, &remote_and_file_functions()).await;
     drop(duck_root);
 
     let not_compiled = uncompiled_workspace(&t).await;
@@ -217,13 +217,34 @@ async fn what_a_replica_cannot_serve_is_replayed_to_the_factory() {
         "a reachable Factory must not pull a call a replica can run itself"
     );
 
-    // A database that is a file in the checkout: replayed, headers and all.
+    // A database that is a file in the checkout: run here as well. A reachable
+    // Factory does not pull it either.
+    let call = call_function_in(&t.org_slug, "working-copy-db", READS_REMOTE, json!({})).await;
+    assert_ran_here(&call);
+    assert!(
+        arrived_at(&factory).await.is_empty(),
+        "a database is never a reason to send a call to the Factory"
+    );
+    assert_eq!(
+        invocations(&t.db, duck_app.app_id, READS_REMOTE)
+            .await
+            .len(),
+        1,
+        "the isolate ran on the replica"
+    );
+    assert_eq!(
+        queued_compiles(&t, file_db).await,
+        0,
+        "the workspace is compiled; a compile per call would change nothing"
+    );
+
+    // Nothing compiled: replayed, headers and all, and a compile is queued.
     let relayed = call_function_with(
         &t.org_slug,
-        "working-copy-db",
+        "uncompiled",
         READS,
-        json!({ "n": 1 }),
-        &[("idempotency-key", "k-duck")],
+        json!({ "n": 2 }),
+        &[("idempotency-key", "k-bare")],
     )
     .await;
     assert_factory_answered(&relayed);
@@ -231,35 +252,14 @@ async fn what_a_replica_cannot_serve_is_replayed_to_the_factory() {
     assert_eq!(seen.len(), 1, "exactly one request crossed the hop");
     assert_replayed(
         &seen[0],
-        &format!("/customer-apps/{}/working-copy-db/fn/{READS}", t.org_slug),
-        &json!({ "n": 1 }),
+        &format!("/customer-apps/{}/uncompiled/fn/{READS}", t.org_slug),
+        &json!({ "n": 2 }),
     );
     assert_eq!(
         header(&seen[0].headers, "idempotency-key"),
-        Some("k-duck"),
+        Some("k-bare"),
         "the caller's headers cross with the call — the Factory takes the \
          idempotency row, so it must see the key"
-    );
-    assert_eq!(
-        queued_compiles(&t, needs_working_copy).await,
-        0,
-        "the workspace is compiled; a compile per call would change nothing"
-    );
-    assert!(
-        invocations(&t.db, duck_app.app_id, READS).await.is_empty(),
-        "no invocation row here: a `running` row would make the Factory refuse \
-         the replayed call as a concurrent duplicate"
-    );
-
-    // Nothing compiled: replayed the same way, and a compile is queued.
-    let relayed = call_function_in(&t.org_slug, "uncompiled", READS, json!({ "n": 2 })).await;
-    assert_factory_answered(&relayed);
-    let seen = arrived_at(&factory).await;
-    assert_eq!(seen.len(), 2, "the second call crossed the hop too");
-    assert_replayed(
-        &seen[1],
-        &format!("/customer-apps/{}/uncompiled/fn/{READS}", t.org_slug),
-        &json!({ "n": 2 }),
     );
     assert_eq!(
         queued_compiles(&t, not_compiled).await,
@@ -275,6 +275,27 @@ async fn what_a_replica_cannot_serve_is_replayed_to_the_factory() {
         leaks(),
         0,
         "deciding and forwarding must not reach for the disk"
+    );
+}
+
+/// A function a file-database workspace ran on this replica: it read only the
+/// Postgres beside the file, answered, and nothing claims a hop.
+fn assert_ran_here(call: &FnCall) {
+    assert_eq!(
+        call.status,
+        StatusCode::OK,
+        "a file database must not keep its workspace off a replica: {} {:?}",
+        call.raw,
+        call.headers
+    );
+    let data = call
+        .frame("data")
+        .unwrap_or_else(|| panic!("no data frame; stream: {}", call.raw));
+    assert!(data["rows"].to_string().contains("named"), "{data}");
+    assert!(
+        !call.headers.contains_key("x-oxy-forwarded-via"),
+        "answered here, not relayed: {:?}",
+        call.headers
     );
 }
 
@@ -298,13 +319,13 @@ fn assert_refused_here(call: &FnCall, error: &str) {
 }
 
 #[tokio::test]
-async fn with_the_factory_down_a_replica_answers_the_documented_503s() {
+async fn with_the_factory_down_a_replica_answers_the_documented_503() {
     point_at_a_down_factory();
     let t = throwaway_org(&seeded_tenant().await).await;
 
-    let duck_root = write_config("  - name: duck\n    type: duckdb\n    path: local.duckdb\n");
-    let needs_working_copy = compile(&t, duck_root.path()).await;
-    let duck_app = publish_app(&t, "working-copy-db", needs_working_copy, &functions()).await;
+    let duck_root = write_config(&file_database_beside_postgres().await);
+    let file_db = compile(&t, duck_root.path()).await;
+    let duck_app = publish_app(&t, "working-copy-db", file_db, &remote_and_file_functions()).await;
     drop(duck_root);
 
     let not_compiled = uncompiled_workspace(&t).await;
@@ -334,14 +355,17 @@ async fn with_the_factory_down_a_replica_answers_the_documented_503s() {
     );
     assert!(invocations(&t.db, bare_app.app_id, READS).await.is_empty());
 
-    // A database that is a file in the checkout: names the pod it needs, and
-    // carries no recompile header — no compile makes the file appear here.
-    let call = call_function_in(&t.org_slug, "working-copy-db", READS, json!({})).await;
-    assert_refused_here(&call, "WorkspaceNeedsWorkingCopy");
-    assert_eq!(header(&call.headers, "x-oxy-required-role"), Some("ide"));
-    assert!(!call.headers.contains_key("x-oxy-needs-recompile"));
-    assert_eq!(queued_compiles(&t, needs_working_copy).await, 0);
-    assert!(invocations(&t.db, duck_app.app_id, READS).await.is_empty());
+    // A database that is a file in the checkout: runs here. It never needed
+    // the Factory, so a down one changes nothing for it.
+    let call = call_function_in(&t.org_slug, "working-copy-db", READS_REMOTE, json!({})).await;
+    assert_ran_here(&call);
+    assert_eq!(queued_compiles(&t, file_db).await, 0);
+    assert_eq!(
+        invocations(&t.db, duck_app.app_id, READS_REMOTE)
+            .await
+            .len(),
+        1
+    );
 
     assert_eq!(leaks(), 0, "trying the Factory must not reach for the disk");
 }

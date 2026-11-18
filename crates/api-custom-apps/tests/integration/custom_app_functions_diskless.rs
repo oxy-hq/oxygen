@@ -21,25 +21,26 @@
 //!
 //! The warehouse is Postgres because a replica can reach it.
 //!
-//! The other two cases are the workspaces a replica cannot fully serve. With a
-//! Factory configured each is replayed there; a test process has no
-//! `OXY_IDE_UPSTREAM`, which is production since the ide went to zero
-//! replicas, so what is observable here is what a replica does alone:
+//! Two more cases. A test process has no `OXY_IDE_UPSTREAM`, which is every
+//! deployment since the ide went to zero replicas, so what is observable here
+//! is what a replica does alone:
 //!
-//! - **nothing compiled** — it must not run against an empty config. A
-//!   retryable 503, a compile is enqueued, and the isolate never runs;
+//! - **nothing compiled** — the one workspace a replica cannot serve. It must
+//!   not run against an empty config: a retryable 503, a compile is enqueued,
+//!   and the isolate never runs;
 //! - **a database that is a file in the checkout** (a DuckDB `dataset:` with no
-//!   S3 mirror, beside a Postgres) — the call runs: a function reading only
-//!   the Postgres answers, and a query against the file fails naming it. NO
-//!   compile: the workspace is compiled already, and recompiling per call
-//!   would be a storm. Refusing the whole call here was INC-174.
+//!   S3 mirror, beside a Postgres) — the call runs, as every compiled
+//!   workspace's does: a function reading only the Postgres answers, and a
+//!   query against the file fails naming it. NO compile: the workspace is
+//!   compiled already, and recompiling per call would be a storm. Refusing
+//!   the whole call here was INC-174.
 //!
 //! The bundle comes from the filesystem build store here (`test_db` unsets
 //! `OXY_CUSTOMER_APPS_S3_BUCKET`); that is the state dir, not the working
 //! copy, and a deployed fleet reads it from S3.
 //!
 //! `custom_app_functions_forwarded` runs the same three workspaces with a
-//! Factory reachable, and shares the helpers below.
+//! Factory configured, and shares the helpers below.
 
 use axum::http::StatusCode;
 use entity::workspaces;
@@ -258,10 +259,10 @@ export default async (req, ctx) => {
 };
 "#;
 
-const READS_REMOTE: &str = "reads-remote";
+pub(crate) const READS_REMOTE: &str = "reads-remote";
 const READS_FILE: &str = "reads-file";
 
-fn remote_and_file_functions() -> Vec<FunctionSpec> {
+pub(crate) fn remote_and_file_functions() -> Vec<FunctionSpec> {
     let manifest = || json!({ "route": true, "timeoutSeconds": 60 });
     vec![
         FunctionSpec {
@@ -277,6 +278,16 @@ fn remote_and_file_functions() -> Vec<FunctionSpec> {
     ]
 }
 
+/// The `databases:` of INC-174's workspace: a DuckDB directory in the
+/// checkout (`duck`, `dataset: .db/`), listed first so it is the default, and
+/// a remote Postgres (`pg`).
+pub(crate) async fn file_database_beside_postgres() -> String {
+    format!(
+        "  - name: duck\n    type: duckdb\n    dataset: .db/\n{}",
+        postgres_entry("pg").await
+    )
+}
+
 /// INC-174. With the Factory gone, refusing every call to a workspace that
 /// declares a file database 503'd every function of every app on it, though
 /// none of them queried that database. The config is compiled, so a replica
@@ -289,11 +300,7 @@ async fn a_working_copy_database_fails_only_the_query_that_needs_it() {
     // (`clientmgmt`). No `OXY_COMPILE_BLOB_S3_BUCKET` in a test process, so the
     // compiler mirrors nothing to S3: the data is only in the checkout, and the
     // checkout is dropped below. Listed first, `duck` is the default.
-    let databases = format!(
-        "  - name: duck\n    type: duckdb\n    dataset: .db/\n{}",
-        postgres_entry("pg").await
-    );
-    let root = write_config(&databases);
+    let root = write_config(&file_database_beside_postgres().await);
     let workspace = compile(&t, root.path()).await;
     let slug = "working-copy-db";
     let app = publish_app(&t, slug, workspace, &remote_and_file_functions()).await;

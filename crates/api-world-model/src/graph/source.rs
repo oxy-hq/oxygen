@@ -132,6 +132,12 @@ pub(super) async fn load_walkable_model<S: DiskSlot>(
 /// instances" for an entity that has thousands. So the pod names the database
 /// it cannot open instead. A node that owns the files never asks.
 ///
+/// A `409`, not a `503`: the workspace's config asks for a file no pod has,
+/// which no retry and no other pod changes (the compile gate has refused file
+/// DuckDB on the cloud roles since 2026-10-29). It is the workspace's state,
+/// not the service's health, so it must not count toward the service's 5xx
+/// rate, which is what pages (INC-174, INC-175).
+///
 /// `datasources` are the `datasource:` of each view the request will query;
 /// `None` is a view that names none, which may resolve to any database and so
 /// puts every configured one in scope.
@@ -146,11 +152,11 @@ pub(super) fn refuse_databases_this_pod_cannot_open<'a, S: DiskSlot>(
     match servability::first_needing_working_copy(&databases, datasources) {
         None => Ok(()),
         Some(name) => Err(semantic_err(
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::CONFLICT,
             format!(
                 "database `{name}` is a file in the workspace working copy (a local DuckDB \
-                 with no S3 mirror, or a key file), which this instance does not have; only \
-                 the instance that holds the working copy can query it"
+                 with no S3 mirror, or a key file), which a cloud deployment does not have; \
+                 move its data to Airhouse (`type: airhouse_managed`) or its key into a secret"
             ),
         )),
     }

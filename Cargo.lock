@@ -10683,7 +10683,6 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "lru 0.18.2",
  "migration",
  "minijinja",
  "omni",
