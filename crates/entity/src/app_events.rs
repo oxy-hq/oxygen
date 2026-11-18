@@ -13,7 +13,8 @@ pub struct Model {
     pub org_id: Uuid,
     pub workspace_id: Uuid,
     pub environment: String,
-    pub source_app_id: Uuid,
+    /// The publishing app; null for an event the platform publishes itself.
+    pub source_app_id: Option<Uuid>,
     pub r#type: String,
     pub key: String,
     /// The body's size, as `jsonb` text in the org's store.

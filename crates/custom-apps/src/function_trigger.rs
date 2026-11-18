@@ -65,18 +65,28 @@ pub enum QueuedTrigger {
     Webhook,
     /// A published event delivered to a listening function (`event`).
     Event,
+    /// Another app's `ctx.apps.call`, or a `ctx.apps.send` delivered (`call`).
+    Call,
+    /// A label this release does not know: queued by a newer one. Never run
+    /// (`app_function_executor::read_task` refuses it) — an unknown label used
+    /// to read as a cron fire, which ran a function under rules it was not
+    /// queued for.
+    Unknown,
 }
 
 impl QueuedTrigger {
-    /// The trigger a task's label names. An unknown label is a cron fire, as
-    /// `app_function_executor::invocation_mode` reads it.
+    /// The trigger a task's label names. No label (a task queued before the
+    /// field was carried) and `scheduled` are cron fires; a label this release
+    /// does not know is [`Self::Unknown`], which fails closed.
     pub fn from_label(label: Option<&str>) -> Self {
         match label {
             Some("manual") => Self::Manual,
             Some("schedule_now") => Self::ScheduleNow,
             Some("webhook") => Self::Webhook,
             Some("event") => Self::Event,
-            _ => Self::Cron,
+            Some("call") => Self::Call,
+            None | Some("scheduled") => Self::Cron,
+            Some(_) => Self::Unknown,
         }
     }
 }
@@ -93,5 +103,22 @@ mod tests {
             QueuedTrigger::from_label(Some("event")),
             QueuedTrigger::Event
         );
+    }
+
+    #[test]
+    fn call_is_known_and_a_label_nobody_knows_fails_closed() {
+        assert_eq!(QueuedTrigger::from_label(Some("call")), QueuedTrigger::Call);
+        assert_eq!(QueuedTrigger::from_label(None), QueuedTrigger::Cron);
+        assert_eq!(
+            QueuedTrigger::from_label(Some("scheduled")),
+            QueuedTrigger::Cron
+        );
+        for label in ["send", "backfill", "Manual", ""] {
+            assert_eq!(
+                QueuedTrigger::from_label(Some(label)),
+                QueuedTrigger::Unknown,
+                "{label:?}"
+            );
+        }
     }
 }

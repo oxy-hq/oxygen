@@ -197,6 +197,8 @@ fn refused(why: QueuedRefusal, function: &str, environment: &AppEnvironment) -> 
         | QueuedRefusal::SchedulesOff
         | QueuedRefusal::EventsOff
         | QueuedRefusal::NoOn
+        | QueuedRefusal::NotCallable
+        | QueuedRefusal::UnknownTrigger
         | QueuedRefusal::Expired => TriggerError::NotACheck {
             function,
             environment,

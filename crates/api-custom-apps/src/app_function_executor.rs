@@ -90,14 +90,25 @@ fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
     let credential_token_id =
         super::app_function_agent::token_of(task.credential_token_id.as_deref())?;
     let trigger = QueuedTrigger::from_label(task.trigger.as_deref());
+    // A label this release does not know was queued by a newer one: fail the
+    // attempt, which the queue retries (likely on a newer pod), rather than
+    // run the function as something it was not queued as.
+    if trigger == QueuedTrigger::Unknown {
+        return Err(format!(
+            "this worker does not know the trigger `{}`; it was queued by a newer release",
+            task.trigger.as_deref().unwrap_or_default()
+        ));
+    }
     // An event run answers for its delivery: without one there is nothing to
     // record the attempt on, and no event to hand the listener.
-    let event_delivery_id = match trigger {
-        QueuedTrigger::Event => Some(
-            task.event_delivery_id
-                .as_deref()
-                .ok_or("an event task names no delivery (`event_delivery_id`)")?
-                .parse()
+    // A directed event (`ctx.apps.send`) is a call that rides an event's
+    // delivery: it carries the delivery's id like any event.
+    let event_delivery_id = match (trigger, task.event_delivery_id.as_deref()) {
+        (QueuedTrigger::Event, None) => {
+            return Err("an event task names no delivery (`event_delivery_id`)".to_string());
+        }
+        (QueuedTrigger::Event | QueuedTrigger::Call, Some(id)) => Some(
+            id.parse()
                 .map_err(|e| format!("bad event_delivery_id: {e}"))?,
         ),
         _ => None,
@@ -391,6 +402,9 @@ fn invocation_mode(trigger: Option<&str>) -> String {
         // so a function can branch on it: the payload is another app's event,
         // not a cron tick or a provider's webhook.
         Some("event") => "event",
+        // Another app's `ctx.apps.call`, or a `ctx.apps.send` delivered: the
+        // function is called, not listening or scheduled.
+        Some("call") => "call",
         _ => "schedule",
     }
     .to_string()

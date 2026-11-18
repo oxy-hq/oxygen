@@ -154,3 +154,31 @@ fn an_event_task_without_its_delivery_is_refused() {
     .expect_err("a bad delivery id");
     assert!(err.contains("delivery"), "{err}");
 }
+
+/// A label this release does not know was queued by a newer one: the task is
+/// refused (the queue retries it, on a newer pod) and never read as a cron fire.
+#[test]
+fn a_task_with_a_trigger_this_release_does_not_know_is_refused() {
+    for label in ["send", "backfill", "teleport"] {
+        let err = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "trigger": label,
+        })))
+        .expect_err("an unknown trigger fails closed");
+        assert!(err.contains("newer release"), "{label}: {err}");
+    }
+}
+
+/// A call (`ctx.apps.call` or a delivered `ctx.apps.send`) reports mode `call`,
+/// and the one that rides a delivery carries its id.
+#[test]
+fn a_call_task_reports_mode_call_and_carries_its_delivery() {
+    assert_eq!(invocation_mode(Some("call")), "call");
+    let job = read_task(&spec(json!({
+        "app_id": APP, "function_name": "handle", "trigger": "call",
+        "event_delivery_id": DELIVERY,
+    })))
+    .expect("runnable");
+    assert_eq!(job.mode, "call");
+    assert_eq!(job.trigger, super::QueuedTrigger::Call);
+    assert!(job.event_delivery_id.is_some());
+}

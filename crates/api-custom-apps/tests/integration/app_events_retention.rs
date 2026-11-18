@@ -140,7 +140,7 @@ impl Fix {
             },
             org_id: self.t.org_id,
             workspace_id: self.workspace,
-            source_app_id: self.publisher,
+            source_app_id: Some(self.publisher),
             // This org has no OLTP store: no body to delete.
             writer_role: "app_writer_x".into(),
             data_bytes: 21,
@@ -691,7 +691,7 @@ async fn teardown_deletes_the_environments_events_and_deliveries() {
                 org_id: Set(t.org_id),
                 workspace_id: Set(demo_workspace_id()),
                 environment: Set(env.to_string()),
-                source_app_id: Set(source),
+                source_app_id: Set(Some(source)),
                 r#type: Set("x/thing.happened".to_string()),
                 key: Set(key.to_string()),
                 data_bytes: Set(2),

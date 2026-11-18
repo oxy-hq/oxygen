@@ -163,7 +163,7 @@ impl Fix {
             },
             org_id: self.t.org_id,
             workspace_id: self.workspace,
-            source_app_id: self.publisher,
+            source_app_id: Some(self.publisher),
             // This org has no OLTP store.
             writer_role: "app_writer_x".into(),
             data_bytes: 21,

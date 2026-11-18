@@ -381,3 +381,26 @@ async fn dead_groups_by_error_signature_and_lists_attempts() {
     assert_eq!(both["attempts"].as_array().map(Vec::len), Some(2), "{both}");
     assert_eq!(group("timeout: ran past 30 s")["count"], 1);
 }
+
+/// An event the platform published itself has no publishing app
+/// (`source_app_id` is null): every read of one still answers.
+#[tokio::test]
+async fn an_event_with_no_publishing_app_is_read_not_failed() {
+    let f = Fix::new().await;
+    let id = f.publish("statement:1").await;
+    super::run_sql(
+        f.db(),
+        "UPDATE app_events SET source_app_id = NULL WHERE id = $1",
+        vec![id.into()],
+    )
+    .await;
+    let (status, body) = f
+        .get(&format!("/customer-apps/{}/events/{id}", f.org()))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["id"], id.to_string(), "{body}");
+    let (status, body) = f
+        .get(&format!("/customer-apps/{}/events/types", f.org()))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}

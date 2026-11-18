@@ -138,6 +138,7 @@ pub(crate) async fn calls(
         failure_fingerprint: Set(c.fingerprint.map(str::to_string)),
         environment: Set("production".into()),
         credential_token_id: Set(None),
+        parent_invocation_id: Set(None),
         error_kind: Set(None),
     });
     app_function_invocations::Entity::insert_many(models)

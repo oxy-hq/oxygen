@@ -1,4 +1,4 @@
-use super::{AttemptOutcome, ListenerRun, attempt_of};
+use super::{AttemptOutcome, ListenerRun, QueuedTrigger, attempt_of, needs_subscription};
 
 fn run<'a>(status: &'a str, http_status: u16, error: Option<&'a str>) -> ListenerRun<'a> {
     ListenerRun {
@@ -101,4 +101,12 @@ fn only_the_exact_name_is_non_retryable() {
             "{thrown}"
         );
     }
+}
+
+/// An event's listener must still subscribe; a `call` delivery (a delivered
+/// send) is to a function that listens to nothing and is not killed for it.
+#[test]
+fn only_an_event_delivery_needs_a_subscription() {
+    assert!(needs_subscription(QueuedTrigger::Event));
+    assert!(!needs_subscription(QueuedTrigger::Call));
 }

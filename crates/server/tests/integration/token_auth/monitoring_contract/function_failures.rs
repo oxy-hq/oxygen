@@ -96,6 +96,7 @@ async fn failed(db: &DatabaseConnection, app: &apps::Model, build: Uuid, at: Dat
         environment: ActiveValue::Set("production".into()),
         credential_token_id: ActiveValue::Set(None),
         error_kind: ActiveValue::Set(Some("threw".into())),
+        parent_invocation_id: ActiveValue::Set(None),
     }
     .insert(db)
     .await

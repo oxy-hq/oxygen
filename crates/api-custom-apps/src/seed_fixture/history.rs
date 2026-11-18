@@ -223,5 +223,6 @@ fn model(app_id: Uuid, build: Uuid, r: &Seeded) -> ActiveModel {
         error_kind: Set(r.error_kind.map(str::to_string)),
         environment: Set("production".to_string()),
         credential_token_id: Set(None),
+        parent_invocation_id: Set(None),
     }
 }

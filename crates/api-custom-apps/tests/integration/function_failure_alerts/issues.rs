@@ -71,6 +71,7 @@ async fn failed_on(db: &DatabaseConnection, s: &Seeded, build: Uuid, error: &str
         failure_fingerprint: Set(Some(FINGERPRINT.into())),
         environment: Set("production".into()),
         credential_token_id: Set(None),
+        parent_invocation_id: Set(None),
         error_kind: Set(None),
     }
     .insert(db)

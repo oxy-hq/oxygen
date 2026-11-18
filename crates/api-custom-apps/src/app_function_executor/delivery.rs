@@ -28,7 +28,7 @@ use oxy_custom_apps::events::OxyEvent;
 use sea_orm::DbErr;
 use uuid::Uuid;
 
-use super::{FunctionRun, JobArgs, run_function};
+use super::{FunctionRun, JobArgs, QueuedTrigger, run_function};
 use crate::app_events::cap_error;
 use crate::app_events::deliveries::{self, AttemptOutcome, DeliveryInfo, DeliveryStart};
 use crate::app_events::subscriptions;
@@ -44,14 +44,21 @@ pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
         Ok(started) => started,
         Err(answered) => return answered,
     };
-    let subscribed = subscriptions::listener_subscribes(
-        &job.db,
-        job.app_id,
-        &job.environment,
-        &job.function_name,
-        &envelope.event_type,
-    )
-    .await;
+    // A `call` delivery (a `ctx.apps.send`) names its function and has no
+    // subscription to check: the function need not listen to anything, and its
+    // admission ("callable") is decided when it runs (`queued_admission`).
+    let subscribed = if needs_subscription(job.trigger) {
+        subscriptions::listener_subscribes(
+            &job.db,
+            job.app_id,
+            &job.environment,
+            &job.function_name,
+            &envelope.event_type,
+        )
+        .await
+    } else {
+        Ok(true)
+    };
     let ran = match subscribed {
         Ok(false) => {
             let reason = format!("listener no longer subscribes to {}", envelope.event_type);
@@ -61,6 +68,13 @@ pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
         Ok(true) => run_listener(job, &envelope, &info).await,
     };
     delivery.settle(&info, ran).await
+}
+
+/// Whether a delivery run by `trigger` is to a function that must still
+/// subscribe to the event: an event's listener does; a call (a delivered send)
+/// is to a function that listens to nothing.
+fn needs_subscription(trigger: QueuedTrigger) -> bool {
+    trigger != QueuedTrigger::Call
 }
 
 /// The delivery one task answers for, and how this module answers the task.

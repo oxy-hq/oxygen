@@ -107,6 +107,7 @@ async fn production_invocation(agent: &Agent) -> Uuid {
         failure_fingerprint: ActiveValue::Set(None),
         environment: ActiveValue::Set("production".into()),
         credential_token_id: ActiveValue::Set(None),
+        parent_invocation_id: ActiveValue::Set(None),
         error_kind: ActiveValue::Set(None),
     }
     .insert(&agent.t.db)

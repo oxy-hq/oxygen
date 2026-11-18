@@ -427,12 +427,27 @@ struct WebhookSpec {
     signature_prefix: Option<String>,
 }
 
-/// `"on": "app/event"` or `"on": ["app/event", ...]`.
+/// `"on": "app/event"`, `"on": { "table": "db:schema.table" }`, or an array
+/// of either.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 enum OnSpec {
-    One(String),
-    Many(Vec<String>),
+    One(OnEntry),
+    Many(Vec<OnEntry>),
+}
+
+/// One entry of `on`: an event type, or a table to watch. The strings are
+/// validated where the manifest is checked
+/// (`oxy_custom_apps::events::catalog::function_subscribes` and
+/// `oxy_custom_apps::events::table::function_table_watches`), not here.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+enum OnEntry {
+    Event(String),
+    Table {
+        #[allow(dead_code)]
+        table: String,
+    },
 }
 
 /// `"events": { "publish": ["statement.uploaded"] }`.
@@ -465,11 +480,18 @@ impl FunctionManifestEntry {
     // Read by the event admission and reconcile tasks that follow.
     #[allow(dead_code)]
     fn subscribes(&self) -> Vec<String> {
-        match &self.on {
-            None => Vec::new(),
-            Some(OnSpec::One(s)) => vec![s.clone()],
-            Some(OnSpec::Many(v)) => v.clone(),
-        }
+        let entries: &[OnEntry] = match &self.on {
+            None => &[],
+            Some(OnSpec::One(entry)) => std::slice::from_ref(entry),
+            Some(OnSpec::Many(entries)) => entries,
+        };
+        entries
+            .iter()
+            .filter_map(|entry| match entry {
+                OnEntry::Event(event) => Some(event.clone()),
+                OnEntry::Table { .. } => None,
+            })
+            .collect()
     }
 
     /// The bare event names this function may publish (`events.publish`).
@@ -1013,6 +1035,7 @@ async fn insert_running_invocation(
         error_kind: Set(None),
         environment: Set(scope.environment_name()),
         credential_token_id: Set(scope.credential_token_id),
+        parent_invocation_id: Set(None),
     }
     .insert(db)
     .await
@@ -1925,6 +1948,7 @@ async fn insert_queued_invocation(
         error_kind: Set(None),
         environment: Set(admitted.resolved.environment.name()),
         credential_token_id: Set(queued.credential_token_id),
+        parent_invocation_id: Set(None),
     })
     .insert(db)
     .await
@@ -1968,7 +1992,10 @@ async fn run_queued(
     // listener returns or throws may carry the event's body, which never
     // enters Oxy's Postgres (app events design §6.6). Every other queued run
     // keeps both as they are, the output for the run detail.
-    let event = run.queued.trigger == queued_admission::QueuedTrigger::Event;
+    let event = matches!(
+        run.queued.trigger,
+        queued_admission::QueuedTrigger::Event | queued_admission::QueuedTrigger::Call
+    );
     let run_outcome = run_stage(system_run_args(run, prepared, input, &clock)).await;
     let finished = pipeline::Finished {
         app,
@@ -2967,6 +2994,24 @@ mod event_keys_tests {
 
         let none: FunctionManifestEntry = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(none.subscribes().is_empty());
+    }
+
+    /// A table `on` must not cost a function the rest of its entry: an older
+    /// binary that fails this parse drops the function's retries, webhook and
+    /// capabilities (the deploy-order rule).
+    #[test]
+    fn a_table_on_parses_and_keeps_the_rest_of_the_entry() {
+        for on in [
+            serde_json::json!({ "table": "db:s.t" }),
+            serde_json::json!(["a/x", { "table": "db:s.t" }]),
+        ] {
+            let entry: FunctionManifestEntry = serde_json::from_value(
+                serde_json::json!({ "on": on, "timeoutSeconds": 60, "airhouse": { "enabled": true } }),
+            )
+            .unwrap();
+            assert!(entry.subscribes().len() <= 1, "tables are not event types");
+            assert!(entry.airhouse.is_some());
+        }
     }
 }
 

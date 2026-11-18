@@ -174,6 +174,7 @@ async fn invocation(
         failure_fingerprint: Set(fingerprint.map(str::to_string)),
         environment: Set("production".into()),
         credential_token_id: Set(None),
+        parent_invocation_id: Set(None),
         error_kind: Set(None),
     }
     .insert(db)

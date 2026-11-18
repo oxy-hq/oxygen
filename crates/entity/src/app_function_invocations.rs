@@ -64,6 +64,10 @@ pub struct Model {
     /// and on every row from before the column — which readers classify from
     /// the text of `error` instead.
     pub error_kind: Option<String>,
+    /// The invocation that made this one: the caller's, for a run started by
+    /// `ctx.apps.call` (`mode = "call"`). `None` for every other run and for
+    /// rows from before the column. No foreign key.
+    pub parent_invocation_id: Option<Uuid>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -97,29 +97,37 @@ pub fn function_publishes(function_manifest: &Value) -> Result<BTreeSet<String>,
 }
 
 /// The qualified `<app>/<event>` types a function listens to, as written in
-/// its `on` key (a string or an array of strings), in order.
+/// its `on` key (an entry or an array of them), in order. A `{ "table": ... }`
+/// object entry is not an event type and is skipped, as the typed manifest
+/// entry's `subscribes()` does: a binary that reads one still keeps the
+/// string subscriptions beside it.
 pub fn function_subscribes(function_manifest: &Value) -> Result<Vec<String>, String> {
     let Some(on) = function_manifest.get("on") else {
         return Ok(Vec::new());
     };
     let items: Vec<&Value> = match on {
-        Value::String(_) => vec![on],
         Value::Array(a) => a.iter().collect(),
-        _ => return Err("`on` must be a string or an array of strings".into()),
+        other => vec![other],
     };
-    items
-        .into_iter()
-        .map(|item| {
-            let s = item.as_str().ok_or("`on` entries must be strings")?;
-            if valid_qualified(s) {
-                Ok(s.to_owned())
-            } else {
-                Err(format!(
-                    "`on`: `{s}` must be `<app>/<event>`, an app slug (lowercase letters, digits, hyphens) and an event name ({NAME_RULE})"
-                ))
+    let mut types = Vec::new();
+    for item in items {
+        let s = match item {
+            Value::String(s) => s,
+            Value::Object(_) => continue,
+            _ => {
+                return Err(
+                    "`on` must be a string, a `{ table }` object or an array of them".into(),
+                );
             }
-        })
-        .collect()
+        };
+        if !valid_qualified(s) {
+            return Err(format!(
+                "`on`: `{s}` must be `<app>/<event>`, an app slug (lowercase letters, digits, hyphens) and an event name ({NAME_RULE})"
+            ));
+        }
+        types.push(s.clone());
+    }
+    Ok(types)
 }
 
 fn valid_qualified(s: &str) -> bool {
@@ -186,6 +194,20 @@ mod tests {
             vec!["a-b/x.y", "c/z"]
         );
         assert!(function_subscribes(&json!({})).unwrap().is_empty());
+    }
+
+    #[test]
+    fn on_skips_a_table_entry_and_keeps_the_event_types_beside_it() {
+        assert_eq!(
+            function_subscribes(&json!({ "on": ["a/x", { "table": "db:s.t" }] })).unwrap(),
+            vec!["a/x"]
+        );
+        assert!(
+            function_subscribes(&json!({ "on": { "table": "db:s.t" } }))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(function_subscribes(&json!({ "on": [1] })).is_err());
     }
 
     #[test]

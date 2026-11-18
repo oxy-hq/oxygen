@@ -1400,6 +1400,35 @@ fn check_events(manifest: Option<&serde_json::Value>) -> Result<(), PublishError
         })
 }
 
+/// A function's `on: { table }` is read and ignored by this binary, and not
+/// yet acted on by any: refuse it at publish until the release that does, so
+/// no build declares a watch that never fires.
+fn check_no_table_watches(manifest: Option<&serde_json::Value>) -> Result<(), PublishError> {
+    let Some(functions) = manifest
+        .and_then(|m| m.get("functions"))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(());
+    };
+    for (name, spec) in functions {
+        let entries: Vec<&serde_json::Value> = match spec.get("on") {
+            Some(serde_json::Value::Array(a)) => a.iter().collect(),
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        if entries.iter().any(|e| e.is_object()) {
+            return Err(PublishError::Invalid(
+                crate::custom_apps_validate::BundleValidation::new(
+                    "events",
+                    format!("function `{name}`: `on: {{ table }}` is not available yet"),
+                    "remove the table entry from `on`; watching a table ships in a later release",
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Record one `app_functions` row per declared function, keyed to this build,
 /// so the `/fn/<name>` route can resolve them. Without this the bundled JS
 /// ships in the build store but the runtime can never find it (→ 404).
@@ -2341,5 +2370,36 @@ mod tests {
             msg.contains(&format!("PATCH /api/customer-apps/{app_id}")),
             "the error must name the admin path that moves an app: {msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod table_watch_refusal_tests {
+    use super::check_no_table_watches;
+    use serde_json::json;
+
+    /// A table `on` is refused at publish until the release that acts on it,
+    /// alone or beside event types; everything else passes.
+    #[test]
+    fn a_table_on_is_refused_and_nothing_else_is() {
+        for on in [
+            json!({ "table": "db:s.t" }),
+            json!(["a/x", { "table": "db:s.t" }]),
+        ] {
+            let manifest = json!({ "functions": { "f": { "on": on } } });
+            assert!(
+                check_no_table_watches(Some(&manifest)).is_err(),
+                "{manifest}"
+            );
+        }
+        for on in [json!("a/x"), json!(["a/x", "b/y"])] {
+            let manifest = json!({ "functions": { "f": { "on": on } } });
+            assert!(
+                check_no_table_watches(Some(&manifest)).is_ok(),
+                "{manifest}"
+            );
+        }
+        assert!(check_no_table_watches(None).is_ok());
+        assert!(check_no_table_watches(Some(&json!({ "functions": { "f": {} } }))).is_ok());
     }
 }

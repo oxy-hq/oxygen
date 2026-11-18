@@ -2,7 +2,8 @@ use serde_json::json;
 
 use super::*;
 
-const ALL: [QueuedTrigger; 5] = [
+const ALL: [QueuedTrigger; 6] = [
+    QueuedTrigger::Call,
     QueuedTrigger::Event,
     QueuedTrigger::Cron,
     QueuedTrigger::Manual,
@@ -16,6 +17,7 @@ fn declared(check: bool, schedule: bool, webhook: bool) -> Declared {
         schedule,
         webhook,
         on: false,
+        callable: false,
     }
 }
 
@@ -243,6 +245,9 @@ fn on_is_read_from_the_manifest() {
         (json!(""), false),
         (json!([]), false),
         (json!(5), false),
+        (json!({ "table": "db:s.t" }), true),
+        (json!([{ "table": "db:s.t" }]), true),
+        (json!({}), false),
     ] {
         assert_eq!(
             Declared::of(Some(&json!({ "on": on.clone() }))).on,
@@ -269,7 +274,7 @@ fn being_a_check_opens_no_other_trigger() {
 }
 
 #[test]
-fn every_label_reads_as_its_trigger_and_an_unknown_one_as_a_cron_fire() {
+fn every_label_reads_as_its_trigger_and_an_unknown_one_fails_closed() {
     assert_eq!(
         QueuedTrigger::from_label(Some("manual")),
         QueuedTrigger::Manual
@@ -282,18 +287,28 @@ fn every_label_reads_as_its_trigger_and_an_unknown_one_as_a_cron_fire() {
         QueuedTrigger::from_label(Some("webhook")),
         QueuedTrigger::Webhook
     );
-    for cron in [None, Some("scheduled"), Some("backfill"), Some("Manual")] {
+    for cron in [None, Some("scheduled")] {
         assert_eq!(
             QueuedTrigger::from_label(cron),
             QueuedTrigger::Cron,
             "{cron:?}"
         );
     }
+    // A label this release does not know was queued by a newer one: it fails
+    // closed instead of reading as a cron fire.
+    for unknown in [Some("backfill"), Some("Manual"), Some("send")] {
+        assert_eq!(
+            QueuedTrigger::from_label(unknown),
+            QueuedTrigger::Unknown,
+            "{unknown:?}"
+        );
+    }
     assert_eq!(
         QueuedTrigger::from_label(Some("event")),
         QueuedTrigger::Event
     );
-    assert_eq!(ALL.len(), 5);
+    assert_eq!(QueuedTrigger::from_label(Some("call")), QueuedTrigger::Call);
+    assert_eq!(ALL.len(), 6);
 }
 
 #[test]
@@ -330,5 +345,54 @@ fn every_refusal_names_its_environment() {
             why,
         };
         assert!(refused.message().contains("dev-a1"), "{why:?}");
+    }
+}
+
+fn callable() -> Declared {
+    Declared {
+        callable: true,
+        ..Declared::default()
+    }
+}
+
+/// A call needs the callee to say `"callable": true`, in every environment,
+/// production included; nothing else it declares matters.
+#[test]
+fn a_call_runs_only_a_callable_function_everywhere() {
+    for production in [true, false] {
+        assert_eq!(
+            decide(QueuedTrigger::Call, Declared::default(), production, None),
+            Err(QueuedRefusal::NotCallable),
+            "production={production}"
+        );
+        assert_eq!(
+            decide(QueuedTrigger::Call, callable(), production, None),
+            Ok(()),
+            "production={production}"
+        );
+    }
+}
+
+/// A sandbox idle past its expiry takes no call; staging has no expiry.
+#[test]
+fn a_call_is_refused_by_an_expired_sandbox() {
+    assert_eq!(
+        decide(QueuedTrigger::Call, callable(), false, state(false, true)),
+        Err(QueuedRefusal::Expired)
+    );
+    assert_eq!(
+        decide(QueuedTrigger::Call, callable(), false, state(false, false)),
+        Ok(())
+    );
+}
+
+/// A label nobody knows is never admitted, in any environment.
+#[test]
+fn an_unknown_trigger_is_never_admitted() {
+    for production in [true, false] {
+        assert_eq!(
+            decide(QueuedTrigger::Unknown, callable(), production, None),
+            Err(QueuedRefusal::UnknownTrigger)
+        );
     }
 }

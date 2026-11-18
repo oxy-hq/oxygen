@@ -210,7 +210,7 @@ pub struct RelayedEvent {
     pub org_id: Uuid,
     /// The publishing app's workspace.
     pub workspace_id: Uuid,
-    pub source_app_id: Uuid,
+    pub source_app_id: Option<Uuid>,
     /// The writer role that published the row: with the id, the key of the
     /// body in the org's outbox log.
     pub writer_role: String,
@@ -676,7 +676,7 @@ fn read_row(
         },
         org_id: app.org_id,
         workspace_id: app.project_id,
-        source_app_id: app.id,
+        source_app_id: Some(app.id),
         writer_role: row.writer_role.clone(),
         data_bytes: row.data_bytes,
         schema_revision_id: row.schema_revision,

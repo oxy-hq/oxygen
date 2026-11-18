@@ -133,6 +133,7 @@ async fn invoked(db: &DatabaseConnection, app: &App, row: Row<'_>) -> Uuid {
         failure_fingerprint: Set(row.fingerprint.map(str::to_string)),
         environment: Set(row.environment.into()),
         credential_token_id: Set(None),
+        parent_invocation_id: Set(None),
         error_kind: Set(row.fingerprint.map(|_| "threw".to_string())),
     }
     .insert(db)

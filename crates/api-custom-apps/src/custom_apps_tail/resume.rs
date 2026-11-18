@@ -165,6 +165,7 @@ mod tests {
             environment: "dev-a1".into(),
             credential_token_id: None,
             error_kind: None,
+            parent_invocation_id: None,
         }
     }
 

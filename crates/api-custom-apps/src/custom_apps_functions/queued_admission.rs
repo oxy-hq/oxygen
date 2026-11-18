@@ -12,6 +12,8 @@
 //! | **scheduled** (a cron fire) | it declares a `schedule`, the environment's schedules switch is on, and a sandbox is not past its idle expiry |
 //! | **webhook** | it declares a `webhook` block, and a sandbox is not past its idle expiry |
 //! | **event** (a published event) | it declares a non-empty `on`, the environment's events switch is on, and a sandbox is not past its idle expiry |
+//! | **call** (another app's `ctx.apps.call`) | it declares `"callable": true` (production included), and a sandbox is not past its idle expiry |
+//! | **unknown** (a label this release does not know) | never |
 //!
 //! "Declares" is read from the build the runner resolved, never trusted from
 //! whoever queued the task: the environment's pointer may have moved while the
@@ -37,6 +39,8 @@ pub(crate) struct Declared {
     pub webhook: bool,
     /// A non-empty `on`: the function listens for published events.
     pub on: bool,
+    /// `"callable": true`: other apps may call the function.
+    pub callable: bool,
 }
 
 impl Declared {
@@ -50,6 +54,10 @@ impl Declared {
                 .and_then(super::function_webhook_contract)
                 .is_some(),
             on: manifest.is_some_and(declares_on),
+            callable: manifest
+                .and_then(|m| m.get("callable"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
         }
     }
 }
@@ -60,11 +68,13 @@ pub(crate) fn declared_schedule(manifest: &serde_json::Value) -> Option<&str> {
     manifest.get("schedule").and_then(serde_json::Value::as_str)
 }
 
-/// Whether a manifest's `on` names at least one event: a non-empty string or
-/// a non-empty array. Anything else declares nothing.
+/// Whether a manifest's `on` names at least one event or table: a non-empty
+/// string, a `{ table }` object or a non-empty array. Anything else declares
+/// nothing.
 fn declares_on(manifest: &serde_json::Value) -> bool {
     match manifest.get("on") {
         Some(serde_json::Value::String(s)) => !s.is_empty(),
+        Some(serde_json::Value::Object(o)) => o.contains_key("table"),
         Some(serde_json::Value::Array(a)) => !a.is_empty(),
         _ => false,
     }
@@ -90,6 +100,8 @@ pub(crate) enum QueuedRefusal {
     NoWebhook,
     EventsOff,
     NoOn,
+    NotCallable,
+    UnknownTrigger,
     Expired,
 }
 
@@ -130,6 +142,13 @@ impl QueuedRefused {
                 "the function declares no `on` in the build the {env} environment serves, so it \
                  receives no events there"
             ),
+            QueuedRefusal::NotCallable => format!(
+                "the function is not marked `\"callable\": true` in the build the {env} environment \
+                 serves"
+            ),
+            QueuedRefusal::UnknownTrigger => {
+                "this release does not know what queued the run".to_string()
+            }
             QueuedRefusal::Expired => format!(
                 "the sandbox {env} is past its idle expiry; publish to it or call a function in \
                  it to keep it"
@@ -150,7 +169,14 @@ pub(crate) fn decide(
     let state = state.unwrap_or_default();
     let refuse_unless = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
     match trigger {
+        QueuedTrigger::Unknown => Err(QueuedRefusal::UnknownTrigger),
         QueuedTrigger::ScheduleNow => refuse_unless(declared.schedule, QueuedRefusal::NotScheduled),
+        // Callable everywhere it runs, production included; only a sandbox's
+        // expiry is read from the environment.
+        QueuedTrigger::Call => {
+            refuse_unless(declared.callable, QueuedRefusal::NotCallable)?;
+            refuse_unless(production || !state.expired, QueuedRefusal::Expired)
+        }
         _ if production => Ok(()),
         QueuedTrigger::Manual => refuse_unless(declared.check, QueuedRefusal::NotACheck),
         QueuedTrigger::Cron => {
@@ -183,7 +209,10 @@ pub(crate) async fn environment_state<C: ConnectionTrait>(
     if resolved.is_production()
         || !matches!(
             trigger,
-            QueuedTrigger::Cron | QueuedTrigger::Webhook | QueuedTrigger::Event
+            QueuedTrigger::Cron
+                | QueuedTrigger::Webhook
+                | QueuedTrigger::Event
+                | QueuedTrigger::Call
         )
     {
         return Ok(None);

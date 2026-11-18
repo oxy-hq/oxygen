@@ -354,7 +354,7 @@ impl Relay {
         let event = &events[0];
         assert_eq!(event.id, id);
         assert_eq!(event.environment, "production");
-        assert_eq!(event.source_app_id, self.publisher);
+        assert_eq!(event.source_app_id, Some(self.publisher));
         assert_eq!(event.workspace_id, self.workspace);
         assert_eq!(event.r#type, self.event_type(EVENT));
         assert_eq!(event.relay_error, None);
@@ -431,7 +431,7 @@ impl Relay {
             },
             org_id: self.org(),
             workspace_id: self.workspace,
-            source_app_id: self.publisher,
+            source_app_id: Some(self.publisher),
             writer_role: "app_writer_staging".into(),
             data_bytes: 21,
             schema_revision_id: None,
@@ -847,11 +847,11 @@ async fn a_squatted_id_does_not_stop_the_real_event() {
             .iter()
             .find(|e| e.id == real)
             .expect("the real event");
-        assert_eq!(stored.source_app_id, r.publisher);
+        assert_eq!(stored.source_app_id, Some(r.publisher));
         assert_eq!(stored.relay_error, None);
         let squatted = events
             .iter()
-            .find(|e| e.source_app_id == squatter_app)
+            .find(|e| e.source_app_id == Some(squatter_app))
             .expect("the squatter's row");
         assert_eq!(
             squatted.id,

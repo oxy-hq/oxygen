@@ -43,11 +43,16 @@ impl Records {
         else {
             return Ok(None);
         };
-        let (Some(listener), Some(source)) = (
-            app_slug(txn, delivery.app_id).await?,
-            app_slug(txn, event.source_app_id).await?,
-        ) else {
+        let Some(listener) = app_slug(txn, delivery.app_id).await? else {
             return Ok(None);
+        };
+        // An event the platform published itself has no publishing app.
+        let source = match event.source_app_id {
+            Some(app) => match app_slug(txn, app).await? {
+                Some(slug) => event_source(&slug),
+                None => return Ok(None),
+            },
+            None => "/platform".to_string(),
         };
         let revision = match event.schema_revision_id {
             Some(id) => app_event_schemas::Entity::find_by_id(id)
@@ -73,7 +78,7 @@ impl Records {
             specversion: "1.0".to_string(),
             id: event.id,
             dataschema: event_dataschema(&event.r#type, self.revision),
-            source: event_source(&self.source),
+            source: self.source,
             time: event.published_at.with_timezone(&Utc),
             data,
             key: event.key,
@@ -188,7 +193,7 @@ mod tests {
             org_id: Uuid::new_v4(),
             workspace_id: Uuid::new_v4(),
             environment: environment.into(),
-            source_app_id: Uuid::new_v4(),
+            source_app_id: Some(Uuid::new_v4()),
             r#type: "billing/statement.uploaded".into(),
             key: "s-1".into(),
             data_bytes: 2,
