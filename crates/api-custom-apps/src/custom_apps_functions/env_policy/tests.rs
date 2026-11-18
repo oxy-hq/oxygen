@@ -60,6 +60,16 @@ const fn read_isolated(op: HostOp) -> Row {
     }
 }
 
+/// Every op on the OLTP plane: what an env branch or a sandbox schema isolates
+/// and an unready home refuses.
+pub(super) const OLTP_PLANE_OPS: [HostOp; 5] = [
+    HostOp::TxBeginOltp,
+    HostOp::OltpQuery,
+    HostOp::OltpExec,
+    HostOp::EventsPublish,
+    HostOp::TxPublish,
+];
+
 const ROWS: &[Row] = &[
     read(HostOp::Query),
     read(HostOp::QueryStream),
@@ -98,6 +108,8 @@ const ROWS: &[Row] = &[
     read(HostOp::OrgPlaces),
     read(HostOp::OrgAssignments),
     read(HostOp::PlatformFacts),
+    write(HostOp::EventsPublish, HOLD),
+    write(HostOp::TxPublish, HOLD),
 ];
 
 fn staging() -> EnvPolicy {
@@ -415,10 +427,7 @@ fn with_a_staging_branch_the_oltp_rows_isolate_to_it_and_nothing_else_moves() {
         .copied()
         .filter(|op| branch.decide(*op) == Decision::Isolate(Target::OltpBranch))
         .collect();
-    assert_eq!(
-        isolated,
-        BTreeSet::from([HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec])
-    );
+    assert_eq!(isolated, BTreeSet::from(OLTP_PLANE_OPS));
     for row in ROWS.iter().filter(|r| !isolated.contains(&r.op)) {
         assert_eq!(branch.decide(row.op), row.staging, "{:?}", row.op);
     }
@@ -458,7 +467,7 @@ fn production_and_a_preview_never_take_an_oltp_branch() {
         );
     }
     let preview = production.within_scope_pin(Some(uuid::Uuid::from_u128(9)));
-    for op in [HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec] {
+    for op in OLTP_PLANE_OPS {
         assert_eq!(preview.decide(op), Decision::Hold, "{op:?}");
     }
     assert_eq!(staging().oltp_home(), &OltpHome::Production, "the default");
@@ -502,7 +511,7 @@ fn a_sandbox_with_its_own_schema_decides_as_staging_on_the_branch() {
 /// moves.
 #[test]
 fn a_sandbox_whose_schema_is_not_ready_has_its_oltp_rows_refused() {
-    let oltp = [HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec];
+    let oltp = OLTP_PLANE_OPS;
     for why in [
         SandboxUnready::NotCreated,
         SandboxUnready::Seeding,

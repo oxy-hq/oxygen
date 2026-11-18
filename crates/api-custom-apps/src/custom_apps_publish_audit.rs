@@ -35,6 +35,7 @@ use serde_json::{Map, Value, json};
 
 use super::custom_apps_publish::PublishResult;
 use super::custom_apps_sandboxes::agent_publish;
+use crate::app_events::gate;
 
 pub(crate) const PUBLISHED: &str = "app.environment.published";
 /// `metadata.token_kind` of a row an `oxypublish_` token wrote. Not one of
@@ -74,6 +75,26 @@ pub(crate) async fn published(
         .environment(environment.name());
     let detail = json!({ "build_id": result.build_id });
     audit::record_best_effort(db, by_publish_token(db, entry, marker, detail).await).await;
+}
+
+/// The row of a promoting publish that went ahead over production listeners
+/// (`--break-listeners`), after the publish's own: which ones. None when it
+/// broke nothing.
+pub(crate) async fn listeners_broken(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    result: &PublishResult,
+) {
+    if result.broken_listeners.is_empty() {
+        return;
+    }
+    match apps::Entity::find_by_id(result.app_id).one(db).await {
+        Ok(Some(app)) => {
+            gate::audit_override(db, actor, &app, &result.build_id, &result.broken_listeners).await
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!(app_id = %result.app_id, error = %e, "publish: audit skipped"),
+    }
 }
 
 /// `entry`, as the `oxypublish_` token behind `marker` wrote it, with `detail`

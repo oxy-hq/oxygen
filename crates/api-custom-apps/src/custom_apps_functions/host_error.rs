@@ -56,10 +56,11 @@ pub enum CapabilityArea {
     Storage,
     Oltp,
     Airhouse,
+    Events,
 }
 
 impl CapabilityArea {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Secrets,
         Self::Email,
         Self::Notify,
@@ -68,6 +69,7 @@ impl CapabilityArea {
         Self::Storage,
         Self::Oltp,
         Self::Airhouse,
+        Self::Events,
     ];
 
     /// The word before `CapabilityMissing`; `None` for the unlabelled gate.
@@ -81,6 +83,7 @@ impl CapabilityArea {
             Self::Storage => Some("Storage"),
             Self::Oltp => Some("Oltp"),
             Self::Airhouse => Some("Airhouse"),
+            Self::Events => Some("Events"),
         }
     }
 

@@ -922,6 +922,7 @@ async fn promote_response(
     PromoteResponse {
         app: AppResponse::from_model_with_org(app, org_slug),
         semantic_pin,
+        warnings: Vec::new(),
     }
 }
 
@@ -1280,6 +1281,7 @@ pub async fn rollback_app(
         actor_via: crate::custom_apps_promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     };
     let moved = crate::custom_apps_promote::move_production(&db, &mv)
         .await
@@ -1288,6 +1290,17 @@ pub async fn rollback_app(
             PromoteRefusal::from(AppOpError::from(e))
         })?;
     crate::custom_apps_auth::invalidate_access_cache();
+    // A rollback is never refused over listeners (the move's `Rollback` gate):
+    // what it breaks is logged, as the promote route's plan warns it.
+    for warning in &moved.warnings {
+        tracing::warn!("rollback_app {id}: {warning}");
+    }
+    // Best effort, as a promote's: a failure is logged, never a failed rollback.
+    for warning in
+        crate::app_events::subscriptions::reconcile_production(&db, &moved.app, &build).await
+    {
+        tracing::warn!("rollback_app {id}: {warning}");
+    }
     let org = load_org(&db, moved.app.org_id).await?;
     crate::custom_apps_promote::act::record_move(
         &db,
@@ -1299,9 +1312,12 @@ pub async fn rollback_app(
         ),
         None,
         (build.id, previous),
+        &moved.warnings,
     )
     .await;
-    Ok(Json(promote_response(&db, moved.app, &org.slug).await))
+    let mut response = promote_response(&db, moved.app, &org.slug).await;
+    response.warnings = moved.warnings;
+    Ok(Json(response))
 }
 
 /// A coded refusal for the console's rollback, so it can say why instead of

@@ -26,12 +26,13 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::blockers::{self, Act, ProductionFacts};
-use super::error::{Blocker, PromoteError};
+use super::error::{Blocker, EVENT_LISTENERS_BROKEN, PromoteError};
 use super::functions_diff::{self, FunctionChanges};
 use super::production::{MigrationsApplied, load_build};
 use super::resolve::Resolved;
 use super::schedules::{self, ScheduleChanges};
 use super::second_person::Identity;
+use crate::app_events::gate::{self, GateScope};
 use crate::custom_apps_build_history as history;
 use crate::custom_apps_build_state::BuildState;
 use crate::custom_apps_migrations::{self as migrations, StoredMigrations, files_not_in};
@@ -88,6 +89,10 @@ pub struct Plan {
     pub required_secrets_unset: Vec<String>,
     pub blockers: Vec<Blocker>,
     pub warnings: Vec<String>,
+    /// Production listeners this move breaks and `break_listeners` let
+    /// through: the act audits them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub broken_listeners: Vec<String>,
     pub dry_run: bool,
     pub moved: bool,
     pub migrations_applied: Option<MigrationsApplied>,
@@ -100,6 +105,10 @@ pub struct Asked<'a> {
     pub confirmed: &'a [String],
     /// Who would move the environment (`second_person`).
     pub mover: &'a Identity,
+    /// `Some(flag)` for a dry run, whose plan previews the event gate with the
+    /// request's `break_listeners`; a real act passes `None`, and the
+    /// production move is then the only place the gate runs.
+    pub break_listeners: Option<bool>,
 }
 
 /// Everything the plan reads, for `r`.
@@ -138,6 +147,7 @@ pub async fn build(
         required_secrets_unset: Vec::new(),
         blockers: Vec::new(),
         warnings,
+        broken_listeners: Vec::new(),
         dry_run: true,
         moved: false,
         migrations_applied: None,
@@ -148,8 +158,8 @@ pub async fn build(
     Ok(plan)
 }
 
-/// Production's half: schedules, required keys, who promotes, and the
-/// blockers.
+/// Production's half: schedules, required keys, who promotes, the blockers,
+/// and a dry run's preview of the event gate.
 async fn production_checks(
     db: &DatabaseConnection,
     r: &Resolved,
@@ -179,6 +189,39 @@ async fn production_checks(
     plan.required_secrets_unset = required_unset;
     plan.blockers = blockers;
     plan.warnings.extend(warnings);
+    event_listeners(db, r, asked.break_listeners, plan).await
+}
+
+/// A dry run's preview of the event gate (`app_events::gate`): a blocker per
+/// listener the move would break, unless `break_listeners` lets them through.
+/// A rollback only ever warns. Never run for a real act: the move enforces.
+async fn event_listeners(
+    db: &DatabaseConnection,
+    r: &Resolved,
+    break_listeners: Option<bool>,
+    plan: &mut Plan,
+) -> Result<(), PromoteError> {
+    let Some(break_listeners) = break_listeners else {
+        return Ok(());
+    };
+    let scope = match r.act {
+        Act::Promote => GateScope::Ship { break_listeners },
+        Act::Rollback => GateScope::Rollback,
+    };
+    let report = gate::check(db, &r.app, &r.build, scope)
+        .await
+        .map_err(|e| PromoteError::internal("check the event listeners", e))?;
+    plan.warnings.extend(report.warnings);
+    if break_listeners {
+        plan.warnings.extend(report.refusals.iter().cloned());
+        plan.broken_listeners = report.refusals;
+    } else {
+        plan.blockers
+            .extend(report.refusals.into_iter().map(|message| Blocker {
+                code: EVENT_LISTENERS_BROKEN,
+                message,
+            }));
+    }
     Ok(())
 }
 

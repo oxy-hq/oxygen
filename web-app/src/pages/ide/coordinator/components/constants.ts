@@ -206,7 +206,10 @@ export const sourceTypeToJobType = (source: string | null | undefined): JobType 
 // misclassifies them. The UI replaces the JobTypeBadge with a SystemBadge
 // for these so operators don't mistake heartbeat noise for their work.
 
-/** Run source_types that are internal daemons, not user-scheduled jobs. */
+/** Run source_types that are internal daemons, not user-scheduled jobs.
+ *  `app_events_relay` moves an org's published custom-app events onto the
+ *  queue: platform plumbing, filed in one of the org's app workspaces. Must
+ *  match the backend's `SYSTEM_SOURCE_TYPES` (agentic runtime `queries.rs`). */
 const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "preagg_cycle",
   "preview_analyze",
@@ -218,7 +221,8 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "custom_app_sandbox_oltp",
   "custom_app_env_oltp_branch",
   "custom_app_sandbox_teardown",
-  "custom_app_usage_backfill"
+  "custom_app_usage_backfill",
+  "app_events_relay"
 ];
 
 export const isSystemSource = (source: string | null | undefined): boolean =>

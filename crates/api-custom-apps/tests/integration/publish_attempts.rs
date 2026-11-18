@@ -13,7 +13,9 @@ use axum::extract::{Path, Query};
 use chrono::{Duration, Utc};
 use entity::{app_builds, app_publish_attempts};
 use oxy_api_custom_apps::admin::apps::publishes::{PublishesQuery, list_publishes};
-use oxy_api_custom_apps::custom_apps_publish::{PublishTarget, Publisher, publish, publish_staged};
+use oxy_api_custom_apps::custom_apps_publish::{
+    PublishOptions, PublishTarget, Publisher, publish, publish_staged,
+};
 use oxy_api_custom_apps::custom_apps_publish_attempts::{KEEP_ATTEMPTS, Stage};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
@@ -120,6 +122,7 @@ async fn a_refused_publish_is_recorded_at_the_stage_that_refused_it() {
     let reused = publish_staged(
         input(&t, "refused", "b-1", false, who()),
         PublishTarget::Channels,
+        PublishOptions::default(),
     )
     .await
     .expect_err("a reused build id is refused");
@@ -128,7 +131,7 @@ async fn a_refused_publish_is_recorded_at_the_stage_that_refused_it() {
     // inflate: the bundle is not a gzip.
     let mut garbled = input(&t, "refused", "b-2", false, who());
     garbled.tarball = b"not a tarball".to_vec();
-    let bad = publish_staged(garbled, PublishTarget::Channels)
+    let bad = publish_staged(garbled, PublishTarget::Channels, PublishOptions::default())
         .await
         .expect_err("a bundle that is not a gzip is refused");
     assert_eq!(bad.stage, Some(Stage::Inflate));
@@ -245,9 +248,13 @@ async fn an_unauthorized_publish_writes_no_attempt_into_another_orgs_app() {
 
     let mut named_victim = input(&victim, "victim-app", "evil-1", false, as_intruder());
     named_victim.build_id = "x".repeat(10_000);
-    let refused = publish_staged(named_victim, PublishTarget::Channels)
-        .await
-        .expect_err("an outsider may not publish into another org");
+    let refused = publish_staged(
+        named_victim,
+        PublishTarget::Channels,
+        PublishOptions::default(),
+    )
+    .await
+    .expect_err("an outsider may not publish into another org");
     assert_eq!(refused.stage, Some(Stage::Admit));
 
     let mut own_org_their_workspace =

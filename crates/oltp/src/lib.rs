@@ -56,6 +56,7 @@ pub mod config;
 pub mod connect;
 pub mod entity;
 pub mod env_branches;
+pub mod events;
 pub mod grant_audit;
 mod host;
 pub mod inbox;

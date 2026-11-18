@@ -73,6 +73,13 @@
             "pattern": "^[a-z][a-z0-9-]{0,63}$"
           }
         },
+        "events": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OxyAppEventDeclaration"
+          },
+          "description": "The events this app publishes, keyed by event name — dot-separated lowercase (`statement.uploaded`). Functions list the ones they may publish under `events.publish`; other apps' functions subscribe with `on`."
+        },
         "migrations": {
           "$ref": "#/definitions/OxyAppMigrationsManifest",
           "description": "Schema migrations for the app's OLTP store (`ctx.oltp`) that ship WITH this bundle and run on promote.\n\n`dir` is a directory inside the built bundle holding numbered `.sql` files. The platform runs them in lexical order, **once each, ever**, inside a transaction, as the app's own writer role, and records each one.\n\nWhat changes for the author: you no longer write defensive `IF NOT EXISTS` / idempotent upserts, because re-running is a no-op by construction rather than by your care. And you **may not edit, rename or copy a migration that has already run** — all three fail the promote by name, and the fix is always a new file.\n\nThe `.sql` files are ordinary bundle files, fetchable over the app's own host: put no secrets in them."
@@ -178,6 +185,24 @@
         "airwayStep": {
           "$ref": "#/definitions/OxyAppAirwayStepManifest",
           "description": "Wire the function in as an Airway pipeline transform step."
+        },
+        "on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "App events this function runs on: one `<app-slug>/<event-name>` or a list. `<app-slug>` is the publishing app (this app's own slug for its own events); `<event-name>` is dot-separated lowercase, e.g. `statements/statement.uploaded`. Counts as an invocation surface."
+        },
+        "events": {
+          "$ref": "#/definitions/OxyAppFunctionEventsManifest",
+          "description": "App events this function may publish (`ctx.events.publish`)."
         },
         "webhook": {
           "$ref": "#/definitions/OxyAppWebhookManifest",
@@ -300,6 +325,21 @@
       "required": ["pipeline", "resource"],
       "additionalProperties": false,
       "description": "`functions.<name>.airwayStep`: the pipeline and resource the step transforms."
+    },
+    "OxyAppFunctionEventsManifest": {
+      "type": "object",
+      "properties": {
+        "publish": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names (keys of the app-level `events`) this function may publish."
+        }
+      },
+      "required": ["publish"],
+      "additionalProperties": false,
+      "description": "The events a function may publish; each name must be declared in the app's `events`."
     },
     "OxyAppWebhookManifest": {
       "type": "object",
@@ -600,6 +640,30 @@
       "type": "string",
       "enum": ["object", "array", "string", "number", "integer", "boolean", "null"],
       "description": "A JSON Schema type name."
+    },
+    "OxyAppEventDeclaration": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What the event means, for people reading the catalogue."
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          ],
+          "description": "The payload's JSON Schema. In source, a path (relative to the app dir) to a schema file; `oxyc publish` embeds the parsed object in the bundle."
+        }
+      },
+      "required": ["schema"],
+      "additionalProperties": false,
+      "description": "One event this app publishes, declared under the app-level `events`."
     },
     "OxyAppMigrationsManifest": {
       "type": "object",

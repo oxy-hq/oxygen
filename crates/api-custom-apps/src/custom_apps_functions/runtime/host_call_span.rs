@@ -61,6 +61,7 @@ pub(super) fn span_for(call: &HostCall) -> Span {
             otel.status_code = Empty,
             error.type = Empty,
         ),
+        HostCall::Events { .. } => plain_span!("oxy.events.publish"),
         HostCall::SecretsSet { key, .. } => tracing::info_span!(target: HOST_CALL_TARGET,
             "oxy.secrets.set",
             oxy.secret.name = %key,

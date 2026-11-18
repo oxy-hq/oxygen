@@ -93,11 +93,15 @@ pub mod session {
 
 /// The feature-flag reads `GET /auth/config` reports to a web app that has no
 /// org yet: the `billing` switch, the apps-first experience as an org with no
-/// override gets it, and `home_v3`. Read-only; the flag runtime stays in
-/// `oxy-app` until it leaves (sideways, the compile / preagg / feature-flag
-/// runtime).
+/// override gets it, and `home_v3`. And one read for an org: whether app
+/// events serve `on` to the publishing app's org (`is_enabled_for` with
+/// [`APP_EVENTS`](feature_flags::APP_EVENTS)), which `ctx.events.publish`
+/// asks first. Read-only; the flag runtime stays in `oxy-app` until it leaves
+/// (sideways, the compile / preagg / feature-flag runtime).
 pub mod feature_flags {
-    pub use crate::server::feature_flags::{home_v3, is_enabled};
+    pub use crate::server::feature_flags::{
+        APP_EVENTS, FlagContext, home_v3, is_enabled, is_enabled_for,
+    };
 }
 
 /// The CORS origin allowlist, for routes that gate on where a call came from.
@@ -360,6 +364,11 @@ pub mod testing {
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,
     };
     pub use crate::server::{compile_config_gate, compile_maintenance, compile_request, previews};
+
+    /// One load of the feature-flag cache from the flag table, as `serve` and
+    /// `worker` load it at boot: a test writes a flag row (an org override,
+    /// say) and loads it before reading the flag.
+    pub use crate::server::feature_flags::cache::load_once as load_feature_flags;
 
     /// The router module itself, for the items tests name beside the ones above.
     pub use crate::server::router;

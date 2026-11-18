@@ -63,6 +63,7 @@ pub fn promoted_entry(
     moved: (&apps::Model, &AppEnvironment),
     from: Option<String>,
     builds: (Uuid, Option<Uuid>),
+    broken: &[String],
 ) -> AuditEntry {
     let (app, environment) = moved;
     let action = match act {
@@ -78,11 +79,17 @@ pub fn promoted_entry(
             format!("{}/{environment}", app.slug),
         )
         .environment(environment.name())
-        .metadata(serde_json::json!({
-            "from": from,
-            "build": builds.0,
-            "previous": builds.1,
-        }))
+        .metadata({
+            let mut metadata = serde_json::json!({
+                "from": from,
+                "build": builds.0,
+                "previous": builds.1,
+            });
+            if !broken.is_empty() {
+                metadata["broken_listeners"] = serde_json::json!(broken);
+            }
+            metadata
+        })
 }
 
 /// The row of a Make Live. Publishing puts an app in front of a customer's

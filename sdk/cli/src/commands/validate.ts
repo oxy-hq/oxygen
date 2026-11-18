@@ -19,10 +19,15 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, join, parse, relative, resolve } from "node:path";
-import { OXY_APP_SCHEMA_FILE, validateOxyAppManifest } from "@oxy-hq/sdk/manifest";
+import {
+  OXY_APP_SCHEMA_FILE,
+  type OxyAppManifest,
+  validateOxyAppManifest
+} from "@oxy-hq/sdk/manifest";
 import { Ajv, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { parse as parseYaml } from "yaml";
+import { embedEventSchemas } from "../publish/event-schemas.js";
 import { lintAppFunctions } from "../publish/function-lint.js";
 import { checkAppPlacement } from "../publish/placement.js";
 import { REINSTALL_REMEDY } from "../template/embedded.js";
@@ -931,13 +936,23 @@ function validateAppManifest(
     (issue.level === "error" ? findings : warnings).push(entry);
   }
 
+  // The embed `oxyc publish` makes, so a schema file that is missing or not
+  // JSON fails here and not after the build.
+  try {
+    embedEventSchemas(appDir, manifest as unknown as OxyAppManifest);
+  } catch (cause) {
+    if (!(cause instanceof CliError)) throw cause;
+    findings.push({ file: `${prefix}${APP_MANIFEST}`, path: "events", message: cause.message });
+  }
+
   const lint = lintAppFunctions(appDir, manifest);
   for (const issue of lint.issues) {
-    findings.push({
+    const entry = {
       file: `${prefix}${issue.file}`,
       path: issue.path,
       message: `[function-lint/${issue.rule}] ${issue.message}`
-    });
+    };
+    (issue.level === "error" ? findings : warnings).push(entry);
   }
   for (const line of lint.skipped) notes.add(`${prefix}${APP_MANIFEST}: ${line}`);
   if (lint.writes.length > 0) {

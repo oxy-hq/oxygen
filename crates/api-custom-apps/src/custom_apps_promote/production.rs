@@ -17,6 +17,9 @@
 //!    `validation_not_passed`; a promote by the build's own publisher, while
 //!    the app requires a second person, is `same_person_promote` — and so is
 //!    their rollback to a build production never served (`second_person`).
+//!    Then the event gate ([`event_gate`], `app_events::gate`), once per
+//!    move: a promote that breaks a production listener is `409
+//!    event_listeners_broken` unless `break_listeners`; a rollback only warns.
 //! 2. **Migrations, before the pointer** — the build's pending OLTP files,
 //!    then its Airhouse files, re-read from the stored bundle and applied
 //!    through `apply_on_promote` / `apply_airhouse_on_promote` unchanged. A
@@ -46,6 +49,7 @@ use super::blockers::{Act, staging_never_served, validation_not_passed};
 use super::error::PromoteError;
 use super::second_person;
 use super::target::BuildRef;
+use crate::app_events::gate::{self, GateScope};
 use crate::custom_apps_agent_built::AgentBuilt;
 use crate::custom_apps_build_state::{BuildState, PromoteRefusal};
 use crate::custom_apps_environments::{self, EnvAction};
@@ -75,6 +79,14 @@ pub struct ProductionMove {
     /// Off for the console's *Make Live*, whose "Re-publish" re-stamps the
     /// live build.
     pub refuse_same: bool,
+    /// `--break-listeners`, as the request sent it: a [`EnvAction::Promote`]
+    /// through [`move_production_audited`] goes ahead over the production
+    /// event listeners its build breaks (`app_events::gate`), reported in
+    /// [`Moved::broken_listeners`] for the caller to audit. A rollback is never
+    /// refused, so ignores it. Only that function reads it: [`move_locked`]'s
+    /// callers (the promoting publish, the seed) gate with [`event_gate`]
+    /// themselves before they apply anything, and leave it `false`.
+    pub break_listeners: bool,
 }
 
 /// The files a production move applied, per store.
@@ -89,6 +101,11 @@ pub struct MigrationsApplied {
 pub struct Moved {
     pub app: apps::Model,
     pub applied: MigrationsApplied,
+    /// Listener problems that did not stop the move (other environments', a
+    /// rollback's, an override's).
+    pub warnings: Vec<String>,
+    /// The production listeners this move broke because `break_listeners` said to.
+    pub broken_listeners: Vec<String>,
 }
 
 /// How many times a move starts over for a build its name came to mean
@@ -128,6 +145,10 @@ pub async fn move_production_audited(
         let previous = check_pointer(db, &app, &build, mv).await?;
         admissible(db, &build).await?;
         second_person::refuse_same_person(db, &app, &build, mv, previous).await?;
+        // Last of the unlocked checks: the one refusal `break_listeners`
+        // overrides, still before any migration applies.
+        let (warnings, broken_listeners) =
+            event_gate(db, &app, &build, mv.action, mv.break_listeners).await?;
         let applied = apply_migrations(db, &app, &build).await?;
         let txn = db
             .begin()
@@ -144,10 +165,47 @@ pub async fn move_production_audited(
             .await
             .map_err(|e| PromoteError::internal("commit the move", e))?;
         custom_apps_cache::invalidate_app_resolution_cache();
-        return Ok(Moved { app, applied });
+        return Ok(Moved {
+            app,
+            applied,
+            warnings,
+            broken_listeners,
+        });
     }
     let (expected, actual) = last.unwrap_or_default();
     Err(mv.build.moved(expected, actual))
+}
+
+/// The one gate every production move passes (`app_events::gate`), before
+/// anything is migrated, locked or moved: a promote that breaks a production
+/// listener is refused unless `break_listeners`; a rollback only warns.
+/// Answers the warnings, and the listeners broken on purpose.
+/// [`move_production_audited`] runs it; [`move_locked`] is crate-private and
+/// its two callers (the promoting publish, before its migrations, and the
+/// seed) run it themselves, so each move is checked once.
+pub(crate) async fn event_gate(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    build: &app_builds::Model,
+    action: EnvAction,
+    break_listeners: bool,
+) -> Result<(Vec<String>, Vec<String>), PromoteError> {
+    let scope = match action {
+        EnvAction::Rollback => GateScope::Rollback,
+        _ => GateScope::Ship { break_listeners },
+    };
+    let report = gate::check(db, app, build, scope)
+        .await
+        .map_err(|e| PromoteError::internal("check the event listeners", e))?;
+    let mut warnings = report.warnings;
+    if report.refusals.is_empty() {
+        return Ok((warnings, Vec::new()));
+    }
+    if !break_listeners {
+        return Err(PromoteError::EventListenersBroken(report.refusals));
+    }
+    warnings.extend(report.refusals.iter().cloned());
+    Ok((warnings, report.refusals))
 }
 
 /// The app's row, held `FOR UPDATE` until the caller's transaction ends.
@@ -167,7 +225,7 @@ pub async fn lock_app<C: ConnectionTrait>(
 /// ([`lock_app`]): ask everything again, then move. A promoting publish calls
 /// this after recording its own staging event in the same transaction, which
 /// is the evidence invariant 1 then finds.
-pub async fn move_locked<C: ConnectionTrait>(
+pub(crate) async fn move_locked<C: ConnectionTrait>(
     conn: &C,
     row: apps::Model,
     mv: &ProductionMove,
@@ -216,6 +274,7 @@ async fn move_resolved<C: ConnectionTrait>(
                 (&updated, &AppEnvironment::Production),
                 None,
                 (build.id, previous),
+                &[],
             ),
         };
         oxy_app_core::audit::record_in_txn(conn, entry)

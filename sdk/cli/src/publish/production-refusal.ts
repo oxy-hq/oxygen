@@ -42,6 +42,8 @@ export function remedyFor(code: string, app: string): string | undefined {
       return "to retire them, add `--remove-schedule <function>` once for each function named above";
     case "same_person_promote":
       return `this app requires a second person to promote: publish without --promote, then someone else runs \`oxyc promote ${app}\``;
+    case "event_listeners_broken":
+      return "this build removes or incompatibly changes an event a production function listens to: keep the event, or add `--break-listeners` to ship anyway (audited)";
     case "validation_not_passed":
       return "publish a build that passes validation";
     case "staging_never_served":

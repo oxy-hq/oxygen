@@ -272,6 +272,60 @@ export interface OxyWarehouseApi {
 }
 
 /**
+ * `ctx.events` — publish an app event. See {@link OxyEventsApi.publish}.
+ * On an OLTP transaction handle (`tx.events`) the publish joins the
+ * transaction: it is delivered only if the transaction commits.
+ */
+export interface OxyEventsApi {
+  /**
+   * Publish `type` (a bare name declared in this function's `events.publish`).
+   * `key` is required and stable: a repeated publish with the same type and key
+   * is the same event, with the same id. `delaySeconds` (up to 24 hours) holds
+   * delivery back.
+   */
+  publish<T>(
+    type: string,
+    data: T,
+    options: { key: string; delaySeconds?: number }
+  ): Promise<{ eventId: string }>;
+}
+
+/** The handle `ctx.oltp.tx` passes: an {@link OxyTransaction} that can also publish events. */
+export interface OxyOltpTransaction extends OxyTransaction {
+  /** Publishes within this transaction (OLTP only; a warehouse transaction has none). */
+  events: OxyEventsApi;
+}
+
+/** An event as a listener receives it: a CloudEvents envelope plus Oxy extensions. */
+export interface OxyEvent<T = unknown> {
+  specversion: "1.0";
+  /** Platform event id: UUIDv5 of (org, environment, type, key). */
+  id: string;
+  /** `<publisher-slug>/<name>`, e.g. `locations/statement.uploaded`. */
+  type: string;
+  /** `/apps/<publisher-slug>`. */
+  source: string;
+  /** RFC 3339 timestamp of the publish. */
+  time: string;
+  dataschema: string | null;
+  data: T;
+  key: string;
+  environment: string;
+  invocation: string | null;
+  actor: string | null;
+  causationid: string | null;
+  rootid: string;
+  depth: number;
+}
+
+/** Delivery facts on `ctx.delivery`, set only on an event run. */
+export interface OxyDeliveryInfo {
+  attempt: number;
+  maxAttempts: number;
+  listener: string;
+}
+
+/**
  * The handle `ctx.tx` and `ctx.oltp.tx` pass to your callback — a pinned
  * connection with an open transaction.
  *
@@ -351,7 +405,7 @@ export interface OxyOltpApi {
    * });
    * ```
    */
-  tx<T>(fn: (tx: OxyTransaction) => Promise<T> | T): Promise<T>;
+  tx<T>(fn: (tx: OxyOltpTransaction) => Promise<T> | T): Promise<T>;
 }
 
 /**
@@ -1280,6 +1334,10 @@ export interface OxyFunctionContext {
   notify(input: NotifyInput): Promise<NotifyResult>;
   /** **Files: bytes.** The app's private storage silo. See {@link OxyStorageApi}. */
   storage: OxyStorageApi;
+  /** **Events.** Publish an app event. Gated by the `events` capability. See {@link OxyEventsApi}. */
+  events: OxyEventsApi;
+  /** Delivery facts; set only when this run handles an event. */
+  delivery?: OxyDeliveryInfo;
 }
 
 /** Signature of a function's default export: `export default async (req, ctx) => Response`. */

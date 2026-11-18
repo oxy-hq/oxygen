@@ -27,6 +27,14 @@ fn custom_app_jobs() -> Vec<FleetJobSeam> {
             name: "custom_app_usage_backfill_sweep",
             start: |_| record("custom_app_usage_backfill_sweep"),
         },
+        FleetJobSeam {
+            name: "custom_app_event_relay_sweep",
+            start: |_| record("custom_app_event_relay_sweep"),
+        },
+        FleetJobSeam {
+            name: "custom_app_event_retention",
+            start: |_| record("custom_app_event_retention"),
+        },
     ]
 }
 
@@ -60,6 +68,8 @@ async fn a_singleton_process_starts_every_fleet_job_and_a_serve_replica_none() {
             "custom_app_asset_lifecycle_verify",
             "custom_app_storage_sweeper",
             "custom_app_usage_backfill_sweep",
+            "custom_app_event_relay_sweep",
+            "custom_app_event_retention",
         ]
     );
     assert_eq!(*STARTED.lock().unwrap(), CUSTOM_APP_FLEET_JOBS);

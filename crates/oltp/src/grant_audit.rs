@@ -29,10 +29,20 @@
 //! every load; see [`crate::roles::grant_schema_creation_sql`]) and so may own
 //! schemas it created, except ones named like another writer's (`app_*`,
 //! `raw_*`), which is the namespace squat
-//! [`crate::roles::assert_schema_owned_sql`] exists for. The analyst: `SELECT`
-//! on the schemas exposed to analytics, and no write or `CREATE` anywhere.
-//! System schemas (`pg_*`, `information_schema`) are out of scope.
+//! [`crate::roles::assert_schema_owned_sql`] exists for. Every writer may
+//! also hold the events outbox's one door: `USAGE` on `oxy_events` and
+//! `EXECUTE` on `oxy_events.publish(...)`, which [`crate::events`] grants
+//! before an app's first publish — and nothing else there. The analyst:
+//! `SELECT` on the schemas exposed to analytics, and no write or `CREATE`
+//! anywhere. System schemas (`pg_*`, `information_schema`) are out of scope.
+//!
+//! **Functions are audited in Oxy's schemas only** (`oxy_meta`, `oxy_inbox`,
+//! `oxy_events`): a function there is a door into Oxy's objects, as
+//! `oxy_events.publish` is. A function an app creates in its own schema gets
+//! `EXECUTE` for `PUBLIC` by Postgres's default, and is reachable only through
+//! that schema's `USAGE`, which is audited.
 
+use crate::platform::{EVENTS_PUBLISH_FUNCTION, EVENTS_SCHEMA, INBOX_SCHEMA, META_SCHEMA};
 use crate::roles::quote_literal;
 use crate::schema::{SchemaError, validate_name};
 
@@ -53,16 +63,22 @@ pub struct GrantScope {
     /// May hold `CREATE ON DATABASE` and own schemas it created (a pipeline
     /// writer).
     pub may_create_schemas: bool,
+    /// May hold `USAGE` on `oxy_events` and `EXECUTE` on
+    /// `oxy_events.publish(...)`, and no other privilege there: a writer.
+    /// Not when [`Self::read_only`]: publishing is a write.
+    pub may_publish_events: bool,
 }
 
 impl GrantScope {
-    /// An app writer: its own schema, read-write, nothing else.
+    /// An app writer: its own schema, read-write, and the events outbox's
+    /// door; nothing else.
     pub fn app_writer(role: &str, schema: &str) -> Self {
         Self {
             role: role.to_string(),
             schemas: vec![schema.to_string()],
             read_only: false,
             may_create_schemas: false,
+            may_publish_events: true,
         }
     }
 
@@ -100,6 +116,7 @@ impl GrantScope {
             schemas: exposed,
             read_only: true,
             may_create_schemas: false,
+            may_publish_events: false,
         }
     }
 
@@ -129,6 +146,10 @@ pub fn role_findings_sql(scope: &GrantScope) -> Result<String, SchemaError> {
     let allowed = text_array(&scope.schemas);
     let read_only = scope.read_only;
     let may_create = scope.may_create_schemas;
+    let may_publish = scope.may_publish_events && !scope.read_only;
+    let events = quote_literal(EVENTS_SCHEMA);
+    let publish = quote_literal(EVENTS_PUBLISH_FUNCTION);
+    let oxy = oxy_schemas();
     Ok(format!(
         "WITH me AS (SELECT oid FROM pg_roles WHERE rolname = {role}), \
          user_schema AS ({USER_SCHEMAS}), \
@@ -141,8 +162,16 @@ pub fn role_findings_sql(scope: &GrantScope) -> Result<String, SchemaError> {
          SELECT f FROM ( \
            SELECT 'USAGE on schema ' || quote_ident(s.nspname) AS f FROM user_schema s, me \
              WHERE s.oid NOT IN (SELECT oid FROM mine) \
+               AND NOT ({may_publish} AND s.nspname = {events}) \
                AND has_schema_privilege(me.oid, s.oid, 'USAGE') \
                AND NOT has_schema_privilege('public', s.oid, 'USAGE') \
+           UNION ALL SELECT 'EXECUTE on function ' || p.oid::regprocedure::text \
+             FROM pg_proc p JOIN user_schema s ON s.oid = p.pronamespace CROSS JOIN me \
+             WHERE s.nspname IN ({oxy}) \
+               AND NOT ({may_publish} \
+                        AND p.oid IS NOT DISTINCT FROM to_regprocedure({publish})) \
+               AND has_function_privilege(me.oid, p.oid, 'EXECUTE') \
+               AND NOT has_function_privilege('public', p.oid, 'EXECUTE') \
            UNION ALL SELECT 'CREATE on schema ' || quote_ident(s.nspname) FROM user_schema s, me \
              WHERE (s.oid NOT IN (SELECT oid FROM mine) OR {read_only}) \
                AND has_schema_privilege(me.oid, s.oid, 'CREATE') \
@@ -199,25 +228,32 @@ pub fn assert_role_grants_sql(scope: &GrantScope) -> Result<String, SchemaError>
 }
 
 /// One row per privilege `PUBLIC` holds that it should not: `CREATE` on any
-/// schema or on the database, `USAGE` on any schema but `public`, and any
-/// privilege on a table or sequence outside `public`. Anything here is held by
-/// every role in the database, every writer included.
+/// schema or on the database, `USAGE` on any schema but `public`, any
+/// privilege on a table or sequence outside `public`, and `EXECUTE` on any
+/// function in Oxy's schemas. Anything here is held by every role in the
+/// database, every writer included.
 pub fn public_findings_sql() -> String {
     public_sql("TRUE", true)
 }
 
 /// The part of [`public_findings_sql`] that reaches a writer's data or Oxy's
 /// own: privileges `PUBLIC` holds in an `app_*` or `raw_*` schema, or in
-/// `oxy_meta` / `oxy_inbox`. Provisioning refuses on these. The rest (a
-/// provider's own schema left readable, say) is for `oxy oltp audit` to report
-/// rather than a reason to stop every provision on that provider.
+/// `oxy_meta` / `oxy_inbox` / `oxy_events`. Provisioning refuses on these. The
+/// rest (a provider's own schema left readable, say) is for `oxy oltp audit` to
+/// report rather than a reason to stop every provision on that provider.
 fn public_reach_sql() -> String {
     let filter = format!(
-        "(s.nspname LIKE 'app\\_%' OR s.nspname LIKE 'raw\\_%' OR s.nspname IN ({}, {}))",
-        quote_literal(crate::platform::META_SCHEMA),
-        quote_literal(crate::platform::INBOX_SCHEMA),
+        "(s.nspname LIKE 'app\\_%' OR s.nspname LIKE 'raw\\_%' OR s.nspname IN ({}))",
+        oxy_schemas()
     );
     public_sql(&filter, false)
+}
+
+/// Oxy's own schemas inside a tenant database, as a list of SQL literals.
+fn oxy_schemas() -> String {
+    [META_SCHEMA, INBOX_SCHEMA, EVENTS_SCHEMA]
+        .map(quote_literal)
+        .join(", ")
 }
 
 /// `PUBLIC`'s findings over schemas matching `filter` (a condition on `s`),
@@ -229,6 +265,7 @@ fn public_sql(filter: &str, database: bool) -> String {
     } else {
         ""
     };
+    let oxy = oxy_schemas();
     format!(
         "WITH user_schema AS (SELECT n.oid, n.nspname FROM pg_namespace n \
            WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema') \
@@ -249,6 +286,10 @@ fn public_sql(filter: &str, database: bool) -> String {
              CROSS JOIN unnest({SEQUENCE_PRIVILEGES}) AS p(priv) \
              WHERE c.relkind = 'S' AND {filter} AND s.nspname <> 'public' \
                AND has_sequence_privilege('public', c.oid, p.priv) \
+           UNION ALL SELECT 'EXECUTE on function ' || p.oid::regprocedure::text \
+             FROM pg_proc p JOIN user_schema s ON s.oid = p.pronamespace \
+             WHERE s.nspname IN ({oxy}) AND {filter} \
+               AND has_function_privilege('public', p.oid, 'EXECUTE') \
            {database_check} \
          ) findings ORDER BY f"
     )
@@ -381,6 +422,40 @@ mod tests {
     fn names_are_validated_before_any_sql() {
         assert!(role_findings_sql(&GrantScope::app_writer("x'; DROP", "app_x")).is_err());
         assert!(role_findings_sql(&GrantScope::app_writer("app_x_rw", "a b")).is_err());
+    }
+
+    #[test]
+    fn only_a_read_write_writer_may_hold_the_outbox_door() {
+        use crate::schema::{GrantLevel, WriterRef};
+        let app = GrantScope::app_writer("app_bookings_rw", "app_bookings");
+        assert!(app.may_publish_events);
+        assert!(GrantScope::pipeline_writer("raw_toast_rw", "raw_toast").may_publish_events);
+        assert!(!GrantScope::analyst("oxy_analyst_ro", vec![]).may_publish_events);
+
+        let door = |scope: &GrantScope| {
+            let sql = role_findings_sql(scope).unwrap();
+            assert!(
+                sql.contains(&format!("to_regprocedure('{EVENTS_PUBLISH_FUNCTION}')")),
+                "{sql}"
+            );
+            sql.contains("NOT (true AND s.nspname = 'oxy_events')")
+        };
+        assert!(door(&app));
+        assert!(!door(&GrantScope::analyst("oxy_analyst_ro", vec![])));
+        let ro = WriterRef::app("bookings").unwrap();
+        assert!(!door(&GrantScope::for_writer(
+            &ro,
+            GrantLevel::ReadOnly,
+            "app_bookings_ro"
+        )));
+    }
+
+    #[test]
+    fn provisioning_refuses_public_reach_into_every_oxy_schema() {
+        let sql = public_reach_sql();
+        for schema in ["oxy_meta", "oxy_inbox", "oxy_events"] {
+            assert!(sql.contains(&format!("'{schema}'")), "{schema}: {sql}");
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ mod broker_gates;
 mod crypto;
 mod decide_throughput;
 mod dropped_run;
+mod events;
 mod host_call_failures;
 mod identity;
 mod limits_and_meters;
@@ -37,6 +38,9 @@ pub(super) struct MockHost {
     /// Every `ctx.tx` op this host saw, in order — the bootstrap wrapper's
     /// commit/rollback bracket is only observable from here.
     tx_ops: std::sync::Mutex<Vec<String>>,
+    /// Every `(surface, payload)` a publish handed the host, in order:
+    /// `"events"` for `ctx.events.publish`, `"tx"` for `tx.events.publish`.
+    published: std::sync::Mutex<Vec<(&'static str, serde_json::Value)>>,
     /// When set, `ctx.query` fails with this message instead of answering.
     query_error: Option<String>,
     /// With `query_error`: only the first `ctx.query` fails; later ones
@@ -72,6 +76,9 @@ pub(super) struct MockHost {
 impl MockHost {
     fn tx_ops(&self) -> Vec<String> {
         self.tx_ops.lock().unwrap().clone()
+    }
+    fn published(&self) -> Vec<(&'static str, serde_json::Value)> {
+        self.published.lock().unwrap().clone()
     }
     fn host_call_failures(&self) -> Vec<(&'static str, &'static str)> {
         self.host_call_failures
@@ -186,6 +193,10 @@ impl FunctionHost for MockHost {
                 "rows": [{ "id": 42, "params": payload.get("params").cloned() }]
             })),
             "exec" => Ok(serde_json::json!({ "rowCount": 1 })),
+            "publish" => {
+                self.published.lock().unwrap().push(("tx", payload));
+                Ok(serde_json::json!({ "eventId": "evt-tx" }))
+            }
             "commit" | "rollback" => Ok(serde_json::json!({ "ok": true })),
             other => Err(format!("unexpected tx op '{other}'").into()),
         }
@@ -288,6 +299,14 @@ impl FunctionHost for MockHost {
             other => Err(format!("unexpected airhouse op '{other}'").into()),
         }
     }
+    async fn events(
+        &self,
+        _op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        self.published.lock().unwrap().push(("events", payload));
+        Ok(serde_json::json!({ "eventId": "evt-1" }))
+    }
     async fn secrets_set(
         &self,
         _key: String,
@@ -322,6 +341,7 @@ pub(super) fn test_ctx() -> InvocationCtx {
         airhouse_schema: None,
         channel: "production".into(),
         build_id: uuid::Uuid::nil(),
+        event: None,
     }
 }
 

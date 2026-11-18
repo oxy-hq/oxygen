@@ -63,11 +63,13 @@ export interface GatedCapability {
 /**
  * Every gate in `FunctionCapabilities`, in the struct's order.
  *
- * `storage_retention` and `fetch_max_bytes` are also fields of that struct and
- * are deliberately absent here: a retention policy and a byte ceiling shape a
- * call that is allowed, they never refuse one. The Rust test carries the same
- * two names as its exclusion list, so a third non-gate field has to be added
- * in both places on purpose.
+ * `storage_retention`, `fetch_max_bytes`, `events_writer` and `event_catalog`
+ * are also fields of that struct and are deliberately absent here: a retention
+ * policy, a byte ceiling, the writer a publish is written as and the build's
+ * declared events (the app-level `events` block, which the manifest schema
+ * checks `events.publish` against) shape a call that is allowed rather than
+ * gate a capability. The Rust test carries the same names as its exclusion
+ * list, so another non-gate field has to be added in both places on purpose.
  */
 export const GATED_CAPABILITIES: readonly GatedCapability[] = [
   {
@@ -141,6 +143,16 @@ export const GATED_CAPABILITIES: readonly GatedCapability[] = [
     ops: ["airhouse.*"],
     gate: "manifest",
     declares: (spec) => flag(spec, "airhouse", "enabled")
+  },
+  {
+    hostField: "events",
+    manifest: "events",
+    declare: '"events": { "publish": ["<name>"] }',
+    ops: ["events.publish", "tx.publish"],
+    gate: "manifest",
+    // As the host's `publishes()`: only a non-empty `events.publish` grants it.
+    declares: (spec) =>
+      isObject(spec.events) && Array.isArray(spec.events.publish) && spec.events.publish.length > 0
   },
   {
     hostField: "customer_warehouse_writes",

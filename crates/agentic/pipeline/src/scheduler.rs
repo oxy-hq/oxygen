@@ -484,11 +484,37 @@ pub async fn enqueue_app_function_job_in(
 /// ([`AppFunctionTask::credential_token_id`](crate::app_function_task::AppFunctionTask)).
 /// The run's metadata is stamped from the task's own `trigger` and
 /// `environment`, so the two never disagree.
+///
+/// Takes any connection, so a caller can queue the run inside its own
+/// transaction (the app events relay queues one per delivery with the rows
+/// that record it).
 pub async fn enqueue_app_function_task(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     workspace_id: uuid::Uuid,
     policy: Option<agentic_core::delegation::TaskPolicy>,
     task: crate::app_function_task::AppFunctionTask,
+) -> Result<String, ScheduleError> {
+    seed_app_function_task(db, workspace_id, policy, task, None).await
+}
+
+/// [`enqueue_app_function_task`] for a run not claimable before
+/// `available_at`: a published event's `delaySeconds`.
+pub async fn enqueue_app_function_task_at(
+    db: &impl ConnectionTrait,
+    workspace_id: uuid::Uuid,
+    policy: Option<agentic_core::delegation::TaskPolicy>,
+    task: crate::app_function_task::AppFunctionTask,
+    available_at: sea_orm::prelude::DateTimeWithTimeZone,
+) -> Result<String, ScheduleError> {
+    seed_app_function_task(db, workspace_id, policy, task, Some(available_at)).await
+}
+
+async fn seed_app_function_task(
+    db: &impl ConnectionTrait,
+    workspace_id: uuid::Uuid,
+    policy: Option<agentic_core::delegation::TaskPolicy>,
+    task: crate::app_function_task::AppFunctionTask,
+    available_at: Option<sea_orm::prelude::DateTimeWithTimeZone>,
 ) -> Result<String, ScheduleError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let mut metadata = serde_json::json!({});
@@ -512,17 +538,35 @@ pub async fn enqueue_app_function_task(
         kind: crate::app_function_task::APP_FUNCTION_KIND.into(),
         payload: task.to_payload(),
     };
-    agentic_runtime::crud::enqueue_task(
-        db,
-        &run_id,
-        &run_id,
-        None,
-        &spec,
-        policy.as_ref(),
-        agentic_runtime::crud::TaskScope::Global,
-    )
-    .await
-    .map_err(ScheduleError::Db)?;
+    let scope = agentic_runtime::crud::TaskScope::Global;
+    let queued = match available_at {
+        None => {
+            agentic_runtime::crud::enqueue_task(
+                db,
+                &run_id,
+                &run_id,
+                None,
+                &spec,
+                policy.as_ref(),
+                scope,
+            )
+            .await
+        }
+        Some(at) => {
+            agentic_runtime::crud::queue::enqueue_task_at(
+                db,
+                &run_id,
+                &run_id,
+                None,
+                &spec,
+                policy.as_ref(),
+                scope,
+                at,
+            )
+            .await
+        }
+    };
+    queued.map_err(ScheduleError::Db)?;
     Ok(run_id)
 }
 

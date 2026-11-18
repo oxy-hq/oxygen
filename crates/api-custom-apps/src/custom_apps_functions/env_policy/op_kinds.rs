@@ -29,6 +29,7 @@ pub enum Family {
     Notify,
     Org,
     Platform,
+    Events,
 }
 
 impl Family {
@@ -49,6 +50,7 @@ impl Family {
         Family::Notify,
         Family::Org,
         Family::Platform,
+        Family::Events,
     ];
 
     /// The family's wire name: the head of each of its ops' names.
@@ -69,6 +71,7 @@ impl Family {
             Family::Notify => "notify",
             Family::Org => "org",
             Family::Platform => "platform",
+            Family::Events => "events",
         }
     }
 
@@ -86,6 +89,7 @@ impl Family {
             Family::Oltp => "oltp.other",
             Family::Airhouse => "airhouse.other",
             Family::Storage => "storage.other",
+            Family::Events => "events.other",
             _ => "other",
         }
     }
@@ -128,6 +132,8 @@ pub enum Capability {
     Oltp,
     /// `airhouse.enabled`, resolved the same way.
     Airhouse,
+    /// `events.publish` — the bare event names the function may publish.
+    Events,
     /// A customer-warehouse write: gated per database the call names
     /// (`destinations` and `customerWarehouseWrites`), by the host's
     /// `check_write_destination`, never at the op level — so the broker
@@ -151,6 +157,7 @@ impl Capability {
             Capability::StorageReadAndWrite => None,
             Capability::Oltp => Some("oltp"),
             Capability::Airhouse => Some("airhouse"),
+            Capability::Events => Some("events"),
             Capability::WarehouseWrite => Some("customer_warehouse_writes"),
         }
     }

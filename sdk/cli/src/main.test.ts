@@ -428,6 +428,18 @@ describe("the bare-customer form", () => {
     expect(oxyc("preview", "--help").status).toBe(ExitCode.OK);
   });
 
+  /**
+   * `oxyc events` calls the app events endpoints that ship with the events
+   * delivery work, which this version's server does not have: registered now,
+   * every verb would answer 404, read as "not found" (exit 5). Until those
+   * endpoints exist the group is not registered (`commands/events-cli.ts`):
+   * help does not offer it, and `oxyc events` is no command of its own.
+   */
+  it("does not offer `oxyc events` before its endpoints exist", () => {
+    expect(oxyc("--help").stdout).not.toMatch(/^\s+events\b/m);
+    expect(oxyc("events", "--help").stdout).not.toMatch(/listener health|redeliver|replay/);
+  });
+
   it("does not swallow a flag", () => {
     expect(oxyc("--version").status).toBe(ExitCode.OK);
   });
@@ -497,7 +509,8 @@ describe("help", () => {
    * `oxyc routes <filter>` instead, and help must stay short.
    */
   it("stays short enough to read — discovery is a command, not an epilogue", () => {
-    expect(oxyc("--help").stdout.split("\n").length).toBeLessThan(60);
+    // One line per command; the bound guards against an epilogue, not against a command.
+    expect(oxyc("--help").stdout.split("\n").length).toBeLessThan(70);
     expect(oxyc("api", "--help").stdout.split("\n").length).toBeLessThan(90);
   });
 

@@ -22,6 +22,11 @@ import { parseAppEnv } from "../apps/environment.js";
 import { type Creds, ensureOk, type ResolvedApp, resolveApp, staffCreds } from "../apps/resolve.js";
 import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
+import {
+  EVENT_LISTENERS_BROKEN,
+  listenersHint,
+  withListenersHint
+} from "../publish/listeners-hint.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -85,6 +90,8 @@ export interface MoveFlags {
   appEnv?: string;
   /** `--remove-schedule`, once per function whose schedule the move retires. */
   removeSchedules?: string[];
+  /** promote: ship over production event listeners the build breaks (audited). */
+  breakListeners?: boolean;
   dryRun?: boolean;
   yes?: boolean;
   json?: boolean;
@@ -147,7 +154,11 @@ async function send(
     headers: s.creds.headers,
     timeoutMs
   });
-  ensureOk(response, s.creds);
+  try {
+    ensureOk(response, s.creds);
+  } catch (cause) {
+    throw withListenersHint(cause);
+  }
   return parseJson(response.body) as Plan;
 }
 
@@ -187,12 +198,18 @@ async function planThenAct(
   return send(s, path, { ...act, ...pinned }, ACT_TIMEOUT_MS);
 }
 
-/** A plan that lists blockers is not sent as an act: say why, exit 6. */
+/**
+ * A plan that lists blockers is not sent as an act: say why, exit 6. The
+ * listeners hint is for any blocker that is a broken listener, wherever it is
+ * in the list.
+ */
 function refuseBlocked(plan: Plan): void {
   if (plan.blockers.length === 0) return;
   const first = plan.blockers[0];
+  const listeners = plan.blockers.find((b) => b.code === EVENT_LISTENERS_BROKEN);
   throw new CliError(`${plan.action} refused: ${plan.blockers.map((b) => b.code).join(", ")}`, {
     code: ExitCode.REQUEST,
+    hint: listeners ? listenersHint(listeners.code, listeners.message) : undefined,
     detail: plan.blockers.map((b) => `${b.code}: ${b.message}`).join("\n"),
     serverCode: first?.code,
     serverMessage: first?.message
@@ -207,6 +224,7 @@ export async function promote(ctx: Context, app: string, flags: MoveFlags): Prom
     confirm_schedule_removals: flags.removeSchedules ?? []
   };
   if (flags.build !== undefined) body.build = flags.build;
+  if (flags.breakListeners) body.breakListeners = true;
   return planThenAct(ctx, app, { kind: "promote", environment: to, body }, flags);
 }
 

@@ -81,7 +81,8 @@ impl CallLabel {
             | HostCall::PlatformFacts { .. }
             | HostCall::Tx { .. }
             | HostCall::Oltp { .. }
-            | HostCall::Airhouse { .. } => {}
+            | HostCall::Airhouse { .. }
+            | HostCall::Events { .. } => {}
         }
         label
     }

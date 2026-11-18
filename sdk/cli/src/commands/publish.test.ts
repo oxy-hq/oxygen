@@ -338,6 +338,35 @@ describe("oxyc publish", () => {
     expect(upload?.confirmations).toEqual(["nightly", "hourly"]);
   });
 
+  it("publish --break-listeners sends breakListeners", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--break-listeners"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(uploads()[0]?.fields.breakListeners).toBe("true");
+  });
+
+  it("publish without --break-listeners sends no breakListeners", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out"], { OXY_TOKEN: "good-token" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(uploads()[0]?.fields.breakListeners).toBeUndefined();
+  });
+
+  it("hints --break-listeners when the server refuses a promoting publish over listeners", async () => {
+    productionRefusal = {
+      code: "event_listeners_broken",
+      error: "event_listeners_broken",
+      message:
+        "refused: `locations/statement.uploaded` is removed, but a production listener uses it"
+    };
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--promote"], { OXY_TOKEN: "good-token" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("--break-listeners");
+  });
+
   it("refuses --remove-schedule without --promote before calling the server", async () => {
     const dir = app();
     const result = await publish(dir, ["--dir", "out", "--remove-schedule", "nightly"], {

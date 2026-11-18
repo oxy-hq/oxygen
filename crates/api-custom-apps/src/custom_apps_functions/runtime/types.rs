@@ -29,6 +29,23 @@ pub struct InvocationCtx {
     /// starts; `__buildCtx` freezes `ctx.app`.
     #[serde(rename = "buildId")]
     pub build_id: uuid::Uuid,
+    /// The event whose delivery started this invocation, when one did: what a
+    /// publish from it chains from (`causationid`, `rootid`, `depth`, `actor`).
+    /// `None` for every other trigger. The host's alone — a function learns
+    /// the event from its input, never from `ctx`, so it is not serialized.
+    #[serde(skip)]
+    pub event: Option<EventCause>,
+}
+
+/// The event an invocation handles, as a publish from it chains from it (app
+/// events design §6.1, §6.4): the publish's `causationid` is `id`, its `rootid`
+/// is `root_id`, its depth is `depth + 1`, and it inherits `actor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventCause {
+    pub id: uuid::Uuid,
+    pub root_id: uuid::Uuid,
+    pub depth: i32,
+    pub actor: Option<String>,
 }
 
 /// One org team the caller belongs to, as surfaced through `ctx.user.teams`.

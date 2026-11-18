@@ -60,6 +60,7 @@ import { runEnvOutbox } from "./commands/env-outbox.js";
 import { runEnvReset, runEnvUpdate } from "./commands/env-planes.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
+import { runEnvEvents } from "./commands/events.js";
 import { registerExperiments } from "./commands/experiments-cli.js";
 import { registerFlags } from "./commands/flags-cli.js";
 import { runFnCall } from "./commands/fn.js";
@@ -1028,6 +1029,25 @@ function buildProgram(): Command {
     });
   });
 
+  withGlobals(
+    env
+      .command("events <app>")
+      .description(
+        "staging's or a sandbox's events switch (off by default: events are recorded, held, and not delivered)"
+      )
+      .requiredOption("--app-env <environment>", "staging or a dev-<handle> sandbox")
+      .option("--on", "deliver events in this environment")
+      .option("--off", "record events but hold them")
+      .option("--json", "emit the server's reply as JSON")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runEnvEvents(createContext(globals(opts)), app, {
+      appEnv: opts.appEnv as string | undefined,
+      on: opts.on as boolean | undefined,
+      off: opts.off as boolean | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+
   const envSecret = env
     .command("secret")
     .description("a sandbox's own secrets — keys and flags, set, delete; never a value");
@@ -1093,6 +1113,10 @@ function buildProgram(): Command {
         collect,
         []
       )
+      .option(
+        "--break-listeners",
+        "promote over production event listeners this build breaks; audited"
+      )
       .option("--dry-run", "print the plan and stop")
       .option("--yes", "act without asking — needed off a terminal")
       .option("--json", "emit the server's plan as JSON")
@@ -1110,6 +1134,7 @@ function buildProgram(): Command {
       from: opts.from as string | undefined,
       build: opts.build as string | undefined,
       removeSchedules: opts.removeSchedule as string[] | undefined,
+      breakListeners: Boolean(opts.breakListeners) || undefined,
       dryRun: Boolean(opts.dryRun),
       yes: Boolean(opts.yes),
       json: Boolean(opts.json)
@@ -1792,6 +1817,10 @@ function buildProgram(): Command {
         collect,
         []
       )
+      .option(
+        "--break-listeners",
+        "ship over production event listeners this build breaks (a removed event type or an incompatible schema); audited"
+      )
       .addHelpText(
         "after",
         "\n--org takes a slug or a UUID (default: OXY_ORG, then oxy-app.json orgSlug, then\n" +
@@ -1830,7 +1859,8 @@ function buildProgram(): Command {
       semanticBranch: opts.semanticBranch as string | undefined,
       allowFunctionLint: opts.allowFunctionLint as boolean | undefined,
       appEnv: opts.appEnv as string | undefined,
-      removeSchedules: opts.removeSchedule as string[] | undefined
+      removeSchedules: opts.removeSchedule as string[] | undefined,
+      breakListeners: Boolean(opts.breakListeners) || undefined
     });
   });
 

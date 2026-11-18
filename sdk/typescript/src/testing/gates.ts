@@ -37,6 +37,11 @@ export interface FunctionGates {
   storageWrite: boolean;
   oltp: boolean;
   airhouse: boolean;
+  /**
+   * `events.publish`: the bare event names the function may publish; `null`
+   * when it declares none, which is what the host refuses `ctx.events` for.
+   */
+  events: Set<string> | null;
   /** `destinations`: the databases `ctx.warehouse` writes and `ctx.tx` may name. */
   destinations: string[];
   /** `customerWarehouseWrites`: database → the non-blank reason, blank ones dropped. */
@@ -92,6 +97,13 @@ function notifyKinds(spec: Record<string, unknown>): Record<string, boolean> | n
   return out;
 }
 
+/** `events` in `host.rs`: `null` without a declared type, the declared names with one. */
+function events(spec: Record<string, unknown>): Set<string> | null {
+  if (!isObject(spec.events) || !Array.isArray(spec.events.publish)) return null;
+  const names = spec.events.publish.filter((n): n is string => typeof n === "string");
+  return names.length > 0 ? new Set(names) : null;
+}
+
 /** Read the gates for `functionName` from `manifest`, or throw naming what is missing. */
 export function readGates(manifest: ManifestLike, functionName: string): FunctionGates {
   const spec = manifest.functions?.[functionName];
@@ -125,6 +137,7 @@ export function readGates(manifest: ManifestLike, functionName: string): Functio
     storageWrite: flag(spec, "storage", "write"),
     oltp: flag(spec, "oltp", "enabled"),
     airhouse: flag(spec, "airhouse", "enabled"),
+    events: events(spec),
     destinations,
     customerWarehouseWrites,
     fetchMaxBytes: typeof fetch.maxResponseBytes === "number" ? fetch.maxResponseBytes : null

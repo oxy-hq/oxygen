@@ -92,7 +92,15 @@ describe("oxy-app.schema.json", () => {
 
   it("names every field the server honours", () => {
     const fn = OXY_APP_SCHEMA.definitions.OxyAppFunctionManifest?.properties ?? {};
-    for (const field of ["rateLimitPerMinute", "fetch", "storage", "timeoutSeconds", "webhook"]) {
+    for (const field of [
+      "rateLimitPerMinute",
+      "fetch",
+      "storage",
+      "timeoutSeconds",
+      "webhook",
+      "on",
+      "events"
+    ]) {
       expect(fn[field], field).toBeDefined();
     }
     const app = OXY_APP_SCHEMA.definitions.OxyAppManifest?.properties ?? {};
@@ -103,6 +111,7 @@ describe("oxy-app.schema.json", () => {
       "description",
       "build",
       "environments",
+      "events",
       "$schema"
     ]) {
       expect(app[field], field).toBeDefined();

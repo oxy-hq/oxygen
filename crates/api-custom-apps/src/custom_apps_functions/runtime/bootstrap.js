@@ -159,6 +159,15 @@ function __wrapOp(opName) {
   };
 }
 
+// The fields of an events.publish(type, data, opts?) the host reads, and no
+// others: `opts` contributes `key` and `delaySeconds` alone, so an option named
+// `type` or `id` cannot change what is published or where. An option left out
+// stays out (`undefined` is dropped from the JSON), and the host says so.
+const __publishFields = (type, data, opts) => {
+  const o = opts ?? {};
+  return { type: String(type), data, key: o.key, delaySeconds: o.delaySeconds };
+};
+
 // The commit/rollback bracket behind ctx.tx and ctx.oltp.tx. It lives HERE
 // rather than in the author's code on purpose: an author who forgets a rollback
 // in a catch block leaves a transaction open holding locks, and the only
@@ -197,6 +206,20 @@ const __runTx = async (signature, label, beginOp, beginPayload, fn) => {
       return r.rowCount;
     },
   };
+  // events.publish(type, data, opts?) — an outbox row written ON this
+  // transaction's connection, so it commits or rolls back with the author's own
+  // writes. Only an OLTP handle has it: the outbox lives in the app's own store,
+  // and a warehouse handle (`ctx.tx`) is a different connection. The payload is
+  // named fields only, the handle's own `id` among them, so nothing in `opts`
+  // can move the publish to another transaction or change its type.
+  if (beginOp === "begin_oltp") {
+    handle.events = {
+      publish: async (type, data, opts) => {
+        live("events.publish");
+        return call("publish", { id, ...__publishFields(type, data, opts) });
+      },
+    };
+  }
   let result;
   try {
     result = await fn(handle);
@@ -365,6 +388,15 @@ globalThis.__buildCtx = (ctxData) => ({
     // controls `from` (author sets replyTo only). Render templates to `html`
     // with `render` from @oxy-hq/sdk/email before calling this.
     send: (input) => __wrapOp("op_ctx_email_send")(input),
+  },
+  // events.publish(type, data, opts?) — put an event in this app's outbox:
+  // `opts` is { key, delaySeconds? }. The type must be one the function
+  // declared under `events.publish`; the host checks it, and the data's size.
+  // Inside `ctx.oltp.tx` use `tx.events.publish` instead, so the event commits
+  // with the transaction.
+  events: {
+    publish: (type, data, opts) =>
+      __wrapOp("op_ctx_events")("publish", __publishFields(type, data, opts)),
   },
   // notify(input) — tell people in this org something: { to, kind, title,
   // body?, link?, email?, slack?, idempotencyKey? }. `to` names people (a user

@@ -35,6 +35,9 @@ pub struct PublishForm {
     pub environment: Option<String>,
     /// A promoting publish's confirmed schedule retirements, by function.
     pub confirm_schedule_removals: Vec<String>,
+    /// `break_listeners` (or `breakListeners`): ship over production event
+    /// listeners the build breaks.
+    pub break_listeners: bool,
 }
 
 /// Every field as it arrived, before validation. A `_invalid` holds a value
@@ -59,6 +62,7 @@ struct RawFields {
     semantic_revision_invalid: Option<String>,
     environment: Option<String>,
     confirm_schedule_removals: Vec<String>,
+    break_listeners: bool,
 }
 
 fn bad_request(message: String) -> PublishRefusal {
@@ -89,6 +93,9 @@ impl RawFields {
             "confirm_schedule_removals" => self.confirm_schedule_removals.extend(non_empty(val)),
             "channel" => self.promote = val == "published",
             "promote" => self.promote = val == "true" || val == "1",
+            "break_listeners" | "breakListeners" => {
+                self.break_listeners = val == "true" || val == "1"
+            }
             // Staging pin (`--semantic-branch`). Not `branch`, which is the
             // app's SOURCE branch.
             "semantic_revision_id" => self.take_semantic_revision(val),
@@ -224,6 +231,7 @@ impl PublishForm {
             semantic_revision_id: raw.semantic_revision_id,
             environment: raw.environment,
             confirm_schedule_removals: raw.confirm_schedule_removals,
+            break_listeners: raw.break_listeners,
         })
     }
 

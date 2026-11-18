@@ -18,6 +18,23 @@
 import type { OxyAppNotificationsManifest } from "./notification-catalog";
 import type { OxyAppWidget } from "./widgets";
 
+/** The events a function may publish; each name must be declared in the app's `events`. */
+export interface OxyAppFunctionEventsManifest {
+  /** Names (keys of the app-level `events`) this function may publish. */
+  publish: string[];
+}
+
+/** One event this app publishes, declared under the app-level `events`. */
+export interface OxyAppEventDeclaration {
+  /** What the event means, for people reading the catalogue. */
+  description?: string;
+  /**
+   * The payload's JSON Schema. In source, a path (relative to the app dir) to a
+   * schema file; `oxyc publish` embeds the parsed object in the bundle.
+   */
+  schema: string | Record<string, unknown>;
+}
+
 /**
  * Declaration of a single Oxy Function shipped in the bundle's
  * `functions/` dir.
@@ -43,6 +60,15 @@ export interface OxyAppFunctionManifest {
   route?: boolean;
   /** Wire the function in as an Airway pipeline transform step. */
   airwayStep?: OxyAppAirwayStepManifest;
+  /**
+   * App events this function runs on: one `<app-slug>/<event-name>` or a list.
+   * `<app-slug>` is the publishing app (this app's own slug for its own
+   * events); `<event-name>` is dot-separated lowercase, e.g.
+   * `statements/statement.uploaded`. Counts as an invocation surface.
+   */
+  on?: string | string[];
+  /** App events this function may publish (`ctx.events.publish`). */
+  events?: OxyAppFunctionEventsManifest;
   /**
    * Receive an unauthenticated POST from a third party at
    * `POST /api/webhooks/apps/<org>/<app>/<name>`.
@@ -530,6 +556,12 @@ export interface OxyAppManifest {
    * key becomes `functions/<name>.js`. Omit for a pure static bundle.
    */
   functions?: Record<string, OxyAppFunctionManifest>;
+  /**
+   * The events this app publishes, keyed by event name — dot-separated
+   * lowercase (`statement.uploaded`). Functions list the ones they may publish
+   * under `events.publish`; other apps' functions subscribe with `on`.
+   */
+  events?: Record<string, OxyAppEventDeclaration>;
   /**
    * Schema migrations for the app's OLTP store (`ctx.oltp`) that ship WITH this
    * bundle and run on promote.

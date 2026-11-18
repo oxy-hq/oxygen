@@ -26,11 +26,243 @@
 //!   by Postgres. Not one that notifies or takes an advisory lock: `READ ONLY`
 //!   allows both (see `env_policy::oltp_sql`). Each held entry, and the error,
 //!   names how to get a branch.
+//! - **An event publish** goes where an OLTP write would: production's store,
+//!   or the branch the run — or, on a handle, its `begin` — was admitted to.
+//!   Held (with how to get a branch) or refused anywhere else, before
+//!   anything connects ([`ProjectFunctionHost::admit_publish`]), so a
+//!   non-production event never lands in production's outbox.
+//!
+//! **In every environment**, production included, a statement naming the
+//! platform's events schema `oxy_events`, or setting `search_path` from a
+//! value built when it runs, is refused before it is sent
+//! ([`refuse_platform_schema`], which says what it cannot see): apps publish
+//! through `ctx.events.publish`.
+
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::tokenizer::{Token, Tokenizer};
 
 use super::super::env_policy::{self, Decision, HostOp, Target};
 use super::super::host_call_attrs::QuerySummary;
 use super::env_guard::{HeldTarget, holds};
 use super::*;
+
+/// The platform's events schema (`oxy_oltp::platform::EVENTS_SCHEMA`).
+const PLATFORM_EVENTS_SCHEMA: &str = oxy_oltp::platform::EVENTS_SCHEMA;
+
+/// What `ctx.oltp` SQL naming [`PLATFORM_EVENTS_SCHEMA`] is refused with, in
+/// every environment.
+pub(super) const PLATFORM_SCHEMA_REFUSAL: &str =
+    "OltpPlatformSchema: `oxy_events` belongs to the platform; publish with ctx.events.publish";
+
+/// What a Unicode-escaped identifier is refused with: it can spell any name.
+const UNICODE_IDENTIFIER_REFUSAL: &str = "OltpPlatformSchema: a Unicode-escaped identifier \
+     (U&\"…\") could spell `oxy_events`, which belongs to the platform; write the name plainly";
+
+/// What setting `search_path` from a value built when the statement runs is
+/// refused with: it could name the platform's schema, and an unqualified
+/// `publish(...)` would then reach it.
+const SEARCH_PATH_REFUSAL: &str = "OltpPlatformSchema: `search_path` may be set only to plain \
+     names or plain string literals, which are checked for `oxy_events`; this statement sets it \
+     from a value built when it runs";
+
+/// `Err` when `sql` reaches the platform's events schema in a way that can be
+/// read off the statement, in every environment, before it is sent (after
+/// the environment's own admission, so a statement staging holds is reported
+/// held). Refused:
+///
+/// - an identifier `oxy_events` — unquoted in any case, as Postgres folds it,
+///   or double-quoted exactly — or the name spelled whole inside a string or
+///   a dollar-quoted body, where Postgres may resolve it when the statement
+///   runs (`DO … EXECUTE '…'`); comments say nothing;
+/// - any Unicode-escaped identifier `U&"…"`, which can spell any name;
+/// - changing `search_path` to anything but plain names and plain string
+///   literals: `set_config` whose setting is not a plain literal, or that sets
+///   `search_path` to anything but one; a statement naming `search_path` that
+///   carries an escape, Unicode or dollar-quoted string or a backslash; and
+///   `UPDATE pg_settings`, which is `SET` by another name.
+///
+/// SQL the tokenizer cannot read is searched as text for the same names.
+///
+/// **What it cannot see** is SQL built while it runs: a `DO` block, or a
+/// function the app defined (in its migrations, or with `CREATE FUNCTION`
+/// here), that executes concatenated text or sets `search_path` from it. The
+/// writer holds `EXECUTE` on `oxy_events.publish`, so such SQL can publish.
+/// No lexical rule closes that — the app writes its own functions — and
+/// refusing `DO` alone would close nothing while changing what production
+/// sends today. What holds there: the definer function records the calling
+/// writer role and refuses a depth outside 0–8, a delay outside 0–86 400 s, a
+/// key outside 1–200 characters and data over 64 KiB as `jsonb` text (platform
+/// step 5: the relay's own limit, by the relay's own measure); the
+/// relay derives the id and environment itself, takes only names the live
+/// build declares and revisions recorded for them, and quarantines an
+/// oversized payload. **Not enforced against such SQL:** the function's own
+/// `events.publish` list, the org's `app_events` flag, schema validation of
+/// the data, and the actor, root and causation it claims.
+pub(super) fn refuse_platform_schema(sql: &str) -> Result<(), String> {
+    let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
+        return refuse_in_text(sql);
+    };
+    if tokens.iter().any(names_platform_schema) {
+        return Err(PLATFORM_SCHEMA_REFUSAL.to_string());
+    }
+    if has_unicode_identifier(&tokens) {
+        return Err(UNICODE_IDENTIFIER_REFUSAL.to_string());
+    }
+    let code: Vec<&Token> = tokens
+        .iter()
+        .filter(|t| !matches!(t, Token::Whitespace(_)))
+        .collect();
+    if sets_search_path_when_it_runs(&code) {
+        return Err(SEARCH_PATH_REFUSAL.to_string());
+    }
+    Ok(())
+}
+
+/// Whether `token` names [`PLATFORM_EVENTS_SCHEMA`] or spells it in a string.
+fn names_platform_schema(token: &Token) -> bool {
+    match token {
+        Token::Word(word) if word.quote_style.is_some() => word.value == PLATFORM_EVENTS_SCHEMA,
+        Token::Word(word) => word.value.eq_ignore_ascii_case(PLATFORM_EVENTS_SCHEMA),
+        Token::DollarQuotedString(body) => spells_platform_schema(&body.value),
+        other => string_text(other).is_some_and(spells_platform_schema),
+    }
+}
+
+/// The text of a string token of any kind; `None` for anything else.
+fn string_text(token: &Token) -> Option<&str> {
+    match token {
+        Token::SingleQuotedString(s)
+        | Token::DoubleQuotedString(s)
+        | Token::EscapedStringLiteral(s)
+        | Token::NationalStringLiteral(s)
+        | Token::UnicodeStringLiteral(s)
+        | Token::HexStringLiteral(s)
+        | Token::SingleQuotedByteStringLiteral(s)
+        | Token::DoubleQuotedByteStringLiteral(s)
+        | Token::SingleQuotedRawStringLiteral(s)
+        | Token::DoubleQuotedRawStringLiteral(s)
+        | Token::TripleSingleQuotedString(s)
+        | Token::TripleDoubleQuotedString(s) => Some(s),
+        Token::DollarQuotedString(body) => Some(&body.value),
+        _ => None,
+    }
+}
+
+/// `U&"…"`: an unquoted `U`, then `&`, then a double-quoted identifier, with
+/// nothing between them (Postgres allows nothing there).
+fn has_unicode_identifier(tokens: &[Token]) -> bool {
+    tokens.windows(3).any(|w| {
+        matches!(&w[0], Token::Word(u) if u.quote_style.is_none() && u.value.eq_ignore_ascii_case("u"))
+            && w[1] == Token::Ampersand
+            && matches!(&w[2], Token::Word(q) if q.quote_style == Some('"'))
+    })
+}
+
+/// `name` as Postgres resolves the identifier `word`.
+fn folded(word: &sqlparser::tokenizer::Word) -> String {
+    match word.quote_style {
+        Some(_) => word.value.clone(),
+        None => word.value.to_ascii_lowercase(),
+    }
+}
+
+/// A plain string literal: `'…'` with no backslash, which every
+/// `standard_conforming_strings` setting reads as written.
+fn plain_literal(token: &Token) -> Option<&str> {
+    match token {
+        Token::SingleQuotedString(s) if !s.contains('\\') => Some(s),
+        _ => None,
+    }
+}
+
+/// Whether the statement may set `search_path` to a value built when it runs
+/// (`code` is the tokens without whitespace and comments). See
+/// [`refuse_platform_schema`].
+fn sets_search_path_when_it_runs(code: &[&Token]) -> bool {
+    let word = |t: &Token, name: &str| matches!(t, Token::Word(w) if folded(w) == name);
+    for (at, token) in code.iter().enumerate() {
+        if word(token, "set_config") && code.get(at + 1) == Some(&&Token::LParen) {
+            let args = call_arguments(&code[at + 2..]);
+            let setting = match args.first() {
+                Some([only]) => plain_literal(only),
+                _ => None,
+            };
+            let Some(setting) = setting else {
+                return true;
+            };
+            if setting.trim().eq_ignore_ascii_case("search_path")
+                && !matches!(args.get(1), Some([value]) if plain_literal(value).is_some())
+            {
+                return true;
+            }
+        }
+    }
+    if code.iter().any(|t| word(t, "search_path"))
+        && code
+            .iter()
+            .any(|t| string_text(t).is_some() && plain_literal(t).is_none())
+    {
+        return true;
+    }
+    code.iter().any(|t| word(t, "pg_settings")) && code.iter().any(|t| word(t, "update"))
+}
+
+/// The top-level arguments of a call whose `(` has just been read, each as
+/// its tokens, up to the matching `)` (or the end of the statement).
+fn call_arguments<'a>(code: &'a [&'a Token]) -> Vec<&'a [&'a Token]> {
+    let mut arguments = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (at, token) in code.iter().enumerate() {
+        match token {
+            Token::LParen | Token::LBracket => depth += 1,
+            Token::RParen | Token::RBracket if depth > 0 => depth -= 1,
+            Token::RParen => {
+                arguments.push(&code[start..at]);
+                return arguments;
+            }
+            Token::Comma if depth == 0 => {
+                arguments.push(&code[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    arguments.push(&code[start..]);
+    arguments
+}
+
+/// [`refuse_platform_schema`] for SQL the tokenizer cannot read: the names
+/// it would have refused, as text.
+fn refuse_in_text(sql: &str) -> Result<(), String> {
+    let lowered = sql.to_ascii_lowercase();
+    if spells_platform_schema(sql) {
+        Err(PLATFORM_SCHEMA_REFUSAL.to_string())
+    } else if lowered.contains("u&\"") {
+        Err(UNICODE_IDENTIFIER_REFUSAL.to_string())
+    } else if ["set_config", "search_path", "pg_settings"]
+        .iter()
+        .any(|name| lowered.contains(name))
+    {
+        Err(SEARCH_PATH_REFUSAL.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// Whether `text` spells [`PLATFORM_EVENTS_SCHEMA`] as a whole name, without
+/// case.
+fn spells_platform_schema(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    lowered
+        .match_indices(PLATFORM_EVENTS_SCHEMA)
+        .any(|(at, name)| {
+            let before = lowered[..at].chars().next_back();
+            let after = lowered[at + name.len()..].chars().next();
+            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+        })
+}
 
 /// Appended to an OLTP DSN's `options` outside production: every transaction
 /// the session opens is read-only unless a statement lifts it — which the
@@ -131,6 +363,31 @@ impl ProjectFunctionHost {
             self.policy.environment(),
             &statement.why,
         ))
+    }
+
+    /// Where the environment lets an event publish go, decided before
+    /// anything connects. `decided` is the op's decision — the handle's, for
+    /// a publish on a `ctx.oltp.tx` handle (`EnvPolicy::decide_on_handle`).
+    /// `Ok` to write on production's store or the OLTP branch the run (or
+    /// the handle) is on; held or refused, logged, otherwise — never written
+    /// to production's store from outside production.
+    pub(super) async fn admit_publish(
+        &self,
+        op: HostOp,
+        decided: Decision,
+        name: &str,
+    ) -> Result<(), String> {
+        let target: HeldTarget<'_> = ("oltp", PLATFORM_EVENTS_SCHEMA, "PUBLISH", name);
+        match decided {
+            Decision::Allow | Decision::Isolate(Target::OltpBranch) => Ok(()),
+            Decision::Hold => {
+                self.note_held_oltp(op, target).await;
+                Err(self.with_branch_note(self.held_error(op)))
+            }
+            // A refusal in the policy's words; any other home is not one a
+            // publish can be written to, and is refused rather than run.
+            other => self.admit_decided(op, other, target).await,
+        }
     }
 
     /// `Err` when the policy refuses `op` outright — a sandbox whose own
@@ -275,7 +532,97 @@ fn read_only_session(dsn: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::read_only_session;
+    use super::{PLATFORM_SCHEMA_REFUSAL, read_only_session, refuse_platform_schema};
+
+    #[test]
+    fn sql_naming_the_platform_events_schema_is_refused_however_spelled() {
+        for sql in [
+            "select oxy_events.publish($1)",
+            "DELETE FROM OXY_EVENTS.outbox",
+            "select * from \"oxy_events\".outbox",
+            "do $$ begin execute 'select 1 from oxy_events.outbox'; end $$",
+            "select 'Oxy_Events.outbox'::regclass",
+            "grant usage on schema oxy_events to public",
+            "SET search_path TO oxy_events",
+            "set local search_path = 'oxy_events, public'",
+        ] {
+            assert_eq!(
+                refuse_platform_schema(sql),
+                Err(PLATFORM_SCHEMA_REFUSAL.to_string()),
+                "{sql}"
+            );
+        }
+    }
+
+    /// The review's spellings, which name the schema only once Postgres reads
+    /// them: a Unicode-escaped identifier, and `search_path` set to a value
+    /// built when the statement runs (then an unqualified `publish(...)`).
+    #[test]
+    fn sql_that_spells_the_schema_only_when_it_runs_is_refused() {
+        for sql in [
+            r#"select U&"oxy\005fevents".publish($1)"#,
+            r#"select u&"oxy!005fevents" uescape '!' .outbox"#,
+            r#"select U&"set_confi\0067"('search_path', 'public', true)"#,
+            "select set_config('search_path', 'oxy' || '_events', true)",
+            "select pg_catalog.set_config('search_path', $1, true)",
+            "select SET_CONFIG ( 'search_path' , format('%s_events', 'oxy'), false )",
+            "select set_config('SEARCH_PATH', E'oxy\\137events', true)",
+            "select set_config('search_path', 'oxy\\137events', true)",
+            "select set_config(name, value, true) from (values ('search_path', 'x')) v(name, value)",
+            "select set_config(E'search\\137path', 'public', true)",
+            "select \"set_config\"(setting_name => 'search_path', new_value => 'public', is_local => true)",
+            "SET search_path = E'oxy\\137events'",
+            "set local search_path to U&'oxy\\005fevents'",
+            "alter role current_user set search_path = $$oxy_e$$",
+            "update pg_settings set setting = 'oxy' || '_events' where name = 'search_path'",
+            "UPDATE pg_catalog.PG_SETTINGS SET setting = $1 WHERE name = $2",
+        ] {
+            let refused = refuse_platform_schema(sql).expect_err(sql);
+            assert!(
+                refused.starts_with("OltpPlatformSchema: "),
+                "{sql}: {refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn sql_merely_resembling_it_is_sent() {
+        for sql in [
+            "select * from events",
+            "select * from my_oxy_events",
+            "select oxy_events_archive from t",
+            "insert into notes (body) values ('oxy_eventsx')",
+            "select 1 -- oxy_events.outbox is the platform's\n",
+            "select 1 /* oxy_events */",
+            "select * from \"OXY_EVENTS\".outbox",
+            "select set_config('app.tenant', $1, true)",
+            "select set_config('default_transaction_read_only', 'off', false)",
+            "select set_config('search_path', 'public, app_x', true)",
+            "set search_path = public",
+            "SET LOCAL search_path TO app_x, public",
+            "show search_path",
+            "select current_setting('search_path')",
+            "select name, setting from pg_settings where name = 'search_path'",
+            "select u & flags from t",
+            "select E'line\\n' as text",
+        ] {
+            assert_eq!(refuse_platform_schema(sql), Ok(()), "{sql}");
+        }
+    }
+
+    /// What the guard cannot see: SQL built while it runs, by a `DO` block or
+    /// a function the app defined. The writer may call `oxy_events.publish`
+    /// that way; the definer function's bounds (platform step 5) and the relay
+    /// are what hold there. Pinned so a change to that is deliberate.
+    #[test]
+    fn sql_built_when_it_runs_is_not_seen() {
+        for sql in [
+            "do $$ begin execute 'select 1 from oxy' || '_events.outbox'; end $$",
+            "select app_run_text('select 1 from oxy' || '_events.outbox')",
+        ] {
+            assert_eq!(refuse_platform_schema(sql), Ok(()), "{sql}");
+        }
+    }
 
     #[test]
     fn the_read_only_default_joins_the_writers_search_path_option() {

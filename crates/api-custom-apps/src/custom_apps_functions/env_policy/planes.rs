@@ -37,7 +37,7 @@ impl HostOp {
             SemanticQuery => Plane::Semantic,
             WarehouseInsert | WarehouseExec | WarehouseUpsert | TxBegin | TxQuery | TxExec
             | TxCommit | TxRollback => Plane::Warehouse,
-            TxBeginOltp | OltpQuery | OltpExec => Plane::Oltp,
+            TxBeginOltp | OltpQuery | OltpExec | EventsPublish | TxPublish => Plane::Oltp,
             AirhouseQuery | AirhouseExec | AirhouseAppend => Plane::Airhouse,
             StorageGetUploadUrl
             | StorageGetDownloadUrl

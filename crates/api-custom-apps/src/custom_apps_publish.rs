@@ -255,6 +255,10 @@ pub struct PublishResult {
     /// unaffected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Production listeners this publish broke because `--break-listeners`
+    /// said to: the route audits them. Never on the wire.
+    #[serde(skip)]
+    pub broken_listeners: Vec<String>,
     /// How long each pipeline stage took, in order (`oxyc publish` prints
     /// them). Omitted when empty, as `warnings` is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -265,6 +269,11 @@ pub struct PublishResult {
 pub enum PublishError {
     #[error("organization {0:?} not found")]
     UnknownOrg(String),
+    /// A promoting publish whose build removes an event type, or changes its
+    /// schema incompatibly, while a production listener depends on it
+    /// (`app_events::gate`). Surfaced as 409.
+    #[error("refused: {}", .0.join("; "))]
+    EventListenersBroken(Vec<String>),
     #[error("project {0} is not part of org {1:?}")]
     UnknownProject(Uuid, String),
     #[error(
@@ -458,7 +467,7 @@ impl PublishTarget {
         org_slug: &str,
         input: PublishInput,
         (app_id, is_new_app): (Uuid, bool),
-        warnings: Vec<String>,
+        (warnings, broken_listeners): (Vec<String>, Vec<String>),
     ) -> PublishResult {
         let (environment, channel) = self.moved(input.promote);
         PublishResult {
@@ -475,6 +484,7 @@ impl PublishTarget {
             org_slug: org_slug.to_string(),
             is_new_app,
             warnings,
+            broken_listeners,
             stages: Vec::new(),
         }
     }
@@ -505,6 +515,7 @@ impl PublishError {
             }
             PublishError::DuplicateBuild { .. }
             | PublishError::ProjectMismatch { .. }
+            | PublishError::EventListenersBroken(_)
             | PublishError::AppLimit { .. } => StatusCode::CONFLICT,
             PublishError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             PublishError::InvalidBuildId(_)
@@ -558,6 +569,11 @@ impl PublishError {
             PublishError::AgentDraft(refused) => Some(refused.code()),
             // The first blocker's code, as a refused `oxyc promote` answers.
             PublishError::ProductionBlocked(blockers) => blockers.first().map(|b| b.code),
+            // The code a promote refused over the same listeners carries, so
+            // `oxyc` keys its hint on it rather than on the sentence.
+            PublishError::EventListenersBroken(_) => {
+                Some(crate::custom_apps_promote::error::EVENT_LISTENERS_BROKEN)
+            }
             _ => None,
         }
     }
@@ -1369,6 +1385,21 @@ fn check_widgets(manifest: Option<&serde_json::Value>) -> Result<(), PublishErro
     })
 }
 
+/// The manifest's `events` block, checked (`app_events::declared_events`): a
+/// malformed declaration or an invalid schema refuses the publish as a 422
+/// naming the event.
+fn check_events(manifest: Option<&serde_json::Value>) -> Result<(), PublishError> {
+    crate::app_events::declared_events(manifest)
+        .map(|_| ())
+        .map_err(|message| {
+            PublishError::Invalid(crate::custom_apps_validate::BundleValidation::new(
+                "events",
+                message,
+                "fix the event's schema in oxy-app.json: a JSON Schema (draft 2020-12) whose root type is \"object\"",
+            ))
+        })
+}
+
 /// Record one `app_functions` row per declared function, keyed to this build,
 /// so the `/fn/<name>` route can resolve them. Without this the bundled JS
 /// ships in the build store but the runtime can never find it (→ 404).
@@ -1450,8 +1481,9 @@ async fn set_pointers(
             actor_via: input.published_via.clone(),
             expect_current: None,
             refuse_same: false,
+            break_listeners: false,
         };
-        super::custom_apps_promote::move_locked(&txn, row, &mv)
+        super::custom_apps_promote::production::move_locked(&txn, row, &mv)
             .await
             .map_err(|e| match e {
                 // The four-eyes rule, read again under the lock: it was
@@ -1614,6 +1646,14 @@ pub async fn publish(input: PublishInput) -> Result<PublishResult, PublishError>
     publish_to(input, PublishTarget::Channels).await
 }
 
+/// What a publish request asks beside its bundle.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PublishOptions {
+    /// `--break-listeners`: a promoting publish goes ahead over the
+    /// production event listeners its build breaks, and is audited.
+    pub break_listeners: bool,
+}
+
 /// Store `input`'s bundle as a build and point `target` at it.
 ///
 /// A [`PublishTarget::Sandbox`] publish stores and records the build exactly
@@ -1634,20 +1674,30 @@ pub async fn publish_to(
     input: PublishInput,
     target: PublishTarget,
 ) -> Result<PublishResult, PublishError> {
-    publish_staged(input, target)
+    publish_with(input, target, PublishOptions::default()).await
+}
+
+/// [`publish_to`], with the request's [`PublishOptions`].
+pub async fn publish_with(
+    input: PublishInput,
+    target: PublishTarget,
+    options: PublishOptions,
+) -> Result<PublishResult, PublishError> {
+    publish_staged(input, target, options)
         .await
         .map_err(|failed| failed.error)
 }
 
-/// [`publish_to`], a refusal carrying the pipeline stage it was refused at.
+/// [`publish_with`], a refusal carrying the pipeline stage it was refused at.
 pub async fn publish_staged(
     input: PublishInput,
     target: PublishTarget,
+    options: PublishOptions,
 ) -> Result<PublishResult, crate::custom_apps_publish_attempts::Failed<PublishError>> {
     use crate::custom_apps_publish_attempts::Failed;
     let agent =
         sandbox_agent_publish::AgentPublish::of(&input, &target).map_err(Failed::unstaged)?;
-    let published = pipeline::store_and_point(input, target).await;
+    let published = pipeline::store_and_point(input, target, options).await;
     match agent {
         Some(agent) => published.map_err(|failed| failed.map(|refused| agent.sees(refused))),
         None => published,
@@ -1715,9 +1765,25 @@ async fn reconcile_moved_environment(
         Ok(None) => return Vec::new(),
         Err(e) => return vec![environment_schedules_warning(&environment, &e)],
     };
-    env_schedules::reconcile_environment(db, &app, &environment)
+    let mut warnings = env_schedules::reconcile_environment(db, &app, &environment)
         .await
-        .unwrap_or_else(|e| vec![environment_schedules_warning(&environment, &e)])
+        .unwrap_or_else(|e| vec![environment_schedules_warning(&environment, &e)]);
+    warnings.extend(
+        crate::app_events::subscriptions::reconcile_environment(db, &app, &environment)
+            .await
+            .unwrap_or_else(|e| vec![environment_subscriptions_warning(&environment, &e)]),
+    );
+    warnings
+}
+
+fn environment_subscriptions_warning(environment: &AppEnvironment, e: &sea_orm::DbErr) -> String {
+    tracing::warn!(
+        "publish: the {environment} environment's event subscriptions were not reconciled: {e}"
+    );
+    format!(
+        "the {environment} environment's event subscriptions could not be reconciled ({e}); \
+         publish to it again to retry"
+    )
 }
 
 fn environment_schedules_warning(environment: &AppEnvironment, e: &sea_orm::DbErr) -> String {
@@ -1789,16 +1855,20 @@ pub async fn publish_handler(
     let credential = sandbox_publish::PublishCredential::of(user, marker);
     let form = PublishForm::from_multipart(multipart).await?;
     let target = sandbox_publish::target_of(form.environment.as_deref(), form.promote, credential)?;
+    let options = PublishOptions {
+        break_listeners: form.break_listeners,
+    };
     let input = form.into_input(publisher);
     // A sandbox agent token is told a sandbox that is not its own as its
     // other routes tell it; everyone else reads the text they always did.
     let agent = credential.is_agent();
-    let published = publish_staged(input, target)
+    let published = publish_staged(input, target, options)
         .await
         .map_err(|failed| PublishRefusal::told(failed.error, agent).at_stage(failed.stage))?;
     // One audit row for every publish that succeeded, whatever the credential.
     if let Ok(db) = oxy::database::client::establish_connection().await {
         super::custom_apps_publish_audit::published(&db, &actor, marker, &published).await;
+        super::custom_apps_publish_audit::listeners_broken(&db, &actor, &published).await;
     }
     Ok(Json(published))
 }

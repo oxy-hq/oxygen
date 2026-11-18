@@ -93,6 +93,15 @@ pub(super) enum HostCall {
         payload: serde_json::Value,
         reply: HostReply,
     },
+    /// `ctx.events.publish(type, data, opts)` — `payload` is
+    /// `{ type, data, key?, delaySeconds? }`; the app is the host's, never
+    /// the function's. The same publish on an open `ctx.oltp.tx` handle
+    /// arrives as [`HostCall::Tx`], op `publish`.
+    Events {
+        op: String,
+        payload: serde_json::Value,
+        reply: HostReply,
+    },
 }
 
 impl HostCall {
@@ -116,6 +125,7 @@ impl HostCall {
             HostCall::Tx { .. } => Family::Tx,
             HostCall::Oltp { .. } => Family::Oltp,
             HostCall::Airhouse { .. } => Family::Airhouse,
+            HostCall::Events { .. } => Family::Events,
         }
     }
 
@@ -129,7 +139,8 @@ impl HostCall {
             | HostCall::Storage { op, .. }
             | HostCall::Tx { op, .. }
             | HostCall::Oltp { op, .. }
-            | HostCall::Airhouse { op, .. } => Some(op),
+            | HostCall::Airhouse { op, .. }
+            | HostCall::Events { op, .. } => Some(op),
             HostCall::SemanticQuery { .. } => Some("query"),
             HostCall::AirwayRun { .. } => Some("run"),
             HostCall::SecretsSet { .. } => Some("set"),
@@ -190,7 +201,8 @@ impl HostCall {
             | HostCall::PlatformFacts { reply, .. }
             | HostCall::Tx { reply, .. }
             | HostCall::Oltp { reply, .. }
-            | HostCall::Airhouse { reply, .. } => reply,
+            | HostCall::Airhouse { reply, .. }
+            | HostCall::Events { reply, .. } => reply,
         }
     }
 }
@@ -311,6 +323,9 @@ pub(super) async fn dispatch_host_call(
         HostCall::Oltp { payload, reply, .. } => (reply, host.oltp(sub_op_name(op), payload).await),
         HostCall::Airhouse { payload, reply, .. } => {
             (reply, host.airhouse(sub_op_name(op), payload).await)
+        }
+        HostCall::Events { payload, reply, .. } => {
+            (reply, host.events(sub_op_name(op), payload).await)
         }
         HostCall::SecretsSet { key, value, reply } => (reply, host.secrets_set(key, value).await),
         HostCall::SendEmail { input, reply } => (reply, host.send_email(input).await),

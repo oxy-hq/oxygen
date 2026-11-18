@@ -35,6 +35,7 @@ export {
   type TestFunctionContext,
   type TestState
 } from "./context";
+export { createTestEvents, type PublishedEvent, type TestEvents } from "./events";
 export { isSafeOutbound } from "./fetch-rules";
 export { type FunctionGates, type ManifestLike, readGates, writerSchema } from "./gates";
 export {

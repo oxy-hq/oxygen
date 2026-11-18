@@ -43,6 +43,7 @@ fn move_to(agent: &Agent, build: BuildRef) -> ProductionMove {
         actor_via: None,
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     }
 }
 

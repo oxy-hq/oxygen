@@ -94,6 +94,21 @@ const WRITE_STEPS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Ops staging holds whose probe is elsewhere, and where: an event publish
+/// needs an app declaring events and the org's `app_events` flag, which this
+/// probe's app does not have. It holds them, lists them in the held row and
+/// writes nothing, as the steps here do.
+const HELD_ELSEWHERE: &[(&str, &str)] = &[
+    (
+        "events.publish",
+        "app_events_publish::a_staging_publish_without_a_branch_is_held_and_writes_nothing",
+    ),
+    (
+        "tx.publish",
+        "app_events_publish::a_staging_publish_without_a_branch_is_held_and_writes_nothing",
+    ),
+];
+
 /// The key `storage.put` wrote, for the steps after it.
 const PUT_KEY: &str = r#"out["storage.put"].ok.key"#;
 
@@ -208,12 +223,17 @@ fn held_steps(app_slug: &str) -> Vec<&'static str> {
 }
 
 /// The tables cover every op staging does not simply allow, each in the table
-/// its decision names: a new write op, or a row moved between `Hold` and
-/// `Isolate`, fails here until its step is where the policy says.
+/// its decision names (or [`HELD_ELSEWHERE`] names its probe): a new write op,
+/// or a row moved between `Hold` and `Isolate`, fails here until its step is
+/// where the policy says.
 #[test]
 fn every_write_op_has_a_probe_step() {
     let staging = EnvPolicy::for_environment(AppEnvironment::Staging);
-    let held: BTreeSet<&str> = WRITE_STEPS.iter().map(|(op, _)| *op).collect();
+    let held: BTreeSet<&str> = WRITE_STEPS
+        .iter()
+        .chain(HELD_ELSEWHERE)
+        .map(|(op, _)| *op)
+        .collect();
     let isolated: BTreeSet<&str> = ISOLATED_STEPS.iter().map(|(op, _)| *op).collect();
     let misplaced: Vec<(&str, Decision)> = HostOp::ALL
         .iter()

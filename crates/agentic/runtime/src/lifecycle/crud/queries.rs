@@ -46,6 +46,10 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// `custom_app_usage_backfill` copies a workspace's custom-app usage history to
 /// its Airhouse (`oxy-api-custom-apps` `custom_apps_usage_backfill`), queued by
 /// a sweep.
+/// `app_events_relay` moves an org's published custom-app events out of its
+/// OLTP outbox and queues their deliveries (`oxy-api-custom-apps`
+/// `app_events::relay`), queued by a publish's nudge and by a sweep: the
+/// platform's plumbing, filed in one of the org's app workspaces.
 pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preagg_cycle",
     "preview_analyze",
@@ -58,6 +62,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "custom_app_env_oltp_branch",
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
+    "app_events_relay",
 ];
 
 pub struct ToolExchangeRow {

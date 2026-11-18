@@ -13,6 +13,7 @@ import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import * as log from "../ui/log.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { printableLines } from "../util/printable.js";
+import { listenersHint } from "./listeners-hint.js";
 import { productionRefused } from "./production-refusal.js";
 import { PUBLISH_STAGE_HEADER, refusalHeadline, type StageTiming } from "./stages.js";
 
@@ -261,7 +262,9 @@ function publishRefused(
   return new CliError(agent ? withReason(headline, refusal) : headline, {
     code: exitCodeForStatus(status),
     detail: agent ? printableLines(body.slice(0, 4000)) : body.slice(0, 4000),
-    hint: agent ? sandboxRefusalHint(status, body) : undefined,
+    hint: agent
+      ? sandboxRefusalHint(status, body)
+      : listenersHint(refusal.code, `${refusal.reason ?? ""} ${body}`),
     serverCode: refusal.code,
     serverMessage: refusal.reason
   });

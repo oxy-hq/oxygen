@@ -582,3 +582,79 @@ function tmpApp(
   }
   return { dir, manifest };
 }
+
+describe("app events", () => {
+  it("lint flags tx.events.publish without the events capability", () => {
+    const { dir, manifest } = tmpApp(
+      {
+        "functions/f.ts": [
+          "export default async (req, ctx) => {",
+          "  await ctx.tx(async (tx) => {",
+          '    await tx.events.publish("statement.uploaded", { id: "1" });',
+          "  });",
+          "};",
+          ""
+        ].join("\n")
+      },
+      { functions: { f: { entry: "functions/f.ts", destinations: ["db"] } } }
+    );
+    const { issues } = lintAppFunctions(dir, manifest);
+    const hit = issues.find((i) => i.rule === "capability" && i.message.includes("events.publish"));
+    expect(hit?.level).toBe("error");
+    expect(hit?.path).toBe("line 3");
+  });
+
+  it("lint is silent for events.publish when the function declares events", () => {
+    const { dir, manifest } = tmpApp(
+      {
+        "functions/f.ts":
+          'export default async (req, ctx) => { await ctx.events.publish("a.b", {}); };'
+      },
+      { functions: { f: { entry: "functions/f.ts", events: { publish: ["a.b"] } } } }
+    );
+    expect(lintAppFunctions(dir, manifest).issues).toEqual([]);
+  });
+
+  // The host grants `events` only for a non-empty `events.publish` (Rust
+  // `publishes()`), so an empty list, or none, declares nothing.
+  it.each([
+    ["an empty publish list", { publish: [] }],
+    ["no publish list", {}]
+  ])("lint flags events.publish when the function's events has %s", (_, events) => {
+    const { dir, manifest } = tmpApp(
+      {
+        "functions/f.ts":
+          'export default async (req, ctx) => { await ctx.events.publish("a.b", {}); };'
+      },
+      { functions: { f: { entry: "functions/f.ts", events } } }
+    );
+    const { issues } = lintAppFunctions(dir, manifest);
+    const hit = issues.find((i) => i.rule === "capability" && i.message.includes("events.publish"));
+    expect(hit?.level).toBe("error");
+  });
+
+  it("lint warns on a number field named amount", () => {
+    const { dir } = tmpApp({});
+    const manifest = {
+      events: {
+        "invoice.paid": {
+          schema: {
+            type: "object",
+            properties: {
+              amount: { type: "number" },
+              unitPrice: { type: "number" },
+              quantity: { type: "number" },
+              totalCents: { type: "integer" }
+            }
+          }
+        }
+      }
+    };
+    const warnings = lintAppFunctions(dir, manifest).issues.filter((i) => i.level === "warning");
+    expect(warnings.map((w) => w.path)).toEqual([
+      "events.invoice.paid.schema.properties.amount",
+      "events.invoice.paid.schema.properties.unitPrice"
+    ]);
+    expect(warnings[0]?.message).toContain("use integer minor units or a decimal string");
+  });
+});

@@ -15,6 +15,9 @@
  *   `tsc` catches — and `process`, a Node global the same passage rules out
  *   ("only `oxy_functions_ext` ops plus what `BOOTSTRAP_JS` defines"), which
  *   `runtime.rs`'s bootstrap does not define.
+ * - `event-schema` — a warning, not a refusal: an event payload field that is a
+ *   JSON `number` and named like money (`amount`, `price`, `total`, `cost`,
+ *   `fee`). A float cannot hold a price exactly.
  * - `destinations` / `engine` / `customer-warehouse` — a `ctx.warehouse` /
  *   `ctx.tx` write to a database the function may not write, or an op the
  *   engine refuses by name. The allowlist half is answered here; the half that
@@ -53,11 +56,12 @@ export type LintRule =
   | "destinations"
   | "isolate-global"
   | "engine"
-  | "customer-warehouse";
+  | "customer-warehouse"
+  | "event-schema";
 
 export interface FunctionLintIssue extends PlacementIssue {
   rule: LintRule;
-  /** The function the file belongs to — the manifest entry the fix edits. */
+  /** The function the file belongs to — the manifest entry the fix edits. Empty for a manifest-level finding. */
   fn: string;
 }
 
@@ -278,8 +282,26 @@ function loadSources(
 const CTX_CALL =
   /(?<![\w$])ctx\s*\??\.\s*([A-Za-z_$][\w$]*)(?:\s*\??\.\s*([A-Za-z_$][\w$]*))?\s*\(/g;
 
+/**
+ * `<name>.events.publish(` where `<name>` is not `ctx`: the publish made on the
+ * transaction handle, `tx.events.publish(` inside `ctx.tx(async (tx) => …)`.
+ * It is the same host op as `ctx.events.publish` — `ctx.events.publish(` itself
+ * is read by `CTX_CALL`.
+ */
+const HANDLE_EVENTS_PUBLISH =
+  /(?<![\w$])(?!ctx\b)([A-Za-z_$][\w$]*)\s*\??\.\s*events\s*\??\.\s*publish\s*\(/g;
+
 function ctxCalls(fn: string, file: SourceFile, masked: string): CtxCall[] {
   const calls: CtxCall[] = [];
+  for (const m of masked.matchAll(HANDLE_EVENTS_PUBLISH)) {
+    calls.push({
+      fn,
+      file: file.rel,
+      line: lineAt(file.source, m.index ?? 0),
+      member: "events.publish",
+      call: `${m[1]}.events.publish(`
+    });
+  }
   for (const m of masked.matchAll(CTX_CALL)) {
     const member = m[2] === undefined ? (m[1] as string) : `${m[1]}.${m[2]}`;
     const at = m.index ?? 0;
@@ -454,6 +476,69 @@ function destinationIssue(
   return undefined;
 }
 
+// ── event schemas ────────────────────────────────────────────────────────────
+
+/** A field named like money: a `number` for it loses cents to floating point. */
+const MONEY_FIELD = /amount|price|total|cost|fee/i;
+
+/** Walk a schema's `properties`, `items` and combinators, collecting money-like `number` fields. */
+function moneyNumbers(schema: unknown, path: string, found: string[]): void {
+  if (!isObject(schema)) return;
+  if (isObject(schema.properties)) {
+    for (const [field, sub] of Object.entries(schema.properties)) {
+      const at = `${path}.properties.${field}`;
+      if (MONEY_FIELD.test(field) && isObject(sub)) {
+        const type = sub.type;
+        if (type === "number" || (Array.isArray(type) && type.includes("number"))) found.push(at);
+      }
+      moneyNumbers(sub, at, found);
+    }
+  }
+  moneyNumbers(schema.items, `${path}.items`, found);
+  for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+    const branches = schema[key];
+    if (Array.isArray(branches)) {
+      branches.forEach((b, i) => {
+        moneyNumbers(b, `${path}.${key}[${i}]`, found);
+      });
+    }
+  }
+}
+
+/** The schema an event declares: inline, or read from the file it names (unreadable: skipped). */
+function declaredSchema(appDir: string, schema: unknown): unknown {
+  if (typeof schema !== "string") return schema;
+  try {
+    return JSON.parse(readFileSync(resolve(appDir, schema), "utf8"));
+  } catch {
+    // A missing or malformed file is `embedEventSchemas`' error to name.
+    return undefined;
+  }
+}
+
+function eventSchemaWarnings(appDir: string, manifest: Record<string, unknown>) {
+  const issues: FunctionLintIssue[] = [];
+  if (!isObject(manifest.events)) return issues;
+  for (const [name, declaration] of Object.entries(manifest.events)) {
+    if (!isObject(declaration)) continue;
+    const found: string[] = [];
+    moneyNumbers(declaredSchema(appDir, declaration.schema), `events.${name}.schema`, found);
+    for (const path of found) {
+      issues.push({
+        rule: "event-schema",
+        fn: "",
+        level: "warning",
+        file: MANIFEST,
+        path,
+        message:
+          `\`${path.split(".").pop()}\` is a JSON number, and a number loses cents to floating ` +
+          "point — use integer minor units or a decimal string"
+      });
+    }
+  }
+  return issues;
+}
+
 // ── entry point ──────────────────────────────────────────────────────────────
 
 /**
@@ -507,6 +592,7 @@ export function lintAppFunctions(
       }
     }
   }
+  result.issues.push(...eventSchemaWarnings(appDir, manifest));
   result.issues.sort((a, b) => a.file.localeCompare(b.file) || lineOf(a) - lineOf(b));
   return result;
 }

@@ -22,12 +22,19 @@ use std::collections::BTreeSet;
 const CLI_CAPABILITIES_TS: &str = include_str!("../../../../sdk/cli/src/publish/capabilities.ts");
 const HOST_RS: &str = include_str!("host.rs");
 
-/// Fields of `FunctionCapabilities` that are NOT gates: a retention policy and
-/// a byte ceiling shape a call that is allowed, they never refuse one. The
-/// TypeScript file carries the same two names in its own doc comment, and a
-/// third non-gate field has to be added here on purpose — the test below fails
-/// until it is, which is the point.
-pub(super) const NOT_GATES: &[&str] = &["storage_retention", "fetch_max_bytes"];
+/// Fields of `FunctionCapabilities` that are NOT gates: a retention policy, a
+/// byte ceiling, the writer an event publish is written as and the build's
+/// declared events (an app-level block, not a function's capability) shape a
+/// call that is allowed rather than gate a capability. The TypeScript file carries the
+/// same names in its own doc comment, and another non-gate field has to be
+/// added here on purpose — the test below fails until it is, which is the
+/// point.
+pub(super) const NOT_GATES: &[&str] = &[
+    "storage_retention",
+    "fetch_max_bytes",
+    "events_writer",
+    "event_catalog",
+];
 
 /// Strip full-line `//` comments and `/* … */` blocks, trimming what is left.
 /// The same conservative, line-oriented shape as `custom_apps_client.rs`: a

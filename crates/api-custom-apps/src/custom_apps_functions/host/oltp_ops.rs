@@ -9,6 +9,11 @@
 //! whose DML rights are scoped to the one `app_<writer>` schema — narrower on
 //! reads (no `raw_*`) and finally writable.
 //!
+//! SQL naming the platform's events schema, `oxy_events` — or setting
+//! `search_path` from a value built when it runs — is refused in every
+//! environment (`oltp_guard::refuse_platform_schema`): an app publishes
+//! through `ctx.events.publish`.
+//!
 //! Fail-closed on the `oltp` capability, and run in a one-shot transaction so
 //! parameters are bound (never string-concatenated) and a failed statement
 //! rolls back rather than leaving a partial write. Outside production a
@@ -36,6 +41,9 @@ impl ProjectFunctionHost {
         let (sql, params) = Self::oltp_statement(payload)?;
         let schema = self.caps.oltp.schema().unwrap_or_default();
         self.admit_statement(host_op, None, &sql, &schema).await?;
+        // In every environment, of what is to be sent: the outbox is reached
+        // through `ctx.events.publish` alone.
+        super::oltp_guard::refuse_platform_schema(&sql)?;
         let summary = db_query_summary(&sql);
         let conn = self.oltp_connection(writer_name).await?;
         let mut tx = self.open_statement_tx(host_op, &conn, &summary).await?;
@@ -64,7 +72,7 @@ impl ProjectFunctionHost {
 
     /// The one-shot transaction a statement runs in, named for the audit and,
     /// outside production, `READ ONLY` on a read-only session.
-    async fn open_statement_tx(
+    pub(super) async fn open_statement_tx(
         &self,
         op: HostOp,
         conn: &oxy_oltp::resolver::WriterConnection,

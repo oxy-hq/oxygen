@@ -56,6 +56,12 @@ pub struct AppFunctionTask {
     /// without that second look, on the reach decided when it was queued.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_token_id: Option<String>,
+    /// The `app_event_deliveries.id` this run delivers, as a string, when a
+    /// published event queued it (`trigger: "event"`, the envelope as
+    /// `input`). `None` for every other task. The host decides what the id
+    /// means; nothing here reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_delivery_id: Option<String>,
 }
 
 impl AppFunctionTask {
@@ -69,6 +75,7 @@ impl AppFunctionTask {
             traceparent: None,
             environment: None,
             credential_token_id: None,
+            event_delivery_id: None,
         }
     }
 
@@ -156,6 +163,21 @@ mod tests {
         }))
         .expect("parses");
         assert_eq!(legacy.credential_token_id, None);
+    }
+
+    /// The delivery an event run answers for rides the payload, and a payload
+    /// written before the field existed names none.
+    #[test]
+    fn the_event_delivery_round_trips_and_is_absent_by_default() {
+        let mut task = AppFunctionTask::new("a1", "on-upload");
+        task.trigger = Some("event".into());
+        task.event_delivery_id = Some("d1".into());
+        let read = AppFunctionTask::from_payload(&task.to_payload()).expect("parses");
+        assert_eq!(read.event_delivery_id.as_deref(), Some("d1"));
+        assert_eq!(
+            AppFunctionTask::new("a1", "on-upload").to_payload(),
+            json!({ "app_id": "a1", "function_name": "on-upload" })
+        );
     }
 
     #[test]

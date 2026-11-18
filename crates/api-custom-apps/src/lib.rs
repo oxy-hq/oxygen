@@ -55,6 +55,7 @@ pub mod admin;
 pub mod agent_ask;
 pub mod agent_ask_staging;
 pub mod agent_run_stream;
+pub mod app_events;
 mod app_function_agent;
 pub mod app_function_executor;
 pub mod app_lifecycle;

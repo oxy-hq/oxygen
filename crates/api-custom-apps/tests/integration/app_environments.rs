@@ -873,6 +873,7 @@ async fn a_build_from_before_the_events_stays_a_rollback_target() {
         actor_via: None,
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     };
 
     let refused = move_production(&conn, &rollback)

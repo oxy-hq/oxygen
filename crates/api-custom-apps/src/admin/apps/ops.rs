@@ -380,6 +380,15 @@ impl From<PromoteError> for AppOpError {
                     .map(|b| b.message.clone());
                 Self::validation_failed(detail.unwrap_or_default())
             }
+            PromoteError::EventListenersBroken(messages) => Self::coded(
+                StatusCode::CONFLICT,
+                promote::error::EVENT_LISTENERS_BROKEN,
+                format!(
+                    "refused: {} The console cannot override this: if you mean to break them, \
+                     ship with `oxyc publish --break-listeners` (or `oxyc promote --break-listeners`).",
+                    messages.join(" ")
+                ),
+            ),
             PromoteError::AppNotFound => Self::not_found(),
             PromoteError::BuildNotFound(_) => Self::validation_failed(
                 "build not found — cannot promote a missing build to live".to_string(),
@@ -492,6 +501,7 @@ pub async fn publish_one(
         actor_via: promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     };
     // The global access cache is invalidated ONCE by the caller (a batch
     // would otherwise do N full global invalidations).
@@ -674,6 +684,7 @@ pub(super) async fn promote_latest_one(
         actor_via: promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     };
     let audit = MoveAudit::of(audited_by, actor, MoveRow::Promoted);
     let moved = promote::move_production_audited(db, &mv, audit.as_ref())

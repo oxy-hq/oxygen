@@ -115,6 +115,7 @@ fn moved_by(action: EnvAction, actor: Option<Uuid>, via: Option<&str>) -> Produc
         actor_via: via.map(str::to_string),
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     }
 }
 

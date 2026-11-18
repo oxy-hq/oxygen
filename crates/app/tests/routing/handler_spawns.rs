@@ -325,6 +325,17 @@ const ALLOWED: &[(&str, &str)] = &[
          per-process guard a queue's claim would replace",
     ),
     (
+        "api-custom-apps/src/app_events/relay.rs",
+        "`spawn_sweep` is a fleet job (started on every worker, run by the one that \
+         claims the interval in `fleet_job_claims`) and only queues relay tasks; the \
+         second spawn is the queue executor's own task (`RelayExecutor`)",
+    ),
+    (
+        "api-custom-apps/src/app_events/retention.rs",
+        "`spawn_retention` is a fleet job (started on every worker, run by the one \
+         that claims the interval in `fleet_job_claims`); it is not on a request path",
+    ),
+    (
         "api-custom-apps/src/app_function_executor.rs",
         "a queue executor's own task: the function job runs under a spawn bound to \
          the custom-app Sentry hub",

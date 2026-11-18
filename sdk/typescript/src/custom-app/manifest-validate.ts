@@ -111,7 +111,7 @@ export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
     });
   }
 
-  issues.push(...surfaceRule(raw));
+  issues.push(...surfaceRule(raw), ...eventsRule(raw));
 
   // The catalogue's checks know more about `notifications` than the schema does
   // (which categories exist, which kinds a function sends), so where both speak
@@ -157,7 +157,7 @@ function dedupe(issues: ManifestIssue[]): ManifestIssue[] {
 }
 
 /**
- * At least one of `route` / `schedule` / `airwayStep` / `webhook` must be active
+ * At least one of `route` / `schedule` / `airwayStep` / `webhook` / `on` must be active
  * — `route` defaults to true only when no other surface is declared. A function
  * nothing can invoke is a bundle entry the author forgot to wire.
  */
@@ -167,7 +167,10 @@ function surfaceRule(raw: Record<string, unknown>): ManifestIssue[] {
   for (const [name, fn] of Object.entries(raw.functions)) {
     if (!isRecord(fn)) continue;
     const other =
-      fn.schedule !== undefined || fn.airwayStep !== undefined || fn.webhook !== undefined;
+      fn.schedule !== undefined ||
+      fn.airwayStep !== undefined ||
+      fn.webhook !== undefined ||
+      fn.on !== undefined;
     const route = typeof fn.route === "boolean" ? fn.route : !other;
     if (!route && !other) {
       out.push({
@@ -176,6 +179,56 @@ function surfaceRule(raw: Record<string, unknown>): ManifestIssue[] {
         message: `function ${JSON.stringify(name)} must enable at least one of route/schedule/airwayStep/webhook`
       });
     }
+  }
+  return out;
+}
+
+/** An event name: the Rust side's rule (hyphens are not allowed). */
+const EVENT_NAME = /^[a-z][a-z0-9]*(\.[a-z0-9]+)*$/;
+/** An `on` entry: `<app-slug>/<event-name>`. */
+const ON_REF = /^[a-z0-9-]+\/[a-z][a-z0-9]*(\.[a-z0-9]+)*$/;
+
+/**
+ * Event wiring the schema cannot say: catalogue names are well formed, every
+ * `events.publish` entry is declared in the app's `events`, and every `on`
+ * entry is qualified (`<app-slug>/<event-name>`). Shape errors (a non-array
+ * `publish`) are the schema's; this skips what is not the right type.
+ */
+function eventsRule(raw: Record<string, unknown>): ManifestIssue[] {
+  const out: ManifestIssue[] = [];
+  const declared = isRecord(raw.events) ? raw.events : {};
+  for (const name of Object.keys(declared)) {
+    if (!EVENT_NAME.test(name)) {
+      out.push({
+        level: "error",
+        path: `events.${name}`,
+        message: `event name ${JSON.stringify(name)} must match ${EVENT_NAME.source} — lowercase, dot-separated, starting with a letter (no hyphens)`
+      });
+    }
+  }
+  if (!isRecord(raw.functions)) return out;
+  for (const [name, fn] of Object.entries(raw.functions)) {
+    if (!isRecord(fn)) continue;
+    const publish =
+      isRecord(fn.events) && Array.isArray(fn.events.publish) ? fn.events.publish : [];
+    publish.forEach((event, i) => {
+      if (typeof event !== "string" || Object.keys(declared).includes(event)) return;
+      out.push({
+        level: "error",
+        path: `functions.${name}.events.publish.${i}`,
+        message: `function ${JSON.stringify(name)} publishes ${JSON.stringify(event)}, which is not declared in the top-level \`events\`; declare it there with a \`schema\``
+      });
+    });
+    const on = typeof fn.on === "string" ? [fn.on] : Array.isArray(fn.on) ? fn.on : [];
+    on.forEach((entry, i) => {
+      if (typeof entry !== "string" || ON_REF.test(entry)) return;
+      const at = typeof fn.on === "string" ? "on" : `on.${i}`;
+      out.push({
+        level: "error",
+        path: `functions.${name}.${at}`,
+        message: `function ${JSON.stringify(name)} \`${at}\` ${JSON.stringify(entry)} must be <app-slug>/<event-name> and match ${ON_REF.source}`
+      });
+    });
   }
   return out;
 }

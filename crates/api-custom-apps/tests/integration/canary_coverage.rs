@@ -30,6 +30,13 @@ const AIRHOUSE: &str = "`ctx.airhouse` writes the app's own schema in the worksp
      provisioning it there, adding `\"airhouse\": { \"enabled\": true }` and a one-table \
      migration to oxy-app.json, then a step that appends one run-tagged row and reads it back.";
 
+const EVENTS: &str = "`ctx.events.publish` and `tx.events.publish` write the org's OLTP \
+     outbox, which needs an OLTP store for the `oxy-canary` org and the `app_events` flag on \
+     for it; it has neither. Every publish is also delivered to each listener in the org. \
+     Unblocked by: provisioning that store, turning `app_events` on for the org, declaring one \
+     event in the canary's `events` catalogue and `events.publish`, then a step that publishes \
+     it with a run-tagged key (outside and inside `ctx.oltp.tx`) and checks the `eventId`.";
+
 /// Host ops the canary does not exercise: each with why, and what would unblock it.
 const EXEMPT: &[(&str, &str)] = &[
     (
@@ -71,6 +78,8 @@ const EXEMPT: &[(&str, &str)] = &[
          is not internal and must not be: the gate is the point. Out of scope for the canary \
          by design; the internal accounts app is its live caller.",
     ),
+    ("events.publish", EVENTS),
+    ("tx.publish", EVENTS),
 ];
 
 #[test]

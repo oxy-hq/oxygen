@@ -25,7 +25,8 @@ pub enum Stage {
     /// The build row and its functions.
     Record,
     /// A promoting publish's production gates and four-eyes rule
-    /// (`custom_apps_publish::production_gate`). Writes nothing.
+    /// (`custom_apps_publish::production_gate`), then its event gate
+    /// (`app_events::gate`). Writes nothing.
     Gate,
     /// A promoting publish's schema migrations.
     Promote,

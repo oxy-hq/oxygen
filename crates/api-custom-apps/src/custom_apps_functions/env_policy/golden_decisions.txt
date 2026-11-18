@@ -558,3 +558,35 @@ platform.facts	dev-a1	sandbox-unready-seeding	Allow
 platform.facts	dev-a1	sandbox-unready-failed	Allow
 platform.facts	dev-a1	sandbox-unready-branch-reset	Allow
 platform.facts	dev-a1	sandbox-unready-no-schema-name	Allow
+events.publish	staging	production	Hold
+events.publish	staging	staging-branch	Isolate(OltpBranch)
+events.publish	staging	sandbox-schema	Isolate(OltpBranch)
+events.publish	staging	sandbox-unready-not-created	Refuse { fix: "this sandbox has no schema of its own yet on the org's OLTP staging branch; a publish to the sandbox creates and seeds it (`oxyc publish --app-env <sandbox>`)" }
+events.publish	staging	sandbox-unready-seeding	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch is still being created and seeded; try again in a few seconds (`oxyc env show` reports oltp_schema.status), and if it stays seeding, publish to the sandbox again" }
+events.publish	staging	sandbox-unready-failed	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch could not be created (`oxyc env show` reports why in oltp_schema.error); publish to the sandbox again once that is fixed" }
+events.publish	staging	sandbox-unready-branch-reset	Refuse { fix: "the org's OLTP staging branch was reset since this sandbox's schema was seeded, which removed it; publish to the sandbox again to seed a new copy and apply its migrations" }
+events.publish	staging	sandbox-unready-no-schema-name	Refuse { fix: "this sandbox has no schema of its own on the org's OLTP staging branch: its name (app_<app>__dev_<handle>) would be over Postgres's 63 bytes, or the app's slug holds `--`. Use a shorter sandbox handle" }
+events.publish	dev-a1	production	Hold
+events.publish	dev-a1	staging-branch	Isolate(OltpBranch)
+events.publish	dev-a1	sandbox-schema	Isolate(OltpBranch)
+events.publish	dev-a1	sandbox-unready-not-created	Refuse { fix: "this sandbox has no schema of its own yet on the org's OLTP staging branch; a publish to the sandbox creates and seeds it (`oxyc publish --app-env <sandbox>`)" }
+events.publish	dev-a1	sandbox-unready-seeding	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch is still being created and seeded; try again in a few seconds (`oxyc env show` reports oltp_schema.status), and if it stays seeding, publish to the sandbox again" }
+events.publish	dev-a1	sandbox-unready-failed	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch could not be created (`oxyc env show` reports why in oltp_schema.error); publish to the sandbox again once that is fixed" }
+events.publish	dev-a1	sandbox-unready-branch-reset	Refuse { fix: "the org's OLTP staging branch was reset since this sandbox's schema was seeded, which removed it; publish to the sandbox again to seed a new copy and apply its migrations" }
+events.publish	dev-a1	sandbox-unready-no-schema-name	Refuse { fix: "this sandbox has no schema of its own on the org's OLTP staging branch: its name (app_<app>__dev_<handle>) would be over Postgres's 63 bytes, or the app's slug holds `--`. Use a shorter sandbox handle" }
+tx.publish	staging	production	Hold
+tx.publish	staging	staging-branch	Isolate(OltpBranch)
+tx.publish	staging	sandbox-schema	Isolate(OltpBranch)
+tx.publish	staging	sandbox-unready-not-created	Refuse { fix: "this sandbox has no schema of its own yet on the org's OLTP staging branch; a publish to the sandbox creates and seeds it (`oxyc publish --app-env <sandbox>`)" }
+tx.publish	staging	sandbox-unready-seeding	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch is still being created and seeded; try again in a few seconds (`oxyc env show` reports oltp_schema.status), and if it stays seeding, publish to the sandbox again" }
+tx.publish	staging	sandbox-unready-failed	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch could not be created (`oxyc env show` reports why in oltp_schema.error); publish to the sandbox again once that is fixed" }
+tx.publish	staging	sandbox-unready-branch-reset	Refuse { fix: "the org's OLTP staging branch was reset since this sandbox's schema was seeded, which removed it; publish to the sandbox again to seed a new copy and apply its migrations" }
+tx.publish	staging	sandbox-unready-no-schema-name	Refuse { fix: "this sandbox has no schema of its own on the org's OLTP staging branch: its name (app_<app>__dev_<handle>) would be over Postgres's 63 bytes, or the app's slug holds `--`. Use a shorter sandbox handle" }
+tx.publish	dev-a1	production	Hold
+tx.publish	dev-a1	staging-branch	Isolate(OltpBranch)
+tx.publish	dev-a1	sandbox-schema	Isolate(OltpBranch)
+tx.publish	dev-a1	sandbox-unready-not-created	Refuse { fix: "this sandbox has no schema of its own yet on the org's OLTP staging branch; a publish to the sandbox creates and seeds it (`oxyc publish --app-env <sandbox>`)" }
+tx.publish	dev-a1	sandbox-unready-seeding	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch is still being created and seeded; try again in a few seconds (`oxyc env show` reports oltp_schema.status), and if it stays seeding, publish to the sandbox again" }
+tx.publish	dev-a1	sandbox-unready-failed	Refuse { fix: "this sandbox's own schema on the org's OLTP staging branch could not be created (`oxyc env show` reports why in oltp_schema.error); publish to the sandbox again once that is fixed" }
+tx.publish	dev-a1	sandbox-unready-branch-reset	Refuse { fix: "the org's OLTP staging branch was reset since this sandbox's schema was seeded, which removed it; publish to the sandbox again to seed a new copy and apply its migrations" }
+tx.publish	dev-a1	sandbox-unready-no-schema-name	Refuse { fix: "this sandbox has no schema of its own on the org's OLTP staging branch: its name (app_<app>__dev_<handle>) would be over Postgres's 63 bytes, or the app's slug holds `--`. Use a shorter sandbox handle" }

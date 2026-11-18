@@ -163,6 +163,60 @@ describe("validateOxyAppManifest", () => {
     }
   });
 
+  describe("app events", () => {
+    const base = { schemaVersion: 2, slug: "x" };
+
+    it("accepts a function whose only trigger is on", () => {
+      expect(
+        messages({
+          ...base,
+          functions: { handle: { route: false, on: "statements/statement.uploaded" } }
+        })
+      ).toEqual([]);
+      expect(
+        messages({
+          ...base,
+          functions: { handle: { route: false, on: ["statements/statement.uploaded", "b/c"] } }
+        })
+      ).toEqual([]);
+    });
+
+    it("accepts declared events published by a function", () => {
+      expect(
+        messages({
+          ...base,
+          events: { "statement.uploaded": { description: "A statement landed", schema: "s.json" } },
+          functions: { f: { events: { publish: ["statement.uploaded"] } } }
+        })
+      ).toEqual([]);
+    });
+
+    it("refuses events.publish naming an undeclared event", () => {
+      const found = errors({
+        ...base,
+        functions: { f: { events: { publish: ["statement.uploaded"] } } }
+      });
+      expect(found).toHaveLength(1);
+      expect(found[0]?.path).toBe("functions.f.events.publish.0");
+      expect(found[0]?.message).toContain("statement.uploaded");
+      expect(found[0]?.message).toContain("events");
+    });
+
+    it("refuses an unqualified on", () => {
+      const found = errors({
+        ...base,
+        functions: { f: { route: false, on: ["statement.uploaded"] } }
+      });
+      expect(found).toHaveLength(1);
+      expect(found[0]?.path).toBe("functions.f.on.0");
+      expect(found[0]?.message).toContain("<app-slug>/<event-name>");
+    });
+
+    it("refuses a malformed event name in the catalogue", () => {
+      expect(errors({ ...base, events: { "Bad-Name": { schema: "s.json" } } })).toHaveLength(1);
+    });
+  });
+
   it("warns, without refusing, about a field it does not know", () => {
     const issues = validateOxyAppManifest({
       schemaVersion: 2,

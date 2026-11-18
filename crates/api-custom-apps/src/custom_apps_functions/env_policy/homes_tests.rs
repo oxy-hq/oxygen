@@ -221,6 +221,31 @@ fn a_statement_follows_the_home_its_handle_was_opened_into() {
     );
 }
 
+/// An event published on a `ctx.oltp.tx` handle follows the handle, as its
+/// statements do: on a handle opened on the org's staging branch it is
+/// isolated there; on a handle opened as asked (production's store, read
+/// only) it holds; production allows it on any handle.
+#[test]
+fn a_tx_publish_follows_the_home_its_handle_was_opened_into() {
+    use crate::custom_apps_functions::env_policy::OltpHome;
+    let on_branch = Decision::Isolate(Target::OltpBranch);
+    let with_branch = staging().with_oltp_home(OltpHome::StagingBranch("br".into()));
+    assert_eq!(with_branch.decide(HostOp::TxBeginOltp), on_branch);
+    assert_eq!(
+        with_branch.decide_on_handle(HostOp::TxPublish, Some(Target::OltpBranch)),
+        on_branch
+    );
+    let no_branch = staging();
+    assert_eq!(no_branch.decide(HostOp::TxBeginOltp), HOLD);
+    assert_eq!(no_branch.decide_on_handle(HostOp::TxPublish, None), HOLD);
+    for opened_into in [None, Some(Target::OltpBranch)] {
+        assert_eq!(
+            EnvPolicy::production().decide_on_handle(HostOp::TxPublish, opened_into),
+            ALLOW
+        );
+    }
+}
+
 /// `{a: b, b: c}`: `b` is production's `b`, so `a` has no staging home.
 fn staging_policy_chained() -> EnvPolicy {
     staging().with_destinations(mapped(&[("a", "b"), ("b", "c")]))

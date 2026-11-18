@@ -245,6 +245,18 @@ host_ops! {
         family: Platform("facts"), capability: PlatformFacts, staging: ALLOW,
         holds: by_not_running("platform", "READ"),
     },
+    /// An outbox row on the app's own OLTP store, written with the app's
+    /// writer role — it lands where `ctx.oltp` does.
+    EventsPublish = "events.publish" {
+        family: Events("publish"), capability: Events, staging: Staged::ByHome(Plane::Oltp),
+        holds: HoldBy::Host,
+    },
+    /// The same row written on an open `ctx.oltp.tx` handle, so it commits
+    /// or rolls back with the app's own writes.
+    TxPublish = "tx.publish" {
+        family: Tx("publish"), capability: Events, staging: Staged::ByHome(Plane::Oltp),
+        holds: HoldBy::Host,
+    },
 }
 
 /// A `ctx.storage` op is logged under the sub-op it named.

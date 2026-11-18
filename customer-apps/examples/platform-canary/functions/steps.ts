@@ -94,7 +94,9 @@ export type HostOp =
   | "org.people"
   | "org.places"
   | "org.assignments"
-  | "platform.facts";
+  | "platform.facts"
+  | "events.publish"
+  | "tx.publish";
 
 /**
  * The host ops each step makes, in the order it makes them. Checked both

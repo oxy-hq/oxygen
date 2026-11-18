@@ -384,6 +384,26 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     // (`host/platform_facts/serve.rs`): refused from the payload alone, before
     // any read, the same way on every call.
     "PlatformFactsBadRequest",
+    // `ctx.events.publish` refused for its own arguments (`host/events_op.rs`):
+    // a name the function does not publish or the build does not declare, a
+    // key, a delay or a payload out of bounds, a payload holding U+0000 (which
+    // Postgres cannot store), data its schema refuses, or a chain past its
+    // depth. Each names what to change, before anything is written.
+    "EventNotPublishable",
+    "EventNotDeclared",
+    "EventKeyInvalid",
+    "EventDelayInvalid",
+    "EventTooLarge",
+    "EventPayloadInvalid",
+    "EventSchemaMismatch",
+    "EventDepthExceeded",
+    // `ctx.oltp` SQL naming the platform's `oxy_events` schema
+    // (`host/oltp_guard.rs`): the app's own statement, refused before it is sent.
+    "OltpPlatformSchema",
+    // App events are not on for the app's org (the `app_events` flag, off by
+    // default): the reply tells the function, and a switch that is off on
+    // purpose pages nobody. Refused before anything is written.
+    "EventsNotEnabled",
 ];
 
 /// The typed labels the host writes for a condition that is not the app's
@@ -425,6 +445,7 @@ const PLATFORM_ERROR_LABELS: &[&str] = &[
     "DailyLimitExceeded",
     "AirhouseCapabilityMissing",
     "EmailCapabilityMissing",
+    "EventsCapabilityMissing",
     "OltpCapabilityMissing",
     "OrgCapabilityMissing",
     "PlatformCapabilityMissing",
@@ -885,6 +906,16 @@ mod tests {
             classify_host_error("exec failed: db error: InvalidEmailPayload: `x` is required"),
             "host_call_failed"
         );
+    }
+
+    /// `EventsNotEnabled` is the org's `app_events` flag, off by default: a
+    /// function that publishes before an operator turns it on is told so in
+    /// its own reply, and nobody is paged for a switch that is off on purpose.
+    #[test]
+    fn events_not_enabled_never_pages() {
+        let kind = classify_host_error("EventsNotEnabled: app events are not enabled for this org");
+        assert_eq!(kind, "bad_request");
+        assert!(!counts_toward_paging(kind));
     }
 
     // ── Every typed label is placed, and each placement holds ──────────────

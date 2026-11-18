@@ -221,4 +221,13 @@ pub trait FunctionHost: Send + Sync {
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, HostError>;
+    /// `ctx.events.publish` — put one event in the app's outbox. `op` is
+    /// `publish`; `payload` carries `{ type, data, key?, delaySeconds? }` and
+    /// the reply is `{ eventId }`. Gated by the fail-closed `events` manifest
+    /// capability, which names the bare event types the function may publish.
+    async fn events(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError>;
 }

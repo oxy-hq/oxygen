@@ -73,7 +73,9 @@ export const HOST_OPS = [
   "org.people",
   "org.places",
   "org.assignments",
-  "platform.facts"
+  "platform.facts",
+  "events.publish",
+  "tx.publish"
 ] as const;
 
 /** One of the host's closed list of op names. */
@@ -102,7 +104,8 @@ export const SURFACES = {
   orgAssignments: "ctx.org.assignments",
   platformFacts: "ctx.platform.facts",
   semanticQuery: "ctx.semantic.query",
-  airwayRun: "ctx.airway.run"
+  airwayRun: "ctx.airway.run",
+  events: "ctx.events"
 } as const;
 
 /** One refusal the host writes: the file it is quoted from and its template. */
@@ -133,6 +136,19 @@ export const REFUSALS = {
     source: "host/notify_op.rs",
     refusal:
       'NotifyCapabilityMissing: this function has not declared the `notify` capability (add "notify": { "kinds": { "<kind>": {} } } to its oxy-app.json entry)'
+  },
+  eventsCapability: {
+    source: "host.rs",
+    refusal:
+      'EventsCapabilityMissing: this function has not declared the `events` capability (add "events": { "publish": ["<name>"] } to its oxy-app.json entry)'
+  },
+  eventKeyInvalid: {
+    source: "host/events_op.rs",
+    refusal: "EventKeyInvalid: `key` must be 1–200 characters"
+  },
+  eventKeyNul: {
+    source: "host/events_op.rs",
+    refusal: "EventKeyInvalid: `key` must not contain U+0000"
   },
   notifyKindUndeclared: {
     source: "host/notify_op.rs",
@@ -324,8 +340,8 @@ export interface Gate {
  * and `storage_write` list `check_storage_capability`'s arms (`copy` needs
  * both); `customer_warehouse_writes` is decided per database by
  * `destination_write_policy`, after the `destinations` allowlist.
- * `storage_retention` and `fetch_max_bytes` are fields of the struct and
- * deliberately absent: they shape an allowed call, they never refuse one.
+ * `storage_retention`, `fetch_max_bytes` and `events_writer` are fields of the
+ * struct and deliberately absent: they shape an allowed call, they never refuse one.
  */
 export const GATES = [
   {
@@ -372,6 +388,11 @@ export const GATES = [
     hostField: "airhouse",
     manifest: "airhouse.enabled",
     ops: ["airhouse.query", "airhouse.exec", "airhouse.append"]
+  },
+  {
+    hostField: "events",
+    manifest: "events",
+    ops: ["events.publish", "tx.publish"]
   },
   {
     hostField: "customer_warehouse_writes",

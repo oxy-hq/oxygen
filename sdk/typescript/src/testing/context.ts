@@ -19,13 +19,14 @@ import type {
   OxyFunctionContext,
   OxyFunctionRow,
   OxyFunctionUser,
+  OxyOltpTransaction,
   OxyOrgAssignment,
   OxyOrgPlace,
   OxyPlatformApi,
-  OxyPlatformFacts,
-  OxyTransaction
+  OxyPlatformFacts
 } from "../custom-app/function-context";
 import { checkNotifications } from "../custom-app/notification-catalog";
+import { createTestEvents, eventId, recordPublish, type TestEvents } from "./events";
 import { isSafeOutbound } from "./fetch-rules";
 import { type FunctionGates, MAX_SCHEMA_NAME_LEN, type ManifestLike, readGates } from "./gates";
 import {
@@ -97,6 +98,11 @@ export interface TestContextOptions {
   platformFacts?: OxyPlatformFacts;
   /** `ctx.app.buildId`; the nil UUID when omitted. */
   buildId?: string;
+  /**
+   * Where `ctx.events.publish` records. Omit it and the context makes its own,
+   * on `state.events`. Publishes are recorded, never delivered.
+   */
+  events?: TestEvents;
 }
 
 /** One host op the function made, as the context recorded it. */
@@ -151,6 +157,8 @@ export interface TestState {
     teams: Team[];
   };
   readonly semantic: { on(answer: (spec: Record<string, unknown>) => unknown): void };
+  /** Every publish that took effect (a rolled-back transaction's are absent). */
+  readonly events: TestEvents;
   readonly airway: { runs: { pipelineRef: string; variables: unknown }[] };
 }
 
@@ -261,7 +269,8 @@ export function createTestContext(
         semanticAnswer = answer;
       }
     },
-    airway: { runs: [] }
+    airway: { runs: [] },
+    events: options.events ?? createTestEvents()
   };
 
   const notifyKeys = new Map<string, NotifyResult>();
@@ -300,6 +309,31 @@ export function createTestContext(
       for (const u of reachable) if (!recipients.includes(u)) recipients.push(u);
     }
     return { recipients, skipped };
+  }
+
+  /** `events.publish` / `tx.publish`: the gate, the wire shape, the derived id. */
+  function publishImpl(
+    a: Record<string, unknown>,
+    record: (e: { type: string; data: unknown; key: string; delaySeconds: number }) => void
+  ): { eventId: string } {
+    if (gates.events === null) throw refuse(SURFACES.events, REFUSALS.eventsCapability);
+    const type = String(a.type);
+    // As the host: a string of 1–200 characters (code points, not bytes).
+    const key = a.key;
+    if (typeof key !== "string" || key.length === 0 || Array.from(key).length > 200) {
+      throw refuse(SURFACES.events, REFUSALS.eventKeyInvalid);
+    }
+    // As the host: Postgres's text cannot hold U+0000.
+    if (key.includes("\u0000")) throw refuse(SURFACES.events, REFUSALS.eventKeyNul);
+    record({
+      type,
+      data: a.data,
+      key,
+      delaySeconds: typeof a.delaySeconds === "number" ? a.delaySeconds : 0
+    });
+    return {
+      eventId: eventId(ctx.user.orgId, ctx.environment, `${manifestSlug}/${type}`, key)
+    };
   }
 
   /** Run one host op: the override or `impl`, recorded either way. */
@@ -425,7 +459,8 @@ export function createTestContext(
     label: string,
     beginOp: "tx.begin" | "tx.begin_oltp",
     beginPayload: Record<string, unknown>,
-    fn: (tx: OxyTransaction) => Promise<T> | T
+    // The handle is an `OxyOltpTransaction` for `tx.begin_oltp`, else a plain one.
+    fn: (tx: OxyOltpTransaction) => Promise<T> | T
   ): Promise<T> {
     if (typeof fn !== "function") {
       throw new TypeError(
@@ -479,7 +514,9 @@ export function createTestContext(
         );
       }
     };
-    const handle: OxyTransaction = {
+    // Publishes made in this transaction: recorded only if it commits.
+    const pending: { type: string; data: unknown; key: string; delaySeconds: number }[] = [];
+    const handle = {
       query: async (sql, params) => {
         live("query");
         const r = (await op("tx.query", { id, sql: String(sql), params: params ?? [] }, (a) =>
@@ -493,8 +530,23 @@ export function createTestContext(
           rowCount: table.exec(String(a.sql), oltpParams(SURFACES.tx, a.params))
         }))) as { rowCount: number };
         return r.rowCount;
+      },
+      events: {
+        publish: async (
+          type: string,
+          data: unknown,
+          opts: { key: string; delaySeconds?: number }
+        ) => {
+          live("publish");
+          return (await op(
+            "tx.publish",
+            { id, type, data, key: opts?.key, delaySeconds: opts?.delaySeconds },
+            (a) => publishImpl(a, (e) => pending.push(e))
+          )) as { eventId: string };
+        }
       }
-    };
+    } as OxyOltpTransaction;
+    if (beginOp !== "tx.begin_oltp") delete (handle as { events?: unknown }).events;
     let result: T;
     try {
       result = await fn(handle);
@@ -514,6 +566,7 @@ export function createTestContext(
     closed = true;
     if (incremented) open--;
     await op("tx.commit", { id }, () => ({}));
+    for (const e of pending) recordPublish(state.events, e);
     return result;
   }
 
@@ -650,6 +703,14 @@ export function createTestContext(
           state.emails.push(a);
           return { messageId: `message-${state.emails.length}` };
         }) as Promise<{ messageId: string }>
+    },
+    events: {
+      publish: (type, data, opts) =>
+        op(
+          "events.publish",
+          { type, data, key: opts?.key, delaySeconds: opts?.delaySeconds },
+          (a) => publishImpl(a, (e) => recordPublish(state.events, e))
+        ) as Promise<{ eventId: string }>
     },
     notify: (input) =>
       op("notify", { ...input }, (a) => {

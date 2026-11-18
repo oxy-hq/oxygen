@@ -167,6 +167,39 @@ const TABLES: &[(&str, Placement)] = &[
         Control("custom-app environment build pointers"),
     ),
     (
+        "app_event_deliveries",
+        Control("app event delivery status per listener function: ids, status, counts, run id"),
+    ),
+    (
+        "app_event_delivery_attempts",
+        Control(
+            "app event delivery attempt outcome and timing, with an error message capped in \
+             code, like the task queue's last_error; never the event's body",
+        ),
+    ),
+    (
+        "app_event_outbox_marks",
+        Control(
+            "per org and environment, when an event was last published and when the relay last \
+             drained the org's outbox: two timestamps, so the sweep never wakes an idle store",
+        ),
+    ),
+    (
+        "app_event_schemas",
+        Control("compiled event schemas from published builds, like compiled definitions"),
+    ),
+    (
+        "app_event_subscriptions",
+        Control("app event routing: which function listens to which event type per environment"),
+    ),
+    (
+        "app_events",
+        Control(
+            "app event routing metadata only (type, key, causation, size, the writer role naming \
+             the body); the body stays in the org's OLTP oxy_events.outbox",
+        ),
+    ),
+    (
         "app_function_failure_alerts",
         Control("at-most-once failure page ledger"),
     ),

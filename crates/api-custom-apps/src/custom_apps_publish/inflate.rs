@@ -8,7 +8,7 @@ use sea_orm::DatabaseConnection;
 
 use super::admit::Admitted;
 use super::{
-    PublishError, PublishInput, asset_manifest, check_declared_functions,
+    PublishError, PublishInput, asset_manifest, check_declared_functions, check_events,
     check_notification_catalogue, check_widgets, function_specs, migrations,
     parse_embedded_manifest, precompress, staging, unpack_tar_gz,
 };
@@ -55,6 +55,7 @@ pub(super) async fn inflate(
     check_declared_functions(&files, &fn_specs)?;
     let catalogue_warnings = check_notification_catalogue(manifest_json.as_ref())?;
     check_widgets(manifest_json.as_ref())?;
+    check_events(manifest_json.as_ref())?;
     // A `shared` env key falls back to production's value outside production,
     // so it may not be one an environment must hold its own of.
     crate::custom_apps_secrets::shared_env::check_publish(

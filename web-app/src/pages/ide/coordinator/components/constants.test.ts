@@ -14,6 +14,11 @@ describe("sourceTypeToJobType", () => {
     expect(isSystemSource("preagg_cycle")).toBe(true);
   });
 
+  // The relay is the platform moving an org's events; it is nobody's job.
+  it("treats the app events relay as a system daemon", () => {
+    expect(isSystemSource("app_events_relay")).toBe(true);
+  });
+
   it("files a chunked backfill's drive under ELT with the runs it seeds", () => {
     expect(sourceTypeToJobType("airway_backfill_range")).toBe("elt");
     expect(isSystemSource("airway_backfill_range")).toBe(false);

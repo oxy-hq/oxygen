@@ -227,6 +227,27 @@ mod tests {
         }
     }
 
+    /// A promoting publish refused over event listeners answers with the
+    /// code a refused promote carries, `event_listeners_broken`, so `oxyc`
+    /// keys its hint on the code rather than the sentence.
+    #[tokio::test]
+    async fn a_listener_refusal_carries_its_code() {
+        let message = "`a/b.c` is removed, but x/fn listens to it in production. Ship a build \
+                       that keeps it, or pass --break-listeners.";
+        let refused = PublishError::EventListenersBroken(vec![message.into()]);
+        let (status, content_type, body) = body_of(refused.into()).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(content_type.as_deref(), Some("application/json"));
+        let body: serde_json::Value = serde_json::from_str(&body).expect("a JSON body");
+        assert_eq!(body["code"], "event_listeners_broken");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|m| m.contains(message)),
+            "{body}"
+        );
+    }
+
     /// Every other refusal is the text it always was.
     #[tokio::test]
     async fn every_other_refusal_stays_plain_text() {

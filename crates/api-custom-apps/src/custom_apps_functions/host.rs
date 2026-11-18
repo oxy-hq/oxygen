@@ -5,7 +5,7 @@
 //! (query cap), §11.9 (fetch size cap), §11.3 (warehouse write scope —
 //! per-function fail-closed `destinations` allowlist).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
@@ -38,6 +38,7 @@ mod destinations;
 mod email_idempotency;
 mod env_guard;
 mod env_homes;
+mod events_op;
 mod fallback_secrets;
 mod held_log;
 mod notify_op;
@@ -193,6 +194,9 @@ pub struct ProjectFunctionHost {
     /// The workspace's registered QuickBooks sandbox companies, read at most
     /// once per invocation, and only for a QuickBooks sandbox call.
     sandbox_companies: tokio::sync::OnceCell<std::collections::BTreeSet<String>>,
+    /// The event whose delivery started this invocation, which a publish
+    /// from it chains from (`events_op`). `None` for every other trigger.
+    event_cause: Option<super::runtime::EventCause>,
 }
 
 /// The audit state of one open transaction.
@@ -207,6 +211,9 @@ struct TxAudit {
     /// For a handle on a mapped destination, the fence every statement on it
     /// passes before it is sent (`env_policy::destination_sql`).
     fence: Option<super::env_policy::destination_sql::DestinationFence>,
+    /// Whether `tx.events.publish` wrote an outbox row on this handle: its
+    /// commit then queues the relay (`tx_finish`).
+    published: bool,
 }
 
 /// The fail-closed capability gates a function's manifest grants, plus the
@@ -247,6 +254,20 @@ pub struct FunctionCapabilities {
     /// What `ctx.airhouse` may do. Same derivation as `oltp`: the schema is
     /// `app_<writer>`, from the app's slug, never from the manifest.
     pub airhouse: WriterCapability,
+    /// Gate for `ctx.events.publish` and `tx.events.publish`: the bare event
+    /// names the manifest declares under `events.publish`. `None` → not
+    /// declared, every publish refused.
+    pub events: Option<BTreeSet<String>>,
+    /// The writer role a publish is written as — the same derivation as
+    /// `oltp`: the schema is `app_<writer>`, from the app's slug, never from
+    /// the manifest. Enabled only when the function declares something to
+    /// publish. Shapes where an allowed publish lands; it refuses nothing.
+    pub events_writer: WriterCapability,
+    /// The events the running build's manifest declares, each with its
+    /// schema: what a publish's name must be one of, and what its data is
+    /// validated against. Read from the build, never from the function's
+    /// entry. Empty for a function that publishes nothing.
+    pub event_catalog: oxy_custom_apps::events::catalog::EventCatalog,
     /// Customer warehouses this function may write to despite the read-only
     /// rule, each with the reason its manifest gave. Empty → none.
     pub customer_warehouse_writes: BTreeMap<String, String>,
@@ -281,6 +302,7 @@ impl FunctionCapabilities {
             Capability::StorageReadAndWrite => self.storage_read && self.storage_write,
             Capability::Oltp => matches!(self.oltp, WriterCapability::Enabled { .. }),
             Capability::Airhouse => matches!(self.airhouse, WriterCapability::Enabled { .. }),
+            Capability::Events => self.events.is_some(),
             // Decided per database the call names (`check_write_destination`),
             // after the op is admitted; the op itself is open to every function.
             Capability::WarehouseWrite => true,
@@ -323,6 +345,12 @@ impl FunctionCapabilities {
             | Capability::StorageReadAndWrite => self.refuse_storage(capability),
             Capability::Oltp => refuse_oltp(&self.oltp),
             Capability::Airhouse => refuse_airhouse(&self.airhouse),
+            Capability::Events => HostError::capability_missing(
+                CapabilityArea::Events,
+                "EventsCapabilityMissing: this function has not declared the `events` \
+                 capability (add \"events\": { \"publish\": [\"<name>\"] } to its \
+                 oxy-app.json entry)",
+            ),
         })
     }
 
@@ -356,6 +384,8 @@ impl FunctionCapabilities {
             storage_write: true,
             oltp: WriterCapability::resolve(true, "test-app"),
             airhouse: WriterCapability::resolve(true, "test-app"),
+            events: Some(BTreeSet::from(["order.placed".to_string()])),
+            events_writer: WriterCapability::resolve(true, "test-app"),
             ..Default::default()
         }
     }
@@ -453,6 +483,7 @@ impl ProjectFunctionHost {
             minted_uploads: Default::default(),
             fallback_secrets: Default::default(),
             sandbox_companies: Default::default(),
+            event_cause: None,
             policy,
             identity,
             tx_writes: tokio::sync::Mutex::new(std::collections::HashMap::new()),
@@ -488,6 +519,13 @@ impl ProjectFunctionHost {
         if !self.policy.is_production() {
             self.fallback_secrets = provider_fetch::FallbackSecrets::new(values);
         }
+        self
+    }
+
+    /// This host for an invocation an event's delivery started: a publish
+    /// from it chains from `cause` (its causation, root, depth and actor).
+    pub fn with_event_cause(mut self, cause: Option<super::runtime::EventCause>) -> Self {
+        self.event_cause = cause;
         self
     }
 
@@ -1216,7 +1254,8 @@ impl FunctionHost for ProjectFunctionHost {
         Ok(serde_json::json!({ "ok": true }))
     }
 
-    /// `ctx.tx` and `ctx.oltp.tx` — six verbs over one op (`host/tx_ops.rs`).
+    /// `ctx.tx` and `ctx.oltp.tx` — seven verbs over one op (`host/tx_ops.rs`),
+    /// `tx.events.publish` among them.
     async fn tx(
         &self,
         op: String,
@@ -1252,6 +1291,17 @@ impl FunctionHost for ProjectFunctionHost {
         self.airhouse_op(&op, &payload)
             .await
             .map_err(HostError::from)
+    }
+
+    /// `ctx.events.publish` — one row in the org's outbox, as the app's
+    /// writer, and the relay queued (`host/events_op.rs`). The same publish on
+    /// a `ctx.oltp.tx` handle arrives at [`Self::tx`] as `publish`.
+    async fn events(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        self.events_op(&op, payload).await.map_err(HostError::from)
     }
 
     async fn secrets_set(

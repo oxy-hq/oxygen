@@ -38,6 +38,9 @@ pub struct PromoteRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub confirm_schedule_removals: Vec<String>,
+    /// Ship over production listeners the build breaks (audited).
+    #[serde(default, alias = "breakListeners")]
+    pub break_listeners: bool,
     /// What the plan said the target serves (`null`: nothing). Absent: the
     /// act is checked against what this request reads.
     #[serde(default, deserialize_with = "present")]

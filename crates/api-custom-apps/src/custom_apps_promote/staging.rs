@@ -140,3 +140,21 @@ pub async fn reconcile_staging_schedules(
             )]
         })
 }
+
+/// Reconcile staging's event subscriptions to the build it now serves. Best
+/// effort, as its schedules are: a failure is the move's warning.
+pub async fn reconcile_staging_subscriptions(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+) -> Vec<String> {
+    crate::app_events::subscriptions::reconcile_environment(db, app, &AppEnvironment::Staging)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(app_id = %app.id, error = %e,
+                "promote: staging's event subscriptions were not reconciled");
+            vec![format!(
+                "staging's event subscriptions could not be reconciled ({e}); publish to staging \
+                 again to retry"
+            )]
+        })
+}

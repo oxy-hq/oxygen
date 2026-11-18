@@ -87,6 +87,21 @@ const BRANCH_STEPS: &[(&str, &str)] = &[
 /// The ids the steps write, with production's own row (1) and `bump()`'s.
 const BRANCH_ROWS: i64 = 11;
 
+/// Ops isolated to the branch whose branch probe is elsewhere, and where. An
+/// event publish needs an app declaring events, the org's `app_events` flag
+/// and its grant on the store, which this app does not have; it reads the
+/// branch's outbox rather than `orders`.
+const PROBED_ELSEWHERE: &[(&str, &str)] = &[
+    (
+        "events.publish",
+        "app_events_publish::a_staging_publish_lands_on_the_branch_and_never_in_production",
+    ),
+    (
+        "tx.publish",
+        "app_events_publish::a_staging_publish_lands_on_the_branch_and_never_in_production",
+    ),
+];
+
 /// Each reaches outside the database it runs in.
 const OUTSIDE_STEPS: &[(&str, &str)] = &[
     (
@@ -213,13 +228,18 @@ async fn held_verbs(app: &OltpApp) -> BTreeSet<String> {
 }
 
 /// The table covers every op a staging run with a branch sends there — by
-/// the op, or on a handle opened on it. `tx.rollback` writes nothing.
+/// the op, or on a handle opened on it — or names the test that probes it
+/// ([`PROBED_ELSEWHERE`]). `tx.rollback` writes nothing.
 #[test]
 fn every_op_isolated_to_the_oltp_branch_has_a_branch_probe_step() {
     let branch = EnvPolicy::for_environment(AppEnvironment::Staging)
         .with_oltp_home(OltpHome::StagingBranch("br".into()));
     let on_branch = Decision::Isolate(Target::OltpBranch);
-    let probed: BTreeSet<&str> = BRANCH_STEPS.iter().map(|(op, _)| *op).collect();
+    let probed: BTreeSet<&str> = BRANCH_STEPS
+        .iter()
+        .chain(PROBED_ELSEWHERE)
+        .map(|(op, _)| *op)
+        .collect();
     let unprobed: Vec<&str> = HostOp::ALL
         .iter()
         .copied()

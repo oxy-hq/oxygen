@@ -87,6 +87,10 @@ pub struct PromoteResponse {
     pub app: AppResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_pin: Option<crate::custom_apps_staging_pin::SemanticPinNotice>,
+    /// What a rollback broke: the event listeners it leaves without the event
+    /// or schema they were written for. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

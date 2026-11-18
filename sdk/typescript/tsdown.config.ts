@@ -26,7 +26,11 @@ export default defineConfig({
     // `@oxy-hq/sdk/theme` — the theme's optional runtime half (the mode
     // attribute and .dark class, the preview gate, the pre-paint script).
     // Pure TS, no React; its own entry so a vite.config can import it alone.
-    theme: "src/theme/index.ts"
+    theme: "src/theme/index.ts",
+    // `@oxy-hq/sdk/events` — `onEvent` and `NonRetryableError` for an event
+    // listener function. Pure TS, no React; its own entry so a listener
+    // bundle carries nothing else.
+    events: "src/events/index.ts"
   },
   format: ["cjs", "esm"],
   dts: true,

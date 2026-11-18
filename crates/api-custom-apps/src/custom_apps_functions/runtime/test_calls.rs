@@ -54,6 +54,11 @@ pub(super) fn sample(op: HostOp) -> HostCall {
             payload,
             reply,
         },
+        Family::Events => HostCall::Events {
+            op: sub,
+            payload,
+            reply,
+        },
         Family::Storage => HostCall::Storage {
             op: sub,
             payload,
@@ -149,6 +154,11 @@ pub(super) fn loaded(op: HostOp) -> HostCall {
             reply,
         },
         Family::Airhouse => HostCall::Airhouse {
+            op: sub,
+            payload,
+            reply,
+        },
+        Family::Events => HostCall::Events {
             op: sub,
             payload,
             reply,

@@ -1,0 +1,23 @@
+use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
+
+/// A listener function's subscription to an event type in one environment.
+/// Unique on `(environment, app_id, function_name, event_type)`.
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
+#[sea_orm(table_name = "app_event_subscriptions")]
+pub struct Model {
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub workspace_id: Uuid,
+    pub environment: String,
+    pub app_id: Uuid,
+    pub function_name: String,
+    pub event_type: String,
+    pub build_id: Uuid,
+    pub created_at: DateTimeWithTimeZone,
+    pub updated_at: DateTimeWithTimeZone,
+}
+
+impl ActiveModelBehavior for ActiveModel {}

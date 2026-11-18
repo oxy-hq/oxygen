@@ -39,6 +39,16 @@
         "default": "./dist/theme.cjs"
       }
     },
+    "./events": {
+      "import": {
+        "types": "./dist/events.d.mts",
+        "default": "./dist/events.mjs"
+      },
+      "require": {
+        "types": "./dist/events.d.cts",
+        "default": "./dist/events.cjs"
+      }
+    },
     "./theme.css": "./dist/theme.css",
     "./email": {
       "import": {

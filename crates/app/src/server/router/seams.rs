@@ -155,10 +155,16 @@ pub struct FleetJobSeam {
 /// The fleet jobs the custom-app surface must hand in. A worker without them
 /// would boot, and the storage figures the staff console shows would stop
 /// moving with nothing failing.
-pub const CUSTOM_APP_FLEET_JOBS: [&str; 3] = [
+pub const CUSTOM_APP_FLEET_JOBS: [&str; 5] = [
     "custom_app_asset_lifecycle_verify",
     "custom_app_storage_sweeper",
     "custom_app_usage_backfill_sweep",
+    // Without it, a published event a crash left in an org's outbox is never
+    // relayed, and a stale outbox is never reported.
+    "custom_app_event_relay_sweep",
+    // Without it, a dead task never reaches its delivery, and events and
+    // schema revisions are never pruned.
+    "custom_app_event_retention",
 ];
 
 /// Refuse a fleet-job list that lacks one [`CUSTOM_APP_FLEET_JOBS`] names, or
@@ -444,14 +450,14 @@ pub struct SurfaceSeams {
 /// The strings, not the constants that name them in `oxy-api-custom-apps`: the
 /// executors are in that crate and `oxy-app` cannot name it. A test there
 /// (`task_kinds_are_the_six_the_fleet_knew`) holds each constant to its string,
-/// and `oxy-server`'s `the_task_kinds_are_exactly_these_eight` the list handed in.
+/// and `oxy-server`'s `the_task_kinds_are_exactly_these_ten` the list handed in.
 ///
 /// `custom_app_agent_ask` is queued by every live ask's start, which moved to
 /// `oxy-api-custom-apps` with its executor (2026-11-14). It is listed so a
 /// process whose seams lack the executor refuses to start, rather than fail
 /// every ask as an unknown kind; `agentic-pipeline`'s recovery and the chat
 /// executor name the same string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 8] = [
+pub const CUSTOM_APP_TASK_KINDS: [&str; 9] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
@@ -462,6 +468,10 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 8] = [
     // The automation run's queued executor, `oxy-api-custom-apps`' since
     // 2026-11-14 (in-tree before).
     "custom_app_procedure_run",
+    // The app events relay: queued by a publish's nudge and by the relay
+    // sweep, so a process without its executor would leave every org's
+    // published events in the outbox.
+    "app_events_relay",
 ];
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
@@ -646,7 +656,7 @@ mod tests {
     /// The persisted task-queue contract: these strings are in
     /// `agentic_task_queue` rows, so a change here strands queued work.
     #[test]
-    fn the_required_task_kinds_are_the_eight_the_fleet_knew() {
+    fn the_required_task_kinds_are_the_nine_the_fleet_knows() {
         assert_eq!(
             CUSTOM_APP_TASK_KINDS,
             [
@@ -658,6 +668,7 @@ mod tests {
                 "custom_app_env_oltp_branch",
                 "custom_app_agent_ask",
                 "custom_app_procedure_run",
+                "app_events_relay",
             ]
         );
     }

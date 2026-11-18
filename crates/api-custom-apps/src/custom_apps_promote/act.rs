@@ -31,6 +31,7 @@ use super::resolve::{self, PromoteRequest, Resolved, RollbackRequest};
 use super::schedules;
 use super::second_person::{self, Identity};
 use super::staging::{self, StagingMove};
+use crate::app_events::{gate, subscriptions};
 use crate::custom_apps_auth;
 use crate::custom_apps_environments::EnvAction;
 
@@ -39,6 +40,7 @@ struct Options<'a> {
     dry_run: bool,
     confirmed: &'a [String],
     expect_current: Option<Option<Uuid>>,
+    break_listeners: bool,
 }
 
 pub async fn promote(
@@ -54,6 +56,7 @@ pub async fn promote(
         dry_run: req.dry_run,
         confirmed: &req.confirm_schedule_removals,
         expect_current: req.expect_current,
+        break_listeners: req.break_listeners,
     };
     execute(db, actor, resolved, opts).await
 }
@@ -70,6 +73,8 @@ pub async fn rollback(
         dry_run: req.dry_run,
         confirmed: &req.confirm_schedule_removals,
         expect_current: req.expect_current,
+        // A rollback is never refused: nothing to override.
+        break_listeners: false,
     };
     execute(db, actor, resolved, opts).await
 }
@@ -93,6 +98,8 @@ async fn execute(
     let asked = plan::Asked {
         confirmed: opts.confirmed,
         mover: &mover,
+        // A dry run previews the event gate; a real act leaves it to the move.
+        break_listeners: opts.dry_run.then_some(opts.break_listeners),
     };
     let mut plan = plan::build(db, &r, asked).await?;
     if opts.dry_run {
@@ -109,9 +116,16 @@ async fn execute(
     if !plan.blockers.is_empty() {
         return Err(PromoteError::Blocked(plan.blockers));
     }
-    let warnings = move_pointer(db, actor, &r, expected, &mut plan).await?;
+    let warnings = move_pointer(db, actor, &r, (expected, opts.break_listeners), &mut plan).await?;
     plan.warnings.extend(warnings);
-    record(db, actor, &r).await;
+    let rolled_over: &[String] = match r.act {
+        Act::Rollback => &plan.broken_listeners,
+        Act::Promote => &[],
+    };
+    record(db, actor, &r, rolled_over).await;
+    if r.act == Act::Promote && !plan.broken_listeners.is_empty() {
+        gate::audit_override(db, actor, &r.app, &r.build.build_id, &plan.broken_listeners).await;
+    }
     plan.dry_run = false;
     plan.moved = true;
     Ok(plan)
@@ -122,7 +136,7 @@ async fn move_pointer(
     db: &DatabaseConnection,
     actor: &RequestActor,
     r: &Resolved,
-    expected: Option<Uuid>,
+    (expected, break_listeners): (Option<Uuid>, bool),
     plan: &mut Plan,
 ) -> Result<Vec<String>, PromoteError> {
     let action = match r.act {
@@ -140,6 +154,7 @@ async fn move_pointer(
         staging::move_staging(db, &mv).await?;
         let mut warnings = staging::queue_staging_migrations(db, &r.app, &r.build).await;
         warnings.extend(staging::reconcile_staging_schedules(db, &r.app).await);
+        warnings.extend(staging::reconcile_staging_subscriptions(db, &r.app).await);
         return Ok(warnings);
     }
     let mv = ProductionMove {
@@ -150,16 +165,27 @@ async fn move_pointer(
         actor_via: second_person::via_of(&actor.user),
         expect_current: Some(expected),
         refuse_same: true,
+        // The request's flag: the move is the one place the event gate runs.
+        break_listeners,
     };
     let moved = production::move_production(db, &mv).await?;
     // `published_at` is part of who may open the app.
     custom_apps_auth::invalidate_access_cache();
     plan.migrations_applied = Some(moved.applied);
-    Ok(schedules::reconcile(db, &moved.app, &r.build).await)
+    // What the move found: a promote's overridden refusals, a rollback's
+    // warnings. Both are recorded (`execute`).
+    plan.warnings.extend(moved.warnings.iter().cloned());
+    plan.broken_listeners = match r.act {
+        Act::Promote => moved.broken_listeners,
+        Act::Rollback => moved.warnings,
+    };
+    let mut warnings = schedules::reconcile(db, &moved.app, &r.build).await;
+    warnings.extend(subscriptions::reconcile_production(db, &moved.app, &r.build).await);
+    Ok(warnings)
 }
 
 /// Step 5, best effort: the move stands either way.
-async fn record(db: &DatabaseConnection, actor: &RequestActor, r: &Resolved) {
+async fn record(db: &DatabaseConnection, actor: &RequestActor, r: &Resolved, broken: &[String]) {
     let from = r.from.as_ref().map(AppEnvironment::name);
     record_move(
         db,
@@ -168,13 +194,16 @@ async fn record(db: &DatabaseConnection, actor: &RequestActor, r: &Resolved) {
         (&r.app, &r.to),
         from,
         (r.build.id, r.current),
+        broken,
     )
     .await;
 }
 
 /// The audit row of one pointer move by promote or rollback — also the
 /// console rollback's (`rollback_app`). `moved` is `(app, environment)`,
-/// `builds` is `(build, previous)`.
+/// `builds` is `(build, previous)`; `broken` is what a rollback broke, which
+/// its row records (spec §6.8) — empty for a promote, whose override has a row
+/// of its own.
 pub async fn record_move(
     db: &DatabaseConnection,
     actor: &RequestActor,
@@ -182,7 +211,8 @@ pub async fn record_move(
     moved: (&entity::apps::Model, &AppEnvironment),
     from: Option<String>,
     builds: (Uuid, Option<Uuid>),
+    broken: &[String],
 ) {
-    let entry = promoted_entry(actor, act, moved, from, builds);
+    let entry = promoted_entry(actor, act, moved, from, builds, broken);
     audit::record_best_effort(db, entry).await;
 }

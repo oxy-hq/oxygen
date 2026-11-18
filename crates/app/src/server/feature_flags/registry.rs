@@ -109,6 +109,22 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
+        key: super::APP_EVENTS,
+        description: "App events for an org: its apps' Oxy Functions may publish typed events \
+                      (ctx.events.publish, tx.events.publish) into the org's OLTP outbox. Off, \
+                      every publish is refused EventsNotEnabled before anything is written. \
+                      Turn it on per org with an org override; the outbox needs the org's \
+                      OLTP store provisioned.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // The host reads it with the publishing app's org (`is_enabled_for`).
+        per_org: true,
+        client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
         key: super::rollout::COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
         description: "Fail, instead of warn on, a compile whose config.yml reads a key file \
                       from the repository (BigQuery key_path, Snowflake private-key path) on \

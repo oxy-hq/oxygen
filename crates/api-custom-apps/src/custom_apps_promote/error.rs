@@ -27,6 +27,7 @@ pub const VALIDATION_NOT_PASSED: &str = "validation_not_passed";
 pub const REQUIRED_SECRETS_UNSET: &str = "required_secrets_unset";
 pub const SCHEDULE_REMOVAL_UNCONFIRMED: &str = "schedule_removal_unconfirmed";
 pub const SAME_PERSON_PROMOTE: &str = "same_person_promote";
+pub const EVENT_LISTENERS_BROKEN: &str = "event_listeners_broken";
 
 /// The code a failed migration is answered with, whatever its status.
 pub const MIGRATION_FAILED: &str = "migration_failed";
@@ -79,6 +80,11 @@ pub enum PromoteError {
     Blocked(Vec<Blocker>),
     #[error("{}", .0.message())]
     AgentBuilt(Box<AgentBuilt>),
+    /// A build that removes an event type, or changes its schema
+    /// incompatibly, while a production listener depends on it: one message
+    /// per listener (`app_events::gate`).
+    #[error("refused: {}", .0.join("; "))]
+    EventListenersBroken(Vec<String>),
     #[error("{0}")]
     Migration(MigrationError),
     #[error("internal error")]
@@ -112,6 +118,7 @@ impl PromoteError {
             | Self::AlreadyServing { .. }
             | Self::TargetMoved { .. }
             | Self::Blocked(_)
+            | Self::EventListenersBroken(_)
             | Self::AgentBuilt(_) => StatusCode::CONFLICT,
             Self::Migration(e) => migration_status(e),
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -134,6 +141,7 @@ impl PromoteError {
             Self::AlreadyServing { .. } => "already_serving",
             Self::TargetMoved { .. } => "target_moved",
             Self::Blocked(blockers) => blockers.first().map_or("blocked", |b| b.code),
+            Self::EventListenersBroken(_) => EVENT_LISTENERS_BROKEN,
             Self::AgentBuilt(_) => crate::custom_apps_agent_built::PROMOTE_REFUSED,
             Self::Migration(_) => MIGRATION_FAILED,
             Self::Internal(_) => "internal",
@@ -236,6 +244,11 @@ mod tests {
                 },
                 409,
                 "already_serving",
+            ),
+            (
+                PromoteError::EventListenersBroken(vec!["x".into()]),
+                409,
+                "event_listeners_broken",
             ),
             (
                 PromoteError::TargetMoved {

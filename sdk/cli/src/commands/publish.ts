@@ -29,6 +29,7 @@ import { fallsBackToPublisher, OidcExchangeError } from "../auth/oidc.js";
 import { isMachineIdentity, isSandboxAgentToken } from "../auth/token-kind.js";
 import { type Context, notAuthenticated } from "../context/resolve.js";
 import { loadDotenv } from "../publish/dotenv.js";
+import { embedEventSchemas, embedEventSchemasIntoBundle } from "../publish/event-schemas.js";
 import {
   checkEngines,
   fetchDatabaseEngines,
@@ -105,6 +106,11 @@ export interface PublishFlags {
    * schedule the build retires — the confirmation `oxyc promote` takes.
    */
   removeSchedules?: string[];
+  /**
+   * Ship over production event listeners the build breaks (a removed event
+   * type, or an incompatible schema change). The server audits it.
+   */
+  breakListeners?: boolean;
 }
 
 function envValue(name: string): string | undefined {
@@ -241,6 +247,11 @@ function prepareBundle(
   const warning = enforceReservedFunctionsDir(bundleDir, declared, declared.length > 0);
   if (warning) log.warn(warning);
 
+  // The platform never reads a schema file from a bundle: the parsed schemas
+  // go into the bundle's copy of the manifest, whatever built the bundle.
+  const embeddedSchemas = embedEventSchemasIntoBundle(ctx.cwd, bundleDir);
+  if (embeddedSchemas > 0) log.info(`event schemas embedded: ${embeddedSchemas}`);
+
   if (flags.prebuilt) {
     requirePrebuiltFunctions(bundleDir, declared);
   } else {
@@ -270,12 +281,17 @@ function reportFunctionLint(
   allow: boolean | undefined
 ): void {
   for (const line of skipped) log.warn(`function lint: ${line}`);
-  if (issues.length === 0) return;
+  // A warning-level finding (an event schema's money-like `number`) never fails.
+  for (const issue of issues.filter((i) => i.level === "warning")) {
+    log.warn(describeLintIssue(issue));
+  }
+  const errors = issues.filter((i) => i.level === "error");
+  if (errors.length === 0) return;
   if (allow) {
-    for (const issue of issues) log.warn(describeLintIssue(issue));
+    for (const issue of errors) log.warn(describeLintIssue(issue));
     return;
   }
-  throw functionLintFailure(issues);
+  throw functionLintFailure(errors);
 }
 
 /**
@@ -539,6 +555,9 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
   // Before the build, like the credential: a capability the manifest lacks is
   // a one-line fix, and learning about it after a two-minute install is how
   // it used to be learned — in production, at the first call.
+  // The same failure the embed would raise after the build, a missing schema
+  // file included, said before it.
+  if (manifest) embedEventSchemas(ctx.cwd, manifest);
   const lint = manifest
     ? lintAppFunctions(ctx.cwd, manifest as unknown as Record<string, unknown>)
     : undefined;
@@ -617,7 +636,8 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
         ["branch", provenance.branch],
         ["semantic_revision_id", semanticRevision],
         ["environment", flags.appEnv],
-        ...scheduleConfirmations(flags)
+        ...scheduleConfirmations(flags),
+        ["breakListeners", flags.breakListeners ? "true" : undefined]
       ]
     });
   } catch (cause) {

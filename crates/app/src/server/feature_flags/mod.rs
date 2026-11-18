@@ -58,6 +58,12 @@ pub fn is_enabled_for(key: &'static str, ctx: &FlagContext) -> bool {
 /// Presentation only: the web app reads it from `GET /auth/config`.
 pub const HOME_V3: &str = "home_v3";
 
+/// App events, per org: an Oxy Function's `ctx.events.publish` and
+/// `tx.events.publish` put an event in the org's outbox only where this serves
+/// `on` (app events design §10, step 2). Read with [`is_enabled_for`] and the
+/// publishing app's org; everywhere else a publish is refused `EventsNotEnabled`.
+pub const APP_EVENTS: &str = "app_events";
+
 /// Whether [`HOME_V3`] is on.
 pub fn home_v3() -> bool {
     is_enabled(HOME_V3)

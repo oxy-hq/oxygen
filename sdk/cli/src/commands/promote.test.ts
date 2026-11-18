@@ -196,6 +196,57 @@ describe("oxyc promote", () => {
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
+  it("--break-listeners sends breakListeners on the plan and on the act", async () => {
+    stubFetch(
+      {
+        ...APPS,
+        [PROMOTE]: (body) =>
+          body?.dry_run
+            ? { status: 200, body: plan() }
+            : { status: 200, body: plan({ dry_run: false, moved: true }) }
+      },
+      calls
+    );
+    const io = capture();
+    await runPromote(fakeContext(), "acme/store", { yes: true, breakListeners: true });
+    io.restore();
+    const posts = calls.filter((c) => c.method === "POST");
+    expect(posts).toHaveLength(2);
+    for (const post of posts) expect(post.body).toMatchObject({ breakListeners: true });
+  });
+
+  it("hints --break-listeners on an event_listeners_broken blocker", async () => {
+    const blocked = plan({
+      blockers: [
+        { code: "event_listeners_broken", message: "`a/b.c` is removed but x/fn listens to it" }
+      ]
+    });
+    stubFetch({ ...APPS, [PROMOTE]: () => ({ status: 200, body: blocked }) }, calls);
+    const io = capture();
+    const err = await runPromote(fakeContext(), "acme/store", { yes: true }).catch(
+      (e: unknown) => e
+    );
+    io.restore();
+    expect((err as CliError).hint).toContain("--break-listeners");
+  });
+
+  it("hints --break-listeners when listeners are any blocker, not only the first", async () => {
+    const blocked = plan({
+      blockers: [
+        { code: "staging_never_served", message: "staging has never served build b-7" },
+        { code: "event_listeners_broken", message: "`a/b.c` is removed but x/fn listens to it" }
+      ]
+    });
+    stubFetch({ ...APPS, [PROMOTE]: () => ({ status: 200, body: blocked }) }, calls);
+    const io = capture();
+    const err = await runPromote(fakeContext(), "acme/store", { yes: true }).catch(
+      (e: unknown) => e
+    );
+    io.restore();
+    expect((err as CliError).message).toContain("staging_never_served, event_listeners_broken");
+    expect((err as CliError).hint).toContain("--break-listeners");
+  });
+
   it("promotes a sandbox to staging, and refuses production as a source (exit 2)", async () => {
     const toStaging = `POST /api/customer-apps/${APP_ID}/environments/staging/promote`;
     stubFetch(

@@ -48,7 +48,5 @@ pub mod unpublish;
 
 pub use audit::{AuditedBy, MoveAudit, MoveRow};
 pub use error::{Blocker, PromoteError};
-pub use production::{
-    MigrationsApplied, ProductionMove, move_locked, move_production, move_production_audited,
-};
+pub use production::{MigrationsApplied, ProductionMove, move_production, move_production_audited};
 pub use target::BuildRef;

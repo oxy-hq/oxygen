@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::any;
+use oxy_api_custom_apps::app_events::relay as app_events_relay;
+use oxy_api_custom_apps::app_events::retention as app_events_retention;
 use oxy_api_custom_apps::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
 use oxy_api_custom_apps::custom_apps_env_branch::task as env_branch_task;
 use oxy_api_custom_apps::custom_apps_nonproduction::{staging_task, staging_task_executor};
@@ -83,6 +85,17 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
                     // query executor, as a trait object, so the function module
                     // never imports `data_plane::query`.
                     executor: Arc::new(DataPlaneQueryExecutor) as Arc<dyn FunctionQueryExecutor>,
+                })
+            },
+        },
+        // An org's published events relayed out of its OLTP outbox into
+        // `app_events`, one delivery and `app_function` run per listener;
+        // queued by a publish's nudge and by the relay sweep below.
+        TaskSeam {
+            kind: app_events_relay::RELAY_KIND,
+            build: |deps| {
+                Arc::new(app_events_relay::RelayExecutor {
+                    db: deps.db.clone(),
                 })
             },
         },
@@ -294,6 +307,23 @@ pub(crate) fn fleet_jobs() -> Vec<FleetJobSeam> {
                 custom_apps_usage_backfill::spawn_sweep(deps.db.clone(), deps.shutdown.clone())
             },
         },
+        // Queue a relay for every org whose events outbox has a row waiting,
+        // catching what a crash left behind, and log a stale outbox. Claimed
+        // per interval: two replicas sweeping would only race to queue the
+        // same relays.
+        FleetJobSeam {
+            name: app_events_relay::SWEEP_JOB,
+            start: |deps| app_events_relay::spawn_sweep(deps.db.clone(), deps.shutdown.clone()),
+        },
+        // Sync a dead task into its delivery, expire what is unfinished at 30
+        // days, and prune events and schema revisions past retention. Claimed
+        // per interval: two replicas would only race over the same batches.
+        FleetJobSeam {
+            name: app_events_retention::SWEEP_JOB,
+            start: |deps| {
+                app_events_retention::spawn_retention(deps.db.clone(), deps.shutdown.clone())
+            },
+        },
     ]
 }
 
@@ -417,16 +447,17 @@ mod tests {
     /// The task kinds the fleet knew before this list was handed in, plus the
     /// usage backfill, the queued ask and the automation run (both registered
     /// in `oxy-app` until their executors moved to `oxy-api-custom-apps`,
-    /// 2026-11-14). A kind added here, or dropped, is a change to what a
-    /// worker can run, so it is spelled out rather than derived from the
-    /// constants it is built from.
+    /// 2026-11-14), and the app events relay. A kind added here, or dropped,
+    /// is a change to what a worker can run, so it is spelled out rather than
+    /// derived from the constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_nine() {
+    fn the_task_kinds_are_exactly_these_ten() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
             kinds,
             [
+                "app_events_relay",
                 "app_function",
                 "custom_app_agent_ask",
                 "custom_app_env_oltp_branch",
@@ -465,7 +496,7 @@ mod tests {
     /// The fleet jobs `oxy worker` starts. Exactly the list `oxy-app` requires,
     /// so a worker refuses to boot rather than run without one.
     #[test]
-    fn the_fleet_jobs_are_exactly_the_three_oxy_app_requires() {
+    fn the_fleet_jobs_are_exactly_what_oxy_app_requires() {
         let names: Vec<&str> = fleet_jobs().iter().map(|j| j.name).collect();
         assert_eq!(names, oxy_app::server::router::CUSTOM_APP_FLEET_JOBS);
         assert_eq!(

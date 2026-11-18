@@ -114,14 +114,19 @@ impl EnvPolicy {
         }
     }
 
-    /// [`Self::decide`] for a statement, commit or rollback on a `ctx.tx`
-    /// handle whose `begin` was isolated to `opened_into`: it runs on that
-    /// handle's connection, which is already the isolated home. A handle
-    /// opened as asked (`None`) is decided by the op alone.
+    /// [`Self::decide`] for a statement, an event publish, a commit or a
+    /// rollback on a `ctx.tx` handle whose `begin` was isolated to
+    /// `opened_into`: it runs on that handle's connection, which is already
+    /// the isolated home. A handle opened as asked (`None`) is decided by the
+    /// op alone.
     pub fn decide_on_handle(&self, op: HostOp, opened_into: Option<Target>) -> Decision {
         match (op, opened_into) {
             (
-                HostOp::TxQuery | HostOp::TxExec | HostOp::TxCommit | HostOp::TxRollback,
+                HostOp::TxQuery
+                | HostOp::TxExec
+                | HostOp::TxPublish
+                | HostOp::TxCommit
+                | HostOp::TxRollback,
                 Some(target),
             ) if !self.is_production() => Decision::Isolate(target),
             _ => self.decide(op),

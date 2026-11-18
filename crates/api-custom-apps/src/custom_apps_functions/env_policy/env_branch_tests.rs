@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use super::tests::sandbox;
+use super::tests::{OLTP_PLANE_OPS, sandbox};
 use super::*;
 use crate::custom_apps_planes::Plane;
 
@@ -49,17 +49,14 @@ fn an_env_branch_isolates_every_oltp_op() {
             assert_eq!(decided, plain.decide(*op), "{op:?} moved");
         }
     }
-    assert_eq!(
-        isolated,
-        BTreeSet::from([HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec])
-    );
+    assert_eq!(isolated, BTreeSet::from(OLTP_PLANE_OPS));
 }
 
 #[test]
 fn an_unready_env_branch_refuses_with_its_fix() {
     for why in UNREADY {
         let policy = sandbox().with_oltp_home(OltpHome::EnvironmentBranchUnready(why));
-        for op in [HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec] {
+        for op in OLTP_PLANE_OPS {
             assert_eq!(
                 policy.decide(op),
                 Decision::Refuse { fix: why.fix() },

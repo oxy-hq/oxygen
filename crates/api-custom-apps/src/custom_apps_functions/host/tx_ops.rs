@@ -1,12 +1,15 @@
-//! `ctx.tx` and `ctx.oltp.tx` on the host — six verbs over one op, dispatched
-//! onto the per-invocation `TxRegistry`.
+//! `ctx.tx` and `ctx.oltp.tx` on the host — seven verbs over one op,
+//! dispatched onto the per-invocation `TxRegistry`. `publish` is
+//! `tx.events.publish` (`events_op`): an outbox row on an OLTP handle's own
+//! connection, whose relay `commit` queues once the transaction has
+//! committed.
 //!
 //! The two opening verbs are the only ones that touch authorization: `begin`
 //! runs the same fail-closed `destinations` check as `ctx.warehouse` before a
-//! connector exists, and `begin_oltp` the `oltp` gate on the app's own writer.
-//! The other four take an id that `begin` handed out, and the registry rejects
-//! any id it did not issue — so a script cannot reach a database by guessing a
-//! number.
+//! connector exists, and `begin_oltp` the `oltp` gate on the app's own writer
+//! (`publish` also passes the `events` gate and its own checks). The other
+//! five take an id that `begin` handed out, and the registry rejects any id it
+//! did not issue — so a script cannot reach a database by guessing a number.
 //!
 //! Outside production (`env_guard`, `warehouse_home`): a warehouse `begin`
 //! opens on the database `nonProduction.destinations` maps the named one to,
@@ -14,9 +17,10 @@
 //! that reaches past the mapped database is held unsent
 //! (`env_policy::destination_sql`); a `begin` on an unmapped database is held.
 //! An OLTP handle opens on the org's staging branch when it has one, and every
-//! statement and the commit on that handle run there (P4b); with none it
-//! opens `READ ONLY` on a read-only session, each statement on it is sent
-//! only when it is a single read, and `commit` rolls back.
+//! statement, event publish and the commit on that handle run there (P4b);
+//! with none it opens `READ ONLY` on a read-only session, each statement on it
+//! is sent only when it is a single read, a publish is held, and `commit`
+//! rolls back.
 
 use super::super::env_policy::destination_sql::DestinationFence;
 use super::super::env_policy::{HostOp, Target};
@@ -36,6 +40,7 @@ impl ProjectFunctionHost {
             HostOp::TxBeginOltp => self.begin_oltp_tx().await,
             HostOp::TxQuery => self.tx_query(payload).await,
             HostOp::TxExec => self.tx_exec(payload).await,
+            HostOp::TxPublish => self.tx_publish(payload.clone()).await,
             HostOp::TxCommit | HostOp::TxRollback => self.tx_finish(host_op, payload).await,
             _ => Err(format!("unknown op '{op}'")),
         }
@@ -141,6 +146,7 @@ impl ProjectFunctionHost {
                 writes: Vec::new(),
                 opened_into,
                 fence,
+                published: false,
             },
         );
         Ok(serde_json::json!({ "id": id }))
@@ -159,6 +165,11 @@ impl ProjectFunctionHost {
         let namespace = database.as_deref().unwrap_or_default();
         self.admit_statement(op, opened_into, &sql, namespace)
             .await?;
+        // A `ctx.oltp.tx` handle is the app's own store, where the outbox is
+        // reached through `tx.events.publish` alone, in every environment.
+        if self.tx_plane(id).await == Some("oltp") {
+            super::oltp_guard::refuse_platform_schema(&sql)?;
+        }
         if let Some(fence) = self.tx_fence(id).await {
             self.admit_on_mapped(op, &fence, &sql, namespace).await?;
         }
@@ -230,12 +241,19 @@ impl ProjectFunctionHost {
         let audit = self.tx_writes.lock().await.remove(&id);
         if committing && let Some(audit) = audit {
             let (trace_id, _) = Self::trace_context();
+            // The handle's events are committed with it: mark the outbox
+            // again and queue their relay now, and never for a transaction
+            // that rolled back.
+            let published = audit.published;
             self.record_writes(
                 data_audit::ACTION_TX_COMMIT,
                 audit.writes,
                 trace_id.as_deref(),
             )
             .await;
+            if published {
+                self.after_publish_commit().await;
+            }
         }
         Ok(serde_json::json!({ "ok": true }))
     }
@@ -287,6 +305,12 @@ impl ProjectFunctionHost {
             .await
             .get(&id)
             .and_then(|a| a.fence.clone())
+    }
+
+    /// The plane handle `id` was opened on (`oltp` for `ctx.oltp.tx`); `None`
+    /// for an id `begin` never handed out.
+    async fn tx_plane(&self, id: u64) -> Option<&'static str> {
+        self.tx_writes.lock().await.get(&id).map(|a| a.plane)
     }
 
     /// The isolated home handle `id` was opened into; `None` for one opened

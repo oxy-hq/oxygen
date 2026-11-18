@@ -7,8 +7,8 @@
 //! `admit` and `inflate` write nothing. The app row is then upserted and the
 //! guard armed; `store`, `record`, `gate`, `promote` and `point` run under it,
 //! so a failure in any of them undoes whatever was written so far, once — a
-//! promoting publish production refuses (`production_gate`) included, staging
-//! half and all. `after` cannot fail the publish.
+//! promoting publish production refuses (`production_gate`, then the event
+//! gate) included, staging half and all. `after` cannot fail the publish.
 //!
 //! Each stage is clocked under its [`Stage`] name, and every publish whose
 //! caller is authorized for the app — landed or refused — leaves one attempt
@@ -19,7 +19,7 @@
 
 use axum::body::Bytes;
 use entity::organizations;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 use super::admit::{admit, authorize};
@@ -27,11 +27,13 @@ use super::inflate::{Inflated, inflate};
 use super::orphan::OrphanGuard;
 use super::production_gate;
 use super::{
-    PROMOTING_PUBLISH_DEPRECATED, PublishError, PublishInput, PublishResult, PublishTarget,
-    app_row_for, asset_manifest, build_id_taken, cache, drop_resolution_cache, env_schedules,
-    gc_builds, migrations, move_pointers, queue_migrations_for, reconcile_moved_environment,
-    record_build, record_functions, sandbox_agent_publish, staging_task, store,
+    PROMOTING_PUBLISH_DEPRECATED, PublishError, PublishInput, PublishOptions, PublishResult,
+    PublishTarget, app_row_for, asset_manifest, build_id_taken, cache, drop_resolution_cache,
+    env_schedules, gc_builds, migrations, move_pointers, queue_migrations_for,
+    reconcile_moved_environment, record_build, record_functions, sandbox_agent_publish,
+    staging_task, store,
 };
+use crate::app_events::subscriptions;
 use crate::custom_apps_publish_attempts::{Attempt, AttemptFacts, Failed, Stage, StageTimer};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 
@@ -40,12 +42,13 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 pub(super) async fn store_and_point(
     input: PublishInput,
     target: PublishTarget,
+    options: PublishOptions,
 ) -> Result<PublishResult, Failed<PublishError>> {
     let db = oxy::database::client::establish_connection()
         .await
         .map_err(|e| Failed::unstaged(PublishError::Db(e.to_string())))?;
     let mut attempt = Attempt::begin(attempt_facts(&input, &target));
-    let published = stages(&db, input, &target, &mut attempt).await;
+    let published = stages(&db, input, &target, options, &mut attempt).await;
     attempt
         .finish(&db, published.as_ref().err().map(ToString::to_string))
         .await;
@@ -79,6 +82,7 @@ async fn stages(
     db: &DatabaseConnection,
     mut input: PublishInput,
     target: &PublishTarget,
+    options: PublishOptions,
     attempt: &mut Attempt,
 ) -> Result<PublishResult, PublishError> {
     // Admit, in two pieces clocked as one: until the caller is authorized for
@@ -120,14 +124,16 @@ async fn stages(
         target,
         org: &admitted.org,
         inflated: &inflated,
+        options,
     };
-    let (build_pk, warnings) = match write(&ctx, &mut guard, &mut attempt.clock, files).await {
-        Ok(written) => written,
-        Err(e) => {
-            guard.undo().await;
-            return Err(e);
-        }
-    };
+    let (build_pk, warnings, broken) =
+        match write(&ctx, &mut guard, &mut attempt.clock, files).await {
+            Ok(written) => written,
+            Err(e) => {
+                guard.undo().await;
+                return Err(e);
+            }
+        };
     guard.disarm();
     // Only now: an app this publish created was undone with a failure.
     attempt.app_id = Some(app_id);
@@ -137,7 +143,12 @@ async fn stages(
         .clock
         .run_infallible(Stage::After, after(&ctx, build_pk, warnings))
         .await;
-    Ok(target.result(&admitted.org.slug, input, (app_id, is_new_app), warnings))
+    Ok(target.result(
+        &admitted.org.slug,
+        input,
+        (app_id, is_new_app),
+        (warnings, broken),
+    ))
 }
 
 /// Admit's first piece: a sandbox publish that promotes is refused, then the
@@ -159,24 +170,68 @@ struct Publishing<'a> {
     target: &'a PublishTarget,
     org: &'a organizations::Model,
     inflated: &'a Inflated,
+    options: PublishOptions,
 }
 
 /// The stages that write, in order, each arming [`OrphanGuard`] as it lands.
-/// Answers the build row and the warnings the pointer move produced.
+/// Answers the build row, the warnings the event gate and the pointer move
+/// produced, and the production listeners the publish broke on purpose.
 async fn write(
     ctx: &Publishing<'_>,
     guard: &mut OrphanGuard<'_>,
     clock: &mut StageTimer,
     files: Vec<(String, Vec<u8>)>,
-) -> Result<(Uuid, Vec<String>), PublishError> {
+) -> Result<(Uuid, Vec<String>, Vec<String>), PublishError> {
     let stored = clock.run(Stage::Store, store_bytes(ctx, files)).await?;
     guard.bytes_stored();
     let build_pk = clock.run(Stage::Record, record(ctx, guard, stored)).await?;
     let gate = production_gate::check(ctx.db, ctx.app_id, build_pk, ctx.input);
     clock.run(Stage::Gate, gate).await?;
+    // The event gate once production's blockers pass: the one refusal
+    // `--break-listeners` overrides, still before any migration applies.
+    let (mut warnings, broken) = clock.run(Stage::Gate, event_gate(ctx, build_pk)).await?;
     clock.run(Stage::Promote, promote(ctx, build_pk)).await?;
-    let warnings = clock.run(Stage::Point, point(ctx, build_pk)).await?;
-    Ok((build_pk, warnings))
+    warnings.extend(clock.run(Stage::Point, point(ctx, build_pk)).await?);
+    Ok((build_pk, warnings, broken))
+}
+
+/// A promoting publish does not take production over a listener it breaks
+/// (`app_events::gate`), before anything it would have to undo is applied:
+/// the build row is discarded with the guard. `--break-listeners` lets it
+/// through, naming what it broke for the audit row; other listeners warn.
+async fn event_gate(
+    ctx: &Publishing<'_>,
+    build_pk: Uuid,
+) -> Result<(Vec<String>, Vec<String>), PublishError> {
+    if !ctx.input.promote {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let db_err = |e: sea_orm::DbErr| PublishError::Db(e.to_string());
+    let app = entity::apps::Entity::find_by_id(ctx.app_id)
+        .one(ctx.db)
+        .await
+        .map_err(db_err)?;
+    let build = entity::app_builds::Entity::find_by_id(build_pk)
+        .one(ctx.db)
+        .await
+        .map_err(db_err)?;
+    let (Some(app), Some(build)) = (app, build) else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    crate::custom_apps_promote::production::event_gate(
+        ctx.db,
+        &app,
+        &build,
+        crate::custom_apps_environments::EnvAction::Promote,
+        ctx.options.break_listeners,
+    )
+    .await
+    .map_err(|e| match e {
+        crate::custom_apps_promote::PromoteError::EventListenersBroken(m) => {
+            PublishError::EventListenersBroken(m)
+        }
+        other => PublishError::Db(other.to_string()),
+    })
 }
 
 /// Bytes land before the row mutation is allowed to stand. A build id must be
@@ -225,6 +280,10 @@ async fn record(
         &ctx.inflated.fn_specs,
     )
     .await?;
+    // One revision per declared event, in every environment.
+    crate::app_events::record_revisions(ctx.db, ctx.app_id, ctx.inflated.manifest_json.as_ref())
+        .await
+        .map_err(|e| PublishError::Db(e.to_string()))?;
     Ok(build_pk)
 }
 
@@ -297,8 +356,36 @@ async fn point(ctx: &Publishing<'_>, build_pk: Uuid) -> Result<Vec<String>, Publ
     } else {
         Vec::new()
     };
+    if input.promote {
+        warnings.extend(production_subscriptions(ctx.db, app_id, build_pk).await);
+    }
     warnings.extend(reconcile_moved_environment(ctx.db, ctx.target, app_id).await);
     Ok(warnings)
+}
+
+/// Production's event subscriptions, from the build the promoting publish
+/// made live (`app_events::subscriptions`). A warning, never a failure.
+async fn production_subscriptions(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    build_pk: Uuid,
+) -> Vec<String> {
+    let rows = async {
+        let app = entity::apps::Entity::find_by_id(app_id).one(db).await?;
+        let build = entity::app_builds::Entity::find_by_id(build_pk)
+            .one(db)
+            .await?;
+        Ok::<_, sea_orm::DbErr>(app.zip(build))
+    }
+    .await;
+    match rows {
+        Ok(Some((app, build))) => subscriptions::reconcile_production(db, &app, &build).await,
+        Ok(None) => Vec::new(),
+        Err(e) => vec![format!(
+            "production's event subscriptions could not be reconciled ({e}); they keep their \
+             previous subscriptions until the next successful publish"
+        )],
+    }
 }
 
 /// Everything after the pointers have moved, none of it able to fail the

@@ -131,7 +131,7 @@ impl TxRegistry {
 /// An id with no live transaction behind it. Reached two ways — a handle used
 /// after its callback returned, or a fabricated id — and the message covers
 /// both without confirming which, so it is not an oracle for probing ids.
-fn unknown_handle() -> String {
+pub(super) fn unknown_handle() -> String {
     "no open transaction for this handle — it was already committed or rolled back".into()
 }
 

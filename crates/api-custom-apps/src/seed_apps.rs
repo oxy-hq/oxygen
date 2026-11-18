@@ -40,8 +40,9 @@ use uuid::Uuid;
 
 use crate::custom_apps_asset_manifest as asset_manifest;
 use crate::custom_apps_build_store as store;
+use crate::custom_apps_promote::ProductionMove;
 use crate::custom_apps_promote::production::lock_app;
-use crate::custom_apps_promote::{ProductionMove, move_locked};
+use crate::custom_apps_promote::production::move_locked;
 
 type Conn = sea_orm::DatabaseConnection;
 
@@ -582,6 +583,28 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
     let db_err = |what: &str, e: &dyn std::fmt::Display| {
         OxyError::DBError(format!("{what} for app {app_id}: {e}"))
     };
+    // The seed goes live through the same gate as every production move, before
+    // it writes anything (no override: a seed never breaks a listener).
+    let gated = async {
+        let app = Apps::find_by_id(app_id).one(conn).await?;
+        let build = entity::app_builds::Entity::find_by_id(build_pk)
+            .one(conn)
+            .await?;
+        Ok::<_, sea_orm::DbErr>(app.zip(build))
+    }
+    .await
+    .map_err(|e| db_err("read the app and build to gate", &e))?;
+    if let Some((app, build)) = gated {
+        crate::custom_apps_promote::production::event_gate(
+            conn,
+            &app,
+            &build,
+            crate::custom_apps_environments::EnvAction::Promote,
+            false,
+        )
+        .await
+        .map_err(|e| db_err("gate the build", &e))?;
+    }
     let txn = conn
         .begin()
         .await
@@ -613,6 +636,7 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
         actor_via: None,
         expect_current: None,
         refuse_same: false,
+        break_listeners: false,
     };
     move_locked(&txn, row, &promote)
         .await

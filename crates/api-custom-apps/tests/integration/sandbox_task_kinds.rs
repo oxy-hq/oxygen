@@ -1,6 +1,7 @@
 //! The four task kinds a sandbox queues, `custom_app_sandbox_teardown`,
 //! `custom_app_sandbox_migrations`, `custom_app_sandbox_oltp` and
-//! `custom_app_env_oltp_branch`: each is
+//! `custom_app_env_oltp_branch`, and the app events relay
+//! (`app_events_relay`): each is
 //! handed to the worker fleet by `oxy-server`,
 //! and each is filed as a platform daemon wherever a daemon is told from the
 //! tenant's own work. Source scans — the registry and two of the three lists
@@ -26,12 +27,14 @@ fn handed_in_tasks() -> String {
     body.split_whitespace().collect()
 }
 
-/// A sandbox's task kinds are filed as platform daemons everywhere a
-/// daemon is told from the tenant's own work: the coordinator's run feed
-/// (backend and frontend lists, which must agree) and workspace health — a
-/// failed teardown must never mark a customer's workspace unhealthy.
+/// A sandbox's task kinds and the app events relay are filed as platform
+/// daemons everywhere a daemon is told from the tenant's own work: the
+/// coordinator's run feed (backend and frontend lists, which must agree) and
+/// workspace health — a failed teardown or relay must never mark a
+/// customer's workspace unhealthy.
 #[test]
-fn the_sandbox_task_kinds_are_platform_daemons_in_every_list() {
+fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
+    use oxy_api_custom_apps::app_events::relay::RELAY_KIND;
     use oxy_api_custom_apps::custom_apps_env_branch::task::ENV_OLTP_BRANCH_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::migrations_task::SANDBOX_MIGRATIONS_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::oltp_task::SANDBOX_OLTP_KIND;
@@ -62,6 +65,7 @@ fn the_sandbox_task_kinds_are_platform_daemons_in_every_list() {
             SANDBOX_MIGRATIONS_KIND,
             SANDBOX_OLTP_KIND,
             ENV_OLTP_BRANCH_KIND,
+            RELAY_KIND,
         ] {
             assert!(
                 body.contains(&format!("\"{kind}\"")),
@@ -113,6 +117,20 @@ fn the_env_branch_executor_is_registered_for_its_kind() {
         ),
         "`custom_apps_seams::tasks` no longer hands in \
          the executor for ENV_OLTP_BRANCH_KIND"
+    );
+}
+
+/// Published events leave an org's outbox only if `oxy-server` hands in the
+/// relay's kind.
+#[test]
+fn the_relay_executor_is_registered_for_its_kind() {
+    let squeezed = handed_in_tasks();
+    assert!(
+        squeezed.contains(
+            "TaskSeam{kind:app_events_relay::RELAY_KIND,\
+             build:|deps|{Arc::new(app_events_relay::RelayExecutor{db:deps.db.clone(),})},}"
+        ),
+        "`custom_apps_seams::tasks` no longer hands in the executor for RELAY_KIND"
     );
 }
 

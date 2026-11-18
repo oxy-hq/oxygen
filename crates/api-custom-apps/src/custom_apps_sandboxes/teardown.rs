@@ -256,6 +256,17 @@ async fn tear_down(
     let schedules = retire_environment(db, task.workspace_id, task.app_id, environment)
         .await
         .map_err(|e| not_torn_down(task, "schedules", e))?;
+    let subscriptions =
+        crate::app_events::subscriptions::retire_environment(db, task.app_id, environment)
+            .await
+            .map_err(|e| not_torn_down(task, "event subscriptions", e))?;
+    let events = crate::app_events::retention::retire_environment_events(
+        db,
+        task.app_id,
+        &environment.name(),
+    )
+    .await
+    .map_err(|e| not_torn_down(task, "events", e.to_string()))?;
     let dropped = drop_sibling(db, task, environment)
         .await
         .map_err(|e| not_torn_down(task, "Airhouse", e.to_string()))?;
@@ -272,7 +283,7 @@ async fn tear_down(
         .await
         .map_err(|e| not_torn_down(task, "remove its row", e.to_string()))?;
     Ok(format!(
-        "{}, {schedules} schedules retired, {overlay} overlay tables forgotten, {}, {branch}",
+        "{}, {schedules} schedules retired, {subscriptions} event subscriptions retired, {events} event rows removed, {overlay} overlay tables forgotten, {}, {branch}",
         summary(task, secrets, &dropped, rows),
         oltp_summary(&oltp)
     ))

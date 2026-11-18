@@ -252,6 +252,17 @@ struct FunctionManifestEntry {
     customer_warehouse_writes: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default)]
     webhook: Option<WebhookSpec>,
+    /// Events this function listens to: a qualified `<app>/<event>` string or an
+    /// array of them. A function may also have a `route`, `schedule` or
+    /// `webhook`. The strings are validated where the manifest is checked
+    /// (`oxy_custom_apps::events::catalog::function_subscribes`), not here.
+    #[serde(default)]
+    on: Option<OnSpec>,
+    /// Opt-in capability to publish events: `"events": { "publish": [...] }`
+    /// names the events from the app's `events` catalogue this function may
+    /// publish (fail-closed: absent → publishing rejected).
+    #[serde(default)]
+    events: Option<EventsSpec>,
     /// Opt-in capability for `ctx.org.people()` — the org's people directory
     /// (fail-closed: absent → the call is rejected).
     ///
@@ -416,6 +427,21 @@ struct WebhookSpec {
     signature_prefix: Option<String>,
 }
 
+/// `"on": "app/event"` or `"on": ["app/event", ...]`.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+enum OnSpec {
+    One(String),
+    Many(Vec<String>),
+}
+
+/// `"events": { "publish": ["statement.uploaded"] }`.
+#[derive(Debug, Deserialize, Default, Clone)]
+struct EventsSpec {
+    #[serde(default)]
+    publish: Vec<String>,
+}
+
 /// `"airhouse": { "enabled": true }` — a gate, like [`OltpSpec`]; it never names
 /// the schema.
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -435,6 +461,22 @@ struct OltpSpec {
 }
 
 impl FunctionManifestEntry {
+    /// The qualified event types this function listens to, as written in `on`.
+    // Read by the event admission and reconcile tasks that follow.
+    #[allow(dead_code)]
+    fn subscribes(&self) -> Vec<String> {
+        match &self.on {
+            None => Vec::new(),
+            Some(OnSpec::One(s)) => vec![s.clone()],
+            Some(OnSpec::Many(v)) => v.clone(),
+        }
+    }
+
+    /// The bare event names this function may publish (`events.publish`).
+    fn publishes(&self) -> &[String] {
+        self.events.as_ref().map_or(&[], |e| e.publish.as_slice())
+    }
+
     /// The cache TTL if opted in with a positive value, else `None`.
     fn cache_ttl(&self) -> Option<Duration> {
         self.cache
@@ -718,6 +760,7 @@ fn manifest_capabilities(
         }
         kinds
     });
+    let publishes = entry.publishes();
     host::FunctionCapabilities {
         secrets_write: entry.secrets_write(),
         email_send: entry.email_send(),
@@ -732,6 +775,18 @@ fn manifest_capabilities(
         // the host diagnoses it as such, not as "capability missing".
         oltp: host::WriterCapability::resolve(entry.oltp_enabled(), &app.slug),
         airhouse: host::WriterCapability::resolve(entry.airhouse_enabled(), &app.slug),
+        events: (!publishes.is_empty()).then(|| publishes.iter().cloned().collect()),
+        events_writer: host::WriterCapability::resolve(!publishes.is_empty(), &app.slug),
+        // Checked when the build was published (`app_events::declared_events`),
+        // so a catalogue that does not parse here declares nothing.
+        event_catalog: if publishes.is_empty() {
+            Default::default()
+        } else {
+            oxy_custom_apps::events::catalog::EventCatalog::from_manifest(
+                build.manifest_json.as_ref(),
+            )
+            .unwrap_or_default()
+        },
         customer_warehouse_writes: entry.customer_warehouse_writes(),
         fetch_max_bytes: resolve_fetch_max_bytes(entry),
         storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
@@ -1577,6 +1632,7 @@ async fn isolate_route(
         cancel,
         preagg: run.preagg,
         policy: prepared.policy,
+        event: None,
     };
     run_stage(args).await
 }
@@ -1953,6 +2009,7 @@ fn system_run_args<'a>(
         cancel: run.cancel,
         preagg: run.preagg,
         policy: prepared.policy,
+        event: None,
     }
 }
 
@@ -2163,6 +2220,10 @@ struct RunArgs<'a> {
     /// What each host op may do in the environment this run was admitted to
     /// (`environment_gate::Admission`). Handed to the host at construction.
     policy: env_policy::EnvPolicy,
+    /// The event whose delivery started this run, which a publish from it
+    /// chains from. `None` for a route call, a schedule, an Airway step and a
+    /// manual run.
+    event: Option<runtime::EventCause>,
 }
 
 /// The span the isolate thread runs under — see the call site in
@@ -2538,7 +2599,8 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
                 .with_read_through_fallback(env.read_through_fallback)
                 .with_shared_secrets(env.shared_secrets),
         )
-        .with_fallback_secrets(fallback_values),
+        .with_fallback_secrets(fallback_values)
+        .with_event_cause(args.event.clone()),
     );
 
     let ctx = runtime::InvocationCtx {
@@ -2560,6 +2622,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         },
         env: env.values,
         airhouse_schema: args.caps.airhouse.schema(),
+        event: args.event,
     };
 
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and
@@ -2827,6 +2890,31 @@ fn sanitize_request_headers(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod event_keys_tests {
+    use super::FunctionManifestEntry;
+
+    #[test]
+    fn function_manifest_entry_parses_on_and_events() {
+        let one: FunctionManifestEntry = serde_json::from_value(serde_json::json!({
+            "on": "locations/statement.uploaded",
+            "events": { "publish": ["report.ingested"] },
+            "timeoutSeconds": 60
+        }))
+        .unwrap();
+        assert_eq!(one.subscribes(), vec!["locations/statement.uploaded"]);
+        assert_eq!(one.publishes(), ["report.ingested"]);
+
+        let many: FunctionManifestEntry =
+            serde_json::from_value(serde_json::json!({ "on": ["a/x", "b/y"] })).unwrap();
+        assert_eq!(many.subscribes(), vec!["a/x", "b/y"]);
+        assert!(many.publishes().is_empty());
+
+        let none: FunctionManifestEntry = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(none.subscribes().is_empty());
+    }
 }
 
 #[cfg(test)]

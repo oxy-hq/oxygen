@@ -84,8 +84,8 @@ pub use function_host::FunctionHost;
 pub use isolate_limits::{HEAP_LIMIT_MB_ENV, abandoned_isolates, heap_limit_bytes};
 use isolate_thread::{IsolateRun, execute_on_engine, spawn_cold};
 pub use types::{
-    CtxIdentityKind, CtxTeam, CtxUser, FUNCTION_MAX_ROWS, FUNCTION_STREAM_MAX_ROWS, FnRequest,
-    FnResponse, InvocationCtx, RuntimeError,
+    CtxIdentityKind, CtxTeam, CtxUser, EventCause, FUNCTION_MAX_ROWS, FUNCTION_STREAM_MAX_ROWS,
+    FnRequest, FnResponse, InvocationCtx, RuntimeError,
 };
 
 /// Bootstrap script: polyfills the minimal `Response` the function author's
