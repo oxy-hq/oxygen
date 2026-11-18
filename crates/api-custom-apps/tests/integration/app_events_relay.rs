@@ -437,6 +437,7 @@ impl Relay {
             schema_revision_id: None,
             delay_seconds: 0,
             relay_error: None,
+            only_listener: None,
         }
     }
 }
@@ -473,7 +474,7 @@ async fn connect(dsn: &str) -> tokio_postgres::Client {
 /// Publish `functions` (and the manifest keys in `extra`) as build `build` of
 /// app `slug` in `workspace`, promoted: the build is production's and
 /// staging's.
-async fn publish_app(
+pub(crate) async fn publish_app(
     t: &Tenant,
     slug: &str,
     workspace: Uuid,

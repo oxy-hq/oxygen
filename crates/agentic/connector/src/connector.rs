@@ -1232,8 +1232,8 @@ pub trait DatabaseConnector: Send + Sync {
     /// connector's decision, because only the connector knows what its engine
     /// reads as SQL. The default is the sqlcommenter convention,
     /// [`with_trailing_comment`]: Postgres and DuckDB parse it as a comment,
-    /// and Airhouse can lift it into a commit message from the end of the
-    /// statement. An engine that reads bytes after the SQL as data, or that has
+    /// and Airhouse ignores it (nothing there turns a trailing comment into a
+    /// commit message). An engine that reads bytes after the SQL as data, or that has
     /// a channel beside the SQL for exactly this, overrides it.
     ///
     /// A trailing `;` is dropped before the comment goes on: connectors that

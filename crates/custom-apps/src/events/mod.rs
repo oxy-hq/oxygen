@@ -15,6 +15,7 @@
 //!   function's `events.publish` and `on` keys.
 
 pub mod catalog;
+pub mod table;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -97,10 +97,9 @@ pub fn function_publishes(function_manifest: &Value) -> Result<BTreeSet<String>,
 }
 
 /// The qualified `<app>/<event>` types a function listens to, as written in
-/// its `on` key (an entry or an array of them), in order. A `{ "table": ... }`
-/// object entry is not an event type and is skipped, as the typed manifest
-/// entry's `subscribes()` does: a binary that reads one still keeps the
-/// string subscriptions beside it.
+/// its `on` key (an entry or an array of them), in order. An entry that is a
+/// `{ "table": ... }` object is a table watch, not an event type
+/// ([`super::table::function_table_watches`]) and is skipped here.
 pub fn function_subscribes(function_manifest: &Value) -> Result<Vec<String>, String> {
     let Some(on) = function_manifest.get("on") else {
         return Ok(Vec::new());
@@ -197,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn on_skips_a_table_entry_and_keeps_the_event_types_beside_it() {
+    fn on_skips_a_table_entry_and_refuses_a_number() {
         assert_eq!(
             function_subscribes(&json!({ "on": ["a/x", { "table": "db:s.t" }] })).unwrap(),
             vec!["a/x"]

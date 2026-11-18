@@ -46,9 +46,11 @@ use crate::platform::EVENTS_OUTBOX_TABLE;
 
 mod branch;
 mod grant;
+mod platform;
 mod store;
 
 pub use grant::{ensure_publishable, forget_publishable};
+pub use platform::{PLATFORM_WRITER, PlatformBody, read_bodies, write_platform_body};
 
 /// One publish, run as the app's writer role inside the app's transaction.
 ///

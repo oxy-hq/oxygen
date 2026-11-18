@@ -15,10 +15,13 @@ use uuid::Uuid;
 
 use super::reply::ApiError;
 use crate::app_events::schema::live_revision;
+use oxy_custom_apps::events::table::is_table_event_type;
 
 #[derive(Debug, Serialize)]
 pub(super) struct TypesReply {
     types: Vec<TypeRow>,
+    /// The functions that run on a table, with where each cursor is.
+    tables: Vec<super::tables::TableRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -113,12 +116,19 @@ pub(super) async fn list(db: &DatabaseConnection, org_id: Uuid) -> Result<TypesR
     let mut types = declared(db, org_id).await.map_err(read)?;
     for row in rows(db, LAST_PUBLISHED_SQL, org_id).await.map_err(read)? {
         let event_type: String = row.try_get("", "event_type").map_err(read)?;
+        // A table's changes are listed under `tables`, not as an event type.
+        if is_table_event_type(&event_type) {
+            continue;
+        }
         let entry = types
             .entry(event_type.clone())
             .or_insert_with(|| undeclared(&event_type));
         entry.last_published_at = row.try_get("", "last_published_at").map_err(read)?;
     }
     for ((event_type, ..), health) in std::mem::take(&mut listeners) {
+        if is_table_event_type(&event_type) {
+            continue;
+        }
         types
             .entry(event_type.clone())
             .or_insert_with(|| undeclared(&event_type))
@@ -130,7 +140,8 @@ pub(super) async fn list(db: &DatabaseConnection, org_id: Uuid) -> Result<TypesR
         row.listeners
             .sort_by(|a, b| (&a.listener, &a.environment).cmp(&(&b.listener, &b.environment)));
     }
-    Ok(TypesReply { types })
+    let tables = super::tables::list(db, org_id).await.map_err(read)?;
+    Ok(TypesReply { types, tables })
 }
 
 /// The types the org's apps declare, each at production's revision (else the

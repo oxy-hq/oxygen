@@ -222,7 +222,8 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "custom_app_env_oltp_branch",
   "custom_app_sandbox_teardown",
   "custom_app_usage_backfill",
-  "app_events_relay"
+  "app_events_relay",
+  "app_table_watch"
 ];
 
 export const isSystemSource = (source: string | null | undefined): boolean =>

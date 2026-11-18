@@ -19,6 +19,11 @@ describe("sourceTypeToJobType", () => {
     expect(isSystemSource("app_events_relay")).toBe(true);
   });
 
+  // The table tracker reads a watched table's changes and publishes events.
+  it("treats the table tracker as a system daemon", () => {
+    expect(isSystemSource("app_table_watch")).toBe(true);
+  });
+
   it("files a chunked backfill's drive under ELT with the runs it seeds", () => {
     expect(sourceTypeToJobType("airway_backfill_range")).toBe("elt");
     expect(isSystemSource("airway_backfill_range")).toBe(false);

@@ -119,7 +119,7 @@ pub(super) async fn purge(
 ) -> Result<PurgeReply, ApiError> {
     let fail = |e| ApiError::db("purge events", e);
     let txn = db.begin().await.map_err(fail)?;
-    let (ids, bodies, total) = lock_events(&txn, p).await.map_err(fail)?;
+    let (ids, bodies, total, workspaces) = lock_events(&txn, p).await.map_err(fail)?;
     let bodies_deleted = match delete_their_bodies(db, p.org_id, &bodies).await {
         Ok(deleted) => deleted,
         Err(refused) => {
@@ -127,6 +127,12 @@ pub(super) async fn purge(
             return Err(refused);
         }
     };
+    // The event log's copy goes too, or what was published by mistake would
+    // stay queryable there for 90 days.
+    if let Err(refused) = delete_their_log_rows(db, &workspaces).await {
+        txn.rollback().await.map_err(fail)?;
+        return Err(refused);
+    }
     let count = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -159,7 +165,15 @@ pub(super) async fn purge(
 async fn lock_events(
     txn: &DatabaseTransaction,
     p: &Purge,
-) -> Result<(Vec<Uuid>, HashMap<OutboxTarget, Vec<OutboxKey>>, u64), DbErr> {
+) -> Result<
+    (
+        Vec<Uuid>,
+        HashMap<OutboxTarget, Vec<OutboxKey>>,
+        u64,
+        HashMap<Uuid, Vec<Uuid>>,
+    ),
+    DbErr,
+> {
     let filter = "FROM app_events WHERE org_id = $1 AND type = $2 \
                   AND ($3::text IS NULL OR key = $3) \
                   AND ($4::timestamptz IS NULL OR published_at < $4)";
@@ -182,7 +196,7 @@ async fn lock_events(
         .transpose()?
         .unwrap_or(0);
     let sql = format!(
-        "SELECT id, environment, writer_role {filter} ORDER BY published_at, id \
+        "SELECT id, environment, writer_role, workspace_id {filter} ORDER BY published_at, id \
          LIMIT {PURGE_BATCH} FOR UPDATE"
     );
     let rows = txn
@@ -194,10 +208,15 @@ async fn lock_events(
         .await?;
     let mut ids = Vec::with_capacity(rows.len());
     let mut bodies: HashMap<OutboxTarget, Vec<OutboxKey>> = HashMap::new();
+    let mut workspaces: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
     for row in rows {
         let id: Uuid = row.try_get("", "id")?;
         let environment: String = row.try_get("", "environment")?;
         ids.push(id);
+        workspaces
+            .entry(row.try_get("", "workspace_id")?)
+            .or_default()
+            .push(id);
         if let Some(target) = relayed_store(&environment) {
             bodies.entry(target).or_default().push(OutboxKey {
                 writer_role: row.try_get("", "writer_role")?,
@@ -205,7 +224,31 @@ async fn lock_events(
             });
         }
     }
-    Ok((ids, bodies, total as u64))
+    Ok((ids, bodies, total as u64, workspaces))
+}
+
+/// Delete `events` (by workspace) from each workspace's event log. A
+/// workspace with no Airhouse has none; one that cannot be reached refuses
+/// the purge, like the org's store.
+async fn delete_their_log_rows(
+    db: &DatabaseConnection,
+    workspaces: &HashMap<Uuid, Vec<Uuid>>,
+) -> Result<(), ApiError> {
+    use crate::app_events::mirror::{SinkError, log};
+    let log = log();
+    for (workspace_id, ids) in workspaces {
+        match log.delete(db, *workspace_id, ids).await {
+            Ok(()) | Err(SinkError::NotConfigured) => {}
+            Err(SinkError::Failed(e)) => {
+                tracing::warn!(%workspace_id, error = %e, "app events purge: the event log refused");
+                return Err(ApiError::StoreUnreachable(format!(
+                    "the workspace's Airhouse event log could not delete the events, so nothing \
+                     was purged; retry once it can be reached ({e})"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Delete `bodies` from the org's store; how many. An org with no store has

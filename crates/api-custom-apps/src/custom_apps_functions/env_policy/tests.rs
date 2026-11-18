@@ -110,6 +110,7 @@ const ROWS: &[Row] = &[
     read(HostOp::PlatformFacts),
     write(HostOp::EventsPublish, HOLD),
     write(HostOp::TxPublish, HOLD),
+    read(HostOp::EventsChanges),
 ];
 
 fn staging() -> EnvPolicy {

@@ -1156,6 +1156,7 @@ async fn depth_nine_is_refused() {
         let project = workspace(&duck("events")).await;
         let cause = |depth| EventCause {
             id: Uuid::new_v4(),
+            event_type: format!("orders/{EVENT}"),
             root_id: Uuid::new_v4(),
             depth,
             actor: Some("user:ada".into()),

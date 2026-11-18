@@ -48,6 +48,10 @@ pub struct InvocationCtx {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventCause {
     pub id: uuid::Uuid,
+    /// The event's type: `locations/statement.uploaded`, or
+    /// `table:<table>` for a table change (the host's loop guard and
+    /// `ctx.tables.changes` read it).
+    pub event_type: String,
     pub root_id: uuid::Uuid,
     pub depth: i32,
     pub actor: Option<String>,

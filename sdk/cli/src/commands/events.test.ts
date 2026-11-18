@@ -14,6 +14,7 @@ import {
   runEventsRedeliver,
   runEventsShow
 } from "./events.js";
+import { runEventsResync } from "./events-resync.js";
 
 const TARGET = "https://oxy.test";
 
@@ -144,6 +145,123 @@ describe("oxyc events", () => {
     expect(at("bookkeeping/stuck")).toBeGreaterThan(-1);
     expect(at("bookkeeping/stuck")).toBeLessThan(at("bookkeeping/fresh"));
     expect(at("bookkeeping/fresh")).toBeLessThan(at("bookkeeping/idle"));
+  });
+
+  it("events ls lists table subscriptions with their cursor and why one needs a person", async () => {
+    const tables = [
+      {
+        table: "pokehouse:bookkeeping.lines",
+        type: "table:pokehouse:bookkeeping.lines",
+        environment: "production",
+        app: "locations",
+        function: "on-lines",
+        state: "active",
+        detail: null,
+        snapshot: 40,
+        head: 42,
+        lag: 2,
+        checkedAt: "2026-11-18T10:00:00Z",
+        advancedAt: "2026-11-18T09:59:00Z",
+        pausedAt: null
+      },
+      {
+        table: "app_locations.visits",
+        type: "table:app_locations.visits",
+        environment: "production",
+        app: "locations",
+        function: "on-visits",
+        state: "behind_horizon",
+        detail: "the cursor is at snapshot 3 and snapshot 9 is the oldest Airhouse still holds",
+        snapshot: 3,
+        head: 90,
+        lag: 87,
+        checkedAt: null,
+        advancedAt: null,
+        pausedAt: null
+      }
+    ];
+    stubFetch({ "GET /api/customer-apps/acme/events/types": { ...TYPES, tables } }, calls);
+    const out = capture();
+    await runEventsLs(fakeContext(), { json: false });
+    out.restore();
+    expect(out.text()).toContain("Table subscriptions");
+    expect(out.text()).toMatch(
+      /pokehouse:bookkeeping\.lines\s+locations\/on-lines\s+production\s+active\s+40\s+42\s+2/
+    );
+    expect(out.text()).toContain("BEHIND HORIZON");
+    expect(out.text()).toContain("oldest Airhouse still holds");
+
+    const json = capture();
+    await runEventsLs(fakeContext(), { json: true });
+    json.restore();
+    expect(JSON.parse(json.text()).tables).toHaveLength(2);
+  });
+
+  it("events ls without table subscriptions prints no such section (an older server's reply too)", async () => {
+    stubFetch({ "GET /api/customer-apps/acme/events/types": TYPES }, calls);
+    const out = capture();
+    await runEventsLs(fakeContext(), { json: false });
+    out.restore();
+    expect(out.text()).not.toContain("Table subscriptions");
+  });
+
+  it("events resync posts the function and environment and reports where each cursor moved", async () => {
+    stubFetch(
+      {
+        "POST /api/customer-apps/acme/locations/events/resync": {
+          function: "on-lines",
+          environment: "production",
+          tables: [
+            { table: "pokehouse:bookkeeping.lines", from: 3, to: 90, state: "behind_horizon" }
+          ],
+          backfill: true,
+          queued: 1,
+          dryRun: false
+        }
+      },
+      calls
+    );
+    const out = capture();
+    await runEventsResync(fakeContext(), "acme/locations", "on-lines", {
+      backfill: true,
+      json: false
+    });
+    out.restore();
+    expect(calls[0]?.body).toEqual({
+      function: "on-lines",
+      environment: "production",
+      backfill: true
+    });
+    expect(out.text()).toContain(
+      "moved pokehouse:bookkeeping.lines: snapshot 3 -> 90 (was behind_horizon)"
+    );
+    expect(out.text()).toContain("backfill: 1 run(s) queued");
+  });
+
+  it("events resync --dry-run changes nothing and says so", async () => {
+    stubFetch(
+      {
+        "POST /api/customer-apps/acme/locations/events/resync": {
+          function: "on-lines",
+          environment: "staging",
+          tables: [{ table: "app_locations.visits", from: 5, to: 8, state: "active" }],
+          backfill: false,
+          queued: 0,
+          dryRun: true
+        }
+      },
+      calls
+    );
+    const out = capture();
+    await runEventsResync(fakeContext(), "acme/locations", "on-lines", {
+      appEnv: "staging",
+      dryRun: true,
+      json: false
+    });
+    out.restore();
+    expect(calls[0]?.body).toEqual({ function: "on-lines", environment: "staging", dryRun: true });
+    expect(out.text()).toContain("would move app_locations.visits");
+    expect(out.text()).toContain("dry run: nothing changed");
   });
 
   it("events show reads one event, and --chain reads every event of its root", async () => {

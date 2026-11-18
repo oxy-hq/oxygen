@@ -168,6 +168,14 @@ const __publishFields = (type, data, opts) => {
   return { type: String(type), data, key: o.key, delaySeconds: o.delaySeconds };
 };
 
+// The fields of a tables.changes(event, opts?) the host reads: the event's id
+// and the page. The host answers only for the event that started this run, so
+// nothing else the author passes can name another event or table.
+const __changesFields = (event, opts) => {
+  const o = opts ?? {};
+  return { eventId: String(event?.id), limit: o.limit, offset: o.offset };
+};
+
 // The commit/rollback bracket behind ctx.tx and ctx.oltp.tx. It lives HERE
 // rather than in the author's code on purpose: an author who forgets a rollback
 // in a catch block leaves a transaction open holding locks, and the only
@@ -429,6 +437,14 @@ globalThis.__buildCtx = (ctxData) => ({
   events: {
     publish: (type, data, opts) =>
       __wrapOp("op_ctx_events")("publish", __publishFields(type, data, opts)),
+  },
+  // tables.changes(event, opts?) — the rows the snapshot of the table event
+  // that started this run changed: { inserted, deleted, hasMore }. `opts` is
+  // { limit?, offset? }, each side paged separately. Only the host's answer for
+  // this run's own event; a function not started by a table change is refused.
+  tables: {
+    changes: (event, opts) =>
+      __wrapOp("op_ctx_events")("changes", __changesFields(event, opts)),
   },
   // notify(input) — tell people in this org something: { to, kind, title,
   // body?, link?, email?, slack?, idempotencyKey? }. `to` names people (a user

@@ -50,6 +50,8 @@ impl ProjectFunctionHost {
             }
             HostOp::AirhouseExec => {
                 let sql = required_str(payload, "sql")?;
+                // A run a table change started does not write that table.
+                self.refuse_table_loop(None, sql)?;
                 let write = self
                     .airhouse_route(
                         HostOp::AirhouseExec,
@@ -62,10 +64,13 @@ impl ProjectFunctionHost {
                 self.airhouse_write(&write.schema, &write.statement, None, None)
                     .await?;
                 self.settle_overlay_write(settle).await?;
+                self.nudge_table_watch().await;
                 Ok(serde_json::json!({ "ok": true }))
             }
             HostOp::AirhouseAppend => {
                 let (sql, table, rows) = build_append_sql(&schema, payload)?;
+                // A run a table change started does not write that table.
+                self.refuse_table_loop(None, &sql)?;
                 // Host-built, but sent the way every other statement is: only
                 // what `sql_rules` checked and re-rendered leaves this module.
                 let target = (plane, schema.as_str(), "APPEND", table);
@@ -76,6 +81,7 @@ impl ProjectFunctionHost {
                 self.airhouse_write(&write.schema, &write.statement, Some(table), Some(rows))
                     .await?;
                 self.settle_overlay_write(settle).await?;
+                self.nudge_table_watch().await;
                 Ok(serde_json::json!({ "rowCount": rows }))
             }
             _ => Err(format!("unknown op '{op}'")),

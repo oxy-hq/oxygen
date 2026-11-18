@@ -89,6 +89,7 @@ pub mod app_event_delivery_attempts;
 pub mod app_event_outbox_marks;
 pub mod app_event_schemas;
 pub mod app_event_subscriptions;
+pub mod app_event_table_cursors;
 pub mod app_events;
 pub mod app_function_invocation_calls;
 pub mod app_function_invocations;

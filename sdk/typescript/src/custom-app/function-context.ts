@@ -290,6 +290,53 @@ export interface OxyEventsApi {
   ): Promise<{ eventId: string }>;
 }
 
+/**
+ * What a table event's `data` holds: one DuckLake snapshot that inserted into
+ * or deleted from the watched table. `inserted` and `deleted` are row-image
+ * counts; an update is a pre-image (in `deleted`) and a post-image (in
+ * `inserted`) of one row and is also counted once in `updated`. `rows` is there when the change is at most
+ * 1,000 rows and 64 KB together; past that, read them with
+ * {@link OxyTablesApi.changes}. `backfill` marks the one synthetic event
+ * `oxyc events resync --backfill` queues (no rows).
+ */
+export interface OxyTableChangeData {
+  snapshotId: number;
+  inserted: number;
+  deleted: number;
+  /** Updates, each counted once here and once in `inserted` and `deleted` (an update is a pre- and post-image of one row). */
+  updated: number;
+  rows?: { inserted: Array<Record<string, unknown>>; deleted: Array<Record<string, unknown>> };
+  backfill?: boolean;
+}
+
+/** A table event: type `table:<table as written in on>`, source `/tables/<table>`. */
+export type OxyTableChange = OxyEvent<OxyTableChangeData>;
+
+/** One page of what a table event's snapshot changed. */
+export interface OxyTableChangePage {
+  inserted: Array<Record<string, unknown>>;
+  deleted: Array<Record<string, unknown>>;
+  /** More rows beyond this page, on either side. */
+  hasMore: boolean;
+}
+
+/**
+ * `ctx.tables` — read what a table event changed. Answers only inside the
+ * function a table change started, and only for that event.
+ */
+export interface OxyTablesApi {
+  /**
+   * The rows `event`'s snapshot changed, ordered by row id so paging is
+   * stable. `limit` (default and maximum 10,000) applies to inserted and
+   * deleted separately; ask again with `offset` while `hasMore`. An expired
+   * snapshot is an error.
+   */
+  changes(
+    event: { id: string },
+    options?: { limit?: number; offset?: number }
+  ): Promise<OxyTableChangePage>;
+}
+
 /** The handle `ctx.oltp.tx` passes: an {@link OxyTransaction} that can also publish events. */
 export interface OxyOltpTransaction extends OxyTransaction {
   /** Publishes within this transaction (OLTP only; a warehouse transaction has none). */
@@ -301,9 +348,9 @@ export interface OxyEvent<T = unknown> {
   specversion: "1.0";
   /** Platform event id: UUIDv5 of (org, environment, type, key). */
   id: string;
-  /** `<publisher-slug>/<name>`, e.g. `locations/statement.uploaded`. */
+  /** `<publisher-slug>/<name>`, e.g. `locations/statement.uploaded`; `table:<table>` for a table change. */
   type: string;
-  /** `/apps/<publisher-slug>`. */
+  /** `/apps/<publisher-slug>`; `/tables/<table>` for a table change. */
   source: string;
   /** RFC 3339 timestamp of the publish. */
   time: string;
@@ -1336,6 +1383,8 @@ export interface OxyFunctionContext {
   storage: OxyStorageApi;
   /** **Events.** Publish an app event. Gated by the `events` capability. See {@link OxyEventsApi}. */
   events: OxyEventsApi;
+  /** **Table changes.** Read the rows a table event changed. See {@link OxyTablesApi}. */
+  tables: OxyTablesApi;
   /** Delivery facts; set only when this run handles an event. */
   delivery?: OxyDeliveryInfo;
 }

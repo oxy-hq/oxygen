@@ -196,6 +196,14 @@ const TABLES: &[(&str, Placement)] = &[
         Control("compiled event schemas from published builds, like compiled definitions"),
     ),
     (
+        "app_event_table_cursors",
+        Control(
+            "per watched table, the last DuckLake snapshot delivered, the table's column names \
+             and types, and the cursor's state: numbers and schema metadata, never a row; the \
+             rows a snapshot changed are the event's body, in the org's OLTP oxy_events.outbox",
+        ),
+    ),
+    (
         "app_event_subscriptions",
         Control("app event routing: which function listens to which event type per environment"),
     ),

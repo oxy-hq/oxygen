@@ -33,7 +33,7 @@ impl HostOp {
         use HostOp::*;
         match self {
             Query | QueryStream | WarehouseQuery | OrgPeople | OrgPlaces | OrgAssignments
-            | PlatformFacts => Plane::Reads,
+            | PlatformFacts | EventsChanges => Plane::Reads,
             SemanticQuery => Plane::Semantic,
             WarehouseInsert | WarehouseExec | WarehouseUpsert | TxBegin | TxQuery | TxExec
             | TxCommit | TxRollback => Plane::Warehouse,

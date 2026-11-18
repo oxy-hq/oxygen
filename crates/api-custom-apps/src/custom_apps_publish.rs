@@ -1400,33 +1400,20 @@ fn check_events(manifest: Option<&serde_json::Value>) -> Result<(), PublishError
         })
 }
 
-/// A function's `on: { table }` is read and ignored by this binary, and not
-/// yet acted on by any: refuse it at publish until the release that does, so
-/// no build declares a watch that never fires.
-fn check_no_table_watches(manifest: Option<&serde_json::Value>) -> Result<(), PublishError> {
-    let Some(functions) = manifest
-        .and_then(|m| m.get("functions"))
-        .and_then(serde_json::Value::as_object)
-    else {
-        return Ok(());
-    };
-    for (name, spec) in functions {
-        let entries: Vec<&serde_json::Value> = match spec.get("on") {
-            Some(serde_json::Value::Array(a)) => a.iter().collect(),
-            Some(other) => vec![other],
-            None => Vec::new(),
-        };
-        if entries.iter().any(|e| e.is_object()) {
-            return Err(PublishError::Invalid(
-                crate::custom_apps_validate::BundleValidation::new(
-                    "events",
-                    format!("function `{name}`: `on: {{ table }}` is not available yet"),
-                    "remove the table entry from `on`; watching a table ships in a later release",
-                ),
-            ));
-        }
-    }
-    Ok(())
+/// The tables the manifest's functions watch (`on: { table }`), checked
+/// (`app_events::table_watch::declare`): a malformed or unwatchable table
+/// refuses the publish as a 422 naming the function.
+#[inline(never)] // its frame stays out of the publish future, which tests run on a small stack
+fn check_table_watches(manifest: Option<&serde_json::Value>) -> Result<(), PublishError> {
+    crate::app_events::table_watch::declare::declared_watches(manifest)
+        .map(|_| ())
+        .map_err(|message| {
+            PublishError::Invalid(crate::custom_apps_validate::BundleValidation::new(
+                "events",
+                message,
+                "write `on: { \"table\": \"<database>:<schema>.<table>\" }` naming a table, not an environment's copy of one",
+            ))
+        })
 }
 
 /// Record one `app_functions` row per declared function, keyed to this build,
@@ -2375,31 +2362,27 @@ mod tests {
 
 #[cfg(test)]
 mod table_watch_refusal_tests {
-    use super::check_no_table_watches;
+    use super::check_table_watches;
     use serde_json::json;
 
-    /// A table `on` is refused at publish until the release that acts on it,
-    /// alone or beside event types; everything else passes.
+    /// A table `on` publishes with the `airhouse` capability and is refused
+    /// without it; a malformed table is refused; event types alone pass.
     #[test]
-    fn a_table_on_is_refused_and_nothing_else_is() {
-        for on in [
-            json!({ "table": "db:s.t" }),
-            json!(["a/x", { "table": "db:s.t" }]),
+    fn a_table_on_needs_the_capability_and_a_readable_table() {
+        let with = |entry: serde_json::Value| json!({ "functions": { "f": entry } });
+        let ok = with(json!({ "on": { "table": "db:s.t" }, "airhouse": { "enabled": true } }));
+        assert!(check_table_watches(Some(&ok)).is_ok());
+        for refused in [
+            json!({ "on": { "table": "db:s.t" } }),
+            json!({ "on": ["a/x", { "table": "db:s.t" }] }),
+            json!({ "on": { "table": "lines" }, "airhouse": { "enabled": true } }),
         ] {
-            let manifest = json!({ "functions": { "f": { "on": on } } });
             assert!(
-                check_no_table_watches(Some(&manifest)).is_err(),
-                "{manifest}"
+                check_table_watches(Some(&with(refused.clone()))).is_err(),
+                "{refused}"
             );
         }
-        for on in [json!("a/x"), json!(["a/x", "b/y"])] {
-            let manifest = json!({ "functions": { "f": { "on": on } } });
-            assert!(
-                check_no_table_watches(Some(&manifest)).is_ok(),
-                "{manifest}"
-            );
-        }
-        assert!(check_no_table_watches(None).is_ok());
-        assert!(check_no_table_watches(Some(&json!({ "functions": { "f": {} } }))).is_ok());
+        assert!(check_table_watches(Some(&with(json!({ "on": ["a/x", "b/y"] })))).is_ok());
+        assert!(check_table_watches(None).is_ok());
     }
 }

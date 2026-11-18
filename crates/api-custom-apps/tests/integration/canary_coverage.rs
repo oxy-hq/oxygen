@@ -80,6 +80,14 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     ("events.publish", EVENTS),
     ("tx.publish", EVENTS),
+    (
+        "events.changes",
+        "`ctx.tables.changes` answers only inside a function a table change started, which \
+         needs the `app_events` flag on for the org, an OLTP store and an Airhouse table \
+         with a function watching it (`on: { table }`); the `oxy-canary` org has none. \
+         Unblocked by: provisioning those, a watching function, and a step that appends a \
+         run-tagged row and reads the change back.",
+    ),
 ];
 
 #[test]

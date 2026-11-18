@@ -185,6 +185,8 @@ function surfaceRule(raw: Record<string, unknown>): ManifestIssue[] {
 
 /** An event name: the Rust side's rule (hyphens are not allowed). */
 const EVENT_NAME = /^[a-z][a-z0-9]*(\.[a-z0-9]+)*$/;
+/** An `on` table entry: `[<database>:]<schema>.<table>`. */
+const ON_TABLE = /^([A-Za-z0-9_-]+:)?[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/;
 /** An `on` entry: `<app-slug>/<event-name>`. */
 const ON_REF = /^[a-z0-9-]+\/[a-z][a-z0-9]*(\.[a-z0-9]+)*$/;
 
@@ -219,8 +221,20 @@ function eventsRule(raw: Record<string, unknown>): ManifestIssue[] {
         message: `function ${JSON.stringify(name)} publishes ${JSON.stringify(event)}, which is not declared in the top-level \`events\`; declare it there with a \`schema\``
       });
     });
-    const on = typeof fn.on === "string" ? [fn.on] : Array.isArray(fn.on) ? fn.on : [];
+    const on = Array.isArray(fn.on) ? fn.on : fn.on === undefined ? [] : [fn.on];
     on.forEach((entry, i) => {
+      if (isRecord(entry)) {
+        const spec = entry.table;
+        if (typeof spec === "string" && !ON_TABLE.test(spec)) {
+          const at = Array.isArray(fn.on) ? `on.${i}.table` : "on.table";
+          out.push({
+            level: "error",
+            path: `functions.${name}.${at}`,
+            message: `function ${JSON.stringify(name)} watches table ${JSON.stringify(spec)}; write <database>:<schema>.<table> (the database may be left out for the app's own app_<writer> schema)`
+          });
+        }
+        return;
+      }
       if (typeof entry !== "string" || ON_REF.test(entry)) return;
       const at = typeof fn.on === "string" ? "on" : `on.${i}`;
       out.push({

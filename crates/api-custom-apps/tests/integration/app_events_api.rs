@@ -170,6 +170,7 @@ impl Fix {
             schema_revision_id: None,
             delay_seconds: 0,
             relay_error: None,
+            only_listener: None,
         };
         fan_out(self.db(), &[event]).await.expect("fan out");
         id

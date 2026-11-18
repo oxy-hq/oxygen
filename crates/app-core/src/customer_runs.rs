@@ -61,6 +61,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
     "app_events_relay",
+    "app_table_watch",
 ];
 
 /// SQL predicate excluding [`NON_WORKSPACE_RUN_SOURCES`], for a table aliased

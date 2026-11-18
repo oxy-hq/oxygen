@@ -75,7 +75,8 @@ export const HOST_OPS = [
   "org.assignments",
   "platform.facts",
   "events.publish",
-  "tx.publish"
+  "tx.publish",
+  "events.changes"
 ] as const;
 
 /** One of the host's closed list of op names. */
@@ -387,7 +388,7 @@ export const GATES = [
   {
     hostField: "airhouse",
     manifest: "airhouse.enabled",
-    ops: ["airhouse.query", "airhouse.exec", "airhouse.append"]
+    ops: ["airhouse.query", "airhouse.exec", "airhouse.append", "events.changes"]
   },
   {
     hostField: "events",

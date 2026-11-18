@@ -10,10 +10,12 @@ pub mod deliveries;
 pub mod envelope;
 pub mod gate;
 pub mod marks;
+pub mod mirror;
 pub mod relay;
 pub mod retention;
 pub mod schema;
 pub mod subscriptions;
+pub mod table_watch;
 
 use oxy_custom_apps::events::catalog::EventCatalog;
 use sea_orm::{DatabaseConnection, DbErr};

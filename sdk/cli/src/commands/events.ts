@@ -20,6 +20,7 @@ import { parseAppEnv } from "../apps/environment.js";
 import { CUSTOMER_APPS_API, ensureOk, resolveAppSlugs, staffCreds } from "../apps/resolve.js";
 import type { Context } from "../context/resolve.js";
 import { usageError } from "../util/errors.js";
+import { tableSection } from "./events-tables-view.js";
 import { confirm } from "./oltp-client.js";
 
 type Json = Record<string, unknown>;
@@ -41,7 +42,7 @@ const text = (value: unknown, fallback = "-"): string =>
 
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
-function orgOf(ctx: Context, explicit?: string): string {
+export function orgOf(ctx: Context, explicit?: string): string {
   const org = explicit ?? ctx.flags.org ?? ctx.env().orgSlug;
   if (!org) {
     throw usageError(
@@ -52,7 +53,7 @@ function orgOf(ctx: Context, explicit?: string): string {
   return org;
 }
 
-const enc = encodeURIComponent;
+export const enc = encodeURIComponent;
 
 function query(params: Array<[string, string | undefined]>): string {
   const search = new URLSearchParams();
@@ -61,7 +62,7 @@ function query(params: Array<[string, string | undefined]>): string {
   return qs ? `?${qs}` : "";
 }
 
-async function call(
+export async function call(
   ctx: Context,
   method: "GET" | "POST" | "PUT",
   path: string,
@@ -81,12 +82,12 @@ async function call(
 }
 
 /** `<org>/<app>` → the route prefix `{org}/{app}`, resolved with the caller's credential. */
-async function appPrefix(ctx: Context, app: string): Promise<string> {
+export async function appPrefix(ctx: Context, app: string): Promise<string> {
   const { orgSlug, appSlug } = await resolveAppSlugs(staffCreds(ctx), app);
   return `${orgSlug}/${appSlug}`;
 }
 
-function emit(payload: unknown): void {
+export function emit(payload: unknown): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
@@ -233,8 +234,13 @@ export async function runEventsLs(
     return;
   }
   const rows = listenerRows(payload).sort(byOldestPending);
-  if (rows.length === 0) {
+  const tables = tableSection(payload);
+  if (rows.length === 0 && tables === undefined) {
     process.stderr.write("no event types\n");
+    return;
+  }
+  if (rows.length === 0) {
+    process.stdout.write(`${tables}\n`);
     return;
   }
   const header = [
@@ -278,6 +284,7 @@ export async function runEventsLs(
       ])
     )}\n`
   );
+  if (tables !== undefined) process.stdout.write(`\n${tables}\n`);
 }
 
 // ── show / find ──────────────────────────────────────────────────────────────

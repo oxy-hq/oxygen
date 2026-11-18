@@ -331,6 +331,13 @@ const ALLOWED: &[(&str, &str)] = &[
          second spawn is the queue executor's own task (`RelayExecutor`)",
     ),
     (
+        "api-custom-apps/src/app_events/table_watch/mod.rs",
+        "`spawn_sweep` is a fleet job (started on every worker, run by the one that \
+         claims the interval in `fleet_job_claims`) and only queues tracker tasks (and \
+         copies new events to the event log); the second spawn is the queue executor's \
+         own task (`TrackExecutor`)",
+    ),
+    (
         "api-custom-apps/src/app_events/retention.rs",
         "`spawn_retention` is a fleet job (started on every worker, run by the one \
          that claims the interval in `fleet_job_claims`); it is not on a request path",

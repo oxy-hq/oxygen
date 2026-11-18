@@ -140,7 +140,7 @@ export const GATED_CAPABILITIES: readonly GatedCapability[] = [
     hostField: "airhouse",
     manifest: "airhouse.enabled",
     declare: '"airhouse": { "enabled": true }',
-    ops: ["airhouse.*"],
+    ops: ["airhouse.*", "events.changes"],
     gate: "manifest",
     declares: (spec) => flag(spec, "airhouse", "enabled")
   },

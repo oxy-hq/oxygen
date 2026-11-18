@@ -147,6 +147,7 @@ impl Fix {
             schema_revision_id: revision,
             delay_seconds: 0,
             relay_error: error.map(str::to_string),
+            only_listener: None,
         };
         fan_out(self.db(), &[event]).await.expect("fan out");
         id
@@ -706,6 +707,7 @@ async fn teardown_deletes_the_environments_events_and_deliveries() {
                 published_at: Set(Utc::now().fixed_offset()),
                 relayed_at: Set(Utc::now().fixed_offset()),
                 relay_error: Set(None),
+                mirrored_at: Set(None),
             },
         )
     };

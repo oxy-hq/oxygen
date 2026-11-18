@@ -202,6 +202,7 @@ async fn run_listener(
     let event = crate::custom_apps_functions::EventRun {
         cause: crate::custom_apps_functions::runtime::EventCause {
             id: envelope.id,
+            event_type: envelope.event_type.clone(),
             root_id: envelope.rootid,
             depth: envelope.depth,
             actor: envelope.actor.clone(),

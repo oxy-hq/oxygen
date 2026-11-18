@@ -181,6 +181,34 @@ describe("validateOxyAppManifest", () => {
       ).toEqual([]);
     });
 
+    it("accepts a function that runs on a table, beside event types", () => {
+      for (const on of [
+        { table: "pokehouse:bookkeeping.platform_report_lines" },
+        { table: "app_x.lines" },
+        ["statements/statement.uploaded", { table: "pokehouse:bookkeeping.lines" }]
+      ]) {
+        expect(messages({ ...base, functions: { handle: { route: false, on } } })).toEqual([]);
+      }
+    });
+
+    it("refuses a table written without its schema and table", () => {
+      const found = errors({
+        ...base,
+        functions: { handle: { route: false, on: [{ table: "lines" }, { table: "a:b.c" }] } }
+      });
+      // The schema says no shape fits; the rule says which entry and why.
+      expect(found.map((f) => f.path)).toEqual([
+        "functions.handle.on",
+        "functions.handle.on.0.table"
+      ]);
+      expect(found[1]?.message).toContain("<database>:<schema>.<table>");
+      const single = errors({
+        ...base,
+        functions: { handle: { route: false, on: { table: "x" } } }
+      });
+      expect(single.map((f) => f.path)).toContain("functions.handle.on.table");
+    });
+
     it("accepts declared events published by a function", () => {
       expect(
         messages({

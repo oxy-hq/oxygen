@@ -15,6 +15,7 @@
 //! | `POST {org}/events/{id}/redeliver`, `POST {org}/events/redeliver` | queue a `dead`, `expired` or `held` delivery again: the same delivery, a fresh attempt budget |
 //! | `POST {org}/events/replay` | deliveries to a listener for retained events whose body is still kept |
 //! | `POST {org}/events/discard`, `POST {org}/events/purge` | pending and held deliveries discarded; events and their bodies deleted. Audited |
+//! | `POST {org}/{app}/events/resync` | a function's table cursors moved to now, behind-horizon, broken and paused cleared, optionally one backfill run of the handler. Audited |
 //! | `PUT {org}/{app}/environments/{env}/events` | a non-production environment's events switch. Audited |
 //!
 //! **Who.** Reads take the role `GET …/invocations` takes, oxy-authz
@@ -48,9 +49,11 @@ mod reply;
 pub mod requests;
 mod show;
 mod switch;
+mod tables;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
 pub use reply::ApiError;
+pub use tables::ResyncBody;

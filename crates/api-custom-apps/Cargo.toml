@@ -20,6 +20,8 @@ default = ["custom-app-functions"]
 custom-app-functions = ["deno_core", "deno_error"]
 
 [dependencies]
+# The platform's own Airhouse clients (event log copy, table tracker).
+oxy-cameras = { workspace = true }
 # `data_plane`: the query routes' OpenAPI operations and request/response schemas.
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 utoipa-axum = { workspace = true }
@@ -135,7 +137,6 @@ serial_test = { workspace = true }
 # its lock-retry jitter.
 rand = { workspace = true }
 oxy-test-utils = { workspace = true }
-oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
 # `sentry::test::with_captured_events` for the custom-app surface tag tests.
 sentry = { workspace = true, features = ["test"] }

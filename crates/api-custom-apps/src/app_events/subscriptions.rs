@@ -25,21 +25,32 @@ use chrono::Utc;
 use entity::{app_builds, app_event_schemas, app_event_subscriptions as subs, app_functions, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_custom_apps::events::catalog::{EventCatalog, function_subscribes};
+use oxy_custom_apps::events::table::{function_table_watches, is_table_event_type};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::table_watch;
 use crate::custom_apps_env_resolve::resolve_function_environment;
 use crate::custom_apps_sandboxes::lock::lock_key;
 
-/// What one function of a build listens to: `(function, qualified event types)`,
-/// and the warnings for the `on` that could not be read.
+/// What one function of a build listens to: `(function, event types)` — the
+/// qualified `<app>/<event>` types it names and the `table:` type of each
+/// table it watches — and the warnings for the `on` that could not be read.
 fn wanted(specs: &[(String, Value)]) -> (Vec<(String, Vec<String>)>, Vec<String>) {
     let mut rows = Vec::new();
     let mut warnings = Vec::new();
     for (name, spec) in specs {
-        match function_subscribes(spec) {
+        let read = function_subscribes(spec).and_then(|mut types| {
+            types.extend(
+                function_table_watches(spec)?
+                    .iter()
+                    .map(|table| table.event_type()),
+            );
+            Ok(types)
+        });
+        match read {
             Ok(types) if !types.is_empty() => {
                 let unique: BTreeSet<String> = types.into_iter().collect();
                 rows.push((name.clone(), unique.into_iter().collect()));
@@ -190,6 +201,9 @@ async fn retire(db: &DatabaseConnection, app_id: Uuid, environment: &str) -> Res
         .filter(subs::Column::Environment.eq(environment))
         .exec(db)
         .await?;
+    if let Some(app) = apps::Entity::find_by_id(app_id).one(db).await? {
+        table_watch::cursors::reconcile(db, app.org_id, environment).await?;
+    }
     Ok(done.rows_affected as usize)
 }
 
@@ -224,6 +238,11 @@ async fn apply(
                 build_id: Set(build_id),
                 created_at: Set(now.into()),
                 updated_at: Set(now.into()),
+                // A reconcile never resumes a paused subscription: the
+                // upsert below leaves these columns alone.
+                paused_at: Set(None),
+                paused_reason: Set(None),
+                resumed_at: Set(None),
             };
             subs::Entity::insert(row)
                 .on_conflict(
@@ -251,13 +270,16 @@ async fn apply(
         }
     }
     let types: BTreeSet<&String> = rows.iter().flat_map(|(_, t)| t).collect();
-    for event_type in types {
+    for event_type in types.into_iter().filter(|t| !is_table_event_type(t)) {
         if !declared_in_org(db, app, event_type, manifest).await? {
             warnings.push(format!(
                 "`{event_type}` is not declared by any app in this org yet"
             ));
         }
     }
+    // The cursor of each table the org's subscriptions in this environment
+    // watch: made for a new watch, dropped with the last subscription to it.
+    table_watch::cursors::reconcile(db, app.org_id, environment).await?;
     Ok(warnings)
 }
 
@@ -305,6 +327,11 @@ fn unread_warning(environment: &str, e: &DbErr) -> String {
 #[derive(Debug, Clone)]
 pub struct Listener {
     pub app_id: Uuid,
+    /// The listener app's workspace: a table event goes only to listeners in
+    /// the workspace whose Airhouse the table is in.
+    pub workspace_id: Uuid,
+    /// The circuit breaker paused this subscription: its deliveries are held.
+    pub paused: bool,
     pub app_slug: String,
     pub function_name: String,
     pub environment: String,
@@ -355,6 +382,8 @@ pub async fn listeners(
                     .get(&(r.build_id, r.function_name.clone()))?
                     .clone(),
                 app_id: r.app_id,
+                workspace_id: r.workspace_id,
+                paused: r.paused_at.is_some(),
                 function_name: r.function_name,
                 environment: r.environment,
             })
@@ -388,6 +417,15 @@ pub async fn listener_subscribes(
         .await?;
     Ok(function
         .and_then(|f| f.manifest_json)
-        .and_then(|manifest| function_subscribes(&manifest).ok())
+        .and_then(|manifest| {
+            let mut types = function_subscribes(&manifest).ok()?;
+            types.extend(
+                function_table_watches(&manifest)
+                    .ok()?
+                    .iter()
+                    .map(|table| table.event_type()),
+            );
+            Some(types)
+        })
         .is_some_and(|types| types.iter().any(|t| t == event_type)))
 }

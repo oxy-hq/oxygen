@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OxyFunctionContext } from "../custom-app/function-context";
 import { createTestEvents } from "../testing/events";
-import { NonRetryableError, onEvent } from "./index";
+import { isTableChange, NonRetryableError, onEvent } from "./index";
 
 const ctx = {} as OxyFunctionContext;
 
@@ -12,6 +12,21 @@ function req(body: unknown) {
     body: typeof body === "string" ? body : JSON.stringify(body)
   };
 }
+
+describe("isTableChange", () => {
+  it("tells a table change from an app event by its type", () => {
+    const events = createTestEvents();
+    const table = events.tableChange({
+      table: "pokehouse:bookkeeping.lines",
+      snapshotId: 3,
+      inserted: 1,
+      deleted: 0
+    });
+    expect(isTableChange(table)).toBe(true);
+    expect(table.data.snapshotId).toBe(3);
+    expect(isTableChange(events.envelope("locations/statement.uploaded", {}))).toBe(false);
+  });
+});
 
 describe("onEvent", () => {
   it("passes the parsed envelope and answers 204 when the handler returns nothing", async () => {

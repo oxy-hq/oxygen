@@ -50,6 +50,8 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// OLTP outbox and queues their deliveries (`oxy-api-custom-apps`
 /// `app_events::relay`), queued by a publish's nudge and by a sweep: the
 /// platform's plumbing, filed in one of the org's app workspaces.
+/// `app_table_watch` reads a watched table's changes and publishes them as
+/// events (`app_events::table_watch`), queued the same way.
 pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preagg_cycle",
     "preview_analyze",
@@ -63,6 +65,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
     "app_events_relay",
+    "app_table_watch",
 ];
 
 pub struct ToolExchangeRow {

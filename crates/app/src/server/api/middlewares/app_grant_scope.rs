@@ -144,6 +144,7 @@ pub const PUBLIC_ROUTES: &[(&str, bool)] = &[
     ),
     ("/customer-apps/{org_slug}/{app_slug}/events/feed", false),
     ("/customer-apps/{org_slug}/{app_slug}/events/dead", false),
+    ("/customer-apps/{org_slug}/{app_slug}/events/resync", false),
     (
         "/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events",
         false,

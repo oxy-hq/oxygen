@@ -125,6 +125,9 @@ impl ProjectFunctionHost {
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         let host_op = HostOp::sub_op("events", op).ok_or_else(|| format!("unknown op '{op}'"))?;
+        if host_op == HostOp::EventsChanges {
+            return self.table_changes(payload).await;
+        }
         if host_op != HostOp::EventsPublish {
             return Err(format!("unknown op '{op}'"));
         }

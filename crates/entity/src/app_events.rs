@@ -13,7 +13,6 @@ pub struct Model {
     pub org_id: Uuid,
     pub workspace_id: Uuid,
     pub environment: String,
-    /// The publishing app; null for an event the platform publishes itself.
     pub source_app_id: Option<Uuid>,
     pub r#type: String,
     pub key: String,
@@ -32,6 +31,8 @@ pub struct Model {
     pub published_at: DateTimeWithTimeZone,
     pub relayed_at: DateTimeWithTimeZone,
     pub relay_error: Option<String>,
+    /// When the event was copied into the workspace's Airhouse `oxy_event_log`.
+    pub mirrored_at: Option<DateTimeWithTimeZone>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

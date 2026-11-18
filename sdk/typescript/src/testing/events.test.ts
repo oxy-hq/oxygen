@@ -195,3 +195,45 @@ describe("createTestEvents().envelope", () => {
     expect(e.key).toBe("z");
   });
 });
+
+describe("createTestContext table changes", () => {
+  const watch = {
+    schemaVersion: 2,
+    slug: "locations",
+    functions: { onLines: { on: { table: "pokehouse:bookkeeping.lines" } } }
+  };
+
+  it("builds the envelope the platform delivers for one snapshot", () => {
+    const events = createTestEvents();
+    const e = events.tableChange({
+      table: "pokehouse:bookkeeping.lines",
+      snapshotId: 41,
+      inserted: 2,
+      deleted: 1
+    });
+    expect(e.type).toBe("table:pokehouse:bookkeeping.lines");
+    expect(e.source).toBe("/tables/pokehouse:bookkeeping.lines");
+    expect(e.dataschema).toBe("oxy/table.change@1");
+    expect(e.data).toEqual({ snapshotId: 41, inserted: 2, deleted: 1, updated: 0 });
+  });
+
+  it("answers ctx.tables.changes from what the test seeded, a page at a time", async () => {
+    const events = createTestEvents();
+    const e = events.tableChange({
+      table: "pokehouse:bookkeeping.lines",
+      snapshotId: 7,
+      inserted: 3,
+      deleted: 0
+    });
+    const t = createTestContext(watch, {
+      function: "onLines",
+      events,
+      tableChanges: { [e.id]: { inserted: [{ id: 1 }, { id: 2 }, { id: 3 }] } }
+    });
+    const first = await t.ctx.tables.changes(e, { limit: 2 });
+    expect(first).toEqual({ inserted: [{ id: 1 }, { id: 2 }], deleted: [], hasMore: true });
+    const rest = await t.ctx.tables.changes(e, { limit: 2, offset: 2 });
+    expect(rest).toEqual({ inserted: [{ id: 3 }], deleted: [], hasMore: false });
+    expect(t.callsTo("events.changes")).toHaveLength(2);
+  });
+});

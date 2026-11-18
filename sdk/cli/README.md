@@ -1108,6 +1108,43 @@ Both need a staff credential: a publish token, a service account's and a sandbox
 agent token are refused before any request (exit `2`). `--json` prints the
 server's plan verbatim.
 
+## App events
+
+```bash
+oxyc events ls [org] [--json]
+oxyc events show <event-id> [--chain] [--json]
+oxyc events find <type> --key <key> [--app-env <env>] [--json]
+oxyc events tail <org>/<app> [--app-env <env>] [--json]
+oxyc events dead <org>/<app> [--app-env <env>] [--json]
+oxyc events redeliver [<event-id>] [--to <app>/<fn> --status dead|expired|held [--since <t>]] [--dry-run] [--json]
+oxyc events replay <type> --since <t> [--until <t>] --to <app>/<fn> [--app-env <env>] [--dry-run] [--json]
+oxyc events resync <org>/<app> <function> [--app-env <env>] [--backfill] [--dry-run] [--json]
+oxyc events discard --until <t> [--type <type>] [--to <app>/<fn>] [--yes] [--json]
+oxyc events purge <type> [--key <key>] [--before <t>] [--yes] [--json]
+```
+
+Staff commands over an org's app events (the org's `app_events` flag).
+
+**`ls`** lists every event type with its publisher and each listener's health,
+stuck ones first. A second block, **Table subscriptions**, lists each function
+that runs on a table (`on: { "table": "<database>:<schema>.<table>" }`): the
+table, listener, environment, state (`active`, `BEHIND HORIZON`, `BROKEN` or
+`PAUSED`), the cursor (the last snapshot delivered), the table's newest snapshot,
+the lag in snapshots, and, for a state that needs a person, why. `--json` prints
+the server's reply, with the same rows as `tables`; an older server has none.
+
+**`resync`** is the way out of every table state. It moves each table the
+function watches in `--app-env` (default production) to the newest snapshot, so
+what changed meanwhile is **skipped, not replayed**; it clears `behind_horizon`
+(the cursor's next snapshot was expired), `broken` (a column of the table was
+removed, renamed or retyped) and `paused` (the circuit breaker stopped a
+subscription that ran above a sustained rate). `--backfill` then runs the
+function once with an event whose `data.backfill` is `true` and which carries no
+rows, so it can re-derive what it keeps from the whole table. `--dry-run` prints
+where each cursor would move and changes nothing. It also forgets the columns
+the watch held as its contract, so a column removed on purpose stops being a
+break. Audited.
+
 ## Apps
 
 Read-only except `domains add | verify | remove`: every other request these make

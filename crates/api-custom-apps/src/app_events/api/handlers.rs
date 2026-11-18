@@ -17,7 +17,8 @@ use super::requests::{
     self, BulkRedeliverBody, DiscardBody, EnvironmentQuery, FeedQuery, FindQuery, PurgeBody,
     RedeliverBody, ReplayBody, RootQuery, SwitchBody,
 };
-use super::{dead, destructive, door, feed, redeliver, replay, show, switch, types};
+use super::tables::ResyncBody;
+use super::{dead, destructive, door, feed, redeliver, replay, show, switch, tables, types};
 
 type Q<T> = Result<Query<T>, QueryRejection>;
 type B<T> = Result<Json<T>, JsonRejection>;
@@ -204,6 +205,29 @@ pub async fn purge_events(
             let a = door::org_manager(&headers, &org).await?;
             let p = requests::purge(a.org_id, &body(b)?)?;
             destructive::purge(&a.db, &a.actor, &p).await
+        }
+        .await,
+    )
+}
+
+/// `POST /customer-apps/{org}/{app}/events/resync`
+pub async fn resync_tables(
+    Path((org, app)): Path<(String, String)>,
+    headers: HeaderMap,
+    b: B<ResyncBody>,
+) -> Response {
+    respond(
+        async {
+            let a = door::app_manager(&headers, &org, &app).await?;
+            let actor = a.actor.as_ref().ok_or(ApiError::Forbidden("forbidden"))?;
+            let req = body(b)?;
+            let mut refused = Vec::new();
+            for other in tables::sharers_of(&a.db, &a.app, &req).await? {
+                if !door::may_manage(&headers, &a.db, &other).await {
+                    refused.push(other.slug);
+                }
+            }
+            tables::resync(&a.db, actor, &a.app, &req, refused).await
         }
         .await,
     )

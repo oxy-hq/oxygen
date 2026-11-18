@@ -119,6 +119,22 @@ pub(super) async fn app_manager(
     })
 }
 
+/// Whether the request's caller may manage `app`'s events: the decision
+/// `app_manager` takes, for another app than the one the route names.
+pub(super) async fn may_manage(
+    headers: &HeaderMap,
+    db: &DatabaseConnection,
+    app: &apps::Model,
+) -> bool {
+    let Ok(user) = authenticate(headers).await else {
+        return false;
+    };
+    let resource = Resource::app(app.id, app.org_id).published_from(app.project_id);
+    decide(db, &user, Action::AppEventsManage, &resource)
+        .await
+        .is_ok()
+}
+
 async fn org_door(
     headers: &HeaderMap,
     org_slug: &str,

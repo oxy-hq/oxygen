@@ -19,6 +19,7 @@ use axum::Router;
 use axum::routing::any;
 use oxy_api_custom_apps::app_events::relay as app_events_relay;
 use oxy_api_custom_apps::app_events::retention as app_events_retention;
+use oxy_api_custom_apps::app_events::table_watch as app_table_watch;
 use oxy_api_custom_apps::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
 use oxy_api_custom_apps::custom_apps_env_branch::task as env_branch_task;
 use oxy_api_custom_apps::custom_apps_nonproduction::{staging_task, staging_task_executor};
@@ -95,6 +96,16 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
             kind: app_events_relay::RELAY_KIND,
             build: |deps| {
                 Arc::new(app_events_relay::RelayExecutor {
+                    db: deps.db.clone(),
+                })
+            },
+        },
+        // A watched table's changes read from DuckLake and published as
+        // events; queued by a host write's nudge and by the table sweep below.
+        TaskSeam {
+            kind: app_table_watch::TASK_KIND,
+            build: |deps| {
+                Arc::new(app_table_watch::TrackExecutor {
                     db: deps.db.clone(),
                 })
             },
@@ -324,6 +335,13 @@ pub(crate) fn fleet_jobs() -> Vec<FleetJobSeam> {
                 app_events_retention::spawn_retention(deps.db.clone(), deps.shutdown.clone())
             },
         },
+        // Queue a pass for every environment with a watched table (the writers
+        // a host nudge never sees: pipelines, rollups), and copy new events
+        // into the Airhouse event log. Claimed per interval.
+        FleetJobSeam {
+            name: app_table_watch::SWEEP_JOB,
+            start: |deps| app_table_watch::spawn_sweep(deps.db.clone(), deps.shutdown.clone()),
+        },
     ]
 }
 
@@ -451,7 +469,7 @@ mod tests {
     /// is a change to what a worker can run, so it is spelled out rather than
     /// derived from the constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_ten() {
+    fn the_task_kinds_are_exactly_these_eleven() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
@@ -459,6 +477,7 @@ mod tests {
             [
                 "app_events_relay",
                 "app_function",
+                "app_table_watch",
                 "custom_app_agent_ask",
                 "custom_app_env_oltp_branch",
                 "custom_app_procedure_run",

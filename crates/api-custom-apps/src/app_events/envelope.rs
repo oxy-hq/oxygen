@@ -11,6 +11,7 @@
 use chrono::Utc;
 use entity::{app_event_deliveries as deliveries, app_event_schemas, app_events, apps};
 use oxy_custom_apps::events::OxyEvent;
+use oxy_custom_apps::events::table::{TableRef, is_table_event_type};
 use oxy_oltp::events::{EventsError, OutboxTarget, read_body};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait};
 use serde_json::Value;
@@ -46,13 +47,14 @@ impl Records {
         let Some(listener) = app_slug(txn, delivery.app_id).await? else {
             return Ok(None);
         };
-        // An event the platform published itself has no publishing app.
+        // A table event's publisher is the platform, which `source` names by
+        // the table; an app's event by the app.
         let source = match event.source_app_id {
             Some(app) => match app_slug(txn, app).await? {
                 Some(slug) => event_source(&slug),
                 None => return Ok(None),
             },
-            None => "/platform".to_string(),
+            None => table_source(&event.r#type),
         };
         let revision = match event.schema_revision_id {
             Some(id) => app_event_schemas::Entity::find_by_id(id)
@@ -161,8 +163,22 @@ pub fn event_source(publisher_slug: &str) -> String {
     format!("/apps/{publisher_slug}")
 }
 
-/// `<type>@<revision>`: an event's `dataschema`, empty without a revision.
+/// The `dataschema` of every table event: its `data` has one shape.
+pub const TABLE_DATASCHEMA: &str = "oxy/table.change@1";
+
+/// `/tables/<table>`: a table event's `source`.
+fn table_source(event_type: &str) -> String {
+    TableRef::from_event_type(event_type)
+        .map(|table| table.source())
+        .unwrap_or_else(|| "/tables".to_string())
+}
+
+/// `<type>@<revision>`: an event's `dataschema`, empty without a revision;
+/// [`TABLE_DATASCHEMA`] for a table event.
 pub fn event_dataschema(event_type: &str, revision: Option<i32>) -> String {
+    if is_table_event_type(event_type) {
+        return TABLE_DATASCHEMA.to_string();
+    }
     revision
         .map(|r| format!("{event_type}@{r}"))
         .unwrap_or_default()
@@ -208,6 +224,7 @@ mod tests {
             published_at: Utc::now().fixed_offset(),
             relayed_at: Utc::now().fixed_offset(),
             relay_error: None,
+            mirrored_at: None,
         }
     }
 

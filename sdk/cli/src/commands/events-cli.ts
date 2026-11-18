@@ -21,6 +21,7 @@ import {
   runEventsShow,
   runEventsTail
 } from "./events.js";
+import { runEventsResync } from "./events-resync.js";
 
 export interface Wiring {
   withGlobals: (command: Command) => Command;
@@ -127,6 +128,24 @@ export function registerEvents(program: Command, w: Wiring): void {
       until: opts.until as string | undefined,
       to: opts.to as string,
       appEnv: opts.appEnv as string | undefined,
+      dryRun: Boolean(opts.dryRun),
+      json: Boolean(opts.json)
+    });
+  });
+  w.withGlobals(
+    events
+      .command("resync <app> <function>")
+      .description(
+        "move <org>/<app>'s function's table cursors to now, skipping what changed meanwhile, and clear behind-horizon, broken and paused"
+      )
+      .option("--app-env <environment>", "the environment (default: production)")
+      .option("--backfill", "then run the function once with an event whose data.backfill is true")
+      .option("--dry-run", "print where each cursor would move and change nothing")
+      .option("--json", "emit the server's reply as JSON")
+  ).action(async (app: string, fn: string, opts: Record<string, unknown>) => {
+    await runEventsResync(createContext(w.globals(opts)), app, fn, {
+      appEnv: opts.appEnv as string | undefined,
+      backfill: Boolean(opts.backfill),
       dryRun: Boolean(opts.dryRun),
       json: Boolean(opts.json)
     });

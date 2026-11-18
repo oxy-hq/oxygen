@@ -16,6 +16,7 @@ pub use super::app_event_delivery_attempts::Entity as AppEventDeliveryAttempts;
 pub use super::app_event_outbox_marks::Entity as AppEventOutboxMarks;
 pub use super::app_event_schemas::Entity as AppEventSchemas;
 pub use super::app_event_subscriptions::Entity as AppEventSubscriptions;
+pub use super::app_event_table_cursors::Entity as AppEventTableCursors;
 pub use super::app_events::Entity as AppEvents;
 pub use super::app_function_invocation_calls::Entity as AppFunctionInvocationCalls;
 pub use super::app_function_invocations::Entity as AppFunctionInvocations;

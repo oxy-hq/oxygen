@@ -66,6 +66,8 @@ fn non_production_allow_is_reads_only() {
         "org.assignments",
         "platform.facts",
         "tx.rollback",
+        // Reads what this run's own table event changed.
+        "events.changes",
     ]
     .into_iter()
     .collect();

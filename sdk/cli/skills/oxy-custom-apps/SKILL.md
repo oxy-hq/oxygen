@@ -247,6 +247,64 @@ async function completeChecklist(ctx, runId: string, storeGuid: string) {
 }
 ```
 
+## React when a table changes
+
+A function can run when an Airhouse table changes, with no one calling it:
+
+```jsonc
+"functions": {
+  "on-lines-changed": {
+    "route": false,
+    "on": { "table": "pokehouse:bookkeeping.platform_report_lines" }
+  }
+}
+```
+
+The table is `<database>:<schema>.<table>`; leave the database out for your own
+`app_<writer>` schema. It fires once per **snapshot** that inserted into or
+deleted from the table, so a pipeline that writes the table fires it, as does
+`ctx.airhouse`. Wrap the handler in `onEvent` from `@oxy-hq/sdk/events` and
+narrow with `isTableChange(event)`:
+
+```ts
+export default onEvent(async (event, ctx) => {
+  if (!isTableChange(event)) return;
+  const { snapshotId, inserted, deleted, updated, rows } = event.data; // row-image counts (`updated` counts pre/post-image pairs), rows when small
+  const page = rows ?? (await ctx.tables.changes(event)); // { inserted, deleted, hasMore }
+  // Re-derive what you keep from the table.
+});
+```
+
+- **Inserts and deletes both fire**, and an update arrives as a pre-image/post-image
+  pair. A table that replaces rows (delete a period, insert it again) fires for
+  both statements, so a handler that adds up `inserted` double counts. Treat an
+  event as "this table changed, re-derive", not as a delta, unless the table is
+  append-only. Delivery is at least once.
+- `rows` is there up to 1,000 rows and 64 KB; past that, call
+  `ctx.tables.changes(event, { limit, offset })` (10,000 a side a call, `hasMore`).
+  It answers only for the event that started this run.
+- **Do not write the table you watch.** The host refuses a write to it from that
+  function with an `EventLoop` error. A loop through two tables is caught by a
+  circuit breaker that pauses a subscription over 150 deliveries in 5 minutes and
+  pages; `oxyc events resync <org>/<app> <function>` resumes it (and skips what
+  changed meanwhile).
+- **Compaction is not a change.** Airhouse's compactor writes snapshots; only
+  inserts and deletes fire.
+- **The table's columns are a contract.** Removing, renaming or retyping one marks
+  the watch broken (it pages and stops delivering until it holds again), and an
+  `airhouseMigrations` file that does so to a table a production function watches
+  is refused at publish. Adding a column is fine. `resync` clears broken and
+  `behind_horizon` (the next snapshot expired); `--backfill` runs the handler once
+  with `event.data.backfill === true`.
+- **Environments.** A watch reads the environment's own `app_<writer>__<env>`
+  copy when it has the table, else production's, read-only. A non-production watch
+  records nothing until the environment's events switch is on (then it starts
+  from now). Airhouse caches snapshot reads up to a minute, so an event can lag
+  a write by that much.
+  `oxyc events ls` shows each watch's cursor, lag and state.
+- Unit test with `createTestEvents().tableChange({ table, snapshotId, inserted,
+  deleted })` and `createTestContext(manifest, { tableChanges: { [event.id]: { inserted: [...] } } })`.
+
 ## Telling people something
 
 Name **people**; the platform reaches them. Don't build a recipient table, a

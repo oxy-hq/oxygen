@@ -117,6 +117,18 @@ pub async fn check(
             }
         }
     }
+    // The columns of a table a function watches in this app's own schema are
+    // a contract too (`table_watch::migrations`).
+    // Boxed: its future (the build's stored migrations, the ledger) is large,
+    // and the gate runs inside every publish, whose tests run on a small stack.
+    Box::pin(super::table_watch::migrations::check(
+        db,
+        app,
+        target,
+        scope,
+        &mut report,
+    ))
+    .await?;
     Ok(report)
 }
 

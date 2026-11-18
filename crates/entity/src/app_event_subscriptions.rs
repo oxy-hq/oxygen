@@ -18,6 +18,13 @@ pub struct Model {
     pub build_id: Uuid,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    /// The circuit breaker paused the subscription at this time: its
+    /// deliveries are held until `oxyc events resync`.
+    pub paused_at: Option<DateTimeWithTimeZone>,
+    pub paused_reason: Option<String>,
+    /// When `oxyc events resync` last resumed it: the breaker counts only
+    /// deliveries of events published after.
+    pub resumed_at: Option<DateTimeWithTimeZone>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

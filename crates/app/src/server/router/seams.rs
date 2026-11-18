@@ -155,7 +155,7 @@ pub struct FleetJobSeam {
 /// The fleet jobs the custom-app surface must hand in. A worker without them
 /// would boot, and the storage figures the staff console shows would stop
 /// moving with nothing failing.
-pub const CUSTOM_APP_FLEET_JOBS: [&str; 5] = [
+pub const CUSTOM_APP_FLEET_JOBS: [&str; 6] = [
     "custom_app_asset_lifecycle_verify",
     "custom_app_storage_sweeper",
     "custom_app_usage_backfill_sweep",
@@ -165,6 +165,10 @@ pub const CUSTOM_APP_FLEET_JOBS: [&str; 5] = [
     // Without it, a dead task never reaches its delivery, and events and
     // schema revisions are never pruned.
     "custom_app_event_retention",
+    // Without it, a pipeline's or a rollup's change to a watched table never
+    // reaches its listeners (a host write's nudge is the fast path only), and
+    // the event log mirror is never written.
+    "custom_app_table_watch_sweep",
 ];
 
 /// Refuse a fleet-job list that lacks one [`CUSTOM_APP_FLEET_JOBS`] names, or
@@ -457,7 +461,7 @@ pub struct SurfaceSeams {
 /// process whose seams lack the executor refuses to start, rather than fail
 /// every ask as an unknown kind; `agentic-pipeline`'s recovery and the chat
 /// executor name the same string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 9] = [
+pub const CUSTOM_APP_TASK_KINDS: [&str; 10] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
@@ -472,6 +476,9 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 9] = [
     // sweep, so a process without its executor would leave every org's
     // published events in the outbox.
     "app_events_relay",
+    // The table tracker: queued by a host write's nudge and by its sweep, so
+    // a process without its executor would leave every table change unread.
+    "app_table_watch",
 ];
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
@@ -669,6 +676,7 @@ mod tests {
                 "custom_app_agent_ask",
                 "custom_app_procedure_run",
                 "app_events_relay",
+                "app_table_watch",
             ]
         );
     }

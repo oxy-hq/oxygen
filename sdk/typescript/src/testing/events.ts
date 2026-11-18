@@ -6,7 +6,7 @@
 // event-id namespace.
 
 import { createHash } from "node:crypto";
-import type { OxyEvent } from "../custom-app/function-context";
+import type { OxyEvent, OxyTableChange } from "../custom-app/function-context";
 
 /** The platform's event-id namespace; it never changes. */
 const NAMESPACE = "6f0c5b1e-2d47-4a93-9e18-c4a7b35df812";
@@ -34,11 +34,30 @@ export interface PublishedEvent {
   delaySeconds: number;
 }
 
+/** What one table change carries, for {@link TestEvents.tableChange}. */
+export interface TableChangeInput {
+  /** The table as written in `on`: `pokehouse:bookkeeping.lines`. */
+  table: string;
+  snapshotId: number;
+  inserted: number;
+  deleted: number;
+  /** Updates (counted in `inserted` and `deleted` too); default 0. */
+  updated?: number;
+  rows?: { inserted: Array<Record<string, unknown>>; deleted: Array<Record<string, unknown>> };
+  backfill?: boolean;
+}
+
 export interface TestEvents {
   /** Every publish that took effect, in order (a rolled-back transaction's are absent). */
   readonly published: ReadonlyArray<PublishedEvent>;
   /** An event envelope for a listener test, with CloudEvents defaults and `overrides` on top. */
   envelope<T>(type: string, data: T, overrides?: Partial<OxyEvent<T>>): OxyEvent<T>;
+  /**
+   * The envelope a `{ table }` function receives for one snapshot: type
+   * `table:<table>`, source `/tables/<table>`, the id the platform derives from
+   * the workspace-less test key `<snapshotId>`.
+   */
+  tableChange(change: TableChangeInput, overrides?: Partial<OxyTableChange>): OxyTableChange;
 }
 
 const sinks = new WeakMap<TestEvents, PublishedEvent[]>();
@@ -69,6 +88,18 @@ export function createTestEvents(): TestEvents {
         depth: 0,
         ...overrides
       };
+    },
+    tableChange(change: TableChangeInput, overrides: Partial<OxyTableChange> = {}): OxyTableChange {
+      const { table, ...rest } = change;
+      const data = { updated: 0, ...rest };
+      const type = `table:${table}`;
+      const base = events.envelope(type, data, {
+        key: `test-workspace:${change.snapshotId}`,
+        source: `/tables/${table}`,
+        dataschema: "oxy/table.change@1",
+        ...overrides
+      });
+      return base as OxyTableChange;
     }
   };
   sinks.set(events, published);

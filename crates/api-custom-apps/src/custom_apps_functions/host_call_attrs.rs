@@ -404,6 +404,14 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     // default): the reply tells the function, and a switch that is off on
     // purpose pages nobody. Refused before anything is written.
     "EventsNotEnabled",
+    // `ctx.tables.changes` from a run no table change started, or for another
+    // event than the one that did (`host/table_ops.rs`): the function's own
+    // call, the same on every attempt.
+    "TableChangesNotYours",
+    // A write to the table that woke the writer (`table_watch/loop_guard.rs`):
+    // the function's own statement, refused before it is sent, the same on
+    // every attempt.
+    "EventLoop",
 ];
 
 /// The typed labels the host writes for a condition that is not the app's
@@ -452,6 +460,10 @@ const PLATFORM_ERROR_LABELS: &[&str] = &[
     "PlatformFactsNotEnabled",
     "PlatformFactsUnavailable",
     "StorageCapabilityMissing",
+    // `ctx.tables.changes` for a snapshot Airhouse has expired, a table that is
+    // gone or an Airhouse that cannot be read (`host/table_ops.rs`): the
+    // platform's data or its store, not the handler's arguments. It pages.
+    "TableChangesUnavailable",
     // A capability the manifest lacks, as for the others above.
     "NotifyCapabilityMissing",
     // The org has no OLTP store to keep notification content in: an operator
@@ -1001,6 +1013,8 @@ mod tests {
             "../api-notifications/src",
             // The notification input and recipient errors moved to the prelude.
             "../app-core/src/notifications",
+            // The loop guard's refusal is written beside the guard.
+            "src/app_events/table_watch/loop_guard.rs",
         ];
         let mut labels = BTreeSet::new();
         for source in HOST_SOURCES {

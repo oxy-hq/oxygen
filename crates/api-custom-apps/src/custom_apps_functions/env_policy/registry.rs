@@ -257,6 +257,13 @@ host_ops! {
         family: Tx("publish"), capability: Events, staging: Staged::ByHome(Plane::Oltp),
         holds: HoldBy::Host,
     },
+    /// `ctx.tables.changes(event)`: the rows a table event's snapshot changed,
+    /// read from Airhouse as the platform. Writes nothing, and answers only
+    /// for the event that started this run, so every environment allows it.
+    EventsChanges = "events.changes" {
+        family: Events("changes"), capability: Airhouse, staging: ALLOW,
+        holds: by_not_running("airhouse", "READ"),
+    },
 }
 
 /// A `ctx.storage` op is logged under the sub-op it named.

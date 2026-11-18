@@ -137,7 +137,7 @@ fn one_statement(
 }
 
 /// The tables an allowed write writes, or why the statement is not allowed.
-fn write_targets(statement: &Statement) -> Result<Vec<&ObjectName>, String> {
+pub(crate) fn write_targets(statement: &Statement) -> Result<Vec<&ObjectName>, String> {
     fn one<'a>(name: Option<&'a ObjectName>, why: &str) -> Result<Vec<&'a ObjectName>, String> {
         name.map(|n| vec![n]).ok_or(why.to_string())
     }

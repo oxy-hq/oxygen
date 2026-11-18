@@ -38,6 +38,10 @@
 //!    between `revision_for`'s read and its stamp; the stamp then updates
 //!    nothing, and `revision_for` records the schema afresh.
 //!
+//! 5. **The event log.** Each workspace's Airhouse `oxy_event_log.events` is
+//!    pruned of rows published more than 90 days ago ([`super::mirror::prune_pass`]),
+//!    by the fleet job only, never by [`sweep_once`] (which has no Airhouse).
+//!
 //! **Steps 1 to 3 pass over an org with `app_events` off** (its events are
 //! inert: kept, never synced, expired or deleted, and its store never
 //! connected to). Step 4 runs for every org: a schema revision is platform
@@ -112,6 +116,9 @@ pub fn spawn_retention(db: DatabaseConnection, shutdown: CancellationToken) {
                     Ok(stats) => tracing::info!(?stats, "app events retention swept"),
                     Err(e) => tracing::warn!(error = %e, "app events retention sweep failed"),
                 }
+                // 5. The event log's copies older than 90 days, in each
+                // workspace's Airhouse.
+                super::mirror::prune_pass(&db).await;
             }
         },
     ));

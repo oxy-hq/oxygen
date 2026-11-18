@@ -14,10 +14,23 @@
 import type {
   OxyEvent,
   OxyFunctionContext,
-  OxyFunctionHandler
+  OxyFunctionHandler,
+  OxyTableChange
 } from "../custom-app/function-context";
 
-export type { OxyDeliveryInfo, OxyEvent } from "../custom-app/function-context";
+export type {
+  OxyDeliveryInfo,
+  OxyEvent,
+  OxyTableChange,
+  OxyTableChangeData,
+  OxyTableChangePage,
+  OxyTablesApi
+} from "../custom-app/function-context";
+
+/** Whether `event` is a table change (`on: { table }`), narrowing its `data`. */
+export function isTableChange(event: OxyEvent): event is OxyTableChange {
+  return typeof event.type === "string" && event.type.startsWith("table:");
+}
 
 /**
  * Throw this from a listener to say a retry cannot help (a malformed payload,

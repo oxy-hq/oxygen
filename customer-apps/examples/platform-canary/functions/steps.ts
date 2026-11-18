@@ -96,7 +96,8 @@ export type HostOp =
   | "org.assignments"
   | "platform.facts"
   | "events.publish"
-  | "tx.publish";
+  | "tx.publish"
+  | "events.changes";
 
 /**
  * The host ops each step makes, in the order it makes them. Checked both

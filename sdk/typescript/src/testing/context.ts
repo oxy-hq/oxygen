@@ -103,6 +103,14 @@ export interface TestContextOptions {
    * on `state.events`. Publishes are recorded, never delivered.
    */
   events?: TestEvents;
+  /**
+   * What `ctx.tables.changes(event)` answers, by event id: the rows that
+   * event's snapshot changed. An event with no entry has no rows.
+   */
+  tableChanges?: Record<
+    string,
+    { inserted?: Array<Record<string, unknown>>; deleted?: Array<Record<string, unknown>> }
+  >;
 }
 
 /** One host op the function made, as the context recorded it. */
@@ -711,6 +719,33 @@ export function createTestContext(
           { type, data, key: opts?.key, delaySeconds: opts?.delaySeconds },
           (a) => publishImpl(a, (e) => recordPublish(state.events, e))
         ) as Promise<{ eventId: string }>
+    },
+    tables: {
+      changes: (event, opts) =>
+        op(
+          "events.changes",
+          { eventId: event.id, limit: opts?.limit, offset: opts?.offset },
+          (a) => {
+            const limit = Math.min(Number(a.limit ?? 10_000), 10_000);
+            const offset = Number(a.offset ?? 0);
+            const held = options.tableChanges?.[String(a.eventId)] ?? {};
+            const page = (rows: Array<Record<string, unknown>> = []) => ({
+              rows: rows.slice(offset, offset + limit),
+              more: rows.length > offset + limit
+            });
+            const inserted = page(held.inserted);
+            const deleted = page(held.deleted);
+            return {
+              inserted: inserted.rows,
+              deleted: deleted.rows,
+              hasMore: inserted.more || deleted.more
+            };
+          }
+        ) as Promise<{
+          inserted: Array<Record<string, unknown>>;
+          deleted: Array<Record<string, unknown>>;
+          hasMore: boolean;
+        }>
     },
     notify: (input) =>
       op("notify", { ...input }, (a) => {

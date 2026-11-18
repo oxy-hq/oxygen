@@ -229,6 +229,15 @@ pub enum SystemPurpose {
     /// alternative is a row naming whichever user happened to open the
     /// connection, which is false.
     SharedQuery,
+    /// The app events table tracker reading a watched table's DuckLake
+    /// snapshots (`table_changes`, the snapshot catalog and the table's
+    /// columns). Always a Reader, and its own audit segment so a sweep's
+    /// reads never read as a person's or an app's.
+    TableWatch,
+    /// Copying app events into the workspace's `oxy_event_log` schema, and
+    /// pruning it (a Writer; the schema's DDL runs as Admin under the same
+    /// purpose). Its own audit segment.
+    EventLog,
 }
 
 impl SystemPurpose {
@@ -245,6 +254,8 @@ impl SystemPurpose {
             SystemPurpose::UsageRead => "custom-app-usage-read",
             SystemPurpose::FileImport => "file-import",
             SystemPurpose::SharedQuery => "shared-query",
+            SystemPurpose::TableWatch => "table-watch",
+            SystemPurpose::EventLog => "event-log",
         }
     }
 }

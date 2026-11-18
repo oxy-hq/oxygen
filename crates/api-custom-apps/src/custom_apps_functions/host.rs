@@ -49,6 +49,7 @@ mod outbox;
 pub mod platform_facts;
 mod provider_fetch;
 mod semantic_op;
+mod table_ops;
 mod tx_ops;
 mod uploads;
 mod warehouse_home;
@@ -197,6 +198,9 @@ pub struct ProjectFunctionHost {
     /// The event whose delivery started this invocation, which a publish
     /// from it chains from (`events_op`). `None` for every other trigger.
     event_cause: Option<super::runtime::EventCause>,
+    /// Whether this invocation has queued the table tracker after a write
+    /// (`table_ops`): once is enough.
+    table_nudged: std::sync::atomic::AtomicBool,
 }
 
 /// The audit state of one open transaction.
@@ -484,6 +488,7 @@ impl ProjectFunctionHost {
             fallback_secrets: Default::default(),
             sandbox_companies: Default::default(),
             event_cause: None,
+            table_nudged: std::sync::atomic::AtomicBool::new(false),
             policy,
             identity,
             tx_writes: tokio::sync::Mutex::new(std::collections::HashMap::new()),
@@ -1199,6 +1204,8 @@ impl FunctionHost for ProjectFunctionHost {
         // known it is built again wherever the engine reads the text
         // differently — see `engine_spelling`.
         let sql = build(SqlDialect::Postgres, StringLiteral::Standard)?;
+        // A run a table change started does not write that table.
+        self.refuse_table_loop(Some(database), &sql)?;
 
         let summary = db_query_summary(&sql);
         data_audit::record_db_span(&summary, Some(database), payload_table);
@@ -1250,6 +1257,7 @@ impl FunctionHost for ProjectFunctionHost {
                 sent: None,
             })
             .await;
+            self.nudge_table_watch().await;
         }
         Ok(serde_json::json!({ "ok": true }))
     }

@@ -133,8 +133,10 @@ use super::envelope::{event_dataschema, event_source};
 use super::marks;
 use super::schema::live_revision;
 use super::subscriptions::{Listener, listeners};
+use super::table_watch;
 use crate::custom_apps_functions::function_task_policy;
 use crate::custom_apps_sandboxes::activity::is_past_idle_expiry;
+use oxy_custom_apps::events::table::is_table_event_type;
 
 // Which store an environment's events wait in, and what a store vouches for.
 mod vouch;
@@ -221,6 +223,9 @@ pub struct RelayedEvent {
     pub delay_seconds: i32,
     /// Why the event is stored but delivered to nobody.
     pub relay_error: Option<String>,
+    /// Deliver to this one listener (app id, function) and no other: the
+    /// backfill event `oxyc events resync --backfill` queues.
+    pub only_listener: Option<(Uuid, String)>,
 }
 
 /// A listener's retry policy: the `retries` its manifest declares (a single
@@ -298,7 +303,10 @@ pub async fn enqueue_relay(
 /// which driver takes it: one of the org's apps' workspaces, preferring one
 /// the run driver can build a context for (a path and a promoted revision),
 /// then the oldest app's. Fully ordered, so every call picks the same one.
-async fn run_workspace(db: &DatabaseConnection, org_id: Uuid) -> Result<Option<Uuid>, DbErr> {
+pub(crate) async fn run_workspace(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+) -> Result<Option<Uuid>, DbErr> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -503,7 +511,7 @@ pub(crate) async fn relay_rows(
         events.push(event);
         sources.push(row);
     }
-    let (mut stats, points_here) = store_and_fan_out(db, &events).await.map_err(failed)?;
+    let (mut stats, points_here) = store_and_fan_out(db, &events, None).await.map_err(failed)?;
     stats.rejected += dropped;
     // A row is its event's body only when the event is stored under the
     // row's own id and writer; any other row's body is never read.
@@ -682,6 +690,7 @@ fn read_row(
         schema_revision_id: row.schema_revision,
         delay_seconds: row.delay_seconds,
         relay_error,
+        only_listener: None,
     }
 }
 
@@ -696,7 +705,34 @@ pub(crate) async fn fan_out(
     db: &DatabaseConnection,
     events: &[RelayedEvent],
 ) -> Result<RelayStats, DbErr> {
-    Ok(store_and_fan_out(db, events).await?.0)
+    Ok(store_and_fan_out(db, events, None).await?.0)
+}
+
+/// A table cursor's move, made in the transaction that stores the event
+/// ([`super::table_watch::cursors::advance_in`]).
+pub(crate) struct CursorMove {
+    pub id: Uuid,
+    pub from: Option<i64>,
+    pub to: i64,
+}
+
+/// The cursor no longer stood where the pass read it: another pass moved it,
+/// so this transaction (its duplicate event included) is rolled back.
+pub(crate) const CURSOR_MOVED: &str = "the table cursor moved under this pass";
+
+/// [`fan_out`] for a table event: the event, its deliveries and the cursor's
+/// move commit together, so a snapshot is delivered exactly when the cursor
+/// has moved past it.
+pub(crate) async fn fan_out_with_cursor(
+    db: &DatabaseConnection,
+    event: &RelayedEvent,
+    cursor: &CursorMove,
+) -> Result<RelayStats, DbErr> {
+    Ok(
+        store_and_fan_out(db, std::slice::from_ref(event), Some(cursor))
+            .await?
+            .0,
+    )
 }
 
 /// [`fan_out`], and for each event whether the stored event is that one —
@@ -705,6 +741,7 @@ pub(crate) async fn fan_out(
 async fn store_and_fan_out(
     db: &DatabaseConnection,
     events: &[RelayedEvent],
+    cursor: Option<&CursorMove>,
 ) -> Result<(RelayStats, Vec<bool>), DbErr> {
     // Read first, outside the transaction: who listens to each event, and
     // whether each listener's environment holds it.
@@ -721,20 +758,31 @@ async fn store_and_fan_out(
                 event.envelope.event_type.clone(),
             );
             if !listening.contains_key(&key) {
-                let found =
+                let mut found =
                     listeners(db, event.org_id, environment, &event.envelope.event_type).await?;
+                if is_table_event_type(&event.envelope.event_type) {
+                    // A table is in one workspace's Airhouse.
+                    found.retain(|l| l.workspace_id == event.workspace_id);
+                }
+
                 listening.insert(key.clone(), found);
             }
-            for listener in &listening[&key] {
-                let held = environment != PRODUCTION
-                    && match holds.get(&(listener.app_id, environment.clone())) {
-                        Some(&held) => held,
-                        None => {
-                            let held = is_held(db, listener.app_id, environment).await?;
-                            holds.insert((listener.app_id, environment.clone()), held);
-                            held
-                        }
-                    };
+            for listener in listening[&key].iter().filter(|l| {
+                event
+                    .only_listener
+                    .as_ref()
+                    .is_none_or(|(app, function)| l.app_id == *app && &l.function_name == function)
+            }) {
+                let held = listener.paused
+                    || environment != PRODUCTION
+                        && match holds.get(&(listener.app_id, environment.clone())) {
+                            Some(&held) => held,
+                            None => {
+                                let held = is_held(db, listener.app_id, environment).await?;
+                                holds.insert((listener.app_id, environment.clone()), held);
+                                held
+                            }
+                        };
                 plan.push((listener.clone(), held));
             }
         }
@@ -777,6 +825,12 @@ async fn store_and_fan_out(
             deliver(&txn, event, &listener, workspace_id, held).await?;
             stats.deliveries += 1;
         }
+    }
+    if let Some(cursor) = cursor
+        && !table_watch::cursors::advance_in(&txn, cursor.id, cursor.from, cursor.to).await?
+    {
+        // Dropping the transaction rolls the event and its deliveries back.
+        return Err(DbErr::Custom(CURSOR_MOVED.to_string()));
     }
     txn.commit().await?;
     Ok((stats, points_here))

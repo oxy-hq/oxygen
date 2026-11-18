@@ -152,6 +152,26 @@ pub(crate) fn published() -> Value {
     json!({ "period": "2026-11", "total": 12.5, "lines": ["a", "b"] })
 }
 
+/// Run `delivery`'s queued task once through the production executor, as a
+/// worker would.
+pub(crate) async fn run_delivery(
+    db: &sea_orm::DatabaseConnection,
+    delivery: &deliveries::Model,
+) -> TaskOutcome {
+    let run_id = delivery.run_id.clone().expect("a pending delivery's run");
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT spec FROM agentic_task_queue WHERE task_id = $1",
+            [run_id.into()],
+        ))
+        .await
+        .expect("read the queue")
+        .expect("the delivery's task");
+    let spec: Value = row.try_get("", "spec").expect("spec");
+    run_spec(db, serde_json::from_value(spec).expect("a task spec")).await
+}
+
 /// An org with app events on, its OLTP store (holding the publisher's
 /// writer), a compiled workspace, and a publisher app whose promoted build
 /// declares [`EVENT`].

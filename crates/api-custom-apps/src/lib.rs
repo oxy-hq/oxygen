@@ -797,6 +797,10 @@ pub fn public_routes() -> Router<AppState> {
             get(app_events::api::handlers::app_dead),
         )
         .route(
+            "/customer-apps/{org_slug}/{app_slug}/events/resync",
+            post(app_events::api::handlers::resync_tables),
+        )
+        .route(
             "/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events",
             put(app_events::api::handlers::set_events_switch),
         )
@@ -887,6 +891,7 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/customer-apps/{org_slug}/events/{event_id}/redeliver"),
         fleet("/customer-apps/{org_slug}/{app_slug}/events/feed"),
         fleet("/customer-apps/{org_slug}/{app_slug}/events/dead"),
+        fleet("/customer-apps/{org_slug}/{app_slug}/events/resync"),
         fleet("/customer-apps/{org_slug}/{app_slug}/environments/{environment}/events"),
     ];
     ROLES

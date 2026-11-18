@@ -35,6 +35,7 @@ fn handed_in_tasks() -> String {
 #[test]
 fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
     use oxy_api_custom_apps::app_events::relay::RELAY_KIND;
+    use oxy_api_custom_apps::app_events::table_watch::TASK_KIND as TABLE_WATCH_KIND;
     use oxy_api_custom_apps::custom_apps_env_branch::task::ENV_OLTP_BRANCH_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::migrations_task::SANDBOX_MIGRATIONS_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::oltp_task::SANDBOX_OLTP_KIND;
@@ -66,6 +67,7 @@ fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
             SANDBOX_OLTP_KIND,
             ENV_OLTP_BRANCH_KIND,
             RELAY_KIND,
+            TABLE_WATCH_KIND,
         ] {
             assert!(
                 body.contains(&format!("\"{kind}\"")),

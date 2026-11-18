@@ -24,6 +24,26 @@ export interface OxyAppFunctionEventsManifest {
   publish: string[];
 }
 
+/**
+ * A table a function runs on: `{ "table": "<database>:<schema>.<table>" }`.
+ * The function runs once per DuckLake snapshot that inserted into or deleted
+ * from the table, with a `table:<table>` event (see `OxyTableChange`). Inserts
+ * and deletes both fire, and an update arrives as a delete plus an insert, so
+ * treat an event as "this table changed, re-derive what you keep from it".
+ * A function must not write the table it watches (the host refuses with an
+ * `EventLoop` error). The columns of a watched table are a contract: removing,
+ * renaming or retyping one marks the watch broken, and publishing an
+ * `airhouseMigrations` file that does so is refused.
+ */
+export interface OxyAppTableWatch {
+  /**
+   * `<database>:<schema>.<table>`; the database may be left out for this app's
+   * own `app_<writer>` schema. Any Airhouse table the workspace can read.
+   * @pattern ^([A-Za-z0-9_-]+:)?[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$
+   */
+  table: string;
+}
+
 /** One event this app publishes, declared under the app-level `events`. */
 export interface OxyAppEventDeclaration {
   /** What the event means, for people reading the catalogue. */
@@ -64,9 +84,11 @@ export interface OxyAppFunctionManifest {
    * App events this function runs on: one `<app-slug>/<event-name>` or a list.
    * `<app-slug>` is the publishing app (this app's own slug for its own
    * events); `<event-name>` is dot-separated lowercase, e.g.
-   * `statements/statement.uploaded`. Counts as an invocation surface.
+   * `statements/statement.uploaded`. A `{ table }` entry runs the function when
+   * an Airhouse table changes (see {@link OxyAppTableWatch}). Counts as an
+   * invocation surface.
    */
-  on?: string | string[];
+  on?: string | OxyAppTableWatch | Array<string | OxyAppTableWatch>;
   /** App events this function may publish (`ctx.events.publish`). */
   events?: OxyAppFunctionEventsManifest;
   /**
