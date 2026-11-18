@@ -21,6 +21,7 @@ use axum::routing::{MethodRouter, delete, patch, post, put};
 use oxy_api_custom_apps::admin::app_publish_tokens as publish_tokens;
 use oxy_api_custom_apps::admin::apps::access::set_app_access;
 use oxy_api_custom_apps::admin::apps::handlers as admin;
+use oxy_api_custom_apps::admin::apps::promotion_rule::set_promotion_rule;
 use oxy_api_custom_apps::admin::apps::storage;
 use oxy_api_custom_apps::admin::apps::test_notification;
 use oxy_api_custom_apps::custom_apps_agent_refusal::REFUSED_WRITES;
@@ -66,6 +67,11 @@ fn fixed_state_writes() -> Vec<Write> {
             "DELETE",
             "/customer-apps/{id}/publish",
             delete(admin::unpublish_app),
+        ),
+        write(
+            "PUT",
+            "/customer-apps/{id}/promotion-rule",
+            put(set_promotion_rule),
         ),
         write(
             "POST",
@@ -179,6 +185,7 @@ fn body_for(agent: &Agent, path: &str, staging: Uuid) -> Option<Value> {
             "repo_owner": "acme", "repo_owner_id": 1, "repo_name": "app",
             "workflow_ref": ".github/workflows/oxy-publish.yml", "environment": "production",
         }),
+        "/customer-apps/{id}/promotion-rule" => json!({ "require_second_person_to_promote": true }),
         "/customer-apps/{id}/access" => json!({ "visibility": "restricted" }),
         "/customer-apps/{id}/notification-test" => json!({ "kind": "list_overdue" }),
         "/customer-apps/{id}/environments/{name}/schedules" => json!({ "enabled": true }),
@@ -229,7 +236,7 @@ fn request(
 }
 
 /// What the writes above would change: the app's row, its builds, the fixed
-/// environments, and how many apps, publishers, publish tokens, notification
+/// environments, its promotion rule, and how many apps, publishers, publish tokens, notification
 /// sends and custom domains there are.
 async fn fixed_state(agent: &Agent) -> Value {
     let db = &agent.t.db;
@@ -275,6 +282,7 @@ async fn fixed_state(agent: &Agent) -> Value {
         "name": app.name, "slug": app.slug, "visibility": app.visibility, "status": app.status,
         "published": serving.production, "draft": serving.staging,
         "published_at": app.published_at.map(|at| at.to_rfc3339()),
+        "require_second_person_to_promote": app.require_second_person_to_promote,
         "builds": builds, "environments": environments, "apps": apps,
         "publishers": publishers, "publish_tokens": publish_tokens,
         "notification_sends": notification_sends, "custom_domains": custom_domains,
