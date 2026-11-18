@@ -867,6 +867,64 @@ describe("oxyc publish", () => {
     });
   });
 
+  describe("event schemas", () => {
+    const schema = (idType: string) => ({
+      type: "object",
+      properties: { id: { type: idType } },
+      required: ["id"]
+    });
+
+    function uploadedManifest(bundle: Buffer | undefined): {
+      events?: Record<string, { schema: unknown }>;
+    } {
+      const file = join(work, "sent.tar.gz");
+      writeFileSync(file, bundle ?? Buffer.alloc(0));
+      const out = spawnSync("tar", ["-xzOf", file, "oxy-app.json"], { encoding: "utf8" });
+      return JSON.parse(out.stdout);
+    }
+
+    // The first publish embeds the schema into `out/oxy-app.json` in place, so
+    // the second found no path left there and used to ship the first copy.
+    it("a second --dir publish ships the schema file as edited since the first", async () => {
+      const source = {
+        slug: "sales",
+        orgSlug: "acme",
+        events: { "order.placed": { schema: "./events/order.placed.schema.json" } }
+      };
+      const dir = app(source);
+      // As the Vite plugin leaves it: the source manifest, copied.
+      writeFileSync(
+        join(dir, "out", "oxy-app.json"),
+        JSON.stringify({ schemaVersion: 2, ...source })
+      );
+      const schemaFile = join(dir, "events", "order.placed.schema.json");
+      mkdirSync(dirname(schemaFile));
+      writeFileSync(schemaFile, JSON.stringify(schema("string")));
+
+      const first = await publish(dir, ["--dir", "out", "--build-id", "b-1"], {
+        OXY_TOKEN: "good-token"
+      });
+      expect(first.status, first.stderr).toBe(0);
+      expect(first.stderr).toContain("event schemas embedded: 1");
+
+      writeFileSync(schemaFile, JSON.stringify(schema("integer")));
+      const second = await publish(dir, ["--dir", "out", "--build-id", "b-2"], {
+        OXY_TOKEN: "good-token"
+      });
+      expect(second.status, second.stderr).toBe(0);
+      expect(second.stderr).toContain("event schemas embedded: 1");
+      expect(second.stderr).toContain("order.placed");
+
+      const [one, two] = uploads();
+      expect(uploadedManifest(one?.bundle).events?.["order.placed"]?.schema).toEqual(
+        schema("string")
+      );
+      expect(uploadedManifest(two?.bundle).events?.["order.placed"]?.schema).toEqual(
+        schema("integer")
+      );
+    });
+  });
+
   describe("the Oxy Functions lint", () => {
     /** An app with one function: its source in `functions/`, its bundle already in `out/`. */
     function appWithFunction(

@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { OxyAppManifest } from "@oxy-hq/sdk/manifest";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { embedEventSchemas } from "./event-schemas.js";
+import { embedEventSchemas, embedEventSchemasIntoBundle } from "./event-schemas.js";
 
 const SCRATCH: string[] = [];
 afterAll(() => {
@@ -75,5 +75,64 @@ describe("embedEventSchemas", () => {
   it("returns a manifest without events unchanged", () => {
     const m = { slug: "x" } as unknown as OxyAppManifest;
     expect(embedEventSchemas(app({}), m)).toEqual(m);
+  });
+});
+
+describe("embedEventSchemasIntoBundle", () => {
+  const v1 = { type: "object", properties: { id: { type: "string" } } };
+  const v2 = { type: "object", properties: { id: { type: "integer" } } };
+  const bundledManifest = (bundleDir: string): OxyAppManifest =>
+    JSON.parse(readFileSync(join(bundleDir, "oxy-app.json"), "utf8")) as OxyAppManifest;
+
+  it("embeds a bundle's schema paths without a source manifest", () => {
+    const dir = app({
+      "events/statement.json": JSON.stringify(v1),
+      "out/oxy-app.json": JSON.stringify(manifest("./events/statement.json"))
+    });
+    const report = embedEventSchemasIntoBundle(dir, join(dir, "out"));
+    expect(report).toEqual({ embedded: 1, refreshed: [] });
+    expect(bundledManifest(join(dir, "out")).events?.["statement.uploaded"]?.schema).toEqual(v1);
+  });
+
+  // A `--dir` bundle published twice: the first publish rewrote the bundle's
+  // manifest with the schema embedded, so only the source still names the file.
+  it("re-embeds from the source's path over an embedded copy, naming what changed", () => {
+    const dir = app({
+      "events/statement.json": JSON.stringify(v2),
+      "out/oxy-app.json": JSON.stringify(manifest(v1))
+    });
+    const report = embedEventSchemasIntoBundle(
+      dir,
+      join(dir, "out"),
+      manifest("./events/statement.json")
+    );
+    expect(report).toEqual({ embedded: 1, refreshed: ["statement.uploaded"] });
+    expect(bundledManifest(join(dir, "out")).events?.["statement.uploaded"]?.schema).toEqual(v2);
+  });
+
+  it("does not call an unchanged schema refreshed", () => {
+    const dir = app({
+      "events/statement.json": JSON.stringify(v1),
+      "out/oxy-app.json": JSON.stringify(manifest(v1))
+    });
+    const report = embedEventSchemasIntoBundle(
+      dir,
+      join(dir, "out"),
+      manifest("./events/statement.json")
+    );
+    expect(report).toEqual({ embedded: 1, refreshed: [] });
+  });
+
+  it("leaves an event the source writes inline, or does not declare, as the bundle has it", () => {
+    const bundled = {
+      events: { "statement.uploaded": { schema: v1 }, "statement.parsed": { schema: v1 } }
+    };
+    const dir = app({ "out/oxy-app.json": JSON.stringify(bundled) });
+    const source = {
+      events: { "statement.uploaded": { schema: v2 } }
+    } as unknown as OxyAppManifest;
+    const report = embedEventSchemasIntoBundle(dir, join(dir, "out"), source);
+    expect(report).toEqual({ embedded: 0, refreshed: [] });
+    expect(bundledManifest(join(dir, "out"))).toEqual(bundled);
   });
 });

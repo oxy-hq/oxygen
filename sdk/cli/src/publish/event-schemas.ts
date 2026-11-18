@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   FUNCTION_SCHEMA_MAX_BYTES,
   type OxyAppManifest,
@@ -93,25 +94,56 @@ function readSchema(appDir: string, event: string, path: string): Record<string,
   return parsed as Record<string, unknown>;
 }
 
+export interface EventSchemaEmbedReport {
+  /** How many schemas were read from their files into the bundle's manifest. */
+  embedded: number;
+  /** The events whose schema in the bundle was an older copy of the file, now replaced. */
+  refreshed: string[];
+}
+
 /**
  * Write the embedded schemas into the BUNDLE's `oxy-app.json`, the copy the
  * platform reads. The source manifest is never touched. A bundle without a
- * manifest, or whose manifest declares no events, is left alone. Returns how
- * many schemas were embedded.
+ * manifest, or whose manifest declares no events, is left alone.
+ *
+ * Where `source` (the app directory's `oxy-app.json`) names an event's schema
+ * file, that file is read again whatever the bundle holds for the event. A
+ * `--dir` bundle published twice is why: the first publish rewrote its
+ * manifest with the schema embedded, and an edit to the file since would
+ * otherwise ship as the old copy, without a word, past the breaking-change gate.
  */
-export function embedEventSchemasIntoBundle(appDir: string, bundleDir: string): number {
+export function embedEventSchemasIntoBundle(
+  appDir: string,
+  bundleDir: string,
+  source?: OxyAppManifest
+): EventSchemaEmbedReport {
+  const report: EventSchemaEmbedReport = { embedded: 0, refreshed: [] };
   const path = join(bundleDir, "oxy-app.json");
-  if (!existsSync(path)) return 0;
+  if (!existsSync(path)) return report;
   let bundled: OxyAppManifest;
   try {
     bundled = JSON.parse(readFileSync(path, "utf8")) as OxyAppManifest;
   } catch {
-    return 0;
+    return report;
   }
-  const paths = Object.values(bundled.events ?? {}).filter(
-    (declaration) => typeof declaration?.schema === "string"
-  ).length;
-  if (paths === 0) return 0;
-  writeFileSync(path, `${JSON.stringify(embedEventSchemas(appDir, bundled), null, 2)}\n`);
-  return paths;
+  const events = bundled.events;
+  if (events === undefined || events === null || typeof events !== "object") return report;
+
+  const withPaths: NonNullable<OxyAppManifest["events"]> = {};
+  for (const [name, declaration] of Object.entries(events)) {
+    const named = source?.events?.[name]?.schema;
+    const declared = typeof named === "string" ? { ...declaration, schema: named } : declaration;
+    withPaths[name] = declared;
+    if (typeof declared?.schema === "string") report.embedded += 1;
+  }
+  if (report.embedded === 0) return report;
+
+  const embedded = embedEventSchemas(appDir, { ...bundled, events: withPaths });
+  for (const [name, declaration] of Object.entries(events)) {
+    const before = declaration?.schema;
+    if (typeof before !== "object" || before === null) continue;
+    if (!isDeepStrictEqual(before, embedded.events?.[name]?.schema)) report.refreshed.push(name);
+  }
+  writeFileSync(path, `${JSON.stringify(embedded, null, 2)}\n`);
+  return report;
 }

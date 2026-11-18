@@ -248,9 +248,16 @@ function prepareBundle(
   if (warning) log.warn(warning);
 
   // The platform never reads a schema file from a bundle: the parsed schemas
-  // go into the bundle's copy of the manifest, whatever built the bundle.
-  const embeddedSchemas = embedEventSchemasIntoBundle(ctx.cwd, bundleDir);
-  if (embeddedSchemas > 0) log.info(`event schemas embedded: ${embeddedSchemas}`);
+  // go into the bundle's copy of the manifest, whatever built the bundle — read
+  // again from the files the source manifest names, so a `--dir` bundle
+  // published before does not keep the copy it was given then.
+  const events = embedEventSchemasIntoBundle(ctx.cwd, bundleDir, manifest);
+  if (events.embedded > 0) log.info(`event schemas embedded: ${events.embedded}`);
+  if (events.refreshed.length > 0) {
+    log.info(
+      `event schemas re-read from their files (the bundle held an older copy): ${events.refreshed.join(", ")}`
+    );
+  }
 
   if (flags.prebuilt) {
     requirePrebuiltFunctions(bundleDir, declared);
