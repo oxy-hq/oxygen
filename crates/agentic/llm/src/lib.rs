@@ -36,6 +36,8 @@ pub use provider::LlmProvider;
 mod sse;
 
 mod anthropic;
+
+mod strict_schema;
 pub use anthropic::AnthropicProvider;
 
 mod openai;

@@ -11,6 +11,7 @@ use agentic_core::tools::ToolDef;
 
 use super::constants::*;
 use super::sse::{ApiError, pop_sse_event, sse_data};
+use super::strict_schema::sanitize_for_strict;
 use super::{
     Chunk, ContentBlock, LlmError, LlmProvider, ReasoningEffort, ResponseSchema, StopReason,
     ThinkingConfig, ToolCallChunk, Usage,
@@ -290,10 +291,17 @@ impl AnthropicProvider {
         let mut tools_json: Vec<Value> = tools
             .iter()
             .map(|t| {
+                // Strict mode accepts only a JSON Schema subset and 400s the
+                // whole request otherwise; see `strict_schema`.
+                let input_schema = if t.strict {
+                    sanitize_for_strict(&t.parameters)
+                } else {
+                    t.parameters.clone()
+                };
                 json!({
                     "name": t.name,
                     "description": t.description,
-                    "input_schema": t.parameters,
+                    "input_schema": input_schema,
                     "strict": t.strict
                 })
             })
@@ -358,18 +366,20 @@ impl AnthropicProvider {
         // model can call it when done — output_config + tools is unreliable on
         // smaller models (e.g. Haiku) which may return empty text.
         if let Some(schema) = response_schema {
+            // Both paths decode under the strict subset.
+            let strict_schema = sanitize_for_strict(&schema.schema);
             if tools.is_empty() {
                 body["output_config"] = json!({
                     "format": {
                         "type": "json_schema",
-                        "schema": schema.schema
+                        "schema": strict_schema
                     }
                 });
             } else {
                 tools_json.push(json!({
                     "name": schema.name,
                     "description": "You MUST call this tool to return your final structured response. Do NOT embed JSON in your text — always use this tool.",
-                    "input_schema": schema.schema,
+                    "input_schema": strict_schema,
                     "strict": true
                 }));
             }
@@ -1190,5 +1200,84 @@ mod tests {
         let p = AnthropicProvider::new("key", "m")
             .with_headers(HashMap::from([("x-gw".to_string(), "1".to_string())]));
         assert_eq!(p.headers["x-gw"], "1");
+    }
+
+    /// A tool schema with `minItems: 3` (the legacy specify schema's
+    /// `join_path`) was sent as-is on a strict tool, and Anthropic answered
+    /// 400 "For 'array' type, 'minItems' values other than 0 or 1 are not
+    /// supported" -- for every request carrying it.
+    fn join_path_schema() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "join_path": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 3,
+                    "maxItems": 3
+                }
+            },
+            "required": ["join_path"],
+            "additionalProperties": false
+        })
+    }
+
+    fn tool(name: &'static str, strict: bool) -> ToolDef {
+        ToolDef {
+            name,
+            description: "d",
+            parameters: join_path_schema(),
+            strict,
+            ..Default::default()
+        }
+    }
+
+    fn body_with(tools: &[ToolDef], schema: Option<&ResponseSchema>) -> Value {
+        AnthropicProvider::new("key", "claude-opus-4-8").build_request_body(
+            "sys",
+            "",
+            &[],
+            tools,
+            &ThinkingConfig::Disabled,
+            schema,
+            None,
+        )
+    }
+
+    #[test]
+    fn strict_tool_schemas_are_reduced_to_the_strict_subset() {
+        let body = body_with(&[tool("strict_one", true)], None);
+        let jp = &body["tools"][0]["input_schema"]["properties"]["join_path"];
+        assert_eq!(jp["minItems"], 1);
+        assert!(jp.get("maxItems").is_none());
+        assert_eq!(body["tools"][0]["strict"], true);
+    }
+
+    #[test]
+    fn non_strict_tool_schemas_are_sent_unchanged() {
+        // Outside strict mode the API accepts full JSON Schema, so the
+        // constraint stays and the model sees it as written.
+        let body = body_with(&[tool("loose", false)], None);
+        assert_eq!(body["tools"][0]["input_schema"], join_path_schema());
+    }
+
+    #[test]
+    fn structured_output_schemas_are_reduced_on_both_paths() {
+        let schema = ResponseSchema {
+            name: "specify_response".to_string(),
+            schema: join_path_schema(),
+        };
+        // No real tools: sent as output_config.format.
+        let body = body_with(&[], Some(&schema));
+        let jp = &body["output_config"]["format"]["schema"]["properties"]["join_path"];
+        assert_eq!(jp["minItems"], 1);
+        // With real tools: sent as a synthetic strict tool.
+        let body = body_with(&[tool("loose", false)], Some(&schema));
+        let synthetic = &body["tools"][1];
+        assert_eq!(synthetic["name"], "specify_response");
+        assert_eq!(
+            synthetic["input_schema"]["properties"]["join_path"]["minItems"],
+            1
+        );
     }
 }
