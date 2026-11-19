@@ -29,6 +29,7 @@ use crate::custom_apps_promote::audit::published_entry;
 use crate::custom_apps_promote::{
     self as promote, AuditedBy, BuildRef, MoveAudit, MoveRow, ProductionMove, PromoteError,
 };
+use crate::custom_apps_usage_purge as usage_purge;
 use oxy_app_core::workspace_org::{WorkspaceOrgMatch, workspace_in_org};
 
 use super::dto::{ApiErr, AppResponse, ErrorBody};
@@ -580,8 +581,16 @@ pub async fn unpublish_one(
 /// Core delete shared by [`delete_app`] and [`batch_delete_apps`]. Removes the
 /// bundle bytes AND the app's asset silo before the DB row so a partial failure
 /// leaves a recoverable orphan row rather than orphan S3 prefixes; either
-/// storage failure is logged, never fatal.
-pub(super) async fn delete_one(db: &DatabaseConnection, id: Uuid) -> Result<(), AppOpError> {
+/// storage failure is logged, never fatal. Returns the row it removed, for the
+/// caller's audit row.
+///
+/// The app's usage facts in its workspace's Airhouse go with it: the purge is
+/// owed in a ledger row and queued in the transaction that deletes the app
+/// ([`usage_purge`]), so an app is never gone without its facts owed a delete.
+pub(super) async fn delete_one(
+    db: &DatabaseConnection,
+    id: Uuid,
+) -> Result<apps::Model, AppOpError> {
     let row = Apps::find_by_id(id)
         .one(db)
         .await
@@ -635,11 +644,30 @@ pub(super) async fn delete_one(db: &DatabaseConnection, id: Uuid) -> Result<(), 
         Ok(revoked) => revoked.forget(),
         Err(e) => tracing::warn!("delete_one {id}: custom-domain sessions not revoked: {e}"),
     }
-    row.delete(db).await.map_err(|_| AppOpError::internal())?;
+    delete_row_and_queue_purge(db, &row).await.map_err(|e| {
+        tracing::error!("delete_one {id}: row delete failed: {e}");
+        AppOpError::internal()
+    })?;
     // A cached slug→row resolution would keep serving a deleted app until the
     // TTL expired. Drop it before returning.
     crate::custom_apps_cache::invalidate_app_resolution_cache();
-    Ok(())
+    Ok(row)
+}
+
+/// Delete `row` and queue the purge of its Airhouse usage facts, together.
+async fn delete_row_and_queue_purge(
+    db: &DatabaseConnection,
+    row: &apps::Model,
+) -> Result<(), sea_orm::DbErr> {
+    let txn = db.begin().await?;
+    let task = usage_purge::UsagePurgeTask {
+        app_id: row.id,
+        workspace_id: row.project_id,
+    };
+    usage_purge::ledger::record_owed(&txn, &task, row.org_id, chrono::Utc::now()).await?;
+    usage_purge::enqueue(&txn, &task).await?;
+    row.clone().delete(&txn).await?;
+    txn.commit().await
 }
 
 /// Core "promote to latest" shared by [`batch_promote_latest_apps`]: move

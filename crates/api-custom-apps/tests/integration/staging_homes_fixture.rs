@@ -113,6 +113,26 @@ pub(crate) fn host_on(
     reasons: &[&str],
     policy: EnvPolicy,
 ) -> Arc<dyn FunctionHost> {
+    into_arc(host_in(
+        db,
+        (Uuid::new_v4(), Uuid::new_v4()),
+        project,
+        allowed,
+        reasons,
+        policy,
+    ))
+}
+
+/// The host of [`host_on`], not yet shared, for an org and workspace
+/// (`org_id`, `project_id`) a test seeded: it can be given an event cause.
+pub(crate) fn host_in(
+    db: sea_orm::DatabaseConnection,
+    (org_id, project_id): (Uuid, Uuid),
+    project: Arc<dyn FunctionProjectContext>,
+    allowed: &[&str],
+    reasons: &[&str],
+    policy: EnvPolicy,
+) -> ProjectFunctionHost {
     let caps = FunctionCapabilities {
         customer_warehouse_writes: reasons
             .iter()
@@ -121,14 +141,14 @@ pub(crate) fn host_on(
         airhouse: WriterCapability::resolve(true, APP_SLUG),
         ..Default::default()
     };
-    into_arc(ProjectFunctionHost::new(
+    ProjectFunctionHost::new(
         project,
         Arc::new(DataPlaneQueryExecutor) as Arc<dyn FunctionQueryExecutor>,
         db,
         allowed.iter().map(|d| d.to_string()).collect(),
+        project_id,
         Uuid::new_v4(),
-        Uuid::new_v4(),
-        Uuid::new_v4(),
+        org_id,
         Uuid::nil(),
         "Receiving".into(),
         caps,
@@ -145,7 +165,7 @@ pub(crate) fn host_on(
             credential_token_id: None,
         },
         policy,
-    ))
+    )
 }
 
 pub(crate) async fn exec(connector: &dyn DatabaseConnector, sql: &str) {

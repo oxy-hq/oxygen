@@ -399,7 +399,7 @@ pub(crate) async fn invocations(
 /// The custom-app surface as `oxy-server`'s `surface_seams()` hands it to
 /// `oxy-app`: the `api` seam (the admin console and the lists) behind the auth
 /// stack, the `workspace` seam inside `/{workspace_id}`, and the `public` seam
-/// (health, logs, errors, webhooks, publish OIDC, debug, availability,
+/// (health, logs, errors, webhooks, publish OIDC, debug,
 /// shell-context, threads) outside it. Each route is in exactly one of them, so a
 /// router built from this value mounts it once; merging `public_routes()` again
 /// beside it makes axum panic on `Overlapping method route`.

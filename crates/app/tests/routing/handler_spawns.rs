@@ -419,6 +419,12 @@ const ALLOWED: &[(&str, &str)] = &[
          claims the interval in `fleet_job_claims`) and only queues tasks; the \
          second spawn is the queue executor's own task (`UsageBackfillExecutor`)",
     ),
+    (
+        "api-custom-apps/src/custom_apps_usage_purge.rs",
+        "a queue executor's own task: `UsagePurgeExecutor::execute` runs the \
+         `custom_app_usage_purge` job under a spawn, as the usage backfill's \
+         executor does",
+    ),
     // ---- api-experiment ----
     (
         "api-experiment/src/experiment/check/executor.rs",

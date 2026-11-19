@@ -1,29 +1,29 @@
-//! The `availability` field on the `/customer-apps` list rows: the same
-//! reading `GET /customer-apps/{org}/{app}/availability` answers with, so the
-//! console takes it from the list instead of asking once per app.
+//! The `availability` field on the `/customer-apps` list rows, so the console
+//! takes it from the list instead of asking once per app. (The per-app
+//! `GET /customer-apps/{org}/{app}/availability` route that used to answer it
+//! was retired.)
 //!
-//! ## One function builds both
+//! ## How the reading is built
 //!
 //! [`AvailabilityReading::from_windows`] turns an app's windows and open-builds
-//! line into the reading. The standalone endpoint calls it with windows it read
-//! for one app; this module calls it with the windows [`super::verdict::measure`]
-//! already read for the whole page. Only where the windows come from differs
-//! (`get_app_availability` against `get_fleet_availability`, which share their
-//! predicates).
+//! line into the reading; this module calls it with the windows
+//! [`super::verdict::measure`] already read for the whole page, from
+//! `get_fleet_availability`. `get_app_availability`, the per-app read, shares
+//! its predicates.
 //!
 //! ## What it will not say
 //!
 //! The field is present only for a published app that was measured. A draft, a
 //! deployment with capture off, a failed query and a store that did not answer
 //! within [`BUDGET`] all leave it absent. Absent means "not read here" — a
-//! consumer asks the per-app endpoint or says nothing, and never reads it as
+//! consumer says nothing, and never reads it as
 //! `healthy`. `no_opinion` inside the field is a measured "not enough traffic".
 //!
 //! ## Cost
 //!
-//! A standalone availability read is seven ClickHouse round trips for one app:
+//! A per-app availability read is seven ClickHouse round trips for one app:
 //! one per window in `ALERT_WINDOWS_MINUTES` (six) and one for open builds. It
-//! is not an in-memory read, so the list never calls it per app.
+//! is not an in-memory read, so the list never does it per app.
 //!
 //! On the list the windows come from `verdict::measure`, which was already
 //! reading them to compute `verdict` and keeps them in its cache: the field adds

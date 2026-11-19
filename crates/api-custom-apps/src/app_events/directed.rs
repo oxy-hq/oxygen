@@ -4,14 +4,27 @@
 //! schema and no subscription, and the one listener is the named function in
 //! the build the event's environment serves.
 //!
-//! **The row is not trusted.** Rows are app-written (each writer role may call
-//! `oxy_events.publish`), so the relay enforces what the host enforces: the
-//! publishing app's build in the row's environment must have the function the
-//! name claims as the caller, and that build's `calls` must declare the target.
-//! A row that does not is stored with a relay error and delivered to nobody.
-//! TODO(app-events-hardening): `actor` and the caller function are still the
-//! row's own claims until the outbox carries the host-signed provenance MAC;
-//! until then a delivery presents no actor and always runs as the system.
+//! **Only a verified row gets here.** The relay stores a row whose provenance
+//! MAC does not verify with an `unverified_provenance` error before it asks
+//! about a target (`relay/read.rs`), so the name (which holds the caller
+//! function), the actor and the invocation of a row [`resolve`] sees are what
+//! the host wrote and signed; the caller function is read from the signed name
+//! and nothing unsigned. What the host enforces at the send, the relay enforces
+//! again, because a build can change between the two: the publishing app's
+//! build in the row's environment must have the function the name gives as the
+//! caller, and that build's `calls` must declare the target. A row that does
+//! not is stored with a relay error and delivered to nobody.
+//!
+//! **A delivery runs as the system, never as the row's `actor`.** That is
+//! deliberate and not yet liftable: the signed `actor` is whoever the sending
+//! chain carried, which is not always the person the sending run answered to
+//! (a send from an event delivery or a schedule inherits the chain's actor),
+//! and the row records neither whether the sending run was invoked directly by
+//! that person nor the credential ceiling (a PAT's role cap, an assume-role
+//! session) they ran under, which a delivery would have to reproduce.
+//! TODO(app-events-hardening): present the actor only once the signed row
+//! carries a direct-invoker flag and the credential's ceiling (a provenance
+//! `MESSAGE_DOMAIN` v2 that still verifies v1 rows).
 //!
 //! The target is resolved when the event is relayed, so the delivery goes to
 //! the build that is live then; an app, function or build that is missing, or a

@@ -38,7 +38,7 @@
 
 use std::time::{Duration, Instant};
 
-use oxy_custom_apps::calls::{CallErrorKind, MAX_CALL_BODY_BYTES, truncate_error};
+use oxy_custom_apps::calls::{CallErrorKind, MAX_CALL_BODY_BYTES, cycle_refusal, truncate_error};
 use oxy_custom_apps::events::MAX_DEPTH;
 
 use super::super::limits::{self, ChainBudget, ChainRefusal, NestedRefusal};
@@ -98,6 +98,9 @@ pub struct ChainScope {
     chain: std::sync::Arc<ChainBudget>,
     /// Whether this run is itself a callee (it holds a nested permit).
     callee: bool,
+    /// The (app, function) pairs of the synchronous chain above this run,
+    /// its caller last. Empty for a root run.
+    path: Vec<(String, String)>,
 }
 
 impl Default for ChainScope {
@@ -110,6 +113,7 @@ impl Default for ChainScope {
             cancel: CancellationToken::new(),
             chain: ChainBudget::new(),
             callee: false,
+            path: Vec::new(),
         }
     }
 }
@@ -131,6 +135,7 @@ impl ChainScope {
             cancel: cancel.child_token(),
             chain: chain.map_or_else(ChainBudget::new, |c| c.budget.clone()),
             callee: chain.is_some(),
+            path: chain.map_or_else(Vec::new, |c| c.path.clone()),
         }
     }
 
@@ -189,6 +194,16 @@ impl ProjectFunctionHost {
             },
             causation: None,
         }
+    }
+
+    /// The synchronous chain down to and including this run.
+    fn call_path(&self) -> Vec<(String, String)> {
+        let mut path = self.chain_scope.path.clone();
+        path.push((
+            self.identity.app_slug.clone(),
+            self.identity.function_name.clone(),
+        ));
+        path
     }
 
     /// `ctx.apps.call` and `ctx.apps.send`; see the module docs.
@@ -352,6 +367,10 @@ impl ProjectFunctionHost {
     /// `ctx.apps.call`: run the callee now and answer with its JSON.
     async fn call(&self, target: Target, payload: &Value) -> Result<Value, HostError> {
         let asked = timeout_of(payload).map_err(HostError::backend)?;
+        let path = self.call_path();
+        if let Some(refusal) = cycle_refusal(&path, (&target.app, &target.function)) {
+            return Err(HostError::backend(refusal));
+        }
         let app = self
             .find_target_app(&target.app)
             .await
@@ -377,6 +396,7 @@ impl ProjectFunctionHost {
             parent: self.identity.invocation_id,
             person: self.person.clone(),
             chain_budget: self.chain_scope.chain.clone(),
+            path,
             budget: Duration::ZERO,
         };
         // Ends the callee when this call is dropped (the caller's isolate was

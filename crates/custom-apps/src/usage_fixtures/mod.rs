@@ -25,7 +25,7 @@ mod history;
 pub use history::{Cast, History, history};
 
 use crate::usage_airhouse::{
-    CREATE_TABLE, SinkError, SqlRows, TABLE, UsageFact, UsageSink, insert_sql,
+    CREATE_TABLE, SinkError, SqlRows, TABLE, UsageFact, UsageSink, delete_app_sql, insert_sql,
 };
 
 /// A workspace's Airhouse, in memory. A workspace has one only once
@@ -38,6 +38,7 @@ pub struct FakeAirhouse {
     /// Appends that succeed before every later one fails; `u64::MAX` = never.
     appends_before_failure: AtomicU64,
     fail_queries: std::sync::atomic::AtomicBool,
+    fail_deletes: std::sync::atomic::AtomicBool,
     query_delay_ms: AtomicU64,
 }
 
@@ -86,6 +87,20 @@ impl FakeAirhouse {
 
     pub fn fail_queries(&self, fail: bool) {
         self.fail_queries.store(fail, Ordering::SeqCst);
+    }
+
+    /// Make every `delete_app` fail, as an unreachable Airhouse does.
+    pub fn fail_deletes(&self, fail: bool) {
+        self.fail_deletes.store(fail, Ordering::SeqCst);
+    }
+
+    /// Rows of `app_id` in `workspace_id`'s table.
+    pub fn rows_of_app(&self, workspace_id: Uuid, app_id: Uuid) -> i64 {
+        self.scalar(
+            workspace_id,
+            &format!("SELECT count(*) FROM {TABLE} WHERE app_id = '{app_id}'"),
+        )
+        .unwrap_or(0)
     }
 
     /// Reads served since creation.
@@ -172,6 +187,24 @@ impl UsageSink for FakeAirhouse {
         conn.lock()
             .unwrap()
             .execute_batch(CREATE_TABLE)
+            .map_err(|e| SinkError::Failed(e.to_string()))
+    }
+
+    async fn delete_app(
+        &self,
+        _db: &DatabaseConnection,
+        workspace_id: Uuid,
+        app_id: Uuid,
+    ) -> Result<(), SinkError> {
+        let conn = self
+            .connection(workspace_id)
+            .ok_or(SinkError::NotConfigured)?;
+        if self.fail_deletes.load(Ordering::SeqCst) {
+            return Err(SinkError::Failed("the fake Airhouse is down".into()));
+        }
+        conn.lock()
+            .unwrap()
+            .execute_batch(&format!("{CREATE_TABLE};{}", delete_app_sql(app_id)))
             .map_err(|e| SinkError::Failed(e.to_string()))
     }
 

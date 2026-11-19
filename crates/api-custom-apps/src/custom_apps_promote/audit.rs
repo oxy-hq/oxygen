@@ -7,6 +7,7 @@
 //! | --- | --- | --- |
 //! | `app.published` | the console's *Make Live* | the app |
 //! | `app.unpublished` | the console's *Unpublish* | the app |
+//! | `app.deleted` | the console's *Delete* (one or many) | the app, which no longer exists |
 //! | `app.promoted` / `app.rolled_back` | `oxyc promote` / `oxyc rollback`, the console's rollback and promote latest | the app's environment, with `{from, build, previous}` |
 //!
 //! A single handler records its row after its move has committed
@@ -106,4 +107,15 @@ pub fn unpublished_entry(actor: &RequestActor, app: &apps::Model) -> AuditEntry 
     AuditEntry::for_request(actor, "app.unpublished")
         .org(app.org_id)
         .target("app", app.id.to_string(), app.name.clone())
+}
+
+/// The row of an app's deletion: the app, its builds and its usage facts are
+/// gone afterwards, so the row is what says it existed and who removed it. Its
+/// slug and workspace go in the metadata because the target no longer resolves.
+pub fn deleted_entry(actor: &RequestActor, app: &apps::Model) -> AuditEntry {
+    AuditEntry::for_request(actor, "app.deleted")
+        .org(app.org_id)
+        .workspace(app.project_id)
+        .target("app", app.id.to_string(), app.name.clone())
+        .metadata(serde_json::json!({ "slug": app.slug }))
 }

@@ -27,6 +27,7 @@ use oxy_api_custom_apps::custom_apps_sandboxes::{
     maintenance, migrations_task, oltp_task, teardown,
 };
 use oxy_api_custom_apps::custom_apps_usage_backfill::{self, USAGE_BACKFILL_KIND};
+use oxy_api_custom_apps::custom_apps_usage_purge::{self, USAGE_PURGE_KIND};
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
@@ -166,6 +167,17 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
             kind: USAGE_BACKFILL_KIND,
             build: |deps| {
                 Arc::new(custom_apps_usage_backfill::UsageBackfillExecutor {
+                    db: deps.db.clone(),
+                })
+            },
+        },
+        // A deleted app's usage facts deleted from its workspace's Airhouse,
+        // queued in the transaction that deletes the app (and again by the
+        // backfill sweep when a run failed). `oxy-app` queues none of these.
+        TaskSeam {
+            kind: USAGE_PURGE_KIND,
+            build: |deps| {
+                Arc::new(custom_apps_usage_purge::UsagePurgeExecutor {
                     db: deps.db.clone(),
                 })
             },
@@ -469,7 +481,7 @@ mod tests {
     /// is a change to what a worker can run, so it is spelled out rather than
     /// derived from the constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_eleven() {
+    fn the_task_kinds_are_exactly_these_twelve() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
@@ -486,6 +498,7 @@ mod tests {
                 "custom_app_sandbox_teardown",
                 "custom_app_staging_migrations",
                 "custom_app_usage_backfill",
+                "custom_app_usage_purge",
             ]
         );
     }

@@ -110,6 +110,7 @@ pub mod audit_events;
 pub mod custom_app_event;
 pub mod custom_app_migrations;
 pub mod custom_app_usage_backfill;
+pub mod custom_app_usage_purges;
 pub mod custom_app_usage_report_deliveries;
 pub mod custom_app_usage_reports;
 pub mod custom_app_view_event;

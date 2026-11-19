@@ -19,7 +19,8 @@
 //!   [`admin::apps::guarded`], and the CI publish tokens,
 //!   `/api/admin/app-publish-tokens`, on the admin seam ([`admin_sections`]).
 //! - [`custom_apps_activity`], [`custom_apps_shell_context`],
-//!   [`custom_apps_threads`], [`custom_apps_availability`],
+//!   [`custom_apps_threads`], [`custom_apps_availability`] (the reading the
+//!   list rows carry),
 //!   [`custom_apps_debug`], [`workspace_custom_apps`], [`me_apps`]: the reads
 //!   a bundle and the launcher make.
 //!
@@ -103,6 +104,7 @@ pub mod custom_apps_threads;
 /// The task that copies a workspace's usage history into its Airhouse, and the
 /// sweep that queues it.
 pub mod custom_apps_usage_backfill;
+pub mod custom_apps_usage_purge;
 pub mod custom_apps_validate;
 pub mod custom_domains;
 pub mod data_plane;
@@ -616,16 +618,6 @@ pub fn public_routes() -> Router<AppState> {
             "/customer-apps/{org_slug}/{app_slug}/debug",
             get(custom_apps_debug::get_debug),
         )
-        // The SERVING answer, as opposed to `/health`'s deployment-integrity
-        // ladder: the success ratio of real traffic over several windows, plus a
-        // multi-window error-budget burn verdict. A ClickHouse read behind the
-        // same inline auth gate as its neighbours, so FleetOk — an availability
-        // endpoint pinned to the singleton would go dark exactly when that
-        // singleton is the thing in trouble.
-        .route(
-            "/customer-apps/{org_slug}/{app_slug}/availability",
-            get(custom_apps_availability::get_availability),
-        )
         // The data plane's query routes (`data_plane`): SQL and semantic
         // queries against the project's databases. Auth is inline (session
         // cookie or API key) at the customer-app gate, so they sit beside the
@@ -858,7 +850,6 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/apps/{org_slug}/{app_slug}/build-config"),
         fleet("/org-for-project/{project_id}"),
         fleet("/customer-apps/{org_slug}/{app_slug}/debug"),
-        fleet("/customer-apps/{org_slug}/{app_slug}/availability"),
         fleet("/projects/{project_id}/query"),
         fleet("/projects/{project_id}/semantic-query"),
         fleet("/projects/{project_id}/semantic/metric-tree"),

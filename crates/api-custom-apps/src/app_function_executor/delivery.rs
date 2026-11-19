@@ -231,10 +231,8 @@ async fn run_listener(
         None => serde_json::to_vec(envelope),
     }
     .map_err(|e| format!("the envelope does not serialise: {e}"))?;
-    // TODO(app-events-hardening): the row's `actor` is the sender's own claim
-    // until the outbox carries the host-signed provenance MAC (the hardening
-    // branch), so a send delivers no actor and runs as the system. That MAC is
-    // what lifts this: verified, the actor may be presented.
+    // A send runs as the system and presents no actor: see the module docs of
+    // `app_events::directed` (TODO(app-events-hardening)).
     let caller = send
         .as_ref()
         .zip(envelope.invocation)
@@ -252,7 +250,7 @@ async fn run_listener(
             event_type: envelope.event_type.clone(),
             root_id: envelope.rootid,
             depth: envelope.depth,
-            // Unverified for a send (see above), so none.
+            // None for a send (see above): it runs as the system.
             actor: if send.is_some() {
                 None
             } else {

@@ -339,6 +339,15 @@ pub fn insert_sql(facts: &[UsageFact]) -> Option<String> {
     ))
 }
 
+/// The statement that removes every fact of `app_id`: both kinds, every
+/// environment. A plain `DELETE ... WHERE`; DuckLake has no index to name.
+pub fn delete_app_sql(app_id: Uuid) -> String {
+    format!(
+        "DELETE FROM {TABLE} WHERE app_id = {}",
+        sql_str(&app_id.to_string())
+    )
+}
+
 pub use crate::usage_rows::{RowRef, SqlRows};
 
 /// Why an append did not happen.
@@ -380,6 +389,20 @@ pub trait UsageSink: Send + Sync {
         _workspace_id: Uuid,
     ) -> Result<(), SinkError> {
         Ok(())
+    }
+
+    /// Delete every fact of `app_id` from `workspace_id`'s Airhouse
+    /// ([`delete_app_sql`]): what removing an app owes its usage history.
+    /// Idempotent: a second call finds nothing. [`SinkError::NotConfigured`]
+    /// when the workspace has no Airhouse, which means there is nothing to
+    /// delete.
+    async fn delete_app(
+        &self,
+        _db: &DatabaseConnection,
+        _workspace_id: Uuid,
+        _app_id: Uuid,
+    ) -> Result<(), SinkError> {
+        Err(SinkError::NotConfigured)
     }
 
     /// Run a read-only `sql` against `workspace_id`'s Airhouse. It may use no
@@ -698,6 +721,35 @@ impl UsageSink for AirhouseUsageSink {
             return Err(SinkError::NotConfigured);
         }
         self.ensure_table(workspace_id).await
+    }
+
+    async fn delete_app(
+        &self,
+        db: &DatabaseConnection,
+        workspace_id: Uuid,
+        app_id: Uuid,
+    ) -> Result<(), SinkError> {
+        if !self.has_tenant(db, workspace_id).await? {
+            return Err(SinkError::NotConfigured);
+        }
+        // The table first, so a workspace that never got a fact answers "no
+        // rows" instead of "no such table" and the delete can be told apart
+        // from a failure.
+        self.ensure_table(workspace_id).await?;
+        // Admin, as the DDL is: the delete is the platform's, not a Writer's.
+        let admin = oxy_cameras::airhouse::connect(
+            workspace_id,
+            airhouse::UserRole::Admin,
+            airhouse::SystemPurpose::UsageIngest,
+            oxy_cameras::airhouse::ingest_ttl(),
+        )
+        .await
+        .map_err(|e| SinkError::Failed(truncate(e.to_string())))?;
+        admin
+            .simple_query(&delete_app_sql(app_id))
+            .await
+            .map_err(|e| SinkError::Failed(truncate(pg_text(&e))))?;
+        Ok(())
     }
 
     async fn query(

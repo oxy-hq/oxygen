@@ -169,6 +169,10 @@ impl ProjectFunctionHost {
         // reached through `tx.events.publish` alone, in every environment.
         if self.tx_plane(id).await == Some("oltp") {
             super::oltp_guard::refuse_platform_schema(&sql)?;
+        } else {
+            // A run a table change started does not write that table, in a
+            // transaction either: the same guard as `ctx.warehouse`.
+            self.refuse_table_loop(Some(namespace), &sql)?;
         }
         if let Some(fence) = self.tx_fence(id).await {
             self.admit_on_mapped(op, &fence, &sql, namespace).await?;
@@ -245,6 +249,7 @@ impl ProjectFunctionHost {
             // again and queue their relay now, and never for a transaction
             // that rolled back.
             let published = audit.published;
+            let wrote_table = audit.plane != "oltp" && !audit.writes.is_empty();
             self.record_writes(
                 data_audit::ACTION_TX_COMMIT,
                 audit.writes,
@@ -253,6 +258,10 @@ impl ProjectFunctionHost {
             .await;
             if published {
                 self.after_publish_commit().await;
+            }
+            // Only once the commit has landed: a rollback changed no table.
+            if wrote_table {
+                self.nudge_table_watch().await;
             }
         }
         Ok(serde_json::json!({ "ok": true }))

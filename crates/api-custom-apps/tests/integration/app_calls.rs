@@ -40,19 +40,39 @@ export default async (req, ctx) => {
 };
 "#;
 
-/// Calls itself one level deeper until told to stop; reports where a call
-/// failed and why.
+/// Calls the next function down (`h<n>` calls `h<n+1>`, so no pair repeats on
+/// the chain, which a cycle would be refused for) until told to stop; reports
+/// where a call failed and why.
 const HOP_JS: &str = r#"
 export default async (req, ctx) => {
   const { n } = JSON.parse(req.body);
   try {
-    const inner = await ctx.apps.call("loop", "hop", { n: n + 1 });
+    const inner = await ctx.apps.call("loop", `h${n + 1}`, { n: n + 1 });
     return Response.json({ n, inner });
   } catch (e) {
     return Response.json({ n, failed: e.kind, message: e.message });
   }
 };
 "#;
+
+/// `h0` to `h10`, each calling the next: a chain deeper than the limit of 8
+/// that is never a cycle.
+fn hops() -> Vec<FunctionSpec> {
+    (0..=10)
+        .map(|n| {
+            let name: &'static str = Box::leak(format!("h{n}").into_boxed_str());
+            function(name, callable(), HOP_JS)
+        })
+        .collect()
+}
+
+/// What the manifest of the app holding [`hops`] declares it calls, `extra`
+/// besides.
+fn hop_calls(extra: &[&str]) -> Value {
+    let mut names: Vec<String> = (1..=10).map(|n| format!("h{n}")).collect();
+    names.extend(extra.iter().map(|s| s.to_string()));
+    json!({ "calls": { "loop": names } })
+}
 
 fn callable() -> Value {
     json!({ "callable": true, "timeoutSeconds": 5 })
@@ -232,16 +252,8 @@ async fn a_chain_stops_at_the_depth_limit() {
         std::env::set_var("OXY_FUNCTION_MAX_CHAIN_IN_FLIGHT", "16");
     }
     with_fx(|fx| async move {
-        publish_app(
-            &fx.t,
-            "loop",
-            fx.workspace,
-            "1",
-            &[function("hop", callable(), HOP_JS)],
-            json!({ "calls": { "loop": ["hop"] } }),
-        )
-        .await;
-        let mut level = answer(&fx.t.org_slug, "loop", "hop", json!({ "n": 0 })).await;
+        publish_app(&fx.t, "loop", fx.workspace, "1", &hops(), hop_calls(&[])).await;
+        let mut level = answer(&fx.t.org_slug, "loop", "h0", json!({ "n": 0 })).await;
         let mut depth = 0;
         while level.get("inner").is_some() {
             level = level["inner"].clone();
@@ -252,6 +264,78 @@ async fn a_chain_stops_at_the_depth_limit() {
             depth, 9,
             "the route is outside the chain; its callees sit at depths 0 to 8, the limit"
         );
+    })
+    .await;
+}
+
+/// Calls the function its body's `to` names, with `then` as the body, and
+/// answers `{ inner }` (what it answered) or `{ failed, message }` (the typed
+/// error); with no `to` it answers `{ done: true }`.
+const RELAY_JS: &str = r#"
+export default async (req, ctx) => {
+  const { to, then } = JSON.parse(req.body);
+  if (!to) return Response.json({ done: true });
+  try {
+    return Response.json({ inner: await ctx.apps.call(to.app, to.fn, then ?? {}) });
+  } catch (e) {
+    return Response.json({ failed: e.kind, message: e.message });
+  }
+};
+"#;
+
+/// Publishes two apps of relays. `a` has `f` and `h`; `b` has `g`; each may
+/// call every function of the other and its own.
+async fn publish_relays(fx: &crate::app_events_delivery::Fx) -> (String, String) {
+    let (a, b) = (format!("cyc-a-{}", fx.tag), format!("cyc-b-{}", fx.tag));
+    let calls = json!({ "calls": { a.clone(): ["f", "h"], b.clone(): ["g"] } });
+    let relay = |name| function(name, callable(), RELAY_JS);
+    publish_app(
+        &fx.t,
+        &a,
+        fx.workspace,
+        "1",
+        &[relay("f"), relay("h")],
+        calls.clone(),
+    )
+    .await;
+    publish_app(&fx.t, &b, fx.workspace, "1", &[relay("g")], calls).await;
+    (a, b)
+}
+
+/// A call whose target is already on the chain is refused as a cycle, naming
+/// the chain: a function calling itself, and A.f -> B.g -> A.f.
+#[tokio::test]
+async fn a_call_to_a_function_already_on_the_chain_is_refused_as_a_cycle() {
+    with_fx(|fx| async move {
+        let (a, b) = publish_relays(&fx).await;
+        let org = &fx.t.org_slug;
+
+        let got = answer(org, &a, "f", json!({ "to": { "app": a, "fn": "f" } })).await;
+        assert_eq!(got["failed"], "cycle", "{got}");
+
+        let via_b = json!({ "to": { "app": b, "fn": "g" },
+                            "then": { "to": { "app": a, "fn": "f" } } });
+        let got = answer(org, &a, "f", via_b).await;
+        assert_eq!(got["inner"]["failed"], "cycle", "{got}");
+        let message = got["inner"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains(&format!("{a}/f -> {b}/g -> {a}/f")),
+            "the message names the chain: {message}"
+        );
+    })
+    .await;
+}
+
+/// A different function of an app already on the chain is not a cycle:
+/// A.f -> B.g -> A.h runs.
+#[tokio::test]
+async fn a_call_into_another_function_of_an_app_on_the_chain_is_allowed() {
+    with_fx(|fx| async move {
+        let (a, b) = publish_relays(&fx).await;
+        let via_b = json!({ "to": { "app": b, "fn": "g" },
+                            "then": { "to": { "app": a, "fn": "h" } } });
+        let got = answer(&fx.t.org_slug, &a, "f", via_b).await;
+        assert_eq!(got["inner"]["inner"], json!({ "done": true }), "{got}");
     })
     .await;
 }
@@ -269,21 +353,20 @@ async fn a_chain_deeper_than_the_pool_ends_busy_and_releases_its_permits() {
         std::env::set_var("OXY_FUNCTION_MAX_CHAIN_IN_FLIGHT", "16");
     }
     with_fx(|fx| async move {
+        let mut functions = hops();
+        functions.push(function("leaf", callable(), CALLEE_JS));
+        functions.push(function("probe", json!({}), CALLER_JS));
         publish_app(
             &fx.t,
             "loop",
             fx.workspace,
             "1",
-            &[
-                function("hop", callable(), HOP_JS),
-                function("leaf", callable(), CALLEE_JS),
-                function("probe", json!({}), CALLER_JS),
-            ],
-            json!({ "calls": { "loop": ["hop", "leaf"] } }),
+            &functions,
+            hop_calls(&["leaf"]),
         )
         .await;
         let started = Instant::now();
-        let mut level = answer(&fx.t.org_slug, "loop", "hop", json!({ "n": 0 })).await;
+        let mut level = answer(&fx.t.org_slug, "loop", "h0", json!({ "n": 0 })).await;
         while level.get("inner").is_some() {
             level = level["inner"].clone();
         }
@@ -477,7 +560,7 @@ async fn a_send_to_a_function_that_is_not_callable_is_stored_and_delivered_to_no
 }
 
 /// An outbox row `name` written as `sender`'s own writer through the definer
-/// function, with the actor `user:evil`, and signed as the host signs a row
+/// function, with `actor`, and signed as the host signs a row
 /// (R25(c)): so the relay refuses it, when it does, for the call it names and
 /// never for its provenance — what a host bug letting a send through would
 /// write.
@@ -486,6 +569,8 @@ async fn forge(
     sender: &str,
     name: &str,
     key: &str,
+    actor: Option<&str>,
+    invocation: Option<uuid::Uuid>,
 ) -> uuid::Uuid {
     use oxy_oltp::events::{self as outbox, OutboxTarget, PUBLISH_SQL};
     let t = &fx.t;
@@ -509,14 +594,14 @@ async fn forge(
             event_type: &type_,
             key,
             writer_role: &conn.role,
-            actor: Some("user:evil"),
+            actor,
             root_id: id,
             causation_id: None,
             depth: 0,
             delay_seconds: 0,
             data_bytes: oxy_custom_apps::events::jsonb_text_len(&data) as i64,
             schema_revision: None,
-            invocation_id: None,
+            invocation_id: invocation,
         },
     );
     let (client, connection) = tokio_postgres::connect(&conn.dsn, tokio_postgres::NoTls)
@@ -535,11 +620,11 @@ async fn forge(
                 &key,
                 &data,
                 &None::<uuid::Uuid>,
-                &Some("user:evil"),
+                &actor,
                 &None::<uuid::Uuid>,
                 &id,
                 &0i32,
-                &None::<uuid::Uuid>,
+                &invocation,
                 &0i32,
                 &mac,
             ],
@@ -598,9 +683,9 @@ async fn a_forged_send_row_is_refused_by_the_relay_and_a_declared_one_is_deliver
         .await;
 
         let name = |from: &str| oxy_custom_apps::calls::send_name(&callee, "handle", from);
-        let forged = forge(&fx, &rogue, &name("go"), "f1").await;
-        let wrong_fn = forge(&fx, &honest, &name("ghost"), "f2").await;
-        let declared = forge(&fx, &honest, &name("go"), "f3").await;
+        let forged = forge(&fx, &rogue, &name("go"), "f1", Some("user:evil"), None).await;
+        let wrong_fn = forge(&fx, &honest, &name("ghost"), "f2", Some("user:evil"), None).await;
+        let declared = forge(&fx, &honest, &name("go"), "f3", Some("user:evil"), None).await;
         relay_once(&t.db, t.org_id, "production")
             .await
             .expect("relay");
@@ -676,6 +761,8 @@ async fn a_send_named_task_with_the_event_trigger_is_killed() {
             &sender,
             &oxy_custom_apps::calls::send_name(&callee, "handle", "go"),
             "k",
+            Some("user:evil"),
+            None,
         )
         .await;
         relay_once(&t.db, t.org_id, "production")
@@ -714,6 +801,58 @@ async fn a_send_named_task_with_the_event_trigger_is_killed() {
             invocations(&t.db, callee_id, "handle").await.is_empty(),
             "the function never ran"
         );
+    })
+    .await;
+}
+
+/// A signed row's `actor` is whoever the sending chain carried, which is not
+/// always the person the sending run answered to (a send from an event
+/// delivery or a schedule inherits it), and the row records neither a direct
+/// invoker nor the credential ceiling it ran under. So a delivery never
+/// presents it: the function runs as the system with no `ctx.caller.actor`,
+/// whatever the row says.
+#[tokio::test]
+async fn a_send_row_carrying_an_actor_is_still_delivered_as_the_system() {
+    with_fx(|fx| async move {
+        let t = &fx.t;
+        let (callee, sender) = (format!("callee-{}", fx.tag), format!("sender-{}", fx.tag));
+        let callee_id = publish_reporter(
+            &fx,
+            &callee,
+            &[function(
+                "handle",
+                json!({ "callable": true, "timeoutSeconds": 5, "events": { "publish": ["report"] } }),
+                SEEN_JS,
+            )],
+        )
+        .await;
+        writer_for(&fx, &sender).await;
+        publish_app(
+            t,
+            &sender,
+            fx.workspace,
+            "1",
+            &[function("go", json!({}), SENDER_JS)],
+            json!({ "calls": { callee.clone(): ["handle"] } }),
+        )
+        .await;
+        let actor = t.guest_id.to_string();
+        let name = oxy_custom_apps::calls::send_name(&callee, "handle", "go");
+        let id = forge(&fx, &sender, &name, "k", Some(&actor), Some(uuid::Uuid::new_v4())).await;
+        relay_once(&t.db, t.org_id, "production").await.expect("relay");
+        let delivery = entity::app_event_deliveries::Entity::find()
+            .filter(entity::app_event_deliveries::Column::EventId.eq(id))
+            .one(&t.db)
+            .await
+            .unwrap()
+            .expect("delivered");
+        fx.run(&delivery).await;
+        let seen = &fx.reported().await["seen"];
+        assert_eq!(seen["kind"], "system", "{seen}");
+        assert_eq!(seen["caller"]["actor"], json!(null), "{seen}");
+        let ran = invocations(&t.db, callee_id, "handle").await;
+        assert_eq!(ran.len(), 1, "{ran:?}");
+        assert_ne!(ran[0].user_id, Some(t.guest_id));
     })
     .await;
 }

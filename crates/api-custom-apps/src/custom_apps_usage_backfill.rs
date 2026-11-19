@@ -182,6 +182,13 @@ pub fn spawn_sweep(db: DatabaseConnection, shutdown: CancellationToken) {
                     Ok(queued) => tracing::info!(queued, "custom-app usage backfill swept"),
                     Err(e) => tracing::warn!(error = %e, "custom-app usage backfill sweep failed"),
                 }
+                // The same claimed interval queues again the purges of deleted
+                // apps' usage facts that are owed and due: one fleet job, not two.
+                match crate::custom_apps_usage_purge::requeue_owed(&db).await {
+                    Ok(0) => {}
+                    Ok(queued) => tracing::info!(queued, "custom-app usage purge requeued"),
+                    Err(e) => tracing::warn!(error = %e, "custom-app usage purge sweep failed"),
+                }
             }
         },
     ));

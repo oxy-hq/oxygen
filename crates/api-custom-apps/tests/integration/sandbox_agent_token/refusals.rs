@@ -315,7 +315,7 @@ async fn a_value_is_not_copied_into_its_sandbox(s: &Scene) {
 /// it, and then answers only for its own sandbox.
 async fn the_public_reads_are_closed(s: &Scene) {
     let app = format!("/customer-apps/{}/{}", s.agent.t.org_slug, s.agent.app.slug);
-    for read in ["errors", "debug", "health", "availability"] {
+    for read in ["errors", "debug", "health"] {
         let (status, body) = s.agent.get(&format!("{app}/{read}")).await;
         assert!(
             matches!(status, StatusCode::UNAUTHORIZED | StatusCode::NOT_FOUND),

@@ -16,7 +16,8 @@ describe("appCallErrorFromHostMessage", () => {
     ["AppCallTimeout", "timeout"],
     ["AppCallFailed", "failed"],
     ["AppCallBusy", "busy"],
-    ["AppCallDepthExceeded", "depth_exceeded"]
+    ["AppCallDepthExceeded", "depth_exceeded"],
+    ["AppCallCycle", "cycle"]
   ];
 
   it.each(cases)("maps %s to %s", (label, kind) => {

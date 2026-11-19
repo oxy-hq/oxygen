@@ -31,7 +31,7 @@ pub(crate) use oxy_app::surface::admin_scope::{scope_org_filter, scope_org_filte
 pub use super::ops::{publish_one, unpublish_one};
 // `pub`, beside `publish_one`: whoever calls it says who records the audit row.
 pub use crate::custom_apps_promote::AuditedBy;
-use crate::custom_apps_promote::audit::{published_entry, unpublished_entry};
+use crate::custom_apps_promote::audit::{deleted_entry, published_entry, unpublished_entry};
 // `pub`, beside `publish_one`: whoever promotes through it answers what it
 // refuses with — the coded `409` for a build a sandbox agent token published,
 // not its bare status. The partner console takes it from here, the one module
@@ -1332,7 +1332,7 @@ fn rollback_refusal(status: StatusCode, code: &'static str, message: &str) -> Pr
 
 pub async fn delete_app(
     _: oxy_app_core::agent_refusal::RefuseSandboxAgent,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiErr> {
     let db = establish_connection().await.map_err(internal)?;
@@ -1344,7 +1344,7 @@ pub async fn delete_app(
         .await
         .map_err(internal)?
         .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "App not found."))?;
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &user, row.org_id)
+    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor.user, row.org_id)
         .await
         // Status-aware so a 500 (unreadable grant) doesn't read as "App not
         // found." The 404 IS the intended scope-hiding answer for out-of-scope.
@@ -1356,18 +1356,22 @@ pub async fn delete_app(
             };
             api_err(s, msg)
         })?;
-    delete_app_unscoped(id).await
+    delete_app_unscoped(id, &actor).await
 }
 
 /// Deletion, once [`delete_app`] has checked scope. Private for the same reason
 /// as [`create_app_unscoped`].
-async fn delete_app_unscoped(id: Uuid) -> Result<StatusCode, ApiErr> {
+async fn delete_app_unscoped(
+    id: Uuid,
+    actor: &oxy_app_core::audit::RequestActor,
+) -> Result<StatusCode, ApiErr> {
     let db = establish_connection().await.map_err(internal)?;
     // Surface the AppOpError's message (not just its status) so the OLTP-store
     // refusal reaches the operator with its "deprovision first" instruction.
-    delete_one(&db, id)
+    let deleted = delete_one(&db, id)
         .await
         .map_err(|e| api_err(e.status, e.message))?;
+    oxy_app_core::audit::record_best_effort(&db, deleted_entry(actor, &deleted)).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1457,18 +1461,21 @@ pub async fn batch_unpublish_apps(
 /// once. POST (not DELETE) because the id set travels in the request body.
 pub async fn batch_delete_apps(
     _: oxy_app_core::agent_refusal::RefuseSandboxAgent,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(req): Json<BatchIdsRequest>,
 ) -> Result<Json<BatchResponse>, ApiErr> {
     validate_batch(&req.ids)?;
     let db = establish_connection().await.map_err(internal)?;
     // Scope exception #2 — ids come from the body; see `split_by_scope`.
-    let (ids, mut results) = split_by_scope(&db, &user, req.ids)
+    let (ids, mut results) = split_by_scope(&db, &actor.user, req.ids)
         .await
         .map_err(|s| api_err(s, "Could not verify grant scope."))?;
     for id in ids {
         results.push(match delete_one(&db, id).await {
-            Ok(()) => BatchItemResult::ok(id),
+            Ok(deleted) => {
+                oxy_app_core::audit::record_best_effort(&db, deleted_entry(&actor, &deleted)).await;
+                BatchItemResult::ok(id)
+            }
             Err(e) => BatchItemResult::failed(id, e.message),
         });
     }

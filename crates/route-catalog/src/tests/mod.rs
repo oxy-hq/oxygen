@@ -434,10 +434,6 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
         ("GET", "/api/projects/{project_id}/shell-context/mode"),
         ("PUT", "/api/projects/{project_id}/shell-context/mode"),
         ("POST", "/api/customer-apps/{project_id}/events"),
-        (
-            "GET",
-            "/api/customer-apps/{org_slug}/{app_slug}/availability",
-        ),
     ] {
         assert!(
             routes()

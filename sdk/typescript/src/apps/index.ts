@@ -24,7 +24,8 @@ export type AppCallErrorKind =
   | "timeout"
   | "failed"
   | "busy"
-  | "depth_exceeded";
+  | "depth_exceeded"
+  | "cycle";
 
 /** Host message label -> kind. The label is the text before the first `": "`. */
 export const APP_CALL_LABELS: Readonly<Record<string, AppCallErrorKind>> = {
@@ -35,7 +36,8 @@ export const APP_CALL_LABELS: Readonly<Record<string, AppCallErrorKind>> = {
   AppCallTimeout: "timeout",
   AppCallFailed: "failed",
   AppCallBusy: "busy",
-  AppCallDepthExceeded: "depth_exceeded"
+  AppCallDepthExceeded: "depth_exceeded",
+  AppCallCycle: "cycle"
 };
 
 /**

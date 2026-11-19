@@ -222,6 +222,7 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "custom_app_env_oltp_branch",
   "custom_app_sandbox_teardown",
   "custom_app_usage_backfill",
+  "custom_app_usage_purge",
   "app_events_relay",
   "app_table_watch"
 ];

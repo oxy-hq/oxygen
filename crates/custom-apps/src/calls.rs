@@ -51,10 +51,12 @@ pub enum CallErrorKind {
     Busy,
     /// The chain is too deep.
     DepthExceeded,
+    /// The target (app, function) is already on this synchronous chain.
+    Cycle,
 }
 
 impl CallErrorKind {
-    pub const ALL: [CallErrorKind; 8] = [
+    pub const ALL: [CallErrorKind; 9] = [
         Self::Refused,
         Self::NotFound,
         Self::NotCallable,
@@ -63,6 +65,7 @@ impl CallErrorKind {
         Self::Failed,
         Self::Busy,
         Self::DepthExceeded,
+        Self::Cycle,
     ];
 
     /// The word heading the host's message.
@@ -76,6 +79,7 @@ impl CallErrorKind {
             Self::Failed => "AppCallFailed",
             Self::Busy => "AppCallBusy",
             Self::DepthExceeded => "AppCallDepthExceeded",
+            Self::Cycle => "AppCallCycle",
         }
     }
 
@@ -94,6 +98,7 @@ impl CallErrorKind {
             Self::Failed => format!("AppCallFailed: {text}"),
             Self::Busy => format!("AppCallBusy: {text}"),
             Self::DepthExceeded => format!("AppCallDepthExceeded: {text}"),
+            Self::Cycle => format!("AppCallCycle: {text}"),
         }
     }
 
@@ -102,6 +107,29 @@ impl CallErrorKind {
         let (head, _) = message.split_once(':')?;
         Self::ALL.into_iter().find(|k| k.label() == head)
     }
+}
+
+/// The refusal for a call to `target` (app, function) when it is already on
+/// `chain`, the (app, function) pairs of the synchronous chain so far, the
+/// caller last. `None` when the target is not on it: a different function of
+/// an app on the chain is not a cycle.
+pub fn cycle_refusal(chain: &[(String, String)], target: (&str, &str)) -> Option<String> {
+    chain
+        .iter()
+        .any(|(app, function)| (app.as_str(), function.as_str()) == target)
+        .then(|| {
+            let steps: Vec<String> = chain
+                .iter()
+                .map(|(app, function)| format!("{app}/{function}"))
+                .chain(std::iter::once(format!("{}/{}", target.0, target.1)))
+                .collect();
+            CallErrorKind::Cycle.message(format!(
+                "this call would run `{}/{}` again inside itself: {}",
+                target.0,
+                target.1,
+                steps.join(" -> ")
+            ))
+        })
 }
 
 /// `text` cut to [`MAX_CALL_ERROR_CHARS`] characters, marked when cut.

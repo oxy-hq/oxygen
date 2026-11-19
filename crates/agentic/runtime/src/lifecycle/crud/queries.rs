@@ -45,7 +45,8 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// branch (`oxy-api-custom-apps` `custom_apps_env_branch`): the same.
 /// `custom_app_usage_backfill` copies a workspace's custom-app usage history to
 /// its Airhouse (`oxy-api-custom-apps` `custom_apps_usage_backfill`), queued by
-/// a sweep.
+/// a sweep. `custom_app_usage_purge` deletes a deleted app's usage facts from
+/// that Airhouse (`custom_apps_usage_purge`), queued by the delete.
 /// `app_events_relay` moves an org's published custom-app events out of its
 /// OLTP outbox and queues their deliveries (`oxy-api-custom-apps`
 /// `app_events::relay`), queued by a publish's nudge and by a sweep: the
@@ -64,6 +65,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "custom_app_env_oltp_branch",
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
+    "custom_app_usage_purge",
     "app_events_relay",
     "app_table_watch",
 ];

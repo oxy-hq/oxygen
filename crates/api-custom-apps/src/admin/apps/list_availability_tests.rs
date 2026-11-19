@@ -1,8 +1,7 @@
-//! The list row's `availability` is what the standalone endpoint answers.
+//! The list row's `availability` is what a per-app read of the same windows gives.
 //!
-//! One fake store stands in for ClickHouse and both reads go through it: the
-//! per-app reads the standalone endpoint makes, and the grouped ones the list
-//! makes. Each test runs in its own process under `cargo nextest` (the project's
+//! One fake store stands in for ClickHouse and both reads go through it: a
+//! per-app read of each app's windows, and the grouped ones the list makes. Each test runs in its own process under `cargo nextest` (the project's
 //! runner), which the global store these tests install relies on.
 
 use std::collections::HashMap;
@@ -19,7 +18,7 @@ use oxy_shared::errors::OxyError;
 use uuid::Uuid;
 
 use super::*;
-use crate::custom_apps_availability::read_availability;
+use crate::custom_apps_availability::AvailabilityReading;
 
 /// ClickHouse, as far as availability goes: per-app window counts and per-app
 /// build sessions, read per app or grouped, and a count of the grouped reads.
@@ -229,7 +228,7 @@ impl ObservabilityStore for FakeStore {
     }
     async fn shutdown(&self) {}
 
-    // The three reads this module and the standalone endpoint make.
+    // The three reads this module makes (the per-app one is the test oracle).
     async fn get_app_availability(
         &self,
         _org_id: &str,
@@ -324,7 +323,7 @@ fn pointers(apps: &[&Seeded]) -> Option<HashMap<Uuid, Option<Uuid>>> {
 }
 
 #[tokio::test]
-async fn a_list_rows_availability_equals_the_standalone_endpoints() {
+async fn a_list_rows_availability_equals_a_per_app_read_of_its_windows() {
     let store = store();
     let live = Uuid::new_v4();
     let older = Uuid::new_v4();
@@ -357,18 +356,19 @@ async fn a_list_rows_availability_equals_the_standalone_endpoints() {
     let rows = rows_for(&apps, |_| async { pointers(&all) }).await;
 
     for seeded in all {
-        let standalone = read_availability(
-            store.as_ref(),
-            seeded.app.org_id,
-            seeded.app.id,
-            seeded.live,
-        )
-        .await
-        .expect("the standalone read");
         let listed = rows[&seeded.app.id]
             .1
             .clone()
             .expect("a measured app carries it");
+        let windows = store
+            .get_app_availability(
+                &seeded.app.org_id.to_string(),
+                &seeded.app.id.to_string(),
+                ALERT_WINDOWS_MINUTES,
+            )
+            .await
+            .expect("the per-app read");
+        let standalone = AvailabilityReading::from_windows(&windows, listed.open_builds.clone());
         assert_eq!(listed, standalone);
         // The wire bytes too: skipped fields skip in both.
         assert_eq!(

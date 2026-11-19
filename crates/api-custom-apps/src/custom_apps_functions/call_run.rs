@@ -32,6 +32,9 @@ pub(crate) struct ChainStart {
     pub root: Uuid,
     pub actor: Option<String>,
     pub budget: std::sync::Arc<super::limits::ChainBudget>,
+    /// The (app, function) pairs above the callee on its synchronous chain,
+    /// its caller last: what a cycle is detected against.
+    pub path: Vec<(String, String)>,
 }
 
 /// One call, from the caller's side.
@@ -54,6 +57,8 @@ pub(crate) struct CallRun {
     pub person: Option<super::host::apps_op::Person>,
     /// The chain's shared budget, which the callee's own calls draw on too.
     pub chain_budget: std::sync::Arc<super::limits::ChainBudget>,
+    /// The synchronous chain down to and including the caller.
+    pub path: Vec<(String, String)>,
     /// What the callee may spend ([`callee_budget`]); set once the callee's own
     /// timeout is known.
     pub budget: Duration,
@@ -66,6 +71,7 @@ impl CallRun {
             root: self.root,
             actor: self.caller.actor.clone(),
             budget: self.chain_budget.clone(),
+            path: self.path.clone(),
         }
     }
 }

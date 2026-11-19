@@ -353,6 +353,12 @@ const TABLES: &[(&str, Placement)] = &[
         Control("applied schema ledger per app"),
     ),
     (
+        "custom_app_usage_purges",
+        Control(
+            "ledger of deleted apps' usage purges still owed to Airhouse; ids and a truncated error, no usage content",
+        ),
+    ),
+    (
         "custom_app_usage_backfill",
         Control(
             "per workspace, how far copying its usage history into its Airhouse has got: \

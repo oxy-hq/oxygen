@@ -64,6 +64,7 @@ A failed call throws `AppCallError` from `@oxy-hq/sdk/apps`, with `.kind`, `.mes
 | `failed` | The callee threw or answered an error; its message is passed through, cut to 500 characters. |
 | `busy` | The target could not take the call right now; retry later. |
 | `depth_exceeded` | The chain of calls and events is more than 8 deep. |
+| `cycle` | The target function is already on this chain of synchronous calls (A.f → B.g → A.f); the message names the chain. A call into a different function of an app already on the chain is allowed. |
 
 ```ts
 try {

@@ -415,6 +415,7 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     "AppCallFailed",
     "AppCallBusy",
     "AppCallDepthExceeded",
+    "AppCallCycle",
     // `ctx.tables.changes` from a run no table change started, or for another
     // event than the one that did (`host/table_ops.rs`): the function's own
     // call, the same on every attempt.

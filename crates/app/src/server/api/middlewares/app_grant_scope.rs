@@ -127,7 +127,6 @@ pub const PUBLIC_ROUTES: &[(&str, bool)] = &[
     ("/customer-apps/{org_slug}/{app_slug}/invocations", false),
     ("/customer-apps/{org_slug}/{app_slug}/debug", false),
     ("/customer-apps/{org_slug}/{app_slug}/health", false),
-    ("/customer-apps/{org_slug}/{app_slug}/availability", false),
     ("/customer-apps/health", false),
     ("/customer-apps/publish/oidc-exchange", false),
     ("/customer-apps/{project_id}/events", false),

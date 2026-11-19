@@ -33,16 +33,13 @@ async fn the_host_resolved_health_read_is_mounted_and_refuses_an_admin_host() {
     );
 }
 
-/// `availability` and `debug` used to stay in `oxy-app`'s public tree. They moved
-/// into this crate with the rest of the custom-app surface, and `oxy-app` no
-/// longer mounts them, so this is now their only mount. With no database the
-/// handler answers (a 500 here), which a missing route never does.
+/// `debug` used to stay in `oxy-app`'s public tree. It moved into this crate
+/// with the rest of the custom-app surface, and `oxy-app` no longer mounts it,
+/// so this is now its only mount. With no database the handler answers (a 500
+/// here), which a missing route never does.
 #[tokio::test]
-async fn availability_and_debug_are_mounted_here() {
-    for path in [
-        "/customer-apps/acme/dash/availability",
-        "/customer-apps/acme/dash/debug",
-    ] {
+async fn debug_is_mounted_here() {
+    for path in ["/customer-apps/acme/dash/debug"] {
         let response = app()
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await

@@ -49,7 +49,7 @@ export default async (req, ctx) => {
 
 /// A DuckLake the tracker reads: what each question answers, as the test set it.
 #[derive(Default)]
-struct World {
+pub(crate) struct World {
     oldest: i64,
     newest: i64,
     /// What `snapshot_at` answers.
@@ -65,7 +65,7 @@ struct World {
     table_id: i64,
 }
 
-struct Fake(Mutex<World>);
+pub(crate) struct Fake(Mutex<World>);
 
 fn cols(names: &[(&str, &str)]) -> Columns {
     names
@@ -165,7 +165,7 @@ impl TableReader for Fake {
 }
 
 /// Install a fake world; the handle to change it between passes.
-fn world(setup: impl FnOnce(&mut World)) -> Arc<Fake> {
+pub(crate) fn world(setup: impl FnOnce(&mut World)) -> Arc<Fake> {
     let mut w = World {
         oldest: 0,
         newest: 10,
@@ -187,16 +187,16 @@ fn world(setup: impl FnOnce(&mut World)) -> Arc<Fake> {
 
 /// An org with app events on, an OLTP store and a workspace, and app(s) whose
 /// functions run on tables.
-struct Tw {
-    t: Tenant,
-    workspace: Uuid,
+pub(crate) struct Tw {
+    pub(crate) t: Tenant,
+    pub(crate) workspace: Uuid,
     store: AppStore,
     slug: String,
     _root: tempfile::TempDir,
 }
 
 impl Tw {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let t = throwaway_org(&seeded_tenant().await).await;
         enable_app_events(&t, &[t.org_id]).await;
         let tag = Uuid::new_v4().simple().to_string()[..8].to_string();
@@ -225,7 +225,13 @@ impl Tw {
     }
 
     /// Publish app `slug` promoted, its one function running `js` on `on`.
-    async fn watcher(&self, slug: &str, on: Value, js: &'static str, extra: Value) -> Uuid {
+    pub(crate) async fn watcher(
+        &self,
+        slug: &str,
+        on: Value,
+        js: &'static str,
+        extra: Value,
+    ) -> Uuid {
         let mut manifest =
             json!({ "on": on, "timeoutSeconds": 30, "airhouse": { "enabled": true } });
         manifest
@@ -248,8 +254,12 @@ impl Tw {
         .await
     }
 
-    fn org(&self) -> Uuid {
+    pub(crate) fn org(&self) -> Uuid {
         self.t.org_id
+    }
+
+    pub(crate) fn slug(&self) -> &str {
+        &self.slug
     }
 
     async fn cursor(&self, environment: &str) -> cursor_rows::Model {
@@ -294,7 +304,7 @@ impl Tw {
     }
 }
 
-async fn with_tw<F, Fut>(body: F)
+pub(crate) async fn with_tw<F, Fut>(body: F)
 where
     F: FnOnce(Arc<Tw>) -> Fut,
     Fut: std::future::Future<Output = ()>,

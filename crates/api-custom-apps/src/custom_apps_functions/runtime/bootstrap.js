@@ -171,6 +171,7 @@ const __APP_CALL_KINDS = {
   AppCallFailed: "failed",
   AppCallBusy: "busy",
   AppCallDepthExceeded: "depth_exceeded",
+  AppCallCycle: "cycle",
 };
 const __appsOp = async (op, fields) => {
   try {

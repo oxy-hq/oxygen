@@ -44,7 +44,8 @@
 /// `custom_app_env_oltp_branch`) or its teardown
 /// (`custom_app_sandbox_teardown`): staff trying a build, not the tenant's work.
 /// Nor does `custom_app_usage_backfill`, the platform copying a workspace's usage
-/// history to its Airhouse, nor `app_events_relay`, the platform moving an org's
+/// history to its Airhouse, nor `custom_app_usage_purge`, the platform deleting a
+/// deleted app's usage facts from it, nor `app_events_relay`, the platform moving an org's
 /// published events onto the queue, filed in whichever of the org's app
 /// workspaces it picked.
 const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
@@ -60,6 +61,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "custom_app_env_oltp_branch",
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
+    "custom_app_usage_purge",
     "app_events_relay",
     "app_table_watch",
 ];

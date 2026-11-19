@@ -215,14 +215,12 @@ pub struct AppResponse {
     /// responses, which a consumer reads as "not asked", never as healthy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<super::verdict::ListVerdict>,
-    /// The app's availability reading — the same object `GET
-    /// /customer-apps/{org}/{app}/availability` answers with (minus the app's
-    /// identity, which this row already carries), built by the same function
-    /// (see [`super::list_availability`]). Additive.
+    /// The app's availability reading, built by
+    /// [`super::list_availability`]. Additive.
     ///
     /// Present only for a published app the evaluator measured. Absent means
     /// "not read here" — a draft, capture off, or the store did not answer — and
-    /// a consumer asks the per-app endpoint or says nothing; it is never
+    /// a consumer says nothing; it is never
     /// `healthy`. `no_opinion` inside it is a measured "not enough traffic".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability: Option<crate::custom_apps_availability::AvailabilityReading>,
