@@ -2,6 +2,178 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.161] - 2026-11-19
+
+### 🚀 Features
+
+- Oxyc works with a cloud network secret via OXY_TOKEN=from-proxy (#4061)
+- Pin airway 0.1.63 — NetSuite pipelines can opt into item_locations (#4086)
+- Factory files tree on headless-tree with filter and keyboard navigation (#4101)
+- Oxy_ide_forwards_total counts what the fleet still relays to the ide pod (#4107)
+- A new org gets no workspace until its repository is connected (#4108)
+- Share one workspace secret with many custom apps, and rework settings secrets around it (#4114)
+- Compile from git always, retire the compile_reconcile gate (#4138)
+- Apps-first is the only experience, remove the apps_first_experience flag (#4139)
+- One kind of API credential, and the secrets and token pages people actually use (#4143)
+- Admin observability, per-org cost to serve and app performance (#4142)
+- Airway sp_api fee preview resource and wider orders re-read (airway 0.1.64) (#4158)
+- Compile stores revisions by content, checks the semantic model, and keeps serving caches warm (#4151)
+- Admin observability, the fleet ranked by cost to serve on a map of cost against work (#4161)
+- Admin console, regrouped by question, broken things grouped by cause, and four duplicate surfaces folded in (#4164)
+- Custom app console, names the environment it acts on and scopes functions and secrets to it (#4165)
+- The reference app's design as the sdk theme, read by the shell and phone kit (#3942)
+- Custom app function input and output schemas, generated from TypeScript and checked by the console (#4169)
+- Time every publish stage, record failed publishes, and show both in the console (#4171)
+- Custom app console, an app-wide invocation explorer, a schedules panel and a checks panel (#4170)
+- Custom app console app map, what starts each function and what its recent runs touched (#4172)
+- *(custom-apps)* A promoting publish meets production's blockers, plus an optional second-person rule (#4173)
+- Custom app console, a read-only browser of an app's own OLTP data (#4175)
+- Sdk overlays blur the page behind them, and the shell's ask is a secondary button (#4180)
+- Android app redesign: icon tab bar, ask as a tab, home, inbox, settings and full-screen apps (#4190)
+- Android appearance setting: system, light or dark, in step with the web's (#4191)
+- *(custom-apps)* The event trigger and a per-environment events switch (#4174)
+- *(custom-apps)* App events — publish, relay, gate, retention, SDK and CLI (behind the app_events flag) (#4176)
+- *(custom-apps)* App event delivery — listener attempts, retries and dead letters (behind the app_events flag) (#4187)
+- Web-app addresses name the org, not the workspace (#4197)
+- *(admin)* App console in pages with an Events view; admin pages lead with numbers (#4199)
+- *(admin)* Detail pages lead with numbers; staff access table fits (#4201)
+- *(admin)* The airway page is one table of source kinds, edited in place (#4202)
+- *(admin)* App activity leads with numbers; settings and factory say less (#4211)
+- Reviewer incident checklist, merge-base rules and step-back; eval stage recall; revert and verification guardrails (#4207)
+- Oxyc tokens create --org-service-account mints an org service account token through a browser approval (#4218)
+- Web-app settings puts every api token on one page and secrets under organization, creating a token from a secret (#4222)
+- App events phase 2, table changes as events (#4214)
+- Airway amazon_ads source, sp_search_term and sp_placement (airway 0.1.65) (#4221)
+- App events phase 3, apps call each other's functions (#4216)
+- App events hardening — host-signed outbox rows, own-branch sandboxes, batched replay check (#4219)
+- Bird mini-dev eval harness and fsm baseline (#4204)
+- Oxyc init-ci creates its service account and trust policy through one org admin's browser approval (#4225)
+- A custom app acts in oxygen with an org admin's approval, never a stored key (#4227)
+- Trusted access from any registered OIDC issuer, so services outside Oxygen (ferret on ECS) call it with no stored key (#4224)
+
+### 🐛 Bug Fixes
+
+- Sdk phone sheet keeps the scroll position, landscape rail meets 44px, rowless reads stop crashing apps (#4070)
+- Biome 2.6 config migration and the dbt models separator it caught (#4073)
+- Release build — oxy-workspace-health raises the recursion limit (#4075)
+- Worker re-resolves the promoted revision instead of serving a stale one (#4068)
+- Oxyc -q keeps jq's exit status when jq exits before reading its input (#4076)
+- Compile status waits for a failed compile's reason before reporting it (#4100)
+- Codeowners drops the create-workspace row #4006 left behind (#4096)
+- Factory entry opens without a flash and the factory top bar switches workspaces (#4109)
+- Oxyc device login keeps waiting, and its link is the one step to approve (#4115)
+- Email preview never opens a browser tab under nextest, at most one per 10s on a dev box (#4145)
+- Worker fleet runs the custom-app storage sweeper and other singleton-gated jobs (#4150)
+- Dev portal sql execution logs no raw sql and keeps only its shape in sentry (#4154)
+- Worker stranded tick resumes chat runs orphaned by a dead serve replica (#4152)
+- Claude agents sign in to deployments instead of stalling at the login page (#4159)
+- Production error surfaced by weekly Sentry triage (#4135)
+- Stranded working-copy compiles no longer block commit compiles, and cancel closes them (INC-164) (#4166)
+- Sdk phone kit, section titles line up, segments and card figures fit at 320 (#4183)
+- Android app icon is the oxygen logo, as on ios (#4181)
+- Sdk phone tab bar marks the current tab in the accent blue, and side panels run the whole window (#4189)
+- Oxyc publish re-embeds an edited event schema into a --dir bundle published before (#4192)
+- Custom-app functions on a workspace with a file database run on a replica when no Factory is configured (#4195)
+- *(admin)* Observability compares cost with the prior window only against a real baseline (#4203)
+- Sdk phone drawer's appearance control is one row with an icon switch (#4206)
+- *(admin)* Observability writes a cost under $0.0001 as <$0.0001, not $0.0000 (#4209)
+- A file database never decides where its workspace's calls run, and never answers 5xx (#4205)
+- Anthropic strict schemas drop unsupported constraints (#4220)
+- An unknown queued function trigger fails closed, and the readers for app calls (#4212)
+- A function's table on is accepted and inert, so older pods keep the rest of its entry (#4213)
+- Custom apps known gaps: deletion audits and purges usage facts, call cycles refused, ctx.tx loop guard (#4235)
+- Custom app sends are delivered as the person who sent them, their credential re-read at delivery (#4237)
+
+### 💼 Other
+
+- *(deps)* Bump taiki-e/install-action from 2.87.31 to 2.90.3 (#4079)
+- *(deps)* Bump softprops/action-gh-release from 3.0.3 to 3.0.4 (#4078)
+- *(deps-dev)* Bump the dev-npm-minor-dependencies group across 1 directory with 11 updates (#4080)
+
+### 🚜 Refactor
+
+- Api-source-upload becomes api-airway and takes the airway-pipelines reads (#4074)
+- Airway's staff section, boot and CLI move into api-airway (#4077)
+- Slack's shared half moves down into a new oxy-slack crate (#4085)
+- Slack's bot and routes move out of oxy-app into oxy-api-slack (#4089)
+- The world-model app's feed, foot traffic, competitors and llm proxy move into oxy-api-world-model (#4091)
+- The world model graph and cohort cores move down into oxy-world-model (#4092)
+- The world model graph and cohort ide handlers move into oxy-api-world-model (#4093)
+- The token lifecycle audit moves down into a new oxy-identity domain crate (#4094)
+- Remove the in-product IDE (factory retirement phase 5) (#4006)
+- Identity tokens leave oxy-app for the oxy-api-identity surface crate (#4098)
+- The request-scoped write hold moves down into oxy-app-core as write_hold (#4104)
+- Fleet serves the last factory-pinned reads; drop onboarding reset and config.yml writers (#4102)
+- The world model's customer-app twins move into oxy-api-world-model (#4105)
+- Lift the custom-app query data plane into oxy-api-custom-apps (#4111)
+- Lift the custom-app agent ask into oxy-api-custom-apps (#4113)
+- Lift the custom-app agent-run stream into oxy-api-custom-apps (#4119)
+- Fleet retirement step B, the last ide-only routes moved to the fleet or deleted (#4117)
+- Lift the custom-app automation run into oxy-api-custom-apps (#4121)
+- Backfill runs as a queued task and github import clones nothing, so no route needs the ide (#4118)
+- Lift the custom-app metric-tree twins into oxy-api-custom-apps (#4122)
+- Previews' run queue becomes previews::queue, below the lift line (#4124)
+- Sign-in and the user routes move out of oxy-app into oxy-api-identity (#4126)
+- The operating graph and work items move out of oxy-app into oxy-api-operating-graph (#4123)
+- Workspace previews' upper half moves out of oxy-app into oxy-api-previews (#4125)
+- The metric monitoring surface moves out of oxy-app into oxy-api-metric-monitoring (#4127)
+- The observability console moves out of oxy-app into oxy-api-observability (#4129)
+- Video, schedules, database and secrets move out of oxy-app into api-* surface crates (#4130)
+- Github and toast webhook receivers move out of oxy-app into api-* surface crates (#4131)
+- Core routes wave a, the leaf modules left in oxy-app's server/api move out (#4132)
+- Core routes wave b, threads and chat move to oxy-api-threads (#4133)
+- Core routes wave c, workspaces move to oxy-api-workspaces (#4140)
+- Wave d1, the semantic surface's shared logic moves below its handlers (#4149)
+- Core routes wave d2, the semantic surface moves to oxy-api-semantic (#4155)
+- Admin split pr 1, three staff sections leave oxy-app for their context surfaces (#4156)
+- Admin split pr 2, partner registry to tenancy and ci publish tokens to custom apps (#4160)
+- Admin split pr 3, staff console helpers move down out of oxy-app (#4177)
+- Admin split pr 4, oltp and airhouse provisioning fences move to tenancy (#4184)
+- Admin split pr 5, the user directory moves to identity (#4194)
+- Web-app route builder drops the ignored workspace id (#4215)
+- Admin split pr 6, an admin nest seam and the compile console to previews (#4226)
+
+### 📚 Documentation
+
+- Record why SDK Publish cannot deprecate a version (#4084)
+- Oxy-custom-apps skill says how to share the cloud setup with a team (#4088)
+- Oxy-app cold-check baseline corrected to the quiet-machine numbers (#4090)
+- Internal-docs drops 24 docs that restated what the code, CI config or a living doc already says (#4095)
+- Staff admin console proposal, one tenant hub and the back office out of the IDE (#4116)
+- The roadmap's chat-resume line is landed, and its kill switch is gone (#4157)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#4146)
+- Agent engine/runtime design to replace the analytics fsm (#4179)
+- Custom-apps skill, desk side panels are modal and full height, and data marks keep their shapes (#4182)
+- Org versus workspace grain — production read (Q1–Q5) and the step-4 migration plan (#4198)
+- Grain memo step 4 — dev and staging extras, and the index PR's fixtures (#4210)
+- Custom apps architecture map, current code paths and roadmap re-read (#4188)
+- Proposal for a custom-app function calling oxygen in-process as the app, with no stored key (#4217)
+- Custom apps architecture states host-signed outbox rows and sandbox own-branch events (#4228)
+
+### 🧪 Testing
+
+- Oxy-app-core TTL cache tests leave room for a loaded runner (#4103)
+- Sandbox token refusal covers the promotion-rule write, so main is green again (#4185)
+- Unbounded alloc loop cases give the heap limit a timeout that cannot win the race (#4236)
+
+### ⚙️ Miscellaneous Tasks
+
+- Reconcile builder knowledge cards with sdk/cli/skills (#4043)
+- Job summaries report image sizes, tags, test failures and findings instead of noise (#4099)
+- Roadmap status takes the trailer as the citation, so PRs stop conflicting on the roadmap doc (#4110)
+- Remove the queued_chat_and_workflow_starts kill switch (#4136)
+- Deploy train prod bump PR links the oxygen-internal compare diff (#4141)
+- Rust test partitions run in half the time, postgres without fsync and cameras off serial-db (#4148)
+- Entity crate tests run in ci, and the 21 entities typed_column_guard flagged carry sea_orm::model (#4162)
+- Code review drops emoji ratings and posts one-click suggestions (#4153)
+- Migration crate unit tests run in ci, no longer hidden by the default nextest filter (#4163)
+- Reconcile builder knowledge cards with sdk/cli/skills (#4087)
+- Just up runs one stack per checkout, any number per machine, over a shared data layer (#4167)
+- Code review records tokens per pass, stops re-running lenses on old lines, staggers lens starts (#4168)
+- Reconcile builder knowledge cards with sdk/cli/skills (#4178)
+- Upgrade rust version
+- Install rust 1.100.0 in CI so clippy exists for the pinned toolchain (#4196)
+
 ## [0.5.160] - 2026-11-11
 
 ### 🚀 Features
@@ -67,6 +239,7 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Bump @oxy-hq/cli to 0.12.1 and check the tarball's contents in CI (#4069)
+- *(deps-dev)* Bump the dev-npm-minor-dependencies group across 1 directory with 22 updates (#3959)
 
 ### 🚜 Refactor
 
@@ -125,6 +298,7 @@ All notable changes to this project will be documented in this file.
 - Review gate says why a PR needs a high-risk approval (#4063)
 - Release @oxy-hq/cli 0.12.0 (#4065)
 - Pin airway 0.1.62 (sp_api Brand Analytics Search Terms) (#4064)
+- Release 0.5.160 (#3999)
 
 ## [0.5.159] - 2026-11-05
 
