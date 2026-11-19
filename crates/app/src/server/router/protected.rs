@@ -61,10 +61,12 @@ pub(super) fn build_protected_routes(
     // Staff-console sections from extracted surfaces (`SurfaceSeams::admin`);
     // they live in the global tree, so only cloud mode has them.
     admin_sections: Vec<super::AdminSection>,
+    // Their sibling trees beside `/admin` (`SurfaceSeams::admin_nests`).
+    admin_nests: Vec<super::AdminNest>,
 ) -> (Router<AppState>, Vec<Decl>) {
     let root = RoleRouter::new(app_state.clone())
         .merge_declared(catalog.routes, &catalog.decls)
-        .merge(build_global_routes(&app_state, admin_sections));
+        .merge(build_global_routes(&app_state, admin_sections, admin_nests));
     // Beside the workspace tree, not in it: see `oxy_api_previews::routes`.
     let previews = RoleRouter::new(app_state.clone())
         .merge_declared(preview_routes, &preview_decls)
@@ -336,6 +338,7 @@ mod tests {
             Vec::new(),
             Default::default(),
             Vec::new(),
+            Vec::new(),
         );
 
         let mut ambiguous = Vec::new();
@@ -425,6 +428,7 @@ mod tests {
             Router::new(),
             Vec::new(),
             Default::default(),
+            Vec::new(),
             Vec::new(),
         );
         // 148 on 2026-11-14, after the operating graph's nine paths left for

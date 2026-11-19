@@ -17,7 +17,7 @@ use agentic_runtime::worker::TaskExecutor;
 use axum::Router;
 use chrono::{DateTime, Utc};
 use oxy_app_core::function_seam::FunctionRuntime;
-use oxy_shared::fleet_role::RouteRoleDecl;
+use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 use sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -81,6 +81,41 @@ pub struct AdminSection {
     /// FleetOk wholesale (`admin::router_roles`), so only a route that touches
     /// node-local disk needs one — `POST /orgs` scaffolding a workspace, say.
     pub decls: Vec<RouteRoleDecl>,
+}
+
+/// One staff-console tree an extracted surface nests BESIDE the console's
+/// router, at `/api/admin{prefix}`, rather than merging inside it.
+///
+/// For a tree whose routes are flat under one prefix and which carries its own
+/// guard stack rather than the console's. `oxy-app` wraps `routes` in the three
+/// `.layer`s the in-tree sibling nests (`/internal-jobs`, `/compiles`) always
+/// had — the capability named here innermost, then the refusal while acting as
+/// a tenant (`assume::block_admin_while_acting`), then the staff door
+/// (`oxy_owner_or_app_admin_guard`) outermost — and mounts it with `nest_all`,
+/// which declares `{prefix}` and `{prefix}/{*rest}` with `role`.
+///
+/// `.layer`, not a section's `route_layer`: a mounted path asked with a method
+/// it does not take answers the guards before its 405. A path the tree does not
+/// match at all falls to the outer router's 404 without reaching them — axum's
+/// nest, read off the served router on `main` before this seam existed.
+///
+/// As with a section, the surface NAMES its capability and `oxy-app` applies
+/// every guard: a surface cannot mount a staff tree that skips one.
+#[derive(Clone)]
+pub struct AdminNest {
+    /// Relative to `/admin`, with its leading `/` and no trailing one
+    /// (`"/compiles"`). Relative, so a guarded staff tree can only ever land
+    /// under `/admin`.
+    pub prefix: &'static str,
+    /// The capability that admits a caller to the tree
+    /// (`platform_cap_guard::require`), the innermost of the three layers.
+    pub capability: Action,
+    /// The tree's routes, relative to the prefix.
+    pub routes: Router<AppState>,
+    /// Pod placement for the whole prefix: `nest_all` declares both shapes.
+    pub role: RouteRole,
+    /// Why `role` is right, as `nest_all` asks of every caller.
+    pub why: &'static str,
 }
 
 /// What a task executor is built from on the node that drains the queue.
@@ -393,6 +428,12 @@ pub struct SurfaceSeams {
     /// capability it names — see [`AdminSection`]. Cloud-only, like `api`:
     /// local mode never mounts the global tree that holds `/admin`.
     pub admin: Vec<AdminSection>,
+    /// STAFF CONSOLE, sibling trees: each nested at `/api/admin{prefix}`
+    /// beside the console, behind the staff door, the refusal while acting and
+    /// the capability it names, on every path it mounts, a wrong method
+    /// included (an unmatched path is the outer 404) — see [`AdminNest`].
+    /// Cloud-only, like `admin`.
+    pub admin_nests: Vec<AdminNest>,
     /// The OpenAPI operations extracted surfaces document, merged into the
     /// served document (`/apidoc/openapi.json`, which `oxyc schema` reads).
     pub openapi: Vec<utoipa::openapi::OpenApi>,

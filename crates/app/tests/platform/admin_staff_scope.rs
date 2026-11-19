@@ -31,10 +31,13 @@
 //! every total asserted here is exact.
 
 mod audit_and_assume;
-mod compiles;
+// The compile console's cases (`compiles`) moved with the handlers to
+// `oxy-api-previews`' `admin_staff_scope` (admin split, PR 6), and include
+// `fixture` from here.
 mod fences;
-// `oxy-api-identity`'s user-directory cases include this file by path; the
-// helpers only they use read as dead code from here.
+// `oxy-api-identity`'s user-directory cases and `oxy-api-previews`' compile
+// console cases include this file by path; the helpers only they use read as
+// dead code from here.
 #[allow(dead_code)]
 mod fixture;
 mod internal_jobs;

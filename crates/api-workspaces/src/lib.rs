@@ -70,7 +70,7 @@ fn org_routes() -> Router<AppState> {
 /// Postgres only. No comment sits directly above a `.route(`: the route catalog
 /// would read one as the route's note, and these routes had none. The list is
 /// named through `workspaces::handlers` so the catalog finds its doc rather
-/// than the staff compile console's `admin::compiles::workspaces::list_workspaces`.
+/// than the staff compile console's `oxy_api_previews::admin::compiles::workspaces::list_workspaces`.
 fn org_handlers() -> Router<AppState> {
     Router::new()
         .route("/workspaces", get(workspaces::handlers::list_workspaces))

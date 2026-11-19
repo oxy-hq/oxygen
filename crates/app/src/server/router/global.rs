@@ -19,9 +19,13 @@ use crate::api::middlewares::{
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 use super::role_router::RoleRouter;
-use super::{AdminSection, AppState};
+use super::{AdminNest, AdminSection, AppState};
 
-pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>) -> RoleRouter {
+pub(super) fn build_global_routes(
+    app_state: &AppState,
+    admin: Vec<AdminSection>,
+    admin_nests: Vec<AdminNest>,
+) -> RoleRouter {
     // The extracted sections' declarations join the console's own, under the
     // same `/admin` prefix; collected before `admin::router` takes the sections.
     let admin_decls: Vec<RouteRoleDecl> = admin::router_roles()
@@ -33,7 +37,7 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
                 .flat_map(|section| section.decls.iter().copied()),
         )
         .collect();
-    RoleRouter::new(app_state.clone())
+    let tree = RoleRouter::new(app_state.clone())
         // `/logout` and the mobile app's sign-in approval
         // (`/auth/mobile/authorize`) are `oxy-api-identity`'s, merged beside
         // this tree through `SurfaceSeams::api` (2026-11-15), as are the
@@ -93,50 +97,30 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
                 oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware,
             )),
             &admin_decls,
-        )
-        // Internal Jobs is mounted as a sibling nest because its routes
-        // were flattened (no `/internal-jobs/` prefix on each route). The
-        // outer guard mirrors the broader `/admin/*` permissive guard.
-        .nest_all(
-            "/admin/internal-jobs",
-            RouteRole::FleetOk,
-            admin::internal_jobs::router()
-                // Operating the durable task fleet is Oxy's own machinery, not tenant
-                // data — `Cap::OperatePlatform`. A sibling nest gets no capability gate
-                // from `admin::router`, so it names its own, exactly as it must name
-                // its own `block_admin_while_acting`.
-                .layer(middleware::from_fn(platform_cap_guard::require(
-                    crate::server::authz::Action::PlatformOperate,
-                )))
-                // Refuse the staff surface while acting, exactly like `admin::router`
-                // does internally. This is a SIBLING nest — it never passes through
-                // `admin::router`, so the block it applies does not reach here. Any
-                // future `/admin/*` sibling needs this line too, or it silently
-                // becomes drivable mid-impersonation.
-                .layer(middleware::from_fn(admin::assume::block_admin_while_acting))
-                .layer(middleware::from_fn(
-                    oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware,
-                )),
-            "job admin reads the task queue tables",
-        )
-        // Compile boundary operator surface (Phase 1.6a+). List recent
-        // revisions, drill into one, manually enqueue a Compile task.
-        // Same guard layering as internal-jobs.
-        .nest_all(
-            "/admin/compiles",
-            RouteRole::FleetOk,
-            admin::compiles::router()
-                // Compile history is platform machinery — `Cap::OperatePlatform`.
-                .layer(middleware::from_fn(platform_cap_guard::require(
-                    crate::server::authz::Action::PlatformOperate,
-                )))
-                // Sibling nest — see internal-jobs above.
-                .layer(middleware::from_fn(admin::assume::block_admin_while_acting))
-                .layer(middleware::from_fn(
-                    oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware,
-                )),
-            "the compile operator surface reads the revisions tables",
-        )
+        );
+    // The console's sibling trees, each nested at `/admin{prefix}` behind the
+    // three layers `staff_nest` applies — internal jobs first (in-tree), then
+    // those extracted surfaces hand in (`SurfaceSeams::admin_nests`).
+    admin::nests(admin_nests)
+        .into_iter()
+        .fold(tree, |tree, nest| {
+            assert!(
+                nest.prefix.len() > 1
+                    && nest.prefix.starts_with('/')
+                    && !nest.prefix.ends_with('/'),
+                "an admin nest's prefix is `/name`, relative to `/admin`: got {:?}",
+                nest.prefix
+            );
+            tree.nest_all(
+                &format!("/admin{}", nest.prefix),
+                nest.role,
+                staff_nest(nest.routes, nest.capability),
+                nest.why,
+            )
+        })
+    // The compile boundary's operator surface (`/admin/compiles`) is
+    // `oxy-api-previews`' since the admin split's PR 6: one of the
+    // `admin_nests`, behind the same three layers.
     // NOTE: Slack webhook + OAuth-callback + magic-link routes are NOT
     // registered here. They ride `SurfaceSeams::public` (`oxy-api-slack`),
     // outside the auth middleware layer this file sits inside, because:
@@ -147,6 +131,31 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
     //   - The magic-link landing handles auth state itself via
     //     OptionalAuthenticatedUser; bouncing through the auth middleware
     //     first would 401 every unauth'd user.
+}
+
+/// The three layers an `/admin` sibling nest ([`AdminNest`]) runs under, as
+/// `.layer` rather than `route_layer`, so a mounted path asked with a method it
+/// does not take answers them before its 405 (a path the tree does not match
+/// at all is the outer router's 404, as it always was). Innermost first:
+///
+/// 1. the capability the nest names (`platform_cap_guard`). A sibling nest gets
+///    no capability gate from `admin::router`, so it names its own;
+/// 2. the refusal while acting as a tenant, exactly as `admin::router` applies
+///    it internally. A SIBLING nest never passes through `admin::router`, so
+///    the block that router applies does not reach it; without this line the
+///    tree is silently drivable mid-impersonation;
+/// 3. the staff door outermost, the same permissive guard the `/admin` nest
+///    runs under.
+fn staff_nest(
+    routes: Router<AppState>,
+    capability: crate::server::authz::Action,
+) -> Router<AppState> {
+    routes
+        .layer(middleware::from_fn(platform_cap_guard::require(capability)))
+        .layer(middleware::from_fn(admin::assume::block_admin_while_acting))
+        .layer(middleware::from_fn(
+            oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware,
+        ))
 }
 
 fn build_org_routes(app_state: &AppState) -> RoleRouter {

@@ -311,6 +311,12 @@ pub mod previews {
     pub use crate::agentic_wiring::{preview_airhouse, preview_ctx};
     pub use crate::server::compile_maintenance::REVISION_IN_USE;
     pub use crate::server::compile_request;
+    /// The commit compile the staff console's "Run compile now" queues with
+    /// `"source": "git"` (`oxy-api-previews`' `admin::compiles`, admin split
+    /// PR 6): refuse a request that can never succeed, then queue it.
+    pub mod compile_git {
+        pub use crate::server::compile_git::{enqueue, validate_request};
+    }
     pub use crate::server::preagg_promote::promoted_revision;
     pub use crate::server::previews::namespace::preview_key;
     pub use crate::server::previews::queue::run::{advance, runs_enabled};
@@ -384,10 +390,19 @@ pub use crate::server::router::bare_app_state;
 /// A staff-console section under `/api/admin`, and the capabilities one may
 /// name. `oxy-app` applies the capability guard; the surface only names it.
 pub use crate::server::authz::Action;
+/// A staff-console tree nested beside `/api/admin`'s router at
+/// `/api/admin{prefix}`, guarded on every path it mounts (an unmatched path is
+/// the outer 404). `oxy-app` applies the staff door, the refusal while acting
+/// and the capability it names.
+pub use crate::server::router::AdminNest;
 pub use crate::server::router::AdminSection;
 
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
+    /// Whether this process can claim a working-copy compile. The compile
+    /// console (`oxy-api-previews`' `admin::compiles`) queues one only where it
+    /// can, and otherwise refuses with `needs_working_copy`.
+    pub use crate::server::role_manifest::process_can_compile;
     /// Whether this process owns the workspace files (`ide`, or `all` in
     /// single-process mode). `oxy-api-workspaces`' details answer a missing
     /// working copy with the transient 503 only where it does (2026-11-16).

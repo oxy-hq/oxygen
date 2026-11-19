@@ -7,15 +7,15 @@ use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use chrono::Utc;
 use entity::{revisions, workspaces};
-use oxy_app::server::api::admin::compiles::backfill::backfill_uncompiled;
-use oxy_app::server::api::admin::compiles::batch::{
+use oxy_api_previews::admin::compiles::backfill::backfill_uncompiled;
+use oxy_api_previews::admin::compiles::batch::{
     BatchPromoteRequest, BatchRunRequest, batch_promote, batch_run_compile,
 };
-use oxy_app::server::api::admin::compiles::crud::{
+use oxy_api_previews::admin::compiles::crud::{
     ListQuery, RunCompileRequest, get_compile, list_compiles, promote_to_revision, run_compile_now,
 };
-use oxy_app::server::api::admin::compiles::source::CompileSource;
-use oxy_app::server::api::admin::compiles::workspaces::{WorkspacesQuery, list_workspaces};
+use oxy_api_previews::admin::compiles::source::CompileSource;
+use oxy_api_previews::admin::compiles::workspaces::{WorkspacesQuery, list_workspaces};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, DatabaseBackend, DatabaseConnection, EntityTrait,
     FromQueryResult, Statement,
@@ -399,8 +399,8 @@ async fn run_compile_now_queues_the_commit_github_has_when_it_can_serve_the_bran
 /// operator is told why, and nothing is queued for a node that does not exist.
 #[tokio::test]
 async fn a_compile_nothing_here_can_claim_is_refused_not_queued() {
-    use oxy_app::server::api::admin::compiles::source::enqueue_main;
-    use oxy_app::server::compile_request::Refusal;
+    use oxy_api_previews::admin::compiles::source::enqueue_main;
+    use oxy_app::surface::previews::compile_request::Refusal;
     let w = world().await;
     let (_github, ws) = github_workspace(&w, false).await;
 
@@ -437,7 +437,7 @@ async fn a_compile_nothing_here_can_claim_is_refused_not_queued() {
 /// A process that does hold the workspace's files compiles them, as it always did.
 #[tokio::test]
 async fn a_process_that_owns_the_working_copy_still_compiles_it() {
-    use oxy_app::server::api::admin::compiles::source::enqueue_main;
+    use oxy_api_previews::admin::compiles::source::enqueue_main;
     let w = world().await;
     let (_github, ws) = github_workspace(&w, false).await;
 

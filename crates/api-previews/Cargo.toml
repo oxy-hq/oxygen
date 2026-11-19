@@ -18,6 +18,7 @@ oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }     # AppState, default_branch
 oxy = { workspace = true }
 oxy-auth = { workspace = true }
+oxy-server-authz = { workspace = true } # staff::scope, the compile console's grant fences
 oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl
 oxy-compile = { workspace = true }
 oxy-git = { workspace = true }

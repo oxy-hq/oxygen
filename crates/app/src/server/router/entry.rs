@@ -77,6 +77,7 @@ pub async fn api_router(
         external: extra_external_routes,
         catalog,
         admin,
+        admin_nests,
         tasks,
         background,
         fleet_jobs,
@@ -336,6 +337,7 @@ pub async fn api_router(
                 preview_decls,
                 catalog,
                 admin,
+                admin_nests,
             );
             // `build_protected_routes` already returned these `/api`-prefixed;
             // a seam's declarations are relative to the same tree, so they need
@@ -487,6 +489,7 @@ pub async fn internal_api_router(
         external: _,
         catalog,
         admin,
+        admin_nests,
         // The internal router starts no jobs, drives no queue and mounts no
         // outer route.
         tasks: _,
@@ -540,6 +543,7 @@ pub async fn internal_api_router(
         preview_decls,
         catalog,
         admin,
+        admin_nests,
     );
     let protected_routes = protected_routes
         .merge(extra_api_routes)

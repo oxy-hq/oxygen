@@ -7,8 +7,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::{error_body, insert_run_and_enqueue_compile};
-use crate::server::compile_git;
-use crate::server::compile_request::{MainSource, Refusal, main_source};
+use oxy_app::surface::previews::compile_git;
+use oxy_app::surface::previews::compile_request::{MainSource, Refusal, main_source};
 
 /// `source` on `POST /admin/compiles/run`.
 #[derive(Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]

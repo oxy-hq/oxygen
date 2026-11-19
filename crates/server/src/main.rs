@@ -418,6 +418,10 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_threads::admin_sections())
             .chain(oxy_api_custom_apps::admin_sections())
             .collect(),
+        // Staff-console trees nested beside `/admin`, each behind the staff
+        // door, the refusal while acting and the capability it names.
+        // The compile console (`/admin/compiles`), `oxy-api-previews`'.
+        admin_nests: oxy_api_previews::admin_nests(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
         openapi: vec![

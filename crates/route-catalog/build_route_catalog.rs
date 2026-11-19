@@ -169,6 +169,23 @@ const SEEDS: &[Seed] = &[
         module: "workspace",
         function: "build_workspace_routes",
     },
+    // The staff console's sibling nests (`admin::nests`), folded onto the
+    // global tree with a computed prefix the walk above cannot read: internal
+    // jobs, in-tree (admin split, PR 6), and the extracted surfaces' after it.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin/internal-jobs",
+        module: "admin::internal_jobs",
+        function: "router",
+    },
+    // The compile console, `oxy-api-previews`' (`SurfaceSeams::admin_nests`)
+    // since the same PR.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin/compiles",
+        module: "oxy_api_previews::admin::compiles",
+        function: "router",
+    },
     // Workspace previews (`oxy-api-previews`, `SurfaceSeams::previews`), mounted
     // beside the workspace tree, not in it (its own access middleware), so it is
     // not reached by the walk above.
@@ -1576,7 +1593,12 @@ impl Walker {
             .filter(|s| s != "crate" && s != "self" && s != "super")
             .collect();
 
-        let mut best: Option<(usize, &str)> = None;
+        // Ties break toward the caller's own crate, as `lookup` breaks them
+        // toward the caller's directory: `workspaces::list_workspaces` names a
+        // module in the compile console's crate and in tenancy's alike, and
+        // the one the router sits beside is the one it mounts.
+        let caller_crate = self.index[caller].module.first();
+        let mut best: Option<(usize, bool, &str)> = None;
         for d in &self.fn_docs {
             if d.name != name {
                 continue;
@@ -1634,11 +1656,12 @@ impl Walker {
                     None => continue,
                 }
             };
-            if best.is_none_or(|(b, _)| score > b) {
-                best = Some((score, d.doc.as_str()));
+            let own_crate = d.module.first() == caller_crate;
+            if best.is_none_or(|(b, b_own, _)| score > b || (score == b && own_crate && !b_own)) {
+                best = Some((score, own_crate, d.doc.as_str()));
             }
         }
-        best.map(|(_, doc)| doc.to_string()).unwrap_or_default()
+        best.map(|(_, _, doc)| doc.to_string()).unwrap_or_default()
     }
 
     /// Resolve a call path to an indexed builder, preferring the definition

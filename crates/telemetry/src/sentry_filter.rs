@@ -917,6 +917,16 @@ mod tests {
             // and not the data plane as there.
             "oxy_api_identity::admin::users_admin",
             "oxy_api_identity::admin::user_scope",
+            // The admin split (PR 6): the compile console, Postgres and the
+            // task queue only, kept and not the data plane as it was at
+            // `oxy_app::server::api::admin::compiles`.
+            "oxy_api_previews::admin",
+            "oxy_api_previews::admin::compiles",
+            "oxy_api_previews::admin::compiles::backfill",
+            "oxy_api_previews::admin::compiles::batch",
+            "oxy_api_previews::admin::compiles::crud",
+            "oxy_api_previews::admin::compiles::source",
+            "oxy_api_previews::admin::compiles::workspaces",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1266,6 +1276,15 @@ mod tests {
             // The admin split (PR 5): the user directory.
             "oxy_api_identity::admin::users_admin",
             "oxy_api_identity::admin::user_scope",
+            // The admin split (PR 6): the compile console. It queues compiles
+            // and repoints a workspace's revision; it runs no warehouse query.
+            "oxy_api_previews::admin",
+            "oxy_api_previews::admin::compiles",
+            "oxy_api_previews::admin::compiles::backfill",
+            "oxy_api_previews::admin::compiles::batch",
+            "oxy_api_previews::admin::compiles::crud",
+            "oxy_api_previews::admin::compiles::source",
+            "oxy_api_previews::admin::compiles::workspaces",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

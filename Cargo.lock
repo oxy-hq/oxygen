@@ -10274,6 +10274,7 @@ dependencies = [
  "oxy-compile",
  "oxy-git",
  "oxy-oltp",
+ "oxy-server-authz",
  "oxy-shared",
  "oxy-test-utils",
  "rand 0.10.2",

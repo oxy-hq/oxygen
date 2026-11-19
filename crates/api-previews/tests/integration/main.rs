@@ -13,7 +13,9 @@
 //! `previews_from_git` also borrows the commit-compile world `oxy-app`'s
 //! `compile_from_git` and `compile_request` tests build (a GitHub commit
 //! archive, a PAT-connected workspace, a worker's drive loop), included the
-//! same way.
+//! same way. `admin_staff_scope` includes the staff-scope fixture of
+//! `oxy-app`'s `platform` group by path, for the compile console's cases
+//! (admin split, PR 6).
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
@@ -35,6 +37,7 @@ mod compile_request {
     pub(crate) use crate::compile_request_fixture as fixture;
 }
 
+mod admin_staff_scope;
 mod preview_routes;
 mod preview_runs;
 mod preview_samples;

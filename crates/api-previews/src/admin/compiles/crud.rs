@@ -338,7 +338,7 @@ pub async fn run_compile_now(
         req.git_sha.clone(),
         req.branch.clone(),
         req.promote,
-        crate::server::role_manifest::process_can_compile(),
+        oxy_app::surface::roles::process_can_compile(),
     )
     .await?;
 

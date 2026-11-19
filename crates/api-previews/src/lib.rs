@@ -17,7 +17,10 @@
 //!   ([`compile_staging`], [`workspace_routes`]): `oxyc publish
 //!   --semantic-branch` and `oxyc compile` compile a branch into a revision
 //!   that is never promoted, through the same `compile_request` a preview's
-//!   create and refresh use. They sit inside the workspace tree, not beside it.
+//!   create and refresh use. They sit inside the workspace tree, not beside it;
+//! - since the admin split's PR 6, the staff console's compile operator surface
+//!   ([`admin`], `/api/admin/compiles/*`), nested beside `/admin` through
+//!   `SurfaceSeams::admin_nests` ([`admin_nests`]).
 //!
 //! The lower half stays in `oxy-app` (`oxy_app::surface::previews`), because the
 //! workspace runtime and the middleware below this crate read it: the registry
@@ -36,6 +39,7 @@
 // `crates/server/src/recursion_limit_guard.rs`).
 #![recursion_limit = "256"]
 
+pub mod admin;
 pub mod analyze;
 pub mod checks;
 pub mod compare;
@@ -55,6 +59,8 @@ use axum::routing::{get, post};
 use oxy_app::surface::seams::{BackgroundSeam, TaskSeam};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+pub use admin::admin_nests;
 
 /// The previews routes, relative to `/{workspace_id}/previews`.
 ///

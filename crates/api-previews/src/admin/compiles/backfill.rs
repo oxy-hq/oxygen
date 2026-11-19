@@ -65,7 +65,7 @@ pub async fn backfill_uncompiled(
     // COUNT query.
     let remaining = uncompiled.len() as u64 > BACKFILL_BATCH;
 
-    let owns = crate::server::role_manifest::process_can_compile();
+    let owns = oxy_app::surface::roles::process_can_compile();
     let mut task_ids = Vec::new();
     let mut skipped = Vec::new();
     for ws in uncompiled.into_iter().take(BACKFILL_BATCH as usize) {

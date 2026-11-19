@@ -11,7 +11,9 @@ pub mod app_admins;
 pub mod assume;
 pub mod audit;
 pub mod billing;
-pub mod compiles;
+// `compiles` (`/compiles*`, the compile boundary's operator surface) is
+// `oxy-api-previews`' since the admin split's PR 6, an `AdminNest` behind
+// `PlatformOperate` that arrives through `nests`' `extracted`.
 pub mod internal_jobs;
 mod internal_jobs_dead_letter;
 mod internal_jobs_failure_groups;
@@ -34,7 +36,7 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 use crate::server::api::middlewares::{oxy_owner_guard, platform_cap_guard};
 use crate::server::authz::Action;
 use crate::server::feature_flags;
-use crate::server::router::{AdminSection, AppState};
+use crate::server::router::{AdminNest, AdminSection, AppState};
 
 /// Admin routes are flat under `/api/admin/*` after the 2026-04-28 redesign.
 /// Endpoints:
@@ -233,6 +235,30 @@ fn extracted_sections(sections: Vec<AdminSection>) -> Router<AppState> {
                 ))),
         )
     })
+}
+
+/// The console's sibling trees ([`AdminNest`]): its own first, then the ones
+/// extracted surfaces hand in, in their order (`oxy-api-previews`' compile
+/// console, since the admin split's PR 6). `router::global` nests each at
+/// `/admin{prefix}` behind the staff door, the refusal while acting and the
+/// capability it names.
+///
+/// Internal jobs is a nest rather than a section because its routes are flat
+/// (no `/internal-jobs/` prefix on each), so the guards answer every path it
+/// mounts, a wrong method included (a path the tree does not match is the
+/// outer router's 404). Operating the durable task fleet is Oxy's own
+/// machinery, not tenant data — `PlatformOperate` — and the handlers narrow by
+/// grant scope themselves (`internal_jobs_reach`).
+pub(crate) fn nests(extracted: Vec<AdminNest>) -> Vec<AdminNest> {
+    let mut nests = vec![AdminNest {
+        prefix: "/internal-jobs",
+        capability: Action::PlatformOperate,
+        routes: internal_jobs::router(),
+        role: RouteRole::FleetOk,
+        why: "job admin reads the task queue tables",
+    }];
+    nests.extend(extracted);
+    nests
 }
 
 /// Which pod serves each route [`router`] mounts, relative to its `/admin` nest.

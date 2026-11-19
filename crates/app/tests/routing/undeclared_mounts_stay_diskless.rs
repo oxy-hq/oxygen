@@ -76,6 +76,15 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // command, moved here from `oxy-app` with the airway context, mounted on no
     // route, so no pod placement applies.
     ("api-airway/src/cli.rs", "workspace_path"),
+    // The compile console's "By workspace" rows (`GET /admin/compiles/
+    // workspaces`, out of `oxy-app` in the admin split's PR 6, nested FleetOk
+    // as an `AdminNest`) REPORT each workspace's configured path: the field is
+    // `workspaces.path` read back from Postgres (`w.path AS workspace_path`)
+    // and shown to staff. No file is opened. The other needles still apply.
+    (
+        "api-previews/src/admin/compiles/workspaces.rs",
+        "workspace_path",
+    ),
     // `GET /{workspace_id}/simulations` and `POST …/simulations/{name}/runs`
     // read the declared world through `ConfigManager`, which owns the
     // compiled-vs-disk choice (`simulation_definitions` through the compile

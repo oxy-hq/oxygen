@@ -34,11 +34,11 @@ pub use fleet_jobs::start_fleet_jobs;
 pub use openapi::{build_openapi_doc, openapi_router};
 pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{
-    AdminSection, BackgroundDeps, BackgroundSeam, CHAT_BACKGROUND_JOBS, CUSTOM_APP_BACKGROUND_JOBS,
-    CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport,
-    NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount, PREVIEW_BACKGROUND_JOBS,
-    PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam, global_ticks,
-    install_global_ticks, require_notifications, require_task_kinds,
+    AdminNest, AdminSection, BackgroundDeps, BackgroundSeam, CHAT_BACKGROUND_JOBS,
+    CUSTOM_APP_BACKGROUND_JOBS, CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam,
+    HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount,
+    PREVIEW_BACKGROUND_JOBS, PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam,
+    global_ticks, install_global_ticks, require_notifications, require_task_kinds,
 };
 pub use seams::{CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs};
 
@@ -82,7 +82,7 @@ pub fn bare_app_state() -> AppState {
 /// surfaces' share, exactly as `api_router` takes them from [`SurfaceSeams`]: the
 /// `api` seam's routes join the global tree behind the same auth stack, the
 /// `public` seam's join the public tree outside it, and the `admin` sections
-/// mount under `/admin`.
+/// mount under `/admin`, with the `admin_nests` beside them.
 ///
 /// Public for the same reason as [`api_auth_layers`]: `oxy-server`'s token
 /// tests drive the real mounts, guards and handlers (`/orgs`, `/user/tokens`,
@@ -91,13 +91,14 @@ pub fn flat_api_surface(
     extra_api_routes: axum::Router<AppState>,
     extra_public_routes: axum::Router<AppState>,
     admin: Vec<AdminSection>,
+    admin_nests: Vec<AdminNest>,
 ) -> axum::Router {
     let state = bare_app_state();
     public::build_public_routes(&state)
         .into_router()
         .merge(extra_public_routes)
         .merge(api_auth_layers(
-            global::build_global_routes(&state, admin)
+            global::build_global_routes(&state, admin, admin_nests)
                 .into_router()
                 .merge(extra_api_routes),
         ))
@@ -169,6 +170,7 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
         Router::new(),
         Vec::new(),
         Default::default(),
+        Vec::new(),
         Vec::new(),
     );
     let (_, local) = protected::build_local_protected_routes(
@@ -510,7 +512,7 @@ mod router_split_tests {
             }],
         };
         let (router, decls, _) =
-            global::build_global_routes(&bare_app_state(), vec![section]).into_parts();
+            global::build_global_routes(&bare_app_state(), vec![section], Vec::new()).into_parts();
         assert!(
             decls.iter().any(|(m, p, r)| *m == "POST"
                 && p == "/admin/seam-probe"
@@ -533,6 +535,115 @@ mod router_split_tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
+    /// An extracted surface's sibling tree (`SurfaceSeams::admin_nests`) is
+    /// nested at `/admin{prefix}`, declared with `nest_all`'s two shapes, and
+    /// guarded with `.layer`: its route, and its route asked with a verb it
+    /// does not take, answer the guards; a path it does not match is the outer
+    /// 404, exactly as the in-tree nests answered on `main`.
+    #[tokio::test]
+    async fn an_admin_nest_mounts_beside_admin_guarded_on_every_path() {
+        let nest = AdminNest {
+            prefix: "/seam-nest",
+            capability: crate::server::authz::Action::PlatformOperate,
+            routes: Router::new().route("/probe", axum::routing::get(|| async { "ok" })),
+            role: oxy_shared::fleet_role::RouteRole::FleetOk,
+            why: "a probe",
+        };
+        let (router, decls, _) =
+            global::build_global_routes(&bare_app_state(), Vec::new(), vec![nest]).into_parts();
+        for path in ["/admin/seam-nest", "/admin/seam-nest/{*rest}"] {
+            assert!(
+                decls.iter().any(|(m, p, r)| *m == "*"
+                    && p == path
+                    && *r == oxy_shared::fleet_role::RouteRole::FleetOk),
+                "nest_all must declare {path}"
+            );
+        }
+        let router = router.with_state(bare_app_state());
+        // No authenticated user: an unguarded route would answer 200 and a
+        // `route_layer` would let the wrong verb's 405 through. The staff
+        // guards answer 401 before either.
+        for (method, path, expected) in [
+            ("GET", "/admin/seam-nest/probe", StatusCode::UNAUTHORIZED),
+            ("POST", "/admin/seam-nest/probe", StatusCode::UNAUTHORIZED),
+            (
+                "GET",
+                "/admin/seam-nest/nothing-here",
+                StatusCode::NOT_FOUND,
+            ),
+            ("GET", "/admin/seam-nest", StatusCode::NOT_FOUND),
+        ] {
+            let req = Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let resp = router.clone().oneshot(req).await.expect("oneshot");
+            assert_eq!(resp.status(), expected, "{method} {path}");
+        }
+    }
+
+    /// The staff door is the OUTERMOST of a nest's three layers. With platform
+    /// standing unreadable (no database), the door defers to its legacy
+    /// verdict and refuses a caller who is not the Global Owner with 403; the
+    /// capability guard, asked first, would refuse the same caller with 500
+    /// (`platform_cap_guard`'s unknown-standing arm), and the acting refusal
+    /// lets an unreadable caller through. So a 403 here is the door answering
+    /// before the other two, and a 500 is the door gone or moved inward. With
+    /// a database, every live caller the door refuses the capability guard
+    /// refuses too, with the same bare 403 — this is the one place the door
+    /// shows.
+    #[tokio::test]
+    async fn an_admin_nest_answers_the_staff_door_first() {
+        struct Env(Vec<(&'static str, Option<String>)>);
+        impl Drop for Env {
+            fn drop(&mut self) {
+                for (k, v) in &self.0 {
+                    match v {
+                        Some(v) => unsafe { std::env::set_var(k, v) },
+                        None => unsafe { std::env::remove_var(k) },
+                    }
+                }
+            }
+        }
+        let keys = ["OXY_DATABASE_URL", "OXY_DATABASE_AUTH_MODE", "OXY_OWNER"];
+        let _restore = Env(keys.iter().map(|k| (*k, std::env::var(k).ok())).collect());
+        // Not a PostgreSQL URL, so the connection is refused at once rather
+        // than after the pool's acquire timeout.
+        unsafe { std::env::set_var("OXY_DATABASE_URL", "unreachable://standing") };
+        unsafe { std::env::remove_var("OXY_DATABASE_AUTH_MODE") };
+        unsafe { std::env::remove_var("OXY_OWNER") };
+
+        let nest = AdminNest {
+            prefix: "/seam-nest",
+            capability: crate::server::authz::Action::PlatformOperate,
+            routes: Router::new().route("/probe", axum::routing::get(|| async { "ok" })),
+            role: oxy_shared::fleet_role::RouteRole::FleetOk,
+            why: "a probe",
+        };
+        let router = global::build_global_routes(&bare_app_state(), Vec::new(), vec![nest])
+            .into_router()
+            .with_state(bare_app_state());
+        let user = oxy_auth::types::AuthenticatedUser {
+            id: uuid::Uuid::new_v4(),
+            email: Some("not-staff@example.com".to_string()),
+            name: "not staff".to_string(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        };
+        for method in ["GET", "POST"] {
+            let mut req = Request::builder()
+                .method(method)
+                .uri("/admin/seam-nest/probe")
+                .body(Body::empty())
+                .unwrap();
+            req.extensions_mut().insert(user.clone());
+            let resp = router.clone().oneshot(req).await.expect("oneshot");
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{method}");
+        }
+    }
+
     /// `entry::api_router` merges the public tree into the protected tree
     /// wholesale, so a path registered in both panics the router at
     /// construction — and with it every test that builds one.
@@ -548,7 +659,10 @@ mod router_split_tests {
     fn public_and_global_trees_do_not_collide() {
         let _merged = public::build_public_routes(&bare_app_state())
             .into_router()
-            .merge(global::build_global_routes(&bare_app_state(), Vec::new()).into_router());
+            .merge(
+                global::build_global_routes(&bare_app_state(), Vec::new(), Vec::new())
+                    .into_router(),
+            );
     }
 
     #[tokio::test]

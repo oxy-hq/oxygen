@@ -90,11 +90,15 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// `/semantic/view/{file_path_b64}`, `/semantic/preagg-status`,
 /// `/context-graph/sources`, `/revision`, `/revision/files` and
 /// `/revision/files/content` (the table has no `/semantic/preagg-rebuild` row).
+/// Plus two on 2026-11-18 (admin split PR 6, read off the assertion) when the
+/// compile console (`/api/admin/compiles` and its `{*rest}`) left for
+/// `oxy-api-previews`: `oxy-server` hands it in as an `AdminNest`, and
+/// `route_declarations()` reads `oxy-app`'s own tree only.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 128;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 130;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];

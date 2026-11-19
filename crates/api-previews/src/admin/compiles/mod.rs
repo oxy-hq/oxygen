@@ -2,15 +2,17 @@
 //! boundary (Phase 1.6a + the work this PR adds on top: TaskSpec,
 //! webhook, promotion). Pattern mirrors `internal_jobs`:
 //!
-//!   - Flat routes nested by `router/global.rs` under
-//!     `/admin/compiles` so the more permissive
+//!   - Flat routes, handed to `oxy-app` as an `AdminNest`
+//!     ([`crate::admin_nests`]) that `router/global.rs` nests under
+//!     `/admin/compiles`, so the more permissive
 //!     `oxy_owner_or_app_admin_guard` layer can wrap the whole tree
-//!     without dragging the rest of `/admin/*` along.
+//!     without dragging the rest of `/admin/*` along. Moved out of
+//!     `oxy-app`'s `api::admin::compiles` in the admin split (PR 6).
 //!   - DB access is on-demand via
 //!     `oxy::database::client::establish_connection()` — no AppState
 //!     threading.
 //!   - **Grant scope is enforced in every handler.** The capability gate
-//!     (`Action::PlatformOperate`, layered on in `router/global.rs`) decides on
+//!     (`Action::PlatformOperate`, named in [`crate::admin_nests`]) decides on
 //!     a resource with no org, so a grant bounded to one tenant passes it. A
 //!     revision belongs to a workspace and a workspace to an org: listings are
 //!     narrowed in the query, a revision or workspace named by id outside the
@@ -33,7 +35,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_server_authz::staff::scope;
 
 pub(crate) fn router() -> Router<AppState> {

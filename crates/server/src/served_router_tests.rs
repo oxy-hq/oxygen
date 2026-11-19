@@ -3590,3 +3590,604 @@ fn the_composition_carries_the_fifth_split_section() {
         "PlatformUsers declares nothing"
     );
 }
+
+/// The staff console's two sibling nests (admin split, PR 6), `/admin/internal-jobs`
+/// (in `oxy-app`) and `/admin/compiles` (`oxy-api-previews`), both folded through
+/// `SurfaceSeams::admin_nests`' shape. As `(method, path, body, answers, trace)`,
+/// read off the served router on `main` (853935eff) before the seam existed.
+/// `answers` and `trace` (the same path asked with TRACE) are per caller, in
+/// [`ADMIN_NEST_CALLERS`] order; `0` is a request this test does not send: a
+/// write the in-scope reads skip, the `{}`-body variant's TRACE, and three
+/// writes whose effect is global on the shared test database (the Global
+/// Owner's reaper and retention runs, and a backfill that would queue a compile
+/// for every uncompiled workspace it reaches). Their refusals are still sent.
+/// `{w}`, `{r}` and `{t}` are a workspace, a revision and a task id.
+///
+/// What it pins, beyond each handler speaking for the Global Owner:
+///
+/// * the staff door, the refusal while acting and `PlatformOperate` answer on
+///   every mounted path, a wrong verb included (TRACE 403 for a refused
+///   caller, 405 for an admitted one; `POST /admin/compiles/nothing-here` is
+///   the `/{revision_id}` route asked with a verb it does not take);
+/// * an App Operator bounded to org A is refused by the capability layer
+///   (the door admits any standing);
+/// * a Global Admin bounded to org A gets the handlers' own fences on org B's
+///   workspace and revision (404s, and "not found" per batch item), and org
+///   A's rows on the reads;
+/// * a path neither tree mounts, and each bare or slashed prefix that is not a
+///   route, is the outer router's 404 for every caller — the guards never see
+///   it, as on `main`.
+const ADMIN_NEST_ROUTES: &[(&str, &str, Option<&str>, [u16; 8], [u16; 8])] = &[
+    (
+        "GET",
+        "/admin/internal-jobs/queue-stats",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/recent-failures",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/failure-groups",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/dead-letter",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/internal-jobs/dead-letter/{t}/reenqueue",
+        None,
+        [403, 404, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "DELETE",
+        "/admin/internal-jobs/dead-letter/{t}",
+        None,
+        [403, 404, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/workers",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/scheduled",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/internal-jobs/run-reaper",
+        None,
+        [403, 0, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/internal-jobs/run-retention",
+        None,
+        [403, 0, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/nothing-here",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "POST",
+        "/admin/internal-jobs/nothing-here",
+        None,
+        [404, 404, 404, 404, 404, 404, 0, 0],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobs/",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "GET",
+        "/admin/internal-jobsx",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "GET",
+        "/admin/compiles",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/compiles/",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "GET",
+        "/admin/compiles/workspaces",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/compiles?workspace_id={w}",
+        None,
+        [403, 200, 403, 403, 403, 200, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/compiles/{r}",
+        None,
+        [403, 404, 403, 403, 403, 404, 403, 200],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/compiles/run",
+        Some(r#"{"workspace_id":"{w}"}"#),
+        [403, 404, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/compiles/run",
+        Some("{}"),
+        [403, 422, 403, 403, 403, 422, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+    ),
+    (
+        "POST",
+        "/admin/compiles/backfill",
+        None,
+        [403, 0, 403, 403, 403, 0, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/compiles/batch/run",
+        Some(r#"{"workspace_ids":["{w}"]}"#),
+        [403, 200, 403, 403, 403, 200, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/compiles/batch/run",
+        Some("{}"),
+        [403, 422, 403, 403, 403, 422, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+    ),
+    (
+        "POST",
+        "/admin/compiles/batch/promote",
+        Some(r#"{"revision_ids":["{r}"]}"#),
+        [403, 200, 403, 403, 403, 200, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "POST",
+        "/admin/compiles/batch/promote",
+        Some("{}"),
+        [403, 422, 403, 403, 403, 422, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0],
+    ),
+    (
+        "POST",
+        "/admin/compiles/{r}/promote",
+        None,
+        [403, 404, 403, 403, 403, 404, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/compiles/nothing-here/deeper",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+    (
+        "POST",
+        "/admin/compiles/nothing-here",
+        None,
+        [403, 405, 403, 403, 403, 405, 0, 0],
+        [403, 405, 403, 403, 403, 405, 403, 405],
+    ),
+    (
+        "GET",
+        "/admin/compilesx",
+        None,
+        [404, 404, 404, 404, 404, 404, 404, 404],
+        [404, 404, 404, 404, 404, 404, 404, 404],
+    ),
+];
+
+/// Who [`ADMIN_NEST_ROUTES`]' columns are, in order.
+const ADMIN_NEST_CALLERS: [&str; 8] = [
+    "non-staff",
+    "owner",
+    "owner acting",
+    "partner",
+    "app_operator@A about B",
+    "global_admin@A about B",
+    "app_operator@A about A",
+    "global_admin@A about A",
+];
+
+/// Send every [`ADMIN_NEST_ROUTES`] row as caller `col`, with ids `(w, r, t)`,
+/// and assert `main`'s answer.
+async fn admin_nest_sweep(router: &Router, col: usize, ids: (&str, &str, &str)) {
+    let (w, r, t) = ids;
+    let who = ADMIN_NEST_CALLERS[col];
+    for (method, path, body, answers, trace) in ADMIN_NEST_ROUTES {
+        let path = path.replace("{w}", w).replace("{r}", r).replace("{t}", t);
+        let body = body.map(|b| b.replace("{w}", w).replace("{r}", r));
+        let method = Method::from_bytes(method.as_bytes()).unwrap();
+        if answers[col] != 0 {
+            let got = admin_split_send(router, &method, &path, body.as_deref()).await;
+            assert_eq!(
+                got.as_u16(),
+                answers[col],
+                "{who} {method} {path} {body:?}: got {got}"
+            );
+        }
+        if trace[col] != 0 {
+            let got = admin_split_send(router, &Method::TRACE, &path, None).await;
+            assert_eq!(got.as_u16(), trace[col], "{who} TRACE {path}: got {got}");
+        }
+    }
+}
+
+/// The served router nests `/admin/internal-jobs` and `/admin/compiles` beside
+/// the console behind the three layers the seam applies, answering exactly what
+/// `main` answered before it (see [`ADMIN_NEST_ROUTES`]) for: the guest, who is
+/// not staff; the guest as the Global Owner; the same owner while acting as a
+/// tenant; the guest as a partner (the partner console's 200 as the control);
+/// and the guest as an App Operator and then a Global Admin, each bounded to
+/// org A, asking about org B and (reads only) about org A.
+#[tokio::test]
+async fn the_admin_nests_answer_what_main_did_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+
+    let router = served(ServeMode::Cloud).await;
+    for prefix in ["/admin/internal-jobs", "/admin/compiles"] {
+        for path in [prefix.to_string(), format!("{prefix}/anything")] {
+            assert_eq!(
+                classify("POST", &format!("/api{path}")),
+                RouteRole::FleetOk,
+                "{path} is Postgres only and must stay FleetOk"
+            );
+        }
+    }
+    let (x, y, z) = (
+        uuid::Uuid::new_v4().to_string(),
+        uuid::Uuid::new_v4().to_string(),
+        uuid::Uuid::new_v4().to_string(),
+    );
+    admin_nest_sweep(&router, 0, (&x, &y, &z)).await;
+
+    let owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    admin_nest_sweep(&router, 1, (&x, &y, &z)).await;
+
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let now = chrono::Utc::now();
+    let org = |name: &'static str| {
+        let id = uuid::Uuid::new_v4();
+        entity::organizations::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(name.into()),
+            slug: ActiveValue::Set(format!("admin-split-6-{}", id.simple())),
+            ..Default::default()
+        }
+    };
+
+    // Acting as a tenant closes both trees.
+    let acting = org("Admin split 6")
+        .insert(&db)
+        .await
+        .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router admin split 6".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    // Collected before asserting, so a failure still ends the session.
+    let acting_run = {
+        let router = router.clone();
+        let (x, y, z) = (x.clone(), y.clone(), z.clone());
+        tokio::spawn(async move { admin_nest_sweep(&router, 2, (&x, &y, &z)).await })
+    }
+    .await;
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    entity::organizations::Entity::delete_by_id(acting.id)
+        .exec(&db)
+        .await
+        .expect("remove the acting org");
+    if let Err(e) = acting_run {
+        std::panic::resume_unwind(e.into_panic());
+    }
+
+    // A partner, not staff.
+    drop(owner);
+    let partner = org("Admin split 6 partner")
+        .insert(&db)
+        .await
+        .expect("seed the partner org");
+    entity::partner_grants::ActiveModel {
+        org_id: ActiveValue::Set(partner.id),
+        status: ActiveValue::Set("active".into()),
+        created_by: ActiveValue::Set(None),
+        created_at: ActiveValue::Set(now.into()),
+    }
+    .insert(&db)
+    .await
+    .expect("seed the grant");
+    let member = entity::org_members::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_id: ActiveValue::Set(partner.id),
+        user_id: ActiveValue::Set(user_id),
+        role: ActiveValue::Set(entity::org_members::OrgRole::Admin),
+        created_at: ActiveValue::Set(now.into()),
+        updated_at: ActiveValue::Set(now.into()),
+    }
+    .insert(&db)
+    .await
+    .expect("seed the membership");
+    entity::partner_role_bindings::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_member_id: ActiveValue::Set(member.id),
+        created_at: ActiveValue::Set(now.into()),
+    }
+    .insert(&db)
+    .await
+    .expect("seed partner access");
+    let (got, mine) = get_json(&router, "/partners").await;
+    assert_eq!(got, StatusCode::OK, "GET /partners: {mine}");
+    assert!(
+        mine.as_array().is_some_and(|all| all
+            .iter()
+            .any(|p| p["partner_id"] == partner.id.to_string())),
+        "the guest must read as a partner of the seeded org: {mine}"
+    );
+    admin_nest_sweep(&router, 3, (&x, &y, &z)).await;
+    entity::organizations::Entity::delete_by_id(partner.id)
+        .exec(&db)
+        .await
+        .expect("remove the partner org");
+
+    // Staff bounded to org A; a workspace and a ready main revision in each org.
+    let in_scope = org("Admin split 6 in scope")
+        .insert(&db)
+        .await
+        .expect("org A");
+    let out_of_scope = org("Admin split 6 out of scope")
+        .insert(&db)
+        .await
+        .expect("org B");
+    let workspace = |org: uuid::Uuid| {
+        let id = uuid::Uuid::new_v4();
+        entity::workspaces::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(format!("admin-split-6-{}", id.simple())),
+            org_id: ActiveValue::Set(Some(org)),
+            path: ActiveValue::Set(Some(format!("/nonexistent/{id}"))),
+            status: ActiveValue::Set(entity::workspaces::WorkspaceStatus::Ready),
+            ..Default::default()
+        }
+    };
+    let revision = |workspace: uuid::Uuid| entity::revisions::ActiveModel {
+        revision_id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        workspace_id: ActiveValue::Set(workspace),
+        git_sha: ActiveValue::Set("0123abc".into()),
+        branch: ActiveValue::Set(Some("main".into())),
+        schema_version: ActiveValue::Set(1),
+        status: ActiveValue::Set("ready".into()),
+        kind: ActiveValue::Set("main".into()),
+        owner_user_id: ActiveValue::Set(None),
+        compiler_version: ActiveValue::Set("test".into()),
+        started_at: ActiveValue::Set(now.fixed_offset()),
+        finished_at: ActiveValue::Set(Some(now.fixed_offset())),
+        file_count_seen: ActiveValue::Set(0),
+        file_count_compiled: ActiveValue::Set(0),
+        file_count_failed: ActiveValue::Set(0),
+        error_summary: ActiveValue::Set(None),
+    };
+    let ws_a = workspace(in_scope.id)
+        .insert(&db)
+        .await
+        .expect("A's workspace")
+        .id;
+    let ws_b = workspace(out_of_scope.id)
+        .insert(&db)
+        .await
+        .expect("B's workspace")
+        .id;
+    let rev_a = revision(ws_a)
+        .insert(&db)
+        .await
+        .expect("A's revision")
+        .revision_id;
+    let rev_b = revision(ws_b)
+        .insert(&db)
+        .await
+        .expect("B's revision")
+        .revision_id;
+    let (a, b) = (
+        (ws_a.to_string(), rev_a.to_string()),
+        (ws_b.to_string(), rev_b.to_string()),
+    );
+    for (role, out_col, in_col) in [("app_operator", 4, 6), ("global_admin", 5, 7)] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the bounded grant");
+        entity::app_admin_scope_orgs::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            app_admin_id: ActiveValue::Set(grant.id),
+            org_id: ActiveValue::Set(in_scope.id),
+            created_at: ActiveValue::Set(now.into()),
+            created_by: ActiveValue::Set(None),
+        }
+        .insert(&db)
+        .await
+        .expect("bound it to org A");
+        // The grant read is cached per process, and the guest's earlier
+        // standing is in it.
+        oxy_server_authz::globals::invalidate_admin_cache();
+        let t = uuid::Uuid::new_v4().to_string();
+        let run = {
+            let router = router.clone();
+            let (a, b, t) = (a.clone(), b.clone(), t.clone());
+            tokio::spawn(async move {
+                admin_nest_sweep(&router, out_col, (&b.0, &b.1, &t)).await;
+                admin_nest_sweep(&router, in_col, (&a.0, &a.1, &t)).await;
+            })
+        }
+        .await;
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+        if let Err(e) = run {
+            std::panic::resume_unwind(e.into_panic());
+        }
+    }
+
+    // Nothing the out-of-scope writes named moved: B still serves no revision,
+    // and no compile was queued for B's workspace.
+    let b_now = entity::workspaces::Entity::find_by_id(ws_b)
+        .one(&db)
+        .await
+        .expect("read B's workspace")
+        .expect("B's workspace");
+    assert_eq!(
+        b_now.current_revision_id, None,
+        "B's workspace was repointed"
+    );
+    use sea_orm::ConnectionTrait;
+    let queued: i64 = db
+        .query_one_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::bigint AS n FROM agentic_runs WHERE workspace_id = $1",
+            [ws_b.into()],
+        ))
+        .await
+        .expect("count B's runs")
+        .expect("a count row")
+        .try_get("", "n")
+        .expect("the count");
+    assert_eq!(queued, 0, "a compile was queued for B's workspace");
+
+    for id in [rev_a, rev_b] {
+        entity::revisions::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded revision");
+    }
+    for id in [ws_a, ws_b] {
+        entity::workspaces::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded workspace");
+    }
+    for id in [in_scope.id, out_of_scope.id] {
+        entity::organizations::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded org");
+    }
+}
+
+/// The composition hands `SurfaceSeams::admin_nests` exactly the compile
+/// console (`oxy-api-previews`, admin split PR 6), under `/compiles`, behind
+/// `PlatformOperate` and FleetOk — the capability and placement `oxy-app`
+/// gave its `nest_all` before the move. Internal jobs is `oxy-app`'s own nest
+/// and arrives through no seam.
+#[test]
+fn the_composition_carries_the_compile_console_nest() {
+    use oxy_app::surface::Action;
+    use oxy_app::surface::roles::RouteRole;
+    let seams = surface_seams();
+    let nests: Vec<_> = seams
+        .admin_nests
+        .iter()
+        .map(|n| (n.prefix, n.capability, n.role))
+        .collect();
+    assert_eq!(
+        nests,
+        vec![("/compiles", Action::PlatformOperate, RouteRole::FleetOk)]
+    );
+}

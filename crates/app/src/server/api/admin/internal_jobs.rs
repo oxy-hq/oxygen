@@ -4,8 +4,8 @@
 //! this module shows the meta view (workers, queue depth, dead-letter,
 //! periodic system jobs).
 //!
-//! The capability gate (`Action::PlatformOperate`) is layered on in
-//! `router::global`. It cannot see grant **scope**, so every handler here
+//! The capability gate (`Action::PlatformOperate`) is named in `admin::nests`
+//! and layered on in `router::global`. It cannot see grant **scope**, so every handler here
 //! narrows by it — see `internal_jobs_reach` for the rule.
 //!
 //! Database access is on-demand via `oxy::database::client::establish_connection()`
