@@ -51,6 +51,9 @@ pub use openai_compat::OpenAiCompatProvider;
 mod client;
 pub use client::LlmClient;
 
+pub mod engine;
+pub use engine::LlmEngine;
+
 mod evaluator;
 pub use evaluator::LlmConsistencyEvaluator;
 

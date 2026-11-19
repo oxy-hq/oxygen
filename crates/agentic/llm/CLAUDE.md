@@ -42,6 +42,7 @@ Extended thinking (reasoning) uses opaque encrypted blobs:
 
 - **Must** be passed back verbatim in subsequent tool-use loops
 - **Must NOT** cross FSM state boundaries (discarded on state transition)
+- The react runtime deliberately persists provider thinking blocks verbatim in `Turn.native` so they survive resume (spec: `internal-docs/agent-engine-runtime.md`, Layer 2)
 - Controlled by `ThinkingConfig` from the agent YAML
 
 ## Events

@@ -18,6 +18,7 @@ mod integration_tests;
 mod late_child_and_recovery_status_test;
 mod orphaned_chat_selection_test;
 mod pending_resume_test;
+mod react_store_test;
 mod reset_task_to_queued_test;
 mod root_task_id_migration_test;
 mod router_test;

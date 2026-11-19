@@ -186,6 +186,8 @@ impl LlmClient {
                 let mut usage = Usage::default();
                 let mut stream_err: Option<LlmError> = None;
 
+                // The react engine folds a stream the same way in
+                // `crate::engine::fold`; keep the two in step.
                 let mut s = std::pin::pin!(s);
                 loop {
                     use tokio_stream::StreamExt as _;

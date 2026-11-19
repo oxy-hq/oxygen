@@ -109,6 +109,8 @@ Carry the error and the spec. Consider NOT carrying the failed SQL. Generate fre
 
 Encrypted blobs preserved WITHIN a tool loop only. Never cross state boundaries. Summaries stream as events for display. Never feed back into the system.
 
+The react runtime deliberately persists provider thinking blocks verbatim in `Turn.native` so they survive resume (spec: `internal-docs/agent-engine-runtime.md`, Layer 2).
+
 ### Events: token-level streaming
 
 ```rust

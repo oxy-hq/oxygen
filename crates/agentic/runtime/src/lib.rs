@@ -35,6 +35,7 @@ pub mod cron;
 pub mod lifecycle;
 pub mod migration;
 pub mod orchestrator;
+pub mod react;
 
 // ── Back-compat top-level paths ────────────────────────────────────────────
 //

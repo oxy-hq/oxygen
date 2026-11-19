@@ -20,6 +20,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 # tokio-postgres is used by `router::postgres` for its dedicated
@@ -40,7 +41,7 @@ dashmap = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
 # Capturing subscriber for the span-shape tests in `orchestrator::worker`.
 tracing-subscriber = { workspace = true, features = ["registry"] }
 agentic-analytics = { path = "../analytics" }

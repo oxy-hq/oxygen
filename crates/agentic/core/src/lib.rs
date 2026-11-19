@@ -27,6 +27,7 @@ pub mod events;
 pub mod hub_task;
 pub mod human_input;
 pub mod orchestrator;
+pub mod react;
 pub mod result;
 pub mod solver;
 pub mod state;

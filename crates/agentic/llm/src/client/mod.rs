@@ -87,11 +87,17 @@ impl LlmClient {
         &self.genai
     }
 
+    /// The provider behind this client, for [`crate::engine::LlmEngine`],
+    /// which renders messages and spans through it.
+    pub(crate) fn provider(&self) -> &dyn LlmProvider {
+        &*self.provider
+    }
+
     /// Open the provider stream inside `span`, recording a request-level
     /// failure on it, and hand back the stream wrapped so the span also
     /// learns the response (usage, finish reason, error class).
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn observed_stream(
+    pub(crate) async fn observed_stream(
         &self,
         span: &tracing::Span,
         system: &str,
