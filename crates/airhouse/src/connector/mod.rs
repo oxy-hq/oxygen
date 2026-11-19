@@ -151,6 +151,26 @@ pub struct AirhouseConnector {
     /// more than one requester, so statements that change session state are
     /// refused ([`session_state`]).
     shared_session: bool,
+    /// When the ephemeral credential this connection authenticated with stops
+    /// being accepted, as unix seconds — set by
+    /// [`AirhouseConnector::credential_expires_at`]. `None` for a credential
+    /// that does not expire (static airhouse).
+    ///
+    /// **Airhouse closes the socket when a session's credential expires**, by
+    /// design: SQLSTATE alone does not evict libpq-family drivers. Without this
+    /// the only signal is [`Self::is_live`] going false *after* the close, so a
+    /// pool rebuilds on a request's critical path — through airhouse's
+    /// admission queue. Knowing the deadline lets a pool retire the connection
+    /// before airhouse kills it. See `airhouse_pool::expiry`.
+    credential_expires_at: Option<u64>,
+    /// A slot in the connecting process's airhouse connection budget, held for
+    /// as long as this connection is open and released when it drops — see
+    /// `airhouse_pool::ceiling`. Carried here rather than by the pool so the
+    /// count follows the socket's life exactly, including a connection that
+    /// outlives its pool slot because a request still holds it.
+    ///
+    /// The connector itself never reads this; owning it is the whole job.
+    _budget_permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl AirhouseConnector {
@@ -206,7 +226,31 @@ impl AirhouseConnector {
             cached_schema,
             alive,
             shared_session: false,
+            credential_expires_at: None,
+            _budget_permit: None,
         })
+    }
+
+    /// Hold `permit` — a slot in the caller's process-wide airhouse connection
+    /// budget — until this connection is dropped.
+    pub fn holding_budget_permit(mut self, permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        self._budget_permit = Some(permit);
+        self
+    }
+
+    /// Record when the credential this connection authenticated with expires,
+    /// so a pool can retire the connection before airhouse closes it.
+    ///
+    /// Takes unix seconds; a value in the past is kept as given (the caller's
+    /// clock is the one that matters, and a pool treats it as already spent).
+    pub fn credential_expires_at(mut self, unix_secs: u64) -> Self {
+        self.credential_expires_at = Some(unix_secs);
+        self
+    }
+
+    /// When this connection's credential expires, as unix seconds, if known.
+    pub fn credential_deadline(&self) -> Option<u64> {
+        self.credential_expires_at
     }
 
     /// Mark this connection as shared between requesters (a pooled

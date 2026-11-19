@@ -129,7 +129,8 @@ impl PreviewAirhouseBackend for AirhouseBackend {
     async fn checkout(&self, scope: &Scope, usage: Use) -> Result<Lease, ConnectorError> {
         let (workspace_id, ns, owned) = (self.workspace_id, self.ns.clone(), scope.clone());
         let key = self.pool_key(scope, usage);
-        let build = || async move { connect(workspace_id, &ns, &owned).await };
+        let logged = key.clone();
+        let build = || async move { connect(workspace_id, &ns, &owned, &logged).await };
         let lease = match usage {
             Use::Shared => airhouse_pool::get_or_build(key, build)
                 .await
@@ -148,6 +149,7 @@ async fn connect(
     workspace_id: Uuid,
     ns: &PreviewNamespace,
     scope: &Scope,
+    pool_key: &str,
 ) -> Result<Arc<AirhouseConnector>, OxyError> {
     let (endpoint, schemas, role) = match scope {
         Scope::Reader => (
@@ -177,19 +179,29 @@ async fn connect(
         )
         .await
         .map_err(OxyError::from)?;
-    let conn = AirhouseConnector::new(
-        &endpoint.host,
-        endpoint.port,
-        &cred.username,
-        &cred.password,
-        &cred.tenant,
-    )
-    .await
-    .map_err(|e| {
-        OxyError::DBError(format!(
-            "preview Airhouse could not connect to {}:{}: {e}",
-            endpoint.host, endpoint.port
-        ))
-    })?;
-    Ok(Arc::new(conn))
+    // Previews share the deployment's airhouse slots with the analytics path
+    // and `ctx.airhouse`, so this connect goes against the same process-wide
+    // budget and retries the same `53300` backpressure.
+    let conn = airhouse_pool::ceiling::connect_within_budget(&pool_key, || async {
+        AirhouseConnector::new(
+            &endpoint.host,
+            endpoint.port,
+            &cred.username,
+            &cred.password,
+            &cred.tenant,
+        )
+        .await
+        .map_err(|e| {
+            OxyError::DBError(format!(
+                "preview Airhouse could not connect to {}:{}: {e}",
+                endpoint.host, endpoint.port
+            ))
+        })
+    })
+    .await?;
+    // Retire ahead of the preview credential's expiry instead of being closed
+    // mid-request.
+    Ok(Arc::new(conn.credential_expires_at(
+        cred.expires_at.timestamp().max(0) as u64,
+    )))
 }

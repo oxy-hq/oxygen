@@ -1501,10 +1501,18 @@ async fn build_airhouse_connector<S: DiskSlot>(
         &db.name,
     );
 
+    let pool_key = key.clone();
     crate::agentic_wiring::airhouse_pool::get_or_build(key, || async {
         // This credential goes into the pool below, so it is minted for the
         // pool rather than for whoever happens to open it.
-        let (mut host, mut port, user, password, database) = airhouse_wire_params(
+        let AirhouseWireParams {
+            mut host,
+            mut port,
+            user,
+            password,
+            database,
+            expires_at,
+        } = airhouse_wire_params(
             db,
             workspace_manager,
             subject,
@@ -1531,17 +1539,35 @@ async fn build_airhouse_connector<S: DiskSlot>(
                 port = ep.port;
             }
 
-        let conn = airhouse::AirhouseConnector::new(&host, port, &user, &password, &database)
-            .await
-            .map_err(|e| {
-                OxyError::DBError(format!(
-                    "airhouse connector failed to connect to {host}:{port}/{database} as {user}: {e}"
-                ))
-            })?;
+        // The connect is retried while airhouse answers `53300`, and takes a
+        // slot in this process's airhouse connection budget which it holds
+        // until the connection closes. The credential above is minted once and
+        // reused across attempts — the whole retry budget is ~1.4s against a
+        // 900s TTL. See `airhouse_pool::ceiling`.
+        let conn = crate::agentic_wiring::airhouse_pool::ceiling::connect_within_budget(
+            &pool_key,
+            || async {
+                airhouse::AirhouseConnector::new(&host, port, &user, &password, &database)
+                    .await
+                    .map_err(|e| {
+                        OxyError::DBError(format!(
+                            "airhouse connector failed to connect to {host}:{port}/{database} as {user}: {e}"
+                        ))
+                    })
+            },
+        )
+        .await?;
         // Every requester at this key shares the connection and its DuckDB
         // session, so a statement that changes session state is refused
         // rather than handed on to the next one.
-        Ok(Arc::new(conn.shared_session()))
+        let conn = conn.shared_session();
+        // Tell the pool when airhouse will stop accepting this credential, so
+        // it retires the connection first rather than being hung up on.
+        let conn = match expires_at {
+            Some(at) => conn.credential_expires_at(at),
+            None => conn,
+        };
+        Ok(Arc::new(conn))
     })
     .await
 }
@@ -1617,13 +1643,31 @@ fn pg_wire_dsn(user: &str, password: &str, host: &str, port: u16, database: &str
 /// connector builder and the airway destination resolver.
 /// `sharing` is passed straight to [`mint_airhouse_managed_creds`] and the
 /// caller must choose it deliberately — see [`CredentialUse`].
+/// Everything needed to open an airhouse pgwire connection, plus **when the
+/// credential stops working**.
+///
+/// `expires_at` is the field that matters and the easy one to drop: static
+/// airhouse has no expiry, but an `airhouse_managed` credential is ephemeral,
+/// and airhouse closes the socket the moment it lapses. A pool that never
+/// learns the deadline can only find out by being hung up on mid-request. See
+/// `airhouse_pool::expiry`.
+pub(crate) struct AirhouseWireParams {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    /// Unix seconds, or `None` for a configured (non-expiring) credential.
+    pub expires_at: Option<u64>,
+}
+
 async fn airhouse_wire_params<S>(
     db: &oxy::config::model::Database,
     workspace_manager: &WorkspaceManager<S>,
     subject: Option<uuid::Uuid>,
     role: Option<WorkspaceRole>,
     sharing: CredentialUse,
-) -> Result<(String, u16, String, String, String), OxyError> {
+) -> Result<AirhouseWireParams, OxyError> {
     let params = match &db.database_type {
         DatabaseType::Airhouse(ah) => {
             // The local-airhouse defaults apply only to fields the author left
@@ -1635,7 +1679,15 @@ async fn airhouse_wire_params<S>(
             let user = connection_field(db, "user", ah.get_user(sm).await, "admin")?;
             let password = connection_field(db, "password", ah.get_password(sm).await, "airhouse")?;
             let database = connection_field(db, "database", ah.get_database(sm).await, "airhouse")?;
-            (host, port, user, password, database)
+            // Configured credential: nothing mints it, so nothing expires it.
+            AirhouseWireParams {
+                host,
+                port,
+                user,
+                password,
+                database,
+                expires_at: None,
+            }
         }
         DatabaseType::AirhouseManaged(_) => {
             mint_airhouse_managed_creds(workspace_manager, subject, role, sharing).await?
@@ -1689,7 +1741,7 @@ async fn mint_airhouse_managed_creds<S>(
     subject: Option<uuid::Uuid>,
     role: Option<WorkspaceRole>,
     sharing: CredentialUse,
-) -> Result<(String, u16, String, String, String), OxyError> {
+) -> Result<AirhouseWireParams, OxyError> {
     let workspace_id = workspace_manager.workspace_id;
     let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
         OxyError::ConfigurationError(
@@ -1749,13 +1801,19 @@ async fn mint_airhouse_managed_creds<S>(
             .map_err(OxyError::from)?,
     };
 
-    Ok((
-        endpoint.host,
-        endpoint.port,
-        cred.username,
-        cred.password,
-        cred.tenant,
-    ))
+    Ok(AirhouseWireParams {
+        host: endpoint.host,
+        port: endpoint.port,
+        user: cred.username,
+        password: cred.password,
+        database: cred.tenant,
+        // Carried, not dropped: airhouse closes a session whose credential has
+        // lapsed, so this deadline is the only thing that lets the pool replace
+        // the connection on its own schedule instead of being hung up on
+        // mid-request. `expires_at` is UTC; negative is impossible but clamp
+        // rather than wrap.
+        expires_at: Some(cred.expires_at.timestamp().max(0) as u64),
+    })
 }
 
 // ── Model translation ───────────────────────────────────────────────────────

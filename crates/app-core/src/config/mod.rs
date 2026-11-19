@@ -24,6 +24,7 @@
 //! is (an unrecognised role, an unparseable URL) so that [`BootConfig::validate`]
 //! can name it and the lenient path can fall back to the old behaviour.
 
+pub mod airhouse_pool;
 pub mod hosts;
 pub mod metering;
 pub mod retention;
@@ -31,6 +32,7 @@ pub mod role;
 
 use std::sync::{Arc, OnceLock};
 
+pub use airhouse_pool::AirhousePoolConfig;
 pub use hosts::HostsConfig;
 pub use metering::MeteringConfig;
 pub use retention::RunRetentionSetting;
@@ -68,6 +70,9 @@ pub struct BootConfig {
     /// monthly cost and the isolate heap ceiling. Both permissive — an
     /// unconfigured deployment still serves the console, with less on it.
     pub metering: MeteringConfig,
+    /// What the Airhouse connection pool may hold open. Permissive: an
+    /// unconfigured deployment gets a conservative ceiling rather than none.
+    pub airhouse_pool: AirhousePoolConfig,
 }
 
 static BOOT: OnceLock<Arc<BootConfig>> = OnceLock::new();
@@ -86,6 +91,7 @@ impl BootConfig {
             service_tokens: var("OXY_SERVICE_TOKENS"),
             run_retention: RunRetentionSetting::parse(var("OXY_RUN_RETENTION_DAYS")),
             metering: MeteringConfig::parse(var),
+            airhouse_pool: AirhousePoolConfig::parse(var),
         }
     }
 

@@ -45,9 +45,30 @@ pub(crate) fn target(url: &str) -> Target {
 impl Target {
     /// A fresh connector to the stand-in, as a pool's `build` makes one.
     pub(crate) async fn connect(&self) -> Result<Arc<AirhouseConnector>, OxyError> {
+        self.open().await.map(Arc::new)
+    }
+
+    /// [`Self::connect`], carrying `unix_secs` as the expiry of the credential
+    /// it authenticated with — what a real `build` passes on from the broker's
+    /// mint. Used by `airhouse_pool_expiry`.
+    pub(crate) async fn connect_expiring_at(
+        &self,
+        unix_secs: u64,
+    ) -> Result<Arc<AirhouseConnector>, OxyError> {
+        self.open()
+            .await
+            .map(|c| Arc::new(c.credential_expires_at(unix_secs)))
+    }
+
+    /// One bare connector, no `Arc`: what a `ceiling::connect_within_budget`
+    /// inner closure returns. Used by `airhouse_pool_ceiling`.
+    pub(crate) async fn open_one(&self) -> Result<AirhouseConnector, OxyError> {
+        self.open().await
+    }
+
+    async fn open(&self) -> Result<AirhouseConnector, OxyError> {
         AirhouseConnector::new(&self.host, self.port, &self.user, &self.password, &self.db)
             .await
-            .map(Arc::new)
             .map_err(|e| OxyError::DBError(e.to_string()))
     }
 }
