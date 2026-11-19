@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BuilderMessageInput from "@/components/BuilderMessageInput";
 import ThinkingModeMenu from "@/components/Chat/ChatPanel/ThinkingModeMenu";
 import Markdown from "@/components/Markdown";
 import UserMessage from "@/components/Messages/UserMessage";
@@ -23,7 +22,6 @@ import type {
   SqlItem
 } from "@/hooks/analyticsSteps";
 import queryKeys from "@/hooks/api/queryKey";
-import useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import type { AnalyticsDisplayBlock, SseEvent } from "@/hooks/useAnalyticsRun";
 import {
   extractAnswer,
@@ -59,9 +57,6 @@ import { parseFileChange } from "./FileChangeDiff";
 import Header from "./Header";
 import MessageInputShell from "./MessageInputShell";
 import SuspensionPrompt from "./SuspensionPrompt";
-
-/** Answer text the backend interprets as an approval for proposed changes. */
-const ACCEPT_ANSWER = "Accept";
 
 /**
  * A trace artifact open in the sidebar and the run it came from. Trace item ids restart
@@ -299,17 +294,9 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const [capturedRunChanges, setCapturedRunChanges] = useState<Map<string, BuilderFileChange[]>>(
     () => new Map()
   );
-  const [autoApprove, setAutoApprove] = useState(
-    () => localStorage.getItem("builder_auto_approve") === "true"
-  );
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(
     () => consumePendingThinkingMode(thread.id) ?? "auto"
   );
-
-  const handleAutoApproveChange = useCallback((value: boolean) => {
-    setAutoApprove(value);
-    localStorage.setItem("builder_auto_approve", String(value));
-  }, []);
 
   const hasSyncedThinkingMode = useRef(false);
 
@@ -435,26 +422,19 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const question = thread.input;
   const isBuilder = agentId === "__builder__";
 
-  const {
-    builderModel,
-    isLoading: isCheckingBuilder,
-    isError: builderCheckFailed
-  } = useBuilderAvailable();
-
   const isStreaming = state.tag === "running" || state.tag === "suspended";
   const runExists = isStreaming || isTerminal;
 
   // Auto-open the builder panel only when a file change is proposed (agent suspended).
   // Suspensions for manage_directory, ask_user, etc. are handled inline — don't open
-  // the panel for those. Also skip when auto-approve is on.
+  // the panel for those.
   useEffect(() => {
     if (!isBuilder || state.tag !== "suspended") return;
-    if (autoApprove) return;
     const isFileChange =
       state.questions.length === 1 && !!parseFileChange(state.questions[0].prompt);
     if (!isFileChange) return;
     setBuilderPanelOpen(true);
-  }, [isBuilder, state, autoApprove]);
+  }, [isBuilder, state]);
   // Exclude the active run from history while it is being streamed / transitioning to
   // PastRunEntry to avoid rendering it twice (once live, once via allRuns).
   const activeRunId = state.tag !== "idle" && "runId" in state && state.runId ? state.runId : null;
@@ -469,23 +449,18 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   // see allRuns=[] + isLoading=false and fire a second auto-start run.
   const hasNoRunYet =
     !isLookingUp && !isFetchingRuns && allRuns.length === 0 && state.tag === "idle";
-  const isFirstVisit =
-    hasNoRunYet &&
-    // For builder threads, wait until the model is resolved (covers both in-flight and error cases).
-    !(isBuilder && (isCheckingBuilder || !builderModel));
-  // The builder check has settled without a model — the request failed, the workspace
-  // has no `builder_agent`, or its `model` is empty. Auto-start is the only thing that
-  // starts a builder thread's first run and it never fires here, so the thread says why
-  // instead of sitting blank.
-  const builderCannotStart = hasNoRunYet && isBuilder && !isCheckingBuilder && !builderModel;
+  // A Builder thread never auto-starts: the server refuses a Builder run with
+  // `410 builder_removed`, so a thread with no run says so instead of sitting blank.
+  const isFirstVisit = hasNoRunYet && !isBuilder;
+  const builderRemoved = hasNoRunYet && isBuilder;
 
   // Auto-start the run on first visit so the user doesn't need to click a button
   // after already submitting their question from ChatPanel.
   useEffect(() => {
     if (isFirstVisit) {
-      start(agentId, question, thread.id, thinkingMode, builderModel);
+      start(agentId, question, thread.id, thinkingMode);
     }
-  }, [isFirstVisit, agentId, question, thread.id, start, thinkingMode, builderModel]);
+  }, [isFirstVisit, agentId, question, thread.id, start, thinkingMode]);
 
   // For new starts / follow-ups use the locally-tracked question so the UI is responsive
   // before allRuns has picked up the new run. Fall back to latestRun for reconnects.
@@ -498,7 +473,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
     setActiveQuestion(q);
     setChangeDecisions(new Map());
     scrollToBottom();
-    start(agentId, q, thread.id, thinkingMode, builderModel);
+    start(agentId, q, thread.id, thinkingMode);
   };
 
   const handleSend = () => {
@@ -536,23 +511,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
     },
     [isBuilder, state.tag, streamingEvents, answer]
   );
-
-  // Auto-approve proposed changes and directory operations when the toggle is enabled.
-  useEffect(() => {
-    if (!autoApprove || state.tag !== "suspended") return;
-    if (state.questions.length !== 1) return;
-    const prompt = state.questions[0].prompt;
-    const isAutoApprovable = (() => {
-      if (parseFileChange(prompt)) return true;
-      try {
-        const parsed = JSON.parse(prompt);
-        return parsed?.type === "manage_directory";
-      } catch {
-        return false;
-      }
-    })();
-    if (isAutoApprovable) handleAnswer(ACCEPT_ANSWER);
-  }, [autoApprove, state, handleAnswer]);
 
   const liveAcceptedChanges = useMemo(
     () =>
@@ -650,7 +608,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                   />
                 )}
 
-                {builderCannotStart && (
+                {builderRemoved && (
                   <RunEntry
                     question={question}
                     events={[]}
@@ -658,12 +616,8 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     onSelectArtifact={NO_PILLS}
                   >
                     <ErrorAlert
-                      title="The Builder Agent didn't start"
-                      message={
-                        builderCheckFailed
-                          ? "Couldn't check this workspace's Builder Agent configuration. Reload the page to try again."
-                          : "No model is configured for the Builder Agent. Set builder_agent.model in config.yml, then reload the page."
-                      }
+                      title='The Builder Agent was removed'
+                      message='This thread has no run, and a Builder run can no longer be started.'
                     />
                   </RunEntry>
                 )}
@@ -752,16 +706,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                   onAnswer={handleAnswer}
                   isAnswering={isAnswering}
                 />
-              ) : isBuilder ? (
-                <BuilderMessageInput
-                  onSend={handleStart}
-                  onStop={stop}
-                  disabled={state.tag === "running" || isStarting}
-                  isLoading={state.tag === "running" || isStarting}
-                  autoApprove={autoApprove}
-                  onAutoApproveChange={handleAutoApproveChange}
-                />
-              ) : (
+              ) : isBuilder ? null : (
                 <MessageInputShell
                   value={followUpQuestion}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>

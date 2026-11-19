@@ -60,7 +60,6 @@ members = [
   "crates/infrastructure/semantic",
   "crates/agentic/analytics",
   "crates/agentic/airway",
-  "crates/agentic/builder",
   "crates/agentic/core",
   "crates/agentic/llm",
   "crates/agentic/connector",
@@ -102,7 +101,6 @@ resolver = "2"
 # Internal workspace crates
 agentic-airway = { path = "crates/agentic/airway" }
 agentic-analytics = { path = "crates/agentic/analytics" }
-agentic-builder = { path = "crates/agentic/builder" }
 agentic-connector = { path = "crates/agentic/connector" }
 agentic-core = { path = "crates/agentic/core" }
 agentic-http = { path = "crates/agentic/http" }

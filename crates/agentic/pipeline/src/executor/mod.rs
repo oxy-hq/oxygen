@@ -1,6 +1,6 @@
 //! [`TaskExecutor`] implementation for the agentic pipeline layer.
 //!
-//! This is the composition point where domain knowledge (analytics, builder,
+//! This is the composition point where domain knowledge (analytics,
 //! automation) meets the generic coordinator-worker infrastructure. The runtime
 //! only sees [`TaskExecutor`]; this crate knows how to start the right pipeline
 //! for each [`TaskSpec`] variant.
@@ -9,27 +9,23 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use agentic_analytics::SchemaCatalog;
-use agentic_builder::BuilderTestRunner;
 use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 
-use crate::platform::{BuilderBridges, PlatformContext};
+use crate::platform::PlatformContext;
 use crate::{PipelineBuilder, ThinkingMode};
 
 // ── PipelineTaskExecutor ─────────────────────────────────────────────────────
 
-/// Knows how to start analytics/builder pipelines and automation executions.
+/// Knows how to start analytics pipelines and automation executions.
 ///
 /// Injected into the [`Worker`](agentic_runtime::worker::Worker) by the
 /// HTTP/CLI layer.
 pub struct PipelineTaskExecutor {
     pub platform: Arc<dyn PlatformContext>,
-    /// Required for builder delegation; `None` is fine for analytics-only runs.
-    pub builder_bridges: Option<BuilderBridges>,
     pub schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
-    pub builder_test_runner: Option<Arc<dyn BuilderTestRunner>>,
     pub db: DatabaseConnection,
     /// Runtime state for registering answer channels (needed by automation
     /// orchestrator tasks so the coordinator can resume them via answer channel
@@ -471,6 +467,12 @@ impl TaskExecutor for PipelineTaskExecutor {
     ) -> Result<ExecutingTask, String> {
         let source_type = run.source_type.as_deref().unwrap_or("analytics");
 
+        // A stored builder run (recovery, or a cold resume): its domain is
+        // gone. Say so, rather than the generic "no checkpoint" text.
+        if source_type == "builder" {
+            return Err(format!("run {}: {BUILDER_RUN_REMOVED}", run.id));
+        }
+
         // Temporal-style automation runs: if `agentic_workflow_state` exists for
         // this run, resume by enqueuing an AutomationDecision (stateless path).
         if source_type == "workflow" {
@@ -522,7 +524,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                 }
             }
             _ => {
-                // Analytics/builder: resume from checkpoint if available.
+                // Analytics: resume from checkpoint if available.
                 if let Some(data) = suspend_data {
                     self.execute_resume(&run.id, data, String::new()).await
                 } else {
@@ -550,27 +552,25 @@ pub(crate) const NO_CHECKPOINT: &str = "has no checkpoint — resubmit the quest
 /// role as [`NO_CHECKPOINT`].
 pub(crate) const NO_SAVED_STATE: &str = "no saved state";
 
-/// The well-known agent ID that routes to the builder domain instead of
-/// analytics.  Used by analytics → builder delegation.
+/// The agent ID the removed builder copilot ran under. A task still queued
+/// with it is refused at claim ([`BUILDER_RUN_REMOVED`]).
 pub const BUILDER_AGENT_ID: &str = "__builder__";
 
-/// Returns `true` when `agent_id` should be routed to the builder domain
-/// rather than the analytics domain.
-fn is_builder_agent(agent_id: &str) -> bool {
-    agent_id == BUILDER_AGENT_ID
-}
+/// The error a [`BUILDER_AGENT_ID`] task, or a stored `builder` run that
+/// recovery tries to resume, ends with. Neutral on purpose: an automation
+/// step can reach it too, so it does not tell anyone to "ask in chat". Not
+/// the HTTP `builder_removed` code; this is the run's terminal error text.
+pub(crate) const BUILDER_RUN_REMOVED: &str = "the builder was removed; this run can't continue";
 
 impl PipelineTaskExecutor {
     /// Minimal executor for host operations that need only workspace/secret
-    /// resolution + the db (no builder/automation knobs) — e.g. the
+    /// resolution + the db (no automation knobs) — e.g. the
     /// reset-schema endpoint. Single-sources the field list so adding a field
     /// can't silently break a `None`-heavy struct literal in a transport handler.
     pub fn bare(platform: Arc<dyn PlatformContext>, db: DatabaseConnection) -> Self {
         Self {
             platform,
-            builder_bridges: None,
             schema_cache: None,
-            builder_test_runner: None,
             db,
             state: None,
             custom_executors: None,
@@ -584,25 +584,21 @@ impl PipelineTaskExecutor {
         existing_run_id: Option<String>,
         extra: Option<&serde_json::Value>,
     ) -> Result<ExecutingTask, String> {
-        let mut pb =
-            PipelineBuilder::new(self.platform.clone()).workspace_id(self.platform.workspace_id());
-        if let Some(bridges) = self.builder_bridges.clone() {
-            pb = pb.with_builder_bridges(bridges);
+        // Refused before anything is read: `__builder__` is no analytics
+        // agent, and the builder that ran it is gone.
+        if agent_id == BUILDER_AGENT_ID {
+            return Err(BUILDER_RUN_REMOVED.to_string());
         }
-        let mut builder = if is_builder_agent(agent_id) {
-            pb.builder(None)
-        } else {
-            pb.analytics(agent_id)
-        }
-        .question(question)
-        .thinking_mode(ThinkingMode::Auto);
+        let mut builder = PipelineBuilder::new(self.platform.clone())
+            .workspace_id(self.platform.workspace_id())
+            .analytics(agent_id)
+            .question(question)
+            .thinking_mode(ThinkingMode::Auto);
 
         // `extra` is an envelope packed by `agentic-automation` carrying
         // domain-opaque per-agent knobs. Today it carries the
-        // analytics SQL-gen mode flag (`output_mode == "sql"`); the
-        // builder path ignores it.
-        if !is_builder_agent(agent_id)
-            && let Some(extra_value) = extra
+        // analytics SQL-gen mode flag (`output_mode == "sql"`).
+        if let Some(extra_value) = extra
             && let Some(mode) = extra_value.get("output_mode").and_then(|v| v.as_str())
             && mode == "sql"
         {
@@ -619,31 +615,20 @@ impl PipelineTaskExecutor {
         // (existing_run_id is set → the coordinator created this
         // task). The parent automation's SSE stream doesn't yet
         // surface child-run events, so a nested suspension leaves
-        // the automation UI looking hung. The provider differs by
-        // agent type because the expected answer shape differs:
-        //
-        //   - Builder: `Accept` clears file-change confirmations.
-        //   - Analytics: a directive string ("proceed with best
-        //     interpretation") is more useful than a literal
-        //     `Accept` as the answer to an `ask_user` call.
+        // the automation UI looking hung. A directive string ("proceed
+        // with best interpretation") is more useful than a literal
+        // `Accept` as the answer to an `ask_user` call.
         //
         // Lift this gate once the automation run page streams nested
         // analytics events (see the streaming-children audit).
         if existing_run_id.is_some() {
             let provider: agentic_core::human_input::HumanInputHandle =
-                if is_builder_agent(agent_id) {
-                    std::sync::Arc::new(agentic_core::human_input::AutoAcceptInputProvider)
-                } else {
-                    std::sync::Arc::new(agentic_core::human_input::NoClarificationProvider)
-                };
+                std::sync::Arc::new(agentic_core::human_input::NoClarificationProvider);
             builder = builder.human_input(provider);
         }
 
         if let Some(cache) = &self.schema_cache {
             builder = builder.schema_cache(cache.clone());
-        }
-        if let Some(runner) = &self.builder_test_runner {
-            builder = builder.test_runner(runner.clone());
         }
 
         let started = builder
@@ -661,7 +646,7 @@ impl PipelineTaskExecutor {
         resume_data: agentic_core::human_input::SuspendedRunData,
         answer: String,
     ) -> Result<ExecutingTask, String> {
-        // Load run from DB to get source_type, agent_id, model, thread_id.
+        // Load run from DB to get source_type, agent_id, thread_id.
         let run = agentic_runtime::crud::get_run(&self.db, run_id)
             .await
             .map_err(|e| format!("failed to load run: {e}"))?
@@ -692,12 +677,6 @@ impl PipelineTaskExecutor {
                     .map(|s| s.to_string())
             })
             .unwrap_or_default();
-        let model = run
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("model"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
 
         // Resume path: `existing_run_id` will be set below, so the
         // builder skips the DB insert — workspace_id is not consulted at
@@ -706,15 +685,8 @@ impl PipelineTaskExecutor {
         let mut builder = PipelineBuilder::new(self.platform.clone())
             .workspace_id(self.platform.workspace_id())
             .question(&run.question);
-        if let Some(bridges) = self.builder_bridges.clone() {
-            builder = builder.with_builder_bridges(bridges);
-        }
-
         if let Some(cache) = &self.schema_cache {
             builder = builder.schema_cache(cache.clone());
-        }
-        if let Some(runner) = &self.builder_test_runner {
-            builder = builder.test_runner(runner.clone());
         }
         if let Some(tid) = run.thread_id {
             builder = builder.thread(tid);
@@ -726,7 +698,6 @@ impl PipelineTaskExecutor {
                 run_id,
                 source_type,
                 &agent_id,
-                model,
                 resume_data,
                 answer,
             )
@@ -848,9 +819,7 @@ impl PipelineTaskExecutor {
     fn with_platform(&self, platform: Arc<dyn PlatformContext>) -> Self {
         Self {
             platform,
-            builder_bridges: self.builder_bridges.clone(),
             schema_cache: self.schema_cache.clone(),
-            builder_test_runner: self.builder_test_runner.clone(),
             db: self.db.clone(),
             state: self.state.clone(),
             custom_executors: self.custom_executors.clone(),
@@ -2129,11 +2098,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn builder_agent_id_routes_to_builder() {
-        assert!(is_builder_agent("__builder__"));
-    }
-
     // ── QuickBooks token custody ─────────────────────────────────────────
 
     #[test]
@@ -2185,13 +2149,6 @@ mod tests {
             usable_secret(Some("eyJ.abc".into())).as_deref(),
             Some("eyJ.abc")
         );
-    }
-
-    #[test]
-    fn regular_agent_id_routes_to_analytics() {
-        assert!(!is_builder_agent("revenue"));
-        assert!(!is_builder_agent("duckdb"));
-        assert!(!is_builder_agent(""));
     }
 
     #[test]
@@ -2270,6 +2227,8 @@ mod tests {
     struct OneSecretPlatform {
         name: &'static str,
         value: &'static str,
+        /// How many times an agent config was asked for.
+        agent_reads: std::sync::atomic::AtomicUsize,
     }
 
     #[async_trait]
@@ -2289,6 +2248,14 @@ mod tests {
         }
         async fn resolve_secret(&self, var_name: &str) -> Option<String> {
             (var_name == self.name).then(|| self.value.to_string())
+        }
+        async fn resolve_agent(
+            &self,
+            _agent_ref: &str,
+        ) -> Result<Option<String>, crate::WorkspaceReadError> {
+            self.agent_reads
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(None)
         }
     }
 
@@ -2324,11 +2291,17 @@ mod tests {
     }
 
     fn executor_knowing(name: &'static str, value: &'static str) -> PipelineTaskExecutor {
+        executor_on(Arc::new(OneSecretPlatform {
+            name,
+            value,
+            agent_reads: Default::default(),
+        }))
+    }
+
+    fn executor_on(platform: Arc<OneSecretPlatform>) -> PipelineTaskExecutor {
         PipelineTaskExecutor {
-            platform: Arc::new(OneSecretPlatform { name, value }),
-            builder_bridges: None,
+            platform,
             schema_cache: None,
-            builder_test_runner: None,
             // Never queried: `resolve_airway_source_secrets` reads only the
             // platform port. A `Disconnected` handle errors on any query, so a
             // future DB read here fails the test rather than passing quietly.
@@ -2738,6 +2711,82 @@ mod tests {
         };
         assert!(err.contains("not run in a workspace preview"), "got: {err}");
         assert_eq!(platform.yaml_reads.load(Ordering::SeqCst), 0);
+    }
+
+    /// A `__builder__` task queued before the builder was removed, or a
+    /// delegation still naming it, is refused at claim. It must not fall
+    /// through to the analytics pipeline: no agent config is read for it.
+    /// The run's terminal failure is driven end to end in
+    /// `tests/integration/builder_removed_task_test.rs`.
+    #[tokio::test]
+    async fn a_builder_task_is_refused_at_claim_before_any_agent_read() {
+        use agentic_core::delegation::{TaskAssignment, TaskSpec};
+        use agentic_runtime::worker::TaskExecutor;
+        use std::sync::atomic::Ordering;
+
+        let platform = Arc::new(OneSecretPlatform {
+            name: "",
+            value: "",
+            agent_reads: Default::default(),
+        });
+        let assignment = TaskAssignment {
+            task_id: "root.1".into(),
+            parent_task_id: Some("root".into()),
+            run_id: "root.1".into(),
+            spec: TaskSpec::Agent {
+                agent_id: BUILDER_AGENT_ID.into(),
+                question: "add a view".into(),
+                extra: None,
+            },
+            policy: None,
+            claim_epoch: agentic_core::NO_CLAIM,
+        };
+        let err = match executor_on(platform.clone()).execute(assignment).await {
+            Err(e) => e,
+            Ok(_) => panic!("a builder task must be refused, not started"),
+        };
+        assert!(err.contains("builder was removed"), "got: {err}");
+        assert_eq!(platform.agent_reads.load(Ordering::SeqCst), 0);
+    }
+
+    /// A stored builder run that recovery re-launches is refused with the
+    /// removal text, checkpoint or not, before anything is read: not the
+    /// generic "no checkpoint" or "cold resume not supported".
+    #[tokio::test]
+    async fn a_stored_builder_run_is_refused_on_resume() {
+        let now = agentic_runtime::crud::now();
+        let run = agentic_runtime::entity::run::Model {
+            id: "run-b".into(),
+            question: "add a view".into(),
+            answer: None,
+            error_message: None,
+            thread_id: None,
+            source_type: Some("builder".into()),
+            metadata: None,
+            parent_run_id: None,
+            schedule_id: None,
+            task_status: Some("running".into()),
+            task_metadata: None,
+            attempt: 0,
+            recovery_requested_at: None,
+            driver_id: None,
+            driver_heartbeat_at: None,
+            cancel_requested_at: None,
+            workspace_id: uuid::Uuid::nil(),
+            created_at: now,
+            updated_at: now,
+        };
+        let platform = Arc::new(OneSecretPlatform {
+            name: "",
+            value: "",
+            agent_reads: Default::default(),
+        });
+        let err = match executor_on(platform).resume_from_state(&run, None).await {
+            Err(e) => e,
+            Ok(_) => panic!("a builder run must not resume"),
+        };
+        assert!(err.contains("builder was removed"), "got: {err}");
+        assert!(!err.contains(NO_CHECKPOINT), "got: {err}");
     }
 }
 

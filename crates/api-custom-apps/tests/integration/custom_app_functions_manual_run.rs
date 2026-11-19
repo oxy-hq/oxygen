@@ -299,8 +299,6 @@ pub(crate) fn spawn_driver(
                 platform.clone(),
                 Arc::new(agentic_pipeline::platform::IdentityResolver),
                 None,
-                None,
-                None,
                 router.clone(),
                 Some(demo_workspace_id()),
                 Some(registry.clone()),

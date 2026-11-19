@@ -35,9 +35,6 @@ databases:
     type: duckdb
     dataset: .db/
 
-builder_agent:
-  model: claude-sonnet-4-6
-
 # Rollups are written as Parquet, which DuckDB autoloads an extension for —
 # unavailable in network-restricted environments, where every rebuild fails on
 # the heartbeat and buries real errors in the log. The fixture is 104,000

@@ -44,17 +44,6 @@ const ALLOWED: &[(&str, &str)] = &[
          compiled and materialised first; the working copy is the fallback \
          when no revision holds one, and it errors where there is none.",
     ),
-    (
-        "src/agentic_wiring/builder_bridges/semantic_compiler.rs",
-        "BACKLOG. The Builder's semantic-query tool scans the workspace root; \
-         it should scan `context_root()`, which serves the compiled boundary. \
-         The Builder edits the working copy, so it runs on the Factory.",
-    ),
-    (
-        "src/agentic_wiring/builder_bridges/project_validator.rs",
-        "the Builder validates the files it just wrote into the working copy. \
-         The working copy is the subject; there is no revision to read yet.",
-    ),
 ];
 
 fn server_files() -> Vec<(String, String)> {
@@ -226,7 +215,8 @@ fn the_escape_hatch_does_not_widen() {
     // uses under `src/server` (the root extractor, the workspace delete, the
     // anomaly scan's fallback, the connection test); what is left is the agent
     // run's disk origin and the Builder bridges.
-    const CEILING: usize = 5;
+    // 5 -> 2: the Builder bridges were deleted with the builder crate (-3).
+    const CEILING: usize = 2;
     let total: usize = server_files()
         .iter()
         .map(|(_, body)| body.matches(".workspace_path()").count())

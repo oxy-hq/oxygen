@@ -136,9 +136,6 @@ impl WorkerRuntime {
         );
         Arc::new(
             agentic_http::AgenticState::new(shutdown, self.db.clone(), thread_owner)
-                .with_builder_test_runner(Arc::new(
-                    crate::server::builder_test_runner::OxyTestRunner,
-                ))
                 .with_router(self.router.clone())
                 .with_queued_starts(true),
         )

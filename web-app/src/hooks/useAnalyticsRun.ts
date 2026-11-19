@@ -273,8 +273,7 @@ export interface UseAnalyticsRunResult {
     agentId: string,
     question: string,
     threadId?: string,
-    thinkingMode?: ThinkingMode,
-    model?: string
+    thinkingMode?: ThinkingMode
   ) => void;
   /** Resume from SSE using a run that already exists (page reload). */
   reconnect: (runId: string, existingState?: AnalyticsRunState["tag"]) => void;
@@ -480,23 +479,14 @@ export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnaly
   );
 
   const start = useCallback(
-    (
-      agentId: string,
-      question: string,
-      threadId?: string,
-      thinkingMode?: ThinkingMode,
-      model?: string
-    ) => {
+    (agentId: string, question: string, threadId?: string, thinkingMode?: ThinkingMode) => {
       setIsStarting(true);
       setState({ tag: "running", runId: "", events: [] });
       AnalyticsService.createRun(projectId, {
         agent_id: agentId,
         question,
         thread_id: threadId,
-        thinking_mode: thinkingMode,
-        // The server refuses a Builder start with `410 builder_removed`, whose
-        // message the failed state shows.
-        ...(agentId === "__builder__" && { domain: "builder", model })
+        thinking_mode: thinkingMode
       })
         .then(({ run_id }) => {
           openStream(run_id);

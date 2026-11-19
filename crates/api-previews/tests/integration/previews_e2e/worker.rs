@@ -64,8 +64,6 @@ pub(super) async fn start(fx: &Fx) -> Worker {
                 base.clone(),
                 resolver.clone(),
                 None,
-                None,
-                None,
                 Arc::new(agentic_runtime::router::NoopTaskRouter),
                 Some(ws),
                 Some(registry.clone()),

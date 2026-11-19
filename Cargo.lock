@@ -304,34 +304,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agentic-builder"
-version = "0.5.161"
-dependencies = [
- "agentic-connector",
- "agentic-core",
- "agentic-llm",
- "agentic-runtime",
- "arrow 58.3.0",
- "async-trait",
- "chrono",
- "chrono-tz 0.10.4",
- "glob",
- "oxy",
- "oxy-airform",
- "oxy-airlayer-compat",
- "regex",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "workspace-hack",
-]
-
-[[package]]
 name = "agentic-connector"
 version = "0.5.161"
 dependencies = [
@@ -438,7 +410,6 @@ dependencies = [
  "agentic-airway",
  "agentic-analytics",
  "agentic-automation",
- "agentic-builder",
  "agentic-connector",
  "agentic-core",
  "agentic-llm",
@@ -473,7 +444,6 @@ name = "agentic-runtime"
 version = "0.5.31"
 dependencies = [
  "agentic-analytics",
- "agentic-builder",
  "agentic-core",
  "async-trait",
  "chrono",
@@ -10634,7 +10604,6 @@ dependencies = [
  "agentic-airway",
  "agentic-analytics",
  "agentic-automation",
- "agentic-builder",
  "agentic-connector",
  "agentic-core",
  "agentic-http",
@@ -17993,6 +17962,7 @@ dependencies = [
  "idna",
  "indexmap 2.14.0",
  "inout",
+ "jsonwebtoken 11.0.0",
  "lazy_static",
  "libc",
  "libduckdb-sys",

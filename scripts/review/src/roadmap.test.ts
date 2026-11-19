@@ -57,13 +57,12 @@ test("roadmap status: which files count as product code", () => {
       "internal-docs/x.md",
       ".github/workflows/ci.yaml",
       // Scaffolds and tool config are exempt; the CLI's template code, the agent
-      // instructions and the Builder Agent's knowledge YAML are product.
+      // instructions and the skills' YAML templates are product.
       "sdk/cli/template/.github/workflows/publish.yaml",
       "sdk/create-oxy-app/templates/basic/src/App.tsx",
       "crates/app/.cargo/config.toml",
       "sdk/cli/src/template/sync.ts",
       "crates/app/src/templates/agent_instructions.txt",
-      "crates/agentic/builder/knowledge/view-template.yml",
       "sdk/cli/skills/oxy-agents/templates/agent.yml"
     ],
     ROADMAP
@@ -74,13 +73,12 @@ test("roadmap status: which files count as product code", () => {
     "sdk/cli/src/main.ts",
     "sdk/cli/src/template/sync.ts",
     "crates/app/src/templates/agent_instructions.txt",
-    "crates/agentic/builder/knowledge/view-template.yml",
     "sdk/cli/skills/oxy-agents/templates/agent.yml"
   ]);
-  // A `feat` that changes only the Builder Agent's knowledge is a behaviour change.
+  // A `feat` that changes only a skill's YAML template is a behaviour change.
   const knowledge = run({
-    files: ["crates/agentic/builder/knowledge/view-template.yml"],
-    title: "feat: a better view template"
+    files: ["sdk/cli/skills/oxy-agents/templates/agent.yml"],
+    title: "feat: a better agent template"
   });
   assert.equal(knowledge.state, "failure");
 });

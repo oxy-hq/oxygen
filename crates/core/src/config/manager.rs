@@ -13,7 +13,7 @@ use super::{
         AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments,
         PipelineEntry, SimulationEntry, VerifiedQueryEntry,
     },
-    model::{Automation, AutomationWithRawVariables, BuilderAgentConfig, Config, Database, Model},
+    model::{Automation, AutomationWithRawVariables, Config, Database, Model},
     storage::{ConfigStorage, FsStorage},
     test_config::TestFileConfig,
 };
@@ -295,17 +295,6 @@ impl<S> ConfigManager<S> {
                 _ => None,
             })
             .collect()
-    }
-
-    pub fn get_builder_config(&self) -> Option<&BuilderAgentConfig> {
-        self.config.builder_agent.as_ref()
-    }
-
-    pub fn is_builder_builtin(&self) -> bool {
-        matches!(
-            self.config.builder_agent,
-            Some(BuilderAgentConfig::Builtin { .. })
-        )
     }
 
     pub fn protected_branches(&self) -> Option<&[String]> {

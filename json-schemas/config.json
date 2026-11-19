@@ -11,6 +11,7 @@
       ]
     },
     "builder_agent": {
+      "description": "Ignored: the builder agent was removed. The key still parses.",
       "anyOf": [
         {
           "$ref": "#/definitions/BuilderAgentConfig"
@@ -112,7 +113,7 @@
   "additionalProperties": false,
   "definitions": {
     "BuilderAgentConfig": {
-      "description": "Configuration for the built-in builder copilot agent.\n\nExample: `builder_agent: { model: \"claude-sonnet-4-6\" }`",
+      "description": "Configuration for the built-in builder copilot agent, which no longer exists. Kept only so a `config.yml` that still carries `builder_agent:` parses (the struct is `deny_unknown_fields`); the value is ignored.\n\nExample: `builder_agent: { model: \"claude-sonnet-4-6\" }`",
       "anyOf": [
         {
           "description": "Built-in copilot configured only with a model name.",

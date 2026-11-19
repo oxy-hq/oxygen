@@ -698,8 +698,7 @@ ok "loaded $declared_total declared routes ($(printf '%s\n' "${CAT_BUCKET[@]}" |
 #
 # NO associative arrays anywhere in this script, deliberately: macOS ships
 # bash 3.2 (GPLv2-only) as `/usr/bin/env bash` unless a developer's PATH puts
-# a newer one first, and `declare -A` is a bash-4+ feature (see
-# scripts/check-skills-drift.sh's own comment about the same constraint).
+# a newer one first, and `declare -A` is a bash-4+ feature.
 # Every "map" below is a linear scan over parallel indexed arrays, or a
 # newline-delimited membership list — both portable to bash 3.2, and none of
 # the scans here run often enough (low hundreds of comparisons) to matter.
@@ -1254,7 +1253,6 @@ add Now  "agents-list"       GET "/api/${WS}/agents"                    body "/a
 add Now  "api-tokens-list"   GET "/api/${WS}/api-tokens"                body "/api/{workspace_id}/api-tokens"
 add Now  "app-integrations-list" GET "/api/${WS}/app-integrations"      body "/api/{workspace_id}/app-integrations"
 add Now  "automations-list"  GET "/api/${WS}/automations"               body "/api/{workspace_id}/automations"
-add Now  "builder-availability" GET "/api/${WS}/builder-availability"   body "/api/{workspace_id}/builder-availability"
 addb Now "semantic-compile"  POST "/api/${WS}/semantic/compile"         body  '{}' "/api/{workspace_id}/semantic/compile"
 add Now  "custom-apps-workspace" GET "/api/${WS}/custom-apps"           body "/api/{workspace_id}/custom-apps"
 add Now  "databases-list"    GET "/api/${WS}/databases?branch=main"     body "/api/{workspace_id}/databases"

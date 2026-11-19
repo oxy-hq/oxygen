@@ -150,7 +150,6 @@ AREAS = [
     ("web-app/src/pages/onboarding",                      "Onboarding (UI)"),
     ("web-app/src/pages/create-workspace",               "Create workspace (UI)"),
     ("web-app/tests/agentic",                             "Agentic browser tests"),
-    ("crates/agentic/builder",                            "Builder copilot"),
     ("crates/agentic/analytics",                          "Analytics agent"),
     ("crates/agentic/automation",                         "Automation/workflow engine"),
     ("web-app/src/pages/automation",                      "Automation (UI)"),

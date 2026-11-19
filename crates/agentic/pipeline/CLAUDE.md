@@ -5,16 +5,14 @@ High-level facade for starting and driving agentic pipelines. This is the **comp
 ## Key Types
 
 ```rust
-// Callers assemble the platform adapter + builder bridges in their host
+// Callers assemble the platform adapter in their host
 // crate (for Oxy: `app::agentic_wiring`) and pass them in.
 let project_ctx = Arc::new(OxyProjectContext::new(workspace_manager));
 let platform: Arc<dyn PlatformContext> = project_ctx.clone();
-let bridges = build_builder_bridges(project_ctx);
 
 // Fluent builder for pipeline setup
 PipelineBuilder::new(platform.clone())
-    .with_builder_bridges(bridges)   // required for builder domain
-    .analytics("agent_id")            // or .builder(model)
+    .analytics("agent_id")
     .question("What is revenue?")
     .thread(thread_uuid)
     .thinking_mode(ThinkingMode::Auto)
@@ -73,16 +71,10 @@ state goes through three traits declared in [`platform`]:
 | `platform::ThreadOwnerLookup` | `thread_owner(thread_id)` — used by HTTP for auth |
 | `platform::PlatformContext` | Supertrait: `ProjectContext + agentic_automation::WorkspaceContext`. Anywhere pipeline needs both, take `Arc<dyn PlatformContext>`. |
 
-Plus a bundle for the builder domain:
-
-| Type | Contents |
-| ------ | ---------- |
-| `platform::BuilderBridges` | The four `Arc<dyn Builder{Database,SchemaProvider,SemanticCompiler,ProjectValidator}>` impls the builder pipeline needs |
-
 Adapters live in the host. For Oxy they live in
 [`app::agentic_wiring`](../../app/src/agentic_wiring/) — `OxyProjectContext`
 implements `PlatformContext`, `OxyThreadOwnerLookup` implements
-`ThreadOwnerLookup`, and `build_builder_bridges()` assembles the bridges.
+`ThreadOwnerLookup`.
 Platform-refactor work happens there, not here.
 
 When adding a new platform touchpoint, add a method to the relevant port
@@ -124,7 +116,7 @@ dependency to this crate.
   platform crate that `oxy` and `oxy-app` also dev-depend on, needs no
   `agentic-*` dependency of its own.
 - Consumers (`http`, `app/cli`) should import `agentic-pipeline`, NOT domain crates.
-- Re-exports domain types that consumers need: `ThinkingMode`, `SchemaCatalog`, `BuilderTestRunner`.
+- Re-exports domain types that consumers need: `ThinkingMode`, `SchemaCatalog`.
 
 ## Testing
 

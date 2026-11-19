@@ -79,8 +79,8 @@ export const ROADMAP: RoadmapConfig = {
     "sdk/create-oxy-app/templates/**",
     "**/.github/**",
     // Manifests, lockfiles and tool config: a version pin or a build setting is not a
-    // feature. Not YAML or TOML by extension: `crates/agentic/builder/knowledge/*.yml` is
-    // compiled into the Builder Agent's prompts.
+    // feature. Not YAML or TOML by extension: the YAML templates under `sdk/cli/skills/`
+    // are shipped content.
     "**/Cargo.toml",
     "**/Cargo.lock",
     "**/package.json",

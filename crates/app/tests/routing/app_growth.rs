@@ -46,7 +46,6 @@ const SERVER: &[&str] = &[
     "auth_provider_check",
     "authz",
     "build_identity",
-    "builder_test_runner",
     "compile_config_gate",
     "compile_git",
     "compile_maintenance",

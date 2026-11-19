@@ -358,28 +358,20 @@ pub async fn start_automation_run_as(
 /// run page hangs in its loading state forever.
 /// Drive a queued automation run.
 ///
-/// `builder_bridges` is required for automations that delegate to the
-/// built-in builder agent via `agent_ref: __builder__` (refused at compile
-/// now, so only a revision compiled before that holds one: SQL gen, file
-/// edits, etc.) — without it the executor returns "builder bridges
-/// not provided" the moment such a step delegates. `None` is only
-/// valid for paths that don't have a workspace context (the recovery
-/// sweeper is the historical example), and any automation that does
-/// invoke the builder from that path will fail loudly.
+/// A step that still delegates to the removed builder (`agent_ref:
+/// __builder__`, refused at compile, so only a revision compiled before that
+/// holds one) fails when the executor claims it.
 pub fn spawn_automation_run_drive(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     run_id: String,
     platform: Arc<dyn PlatformContext>,
-    builder_bridges: Option<crate::platform::BuilderBridges>,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
 ) {
     let executor = Arc::new(PipelineTaskExecutor {
         platform,
-        builder_bridges,
         schema_cache: None,
-        builder_test_runner: None,
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,

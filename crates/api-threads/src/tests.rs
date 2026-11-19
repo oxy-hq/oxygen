@@ -18,7 +18,6 @@ const WORKSPACE_MOUNTED: &[&str] = &[
     "/artifacts/65c121b2-0000-0000-0000-000000000000",
     "/charts/chart-1.json",
     "/logs",
-    "/builder-availability",
     "/results/files/65c121b2-0000-0000-0000-000000000000.parquet",
 ];
 
@@ -46,9 +45,9 @@ fn every_workspace_route_is_declared_fleet_ok_exactly_once() {
     let declared = workspace_route_roles();
     assert_eq!(
         declared.len(),
-        10,
-        "four thread paths, the agent listing, artifacts, charts, logs, builder \
-         availability and result files"
+        9,
+        "four thread paths, the agent listing, artifacts, charts, logs \
+         and result files"
     );
     for decl in declared {
         let same = declared

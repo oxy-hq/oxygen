@@ -704,8 +704,6 @@ resources:
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
         None,
-        None,
-        None,
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(workspace_id),
         None,

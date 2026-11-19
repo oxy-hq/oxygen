@@ -275,8 +275,6 @@ pub(crate) async fn drive_once(
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
         None,
-        None,
-        None,
         noop_router(),
         Some(workspace_id),
         Some(registry(db)),

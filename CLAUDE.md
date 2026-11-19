@@ -56,7 +56,7 @@ crates/
   cameras/                  # (oxy-cameras) Camera fleet domain
   test-utils/               # (oxy-test-utils) Fixtures & mocks
   agentic/
-    core/ runtime/ pipeline/ analytics/ builder/ automation/ airway/
+    core/ runtime/ pipeline/ analytics/ automation/ airway/
     connector/ http/ llm/ semantic/    # see crates/agentic/CLAUDE.md for layering
   infrastructure/llm/oxy-llm
   infrastructure/semantic/  # (oxy-airlayer-compat) airlayer compatibility shim

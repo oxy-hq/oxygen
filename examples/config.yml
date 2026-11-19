@@ -202,9 +202,6 @@ defaults:
   database: local
   agent: _analytics.agentic.yml
 
-builder_agent:
-  model: claude-sonnet-4-6
-
 # ── Workspace health monitoring ────────────────────────────────────────────
 # Drives the admin "Workspace health" tab. `interval` is how often the passive
 # rollup (job liveness, pipeline, anomalies, queue, reconciliation) is

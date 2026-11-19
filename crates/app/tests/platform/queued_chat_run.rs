@@ -316,8 +316,6 @@ async fn a_latency_pass_drives_a_queued_chat_to_a_terminal_event() {
                 Arc::new(IdentityResolver),
             )),
             None,
-            None,
-            None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),
@@ -471,14 +469,6 @@ async fn only_a_plain_chat_with_a_requester_is_started_on_the_queue() {
 
     for stays in [
         ChatAdmission {
-            builder_domain: true,
-            ..Default::default()
-        },
-        ChatAdmission {
-            onboarding: true,
-            ..Default::default()
-        },
-        ChatAdmission {
             auto_accept: true,
             ..Default::default()
         },
@@ -560,8 +550,6 @@ async fn a_queued_chat_start_is_driven_by_whichever_driver_claims_it() {
                 Arc::new(IdentityResolver),
             )),
             None,
-            None,
-            None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),
@@ -615,7 +603,6 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
             .await
             .expect("a member's context"),
     );
-    let bridges = oxy_app::agentic_wiring::build_builder_bridges(context.clone());
     let platform: Arc<dyn PlatformContext> = context;
     let state = Arc::new(
         agentic_http::AgenticState::new(
@@ -639,7 +626,6 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
             agentic_http::automation_router(state.clone()),
         )
         .layer(axum::Extension(platform.clone()))
-        .layer(axum::Extension(bridges))
         .layer(axum::Extension(user));
 
     let response = app
@@ -683,8 +669,6 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
                 db.clone(),
                 Arc::new(IdentityResolver),
             )),
-            None,
-            None,
             None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
@@ -735,7 +719,6 @@ async fn workflow_app(
         .await
         .expect("a member's context"),
     );
-    let bridges = oxy_app::agentic_wiring::build_builder_bridges(context.clone());
     let platform: Arc<dyn PlatformContext> = context;
     let state = Arc::new(
         agentic_http::AgenticState::new(
@@ -759,7 +742,6 @@ async fn workflow_app(
             agentic_http::automation_router(state.clone()),
         )
         .layer(axum::Extension(platform))
-        .layer(axum::Extension(bridges))
         .layer(axum::Extension(user));
     (app, state)
 }

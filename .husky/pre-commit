@@ -3,7 +3,7 @@ pnpm lint-staged --quiet
 # Advisory: when web-app source under a watched surface is staged, list
 # the agentic-test flows that should be re-run. Does not block — pipe
 # `|| true` ensures the hook stays advisory.
-watched_dirs='web-app/src/pages/home/ web-app/src/pages/ide/ web-app/src/pages/onboarding/ web-app/src/components/BuilderDialog/ web-app/src/components/Chat/ web-app/src/components/workspaces/'
+watched_dirs='web-app/src/pages/home/ web-app/src/pages/ide/ web-app/src/pages/onboarding/ web-app/src/components/Chat/ web-app/src/components/workspaces/'
 staged=""
 for d in $watched_dirs; do
   hits=$(git diff --cached --name-only --diff-filter=ACMR -- "$d" 2>/dev/null)

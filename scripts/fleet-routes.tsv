@@ -98,7 +98,6 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/automations	fleet-ok	Now	verified live 200 — 23 real automations (alias of `/procedures`)
 *	/api/{workspace_id}/automations/{path_b64}	fleet-ok	Now	base64 one of the 23 real paths
 *	/api/{workspace_id}/blocks	fleet-ok	Fixture	`get_blocks` needs a source/run reference param — needs a real run first
-*	/api/{workspace_id}/builder-availability	fleet-ok	Now	simple availability check, no fixture needed
 *	/api/{workspace_id}/charts/{file_path}	fleet-ok	Fixture	needs a chart already produced by a prior run
 *	/api/{workspace_id}/compile/staging	fleet-ok	Ext	`POST ?branch=<b>` queues a staging compile of the branch's head. A branch that is on GitHub compiles from the commit GitHub has, on any node; one GitHub does not have (the Demo workspace has no remote) is replayed by the replica to the ide, and answers 409 `[no_git_remote]` with the ide down. Its `?branch=` names the branch to compile, so it does not raise the role
 *	/api/{workspace_id}/compile/staging/status	fleet-ok	Now	`GET ?git_sha=<sha>` — Postgres only; `pending` for a commit nothing has compiled, so any 40-hex value is a real read

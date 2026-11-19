@@ -126,8 +126,6 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         base.clone(),
         resolver(&m),
         None,
-        None,
-        None,
         router(),
         Some(s.ws),
         None,
@@ -151,8 +149,6 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         base.clone(),
         resolver(&m),
         None,
-        None,
-        None,
         router(),
         Some(s.ws),
         None,
@@ -168,8 +164,6 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         state(),
         base.clone(),
         resolver(&m),
-        None,
-        None,
         None,
         router(),
         Some(s.ws),
@@ -217,15 +211,7 @@ async fn a_cold_resume_outside_the_preview_retires_a_preview_run() {
         Arc::new(crate::automation_recovery_test::FakePlatform);
 
     let result = PipelineBuilder::new(production)
-        .resume(
-            &db,
-            &run_id,
-            "analytics",
-            "chat",
-            None,
-            suspended(),
-            "a".into(),
-        )
+        .resume(&db, &run_id, "analytics", "chat", suspended(), "a".into())
         .await;
     let err = match result {
         Err(e) => e.to_string(),
@@ -255,15 +241,7 @@ async fn a_cold_resume_outside_the_preview_retires_a_preview_run() {
     let production: Arc<dyn PlatformContext> =
         Arc::new(crate::automation_recovery_test::FakePlatform);
     let result = PipelineBuilder::new(production)
-        .resume(
-            &db,
-            &plain,
-            "analytics",
-            "chat",
-            None,
-            suspended(),
-            "a".into(),
-        )
+        .resume(&db, &plain, "analytics", "chat", suspended(), "a".into())
         .await;
     if let Err(e) = result {
         assert!(!e.to_string().contains(INTERRUPTED), "{e}");

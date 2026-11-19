@@ -53,13 +53,11 @@ pub(crate) mod reconcile;
 use std::sync::Arc;
 use std::time::Instant;
 
-use agentic_pipeline::BuilderTestRunnerTrait;
-use agentic_pipeline::platform::{BuilderBridges, PlatformContext};
+use agentic_pipeline::platform::PlatformContext;
 use agentic_pipeline::recovery::{DrivePolicy, recover_stranded_runs};
 use agentic_runtime::state::RuntimeState;
 use sea_orm::DatabaseConnection;
 
-use crate::agentic_wiring::build_builder_bridges;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use crate::server::queued_analytics::SchemaCache;
 use crate::server::queued_analytics::caller::CallerRunResolver;
@@ -96,7 +94,6 @@ pub(super) struct TickDeps {
     pub db: DatabaseConnection,
     pub runtime: Arc<RuntimeState>,
     pub schema_cache: Option<SchemaCache>,
-    pub builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
     pub router: Arc<dyn agentic_runtime::router::TaskRouter>,
     pub ws_cache: Arc<WorkspaceContextCache>,
     pub preagg: PreaggCacheCtx,
@@ -197,7 +194,6 @@ async fn drive_workspace(deps: &TickDeps, ws: &claim::Claimed) -> usize {
     // The scheduler tick needs a workspace handle: airway targets resolve
     // the pipeline file on THIS workspace's context.
     let workspace: Arc<dyn agentic_pipeline::WorkflowWorkspaceContext> = project_ctx.clone();
-    let bridges: Option<BuilderBridges> = Some(build_builder_bridges(project_ctx));
 
     // Filter to THIS workspace's runs only — otherwise the loop would drive
     // every workspace's stranded rows with the wrong PlatformContext.
@@ -206,9 +202,7 @@ async fn drive_workspace(deps: &TickDeps, ws: &claim::Claimed) -> usize {
         deps.runtime.clone(),
         platform,
         CallerRunResolver::shared(db),
-        bridges,
         deps.schema_cache.clone(),
-        deps.builder_test_runner.clone(),
         deps.router.clone(),
         Some(workspace_id),
         Some(recovery::build_custom_task_registry(

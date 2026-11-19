@@ -16,13 +16,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agentic_builder::{
-    BuilderDatabaseProvider, BuilderProjectValidator, BuilderSchemaProvider,
-    BuilderSemanticCompiler, PreaggHandle, SemanticCompilationResult, ValidationReport,
-};
-use agentic_core::{result::QueryResult, tools::ToolError};
 use agentic_http::AgenticState;
-use agentic_pipeline::platform::{BuilderBridges, PlatformContext, ProjectContext};
+use agentic_pipeline::platform::{PlatformContext, ProjectContext};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -100,74 +95,6 @@ impl agentic_automation::WorkspaceContext for Platform {
     }
 }
 
-/// The builder ports `create_run` requires as an extension. An analytics run
-/// never reaches them.
-struct NoBuilder;
-
-fn unused() -> ToolError {
-    ToolError::Execution("not reached by an analytics run".into())
-}
-
-#[async_trait]
-impl BuilderDatabaseProvider for NoBuilder {
-    async fn list_databases(&self) -> Result<Vec<String>, ToolError> {
-        Err(unused())
-    }
-    async fn get_connector(
-        &self,
-        _name: &str,
-    ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, ToolError> {
-        Err(unused())
-    }
-}
-
-#[async_trait]
-impl BuilderProjectValidator for NoBuilder {
-    async fn validate_file(&self, _abs_path: &Path) -> Result<(), String> {
-        Err("unused".into())
-    }
-    async fn validate_all(&self) -> Result<ValidationReport, ToolError> {
-        Err(unused())
-    }
-}
-
-impl BuilderSchemaProvider for NoBuilder {
-    fn get_schema(&self, _object_name: &str) -> Option<serde_json::Value> {
-        None
-    }
-    fn supported_types(&self) -> &[&str] {
-        &[]
-    }
-}
-
-#[async_trait]
-impl BuilderSemanticCompiler for NoBuilder {
-    async fn compile(
-        &self,
-        _params: &serde_json::Value,
-    ) -> Result<SemanticCompilationResult, ToolError> {
-        Err(unused())
-    }
-    async fn execute_preagg(
-        &self,
-        _preagg_sql: &str,
-        _handle: &PreaggHandle,
-        _sample_limit: u64,
-    ) -> Result<QueryResult, ToolError> {
-        Err(unused())
-    }
-}
-
-fn bridges() -> BuilderBridges {
-    BuilderBridges {
-        db_provider: Arc::new(NoBuilder),
-        project_validator: Arc::new(NoBuilder),
-        schema_provider: Arc::new(NoBuilder),
-        semantic_compiler: Arc::new(NoBuilder),
-        secrets_provider: None,
-    }
-}
-
 /// The analytics router as `user`, a member of `workspace_id`, reaches it.
 fn analytics_as(db: &DatabaseConnection, workspace_id: Uuid, user: &AuthenticatedUser) -> Router {
     let state = Arc::new(AgenticState::new(
@@ -180,7 +107,6 @@ fn analytics_as(db: &DatabaseConnection, workspace_id: Uuid, user: &Authenticate
         .nest("/analytics", agentic_http::router(state))
         .layer(Extension(platform))
         .layer(Extension(user.clone()))
-        .layer(Extension(bridges()))
 }
 
 async fn seed_workspace(db: &DatabaseConnection, tag: &str) -> Uuid {

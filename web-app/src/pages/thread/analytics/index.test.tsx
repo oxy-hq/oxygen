@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
-import type useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import type { SseEvent, UseAnalyticsRunResult } from "@/hooks/useAnalyticsRun";
 import { sseEventToUiBlock } from "@/hooks/useAnalyticsRun";
 import type { AnalyticsRunSummary, ChartConfig } from "@/services/api/analytics";
@@ -18,20 +17,16 @@ import AnalyticsThread from "./index";
 // run state machine, the run-list query, and leaves that need a browser.
 
 type RunsQuery = { data: AnalyticsRunSummary[]; isLoading: boolean; isFetching: boolean };
-type BuilderAvailability = ReturnType<typeof useBuilderAvailable>;
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-const { mockUseAnalyticsRun, mockUseQuery, mockUseBuilderAvailable, queryClientStub } = vi.hoisted(
-  () => ({
-    mockUseAnalyticsRun: vi.fn<() => UseAnalyticsRunResult>(),
-    mockUseQuery: vi.fn<() => RunsQuery>(),
-    mockUseBuilderAvailable: vi.fn<() => BuilderAvailability>(),
-    // One stable client, as in the app: a fresh object per render would re-fire
-    // every effect that lists the client as a dependency.
-    queryClientStub: { invalidateQueries: vi.fn(), refetchQueries: vi.fn() }
-  })
-);
+const { mockUseAnalyticsRun, mockUseQuery, queryClientStub } = vi.hoisted(() => ({
+  mockUseAnalyticsRun: vi.fn<() => UseAnalyticsRunResult>(),
+  mockUseQuery: vi.fn<() => RunsQuery>(),
+  // One stable client, as in the app: a fresh object per render would re-fire
+  // every effect that lists the client as a dependency.
+  queryClientStub: { invalidateQueries: vi.fn(), refetchQueries: vi.fn() }
+}));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const original = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -57,10 +52,6 @@ vi.mock("@/hooks/useAnalyticsRun", async (importOriginal) => {
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
   default: () => ({ project: { id: "proj-1" }, branchName: "main" })
 }));
-
-vi.mock("@/hooks/api/useBuilderAvailable", () => ({ default: mockUseBuilderAvailable }));
-
-// Read by the builder input for @-mentions; it needs a QueryClient of its own.
 
 // lottie-web paints a canvas at import time and jsdom has no canvas.
 vi.mock("@lottiefiles/react-lottie-player", () => ({ Player: "div" }));
@@ -192,17 +183,6 @@ function doneWith(
   });
 }
 
-const builderAvailability = (
-  overrides: Partial<BuilderAvailability> = {}
-): BuilderAvailability => ({
-  isAvailable: true,
-  isLoading: false,
-  isError: false,
-  isBuiltin: true,
-  builderModel: undefined,
-  ...overrides
-});
-
 const renderThread = (thread: ThreadItem = THREAD) =>
   render(<AnalyticsThread thread={thread} />, { wrapper: SidebarProvider });
 
@@ -225,7 +205,6 @@ beforeEach(() => {
   counter = 0;
   mockUseAnalyticsRun.mockReturnValue(makeResult());
   mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: false });
-  mockUseBuilderAvailable.mockReturnValue(builderAvailability());
   // jsdom does not implement scrollIntoView
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 });
@@ -622,13 +601,7 @@ describe("AnalyticsThread — auto-start on first visit", () => {
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
     renderThread();
     expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenCalledWith(
-      "agent-1",
-      "Analyze sales data",
-      "thread-1",
-      "auto",
-      undefined
-    );
+    expect(start).toHaveBeenCalledWith("agent-1", "Analyze sales data", "thread-1", "auto");
   });
 
   it("starts with the thinking mode chosen in the chat panel", () => {
@@ -640,8 +613,7 @@ describe("AnalyticsThread — auto-start on first visit", () => {
       "agent-1",
       "Analyze sales data",
       "thread-1",
-      "extended_thinking",
-      undefined
+      "extended_thinking"
     );
   });
 
@@ -671,46 +643,66 @@ describe("AnalyticsThread — auto-start on first visit", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it("holds a builder thread until the builder model is known", () => {
-    const start = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
-    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ isLoading: true }));
-    renderThread(BUILDER_THREAD);
-    expect(start).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("starts a builder thread with the configured builder model", () => {
-    const start = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
-    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ builderModel: "builder-model" }));
-    renderThread(BUILDER_THREAD);
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenCalledWith(
-      "__builder__",
-      "Analyze sales data",
-      "thread-1",
-      "auto",
-      "builder-model"
-    );
-  });
-
-  it("says why a builder thread cannot start when no model is configured", () => {
+  it("does not start a builder thread, and says the Builder was removed", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
     renderThread(BUILDER_THREAD);
     expect(start).not.toHaveBeenCalled();
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("The Builder Agent didn't start");
-    expect(alert.textContent).toContain("Set builder_agent.model in config.yml");
+    expect(screen.getByRole("alert").textContent).toContain("The Builder Agent was removed");
   });
+});
 
-  it("blames the availability check, not the config, when that check failed", () => {
-    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ isError: true }));
+describe("AnalyticsThread — old builder runs after the Builder's removal", () => {
+  it("renders an old builder run and an old delegation card", () => {
+    mockUseQuery.mockReturnValue({
+      data: [
+        pastRun({
+          run_id: "builder-run",
+          agent_id: "__builder__",
+          answer: "Added the view",
+          ui_events: [
+            {
+              seq: 1,
+              event_type: "file_changed",
+              payload: {
+                file_path: "semantics/orders.view.yml",
+                description: "add orders view",
+                new_content: "name: orders",
+                old_content: "",
+                is_deletion: false
+              }
+            }
+          ]
+        }),
+        pastRun({
+          run_id: "analytics-run",
+          answer: "Delegated",
+          ui_events: [
+            { seq: 1, event_type: "step_start", payload: { label: "Solving" } },
+            {
+              seq: 2,
+              event_type: "delegation_started",
+              payload: {
+                child_task_id: "child-1",
+                target: "agent:__builder__",
+                request: "add a view"
+              }
+            }
+          ]
+        })
+      ],
+      isLoading: false,
+      isFetching: false
+    });
     renderThread(BUILDER_THREAD);
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Couldn't check this workspace's Builder Agent");
-    expect(alert.textContent).not.toContain("config.yml");
+
+    // The page draws no file-change pill for a past run (nothing passes it
+    // `onSelectChange`), so what an old builder run shows is its answer.
+    expect(screen.getByText("Added the view")).toBeInTheDocument();
+    expect(screen.getByTestId("builder-delegation-card")).toBeInTheDocument();
+    // The Build-mode input (its Auto-approve switch) is gone: nothing can start a Builder run.
+    expect(screen.queryByRole("switch", { name: /auto-approve/i })).toBeNull();
+    expect(screen.queryByPlaceholderText("Ask a follow-up question...")).toBeNull();
   });
 });
 

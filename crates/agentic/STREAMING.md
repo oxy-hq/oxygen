@@ -52,7 +52,6 @@ Events are split into two layers:
 
 **`DomainEvents`** trait — domain enum types. Concrete impls:
 - `AnalyticsEvent` ([analytics/src/events.rs](analytics/src/events.rs)): `TriageCompleted`, `IntentClarified`, `SpecResolved`, `SemanticShortcutAttempted/Resolved`, `QueryGenerated`, `QueryExecuted`, `AnalysisComplete`, `ProposedChart`, `AutomationStarted/StepStarted/Completed`, `ToolUsed`
-- `BuilderEvent` ([builder/src/events.rs](builder/src/events.rs)): `FileChangePending`, `FileChanged`, `ToolUsed`
 
 **Unified wrapper**:
 ```rust
@@ -175,12 +174,10 @@ pub struct DomainHandler {
 ```rust
 let registry = EventRegistry::new();
 registry.register("analytics", agentic_analytics::event_handler());
-registry.register("builder",   agentic_builder::event_handler());
 ```
 
 Each domain exports `pub fn event_handler() -> DomainHandler`:
 - **analytics**: deserializes `AnalyticsEvent` via `domain_row_processor::<AnalyticsEvent>()`; accumulates `intent_clarified`, `spec_resolved`, `query_executed`, etc. for end-of-state summary metadata
-- **builder**: deserializes `BuilderEvent`; `should_accumulate = Some(|_| false)` — builder events stream as standalone blocks
 
 ### StreamProcessor
 
@@ -286,7 +283,6 @@ UI blocks emitted by the `StreamProcessor`:
 | `tool_result` | `ToolResult` | Tool name, serialized output |
 | `chart_proposal` | `ProposedChart` (analytics) | Chart type, config, result ref |
 | `query_result` | `QueryExecuted` (analytics) | Rows, columns, metadata |
-| `file_change_pending` | `FileChangePending` (builder) | File path, description, new + old content for diff preview |
 | `awaiting_input` | `AwaitingHumanInput` | Prompt + suggestions |
 | `sub_spec_event` | Any event with `sub_spec_index` | Wrapped event tagged to a fan-out branch |
 | `done` | `Done` | Final answer |

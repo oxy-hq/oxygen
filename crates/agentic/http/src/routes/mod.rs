@@ -22,14 +22,14 @@ pub struct CreateRunRequest {
     pub model: Option<String>,
     #[serde(default)]
     pub thinking_mode: ThinkingMode,
-    /// Structured onboarding context — when present, the prompt is built
-    /// server-side from the user's selections (tables, warehouse type, model
-    /// config) instead of using `question` directly.
+    /// The removed onboarding flow's context, accepted only so an old client's
+    /// onboarding start gets 410. Any JSON shape deserialises; only its
+    /// presence is read, and a start that carries one is refused as a Builder
+    /// start.
     #[serde(default)]
-    pub onboarding_context: Option<agentic_pipeline::onboarding::OnboardingContext>,
-    /// When true, the solver auto-accepts all `file_change` tool calls
-    /// without suspending for human input. Used by the onboarding flow where
-    /// file changes are always accepted automatically.
+    pub onboarding_context: Option<serde_json::Value>,
+    /// When true, the run's questions are answered "accept" without
+    /// suspending for human input.
     #[serde(default)]
     pub auto_accept: bool,
 }

@@ -417,8 +417,10 @@ async fn test_registry_processes_builder_domain_events() {
         .await
         .unwrap();
 
+    // The runtime routes by source type and never knows a domain's events:
+    // an inline handler that passes its rows through stands in for one.
     let mut registry = EventRegistry::new();
-    registry.register("builder", agentic_builder::event_handler());
+    registry.register("builder", pass_through_handler());
     let mut processor = registry.stream_processor("builder");
 
     let rows = crud::get_events_after(&db, &run_id, -1).await.unwrap();
@@ -448,6 +450,17 @@ async fn test_registry_processes_builder_domain_events() {
         "missing done: {:?}",
         event_types
     );
+}
+
+/// A domain handler that hands every domain row on unchanged.
+fn pass_through_handler() -> agentic_runtime::event_registry::DomainHandler {
+    use std::sync::Arc;
+    agentic_runtime::event_registry::DomainHandler {
+        processor: Arc::new(|ty, payload| Some(vec![(ty.to_string(), payload.clone())])),
+        summary_fn: Arc::new(|_| None),
+        tool_summary_fn: Arc::new(|_, _| None),
+        should_accumulate: Some(Arc::new(|_| false)),
+    }
 }
 
 /// `delegation_started` and `delegation_completed` are coordinator-emitted events.

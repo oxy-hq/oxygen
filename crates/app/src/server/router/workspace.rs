@@ -82,9 +82,10 @@ pub(super) fn build_workspace_routes(
         // observability console) moved to the `oxy-api-observability` sibling
         // crate, merged inside this nest by `oxy-server` through the workspace
         // seam, still FleetOk.
-        // `/artifacts/{id}`, `/charts/{file_path}`, `/logs` and
-        // `/builder-availability` are `oxy-api-threads`' since 2026-11-16,
-        // merged inside this nest through the workspace seam, still FleetOk.
+        // `/artifacts/{id}`, `/charts/{file_path}` and `/logs` are
+        // `oxy-api-threads`' since 2026-11-16, merged inside this nest through
+        // the workspace seam, still FleetOk. (`/builder-availability` was
+        // deleted with the builder agent on 2026-11-19.)
         // `/onboarding-readiness`, `/onboarding/github-setup` and the
         // `/onboarding/*` subtree live in `oxy-api-tenancy`; `oxy-server`
         // merges them into this nest.

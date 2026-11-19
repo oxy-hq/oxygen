@@ -91,31 +91,6 @@ async fn test_insert_run_analytics_creates_extension() {
 }
 
 #[tokio::test]
-async fn test_insert_run_builder_no_extension() {
-    let Some(db) = test_db().await else { return };
-    let run_id = test_run_id();
-
-    insert_run(
-        &db,
-        &run_id,
-        "__builder__",
-        "Build a dashboard",
-        None,
-        None,
-        uuid::Uuid::nil(),
-    )
-    .await
-    .expect("insert_run failed");
-
-    let run = crud::get_run(&db, &run_id).await.unwrap().unwrap();
-    assert_eq!(run.source_type.as_deref(), Some("builder"));
-
-    // Builder runs should NOT have an analytics extension.
-    let ext = get_analytics_extension(&db, &run_id).await.unwrap();
-    assert!(ext.is_none());
-}
-
-#[tokio::test]
 async fn test_insert_run_with_thinking_mode() {
     let Some(db) = test_db().await else { return };
     let run_id = test_run_id();
@@ -221,17 +196,10 @@ async fn test_get_analytics_extensions_bulk() {
     insert_run(&db, &id2, "agent_b", "Q2", None, None, uuid::Uuid::nil())
         .await
         .unwrap();
-    insert_run(
-        &db,
-        &id3,
-        "__builder__",
-        "Q3",
-        None,
-        None,
-        uuid::Uuid::nil(),
-    )
-    .await
-    .unwrap();
+    // A legacy builder row, written before the builder was removed.
+    crud::insert_run(&db, &id3, "Q3", None, "builder", None, uuid::Uuid::nil())
+        .await
+        .unwrap();
 
     let exts = get_analytics_extensions(&db, &[id1.clone(), id2.clone(), id3.clone()])
         .await

@@ -122,8 +122,7 @@ cases:
           one field is selected).
 
       # Gate on the active state so the Run click below cannot fire while the
-      # button is still disabled — the warm-replay race semantic-builder-ask
-      # documents.
+      # button is still disabled (a warm-replay race).
       - wait_for: "selector:[data-testid=semantic-field-measure-total_sales][data-active=true];timeout_ms=15000"
 
       - act: |
@@ -203,9 +202,8 @@ cases:
 
       - wait_for: "selector:[data-testid=semantic-objects-list];timeout_ms=30000"
 
-      # `economic_factors` rather than `oxymart`: semantic-builder-ask already
-      # covers oxymart, and `economic_factors` is the only demo view whose stem
-      # is not also a topic stem (`store_performance` is both), so the
+      # `economic_factors` rather than `oxymart`: it is the only demo view whose
+      # stem is not also a topic stem (`store_performance` is both), so the
       # kind-qualified testid cannot be satisfied by the wrong artifact kind.
       - wait_for: "selector:[data-testid=semantic-objects-item-view-economic_factors];timeout_ms=30000"
 

@@ -6,7 +6,7 @@ Axum HTTP routes for the agentic pipeline. This is the **transport layer** — t
 
 | Method | Path | Handler | Description |
 | -------- | ------ | --------- | ------------- |
-| POST | `/runs` | `create_run` | Start a pipeline (analytics or builder) |
+| POST | `/runs` | `create_run` | Start a pipeline (analytics) |
 | GET | `/runs/:id/events` | `stream_events` | SSE stream with Last-Event-ID catch-up |
 | POST | `/runs/:id/answer` | `answer_run` | Deliver HITL answer to suspended run |
 | POST | `/runs/:id/cancel` | `cancel_run` | Cancel running pipeline |
@@ -28,7 +28,7 @@ once at startup and passes it to `AgenticState::new`. Per-request workspace
 state arrives as `Extension<Arc<agentic_pipeline::platform::OxyProjectContext>>`
 from the app's `workspace_middleware`.
 
-**Zero direct imports of:** analytics, builder, connector, llm, core, entity, workflow.
+**Zero direct imports of:** analytics, connector, llm, core, entity, workflow.
 
 ## Rules
 
@@ -38,7 +38,7 @@ from the app's `workspace_middleware`.
 - **Never import `entity` crate.** Thread ownership queries go through `agentic-pipeline::get_thread_owner`.
 - `db.rs` is pure re-exports from runtime + pipeline — no custom logic.
 - `sse.rs` is domain-agnostic — `UiEvent`, `squash_deltas`, `is_terminal` only.
-- `state.rs` uses `agentic_pipeline::AnalyticsSchemaCatalog` and `BuilderTestRunnerTrait` re-exports.
+- `state.rs` uses the `agentic_pipeline::AnalyticsSchemaCatalog` re-export.
 - `routes.rs` uses `PipelineBuilder` for all pipeline creation — no inline config/solver setup.
 - **A caller-supplied `thread_id` is checked before a run starts on it** (`run_scope::ensure_thread_access`):
   404 for a missing thread or one in another workspace, 403 for another user's. The pipeline reads
@@ -52,7 +52,6 @@ from the app's `workspace_middleware`.
 
 - `db` — shared SeaORM `DatabaseConnection` (pool internally), cloned per handler
 - `schema_cache` — shared analytics schema introspection cache
-- `builder_test_runner` — injected test runner for builder copilot
 - `event_registry` — domain event processors for SSE streaming
 
 ## SSE Streaming

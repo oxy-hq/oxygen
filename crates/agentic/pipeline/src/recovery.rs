@@ -22,7 +22,7 @@ use sea_orm::DatabaseConnection;
 use crate::drive_policy::report_fallback_takes;
 use crate::executor::PipelineTaskExecutor;
 use crate::platform::preview::platform_for_root;
-use crate::platform::{BuilderBridges, PlatformContext, RunPlatformResolver};
+use crate::platform::{PlatformContext, RunPlatformResolver};
 
 mod children_done;
 mod parked;
@@ -86,15 +86,17 @@ fn recovery_budget_exhausted(attempt: i32) -> bool {
 
 /// Did recovery fail because the run can never be resumed?
 ///
-/// A run interrupted before its first checkpoint (analytics, builder, app
-/// function) or with no saved state (automation) cannot be resumed; the
-/// executor says so and the run is retired. Every deploy that lands mid-run
+/// A run interrupted before its first checkpoint (analytics, app function),
+/// with no saved state (automation), or of the removed builder cannot be
+/// resumed; the executor says so and the run is retired. Every deploy that lands mid-run
 /// produces some, so this is the expected path, not recovery breaking — and at
 /// ERROR it was the third-largest issue in Sentry on 2026-09-15
 /// (`failed to recover run`, 83 events in five hours on dev). Anything else
 /// stays ERROR.
 fn is_unresumable(err: &str) -> bool {
-    err.contains(crate::executor::NO_CHECKPOINT) || err.contains(crate::executor::NO_SAVED_STATE)
+    err.contains(crate::executor::NO_CHECKPOINT)
+        || err.contains(crate::executor::NO_SAVED_STATE)
+        || err.contains(crate::executor::BUILDER_RUN_REMOVED)
 }
 
 /// Log a failed recovery at the level it deserves — see [`is_unresumable`].
@@ -133,9 +135,7 @@ pub async fn recover_active_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -176,9 +176,7 @@ pub async fn recover_active_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            builder_bridges.clone(),
             schema_cache.clone(),
-            builder_test_runner.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Startup,
@@ -226,7 +224,7 @@ pub async fn recover_active_runs(
 /// and no live lease is exactly what every node's latency worker polls for, a
 /// worker takes it within a tick, and this node's own latency worker takes it
 /// after [`STRANDED_GRACE_SECS`] if none does. A root with no such row — an
-/// analytics or builder run this process was direct-driving when it died —
+/// analytics run this process was direct-driving when it died —
 /// has no other loop guaranteed to see it, so it stays here whatever its kind.
 ///
 /// Fails open: if the pending set cannot be read, every root is kept, which is
@@ -327,9 +325,7 @@ pub async fn recover_stranded_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -386,9 +382,7 @@ pub async fn recover_stranded_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            builder_bridges.clone(),
             schema_cache.clone(),
-            builder_test_runner.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Loop,
@@ -457,9 +451,7 @@ pub async fn recover_pending_global_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -511,9 +503,7 @@ pub async fn recover_pending_global_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            builder_bridges.clone(),
             schema_cache.clone(),
-            builder_test_runner.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Loop,
@@ -544,9 +534,7 @@ async fn recover_single_run(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
     origin: RecoveryOrigin,
@@ -693,9 +681,7 @@ async fn recover_single_run(
         db.clone(),
         state,
         platform,
-        builder_bridges,
         schema_cache,
-        builder_test_runner,
         router,
         custom_executors,
         driver_id,
@@ -782,9 +768,7 @@ async fn recover_single_run_owned(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
     // The lease this frame owns — the heartbeat ticker downstream renews it.
@@ -812,15 +796,9 @@ async fn recover_single_run_owned(
     ) {
         transport.retry_failed_root();
     }
-    // A preview run gets no builder: its bridges edit the working copy, and an
-    // analytics agent can delegate to it. Without bridges the delegation fails
-    // instead of writing a file.
-    let is_preview = crate::platform::preview::is_preview(platform.as_ref());
     let executor = Arc::new(PipelineTaskExecutor {
         platform,
-        builder_bridges: builder_bridges.filter(|_| !is_preview),
         schema_cache,
-        builder_test_runner: builder_test_runner.filter(|_| !is_preview),
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors,
@@ -898,7 +876,7 @@ async fn recover_single_run_owned(
     }
 
     // Also emit recovery_resumed on non-terminal child runs so their SSE
-    // streams (e.g. builder delegation panel) close interrupted steps. Not on
+    // streams (e.g. a delegated child's panel) close interrupted steps. Not on
     // a continuation: none of its steps was interrupted.
     if !continuation {
         let child_tree = agentic_runtime::crud::load_task_tree(&db, &root.id)
@@ -999,7 +977,7 @@ async fn recover_single_run_owned(
                 if children_done.cannot_resume(&task_run.id) {
                     // Every child in and no checkpoint: nothing can hand the
                     // parent its answer. The re-launch says so — an analytics
-                    // or builder run has nothing to resume from — and that
+                    // run has nothing to resume from — and that
                     // closes the run as interrupted instead of leaving it
                     // parked until the suspend ceiling.
                     re_launch_task(&db, &state, &executor, &transport, task_run).await?;
@@ -1110,7 +1088,7 @@ async fn recover_single_run_owned(
     //
     // For Temporal-style automation runs, the coordinator's resume_parent will
     // enqueue an AutomationDecision task when it processes these resumes — no
-    // in-memory channel needed. For analytics/builder runs, resume_parent
+    // in-memory channel needed. For analytics runs, resume_parent
     // assigns a TaskSpec::Resume which the worker handles.
     //
     // The coordinator processes them when it starts, in step 4. They are the
@@ -1179,7 +1157,7 @@ async fn recover_single_run_owned(
     }
     // Register notifiers for non-terminal child runs so their SSE streams
     // work after recovery. Without this, the frontend opens an SSE connection
-    // for a recovered child (e.g. builder delegation) and gets no notifier →
+    // for a recovered child (e.g. a delegated child run) and gets no notifier →
     // the stream exits immediately.
     for task_run in &tree {
         if task_run.id == root.id {
@@ -1291,8 +1269,8 @@ async fn recover_single_run_owned(
 /// provider and never gets here). Nothing reaches the answer channel recovery
 /// registers, so holding on is all cost: the lease, a heartbeat and a 5 s
 /// cancel poll for the life of the process, and once the process is gone a
-/// queue entry requeued under a run no driver loop selects. Automation and
-/// builder roots keep today's behaviour.
+/// queue entry requeued under a run no driver loop selects. Automation roots
+/// keep today's behaviour; a stored builder root is refused by the executor.
 fn parks_at_a_person(root: &agentic_runtime::entity::run::Model) -> bool {
     root.source_type.as_deref() == Some("analytics")
 }
@@ -1601,7 +1579,7 @@ mod recovery_budget_tests {
 #[cfg(test)]
 mod unresumable_tests {
     use super::is_unresumable;
-    use crate::executor::{NO_CHECKPOINT, NO_SAVED_STATE};
+    use crate::executor::{BUILDER_RUN_REMOVED, NO_CHECKPOINT, NO_SAVED_STATE};
 
     /// The shapes recovery actually receives: the executor's message wrapped by
     /// the resume path, as it arrived in Sentry on 2026-09-15.
@@ -1612,6 +1590,9 @@ mod unresumable_tests {
         assert!(is_unresumable(&wrapped));
         assert!(is_unresumable(&format!(
             "cannot resume automation run r1: {NO_SAVED_STATE}"
+        )));
+        assert!(is_unresumable(&format!(
+            "failed to resume task t1: run t1: {BUILDER_RUN_REMOVED}"
         )));
     }
 

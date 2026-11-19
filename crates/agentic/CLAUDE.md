@@ -5,7 +5,7 @@
 Three-layer design — each layer has strict dependency rules:
 
 ```
-          domains (analytics, builder)
+          domains (analytics, automation)
                │
           pipeline (facade / composition)
                │
@@ -17,13 +17,13 @@ Three-layer design — each layer has strict dependency rules:
 | Layer | Crates | May depend on | Must NOT depend on |
 | ------- | -------- | --------------- | ------------------- |
 | **Core** | `agentic-core` | External only (serde, tokio) | Any `agentic-*` crate |
-| **Runtime** | `agentic-runtime` | `core` | analytics, builder, workflow, connector, llm, pipeline, http |
-| **Infrastructure** | `agentic-connector`, `agentic-llm` | `core`, `oxy-shared` (the bottom platform crate: `oxy_shared::http` is the one `reqwest` client) | analytics, builder, workflow, runtime, pipeline, http |
-| **Domains** | `agentic-analytics`, `agentic-builder`, `agentic-automation` | `core`, `runtime`, `connector`, `llm` | Each other, pipeline, http |
+| **Runtime** | `agentic-runtime` | `core` | analytics, workflow, connector, llm, pipeline, http |
+| **Infrastructure** | `agentic-connector`, `agentic-llm` | `core`, `oxy-shared` (the bottom platform crate: `oxy_shared::http` is the one `reqwest` client) | analytics, workflow, runtime, pipeline, http |
+| **Domains** | `agentic-analytics`, `agentic-automation` | `core`, `runtime`, `connector`, `llm` | Each other, pipeline, http |
 | **Pipeline** | `agentic-pipeline` | All agentic crates, `oxy` | `http` |
-| **HTTP** | `agentic-http` | `pipeline`, `runtime`, `oxy`, `oxy-auth` | analytics, builder, workflow, connector, llm, core, entity |
+| **HTTP** | `agentic-http` | `pipeline`, `runtime`, `oxy`, `oxy-auth` | analytics, workflow, connector, llm, core, entity |
 
-`agentic-automation` is a sibling domain alongside analytics/builder — no
+`agentic-automation` is a sibling domain alongside analytics — no
 domain imports another. The cross-domain "subrun" contract
 (`SubrunRunner`, `SubrunStep`, `OxyCommentBlock`,
 `parse_oxy_comment_block`) lives in `agentic-core::subrun` so any
@@ -40,7 +40,6 @@ the analytics solver.
 | `runtime` | Two sub-layers: [`lifecycle`] (run row, events, suspensions, SSE plumbing — `RuntimeState`, `PipelineHandle`, `EventRegistry`) and [`orchestrator`] (durable task queue, coordinator, worker pool, transports). Top-level re-exports keep legacy flat paths working. | `lifecycle::state::RuntimeState`, `lifecycle::handle::PipelineHandle`, `lifecycle::event_registry::EventRegistry`, `orchestrator::coordinator::Coordinator`, `orchestrator::worker::Worker` |
 | `pipeline` | Pipeline setup, config resolution, type erasure | `PipelineBuilder`, `StartedPipeline`, `ThinkingMode` |
 | `analytics` | Analytics solver, semantic model, extension table | `AnalyticsSolver`, `AnalyticsEvent`, `SchemaCatalog`, `AnalyticsMigrator` |
-| `builder` | Builder solver, file tools (write/edit/delete), HITL suspensions | `BuilderSolver`, `BuilderEvent`, `BuilderTestRunner` |
 | `connector` | Database backends | `DatabaseConnector`, `ConnectorConfig`, `SchemaInfo` |
 | `llm` | LLM provider abstraction | `LlmClient`, `LlmProvider`, `ThinkingConfig` |
 | `http` | Axum route handlers | `AgenticState`, `router()`, route handlers |
@@ -78,7 +77,7 @@ New domains add their own extension table with their own migrator. The runtime t
 
 ## Adding a New Domain
 
-For a quick FSM-style domain that fits the analytics/builder shape:
+For a quick FSM-style domain that fits the analytics shape:
 
 1. Create `crates/agentic/<domain>/` implementing `DomainSolver` from `core`
 2. Add `start_pipeline()` returning `runtime::lifecycle::handle::PipelineHandle`

@@ -47,7 +47,7 @@ Migrator: `AnalyticsMigrator` with tracking table `seaql_migrations_analytics`.
 
 ## Rules
 
-- Must NOT import any other domain crate (`agentic-builder`, `agentic-automation`)
+- Must NOT import any other domain crate (`agentic-automation`)
   or upward crates (`agentic-http`, `agentic-pipeline`).
 - May import `agentic-core`, `agentic-runtime`, `agentic-connector`, `agentic-llm`.
 - Cross-domain subrun delegation goes through `agentic_core::subrun::SubrunRunner`.

@@ -69,7 +69,6 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     ("GET", "/meta"),
     ("GET", "/logo"),
     ("GET", "/org-subdomain"),
-    ("GET", "/builder-availability"),
     // Settings the customer's own officers reach: the activity log, who is in the
     // workspace, the tokens that reach it, and the Oxy-access lockdown switch.
     ("GET", "/logs"),

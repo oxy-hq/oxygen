@@ -1,6 +1,6 @@
 # agentic-automation
 
-Sibling domain alongside `agentic-analytics` and `agentic-builder`. Owns two surfaces:
+Sibling domain alongside `agentic-analytics`. Owns two surfaces:
 
 1. The **stateless decision runner** — Temporal-style: a single `WorkflowDecider::decide`
    call computes the next action from durable state, and `commit_decision` atomically
@@ -116,7 +116,7 @@ pre-materialised prior-cache snapshot.
 ## Rules
 
 - Depends on `agentic-core`, `agentic-runtime`, `agentic-connector`, `oxy-looker`.
-  **Does NOT depend on** `agentic-analytics`, `agentic-builder`,
+  **Does NOT depend on** `agentic-analytics`,
   `agentic-pipeline`, `agentic-http`, or `oxy`. No domain depends on
   another domain — cross-domain wiring lives in `agentic-pipeline`.
 - **SQL is rendered with `render_sql_string(.., workspace.string_literal(database))`, never

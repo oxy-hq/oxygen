@@ -70,10 +70,9 @@ crates/semantic/tests/
 # markdowns
 docs/
 **/*.md
-# ...except the four the Rust build embeds with `include_str!`. Excluding them
+# ...except the ones the Rust build embeds with `include_str!`. Excluding them
 # makes `cargo build` fail on a missing file, which is how you learn nothing has
 # ever built this image.
-!crates/agentic/builder/knowledge/*.md
 !crates/app/src/cli/commands/apidoc.md
 
 # log

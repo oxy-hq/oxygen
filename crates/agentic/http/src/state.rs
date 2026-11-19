@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
+use agentic_pipeline::AnalyticsSchemaCatalog;
 use agentic_pipeline::platform::ThreadOwnerLookup;
-use agentic_pipeline::{AnalyticsSchemaCatalog, BuilderTestRunnerTrait};
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::router::{NoopTaskRouter, TaskRouter};
 use sea_orm::DatabaseConnection;
@@ -14,14 +14,13 @@ pub use agentic_runtime::state::{RunError, RunStatus, RuntimeState};
 /// Shared state for all agentic routes.
 ///
 /// Wraps the transport-agnostic [`RuntimeState`] and adds domain-specific
-/// extensions (schema cache, builder test runner, event registry). Holds the
+/// extensions (schema cache, event registry). Holds the
 /// shared SeaORM [`DatabaseConnection`] so handlers don't open a new one per
 /// request, and a [`ThreadOwnerLookup`] so thread-ownership auth checks do
 /// not reach into the platform `threads` table from this crate.
 pub struct AgenticState {
     pub runtime: Arc<RuntimeState>,
     pub schema_cache: Arc<Mutex<HashMap<String, AnalyticsSchemaCatalog>>>,
-    pub builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
     pub event_registry: Arc<EventRegistry>,
     pub shutdown_token: CancellationToken,
     pub db: DatabaseConnection,
@@ -53,7 +52,6 @@ impl AgenticState {
         Self {
             runtime: Arc::new(RuntimeState::new()),
             schema_cache: Arc::new(Mutex::new(HashMap::new())),
-            builder_test_runner: None,
             event_registry: Arc::new(agentic_pipeline::build_event_registry()),
             shutdown_token,
             db,
@@ -61,11 +59,6 @@ impl AgenticState {
             router: Arc::new(NoopTaskRouter),
             queued_starts: false,
         }
-    }
-
-    pub fn with_builder_test_runner(mut self, runner: Arc<dyn BuilderTestRunnerTrait>) -> Self {
-        self.builder_test_runner = Some(runner);
-        self
     }
 
     /// Replace the default no-op router with a real (typically Postgres)

@@ -10,12 +10,6 @@
 //! - [`ThreadOwnerLookup`] — thread ownership query (used by HTTP for auth).
 //! - [`PlatformContext`] — supertrait combining [`ProjectContext`] and
 //!   [`agentic_automation::WorkspaceContext`]. The full platform handle.
-//!
-//! # Bundles
-//!
-//! - [`BuilderBridges`] — the four [`agentic_builder`] port impls required to
-//!   start a builder pipeline. Built by the host and passed to
-//!   [`PipelineBuilder`](crate::PipelineBuilder).
 
 pub mod preview;
 pub mod preview_stamp;
@@ -27,10 +21,6 @@ pub use preview::{AirwayStepMode, IdentityResolver, PreviewScope, RunPlatformRes
 use agentic_analytics::config::{LlmVendor, ResolvedModelInfo};
 use agentic_analytics::{MetricTreeRunner, SharedMetricSink};
 use agentic_automation::{WorkspaceContext, WorkspaceReadError};
-use agentic_builder::{
-    BuilderDatabaseProvider, BuilderProjectValidator, BuilderSchemaProvider,
-    BuilderSecretsProvider, BuilderSemanticCompiler,
-};
 use agentic_connector::{ConnectorConfig, DatabaseConnector};
 use agentic_llm::{AnthropicProvider, LlmClient, OpenAiCompatProvider, OpenAiProvider};
 use async_trait::async_trait;
@@ -57,8 +47,7 @@ pub trait MonitorScanPort: Send + Sync {
 /// agentic-pipeline must not depend on per the layering rules. The host
 /// implements this and `PipelineBuilder::with_compile_dispatcher` wires
 /// it in. When `None`, `TaskSpec::Compile` claims fail with a clear
-/// message — same shape as the other optional ports (BuilderBridges,
-/// MonitorScanPort).
+/// message — same shape as the other optional ports (MonitorScanPort).
 #[async_trait]
 pub trait CompileDispatcher: Send + Sync {
     /// Dispatch a compile task. Returns the in-flight `ExecutingTask` so
@@ -234,7 +223,7 @@ pub trait ProjectContext: Send + Sync {
     }
 
     /// IANA timezone the host project resolves relative dates in, sourced
-    /// from `config.yml` `timezone:`. Threaded into the builder's "Today is …"
+    /// from `config.yml` `timezone:`. Threaded into the solvers' "Today is …"
     /// date hint so "today"/"yesterday" match the operating timezone instead
     /// of UTC. Default `None` (UTC) so test fakes and non-Oxy adapters compile
     /// unchanged.
@@ -303,7 +292,7 @@ pub trait ProjectContext: Send + Sync {
     /// dry run (it has a [`Self::preview_scope`]) or a request pinned to a
     /// preview, which reads a branch and writes nothing. `false` — every
     /// production host — means "not a preview". With `true` the pipeline builds
-    /// no automation runner, hands out no builder bridges, and runs no Airway
+    /// no automation runner and runs no Airway
     /// step, whatever else the platform answers. See [`preview`].
     fn is_workspace_preview(&self) -> bool {
         self.preview_scope().is_some()
@@ -445,22 +434,6 @@ impl Requester {
 pub trait PlatformContext: ProjectContext + WorkspaceContext {}
 
 impl<T> PlatformContext for T where T: ProjectContext + WorkspaceContext + ?Sized {}
-
-/// The four builder-domain port impls required to start a builder pipeline.
-///
-/// Cheap to clone — every field is an `Arc<dyn ...>`. Callers assemble this
-/// once per workspace and pass it into [`PipelineBuilder::with_builder_bridges`](
-/// crate::PipelineBuilder::with_builder_bridges) (and into
-/// [`PipelineTaskExecutor`](crate::executor::PipelineTaskExecutor) for
-/// delegation).
-#[derive(Clone)]
-pub struct BuilderBridges {
-    pub db_provider: Arc<dyn BuilderDatabaseProvider>,
-    pub project_validator: Arc<dyn BuilderProjectValidator>,
-    pub schema_provider: Arc<dyn BuilderSchemaProvider>,
-    pub semantic_compiler: Arc<dyn BuilderSemanticCompiler>,
-    pub secrets_provider: Option<Arc<dyn BuilderSecretsProvider>>,
-}
 
 /// Result of resolving a batch of database names: configs that
 /// `agentic-connector` knows how to dispatch, plus host-built connector

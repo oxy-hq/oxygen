@@ -4,8 +4,8 @@
 Rules checked:
   1. Platform crates (oxy, oxy-agent, oxy-workflow, oxy-shared) must NEVER depend on agentic-*.
   2. agentic-core must NEVER depend on any other agentic-* crate.
-  3. agentic-analytics and agentic-builder must NEVER depend on each other.
-  4. agentic-http must NEVER directly depend on agentic-analytics, agentic-builder,
+  3. agentic-analytics and agentic-automation must NEVER depend on each other.
+  4. agentic-http must NEVER directly depend on agentic-analytics, agentic-automation,
      agentic-connector, or agentic-llm — only through agentic-pipeline.
   5. All agentic-* crates except agentic-pipeline and agentic-http must NEVER depend
      on platform crates (oxy, oxy-agent, oxy-workflow, oxy-shared).
@@ -81,8 +81,8 @@ def check(
     # ── Rule 3 ──────────────────────────────────────────────────────────────────
     # Domain crates must not cross-depend.
     domain_pairs = [
-        ("agentic-analytics", "agentic-builder"),
-        ("agentic-builder", "agentic-analytics"),
+        ("agentic-analytics", "agentic-automation"),
+        ("agentic-automation", "agentic-analytics"),
     ]
     for src, forbidden in domain_pairs:
         if src in crates and forbidden in all_deps(crates[src]):
@@ -93,7 +93,7 @@ def check(
 
     # ── Rule 4 ──────────────────────────────────────────────────────────────────
     # agentic-http must route through agentic-pipeline, never import domain/infra directly.
-    http_forbidden = {"agentic-analytics", "agentic-builder", "agentic-connector", "agentic-llm"}
+    http_forbidden = {"agentic-analytics", "agentic-automation", "agentic-connector", "agentic-llm"}
     if "agentic-http" in crates:
         bad = all_deps(crates["agentic-http"]) & http_forbidden
         if bad:
@@ -141,8 +141,8 @@ def main() -> None:
     rules = [
         "Rule 1  {oxy, oxy-agent, oxy-workflow, oxy-shared} must not depend on agentic-*",
         "Rule 2  agentic-core must not depend on any other agentic-* crate",
-        "Rule 3  agentic-analytics ↔ agentic-builder must not cross-depend",
-        "Rule 4  agentic-http must not directly import agentic-{analytics,builder,connector,llm}",
+        "Rule 3  agentic-analytics ↔ agentic-automation must not cross-depend",
+        "Rule 4  agentic-http must not directly import agentic-{analytics,automation,connector,llm}",
         "Rule 5  agentic-* (except pipeline/http) must not depend on platform crates",
     ]
 

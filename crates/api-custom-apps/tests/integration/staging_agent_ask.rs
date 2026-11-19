@@ -252,8 +252,6 @@ async fn a_staging_ask_run_is_stamped_and_recovery_retires_it() {
         // The resolver production recovery uses, not a stand-in.
         CallerRunResolver::shared(&t.db),
         None,
-        None,
-        None,
         Arc::new(agentic_runtime::router::NoopTaskRouter),
         Some(run_ws),
         None,

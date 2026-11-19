@@ -9,13 +9,6 @@ export interface CreateAnalyticsRunRequest {
   question: string;
   thread_id?: string;
   thinking_mode?: ThinkingMode;
-  /** When true, the backend auto-accepts all file_change tool calls. */
-  auto_accept?: boolean;
-  /** `"builder"` starts the Builder copilot instead of an analytics agent. */
-  domain?: string;
-  model?: string;
-  /** Onboarding's structured context; the backend builds the prompt from it. */
-  onboarding_context?: unknown;
 }
 
 /**

@@ -16,9 +16,9 @@ use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
+use agentic_pipeline::AutoAcceptInputProvider;
 use agentic_pipeline::PipelineBuilder;
-use agentic_pipeline::platform::{BuilderBridges, PlatformContext, Requester};
-use agentic_pipeline::{AutoAcceptInputProvider, BuilderLlmMetadata, LlmClient, OpenAiProvider};
+use agentic_pipeline::platform::{PlatformContext, Requester};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use crate::{
@@ -28,26 +28,6 @@ use crate::{
 
 use super::run_scope::{ensure_thread_access, run_in_workspace};
 use super::{AnswerRequest, CreateRunRequest, CreateRunResponse, RunIdPath, ThinkingMode};
-
-/// Cap on the number of tables an onboarding request may supply — guards
-/// against pathological LLM prompts and request-size blowups.
-const MAX_ONBOARDING_TABLES: usize = 50;
-
-/// Construct the onboarding-flow `LlmClient`. Used at create time and on
-/// cold resume so both code paths produce a byte-identical client.
-async fn build_onboarding_llm_client(
-    platform: &dyn PlatformContext,
-    vendor: &str,
-    model_ref: &str,
-    key_var: &str,
-) -> LlmClient {
-    let api_key = platform.resolve_secret(key_var).await.unwrap_or_default();
-    if vendor == "openai" {
-        LlmClient::with_provider(OpenAiProvider::new(&api_key, model_ref))
-    } else {
-        LlmClient::with_model(api_key, model_ref.to_string())
-    }
-}
 
 /// The `error` of the answer to a Builder start or a Builder-run answer: the
 /// Builder, which edited workspace files, was removed with the IDE.
@@ -102,6 +82,21 @@ fn builder_removed(what: &str) -> Response {
         .into_response()
 }
 
+/// The refusal for a start that asks for the Builder (the Builder domain, or
+/// onboarding), `None` for any other start. `create_run` calls it first, before
+/// anything is written.
+fn refuse_builder_start(body: &CreateRunRequest) -> Option<Response> {
+    if !starts_a_builder_run(body) {
+        return None;
+    }
+    tracing::info!(
+        domain = ?body.domain,
+        onboarding = body.onboarding_context.is_some(),
+        "create_run: refused a Builder start"
+    );
+    Some(builder_removed("Starting a Builder or onboarding run"))
+}
+
 /// Build a structured error response for a failed pipeline start/resume.
 ///
 /// The body is `{ "error": <human message> }` so the frontend can surface
@@ -152,18 +147,16 @@ fn pipeline_error_response(
 pub async fn create_run(
     state: Extension<Arc<AgenticState>>,
     platform: Extension<Arc<dyn PlatformContext>>,
-    bridges: Extension<BuilderBridges>,
     query: axum::extract::RawQuery,
     user: AuthenticatedUserExtractor,
     body: Json<CreateRunRequest>,
 ) -> Response {
-    create_run_on(state, platform, bridges, query, user, body).await
+    create_run_on(state, platform, query, user, body).await
 }
 
 async fn create_run_on(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
-    Extension(bridges): Extension<BuilderBridges>,
     axum::extract::RawQuery(query): axum::extract::RawQuery,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CreateRunRequest>,
@@ -178,23 +171,8 @@ async fn create_run_on(
     // The Builder (the Builder domain, and onboarding, which ran it) edited the
     // working copy; it was removed with the IDE. Refused before anything is
     // written.
-    if starts_a_builder_run(&body) {
-        tracing::info!(
-            domain = ?body.domain,
-            onboarding = body.onboarding_context.is_some(),
-            "create_run: refused a Builder start"
-        );
-        return builder_removed("Starting a Builder or onboarding run");
-    }
-
-    if let Some(ctx) = &body.onboarding_context
-        && ctx.tables.len() > MAX_ONBOARDING_TABLES
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            format!("onboarding_context.tables exceeds limit of {MAX_ONBOARDING_TABLES} entries"),
-        )
-            .into_response();
+    if let Some(refusal) = refuse_builder_start(&body) {
+        return refusal;
     }
 
     let db = state.db.clone();
@@ -213,24 +191,14 @@ async fn create_run_on(
         return refused;
     }
 
-    // If onboarding context is provided, build the prompt server-side.
-    // Otherwise use the raw question from the request.
-    let question = if let Some(ctx) = &body.onboarding_context {
-        ctx.build_prompt()
-    } else {
-        body.question.clone()
-    };
+    let question = body.question.clone();
 
     // Auto-provision a thread when an interactive run is started without
     // one. Persisting a real `threads` row (a) satisfies the
     // `agentic_runs.thread_id` FK and (b) hands the client a stable id it
     // can reuse for follow-up questions so the agent keeps conversation
-    // context. Onboarding / builder runs manage their own threading, so
-    // they are excluded.
-    if thread_id_uuid.is_none()
-        && body.domain.as_deref() != Some("builder")
-        && body.onboarding_context.is_none()
-    {
+    // context.
+    if thread_id_uuid.is_none() {
         let title: String = question.chars().take(120).collect();
         match state
             .thread_owner
@@ -253,8 +221,6 @@ async fn create_run_on(
     // `agentic_pipeline::queued_run::ChatAdmission`. Only where the host queues
     // starts (`AgenticState::queued_starts`); elsewhere every chat is driven here.
     let admission = agentic_pipeline::queued_run::ChatAdmission {
-        builder_domain: body.domain.as_deref() == Some("builder"),
-        onboarding: body.onboarding_context.is_some(),
         auto_accept: body.auto_accept,
         working_copy_branch: branch_in_query(query.as_deref()),
     };
@@ -293,32 +259,11 @@ async fn create_run_on(
         };
     }
 
-    // Onboarding phases declare which reference cards their prompt
-    // needs pre-populated; interactive (no onboarding context) runs
-    // default to no cards and rely on the `lookup_reference` tool.
-    let knowledge_cards = body
-        .onboarding_context
-        .as_ref()
-        .map(|ctx| ctx.knowledge_cards())
-        .unwrap_or_default();
-
-    // Onboarding also declares a per-phase tool allowlist (drops dbt /
-    // search_text / run_tests etc.) and skips the Interpreting LLM
-    // call (the UI surfaces CTAs in place of the synthesized summary).
-    let tool_allowlist = body
-        .onboarding_context
-        .as_ref()
-        .map(|ctx| ctx.tool_allowlist());
-    let skip_interpreting = body.onboarding_context.is_some();
-
     let mut builder = PipelineBuilder::new(platform.clone())
         .workspace_id(platform.workspace_id())
-        .with_builder_bridges(bridges.clone())
         .question(&question)
         .thinking_mode(body.thinking_mode)
-        .schema_cache(Arc::clone(&state.schema_cache))
-        .knowledge_cards(knowledge_cards)
-        .skip_interpreting(skip_interpreting);
+        .schema_cache(Arc::clone(&state.schema_cache));
     // Who asked, on the run's own insert: whatever drives this run later
     // without this request (recovery after a restart, a queued start's driver)
     // builds the requester's context from it instead of running the root on
@@ -327,51 +272,16 @@ async fn create_run_on(
         builder = builder.run_metadata(Requester::KEY, requester.to_metadata());
     }
 
-    if let Some(allowlist) = tool_allowlist {
-        builder = builder.tool_allowlist(allowlist);
-    }
-
     if let Some(tid) = thread_id_uuid {
         builder = builder.thread(tid);
     }
-    if let Some(runner) = state.builder_test_runner.clone() {
-        builder = builder.test_runner(runner);
-    }
 
-    // Onboarding auto-accepts all file_change tool calls — no HITL.
+    // The caller asked for no HITL: every question is accepted.
     if body.auto_accept {
         builder = builder.human_input(Arc::new(AutoAcceptInputProvider));
     }
 
-    // During onboarding the chosen model may not be in config.yml yet (the
-    // builder agent is about to write it). When onboarding_context carries a
-    // model_config, build the LlmClient directly and override the pipeline's
-    // default resolution. Also persist the (vendor, model_ref, key_var)
-    // tuple via with_builder_llm_metadata so a cold resume (server restart
-    // mid-onboarding) can rebuild an identical client.
-    if let Some(mc) = body
-        .onboarding_context
-        .as_ref()
-        .and_then(|ctx| ctx.model_config.as_ref())
-    {
-        let client =
-            build_onboarding_llm_client(&*platform, &mc.vendor, &mc.model_ref, &mc.key_var).await;
-        builder = builder
-            .with_builder_llm_client(client)
-            .with_builder_llm_metadata(BuilderLlmMetadata {
-                vendor: mc.vendor.clone(),
-                model_ref: mc.model_ref.clone(),
-                key_var: mc.key_var.clone(),
-            });
-    }
-
-    builder = if body.domain.as_deref() == Some("builder") {
-        builder.builder(body.model.clone())
-    } else {
-        builder.analytics(&body.agent_id)
-    };
-
-    let started = match builder.start(&db).await {
+    let started = match builder.analytics(&body.agent_id).start(&db).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(
@@ -397,7 +307,6 @@ async fn create_run_on(
 
     let runtime_state = state.runtime.clone();
     let schema_cache = Some(state.schema_cache.clone());
-    let builder_test_runner = state.builder_test_runner.clone();
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -407,9 +316,7 @@ async fn create_run_on(
             answer_rx,
             cancel_rx,
             platform,
-            Some(bridges),
             schema_cache,
-            builder_test_runner,
             router,
         )
         .await;
@@ -1045,17 +952,15 @@ pub async fn answer_run(
     path: Path<RunIdPath>,
     state: Extension<Arc<AgenticState>>,
     platform: Extension<Arc<dyn PlatformContext>>,
-    bridges: Extension<BuilderBridges>,
     body: Json<AnswerRequest>,
 ) -> Response {
-    answer_run_on(path, state, platform, bridges, body).await
+    answer_run_on(path, state, platform, body).await
 }
 
 async fn answer_run_on(
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
-    Extension(bridges): Extension<BuilderBridges>,
     Json(body): Json<AnswerRequest>,
 ) -> Response {
     let scoped = match run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
@@ -1092,9 +997,8 @@ async fn answer_run_on(
     // A chat that records its requester is continued through the queue: its
     // driver, wherever it was, is gone or parked it, and a driver on any pod
     // resumes it from its checkpoint as the requester
-    // (`agentic_pipeline::queued_answer`). Anything else — a builder run, an
-    // onboarding run, a preview's, a chat from before the record — is rebuilt
-    // and driven here, as before.
+    // (`agentic_pipeline::queued_answer`). Anything else — a preview's, a chat
+    // from before the record — is rebuilt and driven here, as before.
     //
     // Only for a run already on the queue, or where the host queues starts
     // (`AgenticState::queued_starts`). On a host that does not, a chat driven in
@@ -1179,7 +1083,7 @@ async fn answer_run_on(
         }
     };
 
-    // Extract agent_id and model from run metadata.
+    // Extract agent_id from run metadata.
     let agent_id = run
         .metadata
         .as_ref()
@@ -1188,104 +1092,17 @@ async fn answer_run_on(
         .map(|s| s.to_string())
         .unwrap_or_default();
 
-    let model = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("model"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    // Restore the cached-prefix card set so the resumed solver builds
-    // a system prefix byte-identical to the create-time one — anything
-    // else would defeat the prompt cache on the resume turn.
-    let knowledge_cards: Vec<agentic_pipeline::KnowledgeCard> = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("knowledge_cards"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| {
-                    v.as_str()
-                        .and_then(agentic_pipeline::KnowledgeCard::from_slug)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Same for skip_interpreting and tool_allowlist — both must match
-    // the create-time values for cache stability on the resume turn,
-    // and skip_interpreting in particular changes terminal behavior
-    // (empty answer text vs. synthesized summary).
-    let skip_interpreting = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("skip_interpreting"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let tool_allowlist: Option<Vec<String>> = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("tool_allowlist"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
-
     // Rebuild the pipeline and drive it. `existing_run_id` skips the
     // DB insert (this is a resume), so workspace_id here is informational
     // only — but set it for consistency in case a future drive path adds
     // a fresh insert.
     let mut builder = PipelineBuilder::new(platform.clone())
         .workspace_id(platform.workspace_id())
-        .with_builder_bridges(bridges.clone())
         .question(&run.question)
-        .schema_cache(Arc::clone(&state.schema_cache))
-        .knowledge_cards(knowledge_cards)
-        .skip_interpreting(skip_interpreting);
-
-    if let Some(allowlist) = tool_allowlist {
-        builder = builder.tool_allowlist(allowlist);
-    }
+        .schema_cache(Arc::clone(&state.schema_cache));
 
     if let Some(tid) = run.thread_id {
         builder = builder.thread(tid);
-    }
-    if let Some(runner) = state.builder_test_runner.clone() {
-        builder = builder.test_runner(runner);
-    }
-
-    // Cold-resume of an onboarding builder run: rebuild the same LlmClient
-    // create_run constructed, since the chosen model may not be in
-    // config.yml yet (the run was suspended mid-Config-phase, before the
-    // file was written). Without this, the resumed solver falls through to
-    // `resolve_model` against an incomplete config and ends up calling the
-    // LLM with an empty API key.
-    let onboarding_vendor = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("onboarding_vendor"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let onboarding_model_ref = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("onboarding_model_ref"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let onboarding_key_var = run
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("onboarding_key_var"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    if let (Some(vendor), Some(model_ref), Some(key_var)) =
-        (onboarding_vendor, onboarding_model_ref, onboarding_key_var)
-    {
-        let client = build_onboarding_llm_client(&*platform, &vendor, &model_ref, &key_var).await;
-        builder = builder.with_builder_llm_client(client);
     }
 
     // Persist an input_resolved event so the SSE stream (and page reloads)
@@ -1316,7 +1133,6 @@ async fn answer_run_on(
             &run_id,
             source_type,
             &agent_id,
-            model,
             resume_data,
             body.answer,
         )
@@ -1339,7 +1155,6 @@ async fn answer_run_on(
 
     let runtime_state = state.runtime.clone();
     let schema_cache = Some(state.schema_cache.clone());
-    let builder_test_runner = state.builder_test_runner.clone();
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -1349,9 +1164,7 @@ async fn answer_run_on(
             answer_rx,
             cancel_rx,
             platform,
-            Some(bridges),
             schema_cache,
-            builder_test_runner,
             router,
         )
         .await;
@@ -1620,6 +1433,48 @@ mod tests {
             "onboarding_context": { "tables": ["public.orders"], "warehouse_type": "postgres" }
         });
         assert!(starts_a_builder_run(&start(onboarding)));
+    }
+
+    /// Asserts `refuse_builder_start` answers `body` with `410 builder_removed`.
+    async fn assert_refused_as_gone(body: serde_json::Value) {
+        use super::{BUILDER_REMOVED, refuse_builder_start};
+        let response = refuse_builder_start(&start(body.clone()))
+            .unwrap_or_else(|| panic!("{body} was not refused"));
+        assert_eq!(response.status(), axum::http::StatusCode::GONE, "{body}");
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("body");
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(json["error"], BUILDER_REMOVED, "{body}");
+    }
+
+    /// An old client's onboarding start must reach the 410, not die as a 400
+    /// deserialisation error, whatever shape its `onboarding_context` has.
+    #[tokio::test]
+    async fn an_onboarding_start_with_any_payload_shape_gets_410() {
+        for context in [
+            serde_json::json!({ "vendor": "x" }),
+            serde_json::json!("legacy"),
+        ] {
+            assert_refused_as_gone(serde_json::json!({
+                "agent_id": "__builder__", "question": "q", "onboarding_context": context
+            }))
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_builder_domain_start_gets_410() {
+        assert_refused_as_gone(
+            serde_json::json!({ "agent_id": "a", "question": "q", "domain": "builder" }),
+        )
+        .await;
+    }
+
+    #[test]
+    fn a_chat_start_is_not_refused_as_a_builder_start() {
+        let chat = serde_json::json!({ "agent_id": "a.agentic.yml", "question": "q" });
+        assert!(super::refuse_builder_start(&start(chat)).is_none());
     }
 
     #[test]

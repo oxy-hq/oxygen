@@ -6,7 +6,7 @@ and `internal-docs/architecture-review-checklist.md`. Cite its R-* ids in `rule`
 Check:
 - A dependency that flows the wrong way: a platform crate (`oxy`, `oxy-project`,
   `oxy-shared`) importing an `agentic-*` crate; `agentic-core` importing anything agentic;
-  sibling domains (`agentic-analytics`, `agentic-builder`, `agentic-automation`) importing
+  sibling domains (`agentic-analytics`, `agentic-automation`) importing
   each other; `agentic-http` importing a domain crate directly; any crate other than
   `oxy-airlayer-compat` declaring `airlayer`.
 - A new crate that should have been a module, or the reverse (the litmus test in

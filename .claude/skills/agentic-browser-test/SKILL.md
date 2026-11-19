@@ -127,7 +127,6 @@ steps:
 - `cache_scope: flow` (default): key = `sha256(flowFile|caseName|stepIndex|stepText)`. Recording is private to this flow/case/step.
 - `cache_scope: shared`: key = `sha256("shared|" + stepText)`. Two flows with byte-identical step text share one recording. Used today for (see `canonical-prompts.md` for the verbatim text):
   - Chat-prelude ("Submit … to the default agent…") shared by `chat-ask` and `threads-list`.
-  - Builder dialog open (Cmd+I + auto-approve toggle + submit) shared by builder flows.
   - Sidebar navigation: `sidebar-app-link-<app-name>` and `sidebar-thread-link-<thread-id>` for flows that click into an app or thread from the sidebar.
 
 **Rule:** when copying a step **verbatim** from `canonical-prompts.md`, opt into `cache_scope: shared`. When the step body has flow-specific variation, leave at default `flow`.
@@ -177,7 +176,6 @@ Verbose `act:` prompts with explicit selectors converge faster on cold runs (1�
 
 **Tokens that don't pay rent (the 2026-05-11 tightening pass dropped these):**
 - Rationale paragraphs explaining why a verb was chosen. If the testid is correct, the rationale is dead weight.
-- "Edit @insights" verb prefixes (the Cmd+I dialog auto-prepends `@insights`).
 - Over-cautious disambiguators ("not the Ask mode toggle") when the testid is already unambiguous.
 - Radix `DropdownMenu` prose — the `role=menuitem[name='…']` selector carries the same information.
 
@@ -186,7 +184,7 @@ Generate concise prompts. Rationale belongs in YAML comments above the step, not
 ### Atomic vs compound `act:` steps
 
 - **Default: atomic.** One logical user action per `act:` step. Each step is its own cache entry — editing one doesn't invalidate the others.
-- **Compound only when actions are causally coupled.** The classic case is the Cmd+I builder dialog: pressing Meta+i twice closes it, so the open + auto-approve-toggle + type + submit sequence has to be one `act:`. **Cap compound steps at 5 actions max.**
+- **Compound only when actions are causally coupled.** The classic case is a toggle: pressing the same shortcut twice closes what the first press opened, so the open + type + submit sequence has to be one `act:`. **Cap compound steps at 5 actions max.**
 - Measured: atomic cold $0.34 vs compound cold $0.42 for `ide-save`; warm tied at ~$0.002. Atomic usually wins on cold cost too.
 
 ### `wait_for:` placement

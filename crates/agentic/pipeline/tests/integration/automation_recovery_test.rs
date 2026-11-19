@@ -130,9 +130,7 @@ async fn test_automation_decision_executor_arm_returns_done() {
         Arc::new(FakePlatform::default());
     let executor = agentic_pipeline::executor::PipelineTaskExecutor {
         platform,
-        builder_bridges: None,
         schema_cache: None,
-        builder_test_runner: None,
         db: db.clone(),
         state: None,
         custom_executors: None,
@@ -198,9 +196,7 @@ async fn custom_kind_delegates_to_registry() {
         Arc::new(FakePlatform::default());
     let executor = agentic_pipeline::executor::PipelineTaskExecutor {
         platform,
-        builder_bridges: None,
         schema_cache: None,
-        builder_test_runner: None,
         db: db.clone(),
         state: None,
         custom_executors: Some(Arc::new(reg)),
@@ -1398,8 +1394,6 @@ async fn test_recovery_processes_stuck_needs_resume_analytics_run() {
         state,
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
-        None,
-        None,
         None,
         Arc::new(agentic_runtime::router::NoopTaskRouter),
         None,

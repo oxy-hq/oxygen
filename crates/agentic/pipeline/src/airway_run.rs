@@ -521,9 +521,7 @@ pub fn spawn_airway_run_drive(
 ) {
     let executor = Arc::new(PipelineTaskExecutor {
         platform,
-        builder_bridges: None,
         schema_cache: None,
-        builder_test_runner: None,
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,

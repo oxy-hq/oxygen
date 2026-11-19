@@ -18,6 +18,7 @@ mod analytics_execution_stamp_test;
 mod automation_airway_admission_test;
 mod automation_cache_resume_test;
 mod automation_recovery_test;
+mod builder_removed_task_test;
 mod children_done_resume_test;
 mod commit_decision_test;
 mod drive_policy_test;

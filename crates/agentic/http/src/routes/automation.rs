@@ -37,7 +37,7 @@ use agentic_pipeline::automation_run::{
     AutomationRunError, StartAutomationRequest, get_automation_snapshot, list_automation_runs,
     spawn_automation_run_drive, start_automation_run_as,
 };
-use agentic_pipeline::platform::{BuilderBridges, PlatformContext};
+use agentic_pipeline::platform::PlatformContext;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
@@ -87,7 +87,6 @@ pub struct AutomationFilePath {
 pub async fn create_automation_run(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
-    Extension(bridges): Extension<BuilderBridges>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     axum::extract::RawQuery(query): axum::extract::RawQuery,
     Json(body): Json<StartAutomationRequest>,
@@ -162,7 +161,6 @@ pub async fn create_automation_run(
         state.runtime.clone(),
         run_id.clone(),
         platform,
-        Some(bridges),
         cancel_rx,
         state.router.clone(),
     );

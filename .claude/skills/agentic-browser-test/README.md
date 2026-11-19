@@ -23,7 +23,7 @@ and you say something like:
 > "test that clicking the new 'Reset' button clears the workspace"
 >
 > "add a regression test for the bug I just fixed where pressing Cmd+Enter
->  in the agent builder dialog submitted twice"
+>  in the chat input submitted twice"
 >
 > "the agentic / builder job is red — figure out why"
 >

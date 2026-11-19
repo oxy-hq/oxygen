@@ -4,8 +4,7 @@
 //!
 //! - [`thread`]: a workspace's threads (list, create, read, stop, delete one,
 //!   all or a batch) and the run logs (`/logs`).
-//! - [`agent`]: the agent listing the chat panel's selector reads, and whether
-//!   the built-in builder is configured (`/builder-availability`).
+//! - [`agent`]: the agent listing the chat panel's selector reads.
 //! - [`chat`]: org chat — channels, messages and the live stream — and the
 //!   cross-replica delivery listener that wakes this replica's streams for a
 //!   message another replica took.
@@ -160,10 +159,6 @@ pub fn workspace_routes() -> Router<AppState> {
         .route("/charts/{file_path}", get(chart::get_chart))
         .route("/logs", get(thread::get_logs))
         .route(
-            "/builder-availability",
-            get(agent::check_builder_availability),
-        )
-        .route(
             "/results/files/{file_id}",
             get(result_files::get_result_file).delete(result_files::delete_result_file),
         )
@@ -198,7 +193,8 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree:
-/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk. A
+/// nine rows, method `*`, FleetOk. `oxy-app`'s `route_fleet` declared ten;
+/// the tenth, `/builder-availability`, was deleted with the builder agent. A
 /// nested `/` declares the prefix itself (`/threads`, `/agents`), as
 /// `RoleRouter::nest` joined it.
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
@@ -216,7 +212,6 @@ const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] = &[
     fleet("/artifacts/{id}"),
     fleet("/charts/{file_path}"),
     fleet("/logs"),
-    fleet("/builder-availability"),
     fleet("/results/files/{file_id}"),
 ];
 

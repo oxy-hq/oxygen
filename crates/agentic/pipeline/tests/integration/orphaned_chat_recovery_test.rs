@@ -96,8 +96,6 @@ async fn the_tick_takes_a_dead_replicas_chat_and_nothing_a_live_process_holds() 
         base,
         Arc::new(IdentityResolver),
         None,
-        None,
-        None,
         Arc::new(agentic_runtime::router::NoopTaskRouter),
         Some(ws),
         None,

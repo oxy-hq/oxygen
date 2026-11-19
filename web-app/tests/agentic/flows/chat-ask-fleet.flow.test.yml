@@ -12,10 +12,6 @@
 #     `local` when this was written) and is absent from `FLEET_FLOWS`
 #     (scripts/fleet-assert.sh:114-122) — it has only ever run against a
 #     single all-in-one process where the ide proxy is never exercised.
-#   - `semantic-builder-ask.flow.test.yml` is the one flow in
-#     `FLEET_FLOWS`'s own exclusion list that "fails outright" — its premise
-#     (an edit is visible to a semantic read without an explicit compile)
-#     doesn't hold anywhere, fleet or not; see that file's header.
 # `internal-docs/local-split-fleet-testing.md`'s "Flows identified but not
 # yet built" section (item 3, P0) names this exact gap.
 #
@@ -85,8 +81,7 @@
 #     executed and returned something to show, not just prose. The prefix
 #     match (rather than a fixed label) is deliberate: this question's
 #     pill could legitimately render as "SQL Query" or "Semantic Query"
-#     depending on which path the hybrid analytics agent takes (see
-#     semantic-builder-ask.flow.test.yml's header on that hybrid behavior) —
+#     depending on which path the hybrid analytics agent takes —
 #     pinning either literal label would make the assertion depend on an
 #     implementation detail this flow doesn't care about.
 #   [data-testid=ide-unavailable-banner] — components/IdeUnavailableBanner/
@@ -139,7 +134,7 @@
 # other workspaces a concurrent agent has created in the same org.
 #
 # COST: two act steps (open the dock, submit the question) plus one
-# streaming wait and one judge call — no builder run, no onboarding prelude.
+# streaming wait and one judge call — no onboarding prelude.
 # Wall-clock is dominated by the agent run itself (~55s measured live above).
 
 name: chat ask returns a real, data-backed answer (fleet fixture)

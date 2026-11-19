@@ -16,7 +16,7 @@ The legacy flat paths (`agentic_runtime::coordinator`, `agentic_runtime::state`,
 
 ## Rules
 
-- **Never import domain crates** (analytics, builder, connector, llm). Only depends on `agentic-core`.
+- **Never import domain crates** (analytics, connector, llm). Only depends on `agentic-core`.
 - **Never import HTTP types** (axum). This crate is transport-agnostic.
 - Domain-specific behavior is injected via:
   - `serialize_fn: Fn(&Event<Ev>) -> (String, Value)` for bridge task serialization
@@ -59,7 +59,7 @@ queue-driven pattern below), follow the walkthrough in
 [`internal-docs/agentic-runtime-integration.md`](../../../internal-docs/agentic-runtime-integration.md).
 It covers three patterns:
 
-- **Pipeline-style** (analytics, builder) — `DomainSolver` +
+- **Pipeline-style** (analytics) — `DomainSolver` +
   `PipelineHandle`. Lifecycle only; no orchestrator queue.
 - **One-shot queue work** (per-workspace health eval) —
   `TaskSpec::Custom { kind }` + a `CustomTaskRegistry` executor registered by

@@ -6,9 +6,9 @@ import { AnalyticsService } from "./analytics";
 import { apiClient } from "./axios";
 
 /**
- * The Builder went with the IDE, so nothing is sent to its deleted routes: a
- * Builder start and an answer to a Builder run go to the chat routes, which
- * refuse them with `410 builder_removed`.
+ * The Builder went with the IDE, so nothing is sent to its deleted routes: an
+ * answer to an old Builder run goes to the chat route, which refuses it with
+ * `410 builder_removed`.
  */
 
 let posted: string[] = [];
@@ -39,17 +39,6 @@ afterEach(() => {
 });
 
 describe("Builder requests after the Builder's removal", () => {
-  it("starts a Builder run on the chat route, which refuses it", async () => {
-    await expect(
-      AnalyticsService.createRun("ws-1", {
-        agent_id: "__builder__",
-        question: "q",
-        domain: "builder"
-      })
-    ).rejects.toMatchObject({ response: { status: 410 } });
-    expect(posted).toEqual(["/ws-1/analytics/runs"]);
-  });
-
   it("answers on the chat route once, without a second Builder-route try", async () => {
     await expect(AnalyticsService.submitAnswer("ws-1", "run-1", "Accept")).rejects.toMatchObject({
       response: { status: 410 }

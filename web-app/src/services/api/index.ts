@@ -19,7 +19,7 @@ export { DatabaseService } from "./database";
 export { FileService } from "./files";
 export { FrontlineService } from "./frontline";
 export { GitHubApiService } from "./github";
-export { ArtifactService, BuilderService, ChartService } from "./misc";
+export { ArtifactService, ChartService } from "./misc";
 export { OnboardingService } from "./onboarding";
 export { ThreadService } from "./threads";
 export { UserService } from "./users";

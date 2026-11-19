@@ -17,11 +17,10 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
-use agentic_pipeline::PipelineBuilder;
 use agentic_pipeline::{AnalyticsMigrator, AutomationMigrator};
+use agentic_pipeline::{PipelineBuilder, build_event_registry};
 use agentic_runtime::crud;
 use agentic_runtime::crud::user_facing_status;
-use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::migration::RuntimeMigrator;
 use agentic_runtime::state::RuntimeState;
 
@@ -59,9 +58,6 @@ pub struct RunArgs {
     /// Question to ask the pipeline
     #[clap(long, short)]
     pub question: String,
-    /// Domain: "analytics" (default) or "builder"
-    #[clap(long, default_value = "analytics")]
-    pub domain: String,
     /// Thinking mode: "auto" (default) or "extended_thinking"
     #[clap(long, default_value = "auto")]
     pub thinking_mode: String,
@@ -166,13 +162,6 @@ async fn connect_db() -> Result<DatabaseConnection, OxyError> {
     Ok(db)
 }
 
-fn build_event_registry() -> EventRegistry {
-    let mut registry = EventRegistry::new();
-    registry.register("analytics", agentic_analytics::event_handler());
-    registry.register("builder", agentic_builder::event_handler());
-    registry
-}
-
 /// The agent ref `oxy agentic run <config>` hands the pipeline. The loader
 /// takes only a relative path inside the workspace — it also serves HTTP
 /// bodies, so it refuses an absolute path or a `..` rather than read outside
@@ -230,23 +219,13 @@ async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
         workspace_manager,
     ));
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx.clone();
-    let bridges = crate::agentic_wiring::build_builder_bridges(project_ctx);
     let platform_for_delegation = platform.clone();
-    let bridges_for_delegation = bridges.clone();
     let workspace_id = platform.workspace_id();
-    let mut builder = PipelineBuilder::new(platform)
+    let started = PipelineBuilder::new(platform)
         .workspace_id(workspace_id)
-        .with_builder_bridges(bridges)
+        .analytics(&workspace_relative_config(&args.config, &project_path)?)
         .question(&args.question)
-        .thinking_mode(thinking_mode);
-
-    builder = if args.domain == "builder" {
-        builder.builder(None)
-    } else {
-        builder.analytics(&workspace_relative_config(&args.config, &project_path)?)
-    };
-
-    let started = builder
+        .thinking_mode(thinking_mode)
         .start(&db)
         .await
         .map_err(|e| OxyError::RuntimeError(format!("pipeline start failed: {e}")))?;
@@ -274,8 +253,6 @@ async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
             answer_rx,
             cancel_rx,
             platform_for_delegation,
-            Some(bridges_for_delegation),
-            None,
             None,
             // CLI is one-shot: no long-lived listener to maintain, so
             // the no-op router is correct. Worker falls back to the 10s

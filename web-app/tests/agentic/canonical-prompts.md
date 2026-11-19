@@ -21,40 +21,11 @@ default scope is `flow` (private to that flow file/case/step index).
 
 > **Naming convention.** All testid selectors used here follow the
 > `[<feature>-<element>]` pattern, mirroring the source attributes
-> (e.g. `chat-panel-submit-button`, `builder-input-textarea`).
+> (e.g. `chat-panel-submit-button`, `agent-selector-button`).
 > If a snippet here references a testid that no longer resolves, the
 > recording will Tier-1-heal on its first replay (re-ranking the
 > remaining fallback strategies silently) and the failure will
 > surface in the markdown summary's drift section.
-
----
-
-## Builder dialog
-
-### Open the builder via Cmd+I and submit a build prompt (single action)
-
-The builder dialog must be opened **and** submitted in a single `act:`
-because Meta+i toggles the dialog closed if pressed twice.
-
-```yaml
-- act: |
-    Open the builder dialog AND submit a build prompt in one action
-    sequence (do not re-press Meta+i mid-sequence; do not click outside
-    the dialog):
-
-    1. browser_press_key with key "Meta+i" to open the dialog. Verify
-       [data-testid=builder-dialog-root] becomes visible.
-    2. If [data-testid=builder-auto-approve-toggle] has data-state="off",
-       click it to flip ON. (If already on, leave it.)
-    3. browser_click [data-testid=builder-input-textarea] to focus.
-    4. browser_keyboard_type the build prompt text.
-    5. browser_press_key with key "Enter". The dialog closes and the URL
-       changes to /threads/<id>.
-```
-
-(No `cache_scope: shared` here — the prompt body varies per flow, so
-sharing across flows would defeat the purpose. The mechanics around the
-prompt body are stable but the body itself changes.)
 
 ---
 

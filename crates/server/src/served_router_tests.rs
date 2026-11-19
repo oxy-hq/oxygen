@@ -1801,14 +1801,14 @@ fn thread_workspace_routes() -> Vec<&'static str> {
         "/artifacts/65c121b2-0000-0000-0000-000000000000",
         "/charts/chart-1.json",
         "/logs",
-        "/builder-availability",
         "/results/files/65c121b2-0000-0000-0000-000000000000.parquet",
     ]
 }
 
 /// The conversation surface (Wave B, 2026-11-16) rides the WORKSPACE seam,
 /// inside the `/{workspace_id}` tree where `build_workspace_routes` had it,
-/// with the ten FleetOk declarations `route_fleet` wrote. Real reads, through
+/// with its nine FleetOk declarations (`route_fleet` wrote ten; the tenth,
+/// `/builder-availability`, was deleted with the builder agent). Real reads, through
 /// the composition `serve` uses, reach their handlers: the thread list (the
 /// guest's threads in the empty workspace: none, but answered) and the agent
 /// listing `oxy-app`'s local-mode router test used to probe.
@@ -1824,7 +1824,6 @@ async fn the_workspace_tree_mounts_the_conversation_surface() {
         "/artifacts/{id}",
         "/charts/{file_path}",
         "/logs",
-        "/builder-availability",
         "/results/files/{file_id}",
     ] {
         assert!(

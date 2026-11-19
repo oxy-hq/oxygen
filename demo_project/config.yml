@@ -28,11 +28,6 @@ databases:
     password: oxy
     database: warehouse
 
-# Built-in copilot for chat Build mode (Cmd+I). Just a model reference;
-# the platform supplies the system prompt and tools.
-builder_agent:
-  model: claude-sonnet-4-6
-
 # The demo's views are CSV-backed and have no refresh_key wired, so the
 # background preagg refresh worker spins on auto-discovered rollups it
 # can't stale-check (27 skipped: no refresh_key) and 12 of 15 fail every

@@ -22,7 +22,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::middlewares::timeout::timeout_middleware;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::builder_test_runner::OxyTestRunner;
 use oxy_app_core::serve_mode::ServeMode;
 
 use super::protected::{
@@ -653,7 +652,6 @@ async fn new_agentic_state(
 
     let state = Arc::new(
         AgenticState::new(shutdown_token, db, thread_owner)
-            .with_builder_test_runner(Arc::new(OxyTestRunner))
             .with_router(router)
             .with_queued_starts(true),
     );

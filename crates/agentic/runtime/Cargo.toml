@@ -45,7 +45,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
 # Capturing subscriber for the span-shape tests in `orchestrator::worker`.
 tracing-subscriber = { workspace = true, features = ["registry"] }
 agentic-analytics = { path = "../analytics" }
-agentic-builder = { path = "../builder" }
 # `migrate_shared_test_db` — central-then-runtime migration ordering shared
 # with agentic-pipeline / agentic-airway fixtures. See oxy-test-utils::migration.
 oxy-test-utils = { workspace = true }

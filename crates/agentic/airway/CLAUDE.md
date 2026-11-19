@@ -44,7 +44,7 @@ Migrator: `AirwayMigrator`, tracking table `seaql_migrations_airway`.
 
 - Must NOT depend on `oxy`, `oxy-shared`, `entity`, or any other
   platform crate.
-- Must NOT depend on `agentic-analytics`, `agentic-builder`,
+- Must NOT depend on `agentic-analytics`,
   `agentic-automation`, `agentic-pipeline`, or `agentic-http`.
 - May depend on `agentic-core`, `agentic-runtime`, `agentic-connector`
   (postgres feature, added in stage 3), and the external `airway`

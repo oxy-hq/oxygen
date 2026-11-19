@@ -153,8 +153,6 @@ pub(crate) async fn latency_pass_with_state(
         Arc::new(FakePlatform),
         Arc::new(IdentityResolver),
         None,
-        None,
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         Some(Arc::new(registry)),

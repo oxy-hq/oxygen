@@ -26,7 +26,7 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
 - **HTTP handlers are transport** — parse/validate → call `oxy` or `agentic-pipeline` →
   serialize. A handler past ~30 lines is leaking domain logic (see `backend-architecture.md`).
 - **Enter the agentic subsystem only through `agentic-http`/`agentic-pipeline`**, never by
-  importing `agentic-analytics`/`agentic-builder`/`agentic-connector`/`agentic-llm` directly.
+  importing `agentic-analytics`/`agentic-connector`/`agentic-llm` directly.
 - Long-running work (spawns, periodic loops, LLM calls, >5s clones) belongs in a `TaskSpec`
   on the durable queue, **not** a `tokio::spawn` in a handler — invoke the
   `oxy-task-spec-default` skill.

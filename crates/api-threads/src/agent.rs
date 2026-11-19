@@ -1,58 +1,12 @@
-//! Agent listing + builder-availability endpoints.
+//! Agent listing endpoint.
 //!
 //! The classic `.agent.yml` execution surface (preview/sync/test) has been
 //! removed alongside the `oxy-agent` crate. Only listing — used by the chat
-//! panel's agent selector — and the built-in builder readiness check remain
-//! here, both serving the agentic-only world.
+//! panel's agent selector — remains here, serving the agentic-only world.
 
 use axum::{extract, http::StatusCode};
-use oxy::config::model::BuilderAgentConfig;
 use oxy_app::surface::WorkspaceManagerReadOnly;
 use serde::{Deserialize, Serialize};
-
-#[derive(Serialize)]
-pub struct BuilderAvailabilityResponse {
-    pub available: bool,
-    /// Always `None` now — the legacy path-based builder agent has been
-    /// removed. Kept in the response shape so existing clients don't
-    /// require a coordinated frontend redeploy.
-    pub builder_path: Option<String>,
-    /// `true` when the builder is the built-in copilot.
-    pub builtin: bool,
-    /// Model name for the built-in copilot; `None` when no builder is configured.
-    pub model: Option<String>,
-}
-
-pub async fn check_builder_availability(
-    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
-) -> Result<extract::Json<BuilderAvailabilityResponse>, StatusCode> {
-    Ok(extract::Json(builder_availability(
-        workspace_manager.config_manager.get_builder_config(),
-    )))
-}
-
-/// A `builder_agent` whose `model` is blank is a builder that cannot run, and
-/// the config accepts one (`builder_agent` is not validated). Reporting it as
-/// available let the UI open a builder thread that then never started, so a
-/// blank model reads the same as no builder at all.
-fn builder_availability(config: Option<&BuilderAgentConfig>) -> BuilderAvailabilityResponse {
-    match config {
-        Some(BuilderAgentConfig::Builtin { model }) if !model.trim().is_empty() => {
-            BuilderAvailabilityResponse {
-                available: true,
-                builder_path: None,
-                builtin: true,
-                model: Some(model.clone()),
-            }
-        }
-        _ => BuilderAvailabilityResponse {
-            available: false,
-            builder_path: None,
-            builtin: false,
-            model: None,
-        },
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AgentConfigResponse {
@@ -149,38 +103,4 @@ pub async fn get_agents(
             })
             .collect(),
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn builtin(model: &str) -> BuilderAgentConfig {
-        BuilderAgentConfig::Builtin {
-            model: model.to_string(),
-        }
-    }
-
-    #[test]
-    fn a_builder_with_a_model_is_available() {
-        let response = builder_availability(Some(&builtin("claude-sonnet-4-6")));
-        assert!(response.available && response.builtin);
-        assert_eq!(response.model.as_deref(), Some("claude-sonnet-4-6"));
-    }
-
-    #[test]
-    fn a_blank_model_is_no_builder_at_all() {
-        for model in ["", "   "] {
-            let response = builder_availability(Some(&builtin(model)));
-            assert!(!response.available && !response.builtin, "{model:?}");
-            assert_eq!(response.model, None);
-        }
-    }
-
-    #[test]
-    fn no_builder_config_is_unavailable() {
-        let response = builder_availability(None);
-        assert!(!response.available);
-        assert_eq!(response.model, None);
-    }
 }

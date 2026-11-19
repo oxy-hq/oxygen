@@ -33,7 +33,6 @@ oxy-telemetry = { workspace = true }
 oxy-workspace-fs = { workspace = true }
 agentic-airway = { workspace = true }
 agentic-analytics = { workspace = true }
-agentic-builder = { workspace = true }
 agentic-connector = { workspace = true, features = [
     "duckdb",
     "postgres",

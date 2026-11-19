@@ -224,8 +224,6 @@ async fn a_latency_pass_drives_a_queued_ask_to_a_terminal_event() {
                 Arc::new(IdentityResolver),
             )),
             None,
-            None,
-            None,
             noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),

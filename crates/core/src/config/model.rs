@@ -69,7 +69,9 @@ pub struct PreaggConfig {
     pub refresh_worker: Option<RefreshWorkerConfig>,
 }
 
-/// Configuration for the built-in builder copilot agent.
+/// Configuration for the built-in builder copilot agent, which no longer
+/// exists. Kept only so a `config.yml` that still carries `builder_agent:`
+/// parses (the struct is `deny_unknown_fields`); the value is ignored.
 ///
 /// Example:
 ///   `builder_agent: { model: "claude-sonnet-4-6" }`
@@ -105,6 +107,7 @@ pub struct Config {
     #[serde(default)]
     #[garde(dive)]
     pub databases: Vec<Database>,
+    /// Ignored: the builder agent was removed. The key still parses.
     #[garde(skip)]
     pub builder_agent: Option<BuilderAgentConfig>,
 
@@ -3110,6 +3113,17 @@ mod key_secret_tests {
 #[cfg(test)]
 mod tests {
     use schemars::schema_for;
+
+    /// `builder_agent:` is ignored now but must still parse: `Config` is
+    /// `deny_unknown_fields`, so dropping the key would fail every workspace
+    /// whose `config.yml` still carries it.
+    #[test]
+    fn a_config_with_builder_agent_still_loads() {
+        use super::Config;
+        let yaml = "builder_agent:\n  model: claude-sonnet-4-6\n";
+        let config: Config = serde_yaml::from_str(yaml).expect("builder_agent must still parse");
+        assert!(config.builder_agent.is_some());
+    }
 
     /// A `config.yml` that declares neither models nor databases still parses.
     ///

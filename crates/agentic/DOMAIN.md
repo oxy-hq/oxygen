@@ -2,7 +2,7 @@
 
 ## Overview
 
-The domain layer is the **reasoning engine** of the agentic subsystem: a generic finite state machine (`agentic-core`) parameterized by domain-specific types (analytics, builder). It sits between the pipeline composition layer and the coordinator/worker runtime.
+The domain layer is the **reasoning engine** of the agentic subsystem: a generic finite state machine (`agentic-core`) parameterized by domain-specific types (today, analytics). It sits between the pipeline composition layer and the coordinator/worker runtime.
 
 ```
 Pipeline Layer (PipelineBuilder)
@@ -18,9 +18,12 @@ Orchestrator<D, S, Ev>  ←── Events ──→ EventStream → bridge → DB
     PipelineOutcome → Coordinator (see COORDINATOR.md)
 ```
 
-The framework is **domain-agnostic at the core**. Two concrete domains plug in today:
+The framework is **domain-agnostic at the core**. One concrete FSM domain plugs in today:
 - **agentic-analytics**: Clarify → Specify → Solve → Execute → Interpret
-- **agentic-builder**: Solve only (skips Clarifying, Specifying, Executing)
+
+`agentic-automation` is a sibling domain crate but not an FSM domain: it is a
+stateless decider (`WorkflowDecider::decide`), not a `DomainSolver` (see
+[automation/CLAUDE.md](automation/CLAUDE.md)).
 
 ## Core Components
 
@@ -168,7 +171,7 @@ pub struct StateHandler<D, S, Ev> {
 }
 ```
 
-Analytics registers 5 handlers (clarifying, specifying, solving, executing, interpreting) via `build_analytics_handlers()`. Builder registers just `solving` and `interpreting` (other states skip via `SKIP_STATES`).
+Analytics registers 5 handlers (clarifying, specifying, solving, executing, interpreting) via `build_analytics_handlers()`, so it skips nothing statically. A domain that implements fewer states lists the rest in `SKIP_STATES` (the removed builder skipped `clarifying`, `specifying` and `executing`).
 
 ### TransitionResult
 
@@ -262,7 +265,7 @@ Suspension data is persisted in `agentic_run_suspensions` (see [COORDINATOR.md](
 
 Two layers:
 
-1. **Static** via `const SKIP_STATES: &[&str]`. Builder skips `clarifying`, `specifying`, `executing` entirely. Compile-time; cannot be overridden at runtime.
+1. **Static** via `const SKIP_STATES: &[&str]`. A domain lists the states it never runs; analytics' list is empty (the default). Compile-time; cannot be overridden at runtime.
 
 2. **Dynamic** via `solver.should_skip(state, data, run_ctx) -> Option<ProblemState<D>>`. Analytics uses this to skip `Solving` when the semantic model compiled SQL directly — returns `Some(Executing(solution))` to jump ahead.
 
@@ -306,36 +309,6 @@ execution_heartbeat_at TIMESTAMPTZ  -- that attempt's proof of life (extension/e
 ```
 Migrator: `AnalyticsMigrator` with tracking table `seaql_migrations_analytics`.
 
-### Builder ([builder/](builder/))
-
-Single-stage pipeline: Solving (tool loop, ≤30 rounds) → Interpreting → Done.
-
-```rust
-const SKIP_STATES: &[&str] = &["clarifying", "specifying", "executing"];
-```
-
-**Tools** ([builder/src/tools/](builder/src/tools/)):
-| Tool | Purpose | HITL? |
-|------|---------|-------|
-| `search_files` | glob pattern search | No |
-| `read_file` | read content (optional line range) | No |
-| `search_text` | regex across project | No |
-| `write_file` | create or fully overwrite a file | **Yes** |
-| `edit_file` | exact-string replacement in an existing file | **Yes** |
-| `delete_file` | delete a file | **Yes** |
-| `manage_directory` | create / delete / rename a directory | **Yes** |
-| `validate_project` | validate Oxy YAML | No |
-| `lookup_reference` | load a domain reference card | No |
-| `lookup_schema` | JSON schema for Oxy types | No |
-| `run_tests` | execute .test.yml files | No |
-| `execute_sql` | run SQL against connectors | No |
-| `semantic_query` | airlayer compile + execute | No |
-| `ask_user` | generic clarification | **Yes** |
-
-**HITL via the file-write tools**: `write_file`, `edit_file`, and `delete_file` all suspend under the shared `file_change` suspension kind. The solver emits `BuilderEvent::FileChangePending { file_path, description, new_content, old_content }` and returns `BackTarget::Suspend`. User accepts/rejects via HTTP; on resume the facade applies the change (writing `new_content` for `write_file` / `edit_file`, deleting for `delete_file`), emits `BuilderEvent::FileChanged`, and emits a synthetic `ToolResult` event so SSE replay shows the user's decision. When the LLM batches multiple writes in a single turn, the facade pre-computes each `edit_file`'s `new_content` at suspension time (stored in `stage_data["precomputed_edits"]`) to avoid TOCTOU races.
-
-**No extension table** — builder stores only the generic `agentic_runs.metadata` JSONB.
-
 ## Extension Table Pattern
 
 Each domain that needs per-run state owns its table, its entity, and its migrator. Central `agentic_runs` carries only `source_type: String` and `metadata: JSONB` for generic fields.
@@ -345,7 +318,6 @@ Each domain that needs per-run state owns its table, its entity, and its migrato
 | runtime (common) | `agentic_runs`, `agentic_run_events`, `agentic_run_suspensions`, `agentic_task_outcomes`, `agentic_task_queue` | `RuntimeMigrator` | `seaql_migrations_orchestrator` |
 | analytics | `analytics_run_extensions` | `AnalyticsMigrator` | `seaql_migrations_analytics` |
 | workflow | `agentic_workflow_state` | `WorkflowMigrator` | `seaql_migrations_workflow` |
-| builder | (none) | — | — |
 
 **Startup order**: central platform migrator → runtime → analytics → workflow. Each migrator is independent with no foreign-key linking beyond `run_id` references.
 
@@ -401,7 +373,7 @@ PipelineOutcome::Done → coordinator
 
 5. **Dynamic skipping via `should_skip`.** Lets domains optimize paths at runtime (analytics skips `Solving` when semantic model compiled SQL) without the FSM framework knowing about domain-specific paths.
 
-6. **Pluggable state handlers.** A `HashMap<state_name, StateHandler>` instead of a giant match. Domains register only the states they implement; builder registers 2, analytics registers 5.
+6. **Pluggable state handlers.** A `HashMap<state_name, StateHandler>` instead of a giant match. Domains register only the states they implement; analytics registers 5.
 
 7. **Fan-out is first-class.** `specify()` returns `Vec<Spec>` — single-spec is just the `len()==1` case. `sub_spec_index` on every event tags which branch emitted it, so the frontend renders N cards.
 
@@ -409,4 +381,4 @@ PipelineOutcome::Done → coordinator
 
 9. **Extension tables, not metadata sprawl.** Each domain owns its table, migrator, and tracking row. Central `agentic_runs` stays minimal.
 
-10. **Solver can never see another domain.** `agentic-analytics` and `agentic-builder` must never import each other. Composition happens exactly once — in `agentic-pipeline`.
+10. **Solver can never see another domain.** `agentic-analytics` and `agentic-automation` must never import each other. Composition happens exactly once — in `agentic-pipeline`.

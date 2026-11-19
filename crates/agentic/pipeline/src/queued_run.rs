@@ -115,8 +115,8 @@ pub async fn check_analytics_agent(
 /// A plain analytics chat does, started by a request that resolved who asked.
 /// Everything else is built and driven in the request's process:
 ///
-/// * **the Builder domain**, and **onboarding** (its own prompt, tool
-///   allowlist, LLM client and auto-accept): they edit the working copy;
+/// * **auto-accept**: the request asked for every question to be accepted,
+///   which a queued run does not carry;
 /// * **a workspace preview's** platform, which holds every write in that
 ///   process — a driver elsewhere has no such hold;
 /// * **a start on a branch** (`?branch=`): its context is built on that
@@ -126,8 +126,6 @@ pub async fn check_analytics_agent(
 ///   subject.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatAdmission {
-    pub builder_domain: bool,
-    pub onboarding: bool,
     pub auto_accept: bool,
     pub working_copy_branch: Option<String>,
 }
@@ -135,11 +133,7 @@ pub struct ChatAdmission {
 impl ChatAdmission {
     /// The requester to run the chat as, when this start goes on the queue.
     pub fn queueable(&self, platform: &dyn PlatformContext) -> Option<crate::platform::Requester> {
-        if self.builder_domain
-            || self.onboarding
-            || self.auto_accept
-            || self.working_copy_branch.is_some()
-            || platform.is_workspace_preview()
+        if self.auto_accept || self.working_copy_branch.is_some() || platform.is_workspace_preview()
         {
             return None;
         }
@@ -258,9 +252,8 @@ pub fn chat_run_spec() -> TaskSpec {
 /// turns), at its thinking mode, and with no human-input provider over the
 /// default, so the agent can still stop to ask its user a question.
 ///
-/// Only a plain chat is described here. Onboarding (its own prompt, tool
-/// allowlist, LLM client and auto-accept) and the Builder domain edit the
-/// working copy, and stay with the request that starts them.
+/// Only a plain chat is described here: an auto-accept chat stays with the
+/// request that starts it ([`ChatAdmission`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatStart {
     pub workspace_id: Uuid,
@@ -295,9 +288,9 @@ impl ChatStart {
         })
     }
 
-    /// The builder for this chat. The caller adds what differs between the two
-    /// drives: the request names no run (the insert is the start's) and adds
-    /// its process's builder runners; a driver adds `existing_run`.
+    /// The `PipelineBuilder` for this chat. The caller adds what differs
+    /// between the two drives: the request names no run (the insert is the
+    /// start's); a driver adds `existing_run`.
     pub fn builder(
         &self,
         platform: Arc<dyn PlatformContext>,

@@ -43,7 +43,7 @@ models:
 | `defaults` | Project defaults. `defaults.database` names the database used when a task or query doesn't specify one. |
 | `integrations` | External integrations such as [Looker](/guide/build/connect-data/looker). |
 | `timezone` | IANA timezone (e.g. `America/Los_Angeles`) used to resolve relative dates such as "yesterday" or "last week" in agent runs. Defaults to UTC. An agent's own `timezone:` overrides it. |
-| `builder_agent` | Model for the built-in builder agent, e.g. `builder_agent: { model: claude-sonnet-4-6 }`. |
+| `builder_agent` | Ignored. The builder agent was removed; the key still parses so an existing `config.yml` keeps loading. |
 | `mcp` | Which files the [MCP server](/guide/build/embed-extend/mcp) exposes as tools. |
 | `health_check` | Opt-in scheduled health checks for the workspace. See [Health checks](#health-checks). |
 | `protected_branches`, `base_branch` | Git branch behavior in the IDE. See [Branches](/guide/manage/workspaces/branches). |

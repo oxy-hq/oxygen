@@ -15,31 +15,27 @@ import { dirname, resolve } from "node:path";
 
 interface SurfaceInfer {
   target: "chat" | "ide" | "threads" | "onboarding" | "any";
-  builderHint: boolean;
 }
 
 function inferSurface(filePath: string): SurfaceInfer {
   const norm = filePath.replace(/\\/g, "/");
   if (/\/pages\/home\//.test(norm) || /\/components\/Chat\//.test(norm)) {
-    return { target: "chat", builderHint: false };
+    return { target: "chat" };
   }
   if (/\/pages\/ide\//.test(norm)) {
-    return { target: "ide", builderHint: false };
+    return { target: "ide" };
   }
   if (/\/pages\/threads\//.test(norm)) {
-    return { target: "threads", builderHint: false };
+    return { target: "threads" };
   }
   if (
     /\/pages\/onboarding\//.test(norm) ||
     /\/components\/workspaces\//.test(norm) ||
     /\/components\/org\//.test(norm)
   ) {
-    return { target: "onboarding", builderHint: false };
+    return { target: "onboarding" };
   }
-  if (/\/components\/BuilderDialog\//.test(norm)) {
-    return { target: "any", builderHint: true };
-  }
-  return { target: "any", builderHint: false };
+  return { target: "any" };
 }
 
 const TESTID_RE = /data-testid\s*=\s*['"`]([^'"`]+)['"`]|data-testid\s*=\s*\{`([^`]+)`\}/g;
@@ -96,9 +92,6 @@ export function runScaffold({ featureName, fromPath, outPath }: ScaffoldArgs): v
   const testids = discoverTestIds(fromPath);
   const featurePretty = featureName.replace(/[-_]/g, " ");
   const tags = surface.target === "any" ? "[smoke]" : `[${surface.target}, smoke]`;
-  const builderNote = surface.builderHint
-    ? "\n# This surface includes the builder dialog. Consider opening it via\n# Meta+i; see canonical-prompts.md for the canonical sequence.\n"
-    : "";
   const testidExpects =
     testids.length > 0
       ? testids
@@ -121,7 +114,6 @@ export function runScaffold({ featureName, fromPath, outPath }: ScaffoldArgs): v
 # TODO: fill in the act: prompt and expect: claims, then run cold:
 #   pnpm test:agentic ${featureName}
 # After it passes once, run again to verify the warm replay.
-${builderNote}
 name: ${featurePretty}
 target: ${surface.target}
 

@@ -97,13 +97,12 @@ action in this order, see `runner/selectors.ts:materializeStrategies`):
 **Tokens that don't pay rent** (the 2026-05-11 tightening dropped these):
 
 - Rationale paragraphs explaining the verb choice.
-- "Edit @insights" verb prefixes when Cmd+I auto-prepends `@insights`.
 - Over-cautious disambiguators when the testid is unambiguous.
 - Radix `DropdownMenu` prose when `role=menuitem[name='…']` carries the info.
 
 **Atomic vs compound.** Default to atomic (one logical action per `act:`).
-Use compound only when actions are causally coupled (e.g. Cmd+I dialog —
-pressing Meta+i twice closes it). Cap compound at 5 actions.
+Use compound only when actions are causally coupled (e.g. a shortcut that toggles a
+dialog — pressing it twice closes it). Cap compound at 5 actions.
 
 ---
 

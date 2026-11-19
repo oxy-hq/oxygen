@@ -1,5 +1,5 @@
 pub mod admin;
-// `agent` (the agent listing, builder availability) and `artifacts` moved to
+// `agent` (the agent listing) and `artifacts` moved to
 // `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
 // `apps` (the app integrations `config.yml` declares, `/app-integrations`)
 // moved to `oxy-api-workspaces` (2026-11-16), mounted on the workspace seam.

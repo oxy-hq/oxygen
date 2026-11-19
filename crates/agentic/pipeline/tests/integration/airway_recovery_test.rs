@@ -126,8 +126,6 @@ async fn recover(s: &Stranded) {
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
         None,
-        None,
-        None,
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(s.workspace_id),
         None,

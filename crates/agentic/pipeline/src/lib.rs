@@ -22,6 +22,7 @@ pub mod drive_policy;
 pub mod executor;
 pub mod function_schedule;
 mod headless;
+mod legacy_builder;
 pub mod pipeline_ref;
 pub mod platform;
 pub mod queued_answer;
@@ -39,7 +40,6 @@ use std::sync::{Arc, Mutex};
 
 use agentic_analytics::SchemaCatalog;
 use agentic_analytics::config::AgentConfig;
-use agentic_builder::BuilderTestRunner;
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::handle::{PipelineHandle, PipelineOutcome};
@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::platform::{BuilderBridges, PlatformContext, ProjectContext};
+use crate::platform::{PlatformContext, ProjectContext};
 
 // ── Re-exports for consumers ────────────────────────────────────────────────
 
@@ -77,9 +77,6 @@ pub use agentic_automation::{
     AutomationMigrator, SOURCE_TYPE as WORKFLOW_SOURCE_TYPE,
     WorkspaceContext as WorkflowWorkspaceContext, WorkspaceReadError,
 };
-pub use agentic_builder::BuilderTestRunner as BuilderTestRunnerTrait;
-pub use agentic_builder::KnowledgeCard;
-pub use agentic_builder::onboarding;
 pub use agentic_core::human_input::{
     AutoAcceptInputProvider, HumanInputHandle, HumanInputProvider,
 };
@@ -126,38 +123,17 @@ impl ThinkingMode {
 /// and the CLI use this builder.
 pub struct PipelineBuilder {
     platform: Arc<dyn PlatformContext>,
-    builder_bridges: Option<BuilderBridges>,
     domain: Option<Domain>,
     question: String,
     thread_id: Option<Uuid>,
     thinking_mode: ThinkingMode,
     schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn BuilderTestRunner>>,
     /// When set, use this run_id and skip the DB `insert_run` call.
     /// Used for delegation children where the coordinator already created
     /// the run via `insert_run_with_parent`.
     existing_run_id: Option<String>,
-    /// Override the default human input provider for the builder domain.
-    /// When set, passed through to `BuilderPipelineParams.human_input`.
+    /// Override the default human input provider for the run's solver.
     human_input: Option<agentic_core::human_input::HumanInputHandle>,
-    /// Override the default LLM client for the builder domain. Used by the
-    /// onboarding flow where the chosen model is not yet in `config.yml`.
-    builder_llm_override: Option<LlmClient>,
-    /// Onboarding-only LLM metadata persisted into run metadata so a cold
-    /// resume (server restart while suspended mid-onboarding) can rebuild
-    /// the same client. None for non-onboarding runs.
-    builder_llm_metadata: Option<BuilderLlmMetadata>,
-    /// Reference cards to pre-populate in the builder solver's cached
-    /// system prefix.  Set per onboarding phase by the HTTP route;
-    /// empty for interactive builder runs (which rely on the
-    /// `lookup_reference` tool).
-    builder_knowledge_cards: Vec<KnowledgeCard>,
-    /// Skip the Interpreting LLM call after Solving completes.  Set
-    /// for onboarding runs whose UI collapses the trace.
-    builder_skip_interpreting: bool,
-    /// Restrict the builder solver's tool list to the named tools.
-    /// Set per onboarding phase to drop irrelevant tools (dbt, etc.).
-    builder_tool_allowlist: Option<Vec<String>>,
     /// Analytics SQL-generation mode. When `true`, the analytics FSM
     /// terminates after producing SQL (skip executing + interpreting
     /// for pre-validated paths; LIMIT-0 smoke check + terminate for
@@ -180,19 +156,6 @@ pub struct PipelineBuilder {
 
 enum Domain {
     Analytics { agent_id: String },
-    Builder { model: Option<String> },
-}
-
-/// Onboarding-flow LLM metadata. Persisted into the run's `metadata` JSON
-/// at create time so a cold resume can reconstruct the same `LlmClient`
-/// — crucial because mid-onboarding the chosen model isn't yet in
-/// `config.yml`, so the normal `resolve_model` lookup would fail and the
-/// resumed run would call the LLM with an empty API key.
-#[derive(Debug, Clone)]
-pub struct BuilderLlmMetadata {
-    pub vendor: String,
-    pub model_ref: String,
-    pub key_var: String,
 }
 
 #[derive(Debug)]
@@ -294,21 +257,14 @@ impl PipelineBuilder {
     pub fn new(platform: Arc<dyn PlatformContext>) -> Self {
         Self {
             platform,
-            builder_bridges: None,
             domain: None,
             question: String::new(),
             thread_id: None,
             thinking_mode: ThinkingMode::Auto,
             schema_cache: None,
-            builder_test_runner: None,
             existing_run_id: None,
             starting_driver: None,
             human_input: None,
-            builder_llm_override: None,
-            builder_llm_metadata: None,
-            builder_knowledge_cards: Vec::new(),
-            builder_skip_interpreting: false,
-            builder_tool_allowlist: None,
             analytics_sql_mode: false,
             workspace_id: Uuid::nil(),
             run_metadata: serde_json::Map::new(),
@@ -320,13 +276,6 @@ impl PipelineBuilder {
     /// default nil UUID (= local single-workspace mode).
     pub fn workspace_id(mut self, workspace_id: Uuid) -> Self {
         self.workspace_id = workspace_id;
-        self
-    }
-
-    /// Supply the four builder-domain port impls. Required before starting
-    /// the builder pipeline; ignored for analytics runs.
-    pub fn with_builder_bridges(mut self, bridges: BuilderBridges) -> Self {
-        self.builder_bridges = Some(bridges);
         self
     }
 
@@ -353,72 +302,9 @@ impl PipelineBuilder {
         ))
     }
 
-    /// The builder bridges a builder start or resume runs with. Never on a
-    /// workspace-preview platform: the bridges edit the working copy.
-    fn builder_bridges_for_run(&self) -> Result<BuilderBridges, PipelineError> {
-        if platform::preview::is_preview(self.platform.as_ref()) {
-            return Err(PipelineError::Config(
-                "the Builder Agent does not run in a workspace preview; merge the branch first"
-                    .into(),
-            ));
-        }
-        self.builder_bridges.clone().ok_or_else(|| {
-            PipelineError::Config(
-                "builder bridges not provided — call .with_builder_bridges() first".into(),
-            )
-        })
-    }
-
-    /// Override the human input provider for the builder domain.
+    /// Override the human input provider for the run's solver.
     pub fn human_input(mut self, provider: agentic_core::human_input::HumanInputHandle) -> Self {
         self.human_input = Some(provider);
-        self
-    }
-
-    /// Override the LLM client used for the builder domain.
-    ///
-    /// Used by the onboarding flow where the chosen model isn't yet present in
-    /// `config.yml`, so the normal `resolve_model` → `build_llm_client` path
-    /// can't find it. The caller is responsible for constructing a client with
-    /// the correct vendor/provider and API key.
-    pub fn with_builder_llm_client(mut self, client: LlmClient) -> Self {
-        self.builder_llm_override = Some(client);
-        self
-    }
-
-    /// Persist onboarding-only LLM metadata (vendor / model_ref / key_var)
-    /// into the run's `metadata` JSON so a cold resume can reconstruct an
-    /// identical `LlmClient` via [`with_builder_llm_client`]. Only meaningful
-    /// for the onboarding flow — non-onboarding builder runs leave this
-    /// unset and rely on `resolve_model` against the project's `config.yml`.
-    pub fn with_builder_llm_metadata(mut self, meta: BuilderLlmMetadata) -> Self {
-        self.builder_llm_metadata = Some(meta);
-        self
-    }
-
-    /// Pre-populate the builder solver's cached system prefix with
-    /// the given reference cards.  Called by the HTTP route when the
-    /// request carries an `OnboardingContext`; cards come from
-    /// `OnboardingContext::knowledge_cards()`.
-    pub fn knowledge_cards(mut self, cards: Vec<KnowledgeCard>) -> Self {
-        self.builder_knowledge_cards = cards;
-        self
-    }
-
-    /// Skip the builder's Interpreting LLM call.  Set for onboarding
-    /// runs (the UI collapses the per-phase trace and shows CTAs in
-    /// place of the synthesized summary).
-    pub fn skip_interpreting(mut self, skip: bool) -> Self {
-        self.builder_skip_interpreting = skip;
-        self
-    }
-
-    /// Restrict the builder's tool list to the named tools.  Called
-    /// by the HTTP route when the request carries an
-    /// `OnboardingContext`; the allowlist comes from
-    /// `OnboardingContext::tool_allowlist()`.
-    pub fn tool_allowlist(mut self, names: Vec<String>) -> Self {
-        self.builder_tool_allowlist = Some(names);
         self
     }
 
@@ -427,8 +313,7 @@ impl PipelineBuilder {
     /// (semantic model, verified `.sql`, vendor engine) skip
     /// executing entirely; LLM-generated SQL runs a `LIMIT 0` smoke
     /// check before terminating. Used by the automation `type: agent`
-    /// step when `AgentTaskConfig.output.mode == Sql`. No-op for the
-    /// builder agent.
+    /// step when `AgentTaskConfig.output.mode == Sql`.
     pub fn analytics_sql_mode(mut self) -> Self {
         self.analytics_sql_mode = true;
         self
@@ -452,12 +337,6 @@ impl PipelineBuilder {
         self
     }
 
-    /// Configure for the builder domain.
-    pub fn builder(mut self, model: Option<String>) -> Self {
-        self.domain = Some(Domain::Builder { model });
-        self
-    }
-
     /// Set the user's question.
     pub fn question(mut self, q: &str) -> Self {
         self.question = q.to_string();
@@ -476,7 +355,7 @@ impl PipelineBuilder {
     /// reads back to pick the run's platform.
     ///
     /// Never replaces a key the pipeline writes itself (`agent_id`,
-    /// `thinking_mode`, the preview stamp, the builder's own). Ignored when
+    /// `thinking_mode`, the preview stamp). Ignored when
     /// the run row already exists ([`Self::existing_run`]): whoever inserted
     /// that row owns its metadata.
     pub fn run_metadata(mut self, key: &str, value: serde_json::Value) -> Self {
@@ -495,11 +374,6 @@ impl PipelineBuilder {
         self
     }
 
-    pub fn test_runner(mut self, runner: Arc<dyn BuilderTestRunner>) -> Self {
-        self.builder_test_runner = Some(runner);
-        self
-    }
-
     /// Build and start the pipeline.
     ///
     /// Inserts the run record in the database, starts the domain pipeline,
@@ -508,9 +382,10 @@ impl PipelineBuilder {
         mut self,
         db: &DatabaseConnection,
     ) -> Result<StartedPipeline, PipelineStartError> {
-        let domain = self.domain.take().ok_or_else(|| {
-            PipelineError::Config("domain not set (call .analytics() or .builder())".into())
-        })?;
+        let domain = self
+            .domain
+            .take()
+            .ok_or_else(|| PipelineError::Config("domain not set (call .analytics())".into()))?;
 
         // When an existing_run_id is provided (delegation child), use it and
         // skip the DB insert — the coordinator already created the run row.
@@ -526,13 +401,7 @@ impl PipelineBuilder {
         // timeout, a disconnect) would otherwise leave the row this start
         // inserts `running` with nothing to drive it — see `start_guard`.
         let interrupted = (!skip_db_insert).then(|| start_guard::StartGuard::new(db, &run_id));
-        // The Builder edits files, so it works in the working copy
-        // (`working_root`), never the cached materialised revision an
-        // analytics run reads its context from.
-        let ctx_root = match &domain {
-            Domain::Builder { .. } => self.platform.working_root().await,
-            Domain::Analytics { .. } => self.platform.context_root().await,
-        };
+        let ctx_root = self.platform.context_root().await;
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
         // bound in this scope.
@@ -541,10 +410,6 @@ impl PipelineBuilder {
         let result = match domain {
             Domain::Analytics { agent_id } => {
                 self.start_analytics(db, &run_id, &agent_id, &base_dir, skip_db_insert)
-                    .await
-            }
-            Domain::Builder { model } => {
-                self.start_builder(db, &run_id, model, &base_dir, skip_db_insert)
                     .await
             }
         };
@@ -583,24 +448,18 @@ impl PipelineBuilder {
     /// `orchestrator.resume(resume_data, answer)` instead of `run(intent)`.
     /// Does NOT insert a new run record — the existing run is reused.
     ///
-    /// `source_type` must be `"analytics"` or `"builder"`.
+    /// `source_type` must be `"analytics"`.
     pub async fn resume(
         self,
         db: &DatabaseConnection,
         run_id: &str,
         source_type: &str,
         agent_id: &str,
-        model: Option<String>,
         resume_data: agentic_core::human_input::SuspendedRunData,
         answer: String,
     ) -> Result<StartedPipeline, PipelineError> {
         self.refuse_preview_run_outside_preview(db, run_id).await?;
-        // As in `start`: a Builder resume edits the working copy.
-        let ctx_root = if source_type == "builder" {
-            self.platform.working_root().await
-        } else {
-            self.platform.context_root().await
-        };
+        let ctx_root = self.platform.context_root().await;
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
         // bound in this scope.
@@ -613,13 +472,7 @@ impl PipelineBuilder {
                 self.resume_analytics(db, run_id, agent_id, &base_dir, resume_data, answer)
                     .await
             }
-            "builder" => {
-                self.resume_builder(db, run_id, model, &base_dir, resume_data, answer)
-                    .await
-            }
-            _ => Err(PipelineError::Config(format!(
-                "cold resume not supported for source_type: {source_type}"
-            ))),
+            _ => Err(cold_resume_refusal(source_type)),
         };
 
         // Single chokepoint (mirrors `start`): the run row was just moved
@@ -920,226 +773,6 @@ impl PipelineBuilder {
             starting_driver: None,
         })
     }
-
-    async fn resume_builder(
-        mut self,
-        db: &DatabaseConnection,
-        run_id: &str,
-        model: Option<String>,
-        base_dir: &std::path::Path,
-        resume_data: agentic_core::human_input::SuspendedRunData,
-        answer: String,
-    ) -> Result<StartedPipeline, PipelineError> {
-        let bridges = self.builder_bridges_for_run()?;
-
-        // Resolve model + API key, honouring an explicit override (onboarding
-        // cold-resume rebuilds the override from persisted metadata before
-        // calling .resume(), and we MUST use that here; falling through to
-        // `build_builder_llm_client` would call the LLM with an empty key
-        // because the onboarding model isn't yet in config.yml).
-        let client = match self.builder_llm_override.take() {
-            Some(c) => c,
-            None => build_builder_llm_client(&*self.platform, model).await,
-        };
-
-        let history: Vec<agentic_builder::ConversationTurn> = if let Some(tid) = self.thread_id {
-            agentic_runtime::crud::get_thread_history_with_events(db, tid, 10)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(q, a, exchanges)| agentic_builder::ConversationTurn {
-                    question: q,
-                    answer: a,
-                    tool_exchanges: exchanges
-                        .into_iter()
-                        .map(|e| agentic_builder::ToolExchange {
-                            name: e.name,
-                            input: e.input,
-                            output: e.output,
-                        })
-                        .collect(),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let handle = agentic_builder::resume_pipeline(
-            agentic_builder::BuilderPipelineParams {
-                client,
-                project_root: base_dir.to_path_buf(),
-                timezone: self.platform.timezone(),
-                question: self.question,
-                history,
-                db_provider: Some(bridges.db_provider),
-                project_validator: Some(bridges.project_validator),
-                schema_provider: Some(bridges.schema_provider),
-                semantic_compiler: Some(bridges.semantic_compiler),
-                test_runner: self.builder_test_runner,
-                human_input: None,
-                secrets_provider: bridges.secrets_provider,
-                knowledge_cards: self.builder_knowledge_cards,
-                skip_interpreting: self.builder_skip_interpreting,
-                tool_allowlist: self.builder_tool_allowlist,
-            },
-            resume_data,
-            answer,
-        );
-
-        Ok(StartedPipeline {
-            run_id: run_id.to_string(),
-            source_type: "builder".to_string(),
-            inner: ErasedHandle::Builder(handle),
-            starting_driver: None,
-        })
-    }
-
-    async fn start_builder(
-        mut self,
-        db: &DatabaseConnection,
-        run_id: &str,
-        model: Option<String>,
-        base_dir: &std::path::Path,
-        skip_db_insert: bool,
-    ) -> Result<StartedPipeline, PipelineError> {
-        // Skip DB insert for delegation children — the coordinator already
-        // created the run via insert_run_with_parent.
-        let source_type = "builder";
-        if !skip_db_insert {
-            let knowledge_card_slugs: Vec<&str> = self
-                .builder_knowledge_cards
-                .iter()
-                .map(|c| c.slug())
-                .collect();
-            let mut metadata = serde_json::json!({
-                "agent_id": "__builder__",
-                "model": model,
-                "knowledge_cards": knowledge_card_slugs,
-                "skip_interpreting": self.builder_skip_interpreting,
-                "tool_allowlist": self.builder_tool_allowlist,
-            });
-            // Persist onboarding LLM metadata so cold-resume (server restart
-            // mid-onboarding, before `config.yml` is written) can rebuild the
-            // same LlmClient. Without these, a resumed run falls back to
-            // `resolve_model` against a config.yml that doesn't yet contain
-            // the onboarding-chosen model and ends up calling the LLM with
-            // an empty API key.
-            if let Some(meta) = &self.builder_llm_metadata {
-                let m = metadata.as_object_mut().expect("json! produces an object");
-                m.insert(
-                    "onboarding_vendor".into(),
-                    serde_json::Value::String(meta.vendor.clone()),
-                );
-                m.insert(
-                    "onboarding_model_ref".into(),
-                    serde_json::Value::String(meta.model_ref.clone()),
-                );
-                m.insert(
-                    "onboarding_key_var".into(),
-                    serde_json::Value::String(meta.key_var.clone()),
-                );
-            }
-            run_metadata::merge(&mut metadata, &self.run_metadata);
-            agentic_runtime::crud::insert_run(
-                db,
-                run_id,
-                &self.question,
-                self.thread_id,
-                source_type,
-                Some(metadata),
-                self.workspace_id,
-            )
-            .await?;
-            stamp_starting_lease(db, run_id, self.starting_driver.as_deref()).await;
-        }
-
-        let bridges = self.builder_bridges_for_run()?;
-
-        // Resolve model + API key, honouring an explicit override (onboarding flow).
-        let client = match self.builder_llm_override.take() {
-            Some(c) => c,
-            None => build_builder_llm_client(&*self.platform, model).await,
-        };
-
-        let history: Vec<agentic_builder::ConversationTurn> = if let Some(tid) = self.thread_id {
-            agentic_runtime::crud::get_thread_history_with_events(db, tid, 10)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(q, a, exchanges)| agentic_builder::ConversationTurn {
-                    question: q,
-                    answer: a,
-                    tool_exchanges: exchanges
-                        .into_iter()
-                        .map(|e| agentic_builder::ToolExchange {
-                            name: e.name,
-                            input: e.input,
-                            output: e.output,
-                        })
-                        .collect(),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let handle = agentic_builder::start_pipeline(agentic_builder::BuilderPipelineParams {
-            client,
-            project_root: base_dir.to_path_buf(),
-            timezone: self.platform.timezone(),
-            question: self.question,
-            history,
-            db_provider: Some(bridges.db_provider),
-            project_validator: Some(bridges.project_validator),
-            schema_provider: Some(bridges.schema_provider),
-            semantic_compiler: Some(bridges.semantic_compiler),
-            test_runner: self.builder_test_runner,
-            human_input: self.human_input,
-            secrets_provider: bridges.secrets_provider,
-            knowledge_cards: self.builder_knowledge_cards,
-            skip_interpreting: self.builder_skip_interpreting,
-            tool_allowlist: self.builder_tool_allowlist,
-        });
-
-        Ok(StartedPipeline {
-            run_id: run_id.to_string(),
-            source_type: source_type.to_string(),
-            inner: ErasedHandle::Builder(handle),
-            starting_driver: None,
-        })
-    }
-}
-
-/// Resolve the builder domain's LLM client via the platform port.
-///
-/// Tries the explicit model ref first, then the project's configured default.
-/// Never falls back to a hardcoded provider.
-async fn build_builder_llm_client(ctx: &dyn ProjectContext, model: Option<String>) -> LlmClient {
-    // Try explicit model ref, then project default.
-    let info = if let Some(ref name) = model {
-        match ctx.resolve_model(Some(name), false).await {
-            Some(info) => Some(info),
-            None => ctx.resolve_model(None, false).await,
-        }
-    } else {
-        ctx.resolve_model(None, false).await
-    };
-    let genai = agentic_llm::GenAiContext {
-        agent_name: Some("builder".to_string()),
-        workspace_id: Some(ctx.workspace_id())
-            .filter(|id| !id.is_nil())
-            .map(|id| id.to_string()),
-        ..Default::default()
-    };
-    if let Some(info) = info {
-        return platform::build_llm_client(&info).with_genai_context(genai);
-    }
-    tracing::warn!(
-        model = ?model,
-        "builder: no LLM model resolved from project config; LLM calls will fail"
-    );
-    // Return a placeholder — the LLM call will fail with a clear error.
-    LlmClient::with_model("", model.unwrap_or_default())
 }
 
 /// A prepared one-shot completer: a resolved workspace model with its client
@@ -1242,7 +875,6 @@ pub struct StartedPipeline {
 
 enum ErasedHandle {
     Analytics(agentic_runtime::handle::PipelineHandle<agentic_analytics::AnalyticsEvent>),
-    Builder(agentic_runtime::handle::PipelineHandle<agentic_builder::BuilderEvent>),
 }
 
 impl StartedPipeline {
@@ -1274,9 +906,6 @@ impl StartedPipeline {
         // coordinator, not through `ExecutingTask::answers`, so we pass `None`.
         let bridge_handle = match self.inner {
             ErasedHandle::Analytics(handle) => {
-                spawn_bridge_tasks(handle, event_tx, outcome_tx, cancel.clone())
-            }
-            ErasedHandle::Builder(handle) => {
                 spawn_bridge_tasks(handle, event_tx, outcome_tx, cancel.clone())
             }
         };
@@ -1411,9 +1040,7 @@ pub async fn drive_with_coordinator(
     answer_rx: mpsc::Receiver<String>,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     platform: Arc<dyn PlatformContext>,
-    builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
-    builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
 ) {
     use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
@@ -1448,15 +1075,10 @@ pub async fn drive_with_coordinator(
     // child id scopes to nothing.
     let transport = DurableTransport::with_router(db.clone(), router, Some(run_id.clone()));
 
-    // Create the task executor for child tasks (delegation). A preview — a
-    // chat request pinned to one included — gets no builder: its bridges edit
-    // the working copy, and an analytics agent can delegate to it.
-    let is_preview = crate::platform::preview::is_preview(platform.as_ref());
+    // Create the task executor for child tasks (delegation).
     let executor = Arc::new(executor::PipelineTaskExecutor {
         platform,
-        builder_bridges: builder_bridges.filter(|_| !is_preview),
         schema_cache,
-        builder_test_runner: builder_test_runner.filter(|_| !is_preview),
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,
@@ -1480,7 +1102,7 @@ pub async fn drive_with_coordinator(
 
     // Coordinator: manages the task tree. Wire in the
     // automation-aware completion policy + delegation resolver —
-    // analytics / builder runs can delegate to an automation as a
+    // analytics runs can delegate to an automation as a
     // child task, so every coordinator could see a
     // `workflow_continue` outcome from a chained `Automation` spec
     // *and* needs the resolver to route loop bodies / single
@@ -1507,7 +1129,7 @@ pub async fn drive_with_coordinator(
     // Forward cancellation from RuntimeState's cancel_tx to the coordinator
     // transport so the coordinator sees the root task *and every descendant*
     // as cancelled. `cancel_subtree` is required — if we only cancel the root
-    // while the pipeline is suspended on delegation, the builder/analytics
+    // while the pipeline is suspended on delegation, the analytics
     // child keeps running, eventually completes, and triggers a spurious
     // parent resume.
     let cancel_forwarder = {
@@ -1795,7 +1417,7 @@ pub async fn drive_with_coordinator(
 pub fn build_event_registry() -> EventRegistry {
     let mut registry = EventRegistry::new();
     registry.register("analytics", agentic_analytics::event_handler());
-    registry.register("builder", agentic_builder::event_handler());
+    registry.register("builder", legacy_builder::event_handler());
     registry.register(
         agentic_automation::SOURCE_TYPE,
         agentic_automation::event_handler(),
@@ -1854,7 +1476,7 @@ pub async fn update_run_thinking_mode(
     agentic_analytics::update_run_thinking_mode(db, run_id, thinking_mode).await
 }
 
-/// Insert a run record + analytics extension (for non-builder runs).
+/// Insert a run record + analytics extension.
 ///
 /// Wraps `runtime::crud::insert_run` + analytics extension insert.
 pub async fn insert_run(
@@ -1866,11 +1488,6 @@ pub async fn insert_run(
     thinking_mode: Option<String>,
     workspace_id: Uuid,
 ) -> Result<(), sea_orm::DbErr> {
-    let source_type = if agent_id == "__builder__" {
-        "builder"
-    } else {
-        "analytics"
-    };
     let metadata = serde_json::json!({
         "agent_id": agent_id,
         "thinking_mode": thinking_mode,
@@ -1880,16 +1497,12 @@ pub async fn insert_run(
         run_id,
         question,
         thread_id,
-        source_type,
+        "analytics",
         Some(metadata),
         workspace_id,
     )
     .await?;
-
-    if agent_id != "__builder__" {
-        agentic_analytics::insert_run_meta(db, run_id, agent_id, thinking_mode).await?;
-    }
-    Ok(())
+    agentic_analytics::insert_run_meta(db, run_id, agent_id, thinking_mode).await
 }
 
 /// Get analytics extensions for a list of run IDs (bulk fetch).
@@ -1981,9 +1594,31 @@ fn render_history_answer(
     }
 }
 
+/// Why [`PipelineBuilder::resume`] cannot resume a `source_type`. A stored
+/// builder run gets the executor's removal text, so its failure says the
+/// builder is gone rather than "not supported".
+fn cold_resume_refusal(source_type: &str) -> PipelineError {
+    if source_type == "builder" {
+        return PipelineError::Config(executor::BUILDER_RUN_REMOVED.to_string());
+    }
+    PipelineError::Config(format!(
+        "cold resume not supported for source_type: {source_type}"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stored builder run's cold resume names the removal; any other
+    /// unknown type keeps the generic text.
+    #[test]
+    fn a_builder_cold_resume_says_the_builder_was_removed() {
+        let err = cold_resume_refusal("builder").to_string();
+        assert!(err.contains("builder was removed"), "got: {err}");
+        let other = cold_resume_refusal("mystery").to_string();
+        assert!(other.contains("cold resume not supported"), "got: {other}");
+    }
 
     /// Regression: every queue-driven domain must be in
     /// `build_event_registry`, or `stream_events` has no `RowProcessor`

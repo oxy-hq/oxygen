@@ -249,11 +249,6 @@ const settingsKeys = {
     [...settingsKeys.all, "project-status", { project_id }] as const
 };
 
-const builderKeys = {
-  all: ["builder"] as const,
-  availability: (projectId: string) => [...builderKeys.all, "availability", projectId] as const
-};
-
 const configKeys = {
   all: ["config"] as const,
   validation: () => [...configKeys.all, "validation"] as const,
@@ -1300,7 +1295,6 @@ const queryKeys = {
   org: orgKeys,
   appAccess: appAccessKeys,
   agent: agentKeys,
-  builder: builderKeys,
   coordinator: coordinatorKeys,
   analytics: analyticsKeys,
   thread: threadKeys,
