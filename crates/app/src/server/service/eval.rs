@@ -279,17 +279,42 @@ pub async fn run_eval_with_tag<P: AsRef<Path>, H: EventHandler + Send + 'static>
     tag: Option<String>,
     event_handler: H,
 ) -> Result<Vec<EvalResult>, OxyError> {
+    let input = EvalInput {
+        index,
+        target_ref: path.as_ref().to_string_lossy().to_string(),
+        tag,
+        regrade_from: None,
+    };
+    launch_eval(workspace_manager, input, event_handler).await
+}
+
+/// Grade the outputs a previous run of `path` recorded in `results` (its
+/// `--output-json` file) with the test file's current grader; the agent is
+/// not run.
+pub async fn regrade_eval<P: AsRef<Path>, H: EventHandler + Send + 'static>(
+    workspace_manager: WorkspaceManager<WorkingCopy>,
+    path: P,
+    results: &Path,
+    event_handler: H,
+) -> Result<Vec<EvalResult>, OxyError> {
+    let input = EvalInput {
+        index: None,
+        target_ref: path.as_ref().to_string_lossy().to_string(),
+        tag: None,
+        regrade_from: Some(results.to_path_buf()),
+    };
+    launch_eval(workspace_manager, input, event_handler).await
+}
+
+async fn launch_eval<H: EventHandler + Send + 'static>(
+    workspace_manager: WorkspaceManager<WorkingCopy>,
+    input: EvalInput,
+    event_handler: H,
+) -> Result<Vec<EvalResult>, OxyError> {
     let result = EvalLauncher::new()
         .with_workspace(workspace_manager)
         .await?
-        .launch(
-            EvalInput {
-                index,
-                target_ref: path.as_ref().to_string_lossy().to_string(),
-                tag,
-            },
-            event_handler,
-        )
+        .launch(input, event_handler)
         .await;
     result.and_then(|r| {
         r.into_iter()

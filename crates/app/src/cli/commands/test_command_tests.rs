@@ -7,7 +7,7 @@
 //! validation, and the threshold gate.
 
 use super::*;
-use crate::integrations::eval::builders::types::{Correctness, RunStats, Similarity};
+use crate::integrations::eval::builders::types::{Correctness, Execution, RunStats, Similarity};
 use clap::Parser;
 
 /// Builds a `TestArgs` from a CLI-style argv, mirroring how clap parses it in
@@ -124,6 +124,22 @@ fn validate_args_rejects_case_without_file() {
     let args = parse(&["--case", "0"]);
     let err = validate_args(&args).expect_err("--case without a file should be rejected");
     assert!(err.to_string().contains("--case requires a specific file"));
+}
+
+#[test]
+fn validate_args_rejects_regrade_without_file() {
+    let args = parse(&["--regrade", "old.results.json"]);
+    let err = validate_args(&args).expect_err("--regrade without a file should be rejected");
+    assert!(err.to_string().contains("--regrade requires the test file"));
+}
+
+#[test]
+fn regrade_is_refused_alongside_case_or_tag() {
+    for extra in [["--case", "0"], ["--tag", "t"]] {
+        let mut argv = vec!["oxy", "sales.test.yml", "--regrade", "old.results.json"];
+        argv.extend_from_slice(&extra);
+        assert!(TestArgs::try_parse_from(argv).is_err(), "{extra:?}");
+    }
 }
 
 #[test]
@@ -254,6 +270,23 @@ fn enforce_threshold_reads_similarity_scores_too() {
         RunStats::default(),
     )];
     assert!(enforce_threshold(&results, 0.8, &ThresholdMode::Average).is_err());
+}
+
+#[test]
+fn enforce_threshold_gates_execution_on_answer_accuracy_not_ex() {
+    let execution = |answer_acc: f32, ex: f32| {
+        let mut e = Execution::from_records(vec![]);
+        (e.answer_acc, e.ex) = (answer_acc, ex);
+        vec![EvalResult::new(
+            vec![],
+            vec![MetricKind::Execution(e)],
+            RunStats::default(),
+        )]
+    };
+    // High answer accuracy passes even though EX is 0.
+    assert!(enforce_threshold(&execution(0.9, 0.0), 0.8, &ThresholdMode::All).is_ok());
+    // Perfect EX does not rescue low answer accuracy.
+    assert!(enforce_threshold(&execution(0.5, 1.0), 0.8, &ThresholdMode::Average).is_err());
 }
 
 #[test]

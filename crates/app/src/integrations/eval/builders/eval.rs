@@ -2,9 +2,10 @@ use oxy::{
     config::{
         constants::EVAL_SOURCE,
         model::{
-            CorrectnessSolver, EvalConfig, EvalKind, SolverKind, TestCaseEval,
+            CorrectnessSolver, EvalConfig, EvalKind, ExecutionSolver, SolverKind, TestCaseEval,
             default_correctness_prompt,
         },
+        test_config::Grader,
     },
     exec_types::EventKind,
 };
@@ -13,6 +14,7 @@ use oxy_shared::errors::OxyError;
 use super::{
     EvalInput, EvalResult, EvalRun,
     generator::run_generator,
+    regrade,
     solver::run_solver,
     types::{AgenticInput, RunStats},
 };
@@ -29,6 +31,7 @@ async fn resolve_eval_inputs(
         target_ref,
         index,
         tag,
+        regrade_from: _,
     } = eval_input;
 
     if !target_ref.ends_with("test.yml") {
@@ -40,6 +43,9 @@ async fn resolve_eval_inputs(
 
     let config_manager = &execution_context.workspace.config_manager;
     let test_config = config_manager.resolve_test(&target_ref).await?;
+    test_config
+        .validate_grading()
+        .map_err(|e| OxyError::ConfigurationError(format!("{target_ref}: {e}")))?;
     let resolved_target = test_config.target.ok_or_else(|| {
         OxyError::ConfigurationError(format!(
             "Could not determine target for test file: {target_ref}"
@@ -59,10 +65,16 @@ async fn resolve_eval_inputs(
         prompt: String::new(),
     };
 
-    let correctness_solver = SolverKind::Correctness(CorrectnessSolver {
-        prompt: default_correctness_prompt(),
-        model_ref: test_config.settings.judge_model.clone(),
-    });
+    let grading_solver = match (&test_config.settings.grader, &test_config.settings.database) {
+        (Grader::Execution, Some(database)) => SolverKind::Execution(ExecutionSolver {
+            database: database.clone(),
+            model_ref: test_config.settings.judge_model.clone(),
+        }),
+        _ => SolverKind::Correctness(CorrectnessSolver {
+            prompt: default_correctness_prompt(),
+            model_ref: test_config.settings.judge_model.clone(),
+        }),
+    };
 
     // Filter cases by index and/or tag.
     let cases: Vec<_> = test_config
@@ -84,7 +96,7 @@ async fn resolve_eval_inputs(
                 runs: test_config.settings.runs,
                 judge_model: test_config.settings.judge_model,
             }),
-            metrics: vec![correctness_solver],
+            metrics: vec![grading_solver],
             concurrency: test_config.settings.concurrency,
             task_ref: None,
         },
@@ -98,6 +110,7 @@ async fn run_one_eval(
     idx: usize,
     eval: EvalConfig,
     target: AgenticInput,
+    regrade_from: Option<&std::path::Path>,
 ) -> Result<EvalResult, OxyError> {
     let eval_context =
         execution_context.with_child_source(format!("eval-{idx}"), EVAL_SOURCE.to_string());
@@ -113,8 +126,13 @@ async fn run_one_eval(
             message: "🔄Generating outputs".to_string(),
         })
         .await?;
-    let (outputs, errors_with_expected) =
-        run_generator(&eval_context, eval.kind, target, eval.concurrency).await?;
+    let (outputs, errors_with_expected) = match regrade_from {
+        Some(path) => {
+            refuse_regrade_unless_execution(&eval.metrics)?;
+            regrade::load_outputs(path)?
+        }
+        None => run_generator(&eval_context, eval.kind, target, eval.concurrency).await?,
+    };
 
     let answered = outputs.len();
     let total_attempted = answered + errors_with_expected.len();
@@ -159,6 +177,21 @@ async fn run_one_eval(
     Ok(result)
 }
 
+/// A regrade rebuilds the execution grader's inputs only, so the test file
+/// must still grade by execution.
+fn refuse_regrade_unless_execution(metrics: &[SolverKind]) -> Result<(), OxyError> {
+    if metrics
+        .iter()
+        .all(|m| matches!(m, SolverKind::Execution(_)))
+    {
+        Ok(())
+    } else {
+        Err(OxyError::ConfigurationError(
+            "--regrade needs a test file graded by `grader: execution`".to_string(),
+        ))
+    }
+}
+
 /// Resolve then run the evals for an `EvalInput`, one result per eval.
 pub(crate) async fn run_eval(
     execution_context: &EvalRun,
@@ -166,6 +199,9 @@ pub(crate) async fn run_eval(
 ) -> Result<Vec<Result<EvalResult, OxyError>>, OxyError> {
     // A `.test.yml` resolves to exactly one eval (all its cases run under it);
     // the `Vec<Result<..>>` return shape is kept for `launch`'s callers.
+    let regrade_from = eval_input.regrade_from.clone();
     let (eval, target) = resolve_eval_inputs(execution_context, eval_input).await?;
-    Ok(vec![run_one_eval(execution_context, 0, eval, target).await])
+    Ok(vec![
+        run_one_eval(execution_context, 0, eval, target, regrade_from.as_deref()).await,
+    ])
 }

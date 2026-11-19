@@ -1,0 +1,6 @@
+[
+  {"db_id": "financial", "table_names_original": ["account", "district"]},
+  {"db_id": "debit_card_specializing", "table_names_original": ["customers"]},
+  {"db_id": "toxicology", "table_names_original": ["atom"]},
+  {"db_id": "thrombosis_prediction", "table_names_original": ["Examination"]}
+]

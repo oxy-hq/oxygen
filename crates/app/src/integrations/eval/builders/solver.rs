@@ -12,6 +12,7 @@ use oxy_shared::errors::OxyError;
 use super::{
     EvalRun,
     correctness_solver::{parse_correctness_record, render_correctness_prompt},
+    execution_solver::run_execution_solver,
     types::{Correctness, MetricKind, Record},
 };
 
@@ -26,12 +27,25 @@ pub(super) async fn run_solver(
     errors_with_expected: Vec<(String, TargetOutput)>,
     concurrency: usize,
 ) -> Result<MetricKind, OxyError> {
-    let SolverKind::Correctness(correctness_solver) = solver_kind else {
-        return Err(OxyError::ConfigurationError(
-            "Only the correctness solver is supported; the similarity / context-recall solvers \
+    let correctness_solver = match solver_kind {
+        SolverKind::Correctness(s) => s,
+        SolverKind::Execution(s) => {
+            return run_execution_solver(
+                execution_context,
+                s,
+                outputs,
+                errors_with_expected,
+                concurrency,
+            )
+            .await;
+        }
+        _ => {
+            return Err(OxyError::ConfigurationError(
+            "Only the correctness and execution solvers are supported; the similarity / context-recall solvers \
              were removed with the classic-agent eval retirement."
                 .to_string(),
         ));
+        }
     };
 
     let metric_context = execution_context.with_child_source(
@@ -127,6 +141,14 @@ pub(super) async fn run_solver(
             duration_ms: 0.0,
             input_tokens: 0,
             output_tokens: 0,
+            soft_f1: None,
+            llm_rounds: 0,
+            final_sql: None,
+            judge_verdict: None,
+            judge_reason: None,
+            answer_text: None,
+            gold_preview: None,
+            timing: None,
         });
     }
 

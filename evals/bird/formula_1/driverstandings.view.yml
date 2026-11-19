@@ -1,0 +1,87 @@
+name: driverstandings
+description: |
+  Drivers' championship standings (31,578 rows), one per (race, driver):
+  the standing of each driver in that season's championship AFTER that race.
+  `points` and `wins` are CUMULATIVE season-to-date totals after the race
+  (the description file says "points acquired in each race", but the data
+  accumulate round by round); never sum them across races. Per-race points
+  are results.points. A driver's final season standing = the row for the last
+  race (highest round) of that season. "Better than 20th in the driver
+  standings" = position 1 through 19 after that race (position < 20).
+  342 rows reference a raceid that is missing from races, so they drop out
+  when joined to races.
+datasource: bird_formula_1
+table: driverstandings
+
+entities:
+  - name: driver_standing
+    type: primary
+    description: One driver's standing after one race.
+    key: driver_standings_id
+  - name: race
+    type: foreign
+    description: Race after which the standing applies.
+    key: race_id
+  - name: driver
+    type: foreign
+    description: Driver.
+    key: driver_id
+
+dimensions:
+  - name: driver_standings_id
+    type: number
+    description: Unique identification number of the driver standing record (column driverstandingsid).
+    expr: driverstandingsid
+  - name: race_id
+    type: number
+    description: Race after which this standing applies (no FK constraint; 342 orphan ids).
+    expr: raceid
+  - name: driver_id
+    type: number
+    description: Driver.
+    expr: driverid
+  - name: points
+    type: number
+    description: Cumulative championship points of the driver in the season up to and including this race.
+    synonyms: ["championship points", "standings points"]
+    expr: points
+  - name: position
+    type: number
+    description: Championship position of the driver after this race (1 = leader). Better than 20th = position 1..19.
+    synonyms: ["standing", "rank", "championship position", "standings position"]
+    expr: position
+  - name: position_text
+    type: string
+    description: Position as text; same as position, not quite useful ('D' = disqualified, 1 row).
+    synonyms: ["positionText"]
+    expr: positiontext
+  - name: wins
+    type: number
+    description: Cumulative number of race wins of the driver in the season up to and including this race.
+    expr: wins
+  - name: is_better_than_20th
+    type: boolean
+    description: True when the standing position after this race is 1 through 19.
+    synonyms: ["better than 20th", "top 19"]
+    expr: "{{TABLE}}.position < 20"
+
+measures:
+  - name: standing_count
+    type: count
+    description: Number of standing records.
+  - name: driver_count
+    type: count_distinct
+    description: Number of distinct drivers.
+    expr: driverid
+  - name: max_points
+    type: max
+    description: Highest cumulative points (e.g. a driver's season total = max over that season's races).
+    expr: points
+  - name: max_wins
+    type: max
+    description: Highest cumulative win count (season total wins = max over that season's races).
+    expr: wins
+  - name: best_position
+    type: min
+    description: Best (lowest-numbered) championship position.
+    expr: position

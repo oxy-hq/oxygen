@@ -1,0 +1,80 @@
+name: constructorstandings
+description: |
+  Constructors' championship standings (11,836 rows), one per (race,
+  constructor): the standing of each constructor in that season's
+  championship AFTER that race. `points` and `wins` are CUMULATIVE
+  season-to-date totals after the race (the description file says "points
+  acquired in each race", but the data accumulate); never sum them across
+  races. Per-race constructor points are in constructorresults.points. Final
+  season standing = the row for the season's last race. 198 rows reference a
+  raceid missing from races.
+datasource: bird_formula_1
+table: constructorstandings
+
+entities:
+  - name: constructor_standing
+    type: primary
+    description: One constructor's standing after one race.
+    key: constructor_standings_id
+  - name: race
+    type: foreign
+    description: Race after which the standing applies.
+    key: race_id
+  - name: constructor
+    type: foreign
+    description: Constructor.
+    key: constructor_id
+
+dimensions:
+  - name: constructor_standings_id
+    type: number
+    description: Unique identification of the constructor standing record (column constructorstandingsid).
+    expr: constructorstandingsid
+  - name: race_id
+    type: number
+    description: Race after which this standing applies (no FK constraint; 198 orphan ids).
+    expr: raceid
+  - name: constructor_id
+    type: number
+    description: Constructor.
+    expr: constructorid
+  - name: points
+    type: number
+    description: Cumulative championship points of the constructor in the season up to and including this race.
+    synonyms: ["championship points", "standings points"]
+    expr: points
+  - name: position
+    type: number
+    description: Championship position of the constructor after this race (1 = leader).
+    synonyms: ["standing", "rank", "championship position"]
+    expr: position
+  - name: position_text
+    type: string
+    description: Position as text; same as position, not quite useful ('E' = excluded, 17 rows).
+    synonyms: ["positionText"]
+    expr: positiontext
+  - name: wins
+    type: number
+    description: Cumulative number of race wins of the constructor in the season up to and including this race.
+    expr: wins
+
+measures:
+  - name: standing_count
+    type: count
+    description: Number of standing records.
+  - name: constructor_count
+    type: count_distinct
+    description: Number of distinct constructors.
+    expr: constructorid
+  - name: max_points
+    type: max
+    description: Highest cumulative points.
+    expr: points
+  - name: max_wins
+    type: max
+    description: Highest cumulative win count.
+    expr: wins
+  - name: best_position
+    type: min
+    description: Best (lowest-numbered) championship position.
+    expr: position

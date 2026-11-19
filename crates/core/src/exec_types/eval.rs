@@ -26,6 +26,12 @@ pub struct TargetOutput {
     pub duration_ms: f64,
     pub input_tokens: i32,
     pub output_tokens: i32,
+    /// Last successfully executed SQL the agent produced (execution grader).
+    pub final_sql: Option<String>,
+    /// Number of LLM calls the run made.
+    pub llm_rounds: u32,
+    /// Wall-time breakdown of the run (agentic eval target only).
+    pub timing: Option<super::RunTiming>,
 }
 
 #[derive(Debug)]
@@ -85,6 +91,9 @@ impl TryFrom<OutputGetter<'_>> for TargetOutput {
             duration_ms: 0.0,
             input_tokens: 0,
             output_tokens: 0,
+            final_sql: None,
+            llm_rounds: 0,
+            timing: None,
         })
     }
 }

@@ -1,0 +1,23 @@
+name: qualifying_sessions
+description: |
+  Qualifying: Q1 / Q2 / Q3 lap times, qualifying position (starting slot),
+  pole position, who was eliminated in Q1 or Q2, by race / year / circuit /
+  driver / constructor.
+  Each topic joins ONE fact table to its lookups (races -> circuits /
+  seasons, drivers, constructors, status) to avoid fan-out; the race, driver
+  and constructor entities mean the same thing in every topic. Questions that
+  combine two fact tables (e.g. results with qualifying, lap times with pit
+  stops, standings with results) are not answerable in one model query:
+  query each topic separately or fall back to SQL on the bird_formula_1
+  tables (results, qualifying, laptimes, pitstops, driverstandings,
+  constructorstandings, constructorresults, races, circuits, seasons,
+  drivers, constructors, status), joining on raceid / driverid /
+  constructorid.
+base_view: qualifying
+views:
+  - qualifying
+  - races
+  - circuits
+  - seasons
+  - drivers
+  - constructors

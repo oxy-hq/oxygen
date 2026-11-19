@@ -1,0 +1,45 @@
+# Evidence coverage (formula_1)
+
+One line per evidence string (verbatim) → the member(s) that carry it.
+
+- A driver who withdrew from a race is recorded with the status 'Withdrew'. → `results.is_withdrew`, `results.withdrew_count`, `results.status_text`, `status.status` (value 'Withdrew'), `results.position_text` ('W', looser)
+- A driver's code is their three-letter abbreviation (e.g. 'HAM'); having no code means no such abbreviation is on record for them. The qualifying 1 time is the time a driver set in the first qualifying session of a race, one per race they took part in. → `drivers.code`, `drivers.has_code` (NULL = no code), `qualifying.q1`, `qualifying.q1_seconds`, `qualifying` view description (one row per race the driver took part in)
+- A driver's fastest lap in an edition means the shortest time they took to complete any single lap of that race, measured from the start of that lap; the 90-second threshold applies to that fastest lap, not to an average. → `results.fastest_lap_seconds` (< 90), `results.fastest_lap_time`, `results.min_fastest_lap_seconds`, `results` view description; alternative `laptimes.fastest_lap_ms` (MIN per race/driver)
+- A driver's race time is the duration from the start of the race to the moment he crosses the finish line. → `results.race_time_ms`, `results.race_time_seconds`, `results.finish_time_text` (gap-format caveat), `results` view description
+- A race win means the driver finished first in that race. → `results.is_win`, `results.win_count`, `results.position` (= 1)
+- A runner-up is the driver who finished second in an edition of the Italian Grand Prix. → `results.position` (= 2), `races.race_name` ('Italian Grand Prix'), `races` view description (edition)
+- An edition is one running of the Canadian Grand Prix in a given year; local start time is the clock time of day, local to the circuit, at which the race began, on the 24-hour clock. → `races` view description (edition = name + year), `races.race_name`, `races.year`, `races.start_time` (local 24-hour clock)
+- Better than 20th in the driver standings means a position of 1 through 19 after that race. A pit stop is any recorded pit stop made by any driver at the race. → `driverstandings.position` (< 20), `driverstandings.is_better_than_20th`, `driverstandings` view description (standing after that race); `pitstops` view description, `pitstops.pit_stop_count`
+- By "start time of the day" I mean the local clock time at the venue at which the race started. → `races.start_time` (local clock time at the venue)
+- By 'reference name' I mean the short driver code like 'hamilton'; by 'Q1' I mean the first of the three qualifying sessions; by 'birthday' I mean the driver's date of birth. → `drivers.driver_ref` (reference name, e.g. 'hamilton'), `qualifying.q1`, `drivers.dob` (birthday)
+- By pit stop time I mean the elapsed time of a pit stop, from the car arriving at its pit to rejoining the race. → `pitstops.duration`, `pitstops.duration_ms`, `pitstops.duration_seconds`, `pitstops` view description
+- By second-fastest lap of a race I mean the driver's own fastest lap in that race was the second quickest among all drivers in that race. → `results.rank` (= 2), `results` view description
+- Eliminated after the first qualifying session means the driver took part in qualifying but did not go out in the second qualifying session. → `qualifying.is_eliminated_in_q1`, `qualifying.q1_eliminated_count`, `qualifying.has_q2_time`, `qualifying` view description
+- Fastest lap speed: the average speed, in km/h, that a driver recorded on their single fastest lap of a race. A driver's career-high speed is based on that one lap, not an average across their laps. → `results.fastest_lap_speed_kmh`, `results.max_fastest_lap_speed_kmh` (career high = max over single-lap speeds), `results.fastest_lap_speed` (raw text)
+- Fastest lap: the constructor officially credited with the quickest single lap time in a race's recorded result. → `results.rank` (= 1 credits that row's constructor), `results.constructor_id` / `constructors.constructor_name`, `results.fastest_lap_seconds`
+- Formula 1 qualifying is run in three timed sessions, Q1, Q2 and Q3; completing a session means the driver recorded a lap time in that session, and only drivers who complete a session move on to the next. The reference name is the driver's short identifier. → `qualifying` view description, `qualifying.has_q1_time` / `has_q2_time` / `has_q3_time`, `qualifying.q1` / `q2` / `q3`; `drivers.driver_ref`
+- Grand Prix: any race event in the database, whatever its name is; some race names do not contain the words 'Grand Prix'. → `races` view description (every race is a Grand Prix, e.g. 'Indianapolis 500'), `races.race_name`
+- Hosted in 2000 means the race was on the 2000 race calendar. → `races.year` (= 2000), `races` view description
+- Q1: the first of the qualifying sessions; a Q1 time is the lap time a driver set in that session. → `qualifying.q1`, `qualifying.q1_seconds`, `qualifying.min_q1_seconds`
+- Q1: the time a driver set in the first qualifying session. → `qualifying.q1`, `qualifying.q1_seconds`
+- Q2 is the second qualifying session of a Grand Prix weekend, after Q1. → `qualifying.q2`, `qualifying.q2_seconds`
+- Q2: the second of the knockout qualifying sessions of a Grand Prix weekend. → `qualifying.q2`, `qualifying.q2_seconds`, `qualifying` view description (knockout sessions)
+- Q2: the second of the three qualifying sessions of a Grand Prix weekend. → `qualifying.q2`, `qualifying.q2_seconds`
+- Q2: the second of the weekend's qualifying sessions; its times are measured to the thousandth of a second. → `qualifying.q2` (to the thousandth of a second), `qualifying.q2_seconds`
+- Q3 is the final part of qualifying, whose times decide the top starting positions; the fastest Q3 time earns pole position. → `qualifying.q3`, `qualifying.q3_seconds`, `qualifying.min_q3_seconds` (pole), `qualifying` view description
+- Q3 is the final part of the qualifying session that decides the front of the starting grid. → `qualifying.q3`, `qualifying` view description
+- Q3 is the third and final part of qualifying. → `qualifying.q3`, `qualifying.q3_seconds`
+- Q3 is the third and final part of the qualifying session that sets the starting grid; a driver's Q3 time is the lap time recorded for them in that part. → `qualifying.q3`, `qualifying.q3_seconds`, `qualifying.has_q3_time`
+- Q3 is the third and final part of the qualifying session. → `qualifying.q3`, `qualifying.q3_seconds`
+- Q3 is the third and final qualifying session; a driver only has a Q3 time if he actually took part in that session. → `qualifying.q3`, `qualifying.has_q3_time`, `qualifying.q3_participant_count`
+- Q3: the final qualifying session of a Grand Prix weekend → `qualifying.q3`, `qualifying.q3_seconds`
+- Q3: the third and final part of the qualifying session. → `qualifying.q3`, `qualifying.q3_seconds`
+- Q3: the third and final qualifying session of a race weekend, whose times decide the top starting grid positions. → `qualifying.q3`, `qualifying.q3_seconds`, `qualifying.position`
+- Q3: the third and final qualifying session; a driver's Q3 time is the lap time that driver set in that session → `qualifying.q3`, `qualifying.q3_seconds`
+- Scheduled local start time: the time of day the race was scheduled to start, local to the circuit. → `races.start_time` (scheduled local start time)
+- The reference name is the driver's short identifier, and points are championship points recorded for that driver's race result. → `drivers.driver_ref`, `results.points`, `results.total_points`
+- The third qualifying session is the final segment of the race weekend's qualifying, in which only the fastest drivers take part. → `qualifying.q3`, `qualifying.has_q3_time`, `qualifying` view description
+- accident: a car's race ends because of a crash → `results.is_accident`, `results.accident_count`, `status.status` (value 'Accident'; Collision / Fatal accident kept separate)
+- classified finisher: a driver whose race record shows them finishing the race, whether on the lead lap or one or more laps behind the winner → `results.is_classified_finisher`, `results.classified_finisher_count`, `status.is_classified_finish`, `results` view description (alternatives has_finish_time, position)
+- pit stop: a recorded pit-stop entry in a race; pit stop length: how long that pit stop lasted → `pitstops` view description, `pitstops.pit_stop_count`, `pitstops.duration`, `pitstops.duration_ms`
+- qualifying position: the starting slot a driver earns in the qualifying session before a race → `qualifying.position`

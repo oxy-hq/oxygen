@@ -1,0 +1,153 @@
+name: district
+description: |
+  Czech districts (77 rows, one per district) with their demographic and
+  economic figures. In THIS view a district is the BRANCH district of an
+  account: the district where the bank branch holding the account is located
+  ("the district of an account", "the district where the account's branch is
+  located"). It joins to `account` through `account.district_id`.
+  For the district a CLIENT LIVES IN ("home district") use the twin view
+  `client_district`, which carries the same columns but joins to `client`.
+  The physical columns are named A2..A16; each dimension below lists its raw
+  column as a synonym. A district's inhabitants, average salary, urban
+  inhabitant ratio, unemployment rates and crime counts are the district's own
+  figures, not aggregates over clients or accounts.
+datasource: bird_financial
+table: district
+
+entities:
+  - name: district
+    type: primary
+    description: Branch district of an account (district.district_id = account.district_id).
+    key: district_id
+
+dimensions:
+  - name: district_id
+    type: number
+    description: District id ("location of branch"). Primary key of the district table.
+    expr: district_id
+  - name: district_name
+    type: string
+    description: District name (raw column A2), e.g. 'Hl.m. Praha', 'Benesov', 'Beroun'.
+    synonyms: ["A2", "district name"]
+    expr: a2
+  - name: region
+    type: string
+    description: |
+      Region the district belongs to (raw column A3). Stored values are
+      lowercase-first except Prague: 'central Bohemia', 'east Bohemia',
+      'north Bohemia', 'south Bohemia', 'west Bohemia', 'north Moravia',
+      'south Moravia', 'Prague'. "Central Bohemia" (the region of the Czech
+      Republic surrounding Prague) is region = 'central Bohemia'; "East
+      Bohemia" is region = 'east Bohemia'. "The regions" are these district
+      regions.
+    synonyms: ["A3", "region name"]
+    samples: ["central Bohemia", "east Bohemia", "north Bohemia", "south Bohemia", "west Bohemia", "north Moravia", "south Moravia", "Prague"]
+    expr: a3
+  - name: inhabitants
+    type: number
+    description: |
+      Number of inhabitants of the district (raw column A4, stored as text and
+      cast to bigint here). "District population" / "a district's inhabitants"
+      means this figure.
+    synonyms: ["A4", "population", "number of inhabitants", "district population"]
+    expr: "CAST({{TABLE}}.a4 AS bigint)"
+  - name: municipalities_under_500
+    type: number
+    description: No. of municipalities with inhabitants < 499 (raw column A5, text cast to bigint).
+    synonyms: ["A5"]
+    expr: "CAST({{TABLE}}.a5 AS bigint)"
+  - name: municipalities_500_1999
+    type: number
+    description: No. of municipalities with inhabitants 500-1999 (raw column A6, text cast to bigint).
+    synonyms: ["A6"]
+    expr: "CAST({{TABLE}}.a6 AS bigint)"
+  - name: municipalities_2000_9999
+    type: number
+    description: No. of municipalities with inhabitants 2000-9999 (raw column A7, text cast to bigint).
+    synonyms: ["A7"]
+    expr: "CAST({{TABLE}}.a7 AS bigint)"
+  - name: municipalities_over_10000
+    type: number
+    description: No. of municipalities with inhabitants > 10000 (raw column A8).
+    synonyms: ["A8"]
+    expr: a8
+  - name: a9
+    type: number
+    description: Raw column A9 (number of cities); the database description marks it "not useful".
+    synonyms: ["A9"]
+    expr: a9
+  - name: urban_inhabitant_ratio
+    type: number
+    description: Ratio of urban inhabitants, in percent (raw column A10), e.g. 100 for Prague, 46.7 for Benesov.
+    synonyms: ["A10", "ratio of urban inhabitants", "urban ratio"]
+    expr: a10
+  - name: average_salary
+    type: number
+    description: |
+      Average yearly salary recorded for the district, in CZK (raw column A11).
+      "Average salary" / "district average salary" always means this district
+      attribute.
+    synonyms: ["A11", "average salary", "avg salary", "district average salary"]
+    expr: a11
+  - name: unemployment_rate_1995
+    type: number
+    description: Unemployment rate 1995, percent (raw column A12). NULL for one district.
+    synonyms: ["A12", "unemployment rate 1995"]
+    expr: a12
+  - name: unemployment_rate_1996
+    type: number
+    description: Unemployment rate 1996, percent (raw column A13).
+    synonyms: ["A13", "unemployment rate 1996"]
+    expr: a13
+  - name: entrepreneurs_per_1000
+    type: number
+    description: No. of entrepreneurs per 1000 inhabitants (raw column A14).
+    synonyms: ["A14"]
+    expr: a14
+  - name: crimes_1995
+    type: number
+    description: No. of committed crimes in 1995 (raw column A15).
+    synonyms: ["A15", "committed crimes 1995"]
+    expr: a15
+  - name: crimes_1996
+    type: number
+    description: No. of committed crimes in 1996 (raw column A16).
+    synonyms: ["A16", "committed crimes 1996"]
+    expr: a16
+
+measures:
+  - name: district_count
+    type: count
+    description: Number of districts.
+  - name: total_inhabitants
+    type: sum
+    description: Sum of inhabitants (A4) over the selected districts.
+    expr: "CAST({{TABLE}}.a4 AS bigint)"
+  - name: avg_average_salary
+    type: average
+    description: Mean of the districts' average salary (A11).
+    expr: a11
+  - name: max_average_salary
+    type: max
+    description: Highest district average salary (A11).
+    expr: a11
+  - name: min_average_salary
+    type: min
+    description: Lowest district average salary (A11).
+    expr: a11
+  - name: avg_unemployment_rate_1995
+    type: average
+    description: Mean unemployment rate 1995 (A12) over districts.
+    expr: a12
+  - name: avg_unemployment_rate_1996
+    type: average
+    description: Mean unemployment rate 1996 (A13) over districts.
+    expr: a13
+  - name: total_crimes_1995
+    type: sum
+    description: Total committed crimes in 1995 (A15).
+    expr: a15
+  - name: total_crimes_1996
+    type: sum
+    description: Total committed crimes in 1996 (A16).
+    expr: a16

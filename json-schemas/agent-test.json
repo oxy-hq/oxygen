@@ -22,7 +22,9 @@
       "default": {
         "concurrency": 5,
         "runs": 3,
-        "judge_model": null
+        "judge_model": null,
+        "grader": "judge",
+        "database": null
       },
       "allOf": [
         {
@@ -39,15 +41,42 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "Grader": {
+      "description": "How a case's answer is graded.",
+      "oneOf": [
+        {
+          "description": "LLM-as-judge compares the answer text with `expected`.",
+          "type": "string",
+          "enum": [
+            "judge"
+          ]
+        },
+        {
+          "description": "Run the agent's final SQL and `expected_sql` against `database`, compare result sets.",
+          "type": "string",
+          "enum": [
+            "execution"
+          ]
+        }
+      ]
+    },
     "TestCase": {
       "type": "object",
       "required": [
-        "expected",
         "prompt"
       ],
       "properties": {
         "expected": {
+          "default": "",
           "type": "string"
+        },
+        "expected_sql": {
+          "description": "Gold SQL for the execution grader.",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "name": {
           "default": null,
@@ -84,6 +113,22 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "database": {
+          "description": "Database the execution grader runs both queries against.",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grader": {
+          "default": "judge",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Grader"
+            }
+          ]
         },
         "judge_model": {
           "type": [

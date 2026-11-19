@@ -1,0 +1,18 @@
+name: california_schools
+description: |
+  California schools (BIRD "california_schools"): the school directory
+  (`schools`, one row per CDS code - schools plus district/authority rows),
+  the 2014-2015 Free or Reduced Price Meal report (`frpm`) and SAT results
+  (`satscores`). Join graph is a star around `schools`, all on the CDS code:
+  frpm -> schools (frpm.cdscode = schools.cdscode) and
+  satscores -> schools (satscores.cds = schools.cdscode). frpm and satscores
+  are linked only through schools (same CDS code), so frpm.cdscode =
+  satscores.cds also holds in raw SQL. All three are 1:1 on the CDS code,
+  but the engine treats the reverse edges as one-to-many: averages/ratios
+  combined from frpm AND satscores in one query may be refused - then use the
+  per-school dimensions (rates, totals) or plain SQL joining on CDS code.
+base_view: schools
+views:
+  - schools
+  - frpm
+  - satscores

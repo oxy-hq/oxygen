@@ -116,31 +116,16 @@ impl Reporter for PrettyReporter {
         let total_attempted: usize = results.iter().map(|r| r.stats.total_attempted).sum();
         let answered: usize = results.iter().map(|r| r.stats.answered).sum();
 
+        // Execution cases pass on the judge verdict (EX is not pass/fail).
         let (total_cases, passing_cases) = results
             .iter()
             .flat_map(|r| &r.metrics)
-            .filter_map(|m| match m {
-                MetricKind::Correctness(c) => Some(c),
-                _ => None,
+            .map(|m| match m {
+                MetricKind::Correctness(c) => correctness_tally(c),
+                MetricKind::Execution(e) => e.case_tally(),
+                _ => (0, 0),
             })
-            .fold((0usize, 0usize), |(total, passing), c| {
-                let mut prompts: std::collections::HashMap<String, (usize, usize)> =
-                    std::collections::HashMap::new();
-                for record in &c.records {
-                    let prompt = record
-                        .prompt
-                        .clone()
-                        .unwrap_or_else(|| "(unknown)".to_string());
-                    let entry = prompts.entry(prompt).or_default();
-                    entry.0 += 1;
-                    if record.score >= 1.0 {
-                        entry.1 += 1;
-                    }
-                }
-                let n = prompts.len();
-                let p = prompts.values().filter(|(t, pass)| pass == t).count();
-                (total + n, passing + p)
-            });
+            .fold((0usize, 0usize), |(t, p), (n, k)| (t + n, p + k));
 
         // Per-test results
         for result in results {
@@ -163,6 +148,45 @@ impl Reporter for PrettyReporter {
                 match metric {
                     MetricKind::Correctness(correctness) => {
                         self.write_correctness(writer, correctness, result.test_name.as_deref())?;
+                    }
+                    MetricKind::Execution(e) => {
+                        if let Some(name) = &result.test_name {
+                            writeln!(writer, " {} {name}", "●".text())?;
+                        }
+                        writeln!(writer)?;
+                        writeln!(
+                            writer,
+                            "   {} ({}/{})  ·  {} ({}/{} match)  ·  {}  ·  judge errors: {}  ·  graded {}  ·  skipped {}",
+                            Self::format_score("answer accuracy", e.answer_acc),
+                            e.correct_answers(),
+                            e.judged(),
+                            Self::format_score("EX", e.ex),
+                            e.ex_matches(),
+                            e.graded,
+                            Self::format_score("Soft-F1", e.soft_f1),
+                            e.judge_errors,
+                            e.graded,
+                            e.skipped
+                        )?;
+                        if let Some(model) = &e.judge_model {
+                            writeln!(writer, "   judge: {model}")?;
+                        }
+                        writeln!(writer)?;
+                        if self.verbose {
+                            for r in &e.records {
+                                writeln!(
+                                    writer,
+                                    "   {} ex={} judge={} soft-f1={} rounds={} sql={}",
+                                    r.choice,
+                                    if r.score >= 1.0 { "match" } else { "mismatch" },
+                                    r.judge_verdict.as_deref().unwrap_or("-"),
+                                    r.soft_f1.map_or("-".to_string(), |v| format!("{v:.2}")),
+                                    r.llm_rounds,
+                                    r.final_sql.as_deref().unwrap_or("-")
+                                )?;
+                            }
+                            writeln!(writer)?;
+                        }
                     }
                     MetricKind::Similarity(similarity) => {
                         if let Some(name) = &result.test_name {
@@ -260,6 +284,23 @@ impl Reporter for PrettyReporter {
         writeln!(writer)?;
         Ok(())
     }
+}
+
+/// `(cases, passing cases)`: runs grouped by prompt; a case passes when every run does.
+fn correctness_tally(c: &Correctness) -> (usize, usize) {
+    let mut prompts: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
+    for record in &c.records {
+        let entry = prompts
+            .entry(record.prompt.as_deref().unwrap_or("(unknown)"))
+            .or_default();
+        entry.0 += 1;
+        if record.score >= 1.0 {
+            entry.1 += 1;
+        }
+    }
+    let passing = prompts.values().filter(|(t, pass)| pass == t).count();
+    (prompts.len(), passing)
 }
 
 impl PrettyReporter {

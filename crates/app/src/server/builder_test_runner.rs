@@ -51,6 +51,7 @@ impl BuilderTestRunner for OxyTestRunner {
             .map(|r| {
                 let score = r.metrics.iter().find_map(|m| match m {
                     MetricKind::Correctness(c) => Some(c.score),
+                    MetricKind::Execution(e) => Some(e.answer_acc),
                     _ => None,
                 });
                 json!({
@@ -70,6 +71,7 @@ impl BuilderTestRunner for OxyTestRunner {
                 .filter_map(|r| {
                     r.metrics.iter().find_map(|m| match m {
                         MetricKind::Correctness(c) => Some(c.score),
+                        MetricKind::Execution(e) => Some(e.answer_acc),
                         _ => None,
                     })
                 })

@@ -25,9 +25,13 @@ use crate::platform::{self, PlatformContext};
 /// What to do with each `Event<AnalyticsEvent>` the pipeline emits during a
 /// headless run. `Drain` discards them (eval / fire-and-forget); `Forward`
 /// forwards them to a caller-owned sink without ever blocking the solver.
+/// `ForwardWithStates` forwards the same way and also wires the orchestrator's
+/// own events (`StateEnter` / `StateExit` / `FanOut` / `SubSpec*`), which
+/// `Forward` never carries — the eval harness's timing breakdown needs them.
 enum EventDestination {
     Drain,
     Forward(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
+    ForwardWithStates(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
 }
 
 /// Why a headless run produced no answer, split where its callers need it: an
@@ -172,7 +176,28 @@ pub async fn run_agentic_streaming(
     .map_err(|e| e.to_string())
 }
 
-/// Shared body of [`run_agentic_eval`] and [`run_agentic_streaming`].
+/// [`run_agentic_streaming`] that also forwards the orchestrator's state and
+/// fan-out events (`StateEnter`, `StateExit`, `FanOut`, `SubSpecStart/End`,
+/// `Done`, ...). Opt-in, so existing streaming surfaces (Slack, documents, the
+/// health probe) keep receiving exactly what they did. Used by the eval
+/// harness to time each pipeline state.
+pub async fn run_agentic_streaming_with_states(
+    platform: Arc<dyn PlatformContext>,
+    agent_ref: &str,
+    prompt: String,
+    event_sink: tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>,
+) -> Result<String, String> {
+    run_agentic_headless(
+        platform,
+        agent_ref,
+        prompt,
+        EventDestination::ForwardWithStates(event_sink),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Shared body of [`run_agentic_eval`] and the streaming variants.
 /// Loads the agent, resolves connectors, builds the solver, spawns the event
 /// pump matching `destination`, then runs the orchestrator.
 async fn run_agentic_headless(
@@ -196,7 +221,9 @@ async fn run_agentic_headless(
         .await
         .map_err(|e| HeadlessError::Run(format!("failed to build agentic solver: {e}")))?;
 
-    let solver = solver.with_events(spawn_event_pump(destination));
+    let wire_orchestrator = matches!(destination, EventDestination::ForwardWithStates(_));
+    let events = spawn_event_pump(destination);
+    let solver = solver.with_events(events.clone());
     // Same rule as the two PipelineBuilder sites: only inject a
     // automation runner when the agent's `context:` actually resolved
     // some files. An empty list would fall through to
@@ -211,6 +238,9 @@ async fn run_agentic_headless(
     };
 
     let mut orchestrator = Orchestrator::new(solver).with_handlers(build_analytics_handlers());
+    if wire_orchestrator {
+        orchestrator = orchestrator.with_events(events);
+    }
     orchestrator
         .run(headless_intent(prompt))
         .await
@@ -293,7 +323,7 @@ fn spawn_event_pump(destination: EventDestination) -> EventStream<AnalyticsEvent
     spawn_with_hub(async move {
         match destination {
             EventDestination::Drain => while event_rx.recv().await.is_some() {},
-            EventDestination::Forward(sink) => {
+            EventDestination::Forward(sink) | EventDestination::ForwardWithStates(sink) => {
                 while let Some(ev) = event_rx.recv().await {
                     // `try_send` so a slow / closed consumer never stalls
                     // the solver. Full / closed channels drop the event;

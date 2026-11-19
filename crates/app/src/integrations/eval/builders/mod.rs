@@ -15,9 +15,15 @@ use oxy::{
 use oxy_shared::errors::OxyError;
 use types::{EvalInput, EvalResult};
 
+mod answer_judge;
 mod correctness_solver;
 mod eval;
+mod execution_grade;
+mod execution_metric;
+mod execution_solver;
 mod generator;
+mod regrade;
+mod run_timing;
 mod solver;
 mod target_agentic;
 pub mod types;

@@ -1,0 +1,68 @@
+name: customers
+description: |
+  Fuel-card customers (32,461 rows, one per customer). Each customer has a
+  client segment and the currency their account is billed in.
+  `customer_segment` (column `segment`) holds 'SME', 'LAM' and 'KAM'; only KAM
+  is mentioned in the evidence ("KAM is one of our client segments") - the
+  description files do not expand any of the three codes, so filter on the raw
+  code. `currency` holds 'CZK' and 'EUR': a "EUR-paying" / "CZK-paying"
+  customer is one whose account currency is EUR / CZK.
+  Monthly consumption per customer lives in the `yearmonth` view; individual
+  card transactions (a small 4-day sample) in `transactions_1k`. Both join
+  here on the `customer` entity. Do NOT join `yearmonth` and `transactions_1k`
+  together through a customer in one query - each multiplies the other's rows;
+  aggregate them separately.
+datasource: bird_debit_card_specializing
+table: customers
+
+entities:
+  - name: customer
+    type: primary
+    description: One customer.
+    key: customer_id
+
+dimensions:
+  - name: customer_id
+    type: number
+    description: Identification of the customer (column `customerid`).
+    synonyms: ["customerid", "CustomerID", "customer id"]
+    expr: customerid
+  - name: customer_segment
+    type: string
+    description: |
+      Client segment (column `segment`). Values in the data: 'SME', 'LAM',
+      'KAM'. KAM is one of the company's client segments (named in the
+      evidence); SME and LAM are present in the data but not explained in the
+      description files. Not the same thing as the gas-station chain segment
+      (`gasstations.chain_segment`).
+    synonyms: ["segment", "client segment", "customer segment"]
+    samples: ["SME", "LAM", "KAM"]
+    expr: segment
+  - name: currency
+    type: string
+    description: |
+      Currency of the customer's account. 'EUR' = EUR-paying customer;
+      'CZK' = CZK-paying customer (Czech koruna). Only these two values occur.
+    synonyms: ["account currency", "paying currency"]
+    samples: ["CZK", "EUR"]
+    expr: currency
+
+measures:
+  - name: customer_count
+    type: count
+    description: Number of customers.
+  - name: eur_customer_count
+    type: count
+    description: Number of EUR-paying customers (currency = 'EUR').
+    filters:
+      - expr: "{{currency}} = 'EUR'"
+  - name: czk_customer_count
+    type: count
+    description: Number of CZK-paying customers (currency = 'CZK').
+    filters:
+      - expr: "{{currency}} = 'CZK'"
+  - name: kam_customer_count
+    type: count
+    description: Number of customers in the KAM client segment.
+    filters:
+      - expr: "{{customer_segment}} = 'KAM'"

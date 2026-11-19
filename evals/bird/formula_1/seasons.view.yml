@@ -1,0 +1,29 @@
+name: seasons
+description: |
+  Formula 1 seasons (68 rows, years 1950..2017), one per championship year.
+  Every race belongs to the season of its `year` (races.year = seasons.year).
+datasource: bird_formula_1
+table: seasons
+
+entities:
+  - name: season
+    type: primary
+    description: One championship season (year).
+    key: year
+
+dimensions:
+  - name: year
+    type: number
+    description: Season year (primary key; the CSV mislabels it "race ID").
+    synonyms: ["season", "season year"]
+    expr: year
+  - name: season_url
+    type: string
+    description: Wikipedia link introducing the season (column url).
+    synonyms: ["url"]
+    expr: url
+
+measures:
+  - name: season_count
+    type: count
+    description: Number of seasons.

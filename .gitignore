@@ -156,3 +156,6 @@ docs/superpowers/
 # Local scratch: screenshots, captured output, throwaway fixtures. Untracked but not
 # ignored meant a stray `git add -A` swept it into a commit.
 .tmp/
+
+# BIRD eval data cache (defensive; the real cache is ~/.cache/oxy-evals/bird/)
+evals/bird/.cache/

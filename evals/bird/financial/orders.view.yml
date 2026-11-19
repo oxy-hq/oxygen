@@ -1,0 +1,73 @@
+name: orders
+description: |
+  Permanent (standing) payment orders (6,471 rows; physical table "order").
+  A standing order is a recurring payment order that debits the account and
+  sends money to an external account: an account at another bank, identified
+  by the receiving bank (`bank_to`) together with the receiving account number
+  (`account_to`) — the counter-account / partner account the payment is sent
+  to. `k_symbol` states the payment's purpose (characterization).
+datasource: bird_financial
+table: '"order"'
+
+entities:
+  - name: payment_order
+    type: primary
+    description: One standing payment order.
+    key: order_id
+  - name: account
+    type: foreign
+    description: Account the order debits.
+    key: account_id
+
+dimensions:
+  - name: order_id
+    type: number
+    description: Id identifying the unique order.
+    expr: order_id
+  - name: account_id
+    type: number
+    description: Id number of the (debited) account.
+    expr: account_id
+  - name: bank_to
+    type: string
+    description: Bank of the recipient; each bank has a unique two-letter code (AB, CD, ... YZ).
+    synonyms: ["recipient bank", "receiving bank", "counter bank"]
+    samples: ["AB", "CD", "EF", "GH", "IJ", "KL", "MN", "OP", "QR", "ST", "UV", "WX", "YZ"]
+    expr: bank_to
+  - name: account_to
+    type: number
+    description: Account (number) of the recipient at bank_to; with bank_to it identifies the external / counter-account.
+    synonyms: ["recipient account", "receiving account", "counter-account"]
+    expr: account_to
+  - name: amount
+    type: number
+    description: Debited amount of the order.
+    synonyms: ["debited amount", "order amount"]
+    expr: amount
+  - name: k_symbol
+    type: string
+    description: |
+      Characterization (purpose) of the payment. 'POJISTNE' = insurance
+      payment; 'SIPO' = household payment (household bills); 'LEASING' =
+      leasing; 'UVER' = loan payment. An empty string '' means the bank did
+      not tag the order with any characterization.
+    synonyms: ["characterization", "payment purpose", "purpose of the payment"]
+    samples: ["POJISTNE", "SIPO", "LEASING", "UVER", ""]
+    expr: k_symbol
+  - name: k_symbol_label
+    type: string
+    description: English decoding of `k_symbol`. Filter on `k_symbol` with the raw code.
+    expr: "CASE {{TABLE}}.k_symbol WHEN 'POJISTNE' THEN 'insurance payment' WHEN 'SIPO' THEN 'household payment' WHEN 'LEASING' THEN 'leasing' WHEN 'UVER' THEN 'loan payment' ELSE 'no characterization' END"
+
+measures:
+  - name: order_count
+    type: count
+    description: Number of standing payment orders.
+  - name: total_order_amount
+    type: sum
+    description: Total debited amount of the orders.
+    expr: amount
+  - name: avg_order_amount
+    type: average
+    description: Average debited amount per order.
+    expr: amount

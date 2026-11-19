@@ -2,10 +2,17 @@ use serde::Serialize;
 
 use oxy::{exec_types::ReferenceKind, theme::StyledText};
 
+pub use super::execution_metric::{
+    Execution, VERDICT_CORRECT, VERDICT_INCORRECT, VERDICT_JUDGE_ERROR,
+};
+
 pub struct EvalInput {
     pub index: Option<usize>,
     pub target_ref: String,
     pub tag: Option<String>,
+    /// Grade the outputs recorded in this results file instead of running
+    /// the agent (`oxy test --regrade`).
+    pub regrade_from: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -21,7 +28,7 @@ impl std::fmt::Display for AgenticInput {
 }
 
 #[enum_dispatch::enum_dispatch]
-trait Verbose {
+pub(super) trait Verbose {
     fn verbose(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
@@ -32,6 +39,7 @@ pub enum MetricKind {
     Similarity(Similarity),
     Recall(Recall),
     Correctness(Correctness),
+    Execution(Execution),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -161,6 +169,7 @@ impl std::fmt::Display for MetricKind {
             MetricKind::Correctness(Correctness { score, .. }) => {
                 writeln!(f, "Correctness: {:.2}%", score * 100.0)
             }
+            MetricKind::Execution(e) => write!(f, "{e}"),
         }
     }
 }
@@ -212,6 +221,9 @@ impl MetricKind {
                     }
                 }
             }
+            MetricKind::Execution(execution) => {
+                write!(writer, "{}", execution.failure_report())?;
+            }
         }
         Ok(())
     }
@@ -220,7 +232,10 @@ impl MetricKind {
 #[derive(Debug, Serialize, Clone)]
 pub struct Record {
     pub cot: String,
+    /// `PASS` / `FAIL` (and `SKIP`). Execution grader: follows the judge
+    /// verdict, and is `JUDGE_ERROR` when the judge failed.
     pub choice: String,
+    /// Execution grader: the EX bit (1.0 = result sets match), not pass/fail.
     pub score: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
@@ -233,6 +248,25 @@ pub struct Record {
     pub duration_ms: f64,
     pub input_tokens: i32,
     pub output_tokens: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soft_f1: Option<f32>,
+    pub llm_rounds: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_sql: Option<String>,
+    /// Answer-accuracy judge verdict (`CORRECT` / `INCORRECT`); execution grader only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge_verdict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge_reason: Option<String>,
+    /// The agent's final answer text the judge read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer_text: Option<String>,
+    /// The rendered gold-rows table the judge read, for offline re-judging.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gold_preview: Option<String>,
+    /// Per-question wall-time breakdown (agentic target runs only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timing: Option<oxy::exec_types::RunTiming>,
 }
 
 impl std::fmt::Display for Record {

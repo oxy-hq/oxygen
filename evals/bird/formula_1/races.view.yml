@@ -1,0 +1,101 @@
+name: races
+description: |
+  Races (954 rows, 1950-05-13 .. 2017-11-26), one per race event. Every race
+  in the database counts as a "Grand Prix", whatever its name: some names do
+  not contain the words 'Grand Prix' (e.g. 'Indianapolis 500'). An "edition"
+  is one running of a named race in a given year (e.g. the <year> Canadian Grand
+  Prix = name 'Canadian Grand Prix' AND year <year>); (year, name) is unique.
+  "Hosted in 2000" means the race was on the 2000 race calendar (year = 2000).
+  `start_time` (column `time`) is the race's start time of the day, read as
+  the local clock time at the circuit on the 24-hour clock ('HH:MM:SS'); it is
+  NULL for 722 races, i.e. every race before 2005. The column `date` is the race day
+  (the CSV wrongly calls it "duration time"). 6 races have no rows in results.
+  Join circuits via circuit, seasons via season (year).
+datasource: bird_formula_1
+table: races
+
+entities:
+  - name: race
+    type: primary
+    description: One race (one edition of a Grand Prix).
+    key: race_id
+  - name: circuit
+    type: foreign
+    description: Circuit the race was held at.
+    key: circuit_id
+  - name: season
+    type: foreign
+    description: Season (year) the race belongs to.
+    key: year
+
+dimensions:
+  - name: race_id
+    type: number
+    description: Unique identification number of the race (column raceid).
+    expr: raceid
+  - name: year
+    type: number
+    description: Season year of the race; "hosted in 2000" = year 2000 (on that year's race calendar).
+    synonyms: ["season", "race year", "calendar year"]
+    expr: year
+  - name: round
+    type: number
+    description: Round number of the race within its season (1 = first race of the year).
+    synonyms: ["round number"]
+    expr: round
+  - name: circuit_id
+    type: number
+    description: Circuit the race was held at.
+    expr: circuitid
+  - name: race_name
+    type: string
+    description: |
+      Name of the race (column name), e.g. 'Canadian Grand Prix', 'Italian Grand
+      Prix', 'Indianapolis 500'. Every race is a Grand Prix even if its name lacks the words.
+    synonyms: ["name", "Grand Prix", "race", "event"]
+    expr: name
+  - name: race_date
+    type: date
+    description: Date the race was held (column date, a real SQL date).
+    synonyms: ["date", "race day"]
+    expr: date
+  - name: race_month
+    type: number
+    description: Calendar month (1-12) of the race date.
+    expr: "CAST(EXTRACT(MONTH FROM {{TABLE}}.date) AS integer)"
+  - name: start_time
+    type: string
+    description: |
+      Start time of the day of the race (column `time`), text 'HH:MM:SS' on the
+      24-hour clock, read as the local clock time at the venue / circuit at
+      which the race started (scheduled local start time). NULL for all 722
+      races before 2005; set for every race from 2005.
+    synonyms: ["time", "local start time", "start time of the day", "scheduled start time", "race start time"]
+    expr: time
+  - name: race_url
+    type: string
+    description: Wikipedia introduction of the race (column url).
+    synonyms: ["url"]
+    expr: url
+
+measures:
+  - name: race_count
+    type: count
+    description: Number of races (editions).
+    synonyms: ["number of races", "number of Grand Prix", "number of editions"]
+  - name: first_race_date
+    type: min
+    description: Earliest race date.
+    expr: date
+  - name: last_race_date
+    type: max
+    description: Latest race date.
+    expr: date
+  - name: first_year
+    type: min
+    description: Earliest season year.
+    expr: year
+  - name: last_year
+    type: max
+    description: Latest season year.
+    expr: year

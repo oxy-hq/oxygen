@@ -59,6 +59,7 @@ use crate::platform::{BuilderBridges, PlatformContext, ProjectContext};
 pub use crate::executor::PREVIEW_AIRWAY_SAMPLE;
 pub use crate::headless::{
     HeadlessError, run_agentic_answer, run_agentic_eval, run_agentic_streaming,
+    run_agentic_streaming_with_states,
 };
 pub use crate::run_metadata::{STARTED_BY_KEY, stamp_started_by};
 pub use crate::start_guard::START_INTERRUPTED;
@@ -1148,9 +1149,16 @@ async fn build_builder_llm_client(ctx: &dyn ProjectContext, model: Option<String
 #[derive(Clone)]
 pub struct OneShotCompleter {
     client: LlmClient,
+    model: String,
 }
 
 impl OneShotCompleter {
+    /// The resolved model name (e.g. `"claude-opus-4-8"`), for reporting
+    /// which model judged.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     /// Run a single completion. Returns the model's text, or a message
     /// describing why the call failed.
     pub async fn complete(&self, system: &str, user: &str) -> Result<String, String> {
@@ -1193,6 +1201,7 @@ pub async fn prepare_one_shot(
     };
     Ok(OneShotCompleter {
         client: platform::build_llm_client(&info).with_genai_context(genai),
+        model: info.model.clone(),
     })
 }
 

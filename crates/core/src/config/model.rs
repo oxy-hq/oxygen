@@ -2706,6 +2706,21 @@ pub enum SolverKind {
     ContextRecall(#[garde(dive)] ContextRecallSolver),
     Similarity(#[garde(dive)] SimilaritySolver),
     Correctness(#[garde(dive)] CorrectnessSolver),
+    Execution(#[garde(dive)] ExecutionSolver),
+}
+
+/// Execution grading (BIRD EX + Soft-F1): re-run the agent's final SQL and the
+/// gold SQL against `database` and compare the result sets.
+#[derive(Serialize, Deserialize, Debug, Clone, Validate, JsonSchema)]
+#[garde(context(ValidationContext))]
+pub struct ExecutionSolver {
+    #[garde(length(min = 1))]
+    pub database: String,
+    /// Model for the answer-accuracy judge (`settings.judge_model`); `None`
+    /// uses the project default, as the correctness judge does.
+    #[serde(default)]
+    #[garde(skip)]
+    pub model_ref: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, JsonSchema)]

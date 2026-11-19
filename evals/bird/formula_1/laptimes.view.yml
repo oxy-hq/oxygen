@@ -1,0 +1,87 @@
+name: laptimes
+description: |
+  Lap-by-lap times (400,524 rows, races from 1996), one per (race, driver,
+  lap). `lap_time` text is 'M:SS.mmm' (a few 'MM:SS.mmm' / 'H:MM:SS.mmm' for
+  laps over 10 min / 1 h); `lap_time_ms` (column milliseconds) is the same
+  duration as a number and always agrees with the text - use it for
+  comparisons. A lap time is measured from the start of that lap. `position`
+  is the driver's running race position at the end of that lap. A driver's
+  fastest lap in a race from this table = MIN(lap_time_ms) over that
+  (race, driver); the results view's fastest_lap_seconds is the primary
+  fastest-lap figure and agrees on 98% of rows.
+datasource: bird_formula_1
+table: laptimes
+
+entities:
+  - name: lap_time
+    type: primary
+    description: One lap of one driver in one race (key = raceid-driverid-lap).
+    key: lap_key
+  - name: race
+    type: foreign
+    description: Race.
+    key: race_id
+  - name: driver
+    type: foreign
+    description: Driver.
+    key: driver_id
+
+dimensions:
+  - name: lap_key
+    type: string
+    description: Composite key raceid || '-' || driverid || '-' || lap.
+    expr: "{{TABLE}}.raceid::text || '-' || {{TABLE}}.driverid::text || '-' || {{TABLE}}.lap::text"
+  - name: race_id
+    type: number
+    description: Race.
+    expr: raceid
+  - name: driver_id
+    type: number
+    description: Driver.
+    expr: driverid
+  - name: lap
+    type: number
+    description: Lap number.
+    synonyms: ["lap number"]
+    expr: lap
+  - name: position
+    type: number
+    description: Driver's race position at the end of this lap.
+    synonyms: ["running position"]
+    expr: position
+  - name: lap_time
+    type: string
+    description: Lap time text 'M:SS.mmm' (column time), e.g. '1:07.411'. Do not compare as text; use lap_time_ms / lap_time_seconds.
+    synonyms: ["time"]
+    expr: time
+  - name: lap_time_ms
+    type: number
+    description: Lap time in milliseconds (column milliseconds).
+    synonyms: ["milliseconds"]
+    expr: milliseconds
+  - name: lap_time_seconds
+    type: number
+    description: Lap time in seconds = milliseconds / 1000.
+    expr: "{{TABLE}}.milliseconds / 1000.0"
+
+measures:
+  - name: lap_count
+    type: count
+    description: Number of lap records.
+  - name: fastest_lap_ms
+    type: min
+    description: Shortest lap time in milliseconds (the fastest lap within the grouping).
+    synonyms: ["fastest lap", "best lap"]
+    expr: milliseconds
+  - name: slowest_lap_ms
+    type: max
+    description: Longest lap time in milliseconds.
+    expr: milliseconds
+  - name: avg_lap_time_ms
+    type: average
+    description: Average lap time in milliseconds.
+    expr: milliseconds
+  - name: driver_count
+    type: count_distinct
+    description: Number of distinct drivers.
+    expr: driverid

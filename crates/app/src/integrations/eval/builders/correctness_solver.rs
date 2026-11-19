@@ -88,5 +88,13 @@ pub(super) fn parse_correctness_record(output: Output) -> Result<Record, OxyErro
         duration_ms: 0.0,
         input_tokens: 0,
         output_tokens: 0,
+        soft_f1: None,
+        llm_rounds: 0,
+        final_sql: None,
+        judge_verdict: None,
+        judge_reason: None,
+        answer_text: None,
+        gold_preview: None,
+        timing: None,
     })
 }

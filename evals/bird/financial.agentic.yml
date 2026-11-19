@@ -1,0 +1,7 @@
+databases:
+  - bird_financial
+llm:
+  ref: eval-model
+context:
+  - ./financial/*.view.yml
+  - ./financial/*.topic.yml

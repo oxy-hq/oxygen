@@ -1,0 +1,65 @@
+name: disp
+description: |
+  Dispositions (5,369 rows): the link between a client and an account, i.e.
+  who may operate which account. Every account has exactly one 'OWNER'
+  disposition (the account owner / holder); 'DISPONENT' rows are other
+  account users (co-holders who do not own it). Credit cards are issued on a
+  disposition (card.disp_id) and in this data every card sits on an OWNER
+  disposition, so a card's holder is the account's owner.
+  Path client -> disp -> account; card -> disp.
+datasource: bird_financial
+table: disp
+
+entities:
+  - name: disposition
+    type: primary
+    description: One client-account link.
+    key: disp_id
+  - name: client
+    type: foreign
+    description: The client on this disposition.
+    key: client_id
+  - name: account
+    type: foreign
+    description: The account on this disposition.
+    key: account_id
+
+dimensions:
+  - name: disp_id
+    type: number
+    description: Disposition id; unique number identifying this record.
+    expr: disp_id
+  - name: client_id
+    type: number
+    description: Id number of the client.
+    expr: client_id
+  - name: account_id
+    type: number
+    description: Id number of the account.
+    expr: account_id
+  - name: disposition_type
+    type: string
+    description: |
+      Type of disposition (column `type`). 'OWNER' = the client owns the
+      account (account owner / account holder); 'DISPONENT' = another account
+      user who does not own it. Only the owner can issue permanent orders or
+      apply for loans. (The description mentions 'USER', but the data holds
+      only OWNER and DISPONENT.)
+    synonyms: ["type", "disposition type", "account role"]
+    samples: ["OWNER", "DISPONENT"]
+    expr: type
+
+measures:
+  - name: disposition_count
+    type: count
+    description: Number of dispositions (client-account links).
+  - name: owner_count
+    type: count
+    description: Number of OWNER dispositions (= number of owned accounts / account owners).
+    filters:
+      - expr: "{{disposition_type}} = 'OWNER'"
+  - name: disponent_count
+    type: count
+    description: Number of DISPONENT dispositions (non-owner account users).
+    filters:
+      - expr: "{{disposition_type}} = 'DISPONENT'"

@@ -1,0 +1,273 @@
+name: results
+description: |
+  Race results (23,179 rows), one per car entry in a race: who drove
+  (driver), for which constructor, where they started (grid), where they
+  finished (position), points scored, laps completed, finish time, fastest
+  lap and status. A driver usually has one row per race, but 89 extra
+  (race, driver) rows exist from early-era shared drives, so count drivers
+  with `driver_count` (distinct), not rows.
+  Finishing: `position` is the official finishing position (NULL when not
+  classified); `position_order` is the full finishing order for every entry
+  (1 = winner too). A race win = finished first = position 1 (951 rows; three
+  races have two shared-drive winners). A runner-up = position 2. Status text
+  is `status_text` (or join `status`).
+  Classified finisher = the status shows the driver finished, on the lead lap
+  ('Finished') or one or more laps behind the winner ('+N Lap(s)'):
+  `is_classified_finisher`. Two looser alternatives exist and give different
+  counts, use only when asked for them: `has_finish_time` (time recorded,
+  5,789 rows: per the description file "if the time exists the driver
+  finished the race", i.e. lead-lap finishers) and `position IS NOT NULL`
+  (12,853 rows, classified in the order).
+  Race time (start of race to crossing the finish line) is `race_time_ms`
+  (column milliseconds, the driver's actual finishing time). The text `time`
+  column is NOT a duration for most rows: only the winner's is a full
+  'H:MM:SS.mmm'; other finishers show '+gap' to the winner (23 text formats).
+  Fastest lap = the driver's single quickest lap of that race:
+  `fastest_lap_time` text 'M:SS.mmm' / `fastest_lap_seconds`, its lap number
+  `fastest_lap`, its average speed `fastest_lap_speed_kmh`, and `rank` = rank
+  of that lap among all drivers in the race (1 = fastest lap of the race,
+  2 = second-fastest lap). These exist for 4,994 rows (2004 onward); rank 0
+  (128 rows) means no fastest lap recorded. An alternative source is the
+  minimum of laptimes per (race, driver) (1996 onward), which agrees with
+  `fastest_lap_seconds` on 4,906 of 4,991 overlapping rows; prefer this view.
+  `points` = championship points recorded for that driver's race result.
+  `position_text` codes (not in the description file): a number = finishing
+  position, 'R' retired, 'D' disqualified, 'E' excluded, 'W' withdrew
+  (315 rows, wider than status 'Withdrew'), 'F' failed to qualify, 'N' not
+  classified.
+datasource: bird_formula_1
+table: results
+
+entities:
+  - name: result
+    type: primary
+    description: One race result row (one car entry in one race).
+    key: result_id
+  - name: race
+    type: foreign
+    description: Race the result belongs to.
+    key: race_id
+  - name: driver
+    type: foreign
+    description: Driver of the entry.
+    key: driver_id
+  - name: constructor
+    type: foreign
+    description: Constructor (team) the driver drove for in this race.
+    key: constructor_id
+  - name: status
+    type: foreign
+    description: Status of the result (finished / reason for not finishing).
+    key: status_id
+
+dimensions:
+  - name: result_id
+    type: number
+    description: Unique identification number of the race result (column resultid).
+    expr: resultid
+  - name: race_id
+    type: number
+    description: Race the result belongs to.
+    expr: raceid
+  - name: driver_id
+    type: number
+    description: Driver of the entry.
+    expr: driverid
+  - name: constructor_id
+    type: number
+    description: Constructor the driver drove for.
+    expr: constructorid
+  - name: status_id
+    type: number
+    description: Status id; its text is in the status table (1 = 'Finished').
+    synonyms: ["statusId"]
+    expr: statusid
+  - name: status_text
+    type: string
+    description: Status text of the result, looked up from the status table (same values as status.status), e.g. 'Finished', '+1 Lap', 'Accident', 'Withdrew', 'Disqualified'. Case-sensitive.
+    synonyms: ["status", "result status"]
+    samples: ["Finished", "+1 Lap", "+2 Laps", "Accident", "Collision", "Engine", "Withdrew", "Disqualified", "Did not qualify", "Not classified", "Retired"]
+    expr: "(SELECT s.status FROM status s WHERE s.statusid = {{TABLE}}.statusid)"
+  - name: is_classified_finisher
+    type: boolean
+    description: True when the result shows the driver finishing the race, on the lead lap (status 'Finished') or one or more laps behind the winner (status '+N Lap(s)'). 12,267 rows.
+    synonyms: ["classified finisher", "finished the race", "finisher"]
+    expr: "EXISTS (SELECT 1 FROM status s WHERE s.statusid = {{TABLE}}.statusid AND (s.status = 'Finished' OR s.status ~ '^\\+[0-9]+ Laps?$'))"
+  - name: is_accident
+    type: boolean
+    description: True when the car's race ended because of a crash, status 'Accident' (992 rows). 'Collision', 'Collision damage' and 'Fatal accident' are separate status values, not included.
+    synonyms: ["accident", "crash"]
+    expr: "{{TABLE}}.statusid = 3"
+  - name: is_withdrew
+    type: boolean
+    description: True when the driver withdrew from the race, status 'Withdrew' (238 rows). position_text 'W' (315 rows) is a looser flag that also covers other statuses; use this one.
+    synonyms: ["withdrew", "withdrawn"]
+    expr: "EXISTS (SELECT 1 FROM status s WHERE s.statusid = {{TABLE}}.statusid AND s.status = 'Withdrew')"
+  - name: has_finish_time
+    type: boolean
+    description: True when a finish time is recorded (time IS NOT NULL; 5,789 rows, lead-lap finishers). Per the description file a recorded time means the driver finished; this excludes finishers laps behind. Use is_classified_finisher for "finished the race" unless a recorded time is asked for.
+    expr: "{{TABLE}}.time IS NOT NULL"
+  - name: car_number
+    type: number
+    description: Car number used in this race (column number).
+    synonyms: ["number"]
+    expr: number
+  - name: grid
+    type: number
+    description: Starting grid position (the slot where the car lined up to start the race). 0 = no grid slot (mostly entries that did not qualify / prequalify or withdrew).
+    synonyms: ["grid position", "starting position", "start position"]
+    expr: grid
+  - name: position
+    type: number
+    description: Official finishing position; 1 = race winner, 2 = runner-up. NULL when the driver was not classified.
+    synonyms: ["finishing position", "final position", "place"]
+    expr: position
+  - name: position_text
+    type: string
+    description: Finishing position as text. A number, or 'R' retired, 'D' disqualified, 'E' excluded, 'W' withdrew, 'F' failed to qualify (did not qualify / prequalify, 107% rule), 'N' not classified. Not quite useful; prefer position / status.
+    synonyms: ["positionText"]
+    samples: ["1", "2", "R", "D", "E", "W", "F", "N"]
+    expr: positiontext
+  - name: position_order
+    type: number
+    description: Finishing order of every entry, including unclassified ones (column positionorder). Equal to position where position is set.
+    synonyms: ["positionOrder", "finishing order"]
+    expr: positionorder
+  - name: is_win
+    type: boolean
+    description: True when the driver won the race = finished first (position = 1).
+    synonyms: ["win", "race win", "winner", "first place"]
+    expr: "{{TABLE}}.position = 1"
+  - name: points
+    type: number
+    description: Championship points recorded for this driver's race result.
+    expr: points
+  - name: laps
+    type: number
+    description: Number of laps the driver completed in the race.
+    synonyms: ["laps completed"]
+    expr: laps
+  - name: finish_time_text
+    type: string
+    description: |
+      Raw finish time text (column `time`). Only the race winner's value is
+      the full race time 'H:MM:SS.mmm' (e.g. '2:03:23.544'); other finishers
+      show the gap to the winner, e.g. '+4.507' or '+0:02.026' (their race
+      time = winner's time + gap). NULL when no time was recorded (not on the
+      lead lap or did not finish). For a race duration use race_time_ms.
+    synonyms: ["time", "finish time"]
+    expr: time
+  - name: race_time_ms
+    type: number
+    description: The driver's actual race time, from the start of the race to crossing the finish line, in milliseconds (column milliseconds). NULL when not recorded.
+    synonyms: ["milliseconds", "race time", "finishing time", "total time"]
+    expr: milliseconds
+  - name: race_time_seconds
+    type: number
+    description: Race time in seconds = milliseconds / 1000.
+    expr: "{{TABLE}}.milliseconds / 1000.0"
+  - name: fastest_lap
+    type: number
+    description: Lap number on which the driver set their fastest lap in this race (column fastestlap).
+    synonyms: ["fastestLap", "fastest lap number"]
+    expr: fastestlap
+  - name: rank
+    type: number
+    description: |
+      Rank of this driver's fastest lap among all drivers in the race (smaller
+      fastest-lap time = better rank). 1 = fastest lap of the race (the
+      constructor of that row is credited with the race's fastest lap);
+      2 = the driver's fastest lap was the second-fastest of the race. 0 or
+      NULL = no fastest lap recorded. (The description file calls it
+      "starting rank positioned by fastest lap speed"; it is the fastest-lap
+      rank, not a starting position.)
+    synonyms: ["fastest lap rank"]
+    expr: rank
+  - name: fastest_lap_time
+    type: string
+    description: Fastest lap time as text 'M:SS.mmm' (column fastestlaptime), e.g. '1:45.008'. Do not compare as text; use fastest_lap_seconds.
+    synonyms: ["fastestLapTime"]
+    expr: fastestlaptime
+  - name: fastest_lap_seconds
+    type: number
+    description: Driver's fastest lap of this race in seconds, parsed from fastest_lap_time (minutes*60 + seconds). E.g. "fastest lap under 90 seconds" = fastest_lap_seconds < 90. NULL before 2004.
+    synonyms: ["fastest lap in seconds", "fastest lap time seconds"]
+    expr: "CASE WHEN {{TABLE}}.fastestlaptime ~ '^[0-9]+:[0-9]+(\\.[0-9]+)?$' THEN split_part({{TABLE}}.fastestlaptime, ':', 1)::numeric * 60 + split_part({{TABLE}}.fastestlaptime, ':', 2)::numeric END"
+  - name: fastest_lap_speed
+    type: string
+    description: Raw text of the fastest lap speed (km/h). Text sorts wrongly ('89.540' > '257.000'); use fastest_lap_speed_kmh.
+    synonyms: ["fastestLapSpeed"]
+    expr: fastestlapspeed
+  - name: fastest_lap_speed_kmh
+    type: number
+    description: Average speed in km/h on the driver's single fastest lap of this race, numeric. A driver's career-high speed is the max of this value (one lap, not an average across laps).
+    synonyms: ["fastest lap speed", "speed", "top speed"]
+    expr: "NULLIF({{TABLE}}.fastestlapspeed, '')::numeric"
+
+measures:
+  - name: result_count
+    type: count
+    description: Number of result rows (car entries).
+    synonyms: ["entries", "starts"]
+  - name: driver_count
+    type: count_distinct
+    description: Number of distinct drivers.
+    expr: driverid
+  - name: race_count
+    type: count_distinct
+    description: Number of distinct races.
+    expr: raceid
+  - name: win_count
+    type: count
+    description: Number of race wins (position = 1).
+    synonyms: ["wins", "victories"]
+    filters:
+      - expr: "{{position}} = 1"
+  - name: classified_finisher_count
+    type: count
+    description: Number of classified finishes (status 'Finished' or '+N Lap(s)').
+    filters:
+      - expr: "{{is_classified_finisher}}"
+  - name: accident_count
+    type: count
+    description: Number of results ended by an accident (status 'Accident').
+    filters:
+      - expr: "{{is_accident}}"
+  - name: withdrew_count
+    type: count
+    description: Number of results where the driver withdrew (status 'Withdrew').
+    filters:
+      - expr: "{{is_withdrew}}"
+  - name: total_points
+    type: sum
+    description: Total championship points from race results.
+    synonyms: ["points scored", "sum of points"]
+    expr: points
+  - name: avg_points
+    type: average
+    description: Average points per result.
+    expr: points
+  - name: max_points
+    type: max
+    description: Highest points in a single result.
+    expr: points
+  - name: min_fastest_lap_seconds
+    type: min
+    description: Quickest fastest lap in seconds (smallest fastest_lap_seconds).
+    expr: "CASE WHEN {{TABLE}}.fastestlaptime ~ '^[0-9]+:[0-9]+(\\.[0-9]+)?$' THEN split_part({{TABLE}}.fastestlaptime, ':', 1)::numeric * 60 + split_part({{TABLE}}.fastestlaptime, ':', 2)::numeric END"
+  - name: max_fastest_lap_speed_kmh
+    type: max
+    description: Highest fastest-lap speed in km/h (e.g. a driver's career-high speed).
+    expr: "NULLIF({{TABLE}}.fastestlapspeed, '')::numeric"
+  - name: avg_fastest_lap_speed_kmh
+    type: average
+    description: Average of fastest-lap speeds in km/h.
+    expr: "NULLIF({{TABLE}}.fastestlapspeed, '')::numeric"
+  - name: min_race_time_ms
+    type: min
+    description: Shortest race time in milliseconds.
+    expr: milliseconds
+  - name: avg_race_time_ms
+    type: average
+    description: Average race time in milliseconds.
+    expr: milliseconds

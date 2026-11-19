@@ -1,0 +1,35 @@
+databases:
+  - name: bird_financial
+    type: postgres
+    host: "127.0.0.1"
+    port: "15433"
+    user: "bird_ro"
+    password_var: BIRD_PG_PASSWORD
+    database: "bird_financial"
+  - name: bird_debit_card_specializing
+    type: postgres
+    host: "127.0.0.1"
+    port: "15433"
+    user: "bird_ro"
+    password_var: BIRD_PG_PASSWORD
+    database: "bird_debit_card_specializing"
+  - name: bird_california_schools
+    type: postgres
+    host: "127.0.0.1"
+    port: "15433"
+    user: "bird_ro"
+    password_var: BIRD_PG_PASSWORD
+    database: "bird_california_schools"
+  - name: bird_formula_1
+    type: postgres
+    host: "127.0.0.1"
+    port: "15433"
+    user: "bird_ro"
+    password_var: BIRD_PG_PASSWORD
+    database: "bird_formula_1"
+
+models:
+  - name: eval-model
+    vendor: anthropic
+    model_ref: claude-opus-4-8
+    key_var: ANTHROPIC_API_KEY

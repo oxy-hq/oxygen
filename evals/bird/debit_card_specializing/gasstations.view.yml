@@ -1,0 +1,61 @@
+name: gasstations
+description: |
+  Gas stations (5,716 rows, one per station) belonging to 233 chains.
+  `country` is an ISO-3 code: 'CZE' = Czech Republic (a gas station "in the
+  Czech Republic" is one with country 'CZE'); 'SVK' (Slovakia) is also present
+  in the data but not described in the description files.
+  `chain_segment` (column `segment`) is the segment of the station's chain:
+  'Premium', 'Value for money', 'Discount', 'Noname', 'Other' - values present
+  in the data, not expanded by the description files. It is NOT the client
+  segment on `customers`. Transactions join here on the `gas_station` entity.
+  There is no chain table; `chain_id` is a plain attribute.
+datasource: bird_debit_card_specializing
+table: gasstations
+
+entities:
+  - name: gas_station
+    type: primary
+    description: One gas station.
+    key: gas_station_id
+
+dimensions:
+  - name: gas_station_id
+    type: number
+    description: Gas Station ID (column `gasstationid`).
+    synonyms: ["gasstationid", "GasStationID", "station id"]
+    expr: gasstationid
+  - name: chain_id
+    type: number
+    description: Chain ID (column `chainid`) - the chain the station belongs to.
+    synonyms: ["chainid", "ChainID", "chain"]
+    expr: chainid
+  - name: country
+    type: string
+    description: |
+      Country of the gas station. 'CZE' = Czech Republic; 'SVK' = Slovakia
+      (present in the data, not described in the description files).
+    samples: ["CZE", "SVK"]
+    expr: country
+  - name: chain_segment
+    type: string
+    description: |
+      Chain segment (column `segment`) of the station's chain. Values in the
+      data: 'Premium', 'Value for money', 'Discount', 'Noname', 'Other'
+      (exact spelling and case). Different from the customers' client segment.
+    synonyms: ["segment", "chain segment", "station segment"]
+    samples: ["Premium", "Value for money", "Discount", "Noname", "Other"]
+    expr: segment
+
+measures:
+  - name: gas_station_count
+    type: count
+    description: Number of gas stations.
+  - name: czech_gas_station_count
+    type: count
+    description: Number of gas stations in the Czech Republic (country = 'CZE').
+    filters:
+      - expr: "{{country}} = 'CZE'"
+  - name: chain_count
+    type: count_distinct
+    description: Number of distinct chains.
+    expr: chainid

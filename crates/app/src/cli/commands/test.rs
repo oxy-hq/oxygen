@@ -22,7 +22,7 @@ use oxy_shared::errors::OxyError;
 use super::OutputFormat;
 use crate::integrations::eval::{EvalResult, JsonReporter, MetricKind, PrettyReporter, Reporter};
 use crate::server::service::eval::{
-    EvalEventsHandler, SharedTokenStats, TokenStats, run_eval_with_tag,
+    EvalEventsHandler, SharedTokenStats, TokenStats, regrade_eval, run_eval_with_tag,
 };
 use oxy::config::WorkingCopy;
 
@@ -66,6 +66,10 @@ pub struct TestArgs {
     /// index/name/prompt and the tag.
     #[clap(long, value_name = "CASE")]
     case: Option<String>,
+    /// Grade the outputs recorded in a results file (from --output-json) with the test file's
+    /// current grader, without running the agent. Requires a file; not with --case or --tag.
+    #[clap(long, value_name = "RESULTS_JSON", conflicts_with_all = ["case", "tag"])]
+    regrade: Option<PathBuf>,
 }
 
 pub async fn handle_test_command(test_args: TestArgs) -> Result<(), OxyError> {
@@ -128,6 +132,12 @@ fn validate_args(test_args: &TestArgs) -> Result<(), OxyError> {
     if test_args.case.is_some() && test_args.file.is_none() {
         return Err(OxyError::ConfigurationError(
             "--case requires a specific file to be specified".to_string(),
+        ));
+    }
+
+    if test_args.regrade.is_some() && test_args.file.is_none() {
+        return Err(OxyError::ConfigurationError(
+            "--regrade requires the test file the results came from".to_string(),
         ));
     }
 
@@ -283,14 +293,19 @@ async fn run_one_file(
         .with_test_label(file_name.clone())
         .with_case_info(case_labels, runs_per_case);
 
-    let mut results = run_eval_with_tag(
-        workspace_manager.clone(),
-        file_path,
-        case_index,
-        test_args.tag.clone(),
-        handler,
-    )
-    .await?;
+    let mut results = match test_args.regrade.as_deref() {
+        Some(saved) => regrade_eval(workspace_manager.clone(), file_path, saved, handler).await?,
+        None => {
+            run_eval_with_tag(
+                workspace_manager.clone(),
+                file_path,
+                case_index,
+                test_args.tag.clone(),
+                handler,
+            )
+            .await?
+        }
+    };
 
     for result in &mut results {
         result.test_name = Some(file_name.clone());
@@ -369,6 +384,8 @@ fn enforce_threshold(
         .filter_map(|m| match m {
             MetricKind::Similarity(s) => Some(s.score),
             MetricKind::Correctness(c) => Some(c.score),
+            // The judge's answer accuracy, not EX: EX is reported, never gated on.
+            MetricKind::Execution(e) => Some(e.answer_acc),
             _ => None,
         })
         .collect();

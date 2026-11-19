@@ -1,0 +1,48 @@
+name: constructors
+description: |
+  Constructors (teams), 208 rows, one per constructor; `name` is unique.
+  Nationality strings are adjectives, e.g. 'British', 'Italian', 'German',
+  'Japanese', 'French', 'American' (but 'Belgium', 'Hong Kong', 'New Zealand'
+  are stored as country names). There is no `wins` column on this table (the
+  CSV lists one): count wins from results (position = 1) or read
+  constructorstandings.wins.
+datasource: bird_formula_1
+table: constructors
+
+entities:
+  - name: constructor
+    type: primary
+    description: One constructor (team).
+    key: constructor_id
+
+dimensions:
+  - name: constructor_id
+    type: number
+    description: Unique identification number of the constructor (column constructorid).
+    expr: constructorid
+  - name: constructor_ref
+    type: string
+    description: Constructor reference name, a short lowercase identifier (column constructorref), e.g. '<lowercase_team_ref>'.
+    synonyms: ["constructorRef", "constructor reference name"]
+    expr: constructorref
+  - name: constructor_name
+    type: string
+    description: Full name of the constructor (column name), e.g. '<Team Name>'.
+    synonyms: ["name", "team", "team name", "constructor"]
+    expr: name
+  - name: constructor_nationality
+    type: string
+    description: Nationality of the constructor (column nationality), e.g. 'British', 'Italian', 'German', 'Japanese', 'French', 'Austrian', 'American'.
+    synonyms: ["nationality"]
+    samples: ["American", "Australian", "Austrian", "Belgium", "Brazilian", "British", "Canadian", "Dutch", "East German", "French", "German", "Hong Kong", "Indian", "Irish", "Italian", "Japanese", "Malaysian", "Mexican", "New Zealand", "Rhodesian", "Russian", "South African", "Spanish", "Swiss"]
+    expr: nationality
+  - name: constructor_url
+    type: string
+    description: Introduction website of the constructor (column url); the place to find its detailed introduction.
+    synonyms: ["url"]
+    expr: url
+
+measures:
+  - name: constructor_count
+    type: count
+    description: Number of constructors.
