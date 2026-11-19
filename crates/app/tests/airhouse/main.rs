@@ -16,6 +16,8 @@ mod common;
 mod airhouse_broker;
 mod airhouse_broker_preview;
 mod airhouse_lifecycle;
+mod airhouse_pool_ceiling;
+mod airhouse_pool_expiry;
 mod airhouse_pool_poison;
 mod airhouse_pool_reuse;
 mod airhouse_provisioner;

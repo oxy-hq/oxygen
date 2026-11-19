@@ -179,15 +179,20 @@ impl ProjectContext for OxyProjectContext {
                 )
                 .await
                 {
-                    Ok((host, port, user, password, database)) => {
-                        Some(ResolvedPipelineDestination {
-                            kind: "airhouse".to_string(),
-                            connection_string: pg_wire_dsn(
-                                &user, &password, &host, port, &database,
-                            ),
-                            dataset_name_override: None,
-                        })
-                    }
+                    // `expires_at` is unused here: airway opens its own
+                    // connection from this DSN and pools nothing, so there is
+                    // no held connection for a deadline to retire.
+                    Ok(p) => Some(ResolvedPipelineDestination {
+                        kind: "airhouse".to_string(),
+                        connection_string: pg_wire_dsn(
+                            &p.user,
+                            &p.password,
+                            &p.host,
+                            p.port,
+                            &p.database,
+                        ),
+                        dataset_name_override: None,
+                    }),
                     Err(e) => {
                         tracing::warn!(
                             db = %db_name,

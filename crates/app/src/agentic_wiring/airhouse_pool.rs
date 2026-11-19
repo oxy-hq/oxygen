@@ -41,7 +41,27 @@
 //! Idle identities are swept (default 5 min) so a quiet tenant returns its DP
 //! sessions, and a cap on tracked identities bounds total live sessions.
 //!
+//! # Airhouse's two rules, which a naive pool gets wrong
+//!
+//! Both are enforced here and each has its own module arguing why, because
+//! both look like redundant complexity next to the liveness check:
+//!
+//! 1. **Credentials expire and airhouse closes the socket** ([`expiry`]). A
+//!    connection is authenticated with a 900s ephemeral credential; the slot is
+//!    retired ~2 min before that deadline rather than waiting to be hung up on
+//!    mid-request. [`ceiling::connect_within_budget`]'s callers mint the
+//!    credential and pass its `expires_at` to the connector.
+//! 2. **`53300` is backpressure, not a failure** ([`backpressure`]). A connect
+//!    refused because the data plane is at its cap is retried with a short
+//!    backoff instead of surfacing as a failed query.
+//!
+//! And a third the per-identity caps could not see: **the process-wide ceiling**
+//! ([`ceiling`]). The caps below multiply out to 120 connections per Oxy
+//! process against airhouse's 64 total, which is how `oxy-prod` came to refuse
+//! 10,977 connections at admission over 2026-11-13..15 at 0% CPU.
+//!
 //! Tunables: `OXY_AIRHOUSE_POOL_CONNS_PER_IDENTITY` (N, default 3),
+//! `OXY_AIRHOUSE_POOL_MAX_LIVE_CONNS` (process-wide ceiling, default 24),
 //! `OXY_AIRHOUSE_POOL_IDLE_SECS` (default 300),
 //! `OXY_AIRHOUSE_POOL_MAX_IDENTITIES` (default 16),
 //! `OXY_AIRHOUSE_POOL_MAX_APP_IDENTITIES` (default 16 — `ctx.airhouse`'s
@@ -74,7 +94,27 @@ use pick::SlotState;
 
 const DEFAULT_CONNS_PER_IDENTITY: usize = 3;
 const DEFAULT_IDLE_SECS: u64 = 300;
-const DEFAULT_MAX_IDENTITIES: usize = 16;
+/// Analytics identities tracked at once, before LRU eviction starts.
+///
+/// **Raised from 16 once [`ceiling`] bounded the total.** This cap used to be
+/// doing two jobs at once and was sized for the second: limit LRU churn, and
+/// stand in as the safety valve on total connections. It was never any good at
+/// the second — `conns x identities` could reach 120 against a data plane that
+/// offers 64 — and being sized for it made it too tight for the first.
+///
+/// `airhouse_pool_key` yields **6 identities per workspace** (4 roles +
+/// role-less + system), so 16 was exceeded by **three active workspaces**.
+/// Past the cap, `keys_to_evict` drops the set back to `max - 1` on every
+/// new-identity insert, and the next request for an evicted identity pays a
+/// fresh mint, connect and `fetch_schema()`. That is a connect storm into
+/// Airhouse's 32-slot admission gate which scales with **tenant count, not
+/// query volume** — the one load shape that fills the gate while CPU sits at
+/// 0%, as it did over 2026-11-13..15.
+///
+/// 48 holds 8 workspaces without churn. Raising it can no longer raise the
+/// connection total, because [`ceiling`] caps that independently — which is
+/// what makes this safe to raise at all.
+const DEFAULT_MAX_IDENTITIES: usize = 48;
 const DEFAULT_MAX_APP_IDENTITIES: usize = 16;
 const DEFAULT_MAX_PREVIEW_IDENTITIES: usize = 8;
 /// Identities `ctx.airhouse` builds (`agentic_wiring::app_airhouse`).
@@ -182,7 +222,7 @@ where
     // Holding the per-slot lock across a build only blocks checkouts that land
     // on the SAME slot; other slots / identities proceed, so concurrent demand
     // grows the pool toward N distinct connections.
-    let (picked, occupied) = try_pick(&pool);
+    let (picked, occupied) = try_pick(&pool, now);
     let (i, mut slot) = match picked {
         Some(picked) => picked,
         None => {
@@ -191,15 +231,24 @@ where
         }
     };
     if let Some(conn) = slot.as_ref() {
-        if conn.is_live() {
-            tracing::debug!(pool_key = %key, slot = i, "airhouse pool: reuse");
-            let conn = conn.clone() as Arc<dyn DatabaseConnector>;
-            return Ok(ExclusiveLease {
-                conn,
-                slot: Some(slot),
-            });
+        match reuse_block(conn, now) {
+            None => {
+                tracing::debug!(pool_key = %key, slot = i, "airhouse pool: reuse");
+                let conn = conn.clone() as Arc<dyn DatabaseConnector>;
+                return Ok(ExclusiveLease {
+                    conn,
+                    slot: Some(slot),
+                });
+            }
+            Some(reason) => {
+                tracing::info!(
+                    pool_key = %key,
+                    slot = i,
+                    reason,
+                    "airhouse pool: slot retired, rebuilding"
+                );
+            }
         }
-        tracing::info!(pool_key = %key, slot = i, "airhouse pool: slot dead, rebuilding");
     }
     let conn = build().await?;
     *slot = Some(Arc::clone(&conn));
@@ -224,7 +273,7 @@ where
 /// then shares one. Also returns how many slots were occupied (open, or held
 /// by another checkout). No `.await` while the guards are held, so this can't
 /// deadlock against another scan.
-fn try_pick(pool: &KeyPool) -> (Option<(usize, SlotGuard)>, usize) {
+fn try_pick(pool: &KeyPool, now: u64) -> (Option<(usize, SlotGuard)>, usize) {
     let mut guards: Vec<Option<SlotGuard>> = pool
         .slots
         .iter()
@@ -232,7 +281,7 @@ fn try_pick(pool: &KeyPool) -> (Option<(usize, SlotGuard)>, usize) {
         .collect();
     let states: Vec<Option<SlotState>> = guards
         .iter()
-        .map(|g| g.as_ref().map(|g| slot_state(g)))
+        .map(|g| g.as_ref().map(|g| slot_state(g, now)))
         .collect();
     let occupied = states
         .iter()
@@ -242,10 +291,29 @@ fn try_pick(pool: &KeyPool) -> (Option<(usize, SlotGuard)>, usize) {
     (picked, occupied)
 }
 
-fn slot_state(slot: &Option<Arc<AirhouseConnector>>) -> SlotState {
+/// Why a slot's connection must not be handed out, or `None` to reuse it.
+///
+/// Two separate reasons, and **both are needed** — see [`expiry`] for why
+/// keeping only the liveness check is the tempting mistake. The credential
+/// check is what stops a rebuild from landing on a request's critical path;
+/// the liveness check still catches everything else that kills a connection
+/// (a DP restart, a network drop).
+fn reuse_block(conn: &AirhouseConnector, now: u64) -> Option<&'static str> {
+    if !conn.is_live() {
+        return Some("connection closed");
+    }
+    if expiry::credential_spent(conn.credential_deadline(), now, expiry::RETIRE_BUFFER_SECS) {
+        return Some("credential near expiry");
+    }
+    None
+}
+
+fn slot_state(slot: &Option<Arc<AirhouseConnector>>, now: u64) -> SlotState {
     match slot {
         None => SlotState::Vacant,
-        Some(conn) if !conn.is_live() => SlotState::Vacant,
+        // Dead, or holding a credential airhouse is about to stop accepting:
+        // either way the next checkout rebuilds, so the slot is free to take.
+        Some(conn) if reuse_block(conn, now).is_some() => SlotState::Vacant,
         // The slot's own reference is the only one: no caller still holds the
         // connector (a caller's `Arc<dyn DatabaseConnector>` shares this count).
         Some(conn) if Arc::strong_count(conn) == 1 => SlotState::Idle,
@@ -428,7 +496,11 @@ fn env_usize(var: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+pub mod ceiling;
+mod expiry;
 mod pick;
+
+mod backpressure;
 
 #[cfg(test)]
 mod tests;

@@ -67,6 +67,7 @@ async fn connect(
     role: airhouse::UserRole,
 ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
     let (slug, schema) = (app_slug.to_string(), schema.to_string());
+    let pool_key = key.clone();
     super::airhouse_pool::get_or_build(key, || async move {
         let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
             OxyError::ConfigurationError(
@@ -99,20 +100,30 @@ async fn connect(
                  its writes are confined by the host's statement check alone"
             );
         }
-        let conn = airhouse::AirhouseConnector::new(
-            &endpoint.host,
-            endpoint.port,
-            &cred.username,
-            &cred.password,
-            &cred.tenant,
-        )
-        .await
-        .map_err(|e| {
-            OxyError::DBError(format!(
-                "ctx.airhouse could not connect to {}:{}: {e}",
-                endpoint.host, endpoint.port
-            ))
-        })?;
+        // Against the process-wide airhouse connection budget, retrying while
+        // the data plane answers `53300` — `ctx.airhouse` draws on the same 32
+        // slots per pod as the analytics path, so it has to share the ceiling
+        // rather than have one of its own.
+        let conn = super::airhouse_pool::ceiling::connect_within_budget(&pool_key, || async {
+            airhouse::AirhouseConnector::new(
+                &endpoint.host,
+                endpoint.port,
+                &cred.username,
+                &cred.password,
+                &cred.tenant,
+            )
+            .await
+            .map_err(|e| {
+                OxyError::DBError(format!(
+                    "ctx.airhouse could not connect to {}:{}: {e}",
+                    endpoint.host, endpoint.port
+                ))
+            })
+        })
+        .await?;
+        // Retire the connection before airhouse stops accepting this app
+        // credential, rather than discovering the close mid-request.
+        let conn = conn.credential_expires_at(cred.expires_at.timestamp().max(0) as u64);
         Ok(Arc::new(conn))
     })
     .await
