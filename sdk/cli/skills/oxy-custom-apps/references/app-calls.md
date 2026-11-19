@@ -34,6 +34,7 @@ const { eventId } = await ctx.apps.send("billing", "charge", { orderId }, { key:
 
 - `call<T>(app, fn, body?, { timeoutMs? })` returns the callee's JSON answer. `send(app, fn, body?, { delaySeconds?, key? })` returns `{ eventId }` at once; the same `key` is the same send.
 - Body and answer are JSON, under the existing request body limit.
+- A `send` made on a token that expires is refused (`AppCallRefused`) when `delaySeconds` would run to or past that expiry, since the delivery would find the credential gone and kill the send. The message names the delay and says the credential this run is on expires first: shorten the delay. A login session, a token that never expires and a run as the system are not limited this way.
 - Using `ctx.apps` with no top-level `calls`, or on a pair `calls` does not list, is refused (`AppsCapabilityMissing`, `AppCallRefused`). `oxyc validate` and `oxyc publish` lint literal calls for both.
 
 ## Same environment, never production by fallback

@@ -156,7 +156,7 @@ mod vouch;
 use vouch::Vouch;
 // A claimed row read as the event to store, and why it is refused.
 mod read;
-use read::{EventSchemas, read_row};
+use read::{EventSchemas, UnsignedInvokers, read_row};
 // One pass over every store of an environment's outbox, and its mark.
 mod pass;
 use pass::drained;
@@ -372,6 +372,7 @@ pub(crate) async fn relay_rows(
     // environments, each with its own live build.
     let mut schemas: HashMap<(Uuid, String, String), EventSchemas> = HashMap::new();
     let mut vouch = Vouch::new(db, target);
+    let mut unsigned = UnsignedInvokers::default();
     let mut events = Vec::with_capacity(rows.len());
     // The row each event came from, by index.
     let mut sources = Vec::with_capacity(rows.len());
@@ -402,8 +403,8 @@ pub(crate) async fn relay_rows(
             schemas.insert(key.clone(), found);
         }
         let mut event = match &send {
-            Some(_) => read_row(&app, row, vouched, &EventSchemas::directed()),
-            None => read_row(&app, row, vouched, &schemas[&key]),
+            Some(_) => read_row(&app, row, vouched, &EventSchemas::directed(), &mut unsigned),
+            None => read_row(&app, row, vouched, &schemas[&key], &mut unsigned),
         };
         if let (Some(target), None) = (&send, &event.relay_error) {
             match super::directed::resolve(db, org_id, &event.envelope.environment, &app, target)
@@ -419,6 +420,7 @@ pub(crate) async fn relay_rows(
     let (mut stats, points_here) = store_and_fan_out(db, &events, None).await.map_err(failed)?;
     stats.rejected += dropped;
     log_quarantined(org_id, target, &events);
+    unsigned.log(org_id);
     discard.extend(unread_bodies(&sources, &events, &points_here));
     Ok(Relayed { stats, discard })
 }

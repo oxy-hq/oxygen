@@ -85,18 +85,44 @@ pub async fn may_open_environment(
 }
 
 /// [`may_open_environment`], telling a refusal from a failed read: `Err` when
-/// the platform grant, the environment's row or the caller's facts (`facts`,
-/// loaded by the caller, `None` when the load failed) could not be read. The
-/// same decision otherwise, uncached: `Action::AppNonProduction` over the
-/// staff gate, with a sandbox agent token's environment facet. For a queued
-/// send's delivery, which must retry a blip rather than kill the send
+/// the platform grant, the environment's row or the caller's facts could not
+/// be read. The same decision otherwise: `Action::AppNonProduction` over the
+/// staff gate, with a sandbox agent token's environment facet.
+///
+/// It shares [`may_open_non_production`]'s 60 s cache on the same terms (a
+/// caller whose reach does not narrow, and who is no sandbox agent), but
+/// trusts only a cached **allow**: that door caches whatever it decided,
+/// including the refusal a failed read becomes there, so a cached refusal may
+/// be a blip and is decided again here, where a failed read is an `Err`. A
+/// verdict reached here is written back; a failed read is not. For the
+/// AppCall door (`ctx.apps.call`, a send's check) and a queued send's
+/// delivery, which retries a blip rather than kill the send
 /// (`app_function_executor::sender`).
 pub async fn may_open_environment_checked(
     db: &sea_orm::DatabaseConnection,
     caller: &oxy_server_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
-    facts: Option<&oxy_authz::PrincipalFacts>,
+) -> Result<bool, DbErr> {
+    let cacheable =
+        !caller.is_sandbox_agent() && !caller.reach().is_some_and(oxy_authz::TokenReach::narrows);
+    let key = (caller.user_id, app.id);
+    if cacheable && non_production_cache().get(&key) == Some(true) {
+        return Ok(true);
+    }
+    let allowed = decide_checked(db, caller, app, environment).await?;
+    if cacheable {
+        non_production_cache().insert(key, allowed);
+    }
+    Ok(allowed)
+}
+
+/// [`may_open_environment_checked`]'s decision, uncached.
+async fn decide_checked(
+    db: &sea_orm::DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    environment: &AppEnvironment,
 ) -> Result<bool, DbErr> {
     let facet = if caller.is_sandbox_agent() {
         Some(environment_facet(db, app, environment).await?)
@@ -110,11 +136,12 @@ pub async fn may_open_environment_checked(
         app.org_id,
     )
     .await?;
-    let facts =
-        facts.ok_or_else(|| DbErr::Custom("the caller's facts could not be read".into()))?;
+    let facts = oxy_server_authz::loader::load_principal_facts(db, caller)
+        .await
+        .ok_or_else(|| DbErr::Custom("the caller's facts could not be read".into()))?;
     Ok(oxy_authz::enforce(
         "custom_app_non_production",
-        facts,
+        &facts,
         oxy_authz::Action::AppNonProduction,
         &resource_in(app, facet),
         existing_allow,
@@ -209,4 +236,110 @@ async fn decide_in(
         existing_allow,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A connection that is never reached: every statement fails, as when the
+    /// database is unreachable.
+    async fn unreachable_db() -> sea_orm::DatabaseConnection {
+        let mut options = sea_orm::ConnectOptions::new("postgres://probe:probe@127.0.0.1:1/probe");
+        options
+            .connect_lazy(true)
+            .acquire_timeout(std::time::Duration::from_millis(500));
+        sea_orm::Database::connect(options)
+            .await
+            .expect("a lazy pool")
+    }
+
+    fn app(id: Uuid) -> apps::Model {
+        let now = chrono::Utc::now().fixed_offset();
+        apps::Model {
+            visibility: "org".to_string(),
+            id,
+            slug: "x".to_string(),
+            name: "X".to_string(),
+            org_id: Uuid::from_u128(0x0A),
+            project_id: Uuid::from_u128(0x0B),
+            branch: "main".to_string(),
+            source_repo: String::new(),
+            status: "created".to_string(),
+            source_type: "s3".to_string(),
+            source_config: serde_json::json!({}),
+            bootstrap_pr_url: None,
+            last_synced_at: None,
+            manifest_override: None,
+            published_at: None,
+            repo_path: None,
+            last_promoted_by: None,
+            last_promoted_at: None,
+            require_second_person_to_promote: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn caller(id: Uuid) -> oxy_server_authz::Caller {
+        oxy_server_authz::Caller::from_user(&oxy_auth::types::AuthenticatedUser {
+            id,
+            email: Some("ada@example.com".into()),
+            name: "Ada".into(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        })
+    }
+
+    /// The AppCall door outside production answers from the route door's 60 s
+    /// verdict cache before it reads anything, so a staging page whose function
+    /// calls on loads no facts on a hit; with no verdict cached, a read that
+    /// fails is an `Err`, never a refusal, and leaves nothing in the cache.
+    #[tokio::test]
+    async fn the_checked_door_answers_from_the_shared_cache_before_reading() {
+        let db = unreachable_db().await;
+        let (user, app) = (Uuid::new_v4(), app(Uuid::new_v4()));
+        let caller = caller(user);
+        let staging = AppEnvironment::Staging;
+
+        assert!(
+            may_open_environment_checked(&db, &caller, &app, &staging)
+                .await
+                .is_err(),
+            "no verdict cached: the read is tried and its failure is an error"
+        );
+        assert_eq!(
+            non_production_cache().get(&(user, app.id)),
+            None,
+            "a failed read is never cached"
+        );
+
+        non_production_cache().insert((user, app.id), true);
+        assert_eq!(
+            may_open_environment_checked(&db, &caller, &app, &staging)
+                .await
+                .expect("answered from the cache, without a read"),
+            true
+        );
+    }
+
+    /// A refusal in the shared cache may be the route door's reading of a
+    /// failed read, so the checked door decides again rather than trust it:
+    /// a blip stays an `Err` (a send's delivery retries it), never the
+    /// refusal that would kill the send for good.
+    #[tokio::test]
+    async fn the_checked_door_decides_again_over_a_cached_refusal() {
+        let db = unreachable_db().await;
+        let (user, app) = (Uuid::new_v4(), app(Uuid::new_v4()));
+        let caller = caller(user);
+
+        non_production_cache().insert((user, app.id), false);
+        assert!(
+            may_open_environment_checked(&db, &caller, &app, &AppEnvironment::Staging)
+                .await
+                .is_err(),
+            "a cached refusal is decided again, and the failed read is an error"
+        );
+    }
 }

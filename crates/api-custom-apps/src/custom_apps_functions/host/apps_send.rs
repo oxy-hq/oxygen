@@ -48,10 +48,16 @@ impl ProjectFunctionHost {
         payload: &Value,
     ) -> Result<Value, String> {
         let checked = self.check_send(&target, payload).await?;
+        let invoker = send_invoker(self.person.as_ref(), self.chain().actor.as_deref());
+        delay_within_credential(
+            invoker.as_ref(),
+            self.person.as_ref(),
+            checked.delay_seconds,
+            chrono::Utc::now(),
+        )?;
         let decided = self.policy.decide(host_op);
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
-        let invoker = send_invoker(self.person.as_ref(), self.chain().actor.as_deref());
         let (id, params) = self.publish_params_with_invoker(&checked, &conn.role, invoker);
         self.publish_alone(&outbox, &conn, PUBLISH_WITH_INVOKER_SQL, &params)
             .await?;
@@ -112,6 +118,33 @@ fn send_invoker(person: Option<&Person>, chain_actor: Option<&str>) -> Option<In
         return Some(Invoker::Session);
     }
     person.caller.stored_token_id().map(Invoker::Token)
+}
+
+/// Refuse a send whose delay outlives the credential it is sent under. The
+/// delivery re-admits a token invoker (`app_function_executor::sender`), and a
+/// token that has expired by then is refused for good: the send would be
+/// accepted now and killed later with no word to its author. A login session,
+/// a token that never expires and a send as the system carry no expiry here.
+fn delay_within_credential(
+    invoker: Option<&Invoker>,
+    person: Option<&Person>,
+    delay_seconds: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let (Some(Invoker::Token(_)), Some(person)) = (invoker, person) else {
+        return Ok(());
+    };
+    let Some(expires_at) = person.caller.token_expires_at() else {
+        return Ok(());
+    };
+    if now + chrono::Duration::seconds(delay_seconds) < expires_at {
+        return Ok(());
+    }
+    Err(format!(
+        "AppCallRefused: `delaySeconds` of {delay_seconds} runs past the credential this run is \
+         on, which expires at {}, before the send would be delivered: shorten the delay",
+        expires_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    ))
 }
 
 #[cfg(test)]
@@ -220,5 +253,55 @@ mod tests {
         let other = Uuid::from_u128(2).to_string();
         assert_eq!(send_invoker(Some(&person(None)), Some(&other)), None);
         assert_eq!(send_invoker(Some(&person(None)), None), None);
+    }
+
+    /// A delayed send from a short-lived token is refused when the delay
+    /// reaches the token's expiry, and allowed when it falls short of it.
+    #[test]
+    fn a_delay_that_outlives_the_token_is_refused() {
+        let now = chrono::Utc::now();
+        let mut credential = credential(StoredKind::SandboxAgent);
+        credential.expires_at = Some(now + chrono::Duration::seconds(600));
+        let person = person(Some(credential));
+        let invoker = Some(Invoker::Token(TOKEN));
+        let check = |delay| delay_within_credential(invoker.as_ref(), Some(&person), delay, now);
+        assert_eq!(check(0), Ok(()));
+        assert_eq!(check(599), Ok(()));
+        for delay in [600, 3600] {
+            let refused = check(delay).unwrap_err();
+            assert!(refused.starts_with("AppCallRefused:"), "{refused}");
+            assert!(
+                refused.contains(&format!("`delaySeconds` of {delay}")),
+                "{refused}"
+            );
+            assert!(refused.contains("expires at"), "{refused}");
+        }
+    }
+
+    /// A login session, a token that never expires and a send as the system
+    /// have no expiry to outlive, whatever the delay.
+    #[test]
+    fn a_delay_is_free_for_a_session_a_token_without_expiry_and_the_system() {
+        let now = chrono::Utc::now();
+        let day = 86_400;
+        let session = person(None);
+        assert_eq!(
+            delay_within_credential(Some(&Invoker::Session), Some(&session), day, now),
+            Ok(())
+        );
+        let forever = person(Some(credential(StoredKind::Personal)));
+        assert_eq!(
+            delay_within_credential(Some(&Invoker::Token(TOKEN)), Some(&forever), day, now),
+            Ok(())
+        );
+        assert_eq!(delay_within_credential(None, None, day, now), Ok(()));
+        // A credential that expires, but a run with no invoker (the system).
+        let mut short = credential(StoredKind::Personal);
+        short.expires_at = Some(now + chrono::Duration::seconds(1));
+        let short = person(Some(short));
+        assert_eq!(
+            delay_within_credential(None, Some(&short), day, now),
+            Ok(())
+        );
     }
 }

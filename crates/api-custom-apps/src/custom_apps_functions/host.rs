@@ -33,6 +33,7 @@ mod airhouse_ops;
 mod airhouse_overlay;
 mod airhouse_overlay_copy;
 pub mod app_access_op;
+pub(crate) mod app_call_access;
 pub(crate) mod apps_op;
 mod apps_send;
 mod config_source;

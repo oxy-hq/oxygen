@@ -78,9 +78,10 @@ pub(super) fn read_row(
     row: &OutboxRow,
     vouched: Vouched,
     schemas: &EventSchemas,
+    unsigned: &mut UnsignedInvokers,
 ) -> RelayedEvent {
     let relay_error = refusal(app, row, &vouched, schemas);
-    let invoker = invoker(app, row, schemas, relay_error.as_deref());
+    let invoker = invoker(app, row, schemas, relay_error.as_deref(), unsigned);
     let (environment, _) = vouched;
     let event_type = qualified_type(&app.slug, &row.name);
     let id = event_id(app.org_id, &environment, &event_type, &row.key);
@@ -128,6 +129,7 @@ fn invoker(
     row: &OutboxRow,
     schemas: &EventSchemas,
     relay_error: Option<&str>,
+    unsigned: &mut UnsignedInvokers,
 ) -> Option<Invoker> {
     if !schemas.directed || relay_error.is_some() {
         return None;
@@ -136,13 +138,41 @@ fn invoker(
     let signed = Provenance::of_row(row, &event_type);
     let invoker = provenance::verified_invoker(app.org_id, &signed, row);
     if invoker.is_none() && (row.invoker.is_some() || row.invoker_provenance.is_some()) {
-        tracing::warn!(
-            org_id = %app.org_id,
-            event_id = %row.id,
-            "app events: a send's invoker is not the host's; it is delivered as the system"
-        );
+        unsigned.note(row.id);
     }
     invoker
+}
+
+/// The sends of one relay pass whose invoker columns or MAC were set without a
+/// valid host MAC. App SQL writes the outbox through the definer's settings
+/// and controls how many such rows it makes, so the relay counts them and
+/// logs once per pass ([`UnsignedInvokers::log`], as `log_quarantined` does
+/// for provenance), never once per row: visible, and not a warning per publish.
+#[derive(Debug, Default)]
+pub(super) struct UnsignedInvokers {
+    count: usize,
+    /// The first such row's event id, for someone to look into.
+    example: Option<Uuid>,
+}
+
+impl UnsignedInvokers {
+    fn note(&mut self, event_id: Uuid) {
+        self.count += 1;
+        self.example.get_or_insert(event_id);
+    }
+
+    /// One warning for the pass when any row was noted: the count and one
+    /// example event id.
+    pub(super) fn log(&self, org_id: Uuid) {
+        if let Some(example) = self.example {
+            tracing::warn!(
+                %org_id,
+                count = self.count,
+                example_event_id = %example,
+                "app events: sends whose invoker is not the host's were delivered as the system"
+            );
+        }
+    }
 }
 
 /// Why `row` of `app` is stored but delivered to nobody, in this order: its
@@ -204,4 +234,23 @@ fn unverified(row: &OutboxRow) -> String {
         }
     };
     format!("{UNVERIFIED_PROVENANCE}: {why}; it is delivered to nobody")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UnsignedInvokers;
+    use uuid::Uuid;
+
+    /// Many rows in a pass are one count and the first row as the example,
+    /// not one record per row; a pass with none notes nothing.
+    #[test]
+    fn unsigned_invokers_are_counted_with_the_first_row_as_the_example() {
+        let mut unsigned = UnsignedInvokers::default();
+        assert_eq!((unsigned.count, unsigned.example), (0, None));
+        for n in 1..=5u128 {
+            unsigned.note(Uuid::from_u128(n));
+        }
+        assert_eq!(unsigned.count, 5);
+        assert_eq!(unsigned.example, Some(Uuid::from_u128(1)));
+    }
 }

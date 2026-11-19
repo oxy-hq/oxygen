@@ -116,15 +116,23 @@ pub async fn user_can_access_app(
     // owner-exclusive destructive operations.
     // `develop_apps` over THIS app's org — not a bare `is_staff()`. Every platform role
     // reports staff, and a grant bounded to one org must not open another's app.
-    let allowed = if oxy_server_authz::globals::platform_reaches(
+    //
+    // Read through the checked form: a platform grant read that failed is never
+    // taken for "not staff". It decides nothing the customer path settles on its
+    // own, so a member is still admitted; only when that path refuses too does
+    // the failure surface, as an `Err` for the caller to retry or refuse.
+    let staff = oxy_server_authz::globals::platform_reaches_checked(
         db,
         caller,
         oxy_authz::Cap::DevelopApps,
         app.org_id,
     )
-    .await
-        && !is_oxy_locked_down(db, app.project_id).await?
-    {
+    .await;
+    let staff_allowed = match staff {
+        Ok(true) => !is_oxy_locked_down(db, app.project_id).await?,
+        Ok(false) | Err(_) => false,
+    };
+    let allowed = if staff_allowed {
         true
     } else if app.published_at.is_some() {
         // Customer path: only if published — and, for a RESTRICTED app
@@ -166,6 +174,11 @@ pub async fn user_can_access_app(
     } else {
         false
     };
+    // Refused without knowing whether the caller is staff: that is no verdict,
+    // so it is neither answered nor cached.
+    if !allowed && let Err(e) = staff {
+        return Err(e);
+    }
 
     if cacheable {
         set_cached_access(user_id, app.id, allowed);

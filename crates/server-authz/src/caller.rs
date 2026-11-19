@@ -36,6 +36,8 @@ use crate::grant_memo::GrantMemo;
 struct CallerToken {
     id: Uuid,
     reach: TokenReach,
+    /// When the credential ends; `None` for never.
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// The principal behind a request, as its credential presents them.
@@ -85,6 +87,7 @@ impl Caller {
             c.reach().map(|reach| CallerToken {
                 id: c.token_id,
                 reach,
+                expires_at: c.expires_at,
             })
         });
         let account = credential
@@ -328,6 +331,16 @@ impl Caller {
             return None;
         }
         self.token.as_ref().map(|t| t.id)
+    }
+
+    /// When the token this caller arrived with ends: `None` for a token that
+    /// never expires, and for a login session or a configured service, which
+    /// have none to report.
+    pub fn token_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        if self.service.is_some() {
+            return None;
+        }
+        self.token.as_ref().and_then(|t| t.expires_at)
     }
 
     /// The assume-role sessions this credential may use: `Some(id)` = only the

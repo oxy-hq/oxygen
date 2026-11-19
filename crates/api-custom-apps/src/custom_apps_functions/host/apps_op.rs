@@ -51,7 +51,6 @@ use super::super::host_error::HostError;
 use super::super::runtime::{CtxCaller, EventCause};
 use super::*;
 use entity::apps;
-use oxy_app_core::custom_app_environment::AppEnvironment;
 
 /// The whole of what a function without `calls` is told.
 pub(in crate::custom_apps_functions) const CAPABILITY_MISSING: &str = "AppsCapabilityMissing: this function has not declared the apps it calls (add \"calls\": { \"<app>\": [\"<function>\"] } to oxy-app.json)";
@@ -164,80 +163,6 @@ impl ChainScope {
 /// The depth something made by a run at `position` has: 0 outside a chain.
 pub(super) fn next_depth(position: Option<i32>) -> i32 {
     position.map_or(0, |p| p.saturating_add(1))
-}
-
-/// May `caller` open `app` in `environment`? What a run for a person asks
-/// before it reaches another app as them: a `ctx.apps.call` at the target's
-/// door, and a send's delivery before it runs as its sender
-/// (`app_function_executor::sender`). Production through `Action::AppCall`
-/// (the ring of `AppAccess`, with the shipped `user_can_access_app` as the
-/// existing check), a non-production environment through the route door's own
-/// `may_open_environment`. `site` names the asker in the decision's log.
-pub(crate) async fn may_call_as(
-    db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
-    app: &apps::Model,
-    environment: &AppEnvironment,
-    site: &'static str,
-) -> bool {
-    if !matches!(environment, AppEnvironment::Production) {
-        return oxy_custom_apps::non_production::may_open_environment(db, caller, app, environment)
-            .await;
-    }
-    let existing = oxy_custom_apps::auth::user_can_access_app(db, caller, app)
-        .await
-        .unwrap_or(false);
-    oxy_server_authz::enforce_for(
-        db,
-        caller,
-        site,
-        oxy_authz::Action::AppCall,
-        crate::workspace_custom_apps::app_access_resource(app).published_from(app.project_id),
-        existing,
-    )
-    .await
-}
-
-/// [`may_call_as`], telling a refusal from a failed read: `Err` when the
-/// caller's facts, their platform grant or the app's access rows could not be
-/// read. The same decision otherwise: `Action::AppCall` over the shipped
-/// `user_can_access_app` in production, the non-production door's own check
-/// elsewhere. For a send's delivery, which retries a blip and kills only a
-/// real refusal (`app_function_executor::sender`); a call's caller sees its
-/// error and keeps [`may_call_as`].
-pub(crate) async fn may_call_as_checked(
-    db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
-    app: &apps::Model,
-    environment: &AppEnvironment,
-    site: &'static str,
-) -> Result<bool, sea_orm::DbErr> {
-    let facts = oxy_server_authz::loader::load_principal_facts(db, caller).await;
-    if !matches!(environment, AppEnvironment::Production) {
-        return oxy_custom_apps::non_production::may_open_environment_checked(
-            db,
-            caller,
-            app,
-            environment,
-            facts.as_ref(),
-        )
-        .await;
-    }
-    let facts = facts
-        .ok_or_else(|| sea_orm::DbErr::Custom("the caller's facts could not be read".into()))?;
-    // `user_can_access_app` reads the platform grant through `platform_reaches`,
-    // which takes a failed read for "not staff". Read it fallibly first: a
-    // failure is an error here, and the read it then makes is the one just
-    // cached (or, for a sandbox agent token, memoised on the caller).
-    oxy_server_authz::globals::platform_grant_checked(db, caller).await?;
-    let existing = oxy_custom_apps::auth::user_can_access_app(db, caller, app).await?;
-    Ok(oxy_server_authz::enforce(
-        site,
-        &facts,
-        oxy_authz::Action::AppCall,
-        &crate::workspace_custom_apps::app_access_resource(app).published_from(app.project_id),
-        existing,
-    ))
 }
 
 /// Where this run came from, for what it publishes or calls.
@@ -361,7 +286,7 @@ impl ProjectFunctionHost {
     }
 
     /// May the person this run is for open `app` in this run's environment?
-    /// The one question a call asks, at the target's door ([`may_call_as`]).
+    /// The one question a call asks, at the target's door ([`app_call_access::may_call_as`](super::app_call_access::may_call_as)).
     /// A run with no person (a schedule, an event, a send delivered as the
     /// system) is the system and is not asked; it carries no more than a
     /// background run has.
@@ -370,7 +295,7 @@ impl ProjectFunctionHost {
             return Ok(());
         };
         let environment = self.policy.environment();
-        if may_call_as(
+        if super::app_call_access::may_call_as(
             &self.db,
             &person.caller,
             app,

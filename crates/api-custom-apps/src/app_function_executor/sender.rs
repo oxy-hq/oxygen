@@ -25,7 +25,7 @@
 //! 3. **The same door as a call.** The person must be allowed to open the
 //!    receiving app in the delivery's environment: `Action::AppCall` through
 //!    `oxy-authz` in production, `may_open_environment` elsewhere
-//!    (`apps_op::may_call_as_checked`), the check `ctx.apps.call` makes, which
+//!    (`app_call_access::may_call_as_checked`), the check `ctx.apps.call` makes, which
 //!    tells a refusal from a read that failed: only a refusal kills.
 //!
 //! A refusal kills the delivery with a reason starting [`SENDER_REFUSED`]: it
@@ -42,7 +42,8 @@ use uuid::Uuid;
 use super::JobArgs;
 use crate::app_events::deliveries::SENDER_REFUSED;
 use crate::app_events::provenance::Invoker;
-use crate::custom_apps_functions::host::apps_op::{Person, may_call_as_checked};
+use crate::custom_apps_functions::host::app_call_access::may_call_as_checked;
+use crate::custom_apps_functions::host::apps_op::Person;
 
 /// Why a send's delivery does not run as its sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,20 +187,9 @@ async fn token_caller(
     user: &oxy_auth::types::AuthenticatedUser,
     token_id: Uuid,
 ) -> Result<Caller, NotRun> {
-    let resolved = match oxy_auth::token::store::resolve_stored(db, token_id).await {
-        Ok(resolved) => resolved,
-        Err(OxyError::DBError(e)) => {
-            return Err(NotRun::Retry(format!(
-                "could not read the sender's credential: {e}"
-            )));
-        }
-        Err(_) => {
-            return Err(refused(
-                "the credential it was sent with no longer admits (revoked, expired, narrowed \
-                 away, or its owner deactivated)",
-            ));
-        }
-    };
+    let resolved = oxy_auth::token::store::resolve_stored(db, token_id)
+        .await
+        .map_err(readmit_failure)?;
     if resolved.identity.user_id != Some(user.id) {
         return Err(refused(
             "the credential it was sent with is not the sender's",
@@ -209,10 +199,27 @@ async fn token_caller(
     Ok(Caller::from_user(&user))
 }
 
+/// What a failed re-admission means for the delivery: a read that failed
+/// (`DBError`, which `resolve_stored` gives every failed lookup, the sender's
+/// own row included) is retried, and anything else is the credential no
+/// longer admitting: killed.
+fn readmit_failure(err: OxyError) -> NotRun {
+    match err {
+        OxyError::DBError(e) => {
+            NotRun::Retry(format!("could not read the sender's credential: {e}"))
+        }
+        _ => refused(
+            "the credential it was sent with no longer admits (revoked, expired, narrowed \
+             away, or its owner deactivated)",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NotRun, access_verdict, session_lapsed};
+    use super::{NotRun, access_verdict, readmit_failure, session_lapsed};
     use oxy_app_core::custom_app_environment::AppEnvironment;
+    use oxy_shared::errors::OxyError;
 
     /// F1: a failed read is retried, never taken for a refusal; only a real
     /// refusal kills the delivery.
@@ -232,6 +239,27 @@ mod tests {
             ),
             Err(NotRun::Retry(_))
         ));
+    }
+
+    /// A read that failed while re-admitting the credential (the token's
+    /// rows, its owner's) is retried; a credential that no longer admits is
+    /// killed. `key_owner` giving a failed `users` read as `DBError` is
+    /// pinned in `oxy_auth::api_key_infra`.
+    #[test]
+    fn a_failed_read_re_admitting_a_token_is_retried_and_a_refusal_kills() {
+        assert!(matches!(
+            readmit_failure(OxyError::DBError(
+                "api key owner lookup: pool timed out".into()
+            )),
+            NotRun::Retry(_)
+        ));
+        for refusal in [
+            OxyError::AuthenticationError("Invalid API key".into()),
+            OxyError::AuthenticationError("User not found".into()),
+            OxyError::AuthenticationError("This account is no longer active".into()),
+        ] {
+            assert!(matches!(readmit_failure(refusal), NotRun::Refused(_)));
+        }
     }
 
     use chrono::{Duration, TimeZone, Utc};

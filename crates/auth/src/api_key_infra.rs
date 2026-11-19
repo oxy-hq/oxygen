@@ -49,8 +49,10 @@ async fn key_owner<C: ConnectionTrait>(db: &C, user_id: Uuid) -> Result<users::M
         .one(db)
         .await
         .map_err(|e| {
+            // A read that failed is not a refusal: `DBError`, so a caller can
+            // retry it (a queued send's delivery) and a request answers 5xx.
             tracing::error!("Failed to fetch user for API key: {}", e);
-            OxyError::AuthenticationError("Failed to authenticate user".to_string())
+            OxyError::DBError(format!("api key owner lookup: {e}"))
         })?
         .ok_or_else(|| {
             tracing::error!("User not found for validated API key: {}", user_id);
@@ -119,4 +121,57 @@ pub async fn identity_for_service_account<C: ConnectionTrait>(
         email: String::new(),
         name: Some(user.name),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{DatabaseBackend, DbErr, ExecResult, QueryResult, Statement};
+
+    /// A connection whose every statement fails, as a pool timing out does.
+    struct Blip;
+
+    #[async_trait::async_trait]
+    impl ConnectionTrait for Blip {
+        fn get_database_backend(&self) -> DatabaseBackend {
+            DatabaseBackend::Postgres
+        }
+
+        async fn execute_raw(&self, _: Statement) -> Result<ExecResult, DbErr> {
+            Err(DbErr::Custom("pool timed out".into()))
+        }
+
+        async fn execute_unprepared(&self, _: &str) -> Result<ExecResult, DbErr> {
+            Err(DbErr::Custom("pool timed out".into()))
+        }
+
+        async fn query_one_raw(&self, _: Statement) -> Result<Option<QueryResult>, DbErr> {
+            Err(DbErr::Custom("pool timed out".into()))
+        }
+
+        async fn query_all_raw(&self, _: Statement) -> Result<Vec<QueryResult>, DbErr> {
+            Err(DbErr::Custom("pool timed out".into()))
+        }
+    }
+
+    /// A `users` read that fails is a database fault, not an authentication
+    /// refusal: a request answers 5xx rather than 401 (a client drops a good
+    /// credential on a 401) and a queued send's delivery retries rather than
+    /// being killed. "Not found" and "inactive" stay authentication errors.
+    #[tokio::test]
+    async fn a_failed_owner_read_is_a_db_error_not_an_authentication_error() {
+        let id = Uuid::from_u128(1);
+        assert!(matches!(
+            identity_for_key_owner(&Blip, id).await,
+            Err(OxyError::DBError(_))
+        ));
+        assert!(matches!(
+            identity_for_service_account(&Blip, id).await,
+            Err(OxyError::DBError(_))
+        ));
+        assert!(matches!(
+            require_active_owner(&Blip, id).await,
+            Err(OxyError::DBError(_))
+        ));
+    }
 }
