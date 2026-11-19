@@ -92,6 +92,28 @@ const WRITE_STEPS: &[(&str, &str)] = &[
         "airhouse.append",
         r#"ctx.airhouse.append("events", [{ id: 1 }])"#,
     ),
+    // Refused outside production, a read included: the org's kiosks and a
+    // pipeline's landing zone have no copy per environment (`APP_ACCESS_FIX`).
+    (
+        "oxygen.frontline.devices.list",
+        r#"ctx.oxygen.frontline.devices.list()"#,
+    ),
+    (
+        "oxygen.frontline.devices.create",
+        r#"ctx.oxygen.frontline.devices.create({ name: "probe" })"#,
+    ),
+    (
+        "oxygen.frontline.devices.reissueLink",
+        r#"ctx.oxygen.frontline.devices.reissueLink("00000000-0000-4000-8000-000000000001")"#,
+    ),
+    (
+        "oxygen.frontline.devices.revoke",
+        r#"ctx.oxygen.frontline.devices.revoke("00000000-0000-4000-8000-000000000001")"#,
+    ),
+    (
+        "oxygen.sourceUploads.report",
+        r#"ctx.oxygen.sourceUploads.report({ file: "YQ==", fileName: "r.csv", pipeline: "probe", workflowId: "w" })"#,
+    ),
 ];
 
 /// Ops staging holds whose probe is elsewhere, and where: an event publish
@@ -187,6 +209,10 @@ fn probe_manifest() -> serde_json::Value {
         "email": { "send": true },
         "secrets": { "write": true },
         "storage": { "read": true, "write": true },
+        "oxygen": {
+            "frontline": { "devices": "manage" },
+            "sourceUploads": { "pipelines": ["probe"] },
+        },
         "destinations": ["duck"],
         "customerWarehouseWrites": { "duck": "the staging write probe writes it" },
     })

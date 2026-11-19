@@ -155,6 +155,7 @@ impl ServiceToken {
             blocked_orgs: Vec::new(),
             service_account: None,
             expires_at: None,
+            app_access: None,
         }
     }
 }

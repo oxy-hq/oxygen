@@ -51,6 +51,7 @@ fn token(grants: Vec<TokenGrant>) -> TokenReach {
         grants,
         blocked_orgs: Vec::new(),
         sandbox_agent: None,
+        app: None,
     }
 }
 
@@ -237,6 +238,7 @@ fn an_account_holds_no_platform_or_partner_standing_by_construction() {
         grants: Vec::new(),
         blocked_orgs: Vec::new(),
         sandbox_agent: None,
+        app: None,
     };
     for facts in [
         with_every_standing(account(true)),

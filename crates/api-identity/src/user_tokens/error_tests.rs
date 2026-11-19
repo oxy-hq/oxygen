@@ -121,6 +121,12 @@ fn each_refusal_carries_the_contracts_status_and_code() {
             404,
             Some("service_account_not_found"),
         ),
+        (TokenError::AppAccountFixed, 409, Some("app_account")),
+        (
+            TokenError::NotDeclared("frontline_device_manage".into()),
+            400,
+            Some("not_declared"),
+        ),
         (TokenError::Internal("db down".into()), 500, None),
     ];
     for (error, status, code) in cases {

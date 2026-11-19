@@ -35,6 +35,7 @@ fn credential(kind: StoredKind) -> CredentialContext {
         }],
         app_publish: Vec::new(),
         app_sandbox: Vec::new(),
+        app_access: None,
     }
 }
 

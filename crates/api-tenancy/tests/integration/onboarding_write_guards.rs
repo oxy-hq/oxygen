@@ -174,6 +174,7 @@ async fn viewer(fx: &Fx) -> Who {
         }],
         app_publish: Vec::new(),
         app_sandbox: Vec::new(),
+        app_access: None,
     };
     Who {
         user: who.user.with_credential(Some(credential.clone())),

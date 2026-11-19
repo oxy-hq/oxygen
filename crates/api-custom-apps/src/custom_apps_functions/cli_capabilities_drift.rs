@@ -23,9 +23,10 @@ const CLI_CAPABILITIES_TS: &str = include_str!("../../../../sdk/cli/src/publish/
 const HOST_RS: &str = include_str!("host.rs");
 
 /// Fields of `FunctionCapabilities` that are NOT gates: a retention policy, a
-/// byte ceiling, the writer an event publish is written as and the build's
-/// declared events (an app-level block, not a function's capability) shape a
-/// call that is allowed rather than gate a capability. The TypeScript file carries the
+/// byte ceiling, the writer an event publish is written as, the build's
+/// declared events (an app-level block, not a function's capability) and the
+/// pipelines an upload may name (its gate is `source_uploads`) shape a call
+/// that is allowed rather than gate a capability. The TypeScript file carries the
 /// same names in its own doc comment, and another non-gate field has to be
 /// added here on purpose — the test below fails until it is, which is the
 /// point.
@@ -34,6 +35,7 @@ pub(super) const NOT_GATES: &[&str] = &[
     "fetch_max_bytes",
     "events_writer",
     "event_catalog",
+    "source_upload_pipelines",
 ];
 
 /// Strip full-line `//` comments and `/* … */` blocks, trimming what is left.

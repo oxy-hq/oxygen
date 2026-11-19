@@ -288,6 +288,27 @@ fn token_policy_manage_ring_matches_the_shipped_guard() {
     });
 }
 
+/// Kiosk devices (`frontline_devices.rs`): the five routes take
+/// `OrgAdminFor<FrontlineDevices>`, whose shipped half is the same
+/// Owner-or-Admin check `OrgAdmin` applied when they rode its representative
+/// `MemberSetRole`. Naming the action must not move anyone's answer.
+#[test]
+fn frontline_device_manage_ring_matches_the_shipped_guard() {
+    // api-frontline::frontline_devices::{list,create,update,reissue,revoke}
+    assert_matches_oracle(Action::FrontlineDeviceManage, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+    let org_resource = Resource::org(org());
+    for s in scenarios() {
+        assert_eq!(
+            allows(&s.facts, Action::FrontlineDeviceManage, &org_resource),
+            allows(&s.facts, Action::MemberSetRole, &org_resource),
+            "ring drift — scenario {:?}: kiosks and member roles disagree",
+            s.name
+        );
+    }
+}
+
 #[test]
 fn org_admin_strict_ring_matches_the_shipped_guard() {
     // role_guards::OrgAdminStrict — rejects the override.
@@ -390,6 +411,23 @@ fn experiment_apply_write_back_ring_matches_the_workspace_edit_guard() {
         assert!(
             !apply || legacy,
             "scenario {:?}: the model allows a write-back where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
+/// A source upload is decided on its own action for an app's credential; the
+/// route still takes `WorkspaceEditor`. The action sits on the `WorkspaceEdit`
+/// ring, so for every person it must answer as editing the workspace does.
+#[test]
+fn source_upload_report_ring_matches_the_workspace_edit_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let upload = allows(&s.facts, Action::SourceUploadReport, &ws);
+        let edit = allows(&s.facts, Action::WorkspaceEdit, &ws);
+        assert_eq!(
+            upload, edit,
+            "ring drift — scenario {:?}: uploading a report and editing disagree",
             s.name
         );
     }
@@ -976,6 +1014,7 @@ fn app_admin_ring_under_a_token_is_the_shipped_resolution_capped_at_its_ceiling(
             }],
             blocked_orgs: Vec::new(),
             sandbox_agent: None,
+            app: None,
         };
         for s in app_scenarios() {
             let session = s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin;

@@ -232,6 +232,17 @@ pub(crate) async fn mint(
             "a token was planned for another org or role than its account's".into(),
         ));
     }
+    // An app's account acts only through its approved actions, in-process. A
+    // token minted for it would be a stored key with the account's admin
+    // standing: the thing app access exists to remove. Checked here, which every
+    // mint passes through (the settings page's `create` and `oxyc tokens create
+    // --org-service-account`'s approval alike).
+    if oxy_auth::token::app_access::app_of_account(db, account.user_id)
+        .await?
+        .is_some()
+    {
+        return Err(TokenError::AppAccountFixed);
+    }
     let txn = db.begin().await?;
     let new = NewAccountToken {
         name: planned.name,

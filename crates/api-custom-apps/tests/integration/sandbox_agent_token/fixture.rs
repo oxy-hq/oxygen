@@ -71,6 +71,7 @@ pub(crate) fn credential(t: &Tenant, token_id: Uuid, app: &apps::Model) -> Crede
         blocked_orgs: Vec::new(),
         service_account: None,
         expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(8)),
+        app_access: None,
     }
 }
 

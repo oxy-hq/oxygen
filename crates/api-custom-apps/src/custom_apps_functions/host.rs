@@ -32,6 +32,7 @@ use agentic_connector::{SqlDialect, StringLiteral};
 mod airhouse_ops;
 mod airhouse_overlay;
 mod airhouse_overlay_copy;
+pub mod app_access_op;
 pub(in crate::custom_apps_functions) mod apps_op;
 mod apps_send;
 mod config_source;
@@ -299,6 +300,18 @@ pub struct FunctionCapabilities {
     /// fetch rather than fall back — so absence has to mean "the default", not
     /// "nothing".
     pub fetch_max_bytes: Option<u64>,
+    /// Gate for `ctx.oxygen.frontline.devices.*`: the manifest asks for
+    /// `"oxygen": { "frontline": { "devices": "manage" } }`. Necessary, not
+    /// sufficient: an org admin's approval is the host's second gate
+    /// (`host/app_access_op`).
+    pub frontline_devices: bool,
+    /// Gate for `ctx.oxygen.sourceUploads.report`: the `oxygen.sourceUploads`
+    /// ask. The approval is the second gate, as above.
+    pub source_uploads: bool,
+    /// The pipelines, by name, that ask lists. A call naming any other is
+    /// refused as undeclared (`host/app_access_op`), before the approval is
+    /// read.
+    pub source_upload_pipelines: BTreeSet<String>,
 }
 
 impl FunctionCapabilities {
@@ -325,6 +338,8 @@ impl FunctionCapabilities {
             // Decided per database the call names (`check_write_destination`),
             // after the op is admitted; the op itself is open to every function.
             Capability::WarehouseWrite => true,
+            Capability::FrontlineDevices => self.frontline_devices,
+            Capability::SourceUploads => self.source_uploads,
         }
     }
 
@@ -358,6 +373,14 @@ impl FunctionCapabilities {
             Capability::PlatformFacts => HostError::capability_missing(
                 CapabilityArea::Platform,
                 platform_facts::CAPABILITY_MISSING,
+            ),
+            Capability::FrontlineDevices => HostError::capability_missing(
+                CapabilityArea::Oxygen,
+                app_access_op::FRONTLINE_CAPABILITY_MISSING,
+            ),
+            Capability::SourceUploads => HostError::capability_missing(
+                CapabilityArea::Oxygen,
+                app_access_op::SOURCE_UPLOADS_CAPABILITY_MISSING,
             ),
             Capability::StorageRead
             | Capability::StorageWrite
@@ -411,6 +434,8 @@ impl FunctionCapabilities {
             calls: oxy_custom_apps::calls::DeclaredCalls {
                 apps: [("other-app".to_string(), ["ping".to_string()].into())].into(),
             },
+            frontline_devices: true,
+            source_uploads: true,
             ..Default::default()
         }
     }
@@ -1463,6 +1488,18 @@ impl FunctionHost for ProjectFunctionHost {
         platform_facts::cached_reply(&self.db, internal, weeks)
             .await
             .map_err(HostError::from)
+    }
+
+    /// `ctx.oxygen.*` — a platform action an org
+    /// admin approved for the app (`host/app_access_op`). The manifest gate is
+    /// the broker's; the approval, the decision as the app's service account
+    /// and the audit row are this op's.
+    async fn app_action(
+        &self,
+        op: HostOp,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        app_access_op::run(self, op, payload).await
     }
 
     async fn send_email(&self, input: serde_json::Value) -> Result<serde_json::Value, HostError> {

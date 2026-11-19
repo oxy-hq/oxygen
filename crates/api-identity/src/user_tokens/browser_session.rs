@@ -230,6 +230,7 @@ mod tests {
             app_publish: Vec::new(),
             app_sandbox: Vec::new(),
             service_account: None,
+            app_access: None,
         }
     }
 

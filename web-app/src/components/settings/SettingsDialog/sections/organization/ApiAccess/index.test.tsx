@@ -116,6 +116,13 @@ vi.mock("@/hooks/api/appAccess", () => ({
   useOrgAppAccessList: () => loaded([{ id: "app-1", name: "Store Ops" }])
 }));
 // The personal tokens tab has its own tests; here it only has to be the tab a member gets.
+vi.mock("@/hooks/api/oxygenAccess", () => ({
+  useOxygenAccessList: () => ({ data: [], isPending: false, error: null, refetch: vi.fn() }),
+  useOxygenAccess: () => ({ data: undefined, isPending: true, error: null, refetch: vi.fn() }),
+  useApproveOxygenAccess: () => ({ mutate: vi.fn(), isPending: false }),
+  useRevokeOxygenAccess: () => ({ mutate: vi.fn(), isPending: false })
+}));
+
 vi.mock("../../account/PersonalTokens", () => ({
   default: () => <div data-testid='personal-tokens-tab' />
 }));
@@ -257,6 +264,7 @@ describe("who can see it", () => {
     expect(screen.queryByTestId("api-access-tab-service-accounts")).not.toBeInTheDocument();
     expect(screen.queryByTestId("api-access-tab-tokens")).not.toBeInTheDocument();
     expect(screen.queryByTestId("api-access-tab-policy")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("api-tokens-tab-apps")).not.toBeInTheDocument();
     expect(reads.accounts).toBe(0);
   });
 
@@ -265,6 +273,7 @@ describe("who can see it", () => {
     for (const id of [
       "api-tokens-tab-personal",
       "api-access-tab-service-accounts",
+      "api-tokens-tab-apps",
       "api-access-tab-tokens",
       "api-access-tab-policy"
     ]) {
@@ -322,6 +331,15 @@ describe("which token do I need", () => {
     expect(useSettingsDialog.getState().tab).toBe("personal");
   });
 
+  it("sends an app that manages kiosks or uploads reports to Apps, where no token is made", async () => {
+    const user = show();
+    await user.click(row("app-approval").getByRole("button"));
+    expect(useSettingsDialog.getState().tab).toBe("apps");
+    expect(
+      screen.getByText(/No app of this organization asks to act in Oxygen/)
+    ).toBeInTheDocument();
+  });
+
   it("sends a custom app's token to the app's secret, where it can be created in place", async () => {
     const user = show();
     await user.click(row("custom-app").getByRole("button", { name: /Create API token/ }));
@@ -338,6 +356,8 @@ describe("which token do I need", () => {
     expect(row("service-account").queryByRole("button")).not.toBeInTheDocument();
     expect(row("service-account").getByText(/from an organization admin/)).toBeInTheDocument();
     expect(row("custom-app").queryByRole("button")).not.toBeInTheDocument();
+    expect(row("app-approval").queryByRole("button")).not.toBeInTheDocument();
+    expect(row("app-approval").getByText(/from an organization admin/)).toBeInTheDocument();
     expect(row("secret").getByText(/set by an organization admin/)).toBeInTheDocument();
   });
 });

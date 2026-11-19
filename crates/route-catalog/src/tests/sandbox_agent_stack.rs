@@ -106,6 +106,7 @@ fn token_facts() -> PrincipalFacts {
                 staging: false,
             }],
         }),
+        app: None,
     })
 }
 

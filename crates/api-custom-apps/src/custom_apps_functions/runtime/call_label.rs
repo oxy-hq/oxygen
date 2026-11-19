@@ -79,6 +79,7 @@ impl CallLabel {
             | HostCall::OrgPlaces { .. }
             | HostCall::OrgAssignments { .. }
             | HostCall::PlatformFacts { .. }
+            | HostCall::AppAction { .. }
             | HostCall::Tx { .. }
             | HostCall::Oltp { .. }
             | HostCall::Airhouse { .. }

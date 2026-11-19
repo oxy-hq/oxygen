@@ -35,6 +35,12 @@ export interface FunctionGates {
   orgRead: boolean;
   /** `platform.facts` — the manifest half; the deployment's internal orgs are the host's. */
   platformFacts: boolean;
+  /** `oxygen.frontline.devices: "manage"` — the manifest half; an org admin's approval is the host's. */
+  frontlineDevices: boolean;
+  /** `oxygen.sourceUploads.pipelines` lists at least one — the manifest half, as above. */
+  sourceUploads: boolean;
+  /** The valid pipeline names `oxygen.sourceUploads.pipelines` lists, sorted. */
+  sourceUploadPipelines: string[];
   storageRead: boolean;
   storageWrite: boolean;
   oltp: boolean;
@@ -105,6 +111,25 @@ function notifyKinds(spec: Record<string, unknown>): Record<string, boolean> | n
   return out;
 }
 
+/** `spec.oxygen.<a>.<b> === value` — a platform action the function asks for. */
+function asks(spec: Record<string, unknown>, a: string, b: string, value: string): boolean {
+  const oxygen = spec.oxygen;
+  if (!isObject(oxygen)) return false;
+  const block = oxygen[a];
+  return isObject(block) && block[b] === value;
+}
+/** A pipeline name an ask may carry: `valid_pipeline_name` in `platform_access.rs`. */
+export const PIPELINE_NAME = /^[A-Za-z0-9_.-]{1,128}$/;
+
+/** `PlatformActionSpecs::pipelines`: the valid names, once each, sorted. */
+function uploadPipelines(spec: Record<string, unknown>): string[] {
+  const oxygen = spec.oxygen;
+  if (!isObject(oxygen) || !isObject(oxygen.sourceUploads)) return [];
+  const listed = oxygen.sourceUploads.pipelines;
+  if (!Array.isArray(listed)) return [];
+  const names = listed.filter((n): n is string => typeof n === "string" && PIPELINE_NAME.test(n));
+  return [...new Set(names)].sort();
+}
 /** `events` in `host.rs`: `null` without a declared type, the declared names with one. */
 function events(spec: Record<string, unknown>): Set<string> | null {
   if (!isObject(spec.events) || !Array.isArray(spec.events.publish)) return null;
@@ -152,6 +177,9 @@ export function readGates(manifest: ManifestLike, functionName: string): Functio
     notifyKinds: notifyKinds(spec),
     orgRead: flag(spec, "org", "read"),
     platformFacts: flag(spec, "platform", "facts"),
+    frontlineDevices: asks(spec, "frontline", "devices", "manage"),
+    sourceUploads: uploadPipelines(spec).length > 0,
+    sourceUploadPipelines: uploadPipelines(spec),
     storageRead: flag(spec, "storage", "read"),
     storageWrite: flag(spec, "storage", "write"),
     oltp: flag(spec, "oltp", "enabled"),

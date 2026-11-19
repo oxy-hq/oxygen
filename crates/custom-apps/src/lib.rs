@@ -83,6 +83,7 @@ pub mod manifest;
 pub mod non_production;
 pub mod org_directory;
 pub mod planes;
+pub mod platform_access;
 pub mod precompress;
 pub mod publish_authz;
 pub mod reach;

@@ -84,6 +84,7 @@ fn reach() -> TokenReach {
                 staging: false,
             }],
         }),
+        app: None,
     }
 }
 
@@ -257,6 +258,7 @@ fn a_facet_changes_nothing_without_this_token() {
     // decides exactly as naming none.
     let personal = TokenReach {
         sandbox_agent: None,
+        app: None,
         ..reach()
     };
     let member = PrincipalFacts {

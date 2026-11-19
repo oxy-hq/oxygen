@@ -80,6 +80,7 @@ fn token_facts(staging: bool) -> PrincipalFacts {
                 staging,
             }],
         }),
+        app: None,
     })
 }
 

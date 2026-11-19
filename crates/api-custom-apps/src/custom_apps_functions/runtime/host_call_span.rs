@@ -105,6 +105,12 @@ pub(super) fn span_for(call: &HostCall) -> Span {
         HostCall::OrgPlaces { .. } => plain_span!("oxy.org.places"),
         HostCall::OrgAssignments { .. } => plain_span!("oxy.org.assignments"),
         HostCall::PlatformFacts { .. } => plain_span!("oxy.platform.facts"),
+        HostCall::AppAction { op, .. } => tracing::info_span!(target: HOST_CALL_TARGET,
+            "oxy.oxygen",
+            oxy.oxygen.op = %op,
+            otel.status_code = Empty,
+            error.type = Empty,
+        ),
     }
 }
 

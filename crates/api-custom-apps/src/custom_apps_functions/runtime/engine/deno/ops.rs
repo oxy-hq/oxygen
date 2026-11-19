@@ -324,6 +324,27 @@ async fn op_ctx_platform_facts(
         .await?)
 }
 
+/// `ctx.oxygen.*` — bridge to `FunctionHost::app_action`. `op` is the
+/// sub-op (`frontline.devices.list`, `sourceUploads.report`); an unknown one is
+/// refused by the broker as an unknown op. Nothing here names an org.
+#[op2]
+#[string]
+async fn op_ctx_oxygen(
+    state: Rc<RefCell<OpState>>,
+    #[string] op: String,
+    #[string] payload_json: String,
+) -> Result<String, JsErrorBox> {
+    let host = host_sender(&state)?;
+    let payload = neutral::parse_payload(&payload_json);
+    Ok(host
+        .call("ctx.oxygen", |reply| HostCall::AppAction {
+            op,
+            payload,
+            reply,
+        })
+        .await?)
+}
+
 #[op2]
 #[string]
 async fn op_ctx_semantic_query(
@@ -420,6 +441,7 @@ deno_core::extension!(
         op_ctx_org_places,
         op_ctx_org_assignments,
         op_ctx_platform_facts,
+        op_ctx_oxygen,
         op_ctx_tx,
         op_ctx_oltp,
         op_ctx_airhouse,

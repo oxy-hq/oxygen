@@ -33,6 +33,25 @@ function flag(spec: Record<string, unknown>, a: string, b: string): boolean {
   return isObject(block) && block[b] === true;
 }
 
+/** `spec.oxygen.<a>.<b> === value`: a platform action the function asks for. */
+/** `oxygen.sourceUploads.pipelines` names at least one valid pipeline. */
+function uploadsNamePipelines(spec: Record<string, unknown>): boolean {
+  const oxygen = spec.oxygen;
+  if (!isObject(oxygen) || !isObject(oxygen.sourceUploads)) return false;
+  const listed = oxygen.sourceUploads.pipelines;
+  return (
+    Array.isArray(listed) &&
+    listed.some((n) => typeof n === "string" && /^[A-Za-z0-9_.-]{1,128}$/.test(n))
+  );
+}
+
+function oxygenAsks(spec: Record<string, unknown>, a: string, b: string, value: string): boolean {
+  const oxygen = spec.oxygen;
+  if (!isObject(oxygen)) return false;
+  const block = oxygen[a];
+  return isObject(block) && block[b] === value;
+}
+
 export interface GatedCapability {
   /** The `FunctionCapabilities` field in host.rs that gates these ops. */
   readonly hostField: string;
@@ -63,12 +82,13 @@ export interface GatedCapability {
 /**
  * Every gate in `FunctionCapabilities`, in the struct's order.
  *
- * `storage_retention`, `fetch_max_bytes`, `events_writer` and `event_catalog`
- * are also fields of that struct and are deliberately absent here: a retention
- * policy, a byte ceiling, the writer a publish is written as and the build's
- * declared events (the app-level `events` block, which the manifest schema
- * checks `events.publish` against) shape a call that is allowed rather than
- * gate a capability. The Rust test carries the same names as its exclusion
+ * `storage_retention`, `fetch_max_bytes`, `events_writer`, `event_catalog` and
+ * `source_upload_pipelines` are also fields of that struct and are deliberately
+ * absent here: a retention policy, a byte ceiling, the writer a publish is
+ * written as, the build's declared events (the app-level `events` block, which
+ * the manifest schema checks `events.publish` against) and the pipelines an
+ * upload may name (its gate is `source_uploads`) shape a call that is allowed
+ * rather than gate a capability. The Rust test carries the same names as its exclusion
  * list, so another non-gate field has to be added in both places on purpose.
  */
 export const GATED_CAPABILITIES: readonly GatedCapability[] = [
@@ -178,6 +198,29 @@ export const GATED_CAPABILITIES: readonly GatedCapability[] = [
       const reason = writes[database];
       return typeof reason === "string" && reason.trim() !== "";
     }
+  },
+  {
+    hostField: "frontline_devices",
+    manifest: "oxygen.frontline.devices",
+    declare: '"oxygen": { "frontline": { "devices": "manage" } }',
+    ops: [
+      "oxygen.frontline.devices.list",
+      "oxygen.frontline.devices.create",
+      "oxygen.frontline.devices.reissueLink",
+      "oxygen.frontline.devices.revoke"
+    ],
+    gate: "manifest",
+    // Asks, never grants: an org admin approves it after publish. The lint
+    // checks the ask, which is all a bundle can say.
+    declares: (spec) => oxygenAsks(spec, "frontline", "devices", "manage")
+  },
+  {
+    hostField: "source_uploads",
+    manifest: "oxygen.sourceUploads",
+    declare: '"oxygen": { "sourceUploads": { "pipelines": ["<pipeline name>"] } }',
+    ops: ["oxygen.sourceUploads.report"],
+    gate: "manifest",
+    declares: (spec) => uploadsNamePipelines(spec)
   }
 ];
 

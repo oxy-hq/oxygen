@@ -38,6 +38,7 @@ mod new_tokens;
 mod notification_sessions;
 mod oidc;
 mod org_inventory;
+mod oxygen_access;
 mod partner_promote;
 mod personal_app_publish;
 mod policy;

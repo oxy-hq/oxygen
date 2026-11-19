@@ -11,7 +11,11 @@
 //! - `…/tokens/{id}/revoke-grant` — end a personal token's reach into this
 //!   org ([`revoke_grant`]);
 //! - `/api/orgs/{org_id}/token-policy` — what the org asks of the tokens that
-//!   reach it ([`token_policy`]).
+//!   reach it ([`token_policy`]);
+//! - `/api/orgs/{org_id}/oxygen-access` — the platform actions the org's custom
+//!   apps ask for, and their approval ([`oxygen_access`]). Approving is creating a
+//!   principal (the app's service account), so it is the `ServiceAccountManage`
+//!   door, session-only like every other mutation here.
 //!
 //! **Who may call them.** An org owner or admin, on four named actions of the
 //! existing org-admin ring — taken as [`OrgAdminFor`] extractors, never a
@@ -31,6 +35,7 @@ mod audit;
 pub(crate) mod dto;
 pub mod handlers;
 mod inventory;
+mod oxygen_access;
 pub mod repo_resolve;
 mod revoke_grant;
 mod token_policy;

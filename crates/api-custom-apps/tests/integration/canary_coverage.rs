@@ -30,6 +30,18 @@ const AIRHOUSE: &str = "`ctx.airhouse` writes the app's own schema in the worksp
      provisioning it there, adding `\"airhouse\": { \"enabled\": true }` and a one-table \
      migration to oxy-app.json, then a step that appends one run-tagged row and reads it back.";
 
+const KIOSKS: &str = "`ctx.oxygen.frontline.devices.*` refuses until an owner or admin of the \
+     org approves the app under Apps, and then acts on the org's real kiosk devices. The \
+     canary app is not approved in the `oxy-canary` org, and approving it is a person's \
+     decision. Unblocked by: that approval in staging and prod, then one step that lists, \
+     creates a run-named device, re-links it, revokes it and lists again to see it revoked.";
+
+const SOURCE_UPLOADS: &str = "`ctx.oxygen.sourceUploads.report` writes a report into a named \
+     pipeline's landing zone, which needs an approval under Apps and an uploadable pipeline \
+     (an `.airway.yml` with a file source) in the `oxy-canary` org; it has neither, and a \
+     report left in a zone is loaded by the next run. Unblocked by: a canary pipeline whose \
+     zone nothing loads, that approval, and a step that uploads one run-tagged CSV.";
+
 const EVENTS: &str = "`ctx.events.publish` and `tx.events.publish` write the org's OLTP \
      outbox, which needs an OLTP store for the `oxy-canary` org and the `app_events` flag on \
      for it; it has neither. Every publish is also delivered to each listener in the org. \
@@ -84,6 +96,11 @@ const EXEMPT: &[(&str, &str)] = &[
          is not internal and must not be: the gate is the point. Out of scope for the canary \
          by design; the internal accounts app is its live caller.",
     ),
+    ("oxygen.frontline.devices.list", KIOSKS),
+    ("oxygen.frontline.devices.create", KIOSKS),
+    ("oxygen.frontline.devices.reissueLink", KIOSKS),
+    ("oxygen.frontline.devices.revoke", KIOSKS),
+    ("oxygen.sourceUploads.report", SOURCE_UPLOADS),
     ("events.publish", EVENTS),
     ("tx.publish", EVENTS),
     ("apps.call", APPS),

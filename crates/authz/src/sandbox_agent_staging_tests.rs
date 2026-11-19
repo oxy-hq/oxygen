@@ -101,6 +101,7 @@ fn reach_of(apps: Vec<SandboxApp>) -> TokenReach {
             token_id: TOKEN,
             apps,
         }),
+        app: None,
     }
 }
 

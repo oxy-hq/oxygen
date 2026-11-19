@@ -111,6 +111,7 @@ mod tests {
             grants: Vec::new(),
             app_publish: Vec::new(),
             app_sandbox: Vec::new(),
+            app_access: None,
         }
     }
 

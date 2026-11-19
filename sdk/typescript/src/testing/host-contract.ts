@@ -74,6 +74,11 @@ export const HOST_OPS = [
   "org.places",
   "org.assignments",
   "platform.facts",
+  "oxygen.frontline.devices.list",
+  "oxygen.frontline.devices.create",
+  "oxygen.frontline.devices.reissueLink",
+  "oxygen.frontline.devices.revoke",
+  "oxygen.sourceUploads.report",
   "events.publish",
   "tx.publish",
   "apps.call",
@@ -106,6 +111,7 @@ export const SURFACES = {
   orgPlaces: "ctx.org.places",
   orgAssignments: "ctx.org.assignments",
   platformFacts: "ctx.platform.facts",
+  oxygen: "ctx.oxygen",
   semanticQuery: "ctx.semantic.query",
   airwayRun: "ctx.airway.run",
   events: "ctx.events",
@@ -208,6 +214,16 @@ export const REFUSALS = {
     source: "host/platform_facts/serve.rs",
     refusal:
       'PlatformCapabilityMissing: this function has not declared the `platform.facts` capability (add "platform": { "facts": true } to its oxy-app.json entry)'
+  },
+  frontlineDevices: {
+    source: "host/app_access_op.rs",
+    refusal:
+      'OxygenCapabilityMissing: this function has not declared the `oxygen.frontline.devices` capability (add "oxygen": { "frontline": { "devices": "manage" } } to its oxy-app.json entry). An org admin must also approve it.'
+  },
+  sourceUploads: {
+    source: "host/app_access_op.rs",
+    refusal:
+      'OxygenCapabilityMissing: this function has not declared the `oxygen.sourceUploads` capability (add "oxygen": { "sourceUploads": { "pipelines": ["<pipeline name>"] } } to its oxy-app.json entry). An org admin must also approve it.'
   },
   storageWrite: {
     source: "host.rs",
@@ -358,8 +374,9 @@ export interface Gate {
  * and `storage_write` list `check_storage_capability`'s arms (`copy` needs
  * both); `customer_warehouse_writes` is decided per database by
  * `destination_write_policy`, after the `destinations` allowlist.
- * `storage_retention`, `fetch_max_bytes` and `events_writer` are fields of the
- * struct and deliberately absent: they shape an allowed call, they never refuse one.
+ * `storage_retention`, `fetch_max_bytes`, `events_writer` and
+ * `source_upload_pipelines` are fields of the struct and deliberately absent:
+ * they shape an allowed call, they never refuse one.
  */
 export const GATES = [
   {
@@ -421,6 +438,21 @@ export const GATES = [
     hostField: "customer_warehouse_writes",
     manifest: "customerWarehouseWrites",
     ops: ["warehouse.insert", "warehouse.exec", "warehouse.upsert", "tx.begin"]
+  },
+  {
+    hostField: "frontline_devices",
+    manifest: "oxygen.frontline.devices",
+    ops: [
+      "oxygen.frontline.devices.list",
+      "oxygen.frontline.devices.create",
+      "oxygen.frontline.devices.reissueLink",
+      "oxygen.frontline.devices.revoke"
+    ]
+  },
+  {
+    hostField: "source_uploads",
+    manifest: "oxygen.sourceUploads",
+    ops: ["oxygen.sourceUploads.report"]
   }
 ] as const satisfies readonly Gate[];
 

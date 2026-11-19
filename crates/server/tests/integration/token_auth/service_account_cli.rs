@@ -442,3 +442,35 @@ async fn a_device_code_request_mints_the_same_token() {
     let (status, _) = with_token(&secret, "GET", &devices_uri(fx.org_id), None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// A custom app's account (`app-<slug>`) acts only through the actions an org
+/// admin approved for the app: the approval refuses it before Approve is
+/// offered, as it refuses a disabled one.
+#[tokio::test]
+async fn an_apps_account_is_refused_rather_than_handed_a_token() {
+    let fx = admin_fixture().await;
+    let app = super::stack::published_app(&fx.db, fx.org_id, fx.workspace_id).await;
+    let approved = oxy_auth::token::app_access::approve(
+        &fx.db,
+        &app,
+        &[oxy_auth::token::app_access::ApprovedAction {
+            action: oxy_authz::Action::FrontlineDeviceManage,
+            target: None,
+        }],
+        fx.user.id,
+    )
+    .await
+    .expect("approve the app");
+
+    let mint = account_mint(
+        &fx,
+        json!({ "role": "admin", "account": approved.account.name }),
+    )
+    .await;
+    assert_refused(
+        authorize(&fx.cookie, HOST, Some(mint)).await,
+        StatusCode::CONFLICT,
+        "app_account",
+        "an app's account",
+    );
+}

@@ -19,6 +19,7 @@ pub mod agent_body;
 pub mod agent_fixture;
 pub mod agent_refusal;
 pub mod app_lifecycle;
+pub mod app_platform_seam;
 pub mod app_state;
 pub mod audience;
 pub mod audit;

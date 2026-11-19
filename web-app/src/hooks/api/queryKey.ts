@@ -380,7 +380,10 @@ const orgKeys = {
   ) => [...orgKeys.tokenInventoryAll(orgId), filters] as const,
   tokenInventoryActivity: (orgId: string, tokenId: string) =>
     [...orgKeys.all, "token-inventory-activity", orgId, tokenId] as const,
-  tokenPolicy: (orgId: string) => [...orgKeys.all, "token-policy", orgId] as const
+  tokenPolicy: (orgId: string) => [...orgKeys.all, "token-policy", orgId] as const,
+  oxygenAccess: (orgId: string) => [...orgKeys.all, "oxygen-access", orgId] as const,
+  oxygenAccessOne: (orgId: string, appId: string) =>
+    [...orgKeys.all, "oxygen-access", orgId, appId] as const
 };
 
 /**

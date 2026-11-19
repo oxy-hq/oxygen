@@ -635,6 +635,7 @@ mod tests {
             }],
             app_publish: Vec::new(),
             app_sandbox: Vec::new(),
+            app_access: None,
         };
         Caller::of(&user, Some(&credential))
     }

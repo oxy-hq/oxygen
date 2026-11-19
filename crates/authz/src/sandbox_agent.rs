@@ -133,6 +133,7 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::ManageOrgRoles
         | Action::ManageDocuments
         | Action::ManageAssignments
+        | Action::FrontlineDeviceManage
         | Action::ServiceAccountManage
         | Action::TokenInventoryView
         | Action::TokenGrantRevoke
@@ -145,6 +146,7 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::OrgReadStrict
         | Action::WorkspaceManage
         | Action::WorkspaceEdit
+        | Action::SourceUploadReport
         | Action::ExperimentPrice
         | Action::ExperimentAuthor
         | Action::ExperimentRegister

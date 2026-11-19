@@ -51,6 +51,7 @@ fn agent(email: &str) -> Caller {
             app_id: Uuid::from_u128(9),
             staging: false,
         }],
+        app_access: None,
     };
     Caller::of(&minter(email), Some(&credential))
 }

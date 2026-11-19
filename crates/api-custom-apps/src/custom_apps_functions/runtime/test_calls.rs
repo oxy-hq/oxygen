@@ -91,6 +91,11 @@ pub(super) fn sample(op: HostOp) -> HostCall {
             opts: payload,
             reply,
         },
+        Family::Oxygen => HostCall::AppAction {
+            op: sub,
+            payload,
+            reply,
+        },
     }
 }
 
@@ -198,6 +203,18 @@ pub(super) fn loaded(op: HostOp) -> HostCall {
         },
         Family::Platform => HostCall::PlatformFacts {
             opts: serde_json::json!({ "weeks": s }),
+            reply,
+        },
+        Family::Oxygen => HostCall::AppAction {
+            op: sub,
+            payload: serde_json::json!({
+                "name": s,
+                "returnTo": s,
+                "file": s,
+                "fileName": "report.csv",
+                "pipelineRef": "pipelines/report.airway.yml",
+                "workflowId": "w1",
+            }),
             reply,
         },
     }

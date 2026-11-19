@@ -136,6 +136,19 @@ pub trait FunctionHost: Send + Sync {
             "ctx.platform.facts is not available in this host",
         ))
     }
+    /// `ctx.oxygen.*` — a platform action an org
+    /// admin approved for the app. `op` is the registry's row, already
+    /// admitted by the broker; the org and workspace are the host's. The same
+    /// fail-closed default as `org_people`.
+    async fn app_action(
+        &self,
+        _op: crate::custom_apps_functions::env_policy::HostOp,
+        _payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        Err(HostError::backend(
+            "AppAccessUnavailable: platform actions are not available in this host",
+        ))
+    }
     /// `ctx.airway.run(pipelineRef, variables)` — seed an Airway ELT run.
     /// Returns `{ runId }`; the run is driven asynchronously by the worker
     /// fleet (it does not block on completion — ELT runs routinely exceed

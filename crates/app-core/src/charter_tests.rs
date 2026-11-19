@@ -37,6 +37,7 @@ const CHARTER: &[(&str, Kind)] = &[
     ("agent_body", Authz),
     ("agent_fixture", Authz),
     ("agent_refusal", Authz),
+    ("app_platform_seam", Seam),
     ("app_state", Request),
     ("audit", Service),
     ("compiled_reader", Service),

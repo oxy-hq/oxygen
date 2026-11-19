@@ -112,7 +112,9 @@ async fn publish_only(
     promote: bool,
     files: &[(&str, &str)],
 ) -> PublishResult {
-    let mut published = publish(PublishInput {
+    // Boxed: publish's future is larger than a test thread's stack (a debug
+    // build on Linux overflowed it here), as in `staging_automation_run_handlers`.
+    let mut published = Box::pin(publish(PublishInput {
         org_ref: Some(OrgRef::Id(app.t.org_id)),
         app_slug: app.slug.clone(),
         project_id: app.workspace,
@@ -134,7 +136,7 @@ async fn publish_only(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
-    })
+    }))
     .await
     .unwrap_or_else(|e| panic!("publish {build_id}: {e}"));
     // A promoting publish also says it is deprecated; these tests read what

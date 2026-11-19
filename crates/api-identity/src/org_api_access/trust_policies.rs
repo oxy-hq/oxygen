@@ -351,6 +351,18 @@ pub(crate) async fn write(
             "a trust policy was planned for another org or role than its account's".into(),
         ));
     }
+    // An app's account acts only through its approved actions, in-process.
+    // A trust policy on it would mint CI tokens with the account's admin
+    // standing and none of the approval's narrowing (that narrowing is kind
+    // `app`'s alone), as a minted token would (`account_tokens::mint`).
+    // Checked here, which both the settings page and `oxyc init-ci`'s
+    // approval write through.
+    if oxy_auth::token::app_access::app_of_account(db, account.user_id)
+        .await?
+        .is_some()
+    {
+        return Err(TokenError::AppAccountFixed);
+    }
     let want = planned.want;
     let new = NewPolicy {
         org_id: planned.org_id,

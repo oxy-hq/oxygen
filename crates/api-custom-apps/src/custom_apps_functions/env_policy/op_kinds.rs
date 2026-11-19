@@ -31,6 +31,9 @@ pub enum Family {
     Platform,
     Events,
     Apps,
+    /// `ctx.oxygen.*` — the platform actions an org admin approved for the
+    /// app (`oxy_authz::Action::APP_ACTIONS`), one sub-op per operation.
+    Oxygen,
 }
 
 impl Family {
@@ -53,6 +56,7 @@ impl Family {
         Family::Platform,
         Family::Events,
         Family::Apps,
+        Family::Oxygen,
     ];
 
     /// The family's wire name: the head of each of its ops' names.
@@ -75,6 +79,7 @@ impl Family {
             Family::Platform => "platform",
             Family::Events => "events",
             Family::Apps => "apps",
+            Family::Oxygen => "oxygen",
         }
     }
 
@@ -146,6 +151,12 @@ pub enum Capability {
     /// `check_write_destination`, never at the op level — so the broker
     /// passes it and the host decides.
     WarehouseWrite,
+    /// `"oxygen": { "frontline": { "devices": "manage" } }` — and an org
+    /// admin's approval, which the host asks after this.
+    FrontlineDevices,
+    /// `"oxygen": { "sourceUploads": … }` — and an org admin's approval,
+    /// which the host asks after this.
+    SourceUploads,
 }
 
 impl Capability {
@@ -167,6 +178,8 @@ impl Capability {
             Capability::Events => Some("events"),
             Capability::Calls => Some("calls"),
             Capability::WarehouseWrite => Some("customer_warehouse_writes"),
+            Capability::FrontlineDevices => Some("frontline_devices"),
+            Capability::SourceUploads => Some("source_uploads"),
         }
     }
 

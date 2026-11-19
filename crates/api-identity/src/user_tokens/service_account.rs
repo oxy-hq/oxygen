@@ -133,22 +133,40 @@ pub(super) async fn managed_org(
 }
 
 /// An existing account may be minted for only as it is: at the asked role,
-/// and enabled.
-fn usable(account: &service_accounts::Model, role: AccountRole) -> Result<(), TokenError> {
+/// enabled, and not a custom app's.
+async fn usable(
+    db: &DatabaseConnection,
+    account: &service_accounts::Model,
+    role: AccountRole,
+) -> Result<(), TokenError> {
     if store::role_of(account) != Some(role) {
         return Err(TokenError::RoleMismatch {
             account: account.name.clone(),
             role: account.org_role.clone(),
         });
     }
-    usable_as_is(account)
+    usable_as_is(db, account).await
 }
 
 /// An existing account may be given more only while it is enabled: whatever a
-/// disabled account is given authenticates nothing.
-pub(super) fn usable_as_is(account: &service_accounts::Model) -> Result<(), TokenError> {
+/// disabled account is given authenticates nothing. Nor may a custom app's
+/// account (`app-<slug>`): it acts only through the actions an org admin
+/// approved for the app, and a token or trust policy on it would carry its
+/// admin standing without that narrowing. Checked here so the approval page
+/// refuses it before Approve is offered; the mint and the trust policy write
+/// refuse it again.
+pub(super) async fn usable_as_is(
+    db: &DatabaseConnection,
+    account: &service_accounts::Model,
+) -> Result<(), TokenError> {
     if account.disabled_at.is_some() {
         return Err(TokenError::ServiceAccountDisabled(account.name.clone()));
+    }
+    if oxy_auth::token::app_access::app_of_account(db, account.user_id)
+        .await?
+        .is_some()
+    {
+        return Err(TokenError::AppAccountFixed);
     }
     Ok(())
 }
@@ -162,7 +180,7 @@ async fn check(
     let org = managed_org(db, actor, &request.org).await?;
     let account = store::find_by_name(db, org.id, &request.account).await?;
     if let Some(account) = &account {
-        usable(account, request.role)?;
+        usable(db, account, request.role).await?;
     }
     let planned = account_tokens::plan(db, org.id, request.role, &token_body(request))
         .await
@@ -221,7 +239,7 @@ async fn account_for(
             let account = store::find_by_name(db, checked.org.id, &request.account)
                 .await?
                 .ok_or_else(|| TokenError::Internal("a taken name names no account".into()))?;
-            usable(&account, request.role)?;
+            usable(db, &account, request.role).await?;
             Ok(account)
         }
         Err(e) => Err(e),

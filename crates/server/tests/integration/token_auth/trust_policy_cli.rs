@@ -552,3 +552,41 @@ async fn the_repository_s_ids_are_github_s_and_never_the_asker_s() {
             .is_empty()
     );
 }
+
+/// `oxyc init-ci` cannot put a trust policy on a custom app's account: its CI
+/// tokens would carry the account's admin standing without the approval's
+/// narrowing.
+#[tokio::test]
+async fn an_apps_account_is_refused_for_a_trust_policy() {
+    trust_test_keys();
+    let fx = admin_fixture().await;
+    let app_id = app_of(&fx).await;
+    let app = entity::apps::Entity::find_by_id(app_id)
+        .one(&fx.db)
+        .await
+        .expect("read the app")
+        .expect("the app");
+    let approved = oxy_auth::token::app_access::approve(
+        &fx.db,
+        &app,
+        &[oxy_auth::token::app_access::ApprovedAction {
+            action: oxy_authz::Action::FrontlineDeviceManage,
+            target: None,
+        }],
+        fx.user.id,
+    )
+    .await
+    .expect("approve the app");
+
+    let mint = policy_mint(
+        &fx,
+        app_id,
+        json!({ "account": approved.account.name, "create_account": false }),
+    );
+    assert_refused(
+        authorize(&fx.cookie, HOST, Some(mint)).await,
+        StatusCode::CONFLICT,
+        "app_account",
+        "an app's account",
+    );
+}

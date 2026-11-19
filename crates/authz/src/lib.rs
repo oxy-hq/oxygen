@@ -47,8 +47,10 @@
 
 use uuid::Uuid;
 
+mod app_access;
 mod sandbox_agent;
 mod token;
+pub use app_access::{AppActionGrant, AppReach};
 pub use sandbox_agent::{EnvFacet, SandboxAgentReach, SandboxApp};
 pub use token::{RoleCeiling, TokenGrant, TokenReach};
 
@@ -59,7 +61,7 @@ mod service_account_tests;
 /// [`allows`] must have an arm for every variant — adding one here without giving it a
 /// `Ring` fails the build, which is the exhaustiveness guarantee this enum exists for.
 /// Grow it as families migrate.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Action {
     /// Read anything in an org — any member.
     OrgRead,
@@ -102,6 +104,16 @@ pub enum Action {
     /// here — an assignment names a member or an active frontline worker, and
     /// the writer checks that standing the way the app access settings do.
     ManageAssignments,
+    /// List, create, re-link, rename or revoke the org's KIOSK DEVICES — the
+    /// tablets a frontline PIN is only usable on (`frontline_devices.rs`). Org
+    /// owner/admin, a managing partner, or a global operator: the same ring as
+    /// member management, which is what the routes asked for when they rode
+    /// `OrgAdmin`'s representative `MemberSetRole`.
+    ///
+    /// Named so a credential can be narrowed to it. An app approved to manage
+    /// kiosks (`app_access`) holds this action and nothing else of the ring;
+    /// riding `MemberSetRole`, it would have held role changes too.
+    FrontlineDeviceManage,
     /// Create, edit, disable or delete an org's SERVICE ACCOUNTS, and mint,
     /// extend, regenerate or revoke their tokens — org owner/admin, a managing
     /// partner, or a global operator. Same ring as member management, and for
@@ -151,6 +163,12 @@ pub enum Action {
     /// least workspace Member (overrides only elevate), so this is effectively any
     /// member of the workspace's org, plus a managing partner or global operator.
     WorkspaceEdit,
+    /// Upload a source report into the workspace's landing zone
+    /// (`POST /{workspace_id}/source-uploads/reports`) — the `WorkspaceEditor`
+    /// reach, as that route has always had: writing a pipeline's input is a
+    /// contributor act. A new id rather than `WorkspaceEdit` so an app approved
+    /// to upload reports (`app_access`) holds this and not every workspace edit.
+    SourceUploadReport,
     /// Price an experiment design against a workspace's own history
     /// (`POST /experiments/{name}/price`): inserts a proposal row, enqueues a
     /// warehouse-reading job and appends to the pre-registration proposal log.
@@ -463,12 +481,13 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 57] = [
+    pub const ALL: [Action; 59] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
         Action::ManageDocuments,
         Action::ManageAssignments,
+        Action::FrontlineDeviceManage,
         Action::ServiceAccountManage,
         Action::TokenInventoryView,
         Action::TokenGrantRevoke,
@@ -481,6 +500,7 @@ impl Action {
         Action::OrgReadStrict,
         Action::WorkspaceManage,
         Action::WorkspaceEdit,
+        Action::SourceUploadReport,
         Action::ExperimentPrice,
         Action::ExperimentAuthor,
         Action::ExperimentRegister,
@@ -533,6 +553,7 @@ impl Action {
             Action::ManageOrgRoles => "manage_org_roles",
             Action::ManageDocuments => "manage_documents",
             Action::ManageAssignments => "manage_assignments",
+            Action::FrontlineDeviceManage => "frontline_device_manage",
             Action::ServiceAccountManage => "service_account_manage",
             Action::TokenInventoryView => "token_inventory_view",
             Action::TokenGrantRevoke => "token_grant_revoke",
@@ -545,6 +566,7 @@ impl Action {
             Action::OrgReadStrict => "org_read_strict",
             Action::WorkspaceManage => "workspace_manage",
             Action::WorkspaceEdit => "workspace_edit",
+            Action::SourceUploadReport => "source_upload_report",
             Action::ExperimentPrice => "experiment_price",
             Action::ExperimentAuthor => "experiment_author",
             Action::ExperimentRegister => "experiment_register",
@@ -598,7 +620,8 @@ impl Action {
             Action::ManageLocations
             | Action::ManageOrgRoles
             | Action::ManageDocuments
-            | Action::ManageAssignments => Ring::OrgAdmin,
+            | Action::ManageAssignments
+            | Action::FrontlineDeviceManage => Ring::OrgAdmin,
             // API access is the org's own shape too: who and what may act in it.
             Action::ServiceAccountManage
             | Action::TokenInventoryView
@@ -611,6 +634,7 @@ impl Action {
                 Ring::WorkspaceAdmin
             }
             Action::WorkspaceEdit
+            | Action::SourceUploadReport
             | Action::ExperimentPrice
             | Action::ExperimentAuthor
             | Action::ExperimentApplyWriteBack => Ring::WorkspaceEdit,
@@ -1593,6 +1617,14 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
     // only refuse — what it covers is still decided below, for its minter.
     if let Some(sandbox) = facts.token.as_ref().and_then(|t| t.sandbox_agent.as_ref())
         && !sandbox_agent::covers(sandbox, action, resource)
+    {
+        return false;
+    }
+    // An app's credential is narrower still: the actions an org admin approved
+    // for the app, in that org, and nothing else. Asked here for the same
+    // reason, and it too can only refuse.
+    if let Some(app) = facts.token.as_ref().and_then(|t| t.app.as_ref())
+        && !app.covers(action, resource)
     {
         return false;
     }

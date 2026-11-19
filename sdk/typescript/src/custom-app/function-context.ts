@@ -1207,6 +1207,106 @@ export interface OxyPlatformFacts {
  * `PlatformFactsNotEnabled`. A failed read throws `PlatformFactsUnavailable`,
  * and a `weeks` that is not a number `PlatformFactsBadRequest`.
  */
+/** One kiosk device, as `ctx.oxygen.frontline.devices.list()` answers it. */
+export interface OxyKioskDevice {
+  id: string;
+  name: string;
+  return_to: string | null;
+  created_at: string;
+  bound_at: string | null;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+  /** Set while an enrol link is outstanding; the link itself is not recoverable. */
+  enrol_expires_at: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  idle_timeout_seconds: number;
+}
+
+/** A device's one-time enrol link: what `create` and `reissueLink` answer. */
+export interface OxyKioskEnrolLink {
+  id: string;
+  name: string;
+  /** Open it on the tablet to bind it. A secret for as long as it lives. */
+  enrol_url: string;
+  bind_path: string;
+  expires_at: string;
+}
+
+/** What `ctx.oxygen.frontline.devices.create` takes. */
+export interface OxyKioskDeviceCreate {
+  name: string;
+  /** One of the org's location ids: the store the tablet sits at. */
+  locationId?: string | null;
+  /** Where the tablet lands after a PIN; held to the platform's allowlist. */
+  returnTo?: string | null;
+  idleTimeoutSeconds?: number | null;
+}
+
+/**
+ * `ctx.oxygen` — what this app may do in Oxygen itself, as the app, once an
+ * org admin approved it. Three gates, all fail closed: the function's manifest
+ * entry asks (`"oxygen": { … }`, else `OxygenCapabilityMissing`), an org admin
+ * approved the app under App access (else `AppAccessNotApproved`), and the
+ * environment is production (else `EnvironmentRefused`). No key and no
+ * network: the host does the work in-process. Any trigger may call it: a
+ * person, a schedule, a webhook, an event or a manual run; the audit row says
+ * which.
+ *
+ * **Oxygen checks the app, not the person.** Any user this function serves can
+ * reach these through it; deciding who may ask is the function's own code.
+ */
+export interface OxyOxygenApi {
+  frontline: OxyFrontlineApi;
+  sourceUploads: OxySourceUploadsApi;
+}
+
+/** `ctx.oxygen.frontline` — the organization's kiosk devices. */
+export interface OxyFrontlineApi {
+  devices: {
+    list(): Promise<{ devices: OxyKioskDevice[] }>;
+    create(input: OxyKioskDeviceCreate): Promise<OxyKioskEnrolLink>;
+    /** A new link for a device that has not bound; the previous link dies. */
+    reissueLink(id: string): Promise<OxyKioskEnrolLink>;
+    /** `revoked` is false for a device that was already revoked. */
+    revoke(id: string): Promise<{ revoked: boolean; id: string }>;
+  };
+}
+
+/** What `ctx.oxygen.sourceUploads.report` takes. */
+export interface OxySourceReport {
+  /** The report's bytes, base64-encoded (`ctx.fetch(…, { encoding: "base64" })` gives this). */
+  file: string;
+  /** Its name; the period is read from it when none is given. `.csv` only. */
+  fileName: string;
+  /**
+   * The pipeline whose landing zone it goes to, by name: one the function's
+   * `oxygen.sourceUploads.pipelines` lists and an org admin approved.
+   */
+  pipeline: string;
+  /** Names the object: re-sending one id for one period replaces it. */
+  workflowId: string;
+  /** Both or neither. */
+  reportYear?: number;
+  reportMonth?: number;
+}
+
+/** Where the report landed, and what the loader will make of it. */
+export interface OxyUploadedReport {
+  location: string;
+  report_year: number;
+  report_month: number;
+  rows: number;
+}
+
+/**
+ * `ctx.oxygen.sourceUploads` — a pipeline's landing zone. The gates of
+ * {@link OxyOxygenApi}, with `"oxygen": { "sourceUploads": … }`.
+ */
+export interface OxySourceUploadsApi {
+  report(input: OxySourceReport): Promise<OxyUploadedReport>;
+}
+
 export interface OxyPlatformApi {
   /**
    * Ids and counts about every org on the deployment, never an email, a
@@ -1295,6 +1395,15 @@ export interface OxyFunctionContext {
    * gates are in the host.
    */
   platform?: OxyPlatformApi;
+  /**
+   * The platform actions an org admin approved for this app. See
+   * {@link OxyOxygenApi}.
+   *
+   * Optional, as `platform`: a server older than November 2026 does not bind
+   * it. Use `ctx.oxygen?.frontline.devices` and treat `undefined` as "not on
+   * this deployment".
+   */
+  oxygen?: OxyOxygenApi;
   /**
    * Read-only view of the app's configured secrets (project-scoped). Outside
    * production it holds the environment's own values, plus production's for

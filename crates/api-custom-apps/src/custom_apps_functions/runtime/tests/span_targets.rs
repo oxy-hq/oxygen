@@ -90,6 +90,11 @@ fn every_host_call_span_carries_the_platform_only_target() {
         },
         HostCall::Apps {
             op: "call".into(),
+            payload: json.clone(),
+            reply: reply(),
+        },
+        HostCall::AppAction {
+            op: "frontline.devices.list".into(),
             payload: json,
             reply: reply(),
         },
@@ -115,7 +120,8 @@ fn every_host_call_span_carries_the_platform_only_target() {
             | HostCall::Oltp { .. }
             | HostCall::Airhouse { .. }
             | HostCall::Events { .. }
-            | HostCall::Apps { .. } => {}
+            | HostCall::Apps { .. }
+            | HostCall::AppAction { .. } => {}
         }
     }
     // A bare registry enables every span, so `metadata()` is `Some`.

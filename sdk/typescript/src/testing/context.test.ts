@@ -793,3 +793,115 @@ describe("counting, sizing and bracketing", () => {
     await Promise.all(gates);
   });
 });
+
+describe("ctx.oxygen", () => {
+  const kiosks = {
+    slug: "store-ops",
+    functions: { tablets: { route: true, oxygen: { frontline: { devices: "manage" } } } }
+  };
+  const uploads = {
+    slug: "bookkeeping",
+    functions: { webhook: { oxygen: { sourceUploads: { pipelines: ["ubereats_transactions"] } } } }
+  };
+
+  it("refuses a platform action the manifest does not ask for, in the host's words", async () => {
+    const t = createTestContext(uploads, { function: "webhook" });
+    const err = await refusal(() => t.ctx.oxygen.frontline.devices.list());
+    expect(err.name).toBe(HOST_ERROR_NAME);
+    expect(err.message).toBe(`ctx.oxygen: ${REFUSALS.frontlineDevices.refusal}`);
+    expect(err.message).toContain("OxygenCapabilityMissing");
+    expect(t.callsTo("oxygen.frontline.devices.list")).toMatchObject([{ outcome: "refused" }]);
+  });
+
+  it("refuses an action nobody approved yet, with the label an app shows its user", async () => {
+    const t = createTestContext(kiosks, { function: "tablets", appAccessApproved: false });
+    const err = await refusal(() => t.ctx.oxygen.frontline.devices.list());
+    expect(err.name).toBe(HOST_ERROR_NAME);
+    expect(err.message).toMatch(/^ctx\.oxygen: AppAccessNotApproved: /);
+  });
+
+  it("creates, lists, re-links and revokes a kiosk", async () => {
+    const t = createTestContext(kiosks, { function: "tablets" });
+    const link = await t.ctx.oxygen.frontline.devices.create({ name: "Front counter" });
+    expect(link.enrol_url).toContain("/api/frontline/devices/bind?token=");
+    const { devices } = await t.ctx.oxygen.frontline.devices.list();
+    expect(devices.map((d) => d.name)).toEqual(["Front counter"]);
+    const again = await t.ctx.oxygen.frontline.devices.reissueLink(link.id);
+    expect(again.id).toBe(link.id);
+    expect(await t.ctx.oxygen.frontline.devices.revoke(link.id)).toEqual({
+      revoked: true,
+      id: link.id
+    });
+    expect(await t.ctx.oxygen.frontline.devices.revoke(link.id)).toEqual({
+      revoked: false,
+      id: link.id
+    });
+    const err = await refusal(() => t.ctx.oxygen.frontline.devices.revoke("nope"));
+    expect(err.message).toBe("ctx.oxygen: AppActionNotFound: no such device");
+  });
+
+  it("records an upload with its bytes decoded", async () => {
+    const t = createTestContext(uploads, { function: "webhook" });
+    const reply = await t.ctx.oxygen.sourceUploads.report({
+      file: Buffer.from("a,b\n1,2\n").toString("base64"),
+      fileName: "report.csv",
+      pipeline: "ubereats_transactions",
+      workflowId: "wf-1",
+      reportYear: 2026,
+      reportMonth: 10
+    });
+    expect(reply).toMatchObject({ report_year: 2026, report_month: 10 });
+    expect(new TextDecoder().decode(t.state.uploads[0].bytes)).toBe("a,b\n1,2\n");
+    const err = await refusal(() =>
+      t.ctx.oxygen.sourceUploads.report({
+        file: "",
+        fileName: "r.csv",
+        pipeline: "ubereats_transactions",
+        workflowId: "w"
+      })
+    );
+    expect(err.message).toMatch(/^ctx\.oxygen: AppActionInvalid: /);
+  });
+
+  it("refuses a pipeline the function does not list, then one nobody approved", async () => {
+    const report = (pipeline: string) => ({
+      file: Buffer.from("a\n").toString("base64"),
+      fileName: "r.csv",
+      pipeline,
+      workflowId: "w"
+    });
+    const t = createTestContext(uploads, { function: "webhook" });
+    const undeclared = await refusal(() => t.ctx.oxygen.sourceUploads.report(report("toast_pos")));
+    expect(undeclared.message).toMatch(
+      /^ctx\.oxygen: OxygenCapabilityMissing: this function has not declared the pipeline `toast_pos`/
+    );
+    const unapproved = createTestContext(uploads, {
+      function: "webhook",
+      appAccessApproved: false
+    });
+    const err = await refusal(() =>
+      unapproved.ctx.oxygen.sourceUploads.report(report("ubereats_transactions"))
+    );
+    expect(err.message).toMatch(
+      /^ctx\.oxygen: AppAccessNotApproved: .*`ubereats_transactions`.*under Apps/
+    );
+    expect(t.state.uploads).toHaveLength(0);
+  });
+
+  it("asks for nothing with the earlier `reports` shape", async () => {
+    const old = {
+      slug: "bookkeeping",
+      functions: { webhook: { oxygen: { sourceUploads: { reports: "write" } } } }
+    };
+    const t = createTestContext(old as never, { function: "webhook" });
+    const err = await refusal(() =>
+      t.ctx.oxygen.sourceUploads.report({
+        file: "YQ==",
+        fileName: "r.csv",
+        pipeline: "x",
+        workflowId: "w"
+      })
+    );
+    expect(err.message).toBe(`ctx.oxygen: ${REFUSALS.sourceUploads.refusal}`);
+  });
+});

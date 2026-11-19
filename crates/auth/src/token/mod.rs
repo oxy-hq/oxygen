@@ -68,6 +68,7 @@ pub mod access;
 pub mod account_access;
 pub mod admission;
 pub mod agent;
+pub mod app_access;
 pub mod browser_session;
 pub mod cache;
 pub mod ci;

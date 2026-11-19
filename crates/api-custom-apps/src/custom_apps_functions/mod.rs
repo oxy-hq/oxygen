@@ -292,6 +292,14 @@ struct FunctionManifestEntry {
     /// staff read accounts in.
     #[serde(default)]
     platform: Option<PlatformSpec>,
+    /// `"oxygen": { … }` — the platform actions this function asks for, which
+    /// it calls under `ctx.oxygen` (`"frontline": { "devices": "manage" }`,
+    /// `"sourceUploads": { "pipelines": [...] }`). Asks, never grants: an org admin approves it
+    /// (`oxy_auth::token::app_access`), and the host refuses the op until
+    /// then. Read by `oxy_custom_apps::platform_access`, the one reader the
+    /// approval page also uses.
+    #[serde(default)]
+    oxygen: Option<oxy_custom_apps::platform_access::PlatformActionSpecs>,
     /// Retry policy for **background** runs (scheduled or manual job triggers) —
     /// absent → a job run is attempted once. Route invocations are request-scoped
     /// and never retried. Maps to the durable queue's `RetryPolicy` so a transient
@@ -535,6 +543,16 @@ impl FunctionManifestEntry {
             .as_ref()
             .and_then(|p| p.facts)
             .unwrap_or(false)
+    }
+
+    /// The platform actions this function asks for (fail-closed: nothing
+    /// unless a block names exactly what it asks). An org admin's approval is
+    /// the host's second gate.
+    fn platform_actions(&self) -> Vec<oxy_authz::Action> {
+        self.oxygen
+            .as_ref()
+            .map(oxy_custom_apps::platform_access::PlatformActionSpecs::actions)
+            .unwrap_or_default()
     }
 
     /// Whether `ctx.email.send` is permitted (fail-closed default: false).
@@ -796,6 +814,17 @@ fn manifest_capabilities(
         notify_kinds,
         org_read: entry.org_read(),
         platform_facts: entry.platform_facts(),
+        frontline_devices: entry
+            .platform_actions()
+            .contains(&oxy_authz::Action::FrontlineDeviceManage),
+        source_uploads: entry
+            .platform_actions()
+            .contains(&oxy_authz::Action::SourceUploadReport),
+        source_upload_pipelines: entry
+            .oxygen
+            .as_ref()
+            .map(oxy_custom_apps::platform_access::PlatformActionSpecs::pipelines)
+            .unwrap_or_default(),
         storage_read: entry.storage_read(),
         storage_write: entry.storage_write(),
         // DERIVED from the invoking app's slug, gated by the manifest — never

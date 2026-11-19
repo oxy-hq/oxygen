@@ -51,6 +51,18 @@ const fn write(op: HostOp, staging: Decision) -> Row {
     }
 }
 
+/// An op refused outside production whatever it does: the org's kiosks and a
+/// workspace's landing zone have no copy per environment.
+const fn production_only(op: HostOp, writes: bool) -> Row {
+    Row {
+        op,
+        writes,
+        staging: Decision::Refuse {
+            fix: registry::APP_ACCESS_FIX,
+        },
+    }
+}
+
 /// A read that looks at the environment's own copy first, then production's.
 const fn read_isolated(op: HostOp) -> Row {
     Row {
@@ -114,6 +126,11 @@ const ROWS: &[Row] = &[
     read(HostOp::AppsCall),
     write(HostOp::AppsSend, HOLD),
     read(HostOp::EventsChanges),
+    production_only(HostOp::FrontlineDevicesList, false),
+    production_only(HostOp::FrontlineDevicesCreate, true),
+    production_only(HostOp::FrontlineDevicesReissueLink, true),
+    production_only(HostOp::FrontlineDevicesRevoke, true),
+    production_only(HostOp::SourceUploadsReport, true),
 ];
 
 fn staging() -> EnvPolicy {
@@ -161,7 +178,10 @@ fn production_allows_every_op() {
 
 /// A staging write is isolated, held or refused — it reaches no production
 /// store (`differential` checks the isolated ones) — and a staging read reads
-/// production, directly or behind the environment's own copy.
+/// production, directly or behind the environment's own copy. The one
+/// exception is a production-only read (`oxygen.frontline.devices.list`):
+/// refused like the writes beside it, so staging never shows production's
+/// kiosks on a page that cannot change them.
 #[test]
 fn staging_isolates_holds_or_refuses_every_write_and_reads_production() {
     let staging = staging();
@@ -178,8 +198,10 @@ fn staging_isolates_holds_or_refuses_every_write_and_reads_production() {
                 row.op
             );
         } else {
+            let production_only =
+                matches!(decided, Decision::Refuse { fix } if fix == registry::APP_ACCESS_FIX);
             assert!(
-                matches!(decided, Decision::Allow | SILO),
+                matches!(decided, Decision::Allow | SILO) || production_only,
                 "{:?} reads production, or its environment's copy first; got {decided:?}",
                 row.op
             );

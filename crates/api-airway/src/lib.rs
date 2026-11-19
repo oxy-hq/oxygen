@@ -29,10 +29,15 @@
 #![recursion_limit = "256"]
 
 mod admin;
+pub mod app_ops;
 pub mod boot;
 mod cli;
 mod pipelines;
 mod source_upload;
+
+/// The upload's storage half, which [`app_ops::report`] runs for a custom
+/// app's approved host op: every check the route makes after reading the body.
+pub use source_upload::{ReportFields, UploadedReport, store_report, store_report_from};
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;

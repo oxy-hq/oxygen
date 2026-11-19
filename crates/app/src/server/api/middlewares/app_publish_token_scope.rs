@@ -652,6 +652,7 @@ mod tests {
             expires_at: None,
             service_account: None,
             app_sandbox: Vec::new(),
+            app_access: None,
         }
     }
 

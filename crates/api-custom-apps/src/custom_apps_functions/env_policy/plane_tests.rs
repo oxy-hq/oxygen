@@ -114,9 +114,9 @@ fn every_plane_key_is_unique() {
 }
 
 /// `EnvPolicy` does not read the `semantic` or `workspace-actions` modes: no
-/// host op's decision depends on them. `semantic.query` is `Allow` and
-/// `airway.run` is `Refuse` whatever a spec says, and these are the only ops
-/// on those planes. So **every** mode of either plane decides, for **every**
+/// host op's decision depends on them. `semantic.query` is `Allow`, and
+/// `airway.run` and the `oxygen.*` ops are `Refuse`, whatever a spec says,
+/// and these are the only ops on those planes. So **every** mode of either plane decides, for **every**
 /// host op under every OLTP home, exactly as the defaults do — and
 /// `airway.run` stays `Decided(Refuse)` under each of them: a preview run is
 /// the automation route's dry run (`automation_run::preview_mode`), never a
@@ -137,7 +137,17 @@ fn new_modes_decide_as_defaults() {
             .collect()
     };
     assert_eq!(on(Plane::Semantic), [HostOp::SemanticQuery]);
-    assert_eq!(on(Plane::WorkspaceActions), [HostOp::AirwayRun]);
+    assert_eq!(
+        on(Plane::WorkspaceActions),
+        [
+            HostOp::AirwayRun,
+            HostOp::FrontlineDevicesList,
+            HostOp::FrontlineDevicesCreate,
+            HostOp::FrontlineDevicesReissueLink,
+            HostOp::FrontlineDevicesRevoke,
+            HostOp::SourceUploadsReport,
+        ]
+    );
 
     // Every wire spelling of every mode, with the mode it must resolve to.
     let semantic = [

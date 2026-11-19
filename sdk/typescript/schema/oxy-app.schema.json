@@ -298,6 +298,10 @@
           "$ref": "#/definitions/OxyAppPlatformCapability",
           "description": "Capability for `ctx.platform.facts()` — ids and counts about every org on the deployment, for an internal app (fail-closed: omit → the call is rejected). Necessary, not sufficient: the host also requires the app's org to be one of the deployment's internal orgs (`OXY_INTERNAL_ORGS`), so declaring it in any other org's app opens nothing."
         },
+        "oxygen": {
+          "$ref": "#/definitions/OxyAppOxygenCapability",
+          "description": "The platform actions this function asks for, which it calls under `ctx.oxygen`. **Asks, never grants**: an org owner or admin approves the app under App access in the organization's settings, and the host refuses the call (`AppAccessNotApproved`) until then. Production only. The app's own code decides which of its users may ask: Oxygen checks the app, not the person.\n\n```json \"oxygen\": { \"frontline\": { \"devices\": \"manage\" } } ```"
+        },
         "oltp": {
           "$ref": "#/definitions/OxyAppEnabledCapability",
           "description": "Capability for `ctx.oltp` — read/write the app's OWN per-org OLTP schema on the managed Postgres tenant (fail-closed: omit → every `ctx.oltp` call rejected). A pure GATE: the target schema is derived from the app's own slug host-side (`oltp-bookings` → `app_oltp_bookings`), never named here, so a manifest cannot point `ctx.oltp` at another app's schema. The resolved role has DML rights on that one schema and nothing else — reaching neither another app's data nor the analyst-visible `raw_*` schemas. The store must be provisioned first (ask whoever operates the org).\n\nNOTE: this shape is `{ enabled }`, not the earlier `{ writer }` — an app had no business naming its own writer (that was the cross-app hole). A manifest still carrying `\"oltp\": { \"writer\": \"…\" }` deserializes to `enabled: undefined` → **disabled**, and `ctx.oltp` then reports the capability as missing. Switch it to `{ \"enabled\": true }`."
@@ -518,6 +522,48 @@
       },
       "additionalProperties": false,
       "description": "`functions.<name>.platform`."
+    },
+    "OxyAppOxygenCapability": {
+      "type": "object",
+      "properties": {
+        "frontline": {
+          "$ref": "#/definitions/OxyAppFrontlineCapability",
+          "description": "The organization's kiosk devices: `ctx.oxygen.frontline.devices.*`."
+        },
+        "sourceUploads": {
+          "$ref": "#/definitions/OxyAppSourceUploadsCapability",
+          "description": "Source reports into a pipeline's landing zone: `ctx.oxygen.sourceUploads.report`."
+        }
+      },
+      "additionalProperties": false,
+      "description": "`functions.<name>.oxygen`: the platform actions the function asks for."
+    },
+    "OxyAppFrontlineCapability": {
+      "type": "object",
+      "properties": {
+        "devices": {
+          "type": "string",
+          "const": "manage",
+          "description": "`\"manage\"`: list, create, re-link and revoke the org's kiosk devices."
+        }
+      },
+      "additionalProperties": false,
+      "description": "`functions.<name>.oxygen.frontline`."
+    },
+    "OxyAppSourceUploadsCapability": {
+      "type": "object",
+      "properties": {
+        "pipelines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The pipelines, by name, whose landing zones the function uploads reports into: `[\"ubereats_transactions\"]`. An org admin approves each one, and a call naming any other is refused. Oxygen finds where the pipeline lives."
+        }
+      },
+      "required": ["pipelines"],
+      "additionalProperties": false,
+      "description": "`functions.<name>.oxygen.sourceUploads`."
     },
     "OxyAppEnabledCapability": {
       "type": "object",

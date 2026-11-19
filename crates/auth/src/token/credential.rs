@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use entity::{api_tokens, service_accounts};
-use oxy_authz::{SandboxAgentReach, SandboxApp, TokenGrant, TokenReach};
+use oxy_authz::{AppReach, SandboxAgentReach, SandboxApp, TokenGrant, TokenReach};
 use uuid::Uuid;
 
 use super::format::TokenFormat;
@@ -46,6 +46,9 @@ pub mod source {
     /// customer-owned domain carries, so that the domain's owner never holds a
     /// visitor's login.
     pub const CUSTOM_DOMAIN: &str = "custom_domain";
+    /// Written when an org admin approves a custom app's platform access
+    /// (`super::app_access`): the app's secretless row of kind `app`.
+    pub const APP_APPROVAL: &str = "app_approval";
 }
 
 /// What a token's service account is, read from its `service_accounts` row:
@@ -126,6 +129,12 @@ pub enum StoredKind {
     /// `oxysvc_…` — a service configured in `OXY_SERVICE_TOKENS`
     /// ([`super::service`]): platform standing from its entry, no stored row.
     Service,
+    /// A custom app's own access ([`super::app_access`]): the actions an org
+    /// admin approved for the app, acting as the app's service account. Its row
+    /// has **no secret**: no presented format resolves to it and admission
+    /// refuses it. The function host builds the credential in-process, per
+    /// host op, from the row and its live grants.
+    App,
 }
 
 impl StoredKind {
@@ -137,6 +146,7 @@ impl StoredKind {
             Self::Ci => "ci",
             Self::SandboxAgent => "sandbox_agent",
             Self::Service => "service",
+            Self::App => "app",
         }
     }
 
@@ -144,7 +154,7 @@ impl StoredKind {
     /// a person: its standing is the account's row, and it is always
     /// grant-bound inside the account's org.
     pub fn acts_as_account(self) -> bool {
-        matches!(self, Self::ServiceAccount | Self::Ci)
+        matches!(self, Self::ServiceAccount | Self::Ci | Self::App)
     }
 
     /// `None` for every kind this release does not enforce.
@@ -155,6 +165,7 @@ impl StoredKind {
             "service_account" => Some(Self::ServiceAccount),
             "ci" => Some(Self::Ci),
             "sandbox_agent" => Some(Self::SandboxAgent),
+            "app" => Some(Self::App),
             _ => None,
         }
     }
@@ -237,6 +248,10 @@ pub struct CredentialContext {
     /// When the credential expires; `None` for never. What the
     /// `X-Oxy-Token-Expiration` response header reports.
     pub expires_at: Option<DateTime<Utc>>,
+    /// Set for an **app's** credential ([`StoredKind::App`]): the app and the
+    /// actions an org admin approved for it, read from their live rows for the
+    /// one host op it is built for. `None` for every other kind.
+    pub app_access: Option<AppReach>,
 }
 
 impl CredentialContext {
@@ -275,7 +290,21 @@ impl CredentialContext {
                     })
                     .collect(),
             }),
+            // An app's credential always carries the app fact, empty when no
+            // approval was read, so it is never decided as a plain grant-bound
+            // account token. No other kind carries one, whatever the field holds.
+            app: (self.kind == StoredKind::App).then(|| {
+                self.app_access.clone().unwrap_or(AppReach {
+                    app_id: Uuid::nil(),
+                    grants: Vec::new(),
+                })
+            }),
         })
+    }
+
+    /// Whether the credential is an app's own ([`StoredKind::App`]).
+    pub fn is_app(&self) -> bool {
+        self.kind == StoredKind::App
     }
 
     /// Whether the credential is a sandbox agent token (`oxy_sbx_`): its

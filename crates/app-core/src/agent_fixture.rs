@@ -37,6 +37,7 @@ pub fn credential(
         blocked_orgs: Vec::new(),
         service_account: None,
         expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(8)),
+        app_access: None,
     }
 }
 

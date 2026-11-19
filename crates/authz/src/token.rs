@@ -19,8 +19,8 @@
 use uuid::Uuid;
 
 use crate::{
-    PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource, ResourceKind,
-    SandboxAgentReach, Scope,
+    AppReach, PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource,
+    ResourceKind, SandboxAgentReach, Scope,
 };
 
 /// How high a grant lets a token act. Ordered: `Viewer < Member < Admin <
@@ -98,6 +98,15 @@ pub struct TokenReach {
     /// wider than the apps, which is why [`PrincipalFacts::narrowed_by`] leaves
     /// this kind no tenant standing at all.
     pub sandbox_agent: Option<SandboxAgentReach>,
+    /// Set for an **app's** credential: the actions an org admin approved for
+    /// the app ([`crate::app_access`]). Like [`Self::sandbox_agent`], asked
+    /// first by [`crate::allows`] and able only to refuse. `None` for every
+    /// other token.
+    ///
+    /// Its [`Self::grants`] are one grant per approved action, at `Admin`, on
+    /// the org or on the approved workspace: what lets the account's admin
+    /// standing reach the ring at all. The actions are what confine it.
+    pub app: Option<AppReach>,
 }
 
 impl TokenReach {
@@ -110,6 +119,7 @@ impl TokenReach {
             grants: Vec::new(),
             blocked_orgs: Vec::new(),
             sandbox_agent: None,
+            app: None,
         }
     }
 
@@ -308,6 +318,15 @@ impl PrincipalFacts {
         // a role read by hand from these facts fails closed too.
         if token.sandbox_agent.is_some() {
             self.drop_tenant_standing();
+        }
+        // An app's credential stands only as the app's service account. Its
+        // principal is that account, which loads no person's standing anyway;
+        // dropping the rest here makes a credential that somehow named a person
+        // fail closed rather than carry their memberships.
+        if token.app.is_some() {
+            let account = self.service_account.take();
+            self.drop_tenant_standing();
+            self.service_account = account;
         }
         let (is_global_owner, platform) =
             token.narrow_platform(self.is_global_owner, self.platform.take());

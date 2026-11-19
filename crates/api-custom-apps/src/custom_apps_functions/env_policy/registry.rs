@@ -78,6 +78,10 @@ const fn by_not_running(plane: &'static str, verb: &'static str) -> HoldBy {
 }
 
 /// `Refuse` fix for `ctx.airway.run` outside production.
+pub const APP_ACCESS_FIX: &str = "an app's platform access is approved for production only, \
+     because what it changes (the org's kiosks, a workspace's landing zone) has no copy per \
+     environment. Exercise it from production";
+
 pub const AIRWAY_FIX: &str = "an Airway run belongs to the project, not to an app environment, so \
      any run writes production. Trigger the pipeline from production instead";
 
@@ -244,6 +248,36 @@ host_ops! {
     PlatformFacts = "platform.facts" {
         family: Platform("facts"), capability: PlatformFacts, staging: ALLOW,
         holds: by_not_running("platform", "READ"),
+    },
+    /// The org's kiosk devices, as the app's service account, once an org
+    /// admin approved the app (`oxy_auth::token::app_access`). Production
+    /// only: a kiosk has no copy per environment.
+    FrontlineDevicesList = "oxygen.frontline.devices.list" {
+        family: Oxygen("frontline.devices.list"), capability: FrontlineDevices,
+        staging: Staged::Decided(Decision::Refuse { fix: APP_ACCESS_FIX }),
+        holds: by_not_running("oxygen", "READ"),
+    },
+    FrontlineDevicesCreate = "oxygen.frontline.devices.create" {
+        family: Oxygen("frontline.devices.create"), capability: FrontlineDevices,
+        staging: Staged::Decided(Decision::Refuse { fix: APP_ACCESS_FIX }),
+        holds: by_not_running("oxygen", "WRITE"),
+    },
+    FrontlineDevicesReissueLink = "oxygen.frontline.devices.reissueLink" {
+        family: Oxygen("frontline.devices.reissueLink"), capability: FrontlineDevices,
+        staging: Staged::Decided(Decision::Refuse { fix: APP_ACCESS_FIX }),
+        holds: by_not_running("oxygen", "WRITE"),
+    },
+    FrontlineDevicesRevoke = "oxygen.frontline.devices.revoke" {
+        family: Oxygen("frontline.devices.revoke"), capability: FrontlineDevices,
+        staging: Staged::Decided(Decision::Refuse { fix: APP_ACCESS_FIX }),
+        holds: by_not_running("oxygen", "WRITE"),
+    },
+    /// A report into the landing zone of the workspace the app is published
+    /// from, once an org admin approved the app. Production only, as above.
+    SourceUploadsReport = "oxygen.sourceUploads.report" {
+        family: Oxygen("sourceUploads.report"), capability: SourceUploads,
+        staging: Staged::Decided(Decision::Refuse { fix: APP_ACCESS_FIX }),
+        holds: by_not_running("oxygen", "WRITE"),
     },
     /// An outbox row on the app's own OLTP store, written with the app's
     /// writer role — it lands where `ctx.oltp` does.

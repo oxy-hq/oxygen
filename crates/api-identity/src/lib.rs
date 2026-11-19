@@ -234,6 +234,20 @@ fn org_api_access_routes() -> Router<AppState> {
         .route(
             "/token-policy",
             get(org_handlers::get_token_policy).put(org_handlers::put_token_policy),
+        ) // App access: what the org's custom apps ask of the platform, and its
+        // approval. Postgres only.
+        .route("/oxygen-access", get(org_handlers::list_oxygen_access))
+        .route(
+            "/oxygen-access/{app_id}",
+            get(org_handlers::get_oxygen_access),
+        )
+        .route(
+            "/oxygen-access/{app_id}/approve",
+            post(org_handlers::approve_oxygen_access),
+        )
+        .route(
+            "/oxygen-access/{app_id}/revoke",
+            post(org_handlers::revoke_oxygen_access),
         )
 }
 
@@ -427,6 +441,10 @@ const API_ROLES: &[RouteRoleDecl] = &[
     fleet("/orgs/{org_id}/tokens/{id}/activity"),
     fleet("/orgs/{org_id}/tokens/{id}/revoke-grant"),
     fleet("/orgs/{org_id}/token-policy"),
+    fleet("/orgs/{org_id}/oxygen-access"),
+    fleet("/orgs/{org_id}/oxygen-access/{app_id}"),
+    fleet("/orgs/{org_id}/oxygen-access/{app_id}/approve"),
+    fleet("/orgs/{org_id}/oxygen-access/{app_id}/revoke"),
 ];
 
 /// Every route [`public_routes`] mounts. Relative to the `/api` root.

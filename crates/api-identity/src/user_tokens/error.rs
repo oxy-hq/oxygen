@@ -121,6 +121,14 @@ pub enum TokenError {
     /// 429 `rate_limited` — a public route asked too often from one address.
     /// `retry_after_secs` is sent as `Retry-After`.
     RateLimited { retry_after_secs: u64 },
+    /// 409 `app_account` — the service account belongs to a custom app. Its
+    /// access is the actions an org admin approved for the app, and no token is
+    /// ever minted for it, directly or through a trust policy: that would be
+    /// the stored key it exists to remove.
+    AppAccountFixed,
+    /// 400 `not_declared` — an app action the app's live build does not declare
+    /// (or that no app may be approved for). The action is the `error`.
+    NotDeclared(String),
     /// 500. The detail is logged, never returned.
     Internal(String),
 }
@@ -329,6 +337,18 @@ impl TokenError {
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many requests; try again later".into(),
                 Some("rate_limited"),
+            ),
+            Self::AppAccountFixed => (
+                StatusCode::CONFLICT,
+                "this service account belongs to a custom app: approve or revoke the app's \
+                 access instead, under Apps. No token or trust policy can be made for it"
+                    .into(),
+                Some("app_account"),
+            ),
+            Self::NotDeclared(action) => (
+                StatusCode::BAD_REQUEST,
+                format!("the app's live build does not ask for `{action}`"),
+                Some("not_declared"),
             ),
             Self::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

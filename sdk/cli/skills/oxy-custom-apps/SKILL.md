@@ -371,6 +371,35 @@ by, so declare it with the first `ctx.notify`, not later:
   undeclared function, a misspelt field and any `oxy.` kind — every problem at
   once; a catalogue kind no function sends is a warning.
 
+**Acting in Oxygen itself: `ctx.oxygen`, never a stored key.** A function that
+needs the platform (the org's kiosk devices, a source upload) asks for it under
+`"oxygen"` in its manifest entry and calls `ctx.oxygen.*`:
+
+```jsonc
+"tablets": { "route": true, "oxygen": { "frontline": { "devices": "manage" } } },
+"webhook": { "oxygen": { "sourceUploads": { "pipelines": ["ubereats_transactions"] } } }
+```
+
+```ts
+const link = await ctx.oxygen.frontline.devices.create({ name, locationId, returnTo });
+await ctx.oxygen.sourceUploads.report({ file, fileName, pipeline: "ubereats_transactions", workflowId });
+```
+
+- **The manifest asks; an org owner or admin approves**, under Apps in the organization's
+  API tokens settings, or on the page `/<org>/oxygen-access/<appId>`. Until then the call
+  throws `AppAccessNotApproved`: show the user that, never a stack trace. Publishing never
+  waits for the approval.
+- **An upload names its pipeline**, as the manifest lists it; each pipeline is approved on
+  its own, and Oxygen finds where it lives. Never name a workspace.
+- **No key, no network.** The host does it in-process as the app's own service account,
+  with no token for the app to hold. Never put an Oxygen API token in an app secret to
+  call Oxygen's API from a function: that is what this replaced.
+- **Production only** (`EnvironmentRefused` elsewhere). Any trigger may call it; the
+  audit row records the app, the function, the trigger and the person when there is one.
+- **Oxygen checks the app, not the person.** Anyone the function serves can reach the
+  action through it, so the function decides who may ask (as Store Ops' `tablets` does
+  with `reachOf`).
+
 **The dock.** Wrap the app in `<OxyShell>` (every `create-oxy-app` template
 does) so it shows Oxygen's rail: HQ, Chat and the viewer's other apps, each
 opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its

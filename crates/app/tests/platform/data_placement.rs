@@ -238,6 +238,12 @@ const TABLES: &[(&str, Placement)] = &[
     ("app_functions", Control("functions per build")),
     ("app_members", Control("per-app membership")),
     (
+        "app_platform_grants",
+        Control(
+            "which platform actions an org admin approved for a custom app; ids and action names",
+        ),
+    ),
+    (
         "app_publish_attempts",
         Control("custom-app publish outcomes and stage timings; ids and refusal text only"),
     ),
@@ -246,6 +252,10 @@ const TABLES: &[(&str, Placement)] = &[
     (
         "app_secret_grants",
         Control("which apps may read a workspace secret"),
+    ),
+    (
+        "app_service_accounts",
+        Control("which service account a custom app acts as; two ids"),
     ),
     (
         "app_storage_usage",

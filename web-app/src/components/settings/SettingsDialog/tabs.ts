@@ -5,7 +5,7 @@
  */
 
 /** Organization → API tokens. */
-export const API_TOKENS_TABS = ["personal", "service_accounts", "all", "policy"] as const;
+export const API_TOKENS_TABS = ["personal", "service_accounts", "apps", "all", "policy"] as const;
 export type ApiTokensTab = (typeof API_TOKENS_TABS)[number];
 
 /** Organization → Secrets. */

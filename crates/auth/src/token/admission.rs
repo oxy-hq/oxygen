@@ -286,6 +286,13 @@ pub fn admit(
     if is_legacy_row(kind, row) {
         return Err(Refusal::LegacyKeyRemoved);
     }
+    // An app's row has no secret anyone holds (`super::app_access`): it exists
+    // for the inventory, the audit stamp and revocation, and the host builds
+    // the app's credential from it in-process. No presented token may resolve
+    // to one. `expected_for` maps no format to it as well; this says so first.
+    if kind == StoredKind::App {
+        return Err(Refusal::KindMismatch);
+    }
     if kind.acts_as_account() {
         refuse_widened_account(row)?;
     }
@@ -321,10 +328,12 @@ pub fn admit(
         }
         // No stored row parses as `Service` (`StoredKind::parse`); a service is
         // read from configuration and never admitted here.
+        // An app's row is refused above; its credential is built by the host.
         StoredKind::Personal
         | StoredKind::LegacyKey
         | StoredKind::SandboxAgent
-        | StoredKind::Service => None,
+        | StoredKind::Service
+        | StoredKind::App => None,
     };
     Ok(CredentialContext {
         token_id: row.id,
@@ -341,6 +350,7 @@ pub fn admit(
         blocked_orgs: blocked,
         service_account,
         expires_at: row.expires_at.map(DateTime::<Utc>::from),
+        app_access: None,
     })
 }
 

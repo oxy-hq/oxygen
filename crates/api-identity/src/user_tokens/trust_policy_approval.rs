@@ -147,7 +147,7 @@ async fn check(
     let account = store::find_by_name(db, org.id, &request.account).await?;
     let role = match &account {
         Some(account) => {
-            usable_as_is(account)?;
+            usable_as_is(db, account).await?;
             store::role_of(account).ok_or_else(|| {
                 TokenError::Internal("service account has an unknown org_role".into())
             })?
@@ -254,7 +254,7 @@ async fn account_for(
             let account = store::find_by_name(db, checked.org.id, &request.account)
                 .await?
                 .ok_or_else(|| TokenError::Internal("a taken name names no account".into()))?;
-            usable_as_is(&account)?;
+            usable_as_is(db, &account).await?;
             Ok((account, false))
         }
         Err(e) => Err(e),

@@ -205,6 +205,7 @@ mod home_preferences;
 mod invocation_queries;
 mod me_apps;
 mod nonprod_function_uploads;
+mod oxygen_access;
 mod platform_facts;
 mod preview_automation_run_handlers;
 mod preview_read_only_session;

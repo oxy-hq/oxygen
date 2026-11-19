@@ -16,15 +16,22 @@ import type {
   NotifyResult,
   NotifyTarget,
   OxyCallerInfo,
+  OxyFrontlineApi,
   OxyFunctionApp,
   OxyFunctionContext,
   OxyFunctionRow,
   OxyFunctionUser,
+  OxyKioskDevice,
+  OxyKioskEnrolLink,
   OxyOltpTransaction,
   OxyOrgAssignment,
   OxyOrgPlace,
+  OxyOxygenApi,
   OxyPlatformApi,
-  OxyPlatformFacts
+  OxyPlatformFacts,
+  OxySourceReport,
+  OxySourceUploadsApi,
+  OxyUploadedReport
 } from "../custom-app/function-context";
 import { checkNotifications } from "../custom-app/notification-catalog";
 import {
@@ -38,7 +45,13 @@ import {
 } from "./apps";
 import { createTestEvents, eventId, recordPublish, type TestEvents } from "./events";
 import { isSafeOutbound } from "./fetch-rules";
-import { type FunctionGates, MAX_SCHEMA_NAME_LEN, type ManifestLike, readGates } from "./gates";
+import {
+  type FunctionGates,
+  MAX_SCHEMA_NAME_LEN,
+  type ManifestLike,
+  PIPELINE_NAME,
+  readGates
+} from "./gates";
 import {
   DIALECTS,
   type Dialect,
@@ -108,6 +121,13 @@ export interface TestContextOptions {
   platformFacts?: OxyPlatformFacts;
   /** `ctx.app.buildId`; the nil UUID when omitted. */
   buildId?: string;
+  /**
+   * Whether an org admin approved the app's platform actions (`ctx.oxygen`);
+   * `true` when omitted. `false`
+   * answers every such call with the host's `AppAccessNotApproved`, as an app
+   * nobody approved yet does in production.
+   */
+  appAccessApproved?: boolean;
   /**
    * Where `ctx.events.publish` records. Omit it and the context makes its own,
    * on `state.events`. Publishes are recorded, never delivered.
@@ -188,6 +208,10 @@ export interface TestState {
   /** Every `ctx.apps.send` that took effect (recorded, never delivered). */
   readonly apps: TestApps;
   readonly airway: { runs: { pipelineRef: string; variables: unknown }[] };
+  /** The org's kiosk devices, as `ctx.oxygen.frontline.devices.*` reads and changes them. */
+  readonly kiosks: OxyKioskDevice[];
+  /** Every `ctx.oxygen.sourceUploads.report`, in order, with the bytes decoded. */
+  readonly uploads: (OxySourceReport & { bytes: Uint8Array })[];
 }
 
 /**
@@ -197,6 +221,7 @@ export interface TestState {
  */
 export type TestFunctionContext = OxyFunctionContext & {
   platform: OxyPlatformApi;
+  oxygen: OxyOxygenApi;
   app: OxyFunctionApp;
 };
 
@@ -299,7 +324,9 @@ export function createTestContext(
     },
     airway: { runs: [] },
     events: options.events ?? createTestEvents(),
-    apps: createTestApps()
+    apps: createTestApps(),
+    kiosks: [],
+    uploads: []
   };
 
   const notifyKeys = new Map<string, NotifyResult>();
@@ -852,6 +879,7 @@ export function createTestContext(
           );
         }) as Promise<OxyPlatformFacts>
     },
+    oxygen: { frontline: frontlineApi(), sourceUploads: sourceUploadsApi() },
     storage: storageApi(),
     semantic: {
       query: (spec) =>
@@ -929,6 +957,148 @@ export function createTestContext(
   }
 
   // ── ctx.storage: a Map with an offset cursor, as the canary's fake was ────
+
+  /** The host's refusal for an app no org admin approved. */
+  function notApproved(surface: string, what: string): Error {
+    return hostError(
+      surface,
+      `AppAccessNotApproved: an org admin has not approved this app to ${what}. An owner or admin of the organization approves it under Apps, on the organization's API tokens settings.`
+    );
+  }
+
+  /** A device's enrol link, minted on a test origin. */
+  function enrolLink(device: OxyKioskDevice): OxyKioskEnrolLink {
+    const token = `test-${device.id}-${Date.now()}`;
+    const bindPath = `/api/frontline/devices/bind?token=${token}`;
+    const expires = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    device.enrol_expires_at = expires;
+    return {
+      id: device.id,
+      name: device.name,
+      enrol_url: `https://oxygen.test${bindPath}`,
+      bind_path: bindPath,
+      expires_at: expires
+    };
+  }
+
+  function frontlineApi(): OxyFrontlineApi {
+    const gate = () => {
+      if (!gates.frontlineDevices) throw refuse(SURFACES.oxygen, REFUSALS.frontlineDevices);
+      if (options.appAccessApproved === false) {
+        throw notApproved(SURFACES.oxygen, "manage the organization's kiosk devices");
+      }
+    };
+    const find = (id: unknown) => {
+      const device = state.kiosks.find((d) => d.id === String(id));
+      if (!device) throw hostError(SURFACES.oxygen, "AppActionNotFound: no such device");
+      return device;
+    };
+    return {
+      devices: {
+        list: () =>
+          op("oxygen.frontline.devices.list", {}, () => {
+            gate();
+            return { devices: [...state.kiosks].reverse() };
+          }) as Promise<{ devices: OxyKioskDevice[] }>,
+        create: (input) =>
+          op("oxygen.frontline.devices.create", { ...input }, (a) => {
+            gate();
+            const name = typeof a.name === "string" ? a.name.trim() : "";
+            if (!name) {
+              throw hostError(
+                SURFACES.oxygen,
+                "AppActionInvalid: ctx.oxygen.frontline.devices.create needs a `name`"
+              );
+            }
+            const place = state.org.places.find((p) => p.id === a.locationId);
+            const device: OxyKioskDevice = {
+              id: nodeCryptoImport.randomUUID(),
+              name,
+              return_to: typeof a.returnTo === "string" ? a.returnTo : null,
+              created_at: new Date().toISOString(),
+              bound_at: null,
+              last_seen_at: null,
+              revoked_at: null,
+              enrol_expires_at: null,
+              location_id: typeof a.locationId === "string" ? a.locationId : null,
+              location_name: place?.name ?? null,
+              idle_timeout_seconds:
+                typeof a.idleTimeoutSeconds === "number" ? a.idleTimeoutSeconds : 28800
+            };
+            state.kiosks.push(device);
+            return enrolLink(device);
+          }) as Promise<OxyKioskEnrolLink>,
+        reissueLink: (id) =>
+          op("oxygen.frontline.devices.reissueLink", { id }, (a) => {
+            gate();
+            const device = find(a.id);
+            if (device.bound_at || device.revoked_at) {
+              throw hostError(
+                SURFACES.oxygen,
+                "AppActionInvalid: the device is already bound or revoked"
+              );
+            }
+            return enrolLink(device);
+          }) as Promise<OxyKioskEnrolLink>,
+        revoke: (id) =>
+          op("oxygen.frontline.devices.revoke", { id }, (a) => {
+            gate();
+            const device = find(a.id);
+            const revoked = device.revoked_at === null;
+            if (revoked) device.revoked_at = new Date().toISOString();
+            return { revoked, id: device.id };
+          }) as Promise<{ revoked: boolean; id: string }>
+      }
+    };
+  }
+
+  function sourceUploadsApi(): OxySourceUploadsApi {
+    return {
+      report: (input) =>
+        op("oxygen.sourceUploads.report", { ...input }, (a) => {
+          // The host's order: the ask, the arguments, the function's own list
+          // of pipelines, then the approval.
+          if (!gates.sourceUploads) throw refuse(SURFACES.oxygen, REFUSALS.sourceUploads);
+          const report = a as unknown as OxySourceReport;
+          for (const key of ["file", "fileName", "pipeline", "workflowId"] as const) {
+            if (typeof report[key] !== "string" || report[key].trim() === "") {
+              throw hostError(
+                SURFACES.oxygen,
+                `AppActionInvalid: ctx.oxygen.sourceUploads.report needs \`${key}\``
+              );
+            }
+          }
+          if (!PIPELINE_NAME.test(report.pipeline)) {
+            throw hostError(
+              SURFACES.oxygen,
+              "AppActionInvalid: `pipeline` must be a pipeline's name: 1–128 characters of [A-Za-z0-9_.-]"
+            );
+          }
+          if (!gates.sourceUploadPipelines.includes(report.pipeline)) {
+            throw hostError(
+              SURFACES.oxygen,
+              `OxygenCapabilityMissing: this function has not declared the pipeline \`${report.pipeline}\` (add it to "oxygen": { "sourceUploads": { "pipelines": [...] } } in its oxy-app.json entry). An org admin must also approve it.`
+            );
+          }
+          if (options.appAccessApproved === false) {
+            throw hostError(
+              SURFACES.oxygen,
+              `AppAccessNotApproved: an org admin has not approved this app to upload reports for the pipeline \`${report.pipeline}\`. An owner or admin of the organization approves it under Apps, on the organization's API tokens settings.`
+            );
+          }
+          const bytes = new Uint8Array(Buffer.from(report.file, "base64"));
+          state.uploads.push({ ...report, bytes });
+          const year = report.reportYear ?? new Date().getUTCFullYear();
+          const month = report.reportMonth ?? new Date().getUTCMonth() + 1;
+          return {
+            location: `s3://test-zone/${report.pipeline}/${year}/${month}/${report.workflowId}.csv`,
+            report_year: year,
+            report_month: month,
+            rows: 0
+          };
+        }) as Promise<OxyUploadedReport>
+    };
+  }
 
   function storageApi(): OxyFunctionContext["storage"] {
     const now = () => new Date().toISOString();

@@ -25,10 +25,12 @@ use super::dto::{
     OrgTokenList, ServiceAccountDto, ServiceAccountList, TrustPolicyDto, TrustPolicyList,
 };
 use super::inventory::InventoryQuery;
+use super::oxygen_access::{AppAccessDto, AppAccessList, ApproveBody};
 use super::token_policy::{self, TokenPolicyDto};
 use super::{
     ManageApiAccess, ManagesServiceAccounts, ManagesTokenPolicy, RevokesTokenGrants,
-    ViewsTokenInventory, account_tokens, accounts, inventory, revoke_grant, trust_policies,
+    ViewsTokenInventory, account_tokens, accounts, inventory, oxygen_access, revoke_grant,
+    trust_policies,
 };
 use crate::token_activity::{ActivityQuery, ActivityResponse, page_size};
 use crate::user_tokens::dto::TokenDto;
@@ -311,4 +313,56 @@ pub async fn put_token_policy(
     let body: TokenPolicyDto = parse(&body)?;
     let db = establish_connection().await?;
     Ok(Json(token_policy::put(&db, &actor, &ctx.org, body).await?))
+}
+
+/// List the org's custom apps that ask for platform actions, and their approval
+pub async fn list_oxygen_access(
+    OrgAdminFor(ctx, _): ViewsTokenInventory,
+) -> Result<Json<AppAccessList>, TokenError> {
+    let db = establish_connection().await?;
+    Ok(Json(oxygen_access::list(&db, ctx.org.id).await?))
+}
+
+/// One custom app's platform access in the org, for the approval page
+pub async fn get_oxygen_access(
+    OrgAdminFor(ctx, _): ViewsTokenInventory,
+    Path((_org_id, app_id)): Path<(Uuid, String)>,
+) -> Result<Json<AppAccessDto>, TokenError> {
+    let app_id = token_id(&app_id)?;
+    let db = establish_connection().await?;
+    Ok(Json(oxygen_access::get(&db, ctx.org.id, app_id).await?))
+}
+
+/// Approve platform actions a custom app's live build asks for
+pub async fn approve_oxygen_access(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, app_id)): Path<(Uuid, String)>,
+    body: Bytes,
+) -> Result<Json<AppAccessDto>, TokenError> {
+    let app_id = token_id(&app_id)?;
+    let body: ApproveBody = if body.is_empty() {
+        ApproveBody::default()
+    } else {
+        parse(&body)?
+    };
+    let db = establish_connection().await?;
+    Ok(Json(
+        oxygen_access::approve(&db, &actor, ctx.org.id, app_id, body).await?,
+    ))
+}
+
+/// End a custom app's platform access
+pub async fn revoke_oxygen_access(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, app_id)): Path<(Uuid, String)>,
+) -> Result<Json<AppAccessDto>, TokenError> {
+    let app_id = token_id(&app_id)?;
+    let db = establish_connection().await?;
+    Ok(Json(
+        oxygen_access::revoke(&db, &actor, ctx.org.id, app_id).await?,
+    ))
 }

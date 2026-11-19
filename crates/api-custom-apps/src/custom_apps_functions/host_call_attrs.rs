@@ -423,6 +423,16 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     // the function's own statement, refused before it is sent, the same on
     // every attempt.
     "EventLoop",
+    // A platform action no org admin has approved for the app (or whose
+    // approval its account no longer stands behind): the org's decision,
+    // which the app can only report. `host/app_access_op.rs`.
+    "AppAccessNotApproved",
+    // A platform action refused for its own arguments: a bad name or id, a
+    // location not in the org, a report the source would not load. The
+    // platform's words, before anything changes.
+    "AppActionInvalid",
+    // A kiosk id that names nothing in the org.
+    "AppActionNotFound",
 ];
 
 /// The typed labels the host writes for a condition that is not the app's
@@ -483,6 +493,12 @@ const PLATFORM_ERROR_LABELS: &[&str] = &[
     "NotifyStoreMissing",
     // The org's store or Oxy's bookkeeping failing mid-send.
     "NotifyFailed",
+    // A capability the manifest lacks, as for the others above.
+    "OxygenCapabilityMissing",
+    // The platform failing to do an approved action, or a process with no
+    // platform actions installed (`oxy_app_core::app_platform_seam`): ours.
+    "AppActionUnavailable",
+    "AppAccessUnavailable",
 ];
 
 /// `label` is the lowercased head of the message, up to its first `: `.

@@ -240,6 +240,19 @@ export interface OxyAppFunctionManifest {
    */
   platform?: OxyAppPlatformCapability;
   /**
+   * The platform actions this function asks for, which it calls under
+   * `ctx.oxygen`. **Asks, never grants**: an org owner or admin approves the
+   * app under App access in the organization's settings, and the host refuses
+   * the call (`AppAccessNotApproved`) until then. Production only. The app's
+   * own code decides which of its users may ask: Oxygen checks the app, not the
+   * person.
+   *
+   * ```json
+   * "oxygen": { "frontline": { "devices": "manage" } }
+   * ```
+   */
+  oxygen?: OxyAppOxygenCapability;
+  /**
    * Capability for `ctx.oltp` — read/write the app's OWN per-org OLTP schema on
    * the managed Postgres tenant (fail-closed: omit → every `ctx.oltp` call
    * rejected). A pure GATE: the target schema is derived from the app's own slug
@@ -490,6 +503,30 @@ export interface OxyAppOrgCapability {
 export interface OxyAppPlatformCapability {
   /** Allow `ctx.platform.facts()` (internal orgs only). */
   facts?: boolean;
+}
+
+/** `functions.<name>.oxygen`: the platform actions the function asks for. */
+export interface OxyAppOxygenCapability {
+  /** The organization's kiosk devices: `ctx.oxygen.frontline.devices.*`. */
+  frontline?: OxyAppFrontlineCapability;
+  /** Source reports into a pipeline's landing zone: `ctx.oxygen.sourceUploads.report`. */
+  sourceUploads?: OxyAppSourceUploadsCapability;
+}
+
+/** `functions.<name>.oxygen.frontline`. */
+export interface OxyAppFrontlineCapability {
+  /** `"manage"`: list, create, re-link and revoke the org's kiosk devices. */
+  devices?: "manage";
+}
+
+/** `functions.<name>.oxygen.sourceUploads`. */
+export interface OxyAppSourceUploadsCapability {
+  /**
+   * The pipelines, by name, whose landing zones the function uploads reports
+   * into: `["ubereats_transactions"]`. An org admin approves each one, and a
+   * call naming any other is refused. Oxygen finds where the pipeline lives.
+   */
+  pipelines: string[];
 }
 
 /** `functions.<name>.oltp` and `functions.<name>.airhouse`: a pure gate. */

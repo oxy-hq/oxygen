@@ -57,7 +57,8 @@ use super::frontline_kiosk_cookie::{
     append_set_cookies, carries_kiosk_hint, clear_kiosk_cookies_on, kiosk_cookie_parts,
     kiosk_cookies, kiosk_hint_cookie, set_cookie_values,
 };
-use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_app::surface::Action;
+use oxy_app::surface::role_guards::{OrgAdminAction, OrgAdminFor};
 use oxy_app::surface::session::{
     extract_base_url_from_headers, is_request_secure, validate_return_to_url,
 };
@@ -100,6 +101,21 @@ const IDLE_TIMEOUT_MAX_SECONDS: u32 = super::frontline::SHIFT_HOURS as u32 * 360
 fn sha256_hex(s: &str) -> String {
     hex::encode(Sha256::digest(s.as_bytes()))
 }
+
+/// The check every kiosk route makes: an org owner or admin, decided on the
+/// kiosk action itself rather than `OrgAdmin`'s representative
+/// `MemberSetRole`. Nobody's access changes; the action now has a name, so a
+/// credential (an app approved to manage kiosks) can hold this and nothing
+/// else of the ring.
+pub struct FrontlineDevices;
+
+impl OrgAdminAction for FrontlineDevices {
+    const LABEL: &'static str = "guard.frontline_device_manage";
+    const ACTION: Action = Action::FrontlineDeviceManage;
+}
+
+/// An org owner or admin, for the kiosk routes.
+pub type ManagesFrontlineDevices = OrgAdminFor<FrontlineDevices>;
 
 /// 244 bits from the OS, as 64 hex characters. Two v4 UUIDs rather than a
 /// `rand` call: the crate is a workspace dependency whose API moved between
@@ -1003,11 +1019,17 @@ impl CreatedDevice {
     /// The one place a token becomes a link, so create and reissue cannot
     /// drift on the path or the origin.
     fn new(row: devices::Model, token: &str, headers: &HeaderMap) -> Self {
+        Self::with_base(row, token, &enrol_link_base(headers))
+    }
+
+    /// The same, minted on `base` rather than on a request's origin: what a
+    /// host op uses, which has no request (`app_ops`).
+    fn with_base(row: devices::Model, token: &str, base: &str) -> Self {
         let bind_path = format!("/api/frontline/devices/bind?token={token}");
         Self {
             id: row.id,
             name: row.name,
-            enrol_url: format!("{}{bind_path}", enrol_link_base(headers)),
+            enrol_url: format!("{base}{bind_path}"),
             bind_path,
             expires_at: row
                 .enrol_expires_at
@@ -1021,7 +1043,7 @@ impl CreatedDevice {
 /// and answers with the one-time enrol link.
 #[instrument(skip_all, fields(org = %org_id))]
 pub async fn create_device(
-    OrgAdmin(_ctx): OrgAdmin,
+    OrgAdminFor(_ctx, _): ManagesFrontlineDevices,
     actor: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     headers: HeaderMap,
@@ -1119,42 +1141,51 @@ impl DeviceRow {
 /// `GET /api/orgs/{org_id}/frontline/devices` — org admin. Newest first; no
 /// hash of anything leaves the server.
 #[instrument(skip_all, fields(org = %org_id))]
-pub async fn list_devices(OrgAdmin(_ctx): OrgAdmin, Path(org_id): Path<Uuid>) -> Response {
+pub async fn list_devices(
+    OrgAdminFor(_ctx, _): ManagesFrontlineDevices,
+    Path(org_id): Path<Uuid>,
+) -> Response {
     let Ok(db) = establish_connection().await else {
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
     };
-    match devices::Entity::find()
-        .filter(devices::Column::OrgId.eq(org_id))
-        .order_by_desc(devices::Column::CreatedAt)
-        .all(&db)
-        .await
-    {
-        Ok(rows) => {
-            let places: std::collections::HashMap<Uuid, String> = match locations::Entity::find()
-                .filter(locations::Column::OrgId.eq(org_id))
-                .all(&db)
-                .await
-            {
-                Ok(ls) => ls.into_iter().map(|l| (l.id, l.name)).collect(),
-                Err(e) => {
-                    warn!(error = %e, "kiosk device list: locations not loaded");
-                    Default::default()
-                }
-            };
-            let devices: Vec<DeviceRow> = rows
-                .into_iter()
-                .map(|r| {
-                    let place = r.location_id.and_then(|l| places.get(&l).cloned());
-                    DeviceRow::new(r, place)
-                })
-                .collect();
-            Json(serde_json::json!({ "devices": devices })).into_response()
-        }
+    match device_rows(&db, org_id).await {
+        Ok(devices) => Json(serde_json::json!({ "devices": devices })).into_response(),
         Err(e) => {
             warn!(error = %e, "kiosk device list failed");
             json_error(StatusCode::INTERNAL_SERVER_ERROR, "list failed")
         }
     }
+}
+
+/// The org's devices as the settings list reads them, newest first. What the
+/// list route answers and what an app's host op answers (`app_ops::list`).
+pub async fn device_rows(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+) -> Result<Vec<DeviceRow>, sea_orm::DbErr> {
+    let rows = devices::Entity::find()
+        .filter(devices::Column::OrgId.eq(org_id))
+        .order_by_desc(devices::Column::CreatedAt)
+        .all(db)
+        .await?;
+    let places: std::collections::HashMap<Uuid, String> = match locations::Entity::find()
+        .filter(locations::Column::OrgId.eq(org_id))
+        .all(db)
+        .await
+    {
+        Ok(ls) => ls.into_iter().map(|l| (l.id, l.name)).collect(),
+        Err(e) => {
+            warn!(error = %e, "kiosk device list: locations not loaded");
+            Default::default()
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let place = r.location_id.and_then(|l| places.get(&l).cloned());
+            DeviceRow::new(r, place)
+        })
+        .collect())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1193,7 +1224,7 @@ pub struct UpdateDeviceRequest {
 /// settings pane can drop it straight into the row it just edited.
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn update_device(
-    OrgAdmin(_ctx): OrgAdmin,
+    OrgAdminFor(_ctx, _): ManagesFrontlineDevices,
     actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateDeviceRequest>,
@@ -1275,7 +1306,7 @@ async fn place_name(db: &DatabaseConnection, org_id: Uuid, id: Option<Uuid>) -> 
 /// revoked.
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn reissue_enrol_link(
-    OrgAdmin(_ctx): OrgAdmin,
+    OrgAdminFor(_ctx, _): ManagesFrontlineDevices,
     actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
@@ -1311,7 +1342,7 @@ pub async fn reissue_enrol_link(
 /// that browser's kiosk cookie and hint, as leaving kiosk mode does.
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn revoke_device(
-    OrgAdmin(_ctx): OrgAdmin,
+    OrgAdminFor(_ctx, _): ManagesFrontlineDevices,
     actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
@@ -1341,6 +1372,106 @@ pub async fn revoke_device(
             warn!(error = %e, "kiosk device revoke failed");
             json_error(StatusCode::INTERNAL_SERVER_ERROR, "revoke failed")
         }
+    }
+}
+
+/// The kiosk operations a custom app's function asks for through its host op
+/// (`ctx.frontline.devices.*`), once the function runtime has decided the app
+/// may: the same functions the routes call, answering the same bodies, with no
+/// request. Who may is not decided here; `oxy-server` hands these to the
+/// function runtime (`oxy_app_core::app_platform_seam`).
+///
+/// The enrol link is minted on the admin host (`admin_base_url`, from
+/// `OXY_API_URL`), the origin a function's call used to reach these routes
+/// on. With none configured, the shared helper's local fallback is used.
+pub mod app_ops {
+    use super::*;
+    use oxy_app_core::app_platform_seam::PlatformActionError;
+
+    fn link_base() -> String {
+        oxy_app_core::custom_apps_host_dispatch::admin_base_url()
+            .unwrap_or_else(|| enrol_link_base(&HeaderMap::new()))
+    }
+
+    fn refusal(e: DeviceError, what: &str) -> PlatformActionError {
+        match e {
+            DeviceError::BadName
+            | DeviceError::BadReturnTo
+            | DeviceError::BadLocation
+            | DeviceError::BadIdleTimeout
+            | DeviceError::NotPending
+            | DeviceError::Revoked => PlatformActionError::Invalid(e.to_string()),
+            DeviceError::NotFound | DeviceError::NoSuchToken => {
+                PlatformActionError::NotFound("no such device".into())
+            }
+            DeviceError::Db(err) => {
+                warn!(error = %err, "kiosk device {what} for an app failed");
+                PlatformActionError::Unavailable(format!("{what} failed"))
+            }
+        }
+    }
+
+    /// `{ devices: [...] }`, as `GET …/frontline/devices` answers.
+    pub async fn list(
+        db: &DatabaseConnection,
+        org_id: Uuid,
+    ) -> Result<serde_json::Value, PlatformActionError> {
+        match device_rows(db, org_id).await {
+            Ok(devices) => Ok(serde_json::json!({ "devices": devices })),
+            Err(e) => Err(refusal(DeviceError::Db(e), "list")),
+        }
+    }
+
+    /// The new device and its enrol link, as `POST …/frontline/devices` answers.
+    pub async fn create(
+        db: &DatabaseConnection,
+        org_id: Uuid,
+        name: &str,
+        location_id: Option<Uuid>,
+        return_to: Option<&str>,
+        idle_timeout_seconds: Option<u32>,
+        created_by: Uuid,
+    ) -> Result<serde_json::Value, PlatformActionError> {
+        let (row, token) = super::create(
+            db,
+            org_id,
+            NewDevice {
+                name,
+                return_to,
+                location_id,
+                idle_timeout_seconds,
+                created_by: Some(created_by),
+            },
+        )
+        .await
+        .map_err(|e| refusal(e, "create"))?;
+        serde_json::to_value(CreatedDevice::with_base(row, &token, &link_base()))
+            .map_err(|e| PlatformActionError::Unavailable(e.to_string()))
+    }
+
+    /// A new enrol link, as `POST …/devices/{id}/enrol-link` answers.
+    pub async fn reissue(
+        db: &DatabaseConnection,
+        org_id: Uuid,
+        id: Uuid,
+    ) -> Result<serde_json::Value, PlatformActionError> {
+        let (row, token) = reissue_link(db, org_id, id)
+            .await
+            .map_err(|e| refusal(e, "reissue"))?;
+        serde_json::to_value(CreatedDevice::with_base(row, &token, &link_base()))
+            .map_err(|e| PlatformActionError::Unavailable(e.to_string()))
+    }
+
+    /// `{ revoked, id }`: `revoked` is false for a device already revoked.
+    pub async fn revoke(
+        db: &DatabaseConnection,
+        org_id: Uuid,
+        id: Uuid,
+    ) -> Result<serde_json::Value, PlatformActionError> {
+        let changed = super::revoke(db, org_id, id)
+            .await
+            .map_err(|e| refusal(e, "revoke"))?;
+        Ok(serde_json::json!({ "revoked": changed, "id": id }))
     }
 }
 

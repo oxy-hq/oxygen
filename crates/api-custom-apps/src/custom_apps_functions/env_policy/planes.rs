@@ -60,6 +60,15 @@ impl HostOp {
             // on the project, so it is refused in every non-production
             // environment (`AIRWAY_FIX`) and stays `Staged::Decided`.
             AirwayRun => Plane::WorkspaceActions,
+            // Listed here for the same reason, and never decided by a plane
+            // either: an app's platform access acts on the org (its kiosks) or
+            // the workspace (its landing zone), not on an app environment, so
+            // it is refused outside production (`APP_ACCESS_FIX`).
+            FrontlineDevicesList
+            | FrontlineDevicesCreate
+            | FrontlineDevicesReissueLink
+            | FrontlineDevicesRevoke
+            | SourceUploadsReport => Plane::WorkspaceActions,
         }
     }
 }

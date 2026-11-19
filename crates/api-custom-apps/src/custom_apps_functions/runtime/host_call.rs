@@ -78,6 +78,14 @@ pub(super) enum HostCall {
         opts: serde_json::Value,
         reply: HostReply,
     },
+    /// `ctx.oxygen.*` — the platform actions an org admin approved for the
+    /// app. `op` names the operation; the org and whatever the operation acts
+    /// on are the host's to resolve, never the function's to name freely.
+    AppAction {
+        op: String,
+        payload: serde_json::Value,
+        reply: HostReply,
+    },
     Tx {
         op: String,
         payload: serde_json::Value,
@@ -130,6 +138,7 @@ impl HostCall {
             | HostCall::OrgPlaces { .. }
             | HostCall::OrgAssignments { .. } => Family::Org,
             HostCall::PlatformFacts { .. } => Family::Platform,
+            HostCall::AppAction { .. } => Family::Oxygen,
             HostCall::Tx { .. } => Family::Tx,
             HostCall::Oltp { .. } => Family::Oltp,
             HostCall::Airhouse { .. } => Family::Airhouse,
@@ -150,7 +159,8 @@ impl HostCall {
             | HostCall::Oltp { op, .. }
             | HostCall::Airhouse { op, .. }
             | HostCall::Events { op, .. }
-            | HostCall::Apps { op, .. } => Some(op),
+            | HostCall::Apps { op, .. }
+            | HostCall::AppAction { op, .. } => Some(op),
             HostCall::SemanticQuery { .. } => Some("query"),
             HostCall::AirwayRun { .. } => Some("run"),
             HostCall::SecretsSet { .. } => Some("set"),
@@ -213,7 +223,8 @@ impl HostCall {
             | HostCall::Oltp { reply, .. }
             | HostCall::Airhouse { reply, .. }
             | HostCall::Events { reply, .. }
-            | HostCall::Apps { reply, .. } => reply,
+            | HostCall::Apps { reply, .. }
+            | HostCall::AppAction { reply, .. } => reply,
         }
     }
 }
@@ -349,6 +360,7 @@ pub(super) async fn dispatch_host_call(
         HostCall::OrgPlaces { reply } => (reply, host.org_places().await),
         HostCall::OrgAssignments { reply } => (reply, host.org_assignments().await),
         HostCall::PlatformFacts { opts, reply } => (reply, host.platform_facts(opts).await),
+        HostCall::AppAction { payload, reply, .. } => (reply, host.app_action(op, payload).await),
     }
 }
 

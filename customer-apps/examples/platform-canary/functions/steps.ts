@@ -99,7 +99,12 @@ export type HostOp =
   | "tx.publish"
   | "apps.call"
   | "apps.send"
-  | "events.changes";
+  | "events.changes"
+  | "oxygen.frontline.devices.list"
+  | "oxygen.frontline.devices.create"
+  | "oxygen.frontline.devices.reissueLink"
+  | "oxygen.frontline.devices.revoke"
+  | "oxygen.sourceUploads.report";
 
 /**
  * The host ops each step makes, in the order it makes them. Checked both

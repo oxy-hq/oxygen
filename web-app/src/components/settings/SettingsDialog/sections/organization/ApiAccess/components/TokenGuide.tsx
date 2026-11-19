@@ -24,8 +24,10 @@ const SECRETS: SettingsSection = "organization.secrets";
  * made. Every answer here is a decision already made in the token design
  * (`internal-docs/2026-09-30-api-tokens-design.md` §3.1): a personal token is its owner, a
  * service account outlives whoever set it up, and GitHub Actions needs no stored secret at all.
- * A custom app that calls Oxygen keeps a service account token as one of its secrets, so that
- * row leads to Secrets, where the token can be created straight into the secret.
+ * A custom app that manages kiosk devices or uploads source reports needs no token at all: an
+ * admin approves it under Apps and it calls `ctx.oxygen`. One that calls any other Oxygen API
+ * keeps a service account token as one of its secrets, so that row leads to Secrets, where the
+ * token can be created straight into the secret.
  */
 const ROWS: readonly Row[] = [
   {
@@ -50,7 +52,14 @@ const ROWS: readonly Row[] = [
     testId: "trusted-access"
   },
   {
-    need: "A custom app that calls Oxygen",
+    need: "A custom app that manages kiosk devices or uploads source reports",
+    answer: "Approve the app under Apps: no token is stored",
+    to: { kind: "tab", tab: "apps" },
+    unreachable: "An approval under Apps, from an organization admin",
+    testId: "app-approval"
+  },
+  {
+    need: "A custom app that calls any other Oxygen API",
     answer: "Create API token on the app's secret",
     to: { kind: "section", section: SECRETS, tab: "app" },
     unreachable: "A service account token in the app's secret, from an organization admin",

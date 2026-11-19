@@ -123,8 +123,17 @@ fn zone() -> Result<(String, String), (StatusCode, String)> {
 /// is what replaces the old unenforced "keep these equal" instruction: a drift
 /// now fails the upload naming both values, instead of landing reports
 /// somewhere no loader looks.
-async fn zone_for_pipeline(
-    workspace: &oxy::adapters::workspace::manager::WorkspaceManager<impl oxy::config::DiskSlot>,
+/// Where an upload's pipeline definition comes from: read through the
+/// request's workspace (the route), or already read by whoever found the
+/// pipeline (a function's `ctx.oxygen.sourceUploads.report`, which looked it up
+/// among the org's compiled pipelines by name).
+pub(crate) enum DefinitionFrom<'a, S: oxy::config::DiskSlot> {
+    Workspace(&'a oxy::adapters::workspace::manager::WorkspaceManager<S>),
+    Read(serde_json::Value),
+}
+
+async fn zone_for_pipeline<S: oxy::config::DiskSlot>(
+    source: DefinitionFrom<'_, S>,
     workspace_id: Uuid,
     pipeline_ref: &str,
     bucket: &str,
@@ -143,6 +152,19 @@ async fn zone_for_pipeline(
     // already holds a manager whose revision the middleware pinned, so reading
     // around it would decide compiled-vs-disk a second time, at a call site
     // that cannot see which revision this request is on.
+    let workspace = match source {
+        DefinitionFrom::Read(definition) => {
+            return zone_for_definition(
+                &definition,
+                workspace_id,
+                pipeline_ref,
+                bucket,
+                root,
+                pipeline_slug,
+            );
+        }
+        DefinitionFrom::Workspace(workspace) => workspace,
+    };
     let definition = match workspace
         .config_manager
         .pipeline_definition(pipeline_ref)
@@ -172,17 +194,36 @@ async fn zone_for_pipeline(
             ));
         }
     };
+    zone_for_definition(
+        &definition,
+        workspace_id,
+        pipeline_ref,
+        bucket,
+        root,
+        pipeline_slug,
+    )
+}
 
+/// The zone's kind and store scope from a pipeline definition, checked as the
+/// loader will read it.
+fn zone_for_definition(
+    definition: &serde_json::Value,
+    workspace_id: Uuid,
+    pipeline_ref: &str,
+    bucket: &str,
+    root: &str,
+    pipeline_slug: &str,
+) -> Result<(String, Option<std::collections::HashSet<String>>), (StatusCode, String)> {
     // The kind is read BEFORE the expected path is derived, because the kind
     // is one of its segments. That ordering is why this returns the kind
     // rather than taking a path: deriving it outside would need the kind, and
     // the kind only exists once the definition has been read.
-    let kind = uploadable_kind(&definition, pipeline_ref)?.to_string();
+    let kind = uploadable_kind(definition, pipeline_ref)?.to_string();
     let expected = pipeline_base_path(bucket, root, workspace_id, &kind, pipeline_slug);
-    check_pipeline_definition(&definition, pipeline_ref, &expected)?;
+    check_pipeline_definition(definition, pipeline_ref, &expected)?;
     // A pipeline the loader would refuse is refused here too, naming the
     // pipeline — not carried forward as a scope that only this side honours.
-    let allowed_stores = allowed_stores_of(&definition)
+    let allowed_stores = allowed_stores_of(definition)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("`{pipeline_ref}`: {e}")))?;
     Ok((kind, allowed_stores))
 }
@@ -649,6 +690,81 @@ pub async fn upload_report(
         }
     }
 
+    store_report(
+        &workspace,
+        workspace_id,
+        ReportFields {
+            bytes,
+            pipeline_ref,
+            filename,
+            workflow_id,
+            year,
+            month,
+        },
+    )
+    .await
+    .map(axum::Json)
+}
+
+/// One upload's fields, as the multipart body names them, or as a custom app's
+/// host op does (`ctx.sourceUploads.report`, approved for the app as
+/// `Action::SourceUploadReport`). Each is checked by [`store_report`], so a
+/// missing or malformed one is refused the same way whichever way it came.
+#[derive(Debug, Default)]
+pub struct ReportFields {
+    pub bytes: Option<Vec<u8>>,
+    pub pipeline_ref: Option<String>,
+    pub filename: Option<String>,
+    pub workflow_id: Option<String>,
+    pub year: Option<i64>,
+    pub month: Option<u32>,
+}
+
+/// Validate one report and put it in the landing zone of `workspace_id`'s
+/// pipeline: everything the route does after reading the body. Who may is
+/// decided before this is called — the route's `WorkspaceEditor`, or the
+/// function runtime for an app's approved action.
+pub async fn store_report<S: oxy::config::DiskSlot>(
+    workspace: &oxy::adapters::workspace::manager::WorkspaceManager<S>,
+    workspace_id: Uuid,
+    fields: ReportFields,
+) -> Result<UploadedReport, (StatusCode, String)> {
+    store(DefinitionFrom::Workspace(workspace), workspace_id, fields).await
+}
+
+/// [`store_report`] for a pipeline whose compiled definition the caller has
+/// already read (`app_ops::report`): the same checks, the same zone, the same
+/// object key.
+pub async fn store_report_from(
+    definition: serde_json::Value,
+    workspace_id: Uuid,
+    fields: ReportFields,
+) -> Result<UploadedReport, (StatusCode, String)> {
+    store::<oxy::config::WorkingCopy>(DefinitionFrom::Read(definition), workspace_id, fields).await
+}
+
+async fn store<S: oxy::config::DiskSlot>(
+    source: DefinitionFrom<'_, S>,
+    workspace_id: Uuid,
+    fields: ReportFields,
+) -> Result<UploadedReport, (StatusCode, String)> {
+    let ReportFields {
+        bytes,
+        pipeline_ref,
+        filename,
+        workflow_id,
+        year,
+        month,
+    } = fields;
+    // The route's multipart loop checks this as it reads the part; a host op
+    // hands the bytes in whole, so it is checked again here.
+    if bytes.as_ref().is_some_and(|b| b.len() > MAX_REPORT_BYTES) {
+        let len = bytes.as_ref().map(Vec::len).unwrap_or_default();
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("report is {len} bytes, over the {MAX_REPORT_BYTES}-byte ceiling"),
+        ));
+    }
     let bytes = bytes.ok_or((StatusCode::BAD_REQUEST, "missing `file` field".to_string()))?;
     let pipeline_ref = pipeline_ref.filter(|p| !p.is_empty()).ok_or((
         StatusCode::BAD_REQUEST,
@@ -735,15 +851,8 @@ pub async fn upload_report(
     //
     // It also fails earlier on a misconfigured pipeline, before spending time
     // parsing a file that had nowhere to go.
-    let (kind, allowed_stores) = zone_for_pipeline(
-        &workspace,
-        workspace_id,
-        &pipeline_ref,
-        &bucket,
-        &root,
-        &slug,
-    )
-    .await?;
+    let (kind, allowed_stores) =
+        zone_for_pipeline(source, workspace_id, &pipeline_ref, &bucket, &root, &slug).await?;
 
     let validated = validate_ubereats_report(&bytes, &filename, period, allowed_stores.as_ref())
         .await
@@ -786,12 +895,12 @@ pub async fn upload_report(
 
     put_object(&bucket, &key, bytes).await?;
 
-    Ok(axum::Json(UploadedReport {
+    Ok(UploadedReport {
         location: format!("s3://{bucket}/{key}"),
         report_year: year,
         report_month: month,
         rows,
-    }))
+    })
 }
 
 /// Write the report, with its own S3 client.

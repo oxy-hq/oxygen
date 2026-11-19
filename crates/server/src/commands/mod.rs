@@ -47,6 +47,13 @@ pub enum ServerCommand {
 /// to Sentry, and flushes the platform-telemetry exporters, so the failure that
 /// crash-loops a pod is the last thing HyperDX shows for it.
 pub async fn run(command: ServerCommand, seams: SurfaceSeams) -> oxy_cli_shim::RunResult {
+    // Every command here can run a custom-app function (a route on `serve` and
+    // `start`, a queued run on `worker`), so each installs the platform work an
+    // app's approved actions call (`app_platform_seam`). Without it those host
+    // ops refuse, saying so.
+    oxy_app_core::app_platform_seam::install(std::sync::Arc::new(
+        crate::app_platform::ServerAppPlatform,
+    ));
     match command {
         ServerCommand::Start(args) => start::start_database_and_server(args, seams)
             .await

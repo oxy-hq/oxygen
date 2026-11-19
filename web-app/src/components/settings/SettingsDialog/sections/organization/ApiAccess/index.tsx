@@ -10,6 +10,7 @@ import PersonalTokens from "../../account/PersonalTokens";
 import { ApiIdField } from "./components/ApiIdField";
 import { TokenGuide } from "./components/TokenGuide";
 import { Inventory } from "./Inventory";
+import { OxygenAccessList } from "./OxygenAccess";
 import { Policy } from "./Policy";
 import { ServiceAccounts } from "./ServiceAccounts";
 
@@ -62,6 +63,13 @@ const TABS: readonly TabDef[] = [
       org && <ServiceAccounts org={org} selectedId={accountId} onSelect={setAccountId} />
   },
   {
+    id: "apps",
+    label: "Apps",
+    orgAdminOnly: true,
+    testId: "api-tokens-tab-apps",
+    render: ({ org }) => org && <OxygenAccessList org={org} />
+  },
+  {
     id: "all",
     label: "All tokens",
     orgAdminOnly: true,
@@ -86,6 +94,8 @@ const TABS: readonly TabDef[] = [
  * - **Personal access tokens**: the viewer's own, across every org. Every member.
  * - **Service accounts**: identities the org owns, their tokens, and the GitHub Actions
  *   workflows trusted to act as them. Org admins.
+ * - **Apps**: custom apps that ask to act in Oxygen itself (`ctx.oxygen`), and the approval
+ *   that lets them, with no token stored. Org admins.
  * - **All tokens**: every credential reaching the org, whoever holds it. Org admins.
  * - **Policy**: the org's rules for those tokens. Org admins.
  *

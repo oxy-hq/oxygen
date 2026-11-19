@@ -101,6 +101,7 @@ fn ceiling_here(
         },
         blocked_orgs: blocked,
         sandbox_agent: None,
+        app: None,
     };
     reach.workspace_ceiling(org_id, workspace_id)
 }

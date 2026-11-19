@@ -11,6 +11,7 @@
 #[cfg(feature = "dev-dynamic")]
 extern crate oxy_app_dylib as _;
 
+mod app_platform;
 #[cfg(test)]
 mod catalog_tests;
 mod commands;

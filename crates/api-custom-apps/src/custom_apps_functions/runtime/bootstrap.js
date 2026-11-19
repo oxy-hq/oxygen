@@ -528,6 +528,30 @@ globalThis.__buildCtx = (ctxData) => ({
     // data.
     facts: (opts) => __wrapOp("op_ctx_platform_facts")(opts || {}),
   },
+  // ctx.oxygen — the platform actions an org admin approved for this app: no
+  // key, no network. Three gates, all fail closed: the manifest asks
+  // (`"oxygen": { "frontline": { "devices": "manage" } }`), an org admin
+  // approved it (App access), and it is production. The org is the host's,
+  // never an argument. The app's own code decides which of its users may ask:
+  // Oxygen checks the app, not the person.
+  oxygen: {
+    frontline: {
+      devices: {
+        list: () => __wrapOp("op_ctx_oxygen")("frontline.devices.list", {}),
+        // create({ name, locationId, returnTo, idleTimeoutSeconds }) — the new
+        // device with its one-time enrol link.
+        create: (input) => __wrapOp("op_ctx_oxygen")("frontline.devices.create", input || {}),
+        reissueLink: (id) =>
+          __wrapOp("op_ctx_oxygen")("frontline.devices.reissueLink", { id: String(id) }),
+        revoke: (id) => __wrapOp("op_ctx_oxygen")("frontline.devices.revoke", { id: String(id) }),
+      },
+    },
+    sourceUploads: {
+      // report({ file, fileName, pipelineRef, workflowId, reportYear?, reportMonth? })
+      // — `file` is base64.
+      report: (input) => __wrapOp("op_ctx_oxygen")("sourceUploads.report", input || {}),
+    },
+  },
   storage: {
     // The app's asset store — uploaded files AND generated ones, one silo.
     // getUploadUrl/getDownloadUrl mint presigned URLs the BROWSER talks to

@@ -140,6 +140,14 @@ pub fn actor_entry(
     }
 }
 
+/// The row a platform action an org admin approved for an app writes
+/// (`ctx.frontline.*`, `ctx.sourceUploads.*`): the app's service account acted,
+/// with the app's credential, so `api_key` as for any token. The caller adds the
+/// org, the target, and the app, invocation and person in the metadata.
+pub fn app_action_entry(action: &'static str, account_user_id: Uuid, app_slug: &str) -> AuditEntry {
+    AuditEntry::new(format!("app:{app_slug}"), action).actor(account_user_id, ActorType::ApiKey)
+}
+
 /// The row's target: its first write's table.
 pub fn with_first_target(e: AuditEntry, writes: &[WriteRecord]) -> AuditEntry {
     match writes.first() {

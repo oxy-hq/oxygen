@@ -78,6 +78,7 @@ fn token(grants: Vec<TokenGrant>) -> TokenReach {
         grants,
         blocked_orgs: Vec::new(),
         sandbox_agent: None,
+        app: None,
     }
 }
 

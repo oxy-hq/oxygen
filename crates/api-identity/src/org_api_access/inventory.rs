@@ -149,6 +149,7 @@ impl OrgSide {
             grants: readable_grants(&here).unwrap_or_default(),
             blocked_orgs: blocked_orgs(&here),
             sandbox_agent: None,
+            app: None,
         };
         reach.workspace_ceiling(self.org_id, workspace_id).is_some()
     }
@@ -170,10 +171,13 @@ impl OrgSide {
             .add(api_tokens::Column::AllAccess.eq(true))
             .add(api_tokens::Column::PrincipalUserId.is_in(self.members.iter().copied()));
         let of_accounts = Condition::all()
-            .add(
-                api_tokens::Column::Kind
-                    .is_in([StoredKind::ServiceAccount.as_str(), StoredKind::Ci.as_str()]),
-            )
+            .add(api_tokens::Column::Kind.is_in([
+                StoredKind::ServiceAccount.as_str(),
+                StoredKind::Ci.as_str(),
+                // An app's approved access (`app_access`): no secret,
+                // listed under the app's account like its other tokens.
+                StoredKind::App.as_str(),
+            ]))
             .add(api_tokens::Column::PrincipalUserId.is_in(self.accounts.keys().copied()));
         // A live token, or a legacy key in any state. The legacy group is a
         // ledger: what reached this org is not rewritten by the removal, and

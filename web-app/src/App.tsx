@@ -165,6 +165,7 @@ const AdminObservability = React.lazy(() => import("./pages/admin/AdminObservabi
 const AdminSettings = React.lazy(() => import("./pages/admin/AdminSettings"));
 
 const CheckoutSuccessPage = React.lazy(() => import("./pages/billing/CheckoutSuccess"));
+const OxygenAccessPage = React.lazy(() => import("./pages/oxygen-access"));
 const CheckoutCancelledPage = React.lazy(() => import("./pages/billing/CheckoutCancelled"));
 
 const RouteFallback = () => (
@@ -802,6 +803,16 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
               <Route index element={<OrgDispatcher />} />
               {/* The org onboarding wizard is gone; old links land on the org root. */}
               <Route path='onboarding' element={<Navigate to='..' replace />} />
+              {/* One app's request to act in Oxygen itself, and its approval
+                  (`ctx.oxygen`). Its own page so a link can name one request. */}
+              <Route
+                path='oxygen-access/:appId'
+                element={
+                  <Suspense fallback={<RouteFallback />}>
+                    <OxygenAccessPage />
+                  </Suspense>
+                }
+              />
               {/* The old workspace address, kept for every link that carries it: it
                   remembers the workspace and redirects to `/<org>/<page>`. */}
               <Route path='workspaces/:wsId/*' element={<WorkspaceEntry />} />
