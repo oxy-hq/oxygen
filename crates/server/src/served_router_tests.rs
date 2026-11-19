@@ -4170,11 +4170,13 @@ async fn the_admin_nests_answer_what_main_did_behind_the_staff_layers() {
     }
 }
 
-/// The composition hands `SurfaceSeams::admin_nests` exactly the compile
-/// console (`oxy-api-previews`, admin split PR 6), under `/compiles`, behind
-/// `PlatformOperate` and FleetOk — the capability and placement `oxy-app`
-/// gave its `nest_all` before the move. Internal jobs is `oxy-app`'s own nest
-/// and arrives through no seam.
+/// The composition hands `SurfaceSeams::admin_nests` exactly the task
+/// fleet's console (`oxy-api-admin`, admin split PR 7) under
+/// `/internal-jobs` and then the compile console (`oxy-api-previews`, PR 6)
+/// under `/compiles`, each behind `PlatformOperate` and FleetOk — the
+/// capability and placement `oxy-app` gave its `nest_all` before the moves.
+/// In that order: `global.rs` folds the nests as handed in, so the order is
+/// the route-role table's (internal jobs, then compiles, as on `main`).
 #[test]
 fn the_composition_carries_the_compile_console_nest() {
     use oxy_app::surface::Action;
@@ -4187,6 +4189,13 @@ fn the_composition_carries_the_compile_console_nest() {
         .collect();
     assert_eq!(
         nests,
-        vec![("/compiles", Action::PlatformOperate, RouteRole::FleetOk)]
+        vec![
+            (
+                "/internal-jobs",
+                Action::PlatformOperate,
+                RouteRole::FleetOk
+            ),
+            ("/compiles", Action::PlatformOperate, RouteRole::FleetOk),
+        ]
     );
 }

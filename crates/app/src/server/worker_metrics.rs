@@ -555,7 +555,7 @@ struct QueueDepthRow {
     ///
     /// `None` for any spec without a `type` key: a malformed row, or a
     /// legacy externally-tagged shape (`{"AnalyticsTurn": {…}}`) of the
-    /// kind `internal_jobs::extract_task_type` still keeps a first-key
+    /// kind `oxy-api-admin`'s `extract_task_type` still keeps a first-key
     /// fallback for. This query deliberately doesn't reproduce that
     /// fallback: recovering the key would cost a `jsonb_object_keys`
     /// lookup and change no count, because no legacy key matches an arm
@@ -627,7 +627,7 @@ async fn read_queue_depth(db: &DatabaseConnection) -> Result<Vec<QueueDepthRow>,
     // `agentic_runs`; selecting it here errored on every scrape and took
     // the whole queue-depth signal down with it). `TaskSpec` is an
     // internally-tagged enum (`#[serde(tag = "type")]`), so the variant
-    // lands under `type` — the same key `internal_jobs::extract_task_type`
+    // lands under `type` — the same key `oxy-api-admin`'s `extract_task_type`
     // reads. Joining `agentic_runs` for the real `source_type` would work
     // too, but the spec is the queue row's own data and `source_type` is
     // derived from it anyway (`coordinator::source_type_for_spec`), so the

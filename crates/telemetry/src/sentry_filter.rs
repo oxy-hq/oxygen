@@ -927,6 +927,16 @@ mod tests {
             "oxy_api_previews::admin::compiles::crud",
             "oxy_api_previews::admin::compiles::source",
             "oxy_api_previews::admin::compiles::workspaces",
+            // The admin split (PR 7): the task fleet's operator console, the
+            // task queue and Oxy's own Postgres only, kept and not the data
+            // plane as it was at `oxy_app::server::api::admin::internal_jobs*`.
+            "oxy_api_admin",
+            "oxy_api_admin::internal_jobs",
+            "oxy_api_admin::internal_jobs_dead_letter",
+            "oxy_api_admin::internal_jobs_failure_groups",
+            "oxy_api_admin::internal_jobs_fleet",
+            "oxy_api_admin::internal_jobs_reach",
+            "oxy_api_admin::internal_jobs_rows",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1285,6 +1295,15 @@ mod tests {
             "oxy_api_previews::admin::compiles::crud",
             "oxy_api_previews::admin::compiles::source",
             "oxy_api_previews::admin::compiles::workspaces",
+            // The admin split (PR 7): the task fleet's console. It reads and
+            // re-enqueues queue rows and runs the reaper; no warehouse query.
+            "oxy_api_admin",
+            "oxy_api_admin::internal_jobs",
+            "oxy_api_admin::internal_jobs_dead_letter",
+            "oxy_api_admin::internal_jobs_failure_groups",
+            "oxy_api_admin::internal_jobs_fleet",
+            "oxy_api_admin::internal_jobs_reach",
+            "oxy_api_admin::internal_jobs_rows",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

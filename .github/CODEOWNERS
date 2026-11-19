@@ -107,6 +107,10 @@ crates/api-identity/                               @luong-komorebi @hotay
 # Workspace previews' surface (routes, change check, compares, samples, drops,
 # the run sweep), out of `oxy-app` since 2026-11-14. Luong and Tay wrote it.
 crates/api-previews/                               @luong-komorebi @hotay
+# Staff console crate (`oxy-api-admin`), started 2026-11-19 by the admin split
+# with the task fleet's console (internal jobs); audit, app admins and
+# assume-role follow it out of crates/app/src/server/api/admin/.
+crates/api-admin/                                  @hotay @luong-komorebi
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay
 

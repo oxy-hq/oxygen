@@ -88,8 +88,8 @@ pub struct AdminSection {
 ///
 /// For a tree whose routes are flat under one prefix and which carries its own
 /// guard stack rather than the console's. `oxy-app` wraps `routes` in the three
-/// `.layer`s the in-tree sibling nests (`/internal-jobs`, `/compiles`) always
-/// had — the capability named here innermost, then the refusal while acting as
+/// `.layer`s the sibling nests (`/internal-jobs`, `/compiles`) always had
+/// in-tree — the capability named here innermost, then the refusal while acting as
 /// a tenant (`assume::block_admin_while_acting`), then the staff door
 /// (`oxy_owner_or_app_admin_guard`) outermost — and mounts it with `nest_all`,
 /// which declares `{prefix}` and `{prefix}/{*rest}` with `role`.

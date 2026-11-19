@@ -101,6 +101,9 @@ AREAS = [
     # Workspace previews: the lower half stays in oxy-app, the upper half moved
     # into crates/api-previews 2026-11-14.
     ("crates/api-previews",                               "Workspace previews"),
+    # The staff console crate, started 2026-11-19 (admin split PR 7); its
+    # sections leave crates/app/src/server/api/admin, the "Admin (backend)" area.
+    ("crates/api-admin",                                  "Admin (backend)"),
     ("crates/app/src/server/previews",                    "Workspace previews"),
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),

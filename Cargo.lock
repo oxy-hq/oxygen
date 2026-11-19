@@ -9673,6 +9673,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-admin"
+version = "0.5.161"
+dependencies = [
+ "agentic-core",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "axum",
+ "chrono",
+ "entity",
+ "migration",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-oltp",
+ "oxy-server-authz",
+ "oxy-test-utils",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower 0.5.3",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-airway"
 version = "0.5.161"
 dependencies = [
@@ -11275,6 +11305,7 @@ dependencies = [
  "migration",
  "once_cell",
  "oxy",
+ "oxy-api-admin",
  "oxy-api-airway",
  "oxy-api-automations",
  "oxy-api-custom-apps",

@@ -4,16 +4,18 @@
 //! this module shows the meta view (workers, queue depth, dead-letter,
 //! periodic system jobs).
 //!
-//! The capability gate (`Action::PlatformOperate`) is named in `admin::nests`
-//! and layered on in `router::global`. It cannot see grant **scope**, so every handler here
-//! narrows by it — see `internal_jobs_reach` for the rule.
+//! The capability gate (`Action::PlatformOperate`) is named in
+//! [`crate::admin_nests`] and layered on by `oxy-app`'s `router::global`. It
+//! cannot see grant **scope**, so every handler here narrows by it — see
+//! `internal_jobs_reach` for the rule.
 //!
 //! Database access is on-demand via `oxy::database::client::establish_connection()`
 //! — same pattern `billing_service()` uses. We deliberately do not put a
 //! pool on `AppState` for this admin-only surface.
 //!
 //! Split by responsibility across sibling modules, re-exported below so the public
-//! paths (`admin::internal_jobs::*`) stay as they were:
+//! paths (`oxy_api_admin::internal_jobs::*`, `oxy-app`'s `admin::internal_jobs::*`
+//! until the admin split's PR 7) keep one module:
 //!
 //! * `internal_jobs_rows` — the queue-row DTO, its raw query shapes, and the secret
 //!   redaction applied to every decoded `TaskSpec`;
@@ -50,15 +52,15 @@ pub use super::internal_jobs_fleet::{
 };
 use super::internal_jobs_reach::{listing_scope, run_scope_clause};
 pub use super::internal_jobs_rows::QueueRowDto;
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, db_err, error_body};
 
-/// Mount internal-jobs routes under `/admin`. Caller (see `admin::router`)
-/// Routes are flat (no `/internal-jobs/` prefix) — `router::global` nests
-/// the whole thing under `/admin/internal-jobs` so that the more permissive
-/// `oxy_owner_or_app_admin_guard` can be applied without bringing the rest
-/// of `/admin/*` along.
-pub(crate) fn router() -> Router<AppState> {
+/// The internal-jobs routes, relative to `/admin/internal-jobs`. They are
+/// flat (no `/internal-jobs/` prefix on each): [`crate::admin_nests`] hands
+/// the tree to `oxy-app`, whose `router::global` nests it at
+/// `/admin/internal-jobs` behind the staff door, the refusal while acting
+/// and `PlatformOperate`, without bringing the rest of `/admin/*` along.
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/queue-stats", get(queue_stats))
         .route("/recent-failures", get(recent_failures))

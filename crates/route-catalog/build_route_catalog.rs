@@ -169,13 +169,14 @@ const SEEDS: &[Seed] = &[
         module: "workspace",
         function: "build_workspace_routes",
     },
-    // The staff console's sibling nests (`admin::nests`), folded onto the
-    // global tree with a computed prefix the walk above cannot read: internal
-    // jobs, in-tree (admin split, PR 6), and the extracted surfaces' after it.
+    // The staff console's sibling nests (`SurfaceSeams::admin_nests`), folded
+    // onto the global tree with a computed prefix the walk above cannot read:
+    // the task fleet's console, `oxy-api-admin`'s since the admin split's
+    // PR 7 (in-tree on the seam in PR 6), then the compile console after it.
     Seed {
         surface: "org",
         prefix: "/api/admin/internal-jobs",
-        module: "admin::internal_jobs",
+        module: "oxy_api_admin::internal_jobs",
         function: "router",
     },
     // The compile console, `oxy-api-previews`' (`SurfaceSeams::admin_nests`)
@@ -601,7 +602,7 @@ const SEEDS: &[Seed] = &[
 /// webhooks, the worktree registry).
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
-/// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
+/// Both lists watch `crates/api-admin/src`, `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`, `crates/api-identity/src`,
 /// `crates/api-operating-graph/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
@@ -635,6 +636,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/cameras/src",
     "crates/airhouse/src",
     "crates/oltp/src",
+    "crates/api-admin/src",
     "crates/api-github/src",
     "crates/api-tenancy/src",
     "crates/api-documents/src",
@@ -682,6 +684,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/agentic/http/src",
     "crates/cameras/src/routes",
     "crates/airhouse/src/api",
+    "crates/api-admin/src",
     "crates/api-github/src",
     "crates/api-tenancy/src",
     "crates/api-documents/src",

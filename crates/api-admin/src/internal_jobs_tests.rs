@@ -4,10 +4,10 @@
 //! connection — task-type extraction, status-counter accumulation,
 //! scheduled-jobs registry shape. The DB-dependent endpoints
 //! (`reenqueue_dead`, `delete_dead`, `fetch_queue_stats`) are covered
-//! end-to-end by the integration test suite under
-//! `tests/admin_internal_jobs.rs` when a Postgres connection is
-//! available; the unit suite here keeps fast feedback on the parts that
-//! can run without one.
+//! end-to-end by this crate's integration group
+//! (`tests/integration/admin_staff_scope/internal_jobs.rs`) against a
+//! database of each test's own; the unit suite here keeps fast feedback on
+//! the parts that can run without one.
 
 use super::super::internal_jobs_fleet::scheduled_jobs;
 use super::super::internal_jobs_rows::{extract_task_type, redact_secrets};

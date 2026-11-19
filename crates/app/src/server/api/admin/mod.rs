@@ -12,14 +12,10 @@ pub mod assume;
 pub mod audit;
 pub mod billing;
 // `compiles` (`/compiles*`, the compile boundary's operator surface) is
-// `oxy-api-previews`' since the admin split's PR 6, an `AdminNest` behind
-// `PlatformOperate` that arrives through `nests`' `extracted`.
-pub mod internal_jobs;
-mod internal_jobs_dead_letter;
-mod internal_jobs_failure_groups;
-mod internal_jobs_fleet;
-mod internal_jobs_reach;
-mod internal_jobs_rows;
+// `oxy-api-previews`' since the admin split's PR 6, and `internal_jobs*`
+// (`/internal-jobs*`, the task fleet's operator console) `oxy-api-admin`'s
+// since PR 7: each an `AdminNest` behind `PlatformOperate`, arriving through
+// `SurfaceSeams::admin_nests` and nested by `router::global`.
 pub mod routing;
 pub mod usage_report;
 // `users_admin` and `user_scope` (the user directory, `/users*`) are
@@ -36,7 +32,7 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 use crate::server::api::middlewares::{oxy_owner_guard, platform_cap_guard};
 use crate::server::authz::Action;
 use crate::server::feature_flags;
-use crate::server::router::{AdminNest, AdminSection, AppState};
+use crate::server::router::{AdminSection, AppState};
 
 /// Admin routes are flat under `/api/admin/*` after the 2026-04-28 redesign.
 /// Endpoints:
@@ -148,9 +144,10 @@ use crate::server::router::{AdminNest, AdminSection, AppState};
 /// `Ring::GlobalOwnerOnly`, and `app_admins` is the grant table itself, where a capability
 /// could widen its own holder.
 ///
-/// `internal_jobs::router()` is mounted separately at `/admin/internal-jobs`
-/// in `router::global` because its routes were flattened during the
-/// app-admin opening.
+/// `/admin/internal-jobs` (`oxy-api-admin`'s since the admin split's PR 7)
+/// and `/admin/compiles` (`oxy-api-previews`' since PR 6) are mounted
+/// separately, as `AdminNest`s beside this router, in `router::global`:
+/// internal jobs' routes were flattened during the app-admin opening.
 /// `extracted` are the sections extracted surface crates contribute through
 /// `SurfaceSeams::admin` — see [`extracted_sections`].
 ///
@@ -235,30 +232,6 @@ fn extracted_sections(sections: Vec<AdminSection>) -> Router<AppState> {
                 ))),
         )
     })
-}
-
-/// The console's sibling trees ([`AdminNest`]): its own first, then the ones
-/// extracted surfaces hand in, in their order (`oxy-api-previews`' compile
-/// console, since the admin split's PR 6). `router::global` nests each at
-/// `/admin{prefix}` behind the staff door, the refusal while acting and the
-/// capability it names.
-///
-/// Internal jobs is a nest rather than a section because its routes are flat
-/// (no `/internal-jobs/` prefix on each), so the guards answer every path it
-/// mounts, a wrong method included (a path the tree does not match is the
-/// outer router's 404). Operating the durable task fleet is Oxy's own
-/// machinery, not tenant data — `PlatformOperate` — and the handlers narrow by
-/// grant scope themselves (`internal_jobs_reach`).
-pub(crate) fn nests(extracted: Vec<AdminNest>) -> Vec<AdminNest> {
-    let mut nests = vec![AdminNest {
-        prefix: "/internal-jobs",
-        capability: Action::PlatformOperate,
-        routes: internal_jobs::router(),
-        role: RouteRole::FleetOk,
-        why: "job admin reads the task queue tables",
-    }];
-    nests.extend(extracted);
-    nests
 }
 
 /// Which pod serves each route [`router`] mounts, relative to its `/admin` nest.

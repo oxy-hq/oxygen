@@ -222,6 +222,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // and refresh compile a branch from the commit GitHub has, and the rest
         // touch only Postgres.
         "../api-previews/src",
+        // The task fleet's operator console (`/admin/internal-jobs`), out of
+        // `oxy-app`'s `api/admin/` in the admin split's PR 7, nested FleetOk as
+        // an `AdminNest`: the queue, run and workspace tables in Postgres and
+        // the durable transport's reaper and retention, never a working copy.
+        "../api-admin/src",
         // The metric tree and the anomaly inbox, moved out of
         // `build_workspace_routes` on 2026-11-15, where all seventeen routes
         // were `route_fleet` (a `FleetState` handler type refused a

@@ -6,7 +6,7 @@ use agentic_core::delegation::TaskSpec;
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
-use oxy_app::server::api::admin::internal_jobs::{
+use oxy_api_admin::internal_jobs::{
     DeadLetterQuery, LimitQuery, delete_dead, list_dead_letter, list_workers, queue_stats,
     recent_failures, reenqueue_dead, run_reaper, run_retention,
 };

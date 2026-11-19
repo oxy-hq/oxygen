@@ -98,29 +98,23 @@ pub(super) fn build_global_routes(
             )),
             &admin_decls,
         );
-    // The console's sibling trees, each nested at `/admin{prefix}` behind the
-    // three layers `staff_nest` applies — internal jobs first (in-tree), then
-    // those extracted surfaces hand in (`SurfaceSeams::admin_nests`).
-    admin::nests(admin_nests)
-        .into_iter()
-        .fold(tree, |tree, nest| {
-            assert!(
-                nest.prefix.len() > 1
-                    && nest.prefix.starts_with('/')
-                    && !nest.prefix.ends_with('/'),
-                "an admin nest's prefix is `/name`, relative to `/admin`: got {:?}",
-                nest.prefix
-            );
-            tree.nest_all(
-                &format!("/admin{}", nest.prefix),
-                nest.role,
-                staff_nest(nest.routes, nest.capability),
-                nest.why,
-            )
-        })
-    // The compile boundary's operator surface (`/admin/compiles`) is
-    // `oxy-api-previews`' since the admin split's PR 6: one of the
-    // `admin_nests`, behind the same three layers.
+    // The console's sibling trees (`SurfaceSeams::admin_nests`), each nested
+    // at `/admin{prefix}` behind the three layers `staff_nest` applies, in the
+    // order the composition hands them in: internal jobs (`oxy-api-admin`,
+    // admin split PR 7), then the compile console (`oxy-api-previews`, PR 6).
+    admin_nests.into_iter().fold(tree, |tree, nest| {
+        assert!(
+            nest.prefix.len() > 1 && nest.prefix.starts_with('/') && !nest.prefix.ends_with('/'),
+            "an admin nest's prefix is `/name`, relative to `/admin`: got {:?}",
+            nest.prefix
+        );
+        tree.nest_all(
+            &format!("/admin{}", nest.prefix),
+            nest.role,
+            staff_nest(nest.routes, nest.capability),
+            nest.why,
+        )
+    })
     // NOTE: Slack webhook + OAuth-callback + magic-link routes are NOT
     // registered here. They ride `SurfaceSeams::public` (`oxy-api-slack`),
     // outside the auth middleware layer this file sits inside, because:

@@ -33,7 +33,7 @@ pub async fn connect() -> Result<DatabaseConnection, Response> {
 // Error helpers
 
 /// Shared error body shape for every admin write route that reuses `connect`
-/// / `db_err` from this module (`oxy-app`'s `internal_jobs`, plus the admin
+/// / `db_err` from this module (`oxy-api-admin`'s `internal_jobs`, plus the admin
 /// sections that left it: `oxy-api-airway`'s write handlers and the rest), so a
 /// validation-style 400 elsewhere doesn't have to invent a one-off shape the
 /// frontend would need to special-case. Built through [`error_body`].

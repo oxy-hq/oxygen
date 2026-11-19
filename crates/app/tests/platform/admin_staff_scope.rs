@@ -35,12 +35,14 @@ mod audit_and_assume;
 // `oxy-api-previews`' `admin_staff_scope` (admin split, PR 6), and include
 // `fixture` from here.
 mod fences;
-// `oxy-api-identity`'s user-directory cases and `oxy-api-previews`' compile
-// console cases include this file by path; the helpers only they use read as
-// dead code from here.
+// `oxy-api-identity`'s user-directory cases, `oxy-api-previews`' compile
+// console cases and `oxy-api-admin`'s internal-jobs cases include this file
+// by path; the helpers only they use read as dead code from here.
 #[allow(dead_code)]
 mod fixture;
-mod internal_jobs;
+// The task queue's cases (`internal_jobs`) moved with the handlers to
+// `oxy-api-admin`'s `admin_staff_scope` (admin split, PR 7), and include
+// `fixture` from here.
 // The user directory's cases (`directories`, `user_add_to_org`,
 // `user_detail`, `user_directory`, `user_status`) moved with the handlers
 // to `oxy-api-identity`'s `admin_staff_scope` (admin split, PR 5), and

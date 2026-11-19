@@ -232,7 +232,7 @@ pub(crate) enum ConfigWriteError {
 }
 
 /// Maps to the same `{ code, message }` body every other admin write route
-/// returns (`internal_jobs::ErrorBody`/`error_body`) — an airway-config `400`
+/// returns (`oxy_app_core::admin_db::{ErrorBody, error_body}`) — an airway-config `400`
 /// must not be the one shape the frontend has to special-case.
 fn config_write_err(err: ConfigWriteError) -> Response {
     match err {
