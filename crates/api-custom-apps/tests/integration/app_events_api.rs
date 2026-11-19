@@ -172,6 +172,7 @@ impl Fix {
             relay_error: None,
             directed: None,
             only_listener: None,
+            invoker: None,
         };
         fan_out(self.db(), &[event]).await.expect("fan out");
         id

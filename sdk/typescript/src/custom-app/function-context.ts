@@ -1544,11 +1544,12 @@ export interface OxyFunctionContext {
   apps: OxyAppsApi;
   /**
    * `null` unless another app's `ctx.apps.call` / `send` started this
-   * invocation. A `call` made by a person runs as that person (`ctx.user` is
-   * them, after the platform checked they may open the target app); a call
-   * from a background run, and every delivered `send`, runs as the system
-   * identity. `caller` is for attribution only: `actor` is the person behind a
-   * call, and absent on a delivered `send`, whose sender's claim is unverified.
+   * invocation. A `call` or a delivered `send` made by a person runs as that
+   * person (`ctx.user` is them, after the platform checked they may open the
+   * target app; for a `send`, again at delivery, with the credential they sent
+   * it with still valid). One from a background run runs as the system
+   * identity. `caller` is for attribution only: `actor` is the person behind
+   * the call or send, and `null` when no person was.
    */
   caller: OxyCallerInfo | null;
 }

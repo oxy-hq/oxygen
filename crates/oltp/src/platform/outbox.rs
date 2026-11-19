@@ -7,6 +7,9 @@ use super::{
     EVENTS_PUBLISH_FUNCTION_V5, EVENTS_SCHEMA, PlatformStep,
 };
 
+mod invoker;
+pub(super) use invoker::invoker_step;
+
 /// Step 6: the host's provenance MAC on every outbox row (app events design
 /// §6.2, ruling R25(c)).
 ///
@@ -86,14 +89,14 @@ $$"
 #[cfg(test)]
 mod tests {
     use super::super::{
-        EVENT_PROVENANCE_BYTES, EVENTS_PUBLISH_FUNCTION, EVENTS_PUBLISH_FUNCTION_V5,
-        platform_steps, statements_since,
+        EVENT_PROVENANCE_BYTES, EVENTS_PUBLISH_FUNCTION, EVENTS_PUBLISH_FUNCTION_V5, platform_steps,
     };
 
+    /// Step 6's statements alone: a later step replaces its definer again.
     fn step_six() -> String {
-        statements_since(5, "local", "oxy_org_x")
-            .unwrap()
-            .join("; ")
+        let step = platform_steps("local", "oxy_org_x").unwrap().remove(5);
+        assert_eq!(step.version, 6);
+        step.statements.join("; ")
     }
 
     /// R25(c): the definer stores the MAC the host signed, beside the row it

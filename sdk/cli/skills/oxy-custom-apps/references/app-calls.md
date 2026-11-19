@@ -42,13 +42,13 @@ Production calls the target's production build, staging calls its staging build,
 
 ## Identity: the callee runs as itself
 
-A `call` made while a person is behind the chain runs as that person: `ctx.user` is them, with their role, teams and reach resolved again for the callee's app, and the platform first checks they may open the target app (a member who cannot open an app restricted to a team cannot reach it through yours). A call from a background run (a schedule, an event, a webhook) runs as the system identity, as those runs do. A `send` is delivered later, so it runs as the system identity: `ctx.user.kind === "system"`. `ctx.caller` says who called, for attribution and logs only:
+A `call` made while a person is behind the chain runs as that person: `ctx.user` is them, with their role, teams and reach resolved again for the callee's app, and the platform first checks they may open the target app (a member who cannot open an app restricted to a team cannot reach it through yours). A call from a background run (a schedule, an event, a webhook) runs as the system identity, as those runs do. A `send` is delivered later, as the same person when one sent it: the platform checks again, at delivery, that the credential they sent it with is still valid (a revoked or expired token fails) and that they may open the target app, and if not the delivery dies with a `sender_refused` error and your function never runs. A `send` from a background run is delivered as the system identity (`ctx.user.kind === "system"`). `ctx.caller` says who called, for attribution and logs only:
 
 ```ts
 ctx.caller; // null, or { app, function, invocationId, actor }
 ```
 
-`ctx.caller` is `null` unless another app's call or send started this invocation. `actor` is the person behind a `call` (their id, or `null`); it is `null` on a delivered `send`, whose sender's claim is not verified.
+`ctx.caller` is `null` unless another app's call or send started this invocation. `actor` is the person behind a `call` or a delivered `send` (their id), or `null` when no person was behind it.
 
 ## Errors
 

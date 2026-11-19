@@ -123,3 +123,27 @@ fn an_org_role_is_admin_or_owner_only_under_that_ceiling() {
     assert_eq!(cap_org_role(Member, RoleCeiling::Owner), Member);
     assert_eq!(cap_org_role(Member, RoleCeiling::Admin), Member);
 }
+
+/// What code acting for a person again outside the request reads: a login
+/// session is one and holds no stored token; every stored token is named by
+/// its id and is not a session; a service account's token too.
+#[test]
+fn a_caller_says_which_stored_credential_it_arrived_on() {
+    let session = Caller::of(&user(), None);
+    assert!(session.is_login_session());
+    assert_eq!(session.stored_token_id(), None);
+    for kind in [
+        StoredKind::Personal,
+        StoredKind::SandboxAgent,
+        StoredKind::ServiceAccount,
+        StoredKind::Ci,
+    ] {
+        let caller = Caller::of(&user(), Some(&credential(kind)));
+        assert!(!caller.is_login_session(), "{kind:?}");
+        assert_eq!(
+            caller.stored_token_id(),
+            Some(Uuid::from_u128(9)),
+            "{kind:?}"
+        );
+    }
+}

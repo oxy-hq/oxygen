@@ -1,4 +1,6 @@
-use super::{AttemptOutcome, ListenerRun, QueuedTrigger, attempt_of, needs_subscription};
+use super::admit::needs_subscription;
+use super::{AttemptOutcome, ListenerRun, attempt_of};
+use crate::custom_apps_functions::queued_admission::QueuedTrigger;
 
 fn run<'a>(status: &'a str, http_status: u16, error: Option<&'a str>) -> ListenerRun<'a> {
     ListenerRun {

@@ -26,7 +26,12 @@
 use agentic_core::delegation::TaskOutcome;
 use oxy_custom_apps::calls::SendTarget;
 
-use crate::custom_apps_functions::queued_admission::QueuedTrigger;
+#[cfg(feature = "custom-app-functions")]
+use super::sender::NotRun;
+use crate::app_events::provenance::Invoker;
+#[cfg(feature = "custom-app-functions")]
+use crate::custom_apps_functions::host::apps_op::Person;
+
 use oxy_custom_apps::events::OxyEvent;
 use sea_orm::DbErr;
 use uuid::Uuid;
@@ -34,64 +39,57 @@ use uuid::Uuid;
 use super::{FunctionRun, JobArgs, run_function};
 use crate::app_events::cap_error;
 use crate::app_events::deliveries::{self, AttemptOutcome, DeliveryInfo, DeliveryStart};
-use crate::app_events::subscriptions;
 
 /// One attempt of the delivery `delivery_id`, as the module docs describe:
-/// open it, check the listener still subscribes, run it, settle the attempt.
+/// open it, check the listener still subscribes, stand up who a send runs as,
+/// run it, settle the attempt.
 pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
     let delivery = Delivery {
         job,
         id: delivery_id,
     };
-    let (envelope, info) = match delivery.start().await {
+    let (envelope, info, invoker) = match delivery.start().await {
         Ok(started) => started,
         Err(answered) => return answered,
     };
-    // A directed event (`ctx.apps.send`) names its function and has no
-    // subscription to check; its admission ("callable") is decided when it
-    // runs (`queued_admission`). The name and the task's trigger must agree:
-    // a send-named event queued as anything else, or a call-triggered task of
-    // an ordinary event or of another function, is killed, not run.
-    let send = SendTarget::parse(&event_name(&envelope));
-    let calls = !needs_subscription(job.trigger);
-    let subscribed = if calls
-        && send
-            .as_ref()
-            .is_some_and(|t| t.function == job.function_name)
-    {
-        Ok(true)
-    } else if calls || send.is_some() {
-        let reason = format!(
-            "{} is not a send to {}, but the task says it is one or the name does",
-            envelope.event_type, job.function_name
-        );
-        return delivery.kill(Some(info.attempt), None, &reason).await;
-    } else {
-        subscriptions::listener_subscribes(
-            &job.db,
-            job.app_id,
-            &job.environment,
-            &job.function_name,
-            &envelope.event_type,
-        )
-        .await
-    };
-    let ran = match subscribed {
-        Ok(false) => {
-            let reason = format!("listener no longer subscribes to {}", envelope.event_type);
+    let ran = match admit::admit(job, &envelope).await {
+        admit::Admitted::Kill(reason) => {
             return delivery.kill(Some(info.attempt), None, &reason).await;
         }
-        Err(e) => Err(format!("could not read the listener's subscription: {e}")),
-        Ok(true) => run_listener(job, &envelope, &info).await,
+        admit::Admitted::Failed(error) => Err(error),
+        admit::Admitted::Run => match sender_of(job, &envelope, invoker).await {
+            Ok(person) => run_listener(job, &envelope, &info, person).await,
+            Err(NotRun::Refused(reason)) => {
+                return delivery.kill(Some(info.attempt), None, &reason).await;
+            }
+            Err(NotRun::Retry(error)) => Err(error),
+        },
     };
     delivery.settle(&info, ran).await
 }
 
-/// Whether a delivery run by `trigger` is to a function that must still
-/// subscribe to the event: an event's listener does; a call (a delivered send)
-/// is to a function that listens to nothing.
-fn needs_subscription(trigger: QueuedTrigger) -> bool {
-    trigger != QueuedTrigger::Call
+/// Who a send's delivery runs as (`sender::person_for`): `None` for the
+/// system, which every ordinary event's listener runs as. Only a send is ever
+/// run as a person: the relay stores an invoker for no other event, and an
+/// invoker on one would be ignored here all the same.
+#[cfg(feature = "custom-app-functions")]
+async fn sender_of(
+    job: &JobArgs,
+    envelope: &OxyEvent,
+    invoker: Option<Invoker>,
+) -> Result<Option<Person>, NotRun> {
+    let invoker = invoker.filter(|_| SendTarget::parse(&event_name(envelope)).is_some());
+    super::sender::person_for(job, envelope, invoker).await
+}
+
+#[cfg(not(feature = "custom-app-functions"))]
+async fn sender_of(
+    job: &JobArgs,
+    envelope: &OxyEvent,
+    invoker: Option<Invoker>,
+) -> Result<Option<Person>, NotRun> {
+    let _ = (job, envelope, invoker);
+    Ok(None)
 }
 
 /// The outbox name of the event: its type without the publisher
@@ -101,6 +99,17 @@ fn event_name(envelope: &OxyEvent) -> String {
         .event_type
         .split_once('/')
         .map_or_else(String::new, |(_, name)| name.to_string())
+}
+
+/// Without the functions runtime there is no person to run as.
+#[cfg(not(feature = "custom-app-functions"))]
+type Person = ();
+
+/// [`super::sender::NotRun`], which needs the functions runtime.
+#[cfg(not(feature = "custom-app-functions"))]
+enum NotRun {
+    Refused(String),
+    Retry(String),
 }
 
 /// The delivery one task answers for, and how this module answers the task.
@@ -134,9 +143,13 @@ impl Delivery<'_> {
     /// [`deliveries::begin`]: the event and the attempt to run, or the task's
     /// answer when there is nothing to run. A body that could not be read
     /// this time fails the task (`begin` closed the attempt).
-    async fn start(&self) -> Result<(OxyEvent, DeliveryInfo), TaskOutcome> {
+    async fn start(&self) -> Result<(OxyEvent, DeliveryInfo, Option<Invoker>), TaskOutcome> {
         match deliveries::begin(&self.job.db, self.id).await {
-            Ok(DeliveryStart::Run { envelope, info }) => Ok((envelope, info)),
+            Ok(DeliveryStart::Run {
+                envelope,
+                info,
+                invoker,
+            }) => Ok((envelope, info, invoker)),
             Ok(DeliveryStart::Skip { reason }) => Err(self.done(format!("skipped: {reason}"))),
             Ok(DeliveryStart::Dead { reason, attempt }) => {
                 Err(self.kill(attempt, None, &reason).await)
@@ -216,12 +229,14 @@ fn delivered(http_status: u16) -> String {
 }
 
 /// Run the listener with `envelope` as its body, chaining what it publishes
-/// from the event, `ctx.delivery` set to `info`.
+/// from the event, `ctx.delivery` set to `info`. A send runs as `person` when
+/// one was stood up for it (`sender::person_for`), else as the system.
 #[cfg(feature = "custom-app-functions")]
 async fn run_listener(
     job: &JobArgs,
     envelope: &oxy_custom_apps::events::OxyEvent,
     info: &deliveries::DeliveryInfo,
+    person: Option<Person>,
 ) -> Result<FunctionRun, String> {
     // A directed event is a call: the function gets the sent body as its
     // request, and `ctx.caller` names the sender.
@@ -231,8 +246,10 @@ async fn run_listener(
         None => serde_json::to_vec(envelope),
     }
     .map_err(|e| format!("the envelope does not serialise: {e}"))?;
-    // A send runs as the system and presents no actor: see the module docs of
-    // `app_events::directed` (TODO(app-events-hardening)).
+    // The person a send runs as, by id: what `ctx.caller.actor` reports and
+    // what the run's own publishes and sends chain from. A send run as the
+    // system presents none, whatever actor its row carried (`sender`).
+    let sender = person.as_ref().map(|p| p.user_id.to_string());
     let caller = send
         .as_ref()
         .zip(envelope.invocation)
@@ -241,7 +258,7 @@ async fn run_listener(
                 app: envelope.source.trim_start_matches("/apps/").to_string(),
                 function: target.caller_function.clone(),
                 invocation_id,
-                actor: None,
+                actor: sender.clone(),
             },
         );
     let event = crate::custom_apps_functions::EventRun {
@@ -250,15 +267,15 @@ async fn run_listener(
             event_type: envelope.event_type.clone(),
             root_id: envelope.rootid,
             depth: envelope.depth,
-            // None for a send (see above): it runs as the system.
             actor: if send.is_some() {
-                None
+                sender
             } else {
                 envelope.actor.clone()
             },
         },
         delivery: info.clone(),
         caller,
+        person,
     };
     run_function(job, body, Some(event)).await
 }
@@ -268,8 +285,9 @@ async fn run_listener(
     job: &JobArgs,
     envelope: &oxy_custom_apps::events::OxyEvent,
     info: &deliveries::DeliveryInfo,
+    person: Option<Person>,
 ) -> Result<FunctionRun, String> {
-    let _ = (envelope, info);
+    let _ = (envelope, info, person);
     run_function(job, Vec::new(), None).await
 }
 
@@ -359,5 +377,6 @@ impl FunctionRun {
     }
 }
 
+mod admit;
 #[cfg(test)]
 mod tests;

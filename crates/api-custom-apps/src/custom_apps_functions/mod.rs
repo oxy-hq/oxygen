@@ -1702,6 +1702,7 @@ async fn isolate_route(
         called_by: None,
         chain: None,
         nested: false,
+        relayed_session: false,
     };
     run_stage(args).await
 }
@@ -1844,6 +1845,11 @@ pub(crate) struct EventRun {
     pub delivery: crate::app_events::deliveries::DeliveryInfo,
     /// Set for the delivery of a `ctx.apps.send`: who sent it (`ctx.caller`).
     pub caller: Option<runtime::CtxCaller>,
+    /// Set for a send delivered as the person who sent it, stood up again
+    /// under the credential they sent it with and allowed to open this app
+    /// (`app_function_executor::sender`): the run is theirs, as a call from
+    /// them is. `None` runs it as the system.
+    pub person: Option<host::apps_op::Person>,
 }
 
 /// How a queued run that started ended, as its invocation row records it.
@@ -1934,16 +1940,17 @@ pub(crate) async fn run_scheduled_function(
         .as_ref()
         .and_then(|e| e.caller.as_ref())
         .map(|c| c.invocation_id);
+    let user_id = event_run
+        .as_ref()
+        .and_then(|e| e.person.as_ref())
+        .map(|p| p.user_id);
     let invocation_id = insert_queued_invocation(
         db,
         &app,
         &admitted,
         function_name,
         &queued,
-        QueuedFor {
-            parent,
-            user_id: None,
-        },
+        QueuedFor { parent, user_id },
     )
     .await;
     let run = QueuedRun {
@@ -2048,6 +2055,17 @@ struct QueuedRun<'a> {
     call: Option<call_run::CallRun>,
 }
 
+#[cfg(feature = "custom-app-functions")]
+impl QueuedRun<'_> {
+    /// The person the run is for: a call's, or a delivered send's sender.
+    fn person(&self) -> Option<&host::apps_op::Person> {
+        self.call
+            .as_ref()
+            .and_then(|c| c.person.as_ref())
+            .or_else(|| self.event_run.as_ref().and_then(|e| e.person.as_ref()))
+    }
+}
+
 /// Run the isolate, record the run, hand its events to the sink, and report
 /// how it ended.
 #[cfg(feature = "custom-app-functions")]
@@ -2061,12 +2079,9 @@ async fn run_queued(
     let (db, app, admitted) = (run.db, run.app, run.admitted);
     let (function_name, mode) = (run.function_name, run.queued.mode);
     let invocation_id = run.invocation_id;
-    // The person a call runs for, else the org owner a system run is under.
-    let owner_id = run
-        .call
-        .as_ref()
-        .and_then(|c| c.person.as_ref())
-        .map_or(run.owner_id, |p| p.user_id);
+    // The person a call or a delivered send runs for, else the org owner a
+    // system run is under.
+    let owner_id = run.person().map_or(run.owner_id, |p| p.user_id);
     // An event's delivery keeps no output and only a capped error: what a
     // listener returns or throws may carry the event's body, which never
     // enters Oxy's Postgres (app events design §6.6). Every other queued run
@@ -2118,11 +2133,16 @@ fn system_run_args<'a>(
 ) -> RunArgs<'a> {
     let (app, manifest, function_name) = (run.app, &run.admitted.manifest, run.function_name);
     let system_email = format!("schedule+{function_name}@system.oxy");
+    // A call from a person, or a send delivered as the person who sent it,
+    // runs as them, credential and all, and the function's own role, teams and
+    // reach are resolved for them below; every other queued run is the system.
+    let person = run.person().cloned();
     let (event, delivery, mut caller) = match run.event_run {
         Some(EventRun {
             cause,
             delivery,
             caller,
+            person: _,
         }) => (Some(cause), Some(delivery), caller),
         None => (None, None, None),
     };
@@ -2135,10 +2155,7 @@ fn system_run_args<'a>(
         caller = Some(call.caller.clone());
         chain = Some(call.chain());
     }
-    // A call from a person runs as them, credential and all, and the callee's
-    // own role, teams and reach are resolved for them below; every other queued
-    // run is the system.
-    let person = run.call.as_ref().and_then(|c| c.person.clone());
+    let relayed_session = person.as_ref().is_some_and(|p| p.relayed_session);
     let (user_id, user_email, authz_caller, user_name, user_picture, identity_kind) = match person {
         Some(p) => (
             p.user_id,
@@ -2200,6 +2217,7 @@ fn system_run_args<'a>(
         called_by: caller,
         chain,
         nested,
+        relayed_session,
         // An event's delivery: what a publish from it chains from, and the
         // attempt `ctx.delivery` reports. `None` for every other queued run.
         event,
@@ -2427,6 +2445,9 @@ struct RunArgs<'a> {
     chain: Option<call_run::ChainStart>,
     /// A callee, which runs on its root's admission (`limits`).
     nested: bool,
+    /// The person was stood up from a send's login session
+    /// (`apps_op::Person::relayed_session`): their sends carry no invoker.
+    relayed_session: bool,
 }
 
 /// The span the isolate thread runs under — see the call site in
@@ -2699,6 +2720,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         email: args.user_email.clone(),
         name: args.user_name.clone(),
         picture: args.user_picture.clone(),
+        relayed_session: args.relayed_session,
     });
     let (project, env, app_role, org_standing, held) = tokio::join!(
         Box::pin(resolve_project_context(&args)),

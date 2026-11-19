@@ -63,8 +63,7 @@
 //! ([`SEE_NEW_GRANTS`]).
 
 use oxy_custom_apps::events::{
-    MAX_DELAY_SECS, MAX_DEPTH, MAX_KEY_LEN, MAX_PAYLOAD_BYTES, event_id, jsonb_text_len,
-    qualified_type,
+    MAX_DELAY_SECS, MAX_DEPTH, MAX_KEY_LEN, MAX_PAYLOAD_BYTES, jsonb_text_len,
 };
 use oxy_oltp::entity::tenants::TenantStatus;
 use oxy_oltp::events::{
@@ -72,8 +71,6 @@ use oxy_oltp::events::{
 };
 use oxy_oltp::resolver::WriterConnection;
 use serde_json::{Value, json};
-
-use crate::app_events::provenance::{self, Provenance};
 
 use super::super::env_policy::HostOp;
 use super::events_regrant::{MAY_PUBLISH_SQL, SEE_NEW_GRANTS, store_lost_the_definer_or_grant};
@@ -136,7 +133,8 @@ impl ProjectFunctionHost {
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
         let (id, params) = self.publish_params(&checked, &conn.role);
-        self.publish_alone(&outbox, &conn, &params).await?;
+        self.publish_alone(&outbox, &conn, PUBLISH_SQL, &params)
+            .await?;
         self.after_publish_commit().await;
         Ok(json!({ "eventId": id.to_string() }))
     }
@@ -264,7 +262,7 @@ impl ProjectFunctionHost {
     /// 0 for a publish nothing in a chain made; the run's depth plus one
     /// otherwise — the depth an event's handler or a callee has is its
     /// cause's, so a call and a publish share one counter (`apps_op`).
-    fn publish_depth(&self) -> i32 {
+    pub(super) fn publish_depth(&self) -> i32 {
         super::apps_op::next_depth(self.chain().position)
     }
 
@@ -315,77 +313,18 @@ impl ProjectFunctionHost {
         }
     }
 
-    /// The event's id and [`PUBLISH_SQL`]'s thirteen parameters, in its order:
-    /// id, environment, name, key, data, schema revision, actor, causation id,
-    /// root id, depth, invocation id, delay seconds, and the provenance MAC
-    /// over every one the relay trusts, the row's writer `writer_role` and
-    /// the payload's size included (`app_events::provenance`). Every check
-    /// has passed by now: the MAC is what tells the relay so.
-    pub(super) fn publish_params(
-        &self,
-        checked: &Checked,
-        writer_role: &str,
-    ) -> (Uuid, Vec<Value>) {
-        let environment = self.policy.environment().name();
-        let event_type = qualified_type(&self.identity.app_slug, &checked.name);
-        let id = event_id(self.org_id, &environment, &event_type, &checked.key);
-        let invocation = self.identity.invocation_id;
-        let chain = self.chain();
-        let actor = chain.actor.clone();
-        let root = chain.root;
-        let causation = chain.causation;
-        let depth = self.publish_depth();
-        // Bounded by the checks: a day of seconds, and 64 KiB.
-        let delay = i32::try_from(checked.delay_seconds).unwrap_or(i32::MAX);
-        let mac = provenance::sign_hex(
-            self.org_id,
-            &Provenance {
-                id,
-                environment: &environment,
-                event_type: &event_type,
-                key: &checked.key,
-                writer_role,
-                actor: actor.as_deref(),
-                root_id: root,
-                causation_id: causation,
-                depth,
-                delay_seconds: delay,
-                data_bytes: i64::try_from(checked.data_bytes).unwrap_or(i64::MAX),
-                schema_revision: checked.revision,
-                invocation_id: Some(invocation),
-            },
-        );
-        let params = vec![
-            json!(id.to_string()),
-            json!(environment),
-            json!(checked.name),
-            json!(checked.key),
-            checked.data.clone(),
-            checked
-                .revision
-                .map_or(Value::Null, |r| json!(r.to_string())),
-            actor.map_or(Value::Null, Value::String),
-            causation.map_or(Value::Null, |id| json!(id.to_string())),
-            json!(root.to_string()),
-            json!(depth),
-            json!(invocation.to_string()),
-            json!(delay),
-            json!(mac),
-        ];
-        (id, params)
-    }
-
     /// The publish in a one-shot transaction of its own on `conn`, writing
     /// `outbox`.
     pub(super) async fn publish_alone(
         &self,
         outbox: &OutboxTarget,
         conn: &WriterConnection,
+        sql: &str,
         params: &[Value],
     ) -> Result<(), String> {
-        let summary = db_query_summary(PUBLISH_SQL);
+        let summary = db_query_summary(sql);
         let (_, traceparent) = Self::trace_context();
-        let tagged = data_audit::commented(PUBLISH_SQL, &self.identity, traceparent.as_deref());
+        let tagged = data_audit::commented(sql, &self.identity, traceparent.as_deref());
         let mut regranted = false;
         loop {
             let mut tx = self

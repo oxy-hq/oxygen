@@ -30,7 +30,7 @@ use crate::schema::{SchemaError, analyst_role_for, validate_name};
 ///
 /// Recorded on `oltp_tenants.platform_schema_version`. A tenant below this is
 /// reconciled the next time anything touches it.
-pub const PLATFORM_SCHEMA_VERSION: i32 = 6;
+pub const PLATFORM_SCHEMA_VERSION: i32 = 7;
 
 /// Table recording which workspace migrations a tenant has applied.
 ///
@@ -109,6 +109,16 @@ pub(crate) const EVENTS_PUBLISH_FUNCTION_V5: &str =
 /// The length of the provenance MAC the definer function takes and stores
 /// (`HMAC-SHA256`), and the only length it accepts.
 pub const EVENT_PROVENANCE_BYTES: i32 = 32;
+
+/// The transaction-local setting a publish statement passes the send's
+/// invoker kind through (`session` or `token`), which the definer reads once
+/// and clears (platform step 7). A setting, not an argument: the definer's
+/// signature is step 6's, so a server one release back keeps calling it.
+pub const EVENT_INVOKER_SETTING: &str = "oxy_events.invoker";
+/// The same, for the invoker's stored token id (`token` only).
+pub const EVENT_INVOKER_TOKEN_SETTING: &str = "oxy_events.invoker_token_id";
+/// The same, for the host's MAC over the row and the invoker, as hex.
+pub const EVENT_INVOKER_PROVENANCE_SETTING: &str = "oxy_events.invoker_provenance";
 
 // The events outbox's later steps.
 mod outbox;
@@ -331,6 +341,7 @@ $$"
             ],
         },
         outbox::provenance_step(),
+        outbox::invoker_step(),
     ])
 }
 

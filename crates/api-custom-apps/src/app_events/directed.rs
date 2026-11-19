@@ -15,16 +15,16 @@
 //! caller, and that build's `calls` must declare the target. A row that does
 //! not is stored with a relay error and delivered to nobody.
 //!
-//! **A delivery runs as the system, never as the row's `actor`.** That is
-//! deliberate and not yet liftable: the signed `actor` is whoever the sending
-//! chain carried, which is not always the person the sending run answered to
-//! (a send from an event delivery or a schedule inherits the chain's actor),
-//! and the row records neither whether the sending run was invoked directly by
-//! that person nor the credential ceiling (a PAT's role cap, an assume-role
-//! session) they ran under, which a delivery would have to reproduce.
-//! TODO(app-events-hardening): present the actor only once the signed row
-//! carries a direct-invoker flag and the credential's ceiling (a provenance
-//! `MESSAGE_DOMAIN` v2 that still verifies v1 rows).
+//! **A delivery runs as its sender only when the host said so.** The signed
+//! `actor` is whoever the sending chain carried, which is not always the person
+//! the sending run answered to (a send from an event delivery or a schedule
+//! inherits the chain's actor). So the actor alone grants nothing: a send runs
+//! as a person only when its row carries an invoker the host signed with a
+//! second MAC (`provenance::verified_invoker`, read in `relay::read`), which
+//! the host writes only for a run that itself ran as that person, naming the
+//! credential they ran under. The delivery re-admits that credential and asks
+//! `Action::AppCall` before it runs (`app_function_executor::sender`). Every
+//! other send runs as the system.
 //!
 //! The target is resolved when the event is relayed, so the delivery goes to
 //! the build that is live then; an app, function or build that is missing, or a

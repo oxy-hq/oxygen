@@ -419,13 +419,28 @@ pub async fn platform_reaches(
     cap: oxy_authz::Cap,
     org_id: uuid::Uuid,
 ) -> bool {
+    platform_reaches_checked(db, caller, cap, org_id)
+        .await
+        .unwrap_or(false)
+}
+
+/// [`platform_reaches`], telling **"does not reach"** from **"we could not find
+/// out"**: `Err` is the platform grant lookup failing. For code that must not
+/// read a failed lookup as a refusal — a queued send's delivery, which would
+/// otherwise kill the send for good over a blip (`app_function_executor::sender`).
+pub async fn platform_reaches_checked(
+    db: &DatabaseConnection,
+    caller: &Caller,
+    cap: oxy_authz::Cap,
+    org_id: uuid::Uuid,
+) -> Result<bool, DbErr> {
     if is_global_owner(caller) {
-        return true;
+        return Ok(true);
     }
-    matches!(
-        platform_grant_checked(db, caller).await,
-        Ok(Some(grant)) if grant.grants(cap, org_id)
-    )
+    Ok(matches!(
+        platform_grant_checked(db, caller).await?,
+        Some(grant) if grant.grants(cap, org_id)
+    ))
 }
 
 /// **Does the caller hold `cap` at all?** Scope is not consulted — the platform-surface

@@ -2,13 +2,14 @@
 //! through the real road: apps published into an org, the function route, the
 //! host op, the callee's admission, its isolate, and the invocation rows.
 //!
-//! A call: the callee runs as itself under the system identity with
+//! A call: the callee runs as itself, as the person behind the call, with
 //! `ctx.caller` naming the caller, answers its JSON, and its invocation row has
 //! mode `call` and the caller's invocation as its parent. Every refusal is a
 //! typed `AppCallError`. A chain of calls stops at the depth limit, and under a
 //! pool smaller than the chain it ends in `busy` and releases its permits
 //! instead of stalling. A send is a directed event: it is relayed to the one
-//! callable function it names, which runs as a call with the sent body.
+//! callable function it names, which runs as a call with the sent body, as
+//! the person who sent it when one did ([`send_identity`]).
 
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,10 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::app_events_delivery::{publish_app, with_fx};
 use crate::custom_app_functions_fixture::{FunctionSpec, call_function_in, invocations};
+
+// Who a delivered send runs as: the sender, their credential re-read, or
+// nobody; the system for a send no person made.
+mod send_identity;
 
 /// Answers with what it was handed and what it is told about its caller.
 const CALLEE_JS: &str = r#"
@@ -482,7 +487,19 @@ async fn a_send_is_relayed_to_the_one_function_and_runs_as_a_call() {
         assert_eq!(ran[0].parent_invocation_id, Some(caller_run[0].id));
         let seen = &fx.reported().await["seen"];
         assert_eq!(seen["body"], json!({ "n": 2 }), "the callee gets the sent body, not an envelope");
-        assert_eq!(seen["kind"], "system");
+        assert_eq!(seen["kind"], "user", "a send from a person runs as that person: {seen}");
+        assert_eq!(seen["caller"]["actor"], json!(t.guest_id.to_string()), "{seen}");
+        assert_eq!(ran[0].user_id, Some(t.guest_id));
+        let stored = entity::app_events::Entity::find_by_id(event_id)
+            .one(&t.db)
+            .await
+            .unwrap()
+            .expect("stored");
+        assert_eq!(
+            (stored.invoker.as_deref(), stored.invoker_token_id),
+            (Some("session"), None),
+            "the person sent it on a login session"
+        );
         assert_eq!(seen["caller"]["app"], json!(sender));
         assert_eq!(seen["caller"]["function"], "go");
         assert_eq!(seen["caller"]["invocationId"], json!(caller_run[0].id.to_string()));
@@ -807,12 +824,12 @@ async fn a_send_named_task_with_the_event_trigger_is_killed() {
 
 /// A signed row's `actor` is whoever the sending chain carried, which is not
 /// always the person the sending run answered to (a send from an event
-/// delivery or a schedule inherits it), and the row records neither a direct
-/// invoker nor the credential ceiling it ran under. So a delivery never
-/// presents it: the function runs as the system with no `ctx.caller.actor`,
-/// whatever the row says.
+/// delivery or a schedule inherits it). A row with no invoker (what a server
+/// one release back writes, and what the host writes for a run that does not
+/// run as a person) is never delivered as its actor: the function runs as the
+/// system with no `ctx.caller.actor`, whatever the row says.
 #[tokio::test]
-async fn a_send_row_carrying_an_actor_is_still_delivered_as_the_system() {
+async fn a_send_row_without_an_invoker_runs_as_the_system_whatever_its_actor() {
     with_fx(|fx| async move {
         let t = &fx.t;
         let (callee, sender) = (format!("callee-{}", fx.tag), format!("sender-{}", fx.tag));

@@ -26,6 +26,8 @@ use tracing::Instrument;
 pub use agentic_pipeline::app_function_task::APP_FUNCTION_KIND;
 
 mod delivery;
+#[cfg(feature = "custom-app-functions")]
+mod sender;
 
 /// A queued task, read and checked: everything the job needs, typed.
 #[derive(Debug)]

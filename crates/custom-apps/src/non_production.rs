@@ -84,6 +84,53 @@ pub async fn may_open_environment(
     }
 }
 
+/// [`may_open_environment`], telling a refusal from a failed read: `Err` when
+/// the platform grant, the environment's row or the caller's facts (`facts`,
+/// loaded by the caller, `None` when the load failed) could not be read. The
+/// same decision otherwise, uncached: `Action::AppNonProduction` over the
+/// staff gate, with a sandbox agent token's environment facet. For a queued
+/// send's delivery, which must retry a blip rather than kill the send
+/// (`app_function_executor::sender`).
+pub async fn may_open_environment_checked(
+    db: &sea_orm::DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    facts: Option<&oxy_authz::PrincipalFacts>,
+) -> Result<bool, DbErr> {
+    let facet = if caller.is_sandbox_agent() {
+        Some(environment_facet(db, app, environment).await?)
+    } else {
+        None
+    };
+    let existing_allow = oxy_server_authz::globals::platform_reaches_checked(
+        db,
+        caller,
+        oxy_authz::Cap::DevelopApps,
+        app.org_id,
+    )
+    .await?;
+    let facts =
+        facts.ok_or_else(|| DbErr::Custom("the caller's facts could not be read".into()))?;
+    Ok(oxy_authz::enforce(
+        "custom_app_non_production",
+        facts,
+        oxy_authz::Action::AppNonProduction,
+        &resource_in(app, facet),
+        existing_allow,
+    ))
+}
+
+/// The resource a non-production decision is about: the app, in the
+/// environment `facet` names when one does.
+fn resource_in(app: &apps::Model, facet: Option<oxy_authz::EnvFacet>) -> oxy_authz::Resource {
+    let resource = oxy_authz::Resource::app(app.id, app.org_id);
+    match facet {
+        Some(facet) => resource.in_environment(facet),
+        None => resource,
+    }
+}
+
 /// [`may_open_environment`] for the two routes that name no one sandbox yet:
 /// listing an app's environments, and creating one.
 pub async fn may_open_new_sandbox(
@@ -145,11 +192,7 @@ async fn decide_in(
     app: &apps::Model,
     facet: Option<oxy_authz::EnvFacet>,
 ) -> bool {
-    let resource = oxy_authz::Resource::app(app.id, app.org_id);
-    let resource = match facet {
-        Some(facet) => resource.in_environment(facet),
-        None => resource,
-    };
+    let resource = resource_in(app, facet);
     let existing_allow = oxy_server_authz::globals::platform_reaches(
         db,
         caller,

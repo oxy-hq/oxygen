@@ -71,6 +71,15 @@ impl Records {
         }))
     }
 
+    /// Who the event's sending run ran as, as the relay stored it after the
+    /// host's invoker MAC verified (`relay::read`): set for a send only.
+    pub(super) fn invoker(&self) -> Option<super::provenance::Invoker> {
+        super::provenance::Invoker::from_columns(
+            self.event.invoker.as_deref(),
+            self.event.invoker_token_id,
+        )
+    }
+
     /// The envelope a listener receives, as the relay built it
     /// (`relay::read_row`), carrying `data`, which the relay's copy leaves
     /// null.
@@ -232,6 +241,8 @@ mod tests {
             relayed_at: Utc::now().fixed_offset(),
             relay_error: None,
             mirrored_at: None,
+            invoker: None,
+            invoker_token_id: None,
         }
     }
 

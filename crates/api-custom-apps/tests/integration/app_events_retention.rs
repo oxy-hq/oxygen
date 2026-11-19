@@ -149,6 +149,7 @@ impl Fix {
             relay_error: error.map(str::to_string),
             directed: None,
             only_listener: None,
+            invoker: None,
         };
         fan_out(self.db(), &[event]).await.expect("fan out");
         id
@@ -709,6 +710,8 @@ async fn teardown_deletes_the_environments_events_and_deliveries() {
                 relayed_at: Set(Utc::now().fixed_offset()),
                 relay_error: Set(None),
                 mirrored_at: Set(None),
+                invoker: Set(None),
+                invoker_token_id: Set(None),
             },
         )
     };

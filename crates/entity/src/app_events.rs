@@ -33,6 +33,13 @@ pub struct Model {
     pub relay_error: Option<String>,
     /// When the event was copied into the workspace's Airhouse `oxy_event_log`.
     pub mirrored_at: Option<DateTimeWithTimeZone>,
+    /// Who a `ctx.apps.send` ran as, when its run ran directly as a person and
+    /// the host signed it: `session` or `token`. `None` for every other event;
+    /// such a send runs as the system.
+    pub invoker: Option<String>,
+    /// The stored token (`api_tokens.id`) of a `token` invoker, which the
+    /// delivery re-admits to act under its ceiling.
+    pub invoker_token_id: Option<Uuid>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

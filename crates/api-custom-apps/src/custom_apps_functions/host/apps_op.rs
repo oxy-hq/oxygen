@@ -16,8 +16,9 @@
 //! credential's ceiling included, with their role, teams and reach resolved
 //! again for the callee's app), after `Action::AppCall` asks whether they may
 //! open the target app ([`ProjectFunctionHost::authorize_target`]); a chain with
-//! no person (a schedule, an event, a delivered send) runs it as the system.
-//! The callee sees `ctx.caller` for attribution. It is admitted only if it is
+//! no person (a schedule, an event, a send delivered as the system) runs it as
+//! the system. A send delivered as its sender (`host::apps_send`) is such a
+//! chain's person too. The callee sees `ctx.caller` for attribution. It is admitted only if it is
 //! marked `"callable": true` (`queued_admission`).
 //!
 //! **Budget and depth.** The callee's timeout is the smallest of `timeoutMs`,
@@ -80,6 +81,14 @@ pub struct Person {
     pub email: Option<String>,
     pub name: Option<String>,
     pub picture: Option<String>,
+    /// Stood up at a send's delivery from the login session the send was made
+    /// on (`app_function_executor::sender`). That session's end is not known
+    /// (only that it was no later than 30 days from the send), so this person's
+    /// own sends carry no invoker and run as the system
+    /// (`host::apps_send::send_invoker`): a chain of sends never carries a
+    /// login session past the hop it was checked at. A token is re-admitted at
+    /// every hop and needs no such stop.
+    pub relayed_session: bool,
 }
 
 /// How an invocation sits in a chain of calls and events, and what it may
@@ -155,6 +164,80 @@ impl ChainScope {
 /// The depth something made by a run at `position` has: 0 outside a chain.
 pub(super) fn next_depth(position: Option<i32>) -> i32 {
     position.map_or(0, |p| p.saturating_add(1))
+}
+
+/// May `caller` open `app` in `environment`? What a run for a person asks
+/// before it reaches another app as them: a `ctx.apps.call` at the target's
+/// door, and a send's delivery before it runs as its sender
+/// (`app_function_executor::sender`). Production through `Action::AppCall`
+/// (the ring of `AppAccess`, with the shipped `user_can_access_app` as the
+/// existing check), a non-production environment through the route door's own
+/// `may_open_environment`. `site` names the asker in the decision's log.
+pub(crate) async fn may_call_as(
+    db: &sea_orm::DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    site: &'static str,
+) -> bool {
+    if !matches!(environment, AppEnvironment::Production) {
+        return oxy_custom_apps::non_production::may_open_environment(db, caller, app, environment)
+            .await;
+    }
+    let existing = oxy_custom_apps::auth::user_can_access_app(db, caller, app)
+        .await
+        .unwrap_or(false);
+    oxy_server_authz::enforce_for(
+        db,
+        caller,
+        site,
+        oxy_authz::Action::AppCall,
+        crate::workspace_custom_apps::app_access_resource(app).published_from(app.project_id),
+        existing,
+    )
+    .await
+}
+
+/// [`may_call_as`], telling a refusal from a failed read: `Err` when the
+/// caller's facts, their platform grant or the app's access rows could not be
+/// read. The same decision otherwise: `Action::AppCall` over the shipped
+/// `user_can_access_app` in production, the non-production door's own check
+/// elsewhere. For a send's delivery, which retries a blip and kills only a
+/// real refusal (`app_function_executor::sender`); a call's caller sees its
+/// error and keeps [`may_call_as`].
+pub(crate) async fn may_call_as_checked(
+    db: &sea_orm::DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    site: &'static str,
+) -> Result<bool, sea_orm::DbErr> {
+    let facts = oxy_server_authz::loader::load_principal_facts(db, caller).await;
+    if !matches!(environment, AppEnvironment::Production) {
+        return oxy_custom_apps::non_production::may_open_environment_checked(
+            db,
+            caller,
+            app,
+            environment,
+            facts.as_ref(),
+        )
+        .await;
+    }
+    let facts = facts
+        .ok_or_else(|| sea_orm::DbErr::Custom("the caller's facts could not be read".into()))?;
+    // `user_can_access_app` reads the platform grant through `platform_reaches`,
+    // which takes a failed read for "not staff". Read it fallibly first: a
+    // failure is an error here, and the read it then makes is the one just
+    // cached (or, for a sandbox agent token, memoised on the caller).
+    oxy_server_authz::globals::platform_grant_checked(db, caller).await?;
+    let existing = oxy_custom_apps::auth::user_can_access_app(db, caller, app).await?;
+    Ok(oxy_server_authz::enforce(
+        site,
+        &facts,
+        oxy_authz::Action::AppCall,
+        &crate::workspace_custom_apps::app_access_resource(app).published_from(app.project_id),
+        existing,
+    ))
 }
 
 /// Where this run came from, for what it publishes or calls.
@@ -278,42 +361,24 @@ impl ProjectFunctionHost {
     }
 
     /// May the person this run is for open `app` in this run's environment?
-    /// The one question a call asks, at the target's door: production through
-    /// `Action::AppCall` (the ring of `AppAccess`, with the shipped
-    /// `user_can_access_app` as the existing check), a non-production
-    /// environment through the route door's own `may_open_environment`. A run
-    /// with no person (a schedule, an event, a delivered send) is the system
-    /// and is not asked; it carries no more than a background run has.
+    /// The one question a call asks, at the target's door ([`may_call_as`]).
+    /// A run with no person (a schedule, an event, a send delivered as the
+    /// system) is the system and is not asked; it carries no more than a
+    /// background run has.
     pub(super) async fn authorize_target(&self, app: &apps::Model) -> Result<(), String> {
         let Some(person) = &self.person else {
             return Ok(());
         };
         let environment = self.policy.environment();
-        let allowed = if matches!(environment, AppEnvironment::Production) {
-            let existing =
-                oxy_custom_apps::auth::user_can_access_app(&self.db, &person.caller, app)
-                    .await
-                    .unwrap_or(false);
-            oxy_server_authz::enforce_for(
-                &self.db,
-                &person.caller,
-                "custom_app_call",
-                oxy_authz::Action::AppCall,
-                crate::workspace_custom_apps::app_access_resource(app)
-                    .published_from(app.project_id),
-                existing,
-            )
-            .await
-        } else {
-            oxy_custom_apps::non_production::may_open_environment(
-                &self.db,
-                &person.caller,
-                app,
-                environment,
-            )
-            .await
-        };
-        if allowed {
+        if may_call_as(
+            &self.db,
+            &person.caller,
+            app,
+            environment,
+            "custom_app_call",
+        )
+        .await
+        {
             Ok(())
         } else {
             Err(CallErrorKind::Refused.message(format!(

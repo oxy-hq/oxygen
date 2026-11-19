@@ -13,7 +13,7 @@ use uuid::Uuid;
 use super::RelayedEvent;
 use super::vouch::Vouched;
 use crate::app_events::envelope::{event_dataschema, event_source};
-use crate::app_events::provenance::{self, Provenance, UNVERIFIED_PROVENANCE};
+use crate::app_events::provenance::{self, Invoker, Provenance, UNVERIFIED_PROVENANCE};
 use crate::app_events::schema::live_revision;
 
 /// What the platform holds for one event name of one app.
@@ -80,6 +80,7 @@ pub(super) fn read_row(
     schemas: &EventSchemas,
 ) -> RelayedEvent {
     let relay_error = refusal(app, row, &vouched, schemas);
+    let invoker = invoker(app, row, schemas, relay_error.as_deref());
     let (environment, _) = vouched;
     let event_type = qualified_type(&app.slug, &row.name);
     let id = event_id(app.org_id, &environment, &event_type, &row.key);
@@ -112,7 +113,36 @@ pub(super) fn read_row(
         relay_error,
         directed: None,
         only_listener: None,
+        invoker,
     }
+}
+
+/// Who a directed event's sending run ran as, when the host signed it
+/// (`provenance::verified_invoker`): read only for a send (`ctx.apps.send`)
+/// whose row the relay stores to deliver. An ordinary event never carries
+/// one, a refused row is delivered to nobody, and a row whose invoker MAC is
+/// missing or not the host's is the host's row all the same (its v1 MAC
+/// verified), delivered as the system.
+fn invoker(
+    app: &apps::Model,
+    row: &OutboxRow,
+    schemas: &EventSchemas,
+    relay_error: Option<&str>,
+) -> Option<Invoker> {
+    if !schemas.directed || relay_error.is_some() {
+        return None;
+    }
+    let event_type = qualified_type(&app.slug, &row.name);
+    let signed = Provenance::of_row(row, &event_type);
+    let invoker = provenance::verified_invoker(app.org_id, &signed, row);
+    if invoker.is_none() && (row.invoker.is_some() || row.invoker_provenance.is_some()) {
+        tracing::warn!(
+            org_id = %app.org_id,
+            event_id = %row.id,
+            "app events: a send's invoker is not the host's; it is delivered as the system"
+        );
+    }
+    invoker
 }
 
 /// Why `row` of `app` is stored but delivered to nobody, in this order: its

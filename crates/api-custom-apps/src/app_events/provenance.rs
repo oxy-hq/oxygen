@@ -34,6 +34,18 @@
 //! changed after the definer writes it (`ON CONFLICT DO NOTHING`, and a writer
 //! holds nothing on the table), so the size binds a host's row to the body it
 //! sent.
+//!
+//! **Who a send ran as: a second MAC, message domain v2.** A `ctx.apps.send`
+//! made by a run that ran directly as a person carries that fact and the
+//! credential the person ran under ([`Invoker`]: a login session, or a stored
+//! token by its id) in three more columns (platform step 7). The host signs
+//! them with [`sign_invoker`]: the v1 encoding of every field above under a
+//! domain of its own (`…:v2`), then the invoker. It is a second MAC beside the
+//! first, not a replacement, so a relay one release back still verifies the
+//! row and delivers it as the system, as every send was delivered before; and
+//! a row whose invoker MAC is missing or not the host's is still the host's
+//! row, delivered as the system ([`verified_invoker`]). Only a verified
+//! invoker MAC makes a delivery run as a person, and a v1-only row never does.
 
 use hmac::{Hmac, KeyInit, Mac};
 use oxy_oltp::events::OutboxRow;
@@ -49,6 +61,54 @@ pub const UNVERIFIED_PROVENANCE: &str = "unverified_provenance";
 const KEY_DOMAIN: &[u8] = b"app-events-provenance";
 /// What every signed message starts with: a new encoding gets a new version.
 const MESSAGE_DOMAIN: &[u8] = b"oxy-app-events-provenance:v1\0";
+/// What the invoker MAC's message starts with: the v1 fields, then the
+/// invoker ([`sign_invoker`]). A domain of its own, so neither MAC can ever
+/// pass for the other.
+const MESSAGE_DOMAIN_V2: &[u8] = b"oxy-app-events-provenance:v2\0";
+
+/// Who a `ctx.apps.send`'s run ran as, when it ran directly as a person: the
+/// credential the person ran under, by reference, which a delivery re-reads
+/// to stand that person up again with the same ceiling
+/// (`app_function_executor::sender`). A run that did not run as a person
+/// (an event's delivery, a schedule, a send delivered as the system) has
+/// none, and its sends run as the system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Invoker {
+    /// A login session: no token narrowed the person.
+    Session,
+    /// A stored token (`api_tokens.id`): a personal, agent, sandbox agent or
+    /// service account token, or the token behind a token session.
+    Token(Uuid),
+}
+
+impl Invoker {
+    /// `session` or `token`: the `invoker` column.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::Token(_) => "token",
+        }
+    }
+
+    /// The `invoker_token_id` column.
+    pub fn token_id(&self) -> Option<Uuid> {
+        match self {
+            Self::Session => None,
+            Self::Token(id) => Some(*id),
+        }
+    }
+
+    /// The invoker two stored columns name, or `None` when they name none
+    /// or are not one well-formed invoker (a kind that is neither, a token
+    /// kind without an id, a session with one).
+    pub fn from_columns(kind: Option<&str>, token_id: Option<Uuid>) -> Option<Self> {
+        match (kind, token_id) {
+            (Some("session"), None) => Some(Self::Session),
+            (Some("token"), Some(id)) => Some(Self::Token(id)),
+            _ => None,
+        }
+    }
+}
 
 /// Every field of an outbox row the relay trusts, as the host signs it and
 /// the relay reads it back.
@@ -110,6 +170,52 @@ pub fn verify(org_id: Uuid, fields: &Provenance<'_>, mac: Option<&[u8]>) -> bool
     verify_with(&master_key(), org_id, fields, mac)
 }
 
+/// The host's invoker MAC over `fields` and `invoker`, under `org_id`'s key:
+/// message domain v2 (see the module docs).
+pub fn sign_invoker(org_id: Uuid, fields: &Provenance<'_>, invoker: Invoker) -> [u8; 32] {
+    mac_over(&master_key(), org_id, &message_v2(fields, invoker))
+}
+
+/// [`sign_invoker`] as the hex text the publish statement passes the definer
+/// (`PUBLISH_WITH_INVOKER_SQL`'s last parameter).
+pub fn sign_invoker_hex(org_id: Uuid, fields: &Provenance<'_>, invoker: Invoker) -> String {
+    hex::encode(sign_invoker(org_id, fields, invoker))
+}
+
+/// Whether `mac` is the host's invoker MAC over `fields` and `invoker`,
+/// compared in constant time. A missing MAC never verifies.
+pub fn verify_invoker(
+    org_id: Uuid,
+    fields: &Provenance<'_>,
+    invoker: Invoker,
+    mac: Option<&[u8]>,
+) -> bool {
+    verify_over(&master_key(), org_id, &message_v2(fields, invoker), mac)
+}
+
+/// The invoker `row` carries, when the host signed it: its columns name one
+/// well-formed [`Invoker`] and its invoker MAC is the host's over `fields`
+/// (the row's own, read by [`Provenance::of_row`]) and that invoker. `None`
+/// for a row that names none, and for one whose invoker the host did not
+/// sign: a row a server one release back wrote (v1 only), or one whose
+/// columns app SQL filled through the definer's settings. Such a row is
+/// still the host's when its v1 MAC verifies, and is delivered as the
+/// system.
+pub fn verified_invoker(org_id: Uuid, fields: &Provenance<'_>, row: &OutboxRow) -> Option<Invoker> {
+    verified_invoker_with(&master_key(), org_id, fields, row)
+}
+
+fn verified_invoker_with(
+    master: &[u8; 32],
+    org_id: Uuid,
+    fields: &Provenance<'_>,
+    row: &OutboxRow,
+) -> Option<Invoker> {
+    let invoker = Invoker::from_columns(row.invoker.as_deref(), row.invoker_token_id)?;
+    let message = message_v2(fields, invoker);
+    verify_over(master, org_id, &message, row.invoker_provenance.as_deref()).then_some(invoker)
+}
+
 /// Whether a stored event's `relay_error` is a provenance refusal.
 pub fn is_unverified(relay_error: &str) -> bool {
     relay_error.starts_with(UNVERIFIED_PROVENANCE)
@@ -130,9 +236,7 @@ fn org_key(master: &[u8; 32], org_id: Uuid) -> [u8; 32] {
 }
 
 fn sign_with(master: &[u8; 32], org_id: Uuid, fields: &Provenance<'_>) -> [u8; 32] {
-    let mut mac = keyed(&org_key(master, org_id));
-    mac.update(&message(fields));
-    to_array(&mac.finalize().into_bytes())
+    mac_over(master, org_id, &message(fields))
 }
 
 fn verify_with(
@@ -141,11 +245,23 @@ fn verify_with(
     fields: &Provenance<'_>,
     mac: Option<&[u8]>,
 ) -> bool {
+    verify_over(master, org_id, &message(fields), mac)
+}
+
+/// The MAC over `message` under `org_id`'s key.
+fn mac_over(master: &[u8; 32], org_id: Uuid, message: &[u8]) -> [u8; 32] {
+    let mut mac = keyed(&org_key(master, org_id));
+    mac.update(message);
+    to_array(&mac.finalize().into_bytes())
+}
+
+/// Whether `mac` is the MAC over `message` under `org_id`'s key.
+fn verify_over(master: &[u8; 32], org_id: Uuid, message: &[u8], mac: Option<&[u8]>) -> bool {
     let Some(given) = mac else {
         return false;
     };
     let mut mac = keyed(&org_key(master, org_id));
-    mac.update(&message(fields));
+    mac.update(message);
     // Constant-time, and a slice of any other length never verifies.
     mac.verify_slice(given).is_ok()
 }
@@ -168,29 +284,46 @@ fn to_array(bytes: &[u8]) -> [u8; 32] {
 fn message(fields: &Provenance<'_>) -> Vec<u8> {
     let mut out = Vec::with_capacity(256);
     out.extend_from_slice(MESSAGE_DOMAIN);
-    field(&mut out, fields.id.as_bytes());
-    field(&mut out, fields.environment.as_bytes());
-    field(&mut out, fields.event_type.as_bytes());
-    field(&mut out, fields.key.as_bytes());
-    field(&mut out, fields.writer_role.as_bytes());
-    optional(&mut out, fields.actor.map(str::as_bytes));
-    field(&mut out, fields.root_id.as_bytes());
+    encode_fields(&mut out, fields);
+    out
+}
+
+/// The invoker MAC's message: domain v2, the v1 encoding of `fields`, then the
+/// invoker's kind as a text and its token id as an optional.
+fn message_v2(fields: &Provenance<'_>, invoker: Invoker) -> Vec<u8> {
+    let mut out = Vec::with_capacity(320);
+    out.extend_from_slice(MESSAGE_DOMAIN_V2);
+    encode_fields(&mut out, fields);
+    field(&mut out, invoker.kind().as_bytes());
+    let token = invoker.token_id();
+    optional(&mut out, token.as_ref().map(|id| &id.as_bytes()[..]));
+    out
+}
+
+/// Every field of `fields`, in [`message`]'s order and encoding.
+fn encode_fields(out: &mut Vec<u8>, fields: &Provenance<'_>) {
+    field(out, fields.id.as_bytes());
+    field(out, fields.environment.as_bytes());
+    field(out, fields.event_type.as_bytes());
+    field(out, fields.key.as_bytes());
+    field(out, fields.writer_role.as_bytes());
+    optional(out, fields.actor.map(str::as_bytes));
+    field(out, fields.root_id.as_bytes());
     optional(
-        &mut out,
+        out,
         fields.causation_id.as_ref().map(|id| &id.as_bytes()[..]),
     );
     out.extend_from_slice(&fields.depth.to_be_bytes());
     out.extend_from_slice(&fields.delay_seconds.to_be_bytes());
     out.extend_from_slice(&fields.data_bytes.to_be_bytes());
     optional(
-        &mut out,
+        out,
         fields.schema_revision.as_ref().map(|id| &id.as_bytes()[..]),
     );
     optional(
-        &mut out,
+        out,
         fields.invocation_id.as_ref().map(|id| &id.as_bytes()[..]),
     );
-    out
 }
 
 fn field(out: &mut Vec<u8>, bytes: &[u8]) {

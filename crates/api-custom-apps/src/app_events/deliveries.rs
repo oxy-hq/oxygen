@@ -93,6 +93,11 @@ pub const CRASHED: &str = "the attempt did not finish: its isolate or its worker
 /// Why a delivery whose event has lost its payload is dead.
 pub const BODY_GONE: &str = "event body no longer available";
 
+/// The stable code a send's delivery killed for its sender's identity starts
+/// with: the credential it was sent with no longer admits, or the person who
+/// sent it may not open the receiving app (`app_function_executor::sender`).
+pub const SENDER_REFUSED: &str = "sender_refused";
+
 /// How one attempt ended. Stored as `app_event_delivery_attempts.outcome`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttemptOutcome {
@@ -150,6 +155,9 @@ pub enum DeliveryStart {
     Run {
         envelope: OxyEvent,
         info: DeliveryInfo,
+        /// Who a send's sending run ran as (`Records::invoker`): the delivery
+        /// runs as that person, or is refused. `None`: as the system.
+        invoker: Option<super::provenance::Invoker>,
     },
     /// Not pending (acked, dead, held, discarded, expired) or gone: nothing to
     /// run, and nothing to record.
@@ -185,9 +193,11 @@ pub async fn begin(db: &DatabaseConnection, delivery_id: Uuid) -> Result<Deliver
     };
     let reason = match load_event_data(db, &records.event).await {
         Ok(Some(data)) => {
+            let invoker = records.invoker();
             return Ok(DeliveryStart::Run {
                 envelope: records.envelope(data),
                 info,
+                invoker,
             });
         }
         Ok(None) => BODY_GONE.to_string(),

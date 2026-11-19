@@ -25,6 +25,7 @@ use super::format::{TokenFormat, hash_token};
 use super::{policy_store, sandbox};
 use crate::api_key_infra::{identity_for_key_owner, identity_for_service_account};
 use crate::types::Identity;
+use uuid::Uuid;
 
 /// A credential resolved from the database.
 #[derive(Clone, Debug)]
@@ -59,6 +60,34 @@ pub async fn resolve(
         Some(row) => resolve_row(db, row, presented).await,
         None => Err(invalid("no token row for the presented token")),
     }
+}
+
+/// Re-admit the stored token `token_id` outside any request: what [`resolve`]
+/// does once it has found a presented token's row — the row admitted as its
+/// own kind, with its live grants, its org policies' blocks, its sandbox apps
+/// and its principal read now — so a revoked, expired, narrowed, blocked or
+/// orphaned token is refused here exactly as it would be as a bearer.
+///
+/// For code that recorded which credential a person acted under and must act
+/// for them again with that credential's ceiling (a delivered `ctx.apps.send`,
+/// `app_function_executor::sender`), never to stand in for a request. Nothing
+/// is cached and no use is recorded: this is not the token being presented.
+/// A row whose kind no presented format resolves to (a legacy key) is refused.
+pub async fn resolve_stored(db: &DatabaseConnection, token_id: Uuid) -> Result<Resolved, OxyError> {
+    let row = ApiTokens::find_by_id(token_id)
+        .one(db)
+        .await
+        .map_err(db_err("api token lookup"))?
+        .ok_or_else(|| invalid("no token row for a stored credential"))?;
+    let presented = StoredKind::parse(&row.kind)
+        .and_then(StoredKind::presented_as)
+        .ok_or_else(|| {
+            invalid(format!(
+                "a stored `{}` token is never re-admitted",
+                row.kind
+            ))
+        })?;
+    resolve_row(db, row, presented).await
 }
 
 async fn find_by_hash(

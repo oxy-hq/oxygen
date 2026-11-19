@@ -311,6 +311,25 @@ impl Caller {
         })
     }
 
+    /// Whether the request arrived on a login session: no token, no service
+    /// account and no configured service — the caller `Caller::of` builds
+    /// for a user with no credential.
+    pub fn is_login_session(&self) -> bool {
+        self.token.is_none() && self.account.is_none() && self.service.is_none()
+    }
+
+    /// The stored token (`api_tokens.id`) the request arrived with: what
+    /// code acting for this person again outside the request re-admits by id
+    /// (`oxy_auth::token::store::resolve_stored`), so it acts under the same
+    /// ceiling. `None` for a login session, and for a configured service
+    /// (`oxysvc_`), which has no stored row to re-admit.
+    pub fn stored_token_id(&self) -> Option<Uuid> {
+        if self.service.is_some() {
+            return None;
+        }
+        self.token.as_ref().map(|t| t.id)
+    }
+
     /// The assume-role sessions this credential may use: `Some(id)` = only the
     /// ones this new-format token opened; `None` = the ones opened in a browser
     /// (a session, and a legacy key, which inherits them).

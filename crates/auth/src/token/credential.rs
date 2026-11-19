@@ -170,6 +170,22 @@ impl StoredKind {
         }
     }
 
+    /// The format a token of this stored kind is presented in: what
+    /// [`Self::expected_for`] maps back to this kind. `None` for a kind no
+    /// presented format resolves to — a legacy key, a configured service,
+    /// which has no row, and an app's own credential.
+    pub(super) fn presented_as(self) -> Option<TokenFormat> {
+        match self {
+            Self::Personal => Some(TokenFormat::Personal),
+            Self::ServiceAccount => Some(TokenFormat::ServiceAccount),
+            Self::Ci => Some(TokenFormat::Ci),
+            Self::SandboxAgent => Some(TokenFormat::SandboxAgent),
+            // An app's credential is built by the host in-process and no
+            // presented token resolves to one (admission refuses it).
+            Self::LegacyKey | Self::Service | Self::App => None,
+        }
+    }
+
     /// The stored kind a presented credential must resolve to. `None` for a
     /// format this release has no stored kind for — including, now, anything
     /// that would resolve to [`Self::LegacyKey`]: no presented format maps to

@@ -15,14 +15,27 @@
 //! The answer is `{ eventId }`, the id of the event to look up. The key is the
 //! caller's `key` when given (a repeat of one is the same send), else a new one
 //! per send; `delaySeconds` is 0 to 86 400 as for any event.
+//!
+//! **Who it is delivered as.** A run that runs as a person (a route call, or a
+//! call or send from one, which run as that person) sends as them: the row
+//! records the credential they ran under ([`send_invoker`]: their login
+//! session, or the stored token they arrived with) and the host signs it
+//! beside the row (`app_events::provenance`, message domain v2). The delivery
+//! re-reads that credential, asks the same `Action::AppCall` door a call asks,
+//! and runs the function as them or refuses it (`app_function_executor::
+//! sender`). A run that runs as the system (an event's delivery, a schedule,
+//! a send delivered as the system) records none, whatever `actor` its chain
+//! carried, so its sends run as the system.
 
 use oxy_custom_apps::calls::send_name;
 use oxy_custom_apps::events::{MAX_KEY_LEN, MAX_PAYLOAD_BYTES, jsonb_text_len};
+use oxy_oltp::events::PUBLISH_WITH_INVOKER_SQL;
 use serde_json::{Value, json};
 
-use super::apps_op::Target;
+use super::apps_op::{Person, Target};
 use super::events_op::{Checked, delay_seconds, holds_nul};
 use super::*;
+use crate::app_events::provenance::Invoker;
 
 const KEY_INVALID: &str = "AppCallRefused: `key` must be 1–200 characters without U+0000";
 
@@ -38,8 +51,10 @@ impl ProjectFunctionHost {
         let decided = self.policy.decide(host_op);
         let outbox = self.admit_publish(host_op, decided, &checked.name).await?;
         let conn = self.publish_writer(host_op, &outbox).await?;
-        let (id, params) = self.publish_params(&checked, &conn.role);
-        self.publish_alone(&outbox, &conn, &params).await?;
+        let invoker = send_invoker(self.person.as_ref(), self.chain().actor.as_deref());
+        let (id, params) = self.publish_params_with_invoker(&checked, &conn.role, invoker);
+        self.publish_alone(&outbox, &conn, PUBLISH_WITH_INVOKER_SQL, &params)
+            .await?;
         self.after_publish_commit().await;
         Ok(json!({ "eventId": id.to_string() }))
     }
@@ -48,7 +63,8 @@ impl ProjectFunctionHost {
     /// delay are in bounds and the body fits an event.
     async fn check_send(&self, target: &Target, payload: &Value) -> Result<Checked, String> {
         let app = self.find_target_app(&target.app).await?;
-        // A person is asked now; at delivery there is no one to ask.
+        // A person is asked now, and again at delivery (`sender`): the
+        // credential or the app's access may change between the two.
         self.authorize_target(&app).await?;
         let key = match payload.get("key") {
             None | Some(Value::Null) => uuid::Uuid::new_v4().to_string(),
@@ -76,5 +92,133 @@ impl ProjectFunctionHost {
             data_bytes: bytes,
             revision: None,
         })
+    }
+}
+
+/// Who a send from a run is sent as: the person the run runs as, by the
+/// credential they arrived with, when the run runs as that person — its
+/// chain's actor is them. `None` for a run that runs as the system (an event's
+/// delivery, a schedule), whatever actor its chain carried; for a person
+/// whose credential cannot be re-read outside this request (a configured
+/// service, which has no stored row); and for a person stood up from a login
+/// session at a send's delivery, whose session's end is not known
+/// (`Person::relayed_session`): their sends run as the system.
+fn send_invoker(person: Option<&Person>, chain_actor: Option<&str>) -> Option<Invoker> {
+    let person = person?;
+    if person.relayed_session || chain_actor != Some(person.user_id.to_string().as_str()) {
+        return None;
+    }
+    if person.caller.is_login_session() {
+        return Some(Invoker::Session);
+    }
+    person.caller.stored_token_id().map(Invoker::Token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxy_auth::token::{CredentialContext, StoredKind};
+    use oxy_auth::types::AuthenticatedUser;
+
+    const TOKEN: Uuid = Uuid::from_u128(0x70);
+
+    fn user() -> AuthenticatedUser {
+        AuthenticatedUser {
+            id: Uuid::from_u128(1),
+            email: Some("ada@example.com".into()),
+            name: "Ada".into(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        }
+    }
+
+    fn credential(kind: StoredKind) -> CredentialContext {
+        CredentialContext {
+            token_id: TOKEN,
+            kind,
+            principal_user_id: Uuid::from_u128(1),
+            all_access: true,
+            platform: false,
+            partner: false,
+            name: "t".into(),
+            display_prefix: "oxy_pat_Ab3x".into(),
+            grants: Vec::new(),
+            app_publish: Vec::new(),
+            app_sandbox: Vec::new(),
+            blocked_orgs: Vec::new(),
+            service_account: None,
+            app_access: None,
+            expires_at: None,
+        }
+    }
+
+    fn person(credential: Option<CredentialContext>) -> Person {
+        let user = user().with_credential(credential);
+        Person {
+            caller: oxy_server_authz::Caller::from_user(&user),
+            user_id: user.id,
+            email: user.email,
+            name: Some(user.name),
+            picture: None,
+            relayed_session: false,
+        }
+    }
+
+    fn ada() -> String {
+        Uuid::from_u128(1).to_string()
+    }
+
+    /// A run as a person sends as them, under the credential they arrived
+    /// with: a login session, or the stored token by its id.
+    #[test]
+    fn a_run_as_a_person_sends_under_their_credential() {
+        assert_eq!(
+            send_invoker(Some(&person(None)), Some(&ada())),
+            Some(Invoker::Session)
+        );
+        for kind in [StoredKind::Personal, StoredKind::SandboxAgent] {
+            assert_eq!(
+                send_invoker(Some(&person(Some(credential(kind)))), Some(&ada())),
+                Some(Invoker::Token(TOKEN)),
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// The review's first finding: an actor the chain merely carried (an
+    /// event's delivery, a schedule: no person) is never an invoker.
+    #[test]
+    fn an_inherited_actor_is_never_an_invoker() {
+        assert_eq!(send_invoker(None, Some(&ada())), None);
+        assert_eq!(send_invoker(None, None), None);
+    }
+
+    /// F2: a person stood up from a send's login session sends as the system,
+    /// so a session is never carried past the hop it was checked at; one stood
+    /// up from a token sends under it again, re-admitted at the next hop.
+    #[test]
+    fn a_relayed_session_sends_as_the_system_and_a_relayed_token_does_not() {
+        let relayed = |credential: Option<CredentialContext>| Person {
+            relayed_session: credential.is_none(),
+            ..person(credential)
+        };
+        assert_eq!(send_invoker(Some(&relayed(None)), Some(&ada())), None);
+        assert_eq!(
+            send_invoker(
+                Some(&relayed(Some(credential(StoredKind::Personal)))),
+                Some(&ada())
+            ),
+            Some(Invoker::Token(TOKEN))
+        );
+    }
+
+    /// A person whose chain names someone else, or no one, is not sending as
+    /// themselves: no invoker.
+    #[test]
+    fn a_person_and_a_chain_that_disagree_send_as_the_system() {
+        let other = Uuid::from_u128(2).to_string();
+        assert_eq!(send_invoker(Some(&person(None)), Some(&other)), None);
+        assert_eq!(send_invoker(Some(&person(None)), None), None);
     }
 }

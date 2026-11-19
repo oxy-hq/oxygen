@@ -108,6 +108,7 @@ fn prepare(
         relay_error: None,
         directed: None,
         only_listener,
+        invoker: None,
     };
     Ok(Prepared {
         event,

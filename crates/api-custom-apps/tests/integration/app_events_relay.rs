@@ -504,6 +504,7 @@ impl Relay {
             relay_error: None,
             directed: None,
             only_listener: None,
+            invoker: None,
         }
     }
 }

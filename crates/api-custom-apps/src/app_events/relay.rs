@@ -248,6 +248,10 @@ pub struct RelayedEvent {
     /// Deliver to this one listener (app id, function) and no other: the
     /// backfill event `oxyc events resync --backfill` queues.
     pub only_listener: Option<(Uuid, String)>,
+    /// Who a directed event's sending run ran as, verified against the host's
+    /// invoker MAC (`relay::read`): its delivery runs as that person. `None`
+    /// for every other event, and for a send that runs as the system.
+    pub invoker: Option<super::provenance::Invoker>,
 }
 
 /// A listener's retry policy: the `retries` its manifest declares (a single
@@ -712,6 +716,8 @@ async fn store(txn: &DatabaseTransaction, event: &RelayedEvent) -> Result<Stored
         delay_seconds: Set(event.delay_seconds),
         published_at: Set(e.time.into()),
         relay_error: Set(event.relay_error.clone()),
+        invoker: Set(event.invoker.map(|i| i.kind().to_string())),
+        invoker_token_id: Set(event.invoker.and_then(|i| i.token_id())),
         // `relayed_at` is the database's `now()`.
         ..Default::default()
     };

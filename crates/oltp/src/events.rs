@@ -71,6 +71,22 @@ pub use platform::{PLATFORM_WRITER, PlatformBody, read_bodies, write_platform_bo
 pub const PUBLISH_SQL: &str = "SELECT oxy_events.publish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,\
      pg_catalog.decode($13,'hex'))";
 
+/// [`PUBLISH_SQL`] carrying who a `ctx.apps.send` ran as (platform step 7):
+/// parameters 14 to 16 are the invoker kind (`session` or `token`), its token
+/// id and the host's invoker MAC as hex, each `''` for none. The definer's
+/// signature is step 6's, so they reach it as transaction-local settings,
+/// set by a materialized CTE the publish reads from: the settings are in
+/// place before the definer runs, in this one statement, and the definer
+/// clears them. Every one is set on every call, `''` included, so a value
+/// app SQL set earlier on the connection is never what the definer reads.
+/// `pg_catalog.set_config` is schema-qualified for the reason `decode` is.
+pub const PUBLISH_WITH_INVOKER_SQL: &str = "WITH invoker AS MATERIALIZED (SELECT \
+     pg_catalog.set_config('oxy_events.invoker', $14, true) AS kind, \
+     pg_catalog.set_config('oxy_events.invoker_token_id', $15, true) AS token, \
+     pg_catalog.set_config('oxy_events.invoker_provenance', $16, true) AS mac) \
+     SELECT oxy_events.publish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,pg_catalog.decode($13,'hex')) \
+     FROM invoker";
+
 #[derive(Debug, thiserror::Error)]
 pub enum EventsError {
     /// The org has no active OLTP tenant, so it has no outbox.
@@ -142,6 +158,13 @@ pub struct OutboxRow {
     /// The MAC the host signed the row with (platform step 6), which the
     /// relay verifies: `None` on a row written before the step.
     pub provenance: Option<Vec<u8>>,
+    /// Who a `ctx.apps.send` ran as, as the definer stored it (platform step
+    /// 7): `session` or `token`, the token's id, and the host's MAC over the
+    /// row and both. Unverified here: the relay checks the MAC, and delivers
+    /// as a person only a row whose MAC verifies. `None` on every other row.
+    pub invoker: Option<String>,
+    pub invoker_token_id: Option<Uuid>,
+    pub invoker_provenance: Option<Vec<u8>>,
 }
 
 impl OutboxRow {
@@ -269,7 +292,11 @@ impl OutboxClaim {
 /// the payload's size computed in the store — never the payload.
 const OUTBOX_COLUMNS: &str = "id, writer_role, environment, name, key, octet_length(data::text), \
      schema_revision, actor, causation_id, root_id, depth, invocation_id, delay_seconds, created_at, \
-     provenance";
+     provenance, invoker, invoker_token_id, invoker_provenance";
+
+/// Where a claim's row holds the oldest row left waiting: after every one of
+/// [`OUTBOX_COLUMNS`].
+const OLDEST_LEFT_COLUMN: usize = 18;
 
 /// The rows whose keys are `$1` / `$2`, parallel arrays of writer roles and
 /// ids ([`key_arrays`]).
@@ -330,7 +357,7 @@ pub async fn claim(
         .map_err(|e| store("claim outbox rows", &e))?;
     let oldest_left = rows
         .first()
-        .and_then(|r| r.get::<_, Option<f64>>(15))
+        .and_then(|r| r.get::<_, Option<f64>>(OLDEST_LEFT_COLUMN))
         .map(|secs| std::time::Duration::from_secs_f64(secs.max(0.0)));
     let rows = rows
         .iter()
@@ -352,6 +379,9 @@ pub async fn claim(
             delay_seconds: r.get(12),
             created_at: r.get(13),
             provenance: r.get(14),
+            invoker: r.get(15),
+            invoker_token_id: r.get(16),
+            invoker_provenance: r.get(17),
         })
         .collect();
     Ok(OutboxClaim {
@@ -499,6 +529,55 @@ mod tests {
     fn a_claim_reads_the_provenance_mac() {
         let columns: Vec<&str> = OUTBOX_COLUMNS.split(',').map(str::trim).collect();
         assert!(columns.contains(&"provenance"), "{OUTBOX_COLUMNS}");
+    }
+
+    /// The oldest row left is read after the claimed row's columns.
+    #[test]
+    fn the_oldest_row_left_follows_every_claimed_column() {
+        assert_eq!(OUTBOX_COLUMNS.split(',').count(), OLDEST_LEFT_COLUMN);
+    }
+
+    /// A claim reads the send's invoker beside the MAC that signs it.
+    #[test]
+    fn a_claim_reads_the_invoker_and_its_mac() {
+        let columns: Vec<&str> = OUTBOX_COLUMNS.split(',').map(str::trim).collect();
+        for column in ["invoker", "invoker_token_id", "invoker_provenance"] {
+            assert!(columns.contains(&column), "{column}: {OUTBOX_COLUMNS}");
+        }
+    }
+
+    /// The invoker reaches the definer as settings set before it runs, in
+    /// the publish statement itself, under the names the definer reads, and
+    /// the call is otherwise [`PUBLISH_SQL`]'s.
+    #[test]
+    fn a_send_sets_the_invoker_settings_before_the_definer_runs() {
+        use crate::platform::{
+            EVENT_INVOKER_PROVENANCE_SETTING, EVENT_INVOKER_SETTING, EVENT_INVOKER_TOKEN_SETTING,
+        };
+        let sql = PUBLISH_WITH_INVOKER_SQL;
+        assert!(
+            sql.starts_with("WITH invoker AS MATERIALIZED (SELECT "),
+            "{sql}"
+        );
+        for (setting, param) in [
+            (EVENT_INVOKER_SETTING, "$14"),
+            (EVENT_INVOKER_TOKEN_SETTING, "$15"),
+            (EVENT_INVOKER_PROVENANCE_SETTING, "$16"),
+        ] {
+            assert!(
+                sql.contains(&format!(
+                    "pg_catalog.set_config('{setting}', {param}, true)"
+                )),
+                "{setting}: {sql}"
+            );
+        }
+        let call = PUBLISH_SQL.trim_start_matches("SELECT ").replace("\n", "");
+        assert!(
+            sql.replace(' ', "").contains(&call.replace(' ', "")),
+            "the same call: {sql}"
+        );
+        assert!(sql.ends_with("FROM invoker"), "{sql}");
+        assert_eq!(sql.matches('$').count(), 16);
     }
 
     #[test]
