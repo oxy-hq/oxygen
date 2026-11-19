@@ -132,7 +132,11 @@ provisioned under.
 
 - **Resources:** `sp_search_term` (Sponsored Products search terms) and
   `sp_placement` (campaigns by placement: `top_of_search`, `rest_of_search`,
-  `product_pages`, `off_amazon`), both daily. The source only requests and
+  `product_pages`, `off_amazon`), and `sp_advertised_product` (spend,
+  clicks and attributed sales per advertised SKU, merged on date, campaign,
+  ad group and SKU; airway 0.1.66 or later), all daily. List the ones you
+  need under `resources:`: each is its own report, and a report can take
+  30 minutes or more to build. The source only requests and
   downloads reports; it never changes a bid, budget or campaign.
 - **Required:** `client_id`, `profile_id` (the advertiser profile, digits
   only; a number or a string), and `default_start` (`YYYY-MM-DD`). A config

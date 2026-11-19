@@ -1240,7 +1240,16 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # and the test registries that list every source file), CHANGELOG and the
 # version lines: no trait change, no new dependency. No existing pipeline
 # names the kind, so nothing that runs today changes.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.65", default-features = false, features = [
+#
+# 0.1.66 carries airway-internal#256: a third `amazon_ads` resource,
+# `sp_advertised_product` (Sponsored Products spend per advertised SKU, daily,
+# merged on date, campaign, ad group and SKU). `git diff --name-only 0.1.65
+# 0.1.66` is `amazon_ads.rs`, its probe example, CHANGELOG and the version
+# lines: no trait change, no new dependency, no new config field. An
+# `amazon_ads` pipeline that omits `resources:` WILL pull the new report on its
+# next run. No pipeline on prod names the kind yet; bmg's first one
+# (`amazon_ads_api`) lists only `sp_advertised_product`.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.66", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
