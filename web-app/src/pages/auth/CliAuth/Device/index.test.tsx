@@ -80,6 +80,25 @@ vi.mock("@/hooks/api/cliAuth/useServiceAccountPreview", () => ({
     return SA_PREVIEW;
   }
 }));
+const TP_PREVIEW = {
+  data: {
+    org: { id: "org-acme", slug: "acme", name: "Acme" },
+    account: { name: "deployer", role: "member", exists: true },
+    app: { id: "a1", slug: "store-ops", name: "Store Ops" },
+    policy: {
+      repository: "acme/store-ops",
+      workflow_path: ".github/workflows/oxy-publish.yml",
+      environment: "oxy-publish",
+      exists: false
+    }
+  },
+  isError: false,
+  error: null,
+  refetch: vi.fn()
+};
+vi.mock("@/hooks/api/cliAuth/useTrustPolicyPreview", () => ({
+  default: () => TP_PREVIEW
+}));
 vi.mock("@/hooks/api/userTokens/useUserTokens", () => ({
   useTokenOptions: () => ({ data: OPTIONS, isLoading: false, isError: false, refetch: vi.fn() })
 }));
@@ -253,6 +272,51 @@ describe("/cli-auth/device", () => {
         expires_in_days: 90
       }
     });
+  });
+
+  it("approves an init-ci trust policy once the code matches", async () => {
+    deviceRequest = pending({
+      kind: "trust_policy",
+      org: "acme",
+      account: "deployer",
+      app: "a1",
+      repository: "acme/store-ops",
+      workflow: ".github/workflows/oxy-publish.yml",
+      environment: "oxy-publish"
+    });
+    open("/cli-auth/device?code=BCDF-GHJK");
+    expect(await screen.findByTestId("cli-auth-tp-repository")).toHaveTextContent("acme/store-ops");
+    expect(screen.getByTestId("cli-auth-mint-command")).toHaveTextContent(
+      "oxyc init-ci --app acme/store-ops"
+    );
+    // No token is created, so the code check does not say whoever started it gets one.
+    const check = screen.getByTestId("cli-auth-device-code-check");
+    expect(check).toHaveTextContent("No token is created");
+    expect(check).not.toHaveTextContent("gets the token");
+    await attend();
+    const confirm = screen.getByTestId("cli-auth-confirm");
+    expect(confirm).toBeDisabled();
+    await user().type(screen.getByTestId("cli-auth-device-code-typed"), "BCDF-GHJK");
+    await user().click(confirm);
+    expect((approve.mock.calls[0] as [unknown])[0]).toEqual({
+      mint: {
+        kind: "trust_policy",
+        org: "acme",
+        account: "deployer",
+        create_account: false,
+        app: "a1",
+        repository: "acme/store-ops",
+        workflow_path: ".github/workflows/oxy-publish.yml",
+        environment: "oxy-publish"
+      }
+    });
+    // The rows are written; oxyc may not be waiting (`--no-wait`), so the page says so.
+    const [, options] = approve.mock.calls[0] as [unknown, MutateOptions];
+    act(() => options.onSuccess?.());
+    expect(
+      await screen.findByText(/The service account and its trust policy are in place/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/picks it up within a few seconds and carries on/)).toBeNull();
   });
 
   it("tells oxyc when the person declines", async () => {

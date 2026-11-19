@@ -56,15 +56,16 @@ use oxy_auth::token::agent as agent_mint;
 use oxy_auth::token::cli_login::{self as code_store, Redeemed};
 use oxy_auth::token::device_login::{self, Pending, Polled};
 use oxy_auth::token::service_account_mint as account_mint;
+use oxy_auth::token::trust_policy_mint as policy_mint;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::ManageTokens;
-use super::cli_login::{self, Collected};
+use super::cli_login::{self, Collected, ExchangeAnswer};
 use super::error::TokenError;
-use super::handlers::{TokenWithSecret, parse};
+use super::handlers::parse;
 use crate::public_rate_limit::{self, PublicRoute};
 use oxy_app_core::notifications::platform::cli_approval::notify_cli_approval;
 
@@ -129,8 +130,9 @@ pub enum PollResponse {
         interval: i64,
     },
     /// `{ "status": "approved", "token": …, "secret": … }` — the exchange's
-    /// own body, so the CLI reads it the same way.
-    Approved(Box<TokenWithSecret>),
+    /// own body, so the CLI reads it the same way (`{ "status": "approved",
+    /// "registration": … }` for a trust policy).
+    Approved(Box<ExchangeAnswer>),
 }
 
 fn rate_limited(route: PublicRoute, headers: &HeaderMap) -> Result<(), TokenError> {
@@ -253,8 +255,11 @@ fn mint_matches_ask(ask: &Value, mint: Option<&Value>) -> bool {
         (None, None) => true,
         (Some("agent"), Some(mint)) => agent_mint::asked_for(mint),
         (Some("service_account"), Some(mint)) => account_mint::asked_for(mint),
+        (Some("trust_policy"), Some(mint)) => policy_mint::asked_for(mint),
         (Some("sandbox_agent"), Some(mint)) => {
-            !agent_mint::asked_for(mint) && !account_mint::asked_for(mint)
+            !agent_mint::asked_for(mint)
+                && !account_mint::asked_for(mint)
+                && !policy_mint::asked_for(mint)
         }
         _ => false,
     }
@@ -267,9 +272,18 @@ fn asks_for_standing(mint: Option<&Value>) -> bool {
 }
 
 /// What a refusal under the session records for the CLI. An app that is not
-/// mintable answers a bare "not found" over HTTP; the CLI is told more.
-fn denial_reason(refusal: &TokenError) -> String {
+/// mintable answers a bare "not found" over HTTP; the CLI is told more, in the
+/// words of what `ask` asked for.
+fn denial_reason(refusal: &TokenError, ask: &Value) -> String {
     match refusal {
+        TokenError::RepositoryUnconfirmed(repository) => format!(
+            "GitHub would not show '{repository}' to the deployment, so an org admin must add \
+             the trust policy under Settings → Organization → API tokens → Service accounts → \
+             the account → Trusted access, typing the repository's ids there"
+        ),
+        TokenError::AppNotFound(app) if ask.get("kind") == Some(&json!("trust_policy")) => {
+            format!("the organization has no app '{app}' for the trust policy to publish")
+        }
         TokenError::AppNotFound(_) => {
             "an app it names is not one the approver may create sandbox agent tokens for".into()
         }
@@ -301,7 +315,15 @@ pub async fn approve(
     let checked = cli_login::approval(&db, &actor, &pending.hostname, body.mint.as_ref()).await;
     match checked {
         Ok(stored) => {
-            if !device_login::approve(&db, &pending, actor.id, stored).await? {
+            let recorded = device_login::approve(&db, &pending, actor.id, stored).await?;
+            // A token's approval writes nothing until it is recorded, so a
+            // request that closed meanwhile (it lapsed, or was decided in
+            // another tab) left nothing done: 404. A trust policy's approval
+            // has already written its rows by now, and they stay — so the
+            // approver is told it took. The CLI is told the request closed;
+            // its next run asks again, and that approval reuses both rows.
+            let wrote_rows = body.mint.as_ref().is_some_and(policy_mint::asked_for);
+            if !recorded && !wrote_rows {
                 return Err(TokenError::NotFound);
             }
             Ok(Json(Decided {
@@ -310,7 +332,8 @@ pub async fn approve(
         }
         Err(e @ TokenError::Internal(_)) => Err(e),
         Err(refusal) => {
-            device_login::deny(&db, &pending.user_code, actor.id, &denial_reason(&refusal)).await?;
+            let reason = denial_reason(&refusal, &pending.ask);
+            device_login::deny(&db, &pending.user_code, actor.id, &reason).await?;
             Err(refusal)
         }
     }
@@ -360,8 +383,8 @@ pub async fn poll(headers: HeaderMap, body: Bytes) -> Result<Json<PollResponse>,
                 via: via_device_code(&redeemed),
                 standing: false,
             };
-            let minted = cli_login::mint_redeemed(&db, &redeemed, &headers, collected).await?;
-            Ok(Json(PollResponse::Approved(Box::new(minted.into()))))
+            let approved = cli_login::collect_redeemed(&db, &redeemed, &headers, collected).await?;
+            Ok(Json(PollResponse::Approved(Box::new(approved.into()))))
         }
     }
 }

@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 pub(super) const USER_CODE_ALPHABET: &[u8] = b"BCDFGHJKLMNPQRSTVWXZ";
 pub const USER_CODE_LEN: usize = 8;
 /// The `/cli-auth` parameters an ask may carry, each with its length limit.
-const ASK_FIELDS: [(&str, usize); 9] = [
+const ASK_FIELDS: [(&str, usize); 14] = [
     ("kind", 32),
     ("apps", 2048),
     ("hours", 8),
@@ -20,9 +20,17 @@ const ASK_FIELDS: [(&str, usize); 9] = [
     ("account", 64),
     ("role", 16),
     ("days", 8),
+    // `kind=trust_policy` (`oxyc init-ci`): beside `org` and `account`, whether
+    // to create the account, the app to publish, and the run to trust — never
+    // the repository's ids, which the deployment reads from GitHub.
+    ("create", 8),
+    ("app", 64),
+    ("repository", 200),
+    ("workflow", 300),
+    ("environment", 300),
 ];
 /// The kinds a request may ask for, besides a login (no `kind`).
-const ASK_KINDS: [&str; 3] = ["sandbox_agent", "agent", "service_account"];
+const ASK_KINDS: [&str; 4] = ["sandbox_agent", "agent", "service_account", "trust_policy"];
 
 /// The longest address an email can be (RFC 5321 §4.5.3.1.3, path minus `<>`).
 const APPROVER_EMAIL_MAX: usize = 254;

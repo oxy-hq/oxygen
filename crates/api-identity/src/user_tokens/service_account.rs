@@ -110,13 +110,13 @@ fn token_body(request: &MintRequest) -> CreateAccountTokenBody {
 /// the org as `org_middleware` would resolve it for them, and the door the
 /// API access routes take. An org that does not exist and one they are not in
 /// read the same.
-async fn managed_org(
+pub(super) async fn managed_org(
     db: &DatabaseConnection,
     actor: &RequestActor,
-    request: &MintRequest,
+    org: &str,
 ) -> Result<organizations::Model, TokenError> {
-    let not_found = || TokenError::OrgNotFound(request.org.clone());
-    let org = org_named(db, &request.org).await?.ok_or_else(not_found)?;
+    let not_found = || TokenError::OrgNotFound(org.to_string());
+    let org = org_named(db, org).await?.ok_or_else(not_found)?;
     let ctx = match resolve_org_context(&actor.user, org.id).await {
         Ok(ctx) => ctx,
         Err(StatusCode::NOT_FOUND | StatusCode::FORBIDDEN) => return Err(not_found()),
@@ -141,6 +141,12 @@ fn usable(account: &service_accounts::Model, role: AccountRole) -> Result<(), To
             role: account.org_role.clone(),
         });
     }
+    usable_as_is(account)
+}
+
+/// An existing account may be given more only while it is enabled: whatever a
+/// disabled account is given authenticates nothing.
+pub(super) fn usable_as_is(account: &service_accounts::Model) -> Result<(), TokenError> {
     if account.disabled_at.is_some() {
         return Err(TokenError::ServiceAccountDisabled(account.name.clone()));
     }
@@ -153,7 +159,7 @@ async fn check(
     actor: &RequestActor,
     request: &MintRequest,
 ) -> Result<Checked, TokenError> {
-    let org = managed_org(db, actor, request).await?;
+    let org = managed_org(db, actor, &request.org).await?;
     let account = store::find_by_name(db, org.id, &request.account).await?;
     if let Some(account) = &account {
         usable(account, request.role)?;

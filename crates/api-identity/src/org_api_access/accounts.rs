@@ -101,7 +101,8 @@ pub(super) async fn dtos<C: ConnectionTrait>(
         .collect())
 }
 
-async fn dto<C: ConnectionTrait>(
+/// The wire form of one account.
+pub(crate) async fn dto<C: ConnectionTrait>(
     db: &C,
     row: &service_accounts::Model,
 ) -> Result<ServiceAccountDto, TokenError> {

@@ -7,6 +7,7 @@ import AgentApproval from "./AgentApproval";
 import MintApproval, { type ApprovalSubmit } from "./MintApproval";
 import MintPage from "./MintPage";
 import ServiceAccountApproval from "./ServiceAccountApproval";
+import TrustPolicyApproval from "./TrustPolicyApproval";
 
 type Step = "checking" | "confirm" | "redirecting" | "declined";
 
@@ -58,7 +59,14 @@ const MintAuthorize: React.FC<{ request: TokenRequest }> = ({ request }) => {
     );
   }
   if (step === "redirecting") {
-    return (
+    // A trust policy mints nothing: oxyc writes the workflow with what was registered.
+    return request.kind === "trust_policy_mint" ? (
+      <MintPage
+        status='done'
+        title='Approved'
+        lead='Returning to your terminal, where oxyc finishes the workflow. You can close this tab.'
+      />
+    ) : (
       <MintPage
         status='done'
         title='Token approved'
@@ -101,6 +109,8 @@ const MintAuthorize: React.FC<{ request: TokenRequest }> = ({ request }) => {
       return <AgentApproval request={request} {...approval} />;
     case "service_account_mint":
       return <ServiceAccountApproval request={request} {...approval} />;
+    case "trust_policy_mint":
+      return <TrustPolicyApproval request={request} {...approval} />;
     case "mint":
       return <MintApproval request={request} {...approval} />;
   }

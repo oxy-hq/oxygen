@@ -19,6 +19,7 @@ use entity::{
     service_accounts, users,
 };
 use oxy_app_core::audit::{AuditEntry, RequestActor};
+use oxy_auth::token::account_access::AccountRole;
 use oxy_auth::token::service_account;
 use oxy_auth::token::trust_policy::{self, NewPolicy};
 use oxy_auth::token::trust_policy_access::{
@@ -136,7 +137,7 @@ async fn dto<C: ConnectionTrait>(
         .ok_or_else(|| TokenError::Internal("a trust policy mapped to nothing".into()))
 }
 
-pub(super) async fn list(
+pub(crate) async fn list(
     db: &DatabaseConnection,
     account: &service_accounts::Model,
 ) -> Result<Vec<TrustPolicyDto>, TokenError> {
@@ -144,9 +145,7 @@ pub(super) async fn list(
     dtos(db, &rows).await
 }
 
-fn role_of(
-    account: &service_accounts::Model,
-) -> Result<oxy_auth::token::account_access::AccountRole, TokenError> {
+fn role_of(account: &service_accounts::Model) -> Result<AccountRole, TokenError> {
     service_account::role_of(account)
         .ok_or_else(|| TokenError::Internal("service account has an unknown org_role".into()))
 }
@@ -277,24 +276,87 @@ fn invalidate(tokens: &[api_tokens::Model]) {
 // holding a connection and a row lock must never wait on the pool for a
 // second connection, or enough of them at once hold every one and release none.
 
+/// A policy a create body asks for, checked for an account of `role` in
+/// `org_id`: what [`write`] writes. Every check that can refuse the policy is
+/// here — its shape, the org's environment requirement, the grants' targets,
+/// and the repository resolved to GitHub's ids — so a caller that must create
+/// the account first (`oxyc init-ci`'s approval) can run them all before
+/// writing anything.
+pub(crate) struct PlannedPolicy {
+    org_id: Uuid,
+    role: AccountRole,
+    /// `owner/repo` as GitHub names it (or as asked, when only the body's ids
+    /// could be used).
+    repository: String,
+    ids: RepoIds,
+    want: PolicyWant,
+}
+
+impl PlannedPolicy {
+    pub(crate) fn repository(&self) -> &str {
+        &self.repository
+    }
+
+    pub(crate) fn workflow_path(&self) -> &str {
+        &self.want.workflow_path
+    }
+
+    pub(crate) fn environment(&self) -> Option<&str> {
+        self.want.environment.as_deref()
+    }
+}
+
+/// Check `body` for an account of `role` in `org_id`.
+pub(crate) async fn plan(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    role: AccountRole,
+    body: &CreatePolicyBody,
+) -> Result<PlannedPolicy, TokenError> {
+    let want = body.want(org_id, role)?;
+    if want.environment.is_none() && trust_policy::environment_required(db, org_id).await? {
+        return Err(TokenError::EnvironmentRequired);
+    }
+    check_targets(db, org_id, &want.grants).await?;
+    let (ids, repository) = repository_of(db, org_id, &want).await?;
+    Ok(PlannedPolicy {
+        org_id,
+        role,
+        repository,
+        ids,
+        want,
+    })
+}
+
 pub(super) async fn create(
     db: &DatabaseConnection,
     actor: &RequestActor,
     account: &service_accounts::Model,
     body: CreatePolicyBody,
 ) -> Result<TrustPolicyDto, TokenError> {
-    let org_id = account.org_id;
-    let want = body.want(org_id, role_of(account)?)?;
-    if want.environment.is_none() && trust_policy::environment_required(db, org_id).await? {
-        return Err(TokenError::EnvironmentRequired);
+    let planned = plan(db, account.org_id, role_of(account)?, &body).await?;
+    write(db, actor, account, planned).await
+}
+
+/// Write what [`plan`] checked, with its `trust_policy.created` row in the
+/// same transaction, on `account` — of the org and role it was planned for.
+pub(crate) async fn write(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    account: &service_accounts::Model,
+    planned: PlannedPolicy,
+) -> Result<TrustPolicyDto, TokenError> {
+    if planned.org_id != account.org_id || role_of(account)? != planned.role {
+        return Err(TokenError::Internal(
+            "a trust policy was planned for another org or role than its account's".into(),
+        ));
     }
-    check_targets(db, org_id, &want.grants).await?;
-    let (ids, repository) = repository_of(db, org_id, &want).await?;
+    let want = planned.want;
     let new = NewPolicy {
-        org_id,
+        org_id: planned.org_id,
         service_account_id: account.user_id,
-        repository,
-        ids,
+        repository: planned.repository,
+        ids: planned.ids,
         workflow_path: want.workflow_path,
         environment: want.environment,
         ref_pattern: want.ref_pattern,

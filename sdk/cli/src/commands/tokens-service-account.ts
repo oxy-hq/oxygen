@@ -5,7 +5,7 @@
  *
  * WHAT IT IS FOR: a credential that belongs to the organization rather than to
  * a person — the kind a custom app's function holds as a secret to call the
- * organization's own admin routes. The organization's API access page does the
+ * organization's own admin routes. Its service accounts page in Settings does the
  * same two things in two clicks; this asks for both from the terminal.
  *
  * MINTING STAYS BROWSER-SESSION-ONLY. The server refuses any token that asks to
@@ -29,8 +29,8 @@
  * itself, so no secret outlives a failed run unseen.
  *
  * WHAT IT NEVER DOES: change an existing account. One of that name at another
- * role is refused on the approval page; its role is changed on the API access
- * page, where the effect on its other tokens is spelled out.
+ * role is refused on the approval page; its role is changed on the account's
+ * page in Settings, where the effect on its other tokens is spelled out.
  */
 
 import { hostname as osHostname } from "node:os";

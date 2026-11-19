@@ -7,22 +7,46 @@
  * rows, then: the account (`deployer`, unless one was named) and the policy,
  * granted nothing but publishing the one app.
  *
- * NEVER FATAL. Whoever runs `init-ci` may not be an org admin, may be logged in
- * with a token (which cannot create either row — both routes want a browser
- * session), may be offline, or may be talking to a deployment that has neither
- * route. In every one of those the workflow file is still correct and still
- * worth writing, so this returns `manual` with the reason and whatever ids it
- * did learn, and the caller prints the steps with those ids filled in.
+ * ONE BROWSER APPROVAL, NO TOKEN. Creating either row is browser-session-only
+ * on the server, and `oxyc login` caches a token, so this never tries the
+ * create routes. It reads what is already there with the stored login (a token
+ * may read both), and when the account or the policy is missing it asks an
+ * owner or admin of the org to approve both at once: the `/cli-auth` approval
+ * `oxyc` mints its tokens with (or a device code, `--no-browser`), for a
+ * `trust_policy`. The deployment writes them under the approver's session and
+ * answers with what it wrote — the account's id goes into the workflow — and
+ * nothing is minted. The page shows the org, the account (new or existing),
+ * the app, and the repository, workflow and environment it will trust.
+ *
+ * NEVER FATAL. Whoever runs `init-ci` may be offline, may be on a CI runner
+ * where nobody can approve, may have the approval declined, or may be talking
+ * to a deployment without the routes. In every one of those the workflow file
+ * is still correct and still worth writing, so this returns `manual` with the
+ * reason and whatever ids it did learn, and the caller prints the steps with
+ * those ids filled in.
  *
  * IDEMPOTENT. Re-running `init-ci --force` finds the account and the policy it
- * made last time rather than stacking a second policy beside the first.
+ * made last time and asks for nothing; the deployment reuses both as well.
  */
 
-import { spawnSync } from "node:child_process";
 import { type ApiResponse, parseJson, request } from "../api/request.js";
+import type { Approval } from "../auth/approval.js";
+import { deviceRound, deviceUrl } from "../auth/device.js";
+import {
+  type BrowserPurpose,
+  browserRound,
+  type CodeRefused,
+  exchangeCliApproval,
+  type LoginOptions,
+  type MintBody
+} from "../auth/login.js";
+import { createPkce } from "../auth/pkce.js";
 import type { Context } from "../context/resolve.js";
+import * as log from "../ui/log.js";
 import { CliError } from "../util/errors.js";
+import { printable } from "../util/printable.js";
 import { resolveOrgId } from "./assume.js";
+import { collectApproval, loadApproval, pendingKey, startApproval } from "./init-ci-pending.js";
 
 /** What `init-ci` creates when no account is named. */
 export const DEFAULT_SERVICE_ACCOUNT = "deployer";
@@ -68,7 +92,9 @@ export type Registration =
       createdAccount: boolean;
       createdPolicy: boolean;
     } & KnownIds)
-  | ({ kind: "manual"; reason: string } & KnownIds);
+  | ({ kind: "manual"; reason: string } & KnownIds)
+  /** `--no-wait`: an approval was asked for, and nobody has decided it yet. */
+  | ({ kind: "pending"; url: string; userCode: string; expiresAt: string } & KnownIds);
 
 /** A stop that is an answer, not a bug: its message is the reason shown. */
 class Stopped extends Error {}
@@ -84,6 +110,23 @@ interface TrustPolicy {
   workflow_path: string;
   environment: string | null;
   disabled_at?: string | null;
+  grants?: { kind?: string; app_id?: string | null }[];
+}
+
+/**
+ * How to ask an org admin to approve, when something is missing. `route` is
+ * decided only then — a run that finds everything in place asks nobody — and
+ * may throw where nobody can approve (a CI runner); that is a `manual` reason.
+ * `login` carries what tests inject (the browser opener, the hostname, sleep).
+ */
+export interface ApprovalOptions {
+  route: () => Approval;
+  login?: LoginOptions;
+  /**
+   * `--no-wait`: ask, say where, and return `pending` rather than waiting; a
+   * re-run with it checks once. Implies the device code.
+   */
+  noWait?: boolean;
 }
 
 const TIMEOUT_MS = 30_000;
@@ -133,8 +176,18 @@ function list<T>(response: ApiResponse, key: string): T[] {
   return Array.isArray(nested) ? (nested as T[]) : [];
 }
 
-async function findAppId(call: Call, orgId: string, plan: RegistrationPlan): Promise<string> {
+/**
+ * The app's id, as this login can see it — or `undefined` when it may not list
+ * the org's apps (not an org admin). Not knowing is no reason to stop: the
+ * approval names the app by slug, and the approver's deployment resolves it.
+ */
+async function findAppId(
+  call: Call,
+  orgId: string,
+  plan: RegistrationPlan
+): Promise<string | undefined> {
   const response = await call("GET", `/api/orgs/${orgId}/apps`);
+  if (response.status === 401 || response.status === 403) return undefined;
   if (!ok(response)) throw refusedBecause(response, "listing the org's apps", plan.org);
   const app = list<{ id: string; slug: string }>(response, "apps").find((a) => a.slug === plan.app);
   if (!app) {
@@ -145,117 +198,193 @@ async function findAppId(call: Call, orgId: string, plan: RegistrationPlan): Pro
   return app.id;
 }
 
-async function findOrCreateAccount(
+/**
+ * The account of the plan's name, as this login can see it: the account,
+ * `null` when the org has none of that name, `undefined` when this login may
+ * not list them (not an org admin). Not knowing is no reason to stop: the
+ * approver may be someone who can.
+ */
+async function accountIfVisible(
   call: Call,
   orgId: string,
   plan: RegistrationPlan
-): Promise<{ account: ServiceAccount; created: boolean }> {
-  const path = `/api/orgs/${orgId}/service-accounts`;
-  const find = async (): Promise<ServiceAccount | undefined> => {
-    const response = await call("GET", path);
-    if (!ok(response)) throw refusedBecause(response, "listing service accounts", plan.accountOrg);
-    return list<ServiceAccount>(response, "service_accounts").find(
-      (a) => a.name === plan.accountName
-    );
-  };
-
-  const existing = await find();
-  if (existing) return { account: existing, created: false };
-  if (plan.accountNamed) {
-    throw new Stopped(
-      `there is no service account ${plan.accountOrg}/${plan.accountName} — create it, or drop --service-account to have \`${DEFAULT_SERVICE_ACCOUNT}\` created`
-    );
-  }
-
-  const created = await call("POST", path, {
-    name: plan.accountName,
-    description: "Publishes from GitHub Actions. Created by `oxyc init-ci`.",
-    org_role: "member"
-  });
-  if (ok(created)) {
-    return { account: parseJson(created.body) as ServiceAccount, created: true };
-  }
-  // 409 `name_taken`: someone made it between the list and the create.
-  if (created.status === 409) {
-    const raced = await find();
-    if (raced) return { account: raced, created: false };
-  }
-  throw refusedBecause(created, "creating the service account", plan.accountOrg);
+): Promise<ServiceAccount | null | undefined> {
+  const response = await call("GET", `/api/orgs/${orgId}/service-accounts`);
+  if (response.status === 401 || response.status === 403) return undefined;
+  if (!ok(response)) throw refusedBecause(response, "listing service accounts", plan.accountOrg);
+  return (
+    list<ServiceAccount>(response, "service_accounts").find((a) => a.name === plan.accountName) ??
+    null
+  );
 }
 
-/** `repos/<owner>/<repo>` ids from `gh`, for a repository the server cannot see. */
-export function repositoryIds(
-  repository: string
-): { repository_id: number; repository_owner_id: number } | undefined {
-  try {
-    const result = spawnSync("gh", ["api", `repos/${repository}`, "--jq", "[.id, .owner.id]"], {
-      encoding: "utf8"
-    });
-    if (result.status !== 0) return undefined;
-    const [id, ownerId] = JSON.parse(result.stdout) as [unknown, unknown];
-    if (typeof id !== "number" || typeof ownerId !== "number") return undefined;
-    return { repository_id: id, repository_owner_id: ownerId };
-  } catch {
-    return undefined;
-  }
-}
-
-function samePolicy(policy: TrustPolicy, plan: RegistrationPlan): boolean {
+/** Whether `policy` already trusts this run to publish this app (by id). */
+function samePolicy(policy: TrustPolicy, plan: RegistrationPlan, appId: string): boolean {
   return (
     !policy.disabled_at &&
     policy.repository.toLowerCase() === plan.repository?.toLowerCase() &&
     policy.workflow_path === plan.workflowPath &&
-    (policy.environment ?? "").toLowerCase() === plan.environment.toLowerCase()
+    (policy.environment ?? "").toLowerCase() === plan.environment.toLowerCase() &&
+    (policy.grants ?? []).some((g) => g.kind === "app_publish" && g.app_id === appId)
   );
 }
 
-async function findOrCreatePolicy(
+/** Whether the account already has the policy, as far as this login can see. */
+async function policyInPlace(
   call: Call,
   path: string,
   plan: RegistrationPlan,
-  appId: string,
-  lookUpIds: typeof repositoryIds
+  appId: string
 ): Promise<boolean> {
   const existing = await call("GET", path);
-  if (!ok(existing)) throw refusedBecause(existing, "listing trust policies", plan.accountOrg);
-  if (list<TrustPolicy>(existing, "trust_policies").some((p) => samePolicy(p, plan))) return false;
+  if (!ok(existing)) return false;
+  return list<TrustPolicy>(existing, "trust_policies").some((p) => samePolicy(p, plan, appId));
+}
 
-  const body = {
-    repository: plan.repository,
-    workflow_path: plan.workflowPath,
-    environment: plan.environment,
-    // The narrowest grant that does the job: publish this app, nothing else.
-    grants: [{ kind: "app_publish", app_id: appId }]
-  };
-  let created = await call("POST", path, body);
-  const code = (parseJson(created.body) as { code?: string } | undefined)?.code;
-  if (created.status === 422 && code === "repository_unresolved") {
-    // A private repository with no GitHub App installation on the org: the
-    // server cannot look its ids up. This machine's `gh` usually can.
-    const ids = lookUpIds(plan.repository ?? "");
-    if (!ids) {
-      throw new Stopped(
-        `the deployment could not resolve ${plan.repository} on GitHub (a private repository it has no installation for), and \`gh\` is not available here to supply its ids`
-      );
-    }
-    created = await call("POST", path, { ...body, ...ids });
+const APPROVAL_PURPOSE: BrowserPurpose = {
+  opening: "approve the service account and trust policy",
+  retry: "oxyc init-ci --force",
+  done: "Trust policy approved ✓",
+  waitingFor: "approve the trust policy"
+};
+
+/**
+ * A refused exchange: one answer for a spent or expired code AND for an
+ * approval the deployment can no longer carry out — the approver is no longer
+ * an owner or admin of the org, or the account changed in the meantime.
+ */
+const APPROVAL_REFUSED: CodeRefused = {
+  message: "the approval code was rejected, and nothing was registered",
+  detail:
+    "a code is single-use and lives five minutes. The deployment answers the same when it can no longer do what was approved: the approver is no longer an owner or admin of the organization, or the account changed in the meantime.",
+  hint: `run \`${APPROVAL_PURPOSE.retry}\` again`
+};
+
+/** What the approval asks for, as `/cli-auth` parameters, already encoded. */
+export function trustPolicyQuery(ask: {
+  orgId: string;
+  accountName: string;
+  createAccount: boolean;
+  /** The app's id, or its slug. */
+  app: string;
+  repository: string;
+  workflowPath: string;
+  environment: string;
+}): string {
+  const e = encodeURIComponent;
+  return [
+    "kind=trust_policy",
+    `org=${e(ask.orgId)}`,
+    `account=${e(ask.accountName)}`,
+    ...(ask.createAccount ? ["create=1"] : []),
+    `app=${e(ask.app)}`,
+    `repository=${e(ask.repository)}`,
+    `workflow=${e(ask.workflowPath)}`,
+    `environment=${e(ask.environment)}`
+  ].join("&");
+}
+
+/** What the deployment wrote, read off its answer. */
+interface Written {
+  accountId: string;
+  appId: string;
+  createdAccount: boolean;
+  createdPolicy: boolean;
+}
+
+/**
+ * The approval's answer, checked against the plan: the account it names, the
+ * app (by slug, and by id when this login knew it) and a policy trusting
+ * exactly this run to publish exactly that app. Anything else is a refusal —
+ * the id that goes into the workflow must be the right one.
+ */
+export function writtenFrom(
+  body: MintBody,
+  plan: RegistrationPlan,
+  knownAppId: string | undefined
+): Written {
+  const registration = body.registration as
+    | {
+        service_account?: { id?: unknown; name?: unknown };
+        trust_policy?: TrustPolicy;
+        app?: { id?: unknown; slug?: unknown };
+        created_account?: unknown;
+        created_policy?: unknown;
+      }
+    | undefined;
+  const account = registration?.service_account;
+  const policy = registration?.trust_policy;
+  const app = registration?.app;
+  if (!registration || typeof account?.id !== "string" || !policy || typeof app?.id !== "string") {
+    throw new Stopped("the approval came back without the account, app and policy it wrote");
   }
-  if (created.status === 404) {
-    // The list above answered, so the route exists: this 404 is the grant's
-    // app, which the server looks for in the account's org.
+  if (app.slug !== plan.app || (knownAppId !== undefined && app.id !== knownAppId)) {
     throw new Stopped(
-      `creating the trust policy answered 404 — the deployment found no app ${plan.org}/${plan.app} in ${plan.accountOrg} to grant publishing, or the service account is gone`
+      `the deployment registered publishing ${printable(JSON.stringify(app.slug))}, not ${plan.app}`
     );
   }
-  if (!ok(created)) throw refusedBecause(created, "creating the trust policy", plan.accountOrg);
-  return true;
+  const appId = app.id;
+  if (account.name !== plan.accountName) {
+    throw new Stopped(
+      `the deployment registered the account ${printable(JSON.stringify(account.name))}, not ${plan.accountName}`
+    );
+  }
+  if (!samePolicy(policy, plan, appId)) {
+    throw new Stopped(
+      `the deployment registered a policy that is not the one asked for (${printable(policy.repository)} ${printable(policy.workflow_path)})`
+    );
+  }
+  return {
+    accountId: account.id,
+    appId,
+    createdAccount: registration.created_account === true,
+    createdPolicy: registration.created_policy === true
+  };
+}
+
+/** One approval, by browser or device code, collected as the deployment's answer. */
+async function approved(
+  target: string,
+  route: Approval,
+  login: LoginOptions,
+  query: string
+): Promise<MintBody> {
+  const opts = { ...login, noBrowser: route.noBrowser, approver: route.approver };
+  if (route.noBrowser) {
+    const body = await deviceRound(target, opts, createPkce(), {
+      query,
+      purpose: APPROVAL_PURPOSE,
+      refused: APPROVAL_REFUSED,
+      collect: (answer: MintBody) => answer
+    });
+    if (!body) {
+      throw new Stopped(
+        "this deployment cannot approve anything by device code yet (POST /api/auth/cli/device answered 404)"
+      );
+    }
+    return body;
+  }
+  const pkce = createPkce();
+  const callback = await browserRound(target, opts, pkce, { query, purpose: APPROVAL_PURPOSE });
+  if (callback.kind === "token") {
+    throw new Stopped(
+      "this deployment's approval page handed back a session token: it predates approving a trust policy from oxyc"
+    );
+  }
+  const body = await exchangeCliApproval(target, callback.code, pkce.verifier, APPROVAL_REFUSED);
+  if (!body) {
+    throw new Stopped(
+      "this deployment has no approval exchange (POST /api/auth/cli/exchange answered 404)"
+    );
+  }
+  return body;
 }
 
 async function attempt(
   ctx: Context,
   plan: RegistrationPlan,
   known: KnownIds,
-  lookUpIds: typeof repositoryIds
+  approval: ApprovalOptions | undefined
 ): Promise<Registration> {
   const bearer = ctx.storedBearer();
   if (!bearer) throw new Stopped(`not logged in to ${ctx.target()}`);
@@ -275,18 +404,107 @@ async function attempt(
 
   known.orgId = await resolveOrgId(ctx, plan.org);
   known.appId = await findAppId(call, known.orgId, plan);
-  const accountOrgId = known.orgId;
-  const { account, created: createdAccount } = await findOrCreateAccount(call, accountOrgId, plan);
-  known.accountId = account.id;
+  const appId = known.appId;
 
-  const createdPolicy = await findOrCreatePolicy(
-    call,
-    `/api/orgs/${accountOrgId}/service-accounts/${account.id}/trust-policies`,
-    plan,
-    known.appId,
-    lookUpIds
+  // What is already there, as far as this login can see. Both in place: done,
+  // and nobody is asked anything.
+  const account = await accountIfVisible(call, known.orgId, plan);
+  if (account) {
+    known.accountId = account.id;
+    const path = `/api/orgs/${known.orgId}/service-accounts/${account.id}/trust-policies`;
+    if (appId && (await policyInPlace(call, path, plan, appId))) {
+      return { kind: "registered", appId, createdAccount: false, createdPolicy: false, ...known };
+    }
+  } else if (account === null && plan.accountNamed) {
+    throw new Stopped(
+      `there is no service account ${plan.accountOrg}/${plan.accountName} — create it, or drop --service-account to have \`${DEFAULT_SERVICE_ACCOUNT}\` created`
+    );
+  }
+
+  if (!approval) {
+    throw new Stopped(
+      "creating the service account and its trust policy needs an org admin's approval in a browser"
+    );
+  }
+  const target = ctx.target();
+  const key = pendingKey(target, plan);
+  const login = approval.login ?? {};
+  const wording = { refused: APPROVAL_REFUSED, purpose: APPROVAL_PURPOSE };
+
+  // An approval an earlier `--no-wait` asked for: collect it rather than ask again.
+  const waiting = loadApproval(key);
+  if (waiting) {
+    log.info(`Collecting the approval an earlier \`oxyc init-ci --no-wait\` asked for.`);
+    const body = await collectApproval(
+      target,
+      key,
+      waiting,
+      login,
+      wording,
+      approval.noWait === true
+    );
+    if (!body) {
+      return {
+        kind: "pending",
+        url: deviceUrl(target, waiting.user_code),
+        userCode: waiting.user_code,
+        expiresAt: waiting.expires_at,
+        ...known
+      };
+    }
+    return registeredFrom(body, plan, appId, known);
+  }
+
+  // Decided now, not before: a run with nothing to create asks nobody.
+  const route = approval.route();
+  const query = trustPolicyQuery({
+    orgId: known.orgId,
+    accountName: plan.accountName,
+    createAccount: !plan.accountNamed,
+    // By slug when this login may not list the org's apps: the approver's
+    // deployment resolves it in the org.
+    app: appId ?? plan.app,
+    repository: plan.repository,
+    workflowPath: plan.workflowPath,
+    // Never the repository's ids: the approver is shown only its name, so the
+    // deployment reads them from GitHub, or refuses a repository it can't see.
+    environment: plan.environment
+  });
+  const remote = approval.noWait || route.noBrowser;
+  log.info(
+    `Asking an owner or admin of ${plan.accountOrg} to approve the service account ${plan.accountName} and a trust policy for ${plan.repository} — once, ${remote ? "from any device" : "in the browser"}.`
   );
-  return { kind: "registered", appId: known.appId, createdAccount, createdPolicy, ...known };
+  if (approval.noWait) {
+    const opts = { ...login, noBrowser: true, approver: route.approver };
+    const started = await startApproval(target, key, opts, { query, purpose: APPROVAL_PURPOSE });
+    if (!started) {
+      throw new Stopped(
+        "this deployment cannot approve anything by device code yet (POST /api/auth/cli/device answered 404)"
+      );
+    }
+    return { kind: "pending", ...started, ...known };
+  }
+  const body = await approved(target, route, login, query);
+  return registeredFrom(body, plan, appId, known);
+}
+
+/** The approval's answer, checked, as the registration it is. */
+function registeredFrom(
+  body: MintBody,
+  plan: RegistrationPlan,
+  appId: string | undefined,
+  known: KnownIds
+): Registration {
+  const written = writtenFrom(body, plan, appId);
+  known.accountId = written.accountId;
+  known.appId = written.appId;
+  return {
+    kind: "registered",
+    appId: written.appId,
+    createdAccount: written.createdAccount,
+    createdPolicy: written.createdPolicy,
+    ...known
+  };
 }
 
 /**
@@ -331,11 +549,11 @@ export async function lookUpAccountId(
 export async function registerTrustPolicy(
   ctx: Context,
   plan: RegistrationPlan,
-  lookUpIds: typeof repositoryIds = repositoryIds
+  approval?: ApprovalOptions
 ): Promise<Registration> {
   const known: KnownIds = {};
   try {
-    return await attempt(ctx, plan, known, lookUpIds);
+    return await attempt(ctx, plan, known, approval);
   } catch (cause) {
     const reason =
       cause instanceof Stopped || cause instanceof CliError

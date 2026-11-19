@@ -39,6 +39,11 @@ fn each_refusal_carries_the_contracts_status_and_code() {
             Some("repository_unresolved"),
         ),
         (
+            TokenError::RepositoryUnconfirmed("acme/app".into()),
+            422,
+            Some("repository_unresolved"),
+        ),
+        (
             TokenError::EnvironmentRequired,
             400,
             Some("environment_required"),
@@ -105,6 +110,16 @@ fn each_refusal_carries_the_contracts_status_and_code() {
             TokenError::ServiceAccountDisabled("store-ops".into()),
             409,
             Some("service_account_disabled"),
+        ),
+        (
+            TokenError::InvalidTrustPolicy("bad workflow".into()),
+            400,
+            Some("invalid_trust_policy"),
+        ),
+        (
+            TokenError::ServiceAccountNotFound("deployer".into()),
+            404,
+            Some("service_account_not_found"),
         ),
         (TokenError::Internal("db down".into()), 500, None),
     ];

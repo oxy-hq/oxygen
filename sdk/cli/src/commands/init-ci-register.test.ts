@@ -1,19 +1,24 @@
 /**
  * `oxyc init-ci`'s registration half, against the trust-policy routes.
  *
- * Two properties carry the weight. It is NEVER FATAL — every refusal comes
- * back as `manual` with a reason and the ids learned so far, because the
- * workflow file is worth writing whoever runs the command. And it is
- * IDEMPOTENT — a second run finds what the first made.
+ * Three properties carry the weight. It NEVER CALLS THE CREATE ROUTES — they
+ * are session-only and the login is a token — and asks an org admin for one
+ * approval instead, which mints nothing. It is NEVER FATAL — every refusal
+ * comes back as `manual` with a reason and the ids learned so far, because
+ * the workflow file is worth writing whoever runs the command. And it is
+ * IDEMPOTENT — a second run finds what the first made and asks nobody.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { get as httpGet } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createContext } from "../context/resolve.js";
 import { type Call, type Routes, stubFetch } from "../testing/stub-fetch.js";
+import { CliError } from "../util/errors.js";
 import {
+  type ApprovalOptions,
   isValidServiceAccountName,
   lookUpAccountId,
   type RegistrationPlan,
@@ -45,19 +50,12 @@ const POLICY = {
   disabled_at: null
 };
 
-const SESSION_REQUIRED = {
-  status: 403,
-  body: { error: "this route requires a browser session", code: "session_required" }
-};
-
 /** An org admin on a deployment with trusted access, and nothing registered yet. */
 const fresh = (over: Routes = {}): Routes => ({
   "GET /api/orgs": () => ({ status: 200, body: [{ id: "org-1", slug: "acme" }] }),
   "GET /api/orgs/org-1/apps": () => ({ status: 200, body: [{ id: APP_ID, slug: "sales" }] }),
   [`GET ${ACCOUNTS}`]: () => ({ status: 200, body: { service_accounts: [] } }),
-  [`POST ${ACCOUNTS}`]: () => ({ status: 201, body: { id: "sa-1", name: "deployer" } }),
   [`GET ${POLICIES}`]: () => ({ status: 200, body: { trust_policies: [] } }),
-  [`POST ${POLICIES}`]: () => ({ status: 201, body: POLICY }),
   ...over
 });
 
@@ -65,7 +63,6 @@ let scratch: string;
 
 const context = () => createContext({ env: "production", target: TARGET }, scratch);
 const posts = (calls: Call[]) => calls.filter((c) => c.method === "POST");
-const noGh = () => undefined;
 
 beforeEach(() => {
   scratch = mkdtempSync(join(tmpdir(), "oxyc-register-"));
@@ -156,9 +153,49 @@ describe("lookUpAccountId", () => {
 });
 
 describe("registerTrustPolicy", () => {
-  it("creates `deployer`, then a policy granting exactly this app's publish", async () => {
-    const calls = stubFetch(TARGET, fresh());
-    const result = await registerTrustPolicy(context(), PLAN, noGh);
+  /** What the deployment answers an approved registration with: no credential. */
+  const REGISTRATION = {
+    service_account: { id: "sa-1", name: "deployer" },
+    trust_policy: { ...POLICY, grants: [{ kind: "app_publish", app_id: APP_ID }] },
+    app: { id: APP_ID, slug: "sales", name: "Sales" },
+    created_account: true,
+    created_policy: true
+  };
+  /** The device-code routes, approved at the first poll. */
+  const byDeviceCode = (answer: unknown = { status: "approved", registration: REGISTRATION }) => ({
+    "POST /api/auth/cli/device": () => ({
+      status: 200,
+      body: { device_code: "dc", user_code: "BCDF-GHJK", expires_in: 600, interval: 5 }
+    }),
+    "POST /api/auth/cli/device/poll": () => ({ status: 200, body: answer })
+  });
+  const deviceApproval = (approver?: string): ApprovalOptions => ({
+    route: () => ({ noBrowser: true, approver }),
+    login: { hostname: "laptop", sleep: async () => {} }
+  });
+  const askOf = (calls: Call[]) =>
+    JSON.parse(calls.find((c) => c.path === "/api/auth/cli/device")?.body ?? "{}");
+  const creates = (calls: Call[]) =>
+    posts(calls).filter((c) => c.path === ACCOUNTS || c.path === POLICIES);
+
+  it("asks an org admin once, in the browser, and registers what the approval wrote", async () => {
+    const calls = stubFetch(
+      TARGET,
+      fresh({
+        "POST /api/auth/cli/exchange": () => ({ status: 200, body: { registration: REGISTRATION } })
+      })
+    );
+    let page: URL | undefined;
+    const browser = (url: string) => {
+      page = new URL(url);
+      const back = `http://127.0.0.1:${page.searchParams.get("port")}/callback?code=one-time&state=${encodeURIComponent(page.searchParams.get("state") ?? "")}`;
+      // The loopback is a real socket; `fetch` is the stub, so knock with `http`.
+      httpGet(back, (res) => res.resume());
+    };
+    const result = await registerTrustPolicy(context(), PLAN, {
+      route: () => ({ noBrowser: false }),
+      login: { open: browser, hostname: "laptop" }
+    });
     expect(result).toEqual({
       kind: "registered",
       appId: APP_ID,
@@ -168,24 +205,46 @@ describe("registerTrustPolicy", () => {
       accountId: "sa-1"
     });
 
-    const [account, policy] = posts(calls);
-    expect(account?.path).toBe(ACCOUNTS);
-    expect(JSON.parse(account?.body ?? "{}")).toMatchObject({
-      name: "deployer",
-      org_role: "member"
-    });
-    expect(policy?.path).toBe(POLICIES);
-    expect(JSON.parse(policy?.body ?? "{}")).toEqual({
+    // The page is asked for exactly this account, app and run.
+    expect(page?.pathname).toBe("/cli-auth");
+    const asked = Object.fromEntries(page?.searchParams ?? []);
+    expect(asked).toMatchObject({
+      kind: "trust_policy",
+      org: "org-1",
+      account: "deployer",
+      create: "1",
+      app: APP_ID,
       repository: "acme-co/acme-apps",
-      workflow_path: WORKFLOW,
-      environment: "oxy-publish",
-      grants: [{ kind: "app_publish", app_id: APP_ID }]
+      workflow: WORKFLOW,
+      environment: "oxy-publish"
     });
-    // The stored bearer, on every call: init-ci never mints a credential.
-    expect(calls.every((c) => c.headers.authorization === "Bearer session-jwt")).toBe(true);
+    expect(asked.code_challenge).toBeTruthy();
+    // Never the create routes: they are session-only, and this login is a token.
+    expect(creates(calls)).toHaveLength(0);
+    const exchange = calls.find((c) => c.path === "/api/auth/cli/exchange");
+    expect(JSON.parse(exchange?.body ?? "{}")).toMatchObject({ code: "one-time" });
+    // The stored bearer only ever reads; the exchange carries no credential.
+    expect(exchange?.headers.authorization).toBeUndefined();
   });
 
-  it("is idempotent: a second run finds the account and the policy, and creates nothing", async () => {
+  it("asks by device code, naming who should approve", async () => {
+    const calls = stubFetch(TARGET, fresh(byDeviceCode()));
+    const result = await registerTrustPolicy(context(), PLAN, deviceApproval("ada@acme.test"));
+    expect(result).toMatchObject({ kind: "registered", accountId: "sa-1", createdPolicy: true });
+    const start = askOf(calls);
+    expect(start.approver).toBe("ada@acme.test");
+    expect(start.ask).toMatchObject({
+      kind: "trust_policy",
+      org: "org-1",
+      account: "deployer",
+      create: "1",
+      app: APP_ID
+    });
+    expect(creates(calls)).toHaveLength(0);
+  });
+
+  it("is idempotent: with the account and the policy in place it asks nobody", async () => {
+    const route = vi.fn(() => ({ noBrowser: true }));
     const calls = stubFetch(
       TARGET,
       fresh({
@@ -198,144 +257,301 @@ describe("registerTrustPolicy", () => {
           status: 200,
           body: {
             trust_policies: [
-              { ...POLICY, repository: "Acme-Co/Acme-Apps", environment: "Oxy-Publish" }
+              {
+                ...POLICY,
+                repository: "Acme-Co/Acme-Apps",
+                environment: "Oxy-Publish",
+                grants: [{ kind: "app_publish", app_id: APP_ID }]
+              }
             ]
           }
         })
       })
     );
-    const result = await registerTrustPolicy(context(), PLAN, noGh);
+    const result = await registerTrustPolicy(context(), PLAN, { route });
     expect(result).toMatchObject({
       kind: "registered",
       createdAccount: false,
-      createdPolicy: false
+      createdPolicy: false,
+      accountId: "sa-1"
     });
+    expect(route).not.toHaveBeenCalled();
     expect(posts(calls)).toHaveLength(0);
   });
 
-  it("adds a policy beside one that differs, or that was disabled", async () => {
+  it("asks for a policy beside one that differs, was disabled, or publishes another app", async () => {
     const calls = stubFetch(
-      TARGET,
-      fresh({
-        [`GET ${POLICIES}`]: () => ({
-          status: 200,
-          body: {
-            trust_policies: [
-              { ...POLICY, id: "tp-0", environment: "staging" },
-              { ...POLICY, id: "tp-2", disabled_at: "2026-09-01T00:00:00Z" }
-            ]
-          }
-        })
-      })
-    );
-    const result = await registerTrustPolicy(context(), PLAN, noGh);
-    expect(result).toMatchObject({ kind: "registered", createdPolicy: true });
-    expect(posts(calls).map((c) => c.path)).toContain(POLICIES);
-  });
-
-  it("uses a named account, and never creates one that was named and is missing", async () => {
-    const calls = stubFetch(TARGET, fresh());
-    const result = await registerTrustPolicy(
-      context(),
-      { ...PLAN, accountName: "release-bot", accountNamed: true },
-      noGh
-    );
-    expect(result.kind).toBe("manual");
-    expect(result.kind === "manual" && result.reason).toContain(
-      "no service account acme/release-bot"
-    );
-    expect(posts(calls)).toHaveLength(0);
-  });
-
-  it("recovers when someone creates the account between the list and the create", async () => {
-    let listed = 0;
-    stubFetch(
       TARGET,
       fresh({
         [`GET ${ACCOUNTS}`]: () => ({
           status: 200,
-          body: { service_accounts: listed++ === 0 ? [] : [{ id: "sa-1", name: "deployer" }] }
+          body: { service_accounts: [{ id: "sa-1", name: "deployer" }] }
         }),
-        [`POST ${ACCOUNTS}`]: () => ({ status: 409, body: { code: "name_taken" } })
+        [`GET ${POLICIES}`]: () => ({
+          status: 200,
+          body: {
+            trust_policies: [
+              {
+                ...POLICY,
+                id: "tp-0",
+                environment: "staging",
+                grants: REGISTRATION.trust_policy.grants
+              },
+              { ...POLICY, id: "tp-2", disabled_at: "2026-09-01T00:00:00Z" },
+              { ...POLICY, id: "tp-3", grants: [{ kind: "app_publish", app_id: "other-app" }] }
+            ]
+          }
+        }),
+        ...byDeviceCode({
+          status: "approved",
+          registration: { ...REGISTRATION, created_account: false }
+        })
       })
     );
-    const result = await registerTrustPolicy(context(), PLAN, noGh);
-    expect(result).toMatchObject({ kind: "registered", createdAccount: false, accountId: "sa-1" });
+    const result = await registerTrustPolicy(context(), PLAN, deviceApproval());
+    expect(result).toMatchObject({
+      kind: "registered",
+      createdAccount: false,
+      createdPolicy: true
+    });
+    expect(askOf(calls).ask.create).toBe("1");
   });
 
-  it("supplies the repository's ids from `gh` when the deployment cannot resolve it", async () => {
-    let attempts = 0;
+  it("asks without creating for a named account this login may not list", async () => {
     const calls = stubFetch(
       TARGET,
       fresh({
-        [`POST ${POLICIES}`]: () =>
-          attempts++ === 0
-            ? { status: 422, body: { code: "repository_unresolved" } }
-            : { status: 201, body: POLICY }
+        [`GET ${ACCOUNTS}`]: () => ({ status: 403, body: { error: "forbidden" } }),
+        ...byDeviceCode({
+          status: "approved",
+          registration: {
+            ...REGISTRATION,
+            service_account: { id: "sa-7", name: "release-bot" },
+            created_account: false
+          }
+        })
       })
     );
-    const lookedUp: string[] = [];
-    const result = await registerTrustPolicy(context(), PLAN, (repository) => {
-      lookedUp.push(repository);
-      return { repository_id: 42, repository_owner_id: 7 };
+    const result = await registerTrustPolicy(
+      context(),
+      { ...PLAN, accountName: "release-bot", accountNamed: true },
+      deviceApproval()
+    );
+    expect(result).toMatchObject({ kind: "registered", accountId: "sa-7" });
+    // A named account is never created: the approval says so.
+    expect(askOf(calls).ask.create).toBeUndefined();
+  });
+
+  it("asks by the app's slug when this login may not list the org's apps or accounts", async () => {
+    // A plain member: the approver, an org admin, decides what the slug names.
+    const calls = stubFetch(
+      TARGET,
+      fresh({
+        "GET /api/orgs/org-1/apps": () => ({ status: 403, body: { error: "forbidden" } }),
+        [`GET ${ACCOUNTS}`]: () => ({ status: 403, body: { error: "forbidden" } }),
+        ...byDeviceCode()
+      })
+    );
+    const result = await registerTrustPolicy(context(), PLAN, deviceApproval());
+    expect(askOf(calls).ask).toMatchObject({ app: "sales", create: "1" });
+    // The app's id is learned from the answer, which names the app it granted.
+    expect(result).toMatchObject({ kind: "registered", appId: APP_ID, accountId: "sa-1" });
+  });
+
+  it("never sends the repository's ids: the deployment reads them from GitHub", async () => {
+    const calls = stubFetch(TARGET, fresh(byDeviceCode()));
+    await registerTrustPolicy(context(), PLAN, deviceApproval());
+    const { ask } = askOf(calls);
+    expect(ask).toMatchObject({ repository: "acme-co/acme-apps" });
+    expect(ask).not.toHaveProperty("repository_id");
+    expect(ask).not.toHaveProperty("repository_owner_id");
+  });
+
+  describe("--no-wait: ask, say where, and return; a re-run collects", () => {
+    const noWait = (over: Partial<ApprovalOptions> = {}): ApprovalOptions => ({
+      ...deviceApproval("ada@acme.test"),
+      noWait: true,
+      ...over
     });
-    expect(result).toMatchObject({ kind: "registered", createdPolicy: true });
-    expect(lookedUp).toEqual(["acme-co/acme-apps"]);
-    const retried = posts(calls).filter((c) => c.path === POLICIES)[1];
-    expect(JSON.parse(retried?.body ?? "{}")).toMatchObject({
-      repository: "acme-co/acme-apps",
-      repository_id: 42,
-      repository_owner_id: 7
+    const pendingFile = () => join(scratch, "init-ci-pending.json");
+    const polls = (calls: Call[]) => calls.filter((c) => c.path === "/api/auth/cli/device/poll");
+
+    it("asks once and returns `pending` with the link, recording the request", async () => {
+      const calls = stubFetch(TARGET, fresh(byDeviceCode()));
+      const result = await registerTrustPolicy(context(), PLAN, noWait());
+      expect(result).toMatchObject({
+        kind: "pending",
+        url: `${TARGET}/cli-auth/device?code=BCDF-GHJK`,
+        userCode: "BCDF-GHJK",
+        orgId: "org-1",
+        appId: APP_ID
+      });
+      expect(askOf(calls).approver).toBe("ada@acme.test");
+      // Nothing waited on: the request is recorded, owner-only, for the re-run.
+      expect(polls(calls)).toHaveLength(0);
+      const stored = JSON.parse(readFileSync(pendingFile(), "utf8"));
+      expect(Object.values(stored)).toHaveLength(1);
+      expect(statSync(pendingFile()).mode & 0o077).toBe(0);
+    });
+
+    it("a re-run checks once: still waiting, then collected", async () => {
+      let answer: unknown = { status: "pending", interval: 5 };
+      const routes = fresh({
+        ...byDeviceCode(),
+        "POST /api/auth/cli/device/poll": () => ({ status: 200, body: answer })
+      });
+      stubFetch(TARGET, routes);
+      await registerTrustPolicy(context(), PLAN, noWait());
+
+      const calls = stubFetch(TARGET, routes);
+      const again = await registerTrustPolicy(context(), PLAN, noWait());
+      expect(again).toMatchObject({ kind: "pending", userCode: "BCDF-GHJK" });
+      // One poll, and no second request was started.
+      expect(polls(calls)).toHaveLength(1);
+      expect(calls.some((c) => c.path === "/api/auth/cli/device")).toBe(false);
+
+      answer = { status: "approved", registration: REGISTRATION };
+      const done = await registerTrustPolicy(context(), PLAN, noWait());
+      expect(done).toMatchObject({ kind: "registered", accountId: "sa-1", createdPolicy: true });
+      expect(Object.values(JSON.parse(readFileSync(pendingFile(), "utf8")))).toHaveLength(0);
+    });
+
+    it("a plain re-run waits for the request an earlier --no-wait started", async () => {
+      const routes = fresh(byDeviceCode());
+      stubFetch(TARGET, routes);
+      await registerTrustPolicy(context(), PLAN, noWait());
+      const calls = stubFetch(TARGET, routes);
+      const result = await registerTrustPolicy(context(), PLAN, deviceApproval());
+      expect(result).toMatchObject({ kind: "registered", accountId: "sa-1" });
+      expect(calls.some((c) => c.path === "/api/auth/cli/device")).toBe(false);
+    });
+
+    it("a refused request is forgotten, and says why", async () => {
+      const routes = fresh(byDeviceCode());
+      stubFetch(TARGET, routes);
+      await registerTrustPolicy(context(), PLAN, noWait());
+      stubFetch(
+        TARGET,
+        fresh({
+          ...byDeviceCode(),
+          "POST /api/auth/cli/device/poll": () => ({
+            status: 400,
+            body: { code: "access_denied", error: "the request was declined in the browser" }
+          })
+        })
+      );
+      const result = await registerTrustPolicy(context(), PLAN, noWait());
+      expect(result.kind).toBe("manual");
+      expect(result.kind === "manual" && result.reason).toContain("refused");
+      expect(Object.values(JSON.parse(readFileSync(pendingFile(), "utf8")))).toHaveLength(0);
+    });
+
+    it("another app's or repository's request is never collected for this one", async () => {
+      stubFetch(TARGET, fresh(byDeviceCode()));
+      await registerTrustPolicy(context(), PLAN, noWait());
+      const calls = stubFetch(TARGET, fresh(byDeviceCode()));
+      const other = await registerTrustPolicy(
+        context(),
+        { ...PLAN, environment: "staging" },
+        noWait()
+      );
+      expect(other.kind).toBe("pending");
+      // A request of its own, not a poll of the other one.
+      expect(calls.some((c) => c.path === "/api/auth/cli/device")).toBe(true);
+      expect(polls(calls)).toHaveLength(0);
     });
   });
 
   describe("stops short as `manual`, with a reason and the ids it learned", () => {
-    const manual = async (routes: Routes, plan = PLAN, lookUp = noGh) => {
+    const manual = async (
+      routes: Routes,
+      plan = PLAN,
+      approval: ApprovalOptions | undefined = deviceApproval()
+    ) => {
       const calls = stubFetch(TARGET, routes);
-      const result = await registerTrustPolicy(context(), plan, lookUp);
+      const result = await registerTrustPolicy(context(), plan, approval);
       if (result.kind !== "manual") throw new Error("expected a manual registration");
       return { result, calls };
     };
 
-    it("a token login: creating the account needs a browser session", async () => {
-      const { result, calls } = await manual(
-        fresh({ [`POST ${ACCOUNTS}`]: () => SESSION_REQUIRED })
-      );
-      expect(result.reason).toContain("needs a browser session");
-      expect(result).toMatchObject({ orgId: "org-1", appId: APP_ID });
-      expect(result.accountId).toBeUndefined();
-      // It stopped at the refusal rather than trying the policy without an account.
-      expect(posts(calls)).toHaveLength(1);
+    it("a named account that does not exist — never created, nobody asked", async () => {
+      const { result, calls } = await manual(fresh(byDeviceCode()), {
+        ...PLAN,
+        accountName: "release-bot",
+        accountNamed: true
+      });
+      expect(result.reason).toContain("no service account acme/release-bot");
+      expect(posts(calls)).toHaveLength(0);
     });
 
-    it("a token login with the account already there: the policy needs one too", async () => {
-      const { result } = await manual(
-        fresh({
-          [`GET ${ACCOUNTS}`]: () => ({
-            status: 200,
-            body: { service_accounts: [{ id: "sa-1", name: "deployer" }] }
-          }),
-          [`POST ${POLICIES}`]: () => SESSION_REQUIRED
-        })
-      );
-      expect(result.reason).toContain("creating the trust policy needs a browser session");
-      expect(result).toMatchObject({ orgId: "org-1", appId: APP_ID, accountId: "sa-1" });
-    });
-
-    it("not an org admin", async () => {
-      const { result } = await manual(
-        fresh({ "GET /api/orgs/org-1/apps": () => ({ status: 403, body: { error: "forbidden" } }) })
-      );
-      expect(result.reason).toContain("takes an admin of acme");
-      expect(result.orgId).toBe("org-1");
-    });
-
-    it("a deployment that predates trusted access (404 on the service-account routes)", async () => {
-      const { [`GET ${ACCOUNTS}`]: _gone, ...older } = fresh();
-      const { result, calls } = await manual(older);
-      expect(result.reason).toContain("predates trusted access");
+    it("nobody here can approve (a CI runner)", async () => {
+      const { result, calls } = await manual(fresh(byDeviceCode()), PLAN, {
+        route: () => {
+          throw new CliError("nobody on this GitHub Actions runner can approve the trust policy");
+        }
+      });
+      expect(result.reason).toContain("nobody on this GitHub Actions runner can approve");
       expect(result).toMatchObject({ orgId: "org-1", appId: APP_ID });
       expect(posts(calls)).toHaveLength(0);
+    });
+
+    it("the approval was refused, with the approver's reason", async () => {
+      const { result } = await manual(
+        fresh({
+          ...byDeviceCode(),
+          "POST /api/auth/cli/device/poll": () => ({
+            status: 400,
+            body: {
+              code: "access_denied",
+              error: "only an owner or admin of the organization may create its service accounts"
+            }
+          })
+        })
+      );
+      expect(result.reason).toContain("the request was refused");
+    });
+
+    it("an answer that is not the policy asked for", async () => {
+      const { result } = await manual(
+        fresh(
+          byDeviceCode({
+            status: "approved",
+            registration: {
+              ...REGISTRATION,
+              trust_policy: {
+                ...REGISTRATION.trust_policy,
+                workflow_path: ".github/workflows/x.yml"
+              }
+            }
+          })
+        )
+      );
+      expect(result.reason).toContain("not the one asked for");
+      expect(result.accountId).toBeUndefined();
+    });
+
+    it("a deployment that cannot approve one (no device-code route)", async () => {
+      const { result } = await manual(fresh());
+      expect(result.reason).toContain("cannot approve anything by device code yet");
+    });
+
+    it("no way to ask was given", async () => {
+      stubFetch(TARGET, fresh(byDeviceCode()));
+      const result = await registerTrustPolicy(context(), PLAN);
+      expect(result).toMatchObject({ kind: "manual", orgId: "org-1", appId: APP_ID });
+      expect(result.kind === "manual" && result.reason).toContain("needs an org admin's approval");
+    });
+
+    it("an answer for another app than the one asked for", async () => {
+      const { result } = await manual(
+        fresh(
+          byDeviceCode({
+            status: "approved",
+            registration: { ...REGISTRATION, app: { id: APP_ID, slug: "other" } }
+          })
+        )
+      );
+      expect(result.reason).toContain('publishing "other", not sales');
     });
 
     it("an app that was never published", async () => {
@@ -345,30 +561,6 @@ describe("registerTrustPolicy", () => {
       expect(result.reason).toContain("acme/sales is not registered on this deployment yet");
     });
 
-    it("an unresolvable repository with no `gh` to ask", async () => {
-      const { result } = await manual(
-        fresh({
-          [`POST ${POLICIES}`]: () => ({ status: 422, body: { code: "repository_unresolved" } })
-        })
-      );
-      expect(result.reason).toContain("could not resolve acme-co/acme-apps");
-      expect(result.accountId).toBe("sa-1");
-    });
-
-    it("the server's own reason, when it gives one", async () => {
-      const { result } = await manual(
-        fresh({
-          [`POST ${POLICIES}`]: () => ({
-            status: 400,
-            body: { error: "an environment is required", code: "environment_required" }
-          })
-        })
-      );
-      expect(result.reason).toBe(
-        "creating the trust policy failed (400): an environment is required"
-      );
-    });
-
     it("an account of another org — its grants cannot reach this app, so nothing is asked", async () => {
       const { result, calls } = await manual(fresh(), {
         ...PLAN,
@@ -376,17 +568,7 @@ describe("registerTrustPolicy", () => {
         accountNamed: true
       });
       expect(result.reason).toContain("globex/deployer cannot be granted publishing acme/sales");
-      expect(result.reason).toContain("its own organization");
       expect(calls).toHaveLength(0);
-    });
-
-    it("a 404 creating the policy is the app it grants, not a missing route", async () => {
-      const { result } = await manual(
-        fresh({ [`POST ${POLICIES}`]: () => ({ status: 404, body: { error: "not found" } }) })
-      );
-      expect(result.reason).toContain("found no app acme/sales in acme");
-      expect(result.reason).not.toContain("predates trusted access");
-      expect(result).toMatchObject({ orgId: "org-1", appId: APP_ID, accountId: "sa-1" });
     });
 
     it("nobody logged in — and no request is made", async () => {
@@ -409,7 +591,7 @@ describe("registerTrustPolicy", () => {
           throw new TypeError("fetch failed");
         })
       );
-      const result = await registerTrustPolicy(context(), PLAN, noGh);
+      const result = await registerTrustPolicy(context(), PLAN, deviceApproval());
       expect(result.kind).toBe("manual");
     });
   });

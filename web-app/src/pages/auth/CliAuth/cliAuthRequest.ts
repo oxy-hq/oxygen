@@ -9,6 +9,8 @@
  *   personal token that reaches what its approver does, for hours.
  * - `service_account_mint`: `oxyc tokens create --org-service-account`. The same handoff, for a
  *   token of an organization's service account, the account created when it has none.
+ * - `trust_policy_mint`: `oxyc init-ci`. The same handoff, for a trust policy that lets one
+ *   GitHub Actions workflow publish one app as a service account. It mints no token.
  * - `legacy`: an older oxyc that sends no `code_challenge` and expects the session token itself.
  * - `invalid`: nothing usable. With a `title` it was a token request, and is refused as one.
  */
@@ -39,6 +41,14 @@ export type CliAuthRequest =
       codeChallenge: string;
       hostname: string;
       ask: ServiceAccountAsk;
+    }
+  | {
+      kind: "trust_policy_mint";
+      port: string;
+      state: string;
+      codeChallenge: string;
+      hostname: string;
+      ask: TrustPolicyAsk;
     };
 
 /**
@@ -85,13 +95,36 @@ export interface ServiceAccountAsk {
   name: string | null;
 }
 
+/**
+ * What `oxyc init-ci` asked a trust policy to be, as it arrived. Nothing is resolved or checked
+ * here: the page asks the server what approving it would write.
+ */
+export interface TrustPolicyAsk {
+  /** The organization, by slug or id. */
+  org: string;
+  account: string;
+  /** `create=1`: create the account when the organization has none of that name. */
+  create: boolean;
+  /** The id of the app the policy may publish. */
+  app: string;
+  repository: string;
+  workflow: string;
+  /** `null` when oxyc sent none. */
+  environment: string | null;
+}
+
 export type PkceRequest = Extract<CliAuthRequest, { kind: "pkce" }>;
 type MintRequest = Extract<CliAuthRequest, { kind: "mint" }>;
 type AgentMintRequest = Extract<CliAuthRequest, { kind: "agent_mint" }>;
 type ServiceAccountMintRequest = Extract<CliAuthRequest, { kind: "service_account_mint" }>;
+type TrustPolicyMintRequest = Extract<CliAuthRequest, { kind: "trust_policy_mint" }>;
 export type LegacyRequest = Extract<CliAuthRequest, { kind: "legacy" }>;
 /** Any token request: they share the session check, the handoff and the sheet. */
-export type TokenRequest = MintRequest | AgentMintRequest | ServiceAccountMintRequest;
+export type TokenRequest =
+  | MintRequest
+  | AgentMintRequest
+  | ServiceAccountMintRequest
+  | TrustPolicyMintRequest;
 
 const INVALID_HANDOFF = "Invalid CLI login request (missing or malformed port/state).";
 const INVALID_PKCE = "This login link is incomplete. Run `oxyc login` again to get a new one.";
@@ -109,6 +142,7 @@ const TWO_KINDS =
 const SANDBOX_AGENT = "sandbox_agent";
 const AGENT = "agent";
 const SERVICE_ACCOUNT = "service_account";
+const TRUST_POLICY = "trust_policy";
 
 // base64url of a SHA-256: always 43 characters, which is the only length the server accepts
 // (`clean_challenge`). Padding is tolerated, as it is there. Anything else is refused here, so a
@@ -162,29 +196,55 @@ const parseServiceAccountAsk = (params: URLSearchParams): ServiceAccountAsk | nu
   return { org, account, role, days, name };
 };
 
-/** The params that belong to one kind alone, so a link carrying another kind's is two kinds. */
-const OWN_PARAMS: Record<string, string[]> = {
-  [SANDBOX_AGENT]: ["apps"],
-  [AGENT]: ["standing"],
-  [SERVICE_ACCOUNT]: ["org", "account", "role", "days"]
+/** What `oxyc init-ci` asked a trust policy to be, or `null` when it can't be read. */
+const parseTrustPolicyAsk = (params: URLSearchParams): TrustPolicyAsk | null => {
+  const get = (name: string) => params.get(name);
+  const [org, account, app, repository, workflow] = [
+    "org",
+    "account",
+    "app",
+    "repository",
+    "workflow"
+  ].map((name) => (get(name) ?? "").trim());
+  if (!org || !account || !app || !repository || !workflow) return null;
+  const ask: TrustPolicyAsk = {
+    org,
+    account,
+    create: get("create") === "1",
+    app,
+    repository,
+    workflow,
+    environment: get("environment")
+  };
+  const values = Object.values(ask).filter((value): value is string => typeof value === "string");
+  return values.some((value) => CONTROL_CHARACTER.test(value)) ? null : ask;
 };
 
 /**
- * A link that asks for two kinds: `kind` twice, or one kind with another's own param. The
- * tokens are far apart in what they reach, so the page picks none. `hours` is the two agent
- * tokens' and never a service account's.
+ * The params each kind may carry beside the PKCE ones. A link with a param of another kind and
+ * not of its own asks for two kinds. `org` and `account` are shared by the two kinds that name a
+ * service account; `hours` by the two agent tokens; `name` by every kind that names a token.
+ */
+const KIND_PARAMS: Record<string, string[]> = {
+  [SANDBOX_AGENT]: ["apps", "hours", "name"],
+  [AGENT]: ["hours", "standing", "name"],
+  [SERVICE_ACCOUNT]: ["org", "account", "role", "days", "name"],
+  [TRUST_POLICY]: ["org", "account", "create", "app", "repository", "workflow", "environment"]
+};
+
+const EVERY_KIND_PARAM = new Set(Object.values(KIND_PARAMS).flat());
+
+/**
+ * A link that asks for two kinds: `kind` twice, or one kind with a param only another kind
+ * takes. The tokens are far apart in what they reach, so the page picks none.
  */
 const asksForTwoKinds = (params: URLSearchParams): boolean => {
   if (new Set(params.getAll("kind")).size > 1) return true;
   const kind = params.get("kind") ?? "";
+  const own = KIND_PARAMS[kind];
   // A kind the page doesn't know is refused as one, below, whatever else the link carries.
-  if (!(kind in OWN_PARAMS)) return false;
-  const foreign = Object.entries(OWN_PARAMS)
-    .filter(([owner]) => owner !== kind)
-    .flatMap(([, own]) => own);
-  return (
-    foreign.some((param) => params.has(param)) || (kind === SERVICE_ACCOUNT && params.has("hours"))
-  );
+  if (!own) return false;
+  return [...EVERY_KIND_PARAM].some((param) => !own.includes(param) && params.has(param));
 };
 
 /**
@@ -238,6 +298,7 @@ export type TokenAsk =
   | { kind: "mint"; ask: MintAsk }
   | { kind: "agent_mint"; ask: AgentAsk }
   | { kind: "service_account_mint"; ask: ServiceAccountAsk }
+  | { kind: "trust_policy_mint"; ask: TrustPolicyAsk }
   | { kind: "invalid"; reason: string; title: string };
 
 /**
@@ -263,6 +324,10 @@ export const readTokenAsk = (params: URLSearchParams): TokenAsk => {
     case SERVICE_ACCOUNT: {
       const ask = parseServiceAccountAsk(params);
       return ask ? { kind: "service_account_mint", ask } : incomplete;
+    }
+    case TRUST_POLICY: {
+      const ask = parseTrustPolicyAsk(params);
+      return ask ? { kind: "trust_policy_mint", ask } : incomplete;
     }
     default:
       return { kind: "invalid", reason: UNKNOWN_KIND, title: MINT_TITLE };
@@ -317,6 +382,22 @@ const serviceAccountQuery = (ask: ServiceAccountAsk): string => {
   return params.join("&");
 };
 
+/** The trust policy params as oxyc sent them. */
+const trustPolicyQuery = (ask: TrustPolicyAsk): string => {
+  const e = encodeURIComponent;
+  const params = [
+    `kind=${TRUST_POLICY}`,
+    `org=${e(ask.org)}`,
+    `account=${e(ask.account)}`,
+    ...(ask.create ? ["create=1"] : []),
+    `app=${e(ask.app)}`,
+    `repository=${e(ask.repository)}`,
+    `workflow=${e(ask.workflow)}`
+  ];
+  if (ask.environment !== null) params.push(`environment=${e(ask.environment)}`);
+  return params.join("&");
+};
+
 /**
  * This page's own URL, to come back to after signing in. Carries the PKCE params when present,
  * and what a mint asked for, so the flow resumes as the one that was started.
@@ -337,6 +418,8 @@ export const returnToUrl = (
       return `${pkce}&${agentQuery(request.ask)}`;
     case "service_account_mint":
       return `${pkce}&${serviceAccountQuery(request.ask)}`;
+    case "trust_policy_mint":
+      return `${pkce}&${trustPolicyQuery(request.ask)}`;
     case "pkce":
       return pkce;
   }

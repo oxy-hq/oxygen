@@ -211,7 +211,10 @@ const cliDeviceKeys = {
   request: (userCode: string) => [...cliDeviceKeys.all, "request", { userCode }] as const,
   /** What approving one service-account token's mint, from one computer, would create. */
   serviceAccountPreview: (hostname: string, mint: unknown) =>
-    [...cliDeviceKeys.all, "serviceAccountPreview", { hostname, mint }] as const
+    [...cliDeviceKeys.all, "serviceAccountPreview", { hostname, mint }] as const,
+  /** What approving one trust policy (`oxyc init-ci`) would write. */
+  trustPolicyPreview: (mint: unknown) =>
+    [...cliDeviceKeys.all, "trustPolicyPreview", { mint }] as const
 };
 
 const userTokenKeys = {

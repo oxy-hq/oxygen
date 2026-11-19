@@ -64,6 +64,7 @@ pub mod sandbox_staging;
 mod service;
 pub mod service_account;
 pub(crate) mod standing_staff;
+pub mod trust_policy_approval;
 pub(crate) mod view;
 
 use oxy_auth::extractor::{SESSION_REQUIRED, SessionAction};

@@ -58,6 +58,7 @@ mod stack;
 mod standing_tokens;
 mod token_api;
 mod trust_policies;
+mod trust_policy_cli;
 mod trusted_access;
 mod trusted_publish;
 mod usage;

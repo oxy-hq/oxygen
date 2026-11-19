@@ -1947,24 +1947,61 @@ function buildProgram(): Command {
         "--setup-action",
         "get the credential from the oxy-hq/setup-oxyc action (not published yet); by default oxyc exchanges the OIDC token itself"
       )
+      // `--browser` FIRST, as on `login`: unset is "decide from the machine".
+      .option(
+        "--browser",
+        "approve the service account and trust policy in this machine's browser, even where oxyc detects none"
+      )
+      .option(
+        "--no-browser",
+        "approve them by device code from any device — the default where no browser can reach this machine"
+      )
+      .addOption(approverOption("with --no-browser"))
+      // `--wait` FIRST, as `--browser`: unset is "decide from the machine".
+      .option("--wait", "wait for the approval, even in a Claude Code remote session")
+      .option(
+        "--no-wait",
+        "ask for the approval, print where, and exit; a re-run collects it (the default in a Claude Code remote session)"
+      )
       .addHelpText(
         "after",
         "\nThe publish job acts as a service account of the app's org — --service-account\n" +
           "<org>/<name>, else `<org>/deployer`, which is created if it does not exist. Here\n" +
-          "(and only here) the account is given by NAME: its ID is looked up as you and\n" +
-          "written into the workflow, with the name beside it as a comment. As an\n" +
-          "org admin with a browser-session login this also creates the trust policy (this\n" +
-          "repository, the workflow file, the environment), granted publishing this one app.\n" +
-          "When it cannot, it prints the exact steps instead; the workflow is written either way.\n"
+          "(and only here) the account is given by NAME: its ID is written into the\n" +
+          "workflow, with the name beside it as a comment.\n\n" +
+          "When the account or its trust policy (this repository, the workflow file, the\n" +
+          "environment, granted publishing this one app) is missing, an owner or admin of\n" +
+          "the org approves both once, in the browser or by device code. Nothing is minted:\n" +
+          "the deployment creates them under the approver's session. When nobody can\n" +
+          "approve, it prints the exact steps instead; the workflow is written either way.\n\n" +
+          "With --no-wait (the default in a Claude Code remote session) it asks, prints\n" +
+          "the link, and exits; `oxyc init-ci --force` collects the answer later. Add\n" +
+          "--approver <email> and the approver is told by push, email and Slack.\n"
       )
-  ).action(async (opts: Record<string, unknown>) => {
+  ).action(async (opts: Record<string, unknown>, cmd: Command) => {
+    const approverSource = cmd.getOptionValueSource("approver");
+    // An agent in a Claude Code remote session sees output only once the
+    // command ends: there, ask and return unless `--wait` says otherwise.
+    const noWait =
+      opts.wait === false || (opts.wait === undefined && Boolean(process.env.CLAUDE_CODE_REMOTE));
+    if (noWait && opts.browser === true) {
+      throw usageError(
+        "--no-wait is only valid with the device code, not --browser",
+        "drop --browser: --no-wait asks by device code and returns at once"
+      );
+    }
     await runInitCi(createContext(globals(opts)), {
       app: opts.app as string | undefined,
       environment: opts.environment as string | undefined,
       force: opts.force as boolean | undefined,
       promote: opts.promote as boolean | undefined,
       register: opts.register as boolean | undefined,
-      setupAction: opts.setupAction as boolean | undefined
+      setupAction: opts.setupAction as boolean | undefined,
+      // Decided only if something is missing: a run that finds both asks nobody.
+      approval: {
+        route: () => resolveApproval(opts, approverSource, { noWait, what: "the trust policy" }),
+        noWait
+      }
     });
   });
 

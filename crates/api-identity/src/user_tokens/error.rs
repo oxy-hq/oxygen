@@ -52,6 +52,11 @@ pub enum TokenError {
     /// 422 `repository_unresolved` — a trust policy's `owner/repo` could not
     /// be resolved to GitHub's ids, and the body supplied none.
     RepositoryUnresolved,
+    /// 422 `repository_unresolved` — the same, for a trust policy asked for
+    /// through `oxyc init-ci`, which never takes the ids from the asker: the
+    /// approver is shown the repository's name, not its ids. Names the
+    /// repository as asked.
+    RepositoryUnconfirmed(String),
     /// 400 `environment_required` — a trust policy names no environment while
     /// the org requires one.
     EnvironmentRequired,
@@ -95,8 +100,17 @@ pub enum TokenError {
     /// `role` it has.
     RoleMismatch { account: String, role: String },
     /// 409 `service_account_disabled` — the org's account of that name is
-    /// disabled, so a token minted for it would authenticate nothing.
+    /// disabled, so a token or trust policy given to it would work for nothing.
     ServiceAccountDisabled(String),
+    /// 400 `invalid_trust_policy` — a trust policy's approval (`oxyc init-ci`)
+    /// that cannot be honoured: a repository, workflow or environment the
+    /// trust-policy rules refuse, an account name that is not a slug, a field
+    /// it does not take. The reason is the `error`.
+    InvalidTrustPolicy(String),
+    /// 404 `service_account_not_found` — an approval named an account the org
+    /// does not have, and did not ask for it to be created. The body names it
+    /// as `account`.
+    ServiceAccountNotFound(String),
     /// 400 `access_denied` — a device-code request the person refused, or
     /// whose approval was refused under their session. The reason is the
     /// `error`, as the page said it.
@@ -205,6 +219,15 @@ impl TokenError {
                     .into(),
                 Some("repository_unresolved"),
             ),
+            Self::RepositoryUnconfirmed(repository) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!(
+                    "GitHub would not show '{repository}' to this deployment, so the ids its \
+                     runs are matched on could not be read, and an approval never takes them \
+                     from the request"
+                ),
+                Some("repository_unresolved"),
+            ),
             Self::EnvironmentRequired => (
                 StatusCode::BAD_REQUEST,
                 "a trust policy must name the deployment 'environment' its workflow runs in".into(),
@@ -273,11 +296,22 @@ impl TokenError {
                 ),
                 Some("role_mismatch"),
             ),
+            Self::InvalidTrustPolicy(message) => (
+                StatusCode::BAD_REQUEST,
+                message.clone(),
+                Some("invalid_trust_policy"),
+            ),
+            Self::ServiceAccountNotFound(account) => (
+                StatusCode::NOT_FOUND,
+                format!("the organization has no service account '{account}'"),
+                Some("service_account_not_found"),
+            ),
             Self::ServiceAccountDisabled(account) => (
                 StatusCode::CONFLICT,
                 format!(
-                    "the service account '{account}' is disabled, so a token for it would not \
-                     work: enable it on the organization's API access page first"
+                    "the service account '{account}' is disabled, so nothing given to it would \
+                     work: enable it under Settings → Organization → API tokens → Service \
+                     accounts first"
                 ),
                 Some("service_account_disabled"),
             ),
@@ -339,6 +373,9 @@ impl IntoResponse for TokenError {
             Self::RoleMismatch { account, role } => {
                 body["account"] = json!(account);
                 body["role"] = json!(role);
+            }
+            Self::ServiceAccountNotFound(account) => {
+                body["account"] = json!(account);
             }
             Self::RateLimited { retry_after_secs } => {
                 let mut response = (status, Json(body)).into_response();

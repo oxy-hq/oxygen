@@ -181,24 +181,28 @@ export function announceWaiting(secondsLeft: number): void {
  * the interval to keep after it. A `slow_down` raises the interval for good;
  * a 429 from the per-client limiter waits once and keeps it.
  */
-type Step = { minted: Minted } | { wait: number; interval: number };
+type Step<T> = { minted: T } | { wait: number; interval: number };
+
+/** What a token's approval collects: the token. A refusal when it carries none. */
+const collectToken = (body: MintBody): Minted => mintedFrom(body, "the approval returned no token");
 
 /** Read one poll's answer. Throws on a refusal, a lapse, or a spent request. */
-function stepFrom(
+function stepFrom<T>(
   response: Response,
   body: MintBody,
   text: string,
   interval: number,
   refused: CodeRefused,
-  purpose: BrowserPurpose
-): Step {
+  purpose: BrowserPurpose,
+  collect: (body: MintBody) => T
+): Step<T> {
   if (response.ok) {
     if (body.status === "pending") return { wait: interval, interval };
     if (body.status === "slow_down") {
       const slower = interval + SLOW_DOWN_STEP_S;
       return { wait: slower, interval: slower };
     }
-    return { minted: mintedFrom(body, "the approval returned no token") };
+    return { minted: collect(body) };
   }
   // Over the per-client budget, which agents sharing one address can be. The
   // request is still there, and may already be approved: wait it out.
@@ -243,14 +247,20 @@ function stepFrom(
  * just started, `0` for one `oxyc login --no-wait` started earlier, which may
  * already be approved.
  */
-export async function pollUntilDecided(
+export async function pollUntilDecided<T = Minted>(
   target: string,
   verifier: string,
   started: DeviceRequest,
-  wording: { refused: CodeRefused; purpose: BrowserPurpose },
+  wording: {
+    refused: CodeRefused;
+    purpose: BrowserPurpose;
+    /** What an approved poll yields. Unset, the token, as for every mint. */
+    collect?: (body: MintBody) => T;
+  },
   sleep: (ms: number) => Promise<void>,
   firstWait: number = started.interval
-): Promise<Minted> {
+): Promise<T> {
+  const collect = wording.collect ?? (collectToken as unknown as (body: MintBody) => T);
   const url = `${base(target)}/api/auth/cli/device/poll`;
   const body = { device_code: started.device_code, code_verifier: verifier };
   let interval = started.interval;
@@ -289,7 +299,8 @@ export async function pollUntilDecided(
       text,
       interval,
       wording.refused,
-      wording.purpose
+      wording.purpose,
+      collect
     );
     if ("minted" in step) return step.minted;
     ({ wait, interval } = step);
@@ -303,17 +314,23 @@ export async function pollUntilDecided(
  * parameters, already encoded, as `browserRound` takes them. `refused` is the
  * caller's wording for `invalid_code`, as `exchangeCliCode` takes it.
  */
-export async function deviceRound(
+export async function deviceRound<T = Minted>(
   target: string,
   opts: LoginOptions,
   pkce: Pkce,
-  ask: { query?: string; purpose?: BrowserPurpose; refused?: CodeRefused } = {}
-): Promise<Minted | undefined> {
+  ask: {
+    query?: string;
+    purpose?: BrowserPurpose;
+    refused?: CodeRefused;
+    /** What the approval yields; unset, the token. A trust policy's yields no token. */
+    collect?: (body: MintBody) => T;
+  } = {}
+): Promise<T | undefined> {
   const purpose = ask.purpose ?? LOGIN_PURPOSE;
   const started = await deviceStart(target, opts, pkce, { query: ask.query, purpose });
   if (!started) return undefined;
   announceWaiting(started.expires_in);
-  const wording = { refused: ask.refused ?? LOGIN_CODE_REFUSED, purpose };
+  const wording = { refused: ask.refused ?? LOGIN_CODE_REFUSED, purpose, collect: ask.collect };
   return pollUntilDecided(target, pkce.verifier, started, wording, opts.sleep ?? defaultSleep);
 }
 

@@ -23,6 +23,9 @@ const TOKEN_ERROR_CODES = [
   "role_mismatch",
   "service_account_disabled",
   "invalid_service_account_token",
+  // A trust policy `oxyc init-ci` asked for.
+  "invalid_trust_policy",
+  "service_account_not_found",
   // Policy and hygiene.
   "exceeds_policy",
   "rate_limited"

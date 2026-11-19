@@ -26,7 +26,7 @@
  * whole job. Flip the default back only once that repository exists.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { isValidSlug } from "@oxy-hq/sdk/manifest";
 import type { Context } from "../context/resolve.js";
@@ -44,6 +44,7 @@ import {
   pnpmWarnings
 } from "./init-ci-pnpm.js";
 import {
+  type ApprovalOptions,
   DEFAULT_SERVICE_ACCOUNT,
   isValidServiceAccountName,
   lookUpAccountId,
@@ -66,6 +67,11 @@ export interface InitCiFlags {
   register?: boolean;
   /** `--setup-action`: get the credential from the `setup-oxyc` action. Off by default. */
   setupAction?: boolean;
+  /**
+   * How to ask an org admin to approve the account and trust policy when they
+   * are missing (`--browser` / `--no-browser` / `--approver`).
+   */
+  approval?: ApprovalOptions;
 }
 
 export interface WorkflowOptions {
@@ -212,6 +218,32 @@ function assertWorkflowSafe(o: WorkflowOptions): void {
 
 /** What a workflow carries where the account's id could not be looked up. */
 export const SERVICE_ACCOUNT_ID_PLACEHOLDER = "<service-account-id>";
+
+const ID_LINE =
+  /^\s*(?:OXY_SERVICE_ACCOUNT|service-account):\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+#\s*(\S+)\s*$/m;
+
+/**
+ * The account ID a workflow already at `path` names `serviceAccount` by, as
+ * {@link accountValue} wrote it — or `undefined` when there is no such file,
+ * no such line, or the line names another account.
+ *
+ * KEPT WHERE THE ID CANNOT BE LOOKED UP. A plain member may read neither the
+ * org's service accounts nor its trust policies, so a re-run with `--force`
+ * (for a new pnpm pin, say) would otherwise put the placeholder back over an
+ * ID that works, and the workflow would stop signing in until an admin
+ * approved again. The ID came from an earlier run's lookup or approval; an
+ * account deleted since fails the run exactly as the placeholder would.
+ */
+export function idAlreadyWritten(path: string, serviceAccount: string): string | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  const line = ID_LINE.exec(text);
+  return line && line[2] === serviceAccount ? line[1] : undefined;
+}
 
 /**
  * The value a workflow names its service account by, with the readable name
@@ -442,6 +474,8 @@ export function manualSteps(s: Subject, r: Extract<Registration, { kind: "manual
          workflow      ${WORKFLOW_PATH}
          environment   ${s.environment}
          grant         publish ${s.org}/${s.app} — and nothing else
+       If it asks for the repository's ids (GitHub won't show it to the deployment),
+       read them yourself: gh api repos/${s.repository} --jq '[.id, .owner.id]'
 
   Or over the API, from a browser-session login (a token cannot create these):
     oxyc api /api/orgs/${orgId}/service-accounts --env ${s.env} -X POST \\
@@ -503,11 +537,14 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
   const registration: Registration =
     flags.register === false
       ? { kind: "manual", reason: "--no-register was passed" }
-      : await registerTrustPolicy(ctx, plan);
+      : await registerTrustPolicy(ctx, plan, flags.approval);
 
   // The workflow names the account by id. Registration usually learned it;
-  // when it did not run, or stopped short, ask for just that — read-only.
-  const serviceAccountId = await lookUpAccountId(ctx, plan, registration);
+  // when it did not run, or stopped short, ask for just that — read-only;
+  // and when that is refused too, keep the ID the file already names.
+  const lookedUp = await lookUpAccountId(ctx, plan, registration);
+  const kept = lookedUp ? undefined : idAlreadyWritten(path, serviceAccount);
+  const serviceAccountId = lookedUp ?? kept;
 
   const appDir = relative(root, ctx.cwd).split(sep).join("/") || ".";
   const manifest = loadPublishManifest(ctx.cwd);
@@ -535,6 +572,11 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
   );
 
   process.stdout.write(`${out.green("wrote")} ${path}\n\n`);
+  if (kept) {
+    log.info(
+      `kept the ID the workflow already named for ${serviceAccount} (${kept}): it could not be looked up from here`
+    );
+  }
   if (!serviceAccountId) {
     // Said before anything else: the file as written cannot sign in.
     log.warn(
@@ -572,9 +614,27 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
   };
   if (registration.kind === "registered") {
     process.stdout.write(registeredMessage(subject, registration));
+  } else if (registration.kind === "pending") {
+    // `--no-wait`: asked, and not decided yet. The approval writes the rows
+    // itself, so a later run finds them — and fills the account's id in.
+    process.stdout.write(
+      `\n${out.green("approval requested")} — an owner or admin of ${subject.org} approves the\n` +
+        `  service account ${subject.account} and its trust policy at:\n\n` +
+        `    ${registration.url}\n\n` +
+        `  Once it is approved, re-run \`oxyc init-ci --force\` (add --no-wait to check without\n` +
+        `  waiting) ${serviceAccountId ? "to confirm the trust policy is in place" : "to write the account's ID into the workflow"}. The request lapses ${registration.expiresAt}.\n`
+    );
   } else {
     log.info("next: register a trust policy, so the deployment trusts this workflow");
     log.hint(`not done for you: ${registration.reason}`);
+    // What is left when no approval could happen (declined, nobody to approve,
+    // a deployment that predates it): re-running is first, since one approval
+    // does both; then the steps by hand.
+    process.stdout.write(
+      `\n  Re-run \`oxyc init-ci --force\` where a browser can open (or with --no-browser\n` +
+        `  --approver <an org admin's email>): one approval by an owner or admin of\n` +
+        `  ${subject.org} creates the account and the trust policy.\n`
+    );
     process.stdout.write(`\n${manualSteps(subject, registration)}`);
   }
   process.stdout.write(

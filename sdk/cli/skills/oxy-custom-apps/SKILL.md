@@ -804,7 +804,12 @@ nobody the plan.
   retargets a publish.
 - **Credential:** `OXY_TOKEN`, then `oxyc login`'s cache — or, in a GitHub
   Actions job with `id-token: write`, the job's OIDC identity.
-  `oxyc init-ci` writes a workflow that publishes with no stored secret.
+  `oxyc init-ci` writes a workflow that publishes with no stored secret, and
+  has an org owner or admin approve its service account and trust policy once.
+  In a Claude Code remote session it asks and exits (`--no-wait` is the default
+  there): relay the link it prints — add `--approver <their email>` so they are
+  pushed it — end the turn, and run `oxyc init-ci --force` once they have
+  approved. A run that finds both in place asks nobody.
 - Promote / roll back / unpublish from the oxy admin app-detail console;
   every publish is audited (who shipped each build, when).
 - **What is live now:** `oxyc apps show <org>/<app>` prints the live build, the

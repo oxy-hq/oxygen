@@ -5,6 +5,7 @@ import type {
   CliDeviceApproveRequest,
   CliDeviceRequest,
   CliServiceAccountMintRequest,
+  CliTrustPolicyMintRequest,
   CreateSandboxAgentTokenRequest,
   CreateTokenRequest,
   ExtendBody,
@@ -12,6 +13,7 @@ import type {
   Token,
   TokenOptions,
   TokenWithSecret,
+  TrustPolicyMintPreview,
   UpdateTokenRequest,
   UserTokenListResponse,
   WorkspaceTokenListResponse
@@ -106,6 +108,15 @@ export const CliAuthService = {
     const response = await apiClient.post<ServiceAccountMintPreview>(
       "/auth/cli/service-account/preview",
       { hostname, mint }
+    );
+    return response.data;
+  },
+
+  /** What approving a trust policy (`oxyc init-ci`) would write, read under the session. */
+  async previewTrustPolicy(mint: CliTrustPolicyMintRequest): Promise<TrustPolicyMintPreview> {
+    const response = await apiClient.post<TrustPolicyMintPreview>(
+      "/auth/cli/trust-policy/preview",
+      { mint }
     );
     return response.data;
   },

@@ -51,6 +51,16 @@
 //! page asks `POST /auth/cli/service-account/preview` what approving would
 //! create: the same checks, nothing written.
 //!
+//! ## Approving a trust policy the same way
+//!
+//! A `mint` of `kind: "trust_policy"` (`oxyc init-ci`) mints **nothing**. With
+//! no secret to hand over, the approval itself — under the session, at
+//! `authorize` — writes the service account (when asked to create it) and a
+//! trust policy that lets one GitHub Actions workflow publish one app
+//! (`trust_policy_approval.rs`); the code stores which rows, and `exchange`
+//! only reports them as `{ registration }`. `POST
+//! /auth/cli/trust-policy/preview` is its page's preview.
+//!
 //! **Only a browser session approves any mint.** `authorize` takes
 //! `SessionOnly` before it reads its body, so a token — as a bearer, or as the
 //! browser session it opened (`browser_session.rs`) — answers 403
@@ -71,6 +81,7 @@ use oxy_auth::token::cli_login::{self, Redeemed};
 use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, NewToken};
 use oxy_auth::token::service_account_mint as account_mint;
+use oxy_auth::token::trust_policy_mint as policy_mint;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -82,6 +93,7 @@ use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
 use super::service::{self, Minted};
+use super::trust_policy_approval::{self as trust_policy, Registered};
 use super::{agent, login_lifetime, reach, sandbox, service_account, view};
 use crate::authz;
 
@@ -149,6 +161,9 @@ pub(super) async fn approval(
                 .await
                 .map(Some)
         }
+        Some(mint) if policy_mint::asked_for(mint) => {
+            trust_policy::approve(db, actor, mint).await.map(Some)
+        }
         Some(mint) => approve_sandbox(db, actor, hostname, mint).await.map(Some),
     }
 }
@@ -202,18 +217,70 @@ pub async fn preview_service_account(
     Ok(Json(preview))
 }
 
-/// `POST /auth/cli/exchange` — redeem the code and mint the CLI's token.
-pub async fn exchange(
-    headers: HeaderMap,
+#[derive(Deserialize)]
+pub struct TrustPolicyPreviewBody {
+    mint: Value,
+}
+
+/// `POST /auth/cli/trust-policy/preview` — what approving a trust policy's
+/// `mint` (`oxyc init-ci`) would write, for the approval page to lay out: every
+/// check the approval makes, under the session, and nothing written.
+pub async fn preview_trust_policy(
+    _: SessionOnly<ManageTokens>,
+    actor: RequestActor,
     body: Bytes,
-) -> Result<Json<TokenWithSecret>, TokenError> {
+) -> Result<Json<trust_policy::Preview>, TokenError> {
+    let body: TrustPolicyPreviewBody = parse(&body)?;
+    if !policy_mint::asked_for(&body.mint) {
+        return Err(TokenError::InvalidTrustPolicy(format!(
+            "'mint.kind' must be \"{}\"",
+            policy_mint::KIND
+        )));
+    }
+    let db = establish_connection().await?;
+    let preview = trust_policy::preview(&db, &actor, &body.mint).await?;
+    Ok(Json(preview))
+}
+
+/// What an approval yields once collected: a token, or — for a trust policy —
+/// the rows it wrote, and no credential.
+// One per exchange or poll, answered at once and never stored: boxing a
+// variant would buy nothing.
+#[allow(clippy::large_enum_variant)]
+pub(super) enum Approved {
+    Minted(Minted),
+    Registered(Registered),
+}
+
+/// The exchange's answer, and a device-code poll's once approved: the
+/// `{ token, secret }` it has always been, or `{ registration }`.
+#[allow(clippy::large_enum_variant)] // as `Approved`
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum ExchangeAnswer {
+    Token(TokenWithSecret),
+    Registration { registration: Registered },
+}
+
+impl From<Approved> for ExchangeAnswer {
+    fn from(approved: Approved) -> Self {
+        match approved {
+            Approved::Minted(minted) => Self::Token(minted.into()),
+            Approved::Registered(registration) => Self::Registration { registration },
+        }
+    }
+}
+
+/// `POST /auth/cli/exchange` — redeem the code and mint the CLI's token, or
+/// write the trust policy it was approved for.
+pub async fn exchange(headers: HeaderMap, body: Bytes) -> Result<Json<ExchangeAnswer>, TokenError> {
     let body: ExchangeBody = parse(&body)?;
     let db = establish_connection().await?;
     let redeemed = cli_login::redeem(&db, &body.code, &body.code_verifier)
         .await?
         .ok_or(TokenError::InvalidCode)?;
-    let minted = mint_redeemed(&db, &redeemed, &headers, Collected::loopback()).await?;
-    Ok(Json(minted.into()))
+    let approved = collect_redeemed(&db, &redeemed, &headers, Collected::loopback()).await?;
+    Ok(Json(approved.into()))
 }
 
 /// How the CLI collected an approval, and what that lets the token carry.
@@ -239,16 +306,37 @@ impl Collected {
     }
 }
 
-/// Mint what a collected approval names, as the user who approved it: the
-/// login token, or the sandbox agent token or agent token the approval
-/// checked.
-pub(super) async fn mint_redeemed(
+/// Carry out what a collected approval names, as the user who approved it:
+/// mint the login token, or the sandbox agent, agent or service-account token
+/// the approval checked — or write the trust policy, minting nothing.
+pub(super) async fn collect_redeemed(
     db: &DatabaseConnection,
     redeemed: &Redeemed,
     headers: &HeaderMap,
     collected: Collected,
-) -> Result<Minted, TokenError> {
+) -> Result<Approved, TokenError> {
     let actor = redeemer(db, redeemed, headers).await?;
+    if let Some(approved) = redeemed.mint.as_ref().filter(|m| policy_mint::asked_for(m)) {
+        // Written at the approval, under the session: only reported here.
+        return trust_policy::redeem(db, approved)
+            .await
+            .map(Approved::Registered)
+            .map_err(no_longer_honoured);
+    }
+    mint_redeemed(db, &actor, redeemed, collected)
+        .await
+        .map(Approved::Minted)
+}
+
+/// Mint what a collected approval names: the login token, or the sandbox
+/// agent, agent or service-account token the approval checked.
+async fn mint_redeemed(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    redeemed: &Redeemed,
+    collected: Collected,
+) -> Result<Minted, TokenError> {
+    let actor = actor.clone();
     let host = &redeemed.hostname;
     match &redeemed.mint {
         None => mint(db, &actor, host, collected).await,

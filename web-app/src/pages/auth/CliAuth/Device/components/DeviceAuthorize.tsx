@@ -10,6 +10,7 @@ import AgentApproval from "../../components/AgentApproval";
 import MintApproval, { type ApprovalSubmit } from "../../components/MintApproval";
 import MintPage from "../../components/MintPage";
 import ServiceAccountApproval from "../../components/ServiceAccountApproval";
+import TrustPolicyApproval from "../../components/TrustPolicyApproval";
 import { deviceReturnTo, readDeviceAsk } from "../deviceRequest";
 import DeviceLoginApproval from "./DeviceLoginApproval";
 import DeviceRequestMissing from "./DeviceRequestMissing";
@@ -62,11 +63,20 @@ const DeviceAuthorize: React.FC<{ userCode: string }> = ({ userCode }) => {
     );
   }
   if (step === "approved") {
+    const where = request.data?.hostname ?? "that computer";
+    // A trust policy's approval wrote the rows itself, and oxyc may not be waiting
+    // (`init-ci --no-wait`): it collects them on its next run.
+    const registered =
+      request.data !== undefined && readDeviceAsk(request.data.ask).kind === "trust_policy_mint";
     return (
       <MintPage
         status='done'
         title='Approved'
-        lead={`oxyc on ${request.data?.hostname ?? "that computer"} picks it up within a few seconds and carries on. You can close this tab.`}
+        lead={
+          registered
+            ? `The service account and its trust policy are in place. oxyc on ${where} writes the account's ID into the workflow the next time it checks — within a few seconds if it is still waiting. You can close this tab.`
+            : `oxyc on ${where} picks it up within a few seconds and carries on. You can close this tab.`
+        }
       />
     );
   }
@@ -143,6 +153,10 @@ const DeviceAuthorize: React.FC<{ userCode: string }> = ({ userCode }) => {
           onDeclined={decline}
           {...sheet}
         />
+      );
+    case "trust_policy_mint":
+      return (
+        <TrustPolicyApproval request={{ hostname, ask: ask.ask }} onDeclined={decline} {...sheet} />
       );
     case "invalid":
       return <MintPage status='error' title={ask.title} lead={ask.reason} />;

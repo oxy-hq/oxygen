@@ -545,6 +545,40 @@ describe("oxyc init-ci, through the binary", () => {
     expect(result.stdout).toContain(`-f workflow_ref=${WORKFLOW_PATH}`);
   });
 
+  /**
+   * A member may not read the org's accounts, so a `--force` re-run could not
+   * look the ID up again: the one the workflow already names for this account
+   * is kept, and the placeholder never goes back over it.
+   */
+  it("keeps the ID the workflow already names for the account when it can't look it up", () => {
+    const appDir = join(repo, "apps", "acme", "sales");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(appDir, "oxy-app.json"),
+      JSON.stringify({ schemaVersion: 2, slug: "sales", orgSlug: "acme" })
+    );
+    const workflow = join(repo, WORKFLOW_PATH);
+    mkdirSync(dirname(workflow), { recursive: true });
+    const id = "3f25a6c1-7b0e-4d2a-9c11-0e5d2b7a3301";
+
+    writeFileSync(workflow, `env:\n  OXY_SERVICE_ACCOUNT: ${id}   # acme/deployer\n`);
+    const kept = run(appDir, ["--env", "dev", "--force"]);
+    expect(kept.status, kept.stderr).toBe(0);
+    const written = readFileSync(workflow, "utf8");
+    expect(written).toContain(`OXY_SERVICE_ACCOUNT: ${id}   # acme/deployer`);
+    expect(written).not.toContain(SERVICE_ACCOUNT_ID_PLACEHOLDER);
+    expect(kept.stderr).toContain(`kept the ID the workflow already named for acme/deployer`);
+    expect(kept.stderr).not.toContain("replace the placeholder");
+
+    // Another account's ID is not this one's: the placeholder, as before.
+    writeFileSync(workflow, `env:\n  OXY_SERVICE_ACCOUNT: ${id}   # acme/release-bot\n`);
+    const other = run(appDir, ["--env", "dev", "--force"]);
+    expect(other.status, other.stderr).toBe(0);
+    expect(readFileSync(workflow, "utf8")).toContain(
+      "OXY_SERVICE_ACCOUNT: <service-account-id>   # REPLACE with the ID of acme/deployer"
+    );
+  });
+
   /** What the repo root pins is read from the repo root, not from where it ran. */
   it("reads the pnpm pin and .nvmrc from the repo root", () => {
     const appDir = join(repo, "apps", "acme", "sales");

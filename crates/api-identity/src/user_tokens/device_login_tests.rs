@@ -42,15 +42,37 @@ fn a_service_account_request_is_approved_only_as_one() {
 }
 
 #[test]
+fn a_trust_policy_request_is_approved_only_as_one() {
+    let ask = json!({ "kind": "trust_policy", "org": "acme", "account": "deployer" });
+    let policy = json!({ "kind": "trust_policy", "org": "acme", "account": "deployer" });
+    let account = json!({ "kind": "service_account", "org": "acme", "account": "deployer" });
+    let sandbox = json!({ "kind": "sandbox_agent", "apps": "acme/store" });
+
+    assert!(mint_matches_ask(&ask, Some(&policy)));
+    assert!(!mint_matches_ask(&ask, None));
+    // A request for a policy never becomes a token, and no token's request a policy.
+    assert!(!mint_matches_ask(&ask, Some(&account)));
+    assert!(!mint_matches_ask(&sandbox, Some(&policy)));
+    assert!(!mint_matches_ask(&json!({}), Some(&policy)));
+}
+
+#[test]
 fn a_refused_approval_tells_the_cli_why() {
-    let reason = denial_reason(&TokenError::AppNotFound("x".into()));
+    let sandbox = json!({ "kind": "sandbox_agent" });
+    let reason = denial_reason(&TokenError::AppNotFound("x".into()), &sandbox);
     assert!(
         reason.contains("may create sandbox agent tokens"),
         "{reason}"
     );
-    let reason = denial_reason(&TokenError::ExceedsPolicy {
-        max_lifetime_days: 1,
-    });
+    let policy = json!({ "kind": "trust_policy" });
+    let reason = denial_reason(&TokenError::AppNotFound("sales".into()), &policy);
+    assert!(reason.contains("no app 'sales'"), "{reason}");
+    let reason = denial_reason(
+        &TokenError::ExceedsPolicy {
+            max_lifetime_days: 1,
+        },
+        &sandbox,
+    );
     assert!(reason.contains("1-day"), "{reason}");
 }
 

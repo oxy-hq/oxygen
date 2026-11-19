@@ -275,6 +275,24 @@ export async function exchangeCliCode(
   verifier: string,
   refused: CodeRefused = LOGIN_CODE_REFUSED
 ): Promise<Minted | undefined> {
+  const body = await exchangeCliApproval(target, code, verifier, refused);
+  return body && mintedFrom(body, "the login exchange returned no token");
+}
+
+/**
+ * Trade the one-time code for what its approval yields, as the deployment
+ * answered it: a token (`{ token, secret }`), or for an approval that mints
+ * nothing — a trust policy, `oxyc init-ci` — `{ registration }`.
+ *
+ * `undefined` is a 404 (no exchange route); every other failure throws, as
+ * `exchangeCliCode` documents.
+ */
+export async function exchangeCliApproval(
+  target: string,
+  code: string,
+  verifier: string,
+  refused: CodeRefused = LOGIN_CODE_REFUSED
+): Promise<MintBody | undefined> {
   const url = `${base(target)}/api/auth/cli/exchange`;
   let response: Response;
   try {
@@ -308,7 +326,7 @@ export async function exchangeCliCode(
       detail: printableLines(text.slice(0, 2000)).trim() || undefined
     });
   }
-  return mintedFrom(body, "the login exchange returned no token");
+  return body;
 }
 
 /** What the exchange and a device-code poll answer with. */
@@ -319,6 +337,8 @@ export interface MintBody {
   code?: string;
   error?: string;
   interval?: number;
+  /** An approval that minted nothing (a trust policy): what it wrote. */
+  registration?: Record<string, unknown>;
 }
 
 /** A response body as JSON, or `{}` when it is not. */

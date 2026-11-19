@@ -134,6 +134,11 @@ pub fn token_routes() -> Router<AppState> {
             "/auth/cli/service-account/preview",
             post(cli_login::preview_service_account),
         )
+        // The same for a trust policy `oxyc init-ci` asks for.
+        .route(
+            "/auth/cli/trust-policy/preview",
+            post(cli_login::preview_trust_policy),
+        )
         // `oxyc … --no-browser`: the page reads a device-code request and
         // decides it, under the session.
         .route(
@@ -401,6 +406,7 @@ const API_ROLES: &[RouteRoleDecl] = &[
     fleet("/user/token-options"),
     fleet("/auth/cli/authorize"),
     fleet("/auth/cli/service-account/preview"),
+    fleet("/auth/cli/trust-policy/preview"),
     fleet("/auth/cli/device/requests/{user_code}"),
     fleet("/auth/cli/device/requests/{user_code}/approve"),
     fleet("/auth/cli/device/requests/{user_code}/deny"),

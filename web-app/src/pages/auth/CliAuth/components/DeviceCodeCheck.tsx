@@ -9,6 +9,11 @@ interface Props {
   /** Whether what is typed is that code. */
   onMatchedChange: (matched: boolean) => void;
   disabled?: boolean;
+  /**
+   * What approving hands to whoever started the request, for an approval that hands them no
+   * token (a trust policy's). Defaults to the token's warning.
+   */
+  caution?: string;
 }
 
 /**
@@ -20,7 +25,15 @@ interface Props {
  * typing it means reading it off the terminal that asked. That is also why a device-code token
  * never carries staff or partner access: the server holds to it whatever is approved here.
  */
-const DeviceCodeCheck: React.FC<Props> = ({ code, onMatchedChange, disabled }) => {
+const TOKEN_CAUTION =
+  "Approve only a request you started yourself. Whoever started it gets the token.";
+
+const DeviceCodeCheck: React.FC<Props> = ({
+  code,
+  onMatchedChange,
+  disabled,
+  caution = TOKEN_CAUTION
+}) => {
   const id = useId();
   const [typed, setTyped] = useState("");
   const change = (value: string) => {
@@ -29,9 +42,7 @@ const DeviceCodeCheck: React.FC<Props> = ({ code, onMatchedChange, disabled }) =
   };
   return (
     <div className='mt-2 text-sm leading-5.5' data-testid='cli-auth-device-code-check'>
-      <p className='font-medium'>
-        Approve only a request you started yourself. Whoever started it gets the token.
-      </p>
+      <p className='font-medium'>{caution}</p>
       <label htmlFor={id} className='mt-2 block'>
         Type the code oxyc printed in your terminal:
       </label>

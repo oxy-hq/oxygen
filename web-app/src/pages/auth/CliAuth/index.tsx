@@ -62,6 +62,7 @@ const CliAuth: React.FC = () => {
     case "mint":
     case "agent_mint":
     case "service_account_mint":
+    case "trust_policy_mint":
       return <MintAuthorize request={request} />;
     case "legacy":
       return <LegacyHandoff request={request} />;

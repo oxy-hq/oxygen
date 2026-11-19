@@ -945,7 +945,7 @@ oxyc bootstrap verify poke-house --env dev --json \
 oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint] [--app-env <dev-handle>]
 oxyc promote <app> [--from staging|dev-<handle>] [--build <id>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
 oxyc rollback <app> --app-env staging|production [--to <build>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
-oxyc init-ci [--app <org>/<app>] [--environment <name>] [--promote] [--force] [--no-register] [--setup-action]
+oxyc init-ci [--app <org>/<app>] [--environment <name>] [--promote] [--force] [--no-register] [--setup-action] [--browser | --no-browser [--approver <email>] [--no-wait]]
 oxyc proxy [--app <org>/<app> --app-env staging|dev-<handle>] [--port <n>] [--allow-writes] [--allow-events] [--yes]
 ```
 
@@ -1043,7 +1043,9 @@ person, and writes the ID into the workflow with the name beside it as a
 comment (`OXY_SERVICE_ACCOUNT: 3f25…3301   # acme/deployer`). When it cannot
 look the ID up — nobody logged in, no such account yet — it writes a
 `<service-account-id>` placeholder and says so; it never writes the name as
-the value. `--promote` makes the publish go live. **No `checks run` step is
+the value. A `--force` re-run that cannot look it up (a member may not list
+the org's accounts) keeps the ID the existing workflow already names for that
+same account instead. `--promote` makes the publish go live. **No `checks run` step is
 written**, even when the manifest declares a check: the job's service-account
 token is answered `403` on the check routes, which sit behind platform gates a
 service account never passes, so the step could not succeed. The workflow
@@ -1056,21 +1058,41 @@ says so when it writes one.
 
 *The registration* is a trust policy on that service account — this repository,
 the workflow file, the environment — granted publishing this one app and
-nothing else. `init-ci` creates the `deployer` account if none was named and it
-does not exist, then the policy, and is idempotent: a second run finds both. A
-named account is never created, and must be one of the app's own org — an
-account's grants never reach another org, so `init-ci` refuses one. A service
-account's name is lowercase words joined by single hyphens, starting with a
-letter, 2–40 characters.
+nothing else. When the account (the `deployer` account if none was named) or
+the policy is missing, **an owner or admin of the org approves both once**, in
+the browser or by device code (`--no-browser`, `--approver <email>`): the same
+`/cli-auth` approval `tokens create` uses, for a `trust_policy`. The page shows
+the org, the account (new or existing), the repository as GitHub names it, the
+workflow, the environment and the one app it may publish, and the deployment
+writes them **at the approval**, under the approver's session. **Nothing is
+minted**: the CLI collects only what was written, and the account's ID goes
+into the workflow. The person running `init-ci` need not be an admin: when it
+may not list the org's apps or accounts it names the app by slug, and the
+approver's deployment resolves it.
 
-It can only register **when the caller can**: an org admin, logged in with a
-browser-session credential — the server refuses those two creations to a token,
-which is what a fresh `oxyc login` stores. When it cannot (not an admin, a token
-login, offline, a deployment without trusted access, `--no-register`), the
-workflow is still written and the command prints the exact steps instead: where
-in the web app, the `oxyc api` calls with every id it managed to learn filled
-in, and the older `…/publishers` registration for a deployment without trust
-policies. Registration never fails the command.
+**With no one waiting at the terminal** — an agent in a Claude Code remote
+session, a remote box — `--no-wait` (the default under `CLAUDE_CODE_REMOTE`)
+asks, prints the link, writes the workflow with a placeholder and exits; add
+`--approver <email>` and the admin is told by push, email and Slack. A later
+`oxyc init-ci --force` collects the answer (with `--no-wait`, it checks once and
+says if it is still waiting) and writes the account's ID. Because the approval
+itself writes the rows, an answer nobody collects is not lost: a run that may
+read the org's accounts finds them and asks nobody.
+
+It is idempotent: a run that finds both in place asks nobody, and the deployment
+reuses what is already there. A named account is never created, and must be
+one of the app's own org — an account's grants never reach another org, so
+`init-ci` refuses one. A service account's name is lowercase words joined by
+single hyphens, starting with a letter, 2–40 characters.
+
+Creating either row is still browser-session-only on the server: `init-ci`
+never calls those routes with its token. When no approval can happen (declined,
+a CI runner with nobody to approve, offline, a deployment that predates it,
+`--no-register`), the workflow is still written and the command prints the
+exact steps instead: re-running where a browser can open, where in the web app,
+the `oxyc api` calls with every id it managed to learn filled in, and the older
+`…/publishers` registration for a deployment without trust policies.
+Registration never fails the command.
 
 **`--app-env <dev-handle>`** moves one sandbox's build pointer instead of the
 draft/live channel — see [Sandboxes](#sandboxes). It needs a staff credential

@@ -292,10 +292,48 @@ export interface CliServiceAccountMintRequest {
   expires_in_days?: number;
 }
 
+/**
+ * What `oxyc init-ci` asks the browser to approve: a trust policy letting one GitHub Actions
+ * workflow publish one app as an organization's service account — the account created first when
+ * asked. It mints no token: the exchange answers with what it wrote.
+ */
+export interface CliTrustPolicyMintRequest {
+  kind: "trust_policy";
+  /** The organization, by slug or id, as oxyc sent it. */
+  org: string;
+  account: string;
+  /** Create the account when the organization has none of that name. */
+  create_account: boolean;
+  /** The id of the one app the policy may publish. */
+  app: string;
+  repository: string;
+  workflow_path: string;
+  environment?: string;
+}
+
 export type CliMintRequest =
   | CliSandboxMintRequest
   | CliAgentMintRequest
-  | CliServiceAccountMintRequest;
+  | CliServiceAccountMintRequest
+  | CliTrustPolicyMintRequest;
+
+/**
+ * `POST /auth/cli/trust-policy/preview`: what approving a trust policy's mint would write, as the
+ * server would write it. Every check the approval makes, and nothing written.
+ */
+export interface TrustPolicyMintPreview {
+  org: { id: string; slug: string; name: string };
+  account: { name: string; role: CliServiceAccountRole; exists: boolean };
+  app: { id: string; slug: string; name: string };
+  policy: {
+    /** `owner/repo` as GitHub names it. */
+    repository: string;
+    workflow_path: string;
+    environment: string | null;
+    /** A policy already trusts this run to publish this app: approving writes nothing. */
+    exists: boolean;
+  };
+}
 
 /**
  * `POST /auth/cli/service-account/preview`: what approving a service-account token's mint would

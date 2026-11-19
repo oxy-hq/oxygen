@@ -28,7 +28,7 @@
 pub(crate) mod account_tokens;
 pub(crate) mod accounts;
 mod audit;
-mod dto;
+pub(crate) mod dto;
 pub mod handlers;
 mod inventory;
 pub mod repo_resolve;

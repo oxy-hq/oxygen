@@ -22,6 +22,8 @@
 //!   `oxyc` and approved in the browser;
 //! - [`trust_policy`] — the trust policies on a service account, and their
 //!   grants; [`trust_policy_access`] — their request bodies, parsed and checked;
+//!   [`trust_policy_mint`] — a policy asked for by `oxyc init-ci` and approved
+//!   in the browser;
 //! - [`ci`] — the 15-minute `oxy_ci_` token a trust policy mints for one CI
 //!   run, and the sweep of expired ones;
 //! - [`exchange`] — which policy a verified run mints from;
@@ -97,6 +99,7 @@ pub mod standing;
 pub mod store;
 pub mod trust_policy;
 pub mod trust_policy_access;
+pub mod trust_policy_mint;
 pub mod usage;
 
 pub use credential::{
