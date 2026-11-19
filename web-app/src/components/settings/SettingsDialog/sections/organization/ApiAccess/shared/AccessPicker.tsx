@@ -37,7 +37,12 @@ interface AccessPickerProps {
   onChange: (next: AccessDraft) => void;
   /** Sets the ceilings on offer and the role the whole-org option names. */
   accountRole: ServiceAccountRole;
-  workspaces: PickableList;
+  /**
+   * Omit to offer no single workspace: the whole organization, or only the
+   * apps below. What an OIDC issuer trust policy takes, since workspaces are
+   * being retired.
+   */
+  workspaces?: PickableList;
   /** Pass to also offer "may publish this app". Tokens don't; policies do. */
   apps?: PickableList;
   /** Prefix for testids, so two pickers on screen stay distinguishable. */
@@ -69,20 +74,28 @@ export function AccessPicker({
           checked={value.scope === "org"}
           onSelect={() => onChange({ ...value, scope: "org" })}
           label='The whole organization'
-          hint={`Every workspace, including ones created later, as ${role}.`}
+          hint={
+            workspaces
+              ? `Every workspace, including ones created later, as ${role}.`
+              : `Everything in the organization, as ${role}.`
+          }
           testId={`${testId}-scope-org`}
         />
         <ChoiceRow
           group={group}
           checked={value.scope === "selected"}
           onSelect={() => onChange({ ...value, scope: "selected" })}
-          label='Selected workspaces'
-          hint='Only the workspaces you pick, each capped at a role.'
+          label={workspaces ? "Selected workspaces" : "Only the apps below"}
+          hint={
+            workspaces
+              ? "Only the workspaces you pick, each capped at a role."
+              : "Nothing in the organization but publishing the apps you pick."
+          }
           testId={`${testId}-scope-selected`}
         />
       </fieldset>
 
-      {value.scope === "selected" && (
+      {value.scope === "selected" && workspaces && (
         <Checklist list={workspaces} what='workspaces' testId={`${testId}-workspaces`}>
           {(workspace) => {
             const picked = value.workspaces.find((w) => w.workspace_id === workspace.id);

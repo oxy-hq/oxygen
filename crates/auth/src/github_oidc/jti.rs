@@ -21,9 +21,21 @@ pub const REMEMBER_FOR: Duration = Duration::hours(1);
 /// Fails closed on any other database error — a token we cannot mark used is a
 /// token we do not accept.
 pub async fn burn<C: ConnectionTrait>(db: &C, jti: &str) -> Result<(), OidcError> {
+    burn_until(db, jti, Utc::now() + REMEMBER_FOR).await
+}
+
+/// [`burn`], remembering the value until `expires_at` — for a token whose own
+/// life may be longer than [`REMEMBER_FOR`]: a registered issuer's, kept until
+/// the token itself has expired. The caller makes the value unique to its
+/// issuer.
+pub async fn burn_until<C: ConnectionTrait>(
+    db: &C,
+    jti: &str,
+    expires_at: DateTime<Utc>,
+) -> Result<(), OidcError> {
     let row = oidc_used_jti::ActiveModel {
         jti: ActiveValue::Set(jti.to_string()),
-        expires_at: ActiveValue::Set((Utc::now() + REMEMBER_FOR).fixed_offset()),
+        expires_at: ActiveValue::Set(expires_at.fixed_offset()),
     };
     match row.insert(db).await {
         Ok(_) => Ok(()),

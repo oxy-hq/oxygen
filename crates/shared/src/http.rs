@@ -22,8 +22,7 @@
 //! - **No `https_only`.** The IDE proxy and the local Airhouse and ClickHouse
 //!   health probes (`oxy start`) are plain `http://` on loopback, and a
 //!   customer's ClickHouse URL may be too. SSRF defence is per site
-//!   (`ctx.fetch`'s resolver, web push's `check_endpoint`), not a client
-//!   default.
+//!   ([`public_only`], web push's `check_endpoint`), not a client default.
 //! - **Redirects stay at reqwest's default (follow up to 10).** A site whose
 //!   target URL is caller-supplied disables them itself, next to the reason.
 //! - **Proxy and root certificates** come from the environment, as before.
@@ -33,6 +32,8 @@
 //! its `ALLOWED` backlog with a reason. The map of every duplicated
 //! infrastructure client (HTTP, ClickHouse, Postgres, S3, LLM) and the order
 //! to converge them: `internal-docs/infrastructure-clients.md`.
+
+pub mod public_only;
 
 use std::sync::OnceLock;
 use std::time::Duration;

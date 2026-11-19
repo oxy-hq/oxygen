@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { useServiceAccounts } from "@/hooks/api/orgApiAccess";
 import type { Organization } from "@/types/organization";
+import { OidcIssuers } from "../OidcIssuers";
 import { EmptyState, ListState } from "../shared/ListState";
 import { ServiceAccountDialog } from "./components/ServiceAccountDialog";
 import { ServiceAccountTable } from "./components/ServiceAccountTable";
@@ -17,7 +18,8 @@ interface ServiceAccountsProps {
 
 /**
  * The org's service accounts: the list, or one account's page with its tokens
- * and trusted-access policies.
+ * and GitHub trust policies. Under the list, trusted access from outside
+ * Oxygen: the OIDC issuers the org trusts and their trust policies.
  *
  * The page replaces the list in place rather than opening over it. An account
  * holds two lists that each open their own dialogs, and a dialog stacked on a
@@ -52,8 +54,8 @@ export function ServiceAccounts({ org, selectedId, onSelect }: ServiceAccountsPr
       <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
         <p className='max-w-xl text-muted-foreground text-xs leading-relaxed'>
           An identity for automation, owned by the organization instead of a person. Its access
-          doesn't leave when someone does. Give it a token, or let a GitHub Actions workflow act as
-          it with no stored secret.
+          doesn't leave when someone does. Give it a token, or let a GitHub Actions workflow or a
+          service on another platform act as it with no stored secret.
         </p>
         {accounts.length > 0 && <div className='shrink-0'>{createButton}</div>}
       </div>
@@ -96,6 +98,8 @@ export function ServiceAccounts({ org, selectedId, onSelect }: ServiceAccountsPr
         // Land on the new account's page: the next step is always a token or a policy.
         onCreated={(account) => onSelect(account.id)}
       />
+
+      <OidcIssuers org={org} />
     </div>
   );
 }

@@ -20,6 +20,7 @@ pub mod token;
 pub mod token_extend;
 pub mod types;
 pub mod user;
+pub mod workload_identity;
 
 // Re-export commonly used items
 pub use api_key_infra::*;

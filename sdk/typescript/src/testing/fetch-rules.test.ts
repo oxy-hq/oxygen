@@ -1,4 +1,5 @@
-// `isSafeOutbound` says what `is_safe_outbound` in `host.rs` says, case by
+// `isSafeOutbound` says what `is_safe_outbound` in
+// `crates/shared/src/http/public_only.rs` says, case by
 // case — the examples are the host's own unit tests' shapes.
 
 import { describe, expect, it } from "vitest";

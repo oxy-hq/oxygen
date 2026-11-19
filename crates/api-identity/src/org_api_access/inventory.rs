@@ -21,10 +21,12 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use entity::prelude::{
-    ApiTokenGrants, ApiTokens, OidcTrustPolicies, OrgMembers, ServiceAccounts, Users, Workspaces,
+    ApiTokenGrants, ApiTokens, OidcIssuerTrustPolicies, OidcTrustPolicies, OrgMembers,
+    ServiceAccounts, Users, Workspaces,
 };
 use entity::{
-    api_token_grants, api_tokens, oidc_trust_policies, org_members, service_accounts, users,
+    api_token_grants, api_tokens, oidc_issuer_trust_policies, oidc_trust_policies, org_members,
+    service_accounts, users,
 };
 use oxy_auth::token::StoredKind;
 use oxy_auth::token::credential::{blocked_orgs, readable_grants};
@@ -250,11 +252,11 @@ impl OrgSide {
     }
 }
 
-/// Whether the org's CI already uses trusted access: a live trust policy, on
-/// an account that is not disabled. Feeds the inventory's
-/// `long_lived_while_trusted_access` flag.
+/// Whether the org's automation already uses trusted access: a live trust
+/// policy — GitHub Actions or a registered OIDC issuer — on an account that is not
+/// disabled. Feeds the inventory's `long_lived_while_trusted_access` flag.
 async fn uses_trusted_access(db: &DatabaseConnection, org_id: Uuid) -> Result<bool, TokenError> {
-    let accounts: Vec<Uuid> = OidcTrustPolicies::find()
+    let mut accounts: Vec<Uuid> = OidcTrustPolicies::find()
         .filter(oidc_trust_policies::Column::OrgId.eq(org_id))
         .filter(oidc_trust_policies::Column::DisabledAt.is_null())
         .all(db)
@@ -262,6 +264,15 @@ async fn uses_trusted_access(db: &DatabaseConnection, org_id: Uuid) -> Result<bo
         .into_iter()
         .map(|p| p.service_account_id)
         .collect();
+    accounts.extend(
+        OidcIssuerTrustPolicies::find()
+            .filter(oidc_issuer_trust_policies::Column::OrgId.eq(org_id))
+            .filter(oidc_issuer_trust_policies::Column::DisabledAt.is_null())
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|p| p.service_account_id),
+    );
     if accounts.is_empty() {
         return Ok(false);
     }

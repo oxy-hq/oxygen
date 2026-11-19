@@ -7,7 +7,7 @@
 //! | --- | --- |
 //! | 400 | — (a body that names no token) |
 //! | 400 | `service_account_required` (no account id: absent, or not a UUID) |
-//! | 401 | `invalid_token` `wrong_audience` `expired` `replayed` |
+//! | 401 | `invalid_token` `wrong_audience` `expired` `replayed` `unknown_issuer` `token_lifetime_too_long` `jti_required` |
 //! | 403 | `pull_request_target` `self_hosted_runner` `missing_environment` `no_matching_policy` |
 //!
 //! A refused exchange usually matches no org, so its audit row is **unchained**
@@ -23,11 +23,22 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 const REJECTED: &str = "oidc.exchange_rejected";
-/// The actor of a refused exchange: no user authenticated, by definition.
-const ACTOR: &str = "github-actions-oidc";
+/// The actor of a refused exchange: no user authenticated, by definition —
+/// the kind of token that was presented.
+pub(super) const ACTOR_GITHUB: &str = "github-actions-oidc";
+/// A token from an OIDC issuer an org registered.
+pub(super) const ACTOR_OIDC_ISSUER: &str = "oidc-issuer";
 const MALFORMED: &str = "malformed_request";
 const WRONG_AUDIENCE: &str = "wrong_audience";
 const ACCOUNT_REQUIRED: &str = "service_account_required";
+/// A token whose `iss` is no issuer registered in the named account's org —
+/// or an account id that names no enabled account, which reads the same.
+pub(super) const UNKNOWN_ISSUER: &str = "unknown_issuer";
+/// A token from an issuer whose tokens are single use, carrying no `jti` to
+/// spend.
+pub(super) const JTI_REQUIRED: &str = "jti_required";
+/// More than one of the named account's trust policies matches the token.
+const AMBIGUOUS_POLICY: &str = "ambiguous_policy";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Rejection {
@@ -43,6 +54,8 @@ pub(super) enum Rejection {
     /// The token verified, and no trust policy of the named account admits
     /// the run.
     Claims(ClaimReject),
+    /// More than one enabled trust policy matches: refused, never merged.
+    AmbiguousPolicy,
 }
 
 impl Rejection {
@@ -54,6 +67,7 @@ impl Rejection {
             Self::ServiceAccountRequired => ACCOUNT_REQUIRED,
             Self::Envelope(code) => *code,
             Self::Claims(reject) => reject.code(),
+            Self::AmbiguousPolicy => AMBIGUOUS_POLICY,
         }
     }
 
@@ -61,7 +75,7 @@ impl Rejection {
         match self {
             Self::Malformed(_) | Self::ServiceAccountRequired => StatusCode::BAD_REQUEST,
             Self::Envelope(_) => StatusCode::UNAUTHORIZED,
-            Self::Claims(_) => StatusCode::FORBIDDEN,
+            Self::Claims(_) | Self::AmbiguousPolicy => StatusCode::FORBIDDEN,
         }
     }
 
@@ -80,6 +94,18 @@ impl Rejection {
             }
             Self::Envelope("expired") => "the OIDC token has expired",
             Self::Envelope("replayed") => "the OIDC token has already been used",
+            Self::Envelope("unknown_issuer") => {
+                "the token's issuer is not one registered in the service account's organization \
+                 (Settings → Organization → API tokens → OIDC issuers)"
+            }
+            Self::Envelope("token_lifetime_too_long") => {
+                "the token was issued to live more than an hour: request a shorter one (from AWS \
+                 STS, '--duration-seconds' of at most 3600; 300 is best)"
+            }
+            Self::Envelope("jti_required") => {
+                "the token carries no 'jti', and its issuer is registered as single use: each \
+                 token's 'jti' is spent at its first exchange"
+            }
             Self::Envelope(_) => "the OIDC token is not valid",
             Self::Claims(ClaimReject::PullRequestTarget) => {
                 "a pull_request_target run cannot be granted access"
@@ -96,6 +122,10 @@ impl Rejection {
             }
             Self::Claims(ClaimReject::NoMatchingPolicy) => {
                 "no trust policy of the named service account matches this run"
+            }
+            Self::AmbiguousPolicy => {
+                "more than one trust policy of the named service account matches this token: an \
+                 org admin narrows or disables one, so exactly one matches"
             }
         }
     }
@@ -117,12 +147,17 @@ impl Rejection {
         }
     }
 
-    fn audit_entry(&self, headers: &HeaderMap, claims: Option<&Value>) -> AuditEntry {
+    fn audit_entry(
+        &self,
+        actor: &'static str,
+        headers: &HeaderMap,
+        claims: Option<&Value>,
+    ) -> AuditEntry {
         let mut metadata = json!({ "reason": self.reason() });
         if let Some(claims) = claims {
             metadata["claims"] = claims.clone();
         }
-        let mut entry = AuditEntry::new(ACTOR, REJECTED)
+        let mut entry = AuditEntry::new(actor, REJECTED)
             .failure(self.reason())
             .metadata(metadata)
             .context(AuditContext {
@@ -140,6 +175,7 @@ impl Rejection {
     pub(super) async fn record(
         &self,
         db: &DatabaseConnection,
+        actor: &'static str,
         headers: &HeaderMap,
         claims: Option<&Value>,
     ) {
@@ -148,7 +184,7 @@ impl Rejection {
         if matches!(self, Self::Malformed(_) | Self::ServiceAccountRequired) {
             return;
         }
-        audit::record_best_effort(db, self.audit_entry(headers, claims)).await;
+        audit::record_best_effort(db, self.audit_entry(actor, headers, claims)).await;
     }
 }
 
@@ -172,6 +208,10 @@ mod tests {
             Rejection::Envelope("wrong_audience"),
             Rejection::Envelope("expired"),
             Rejection::Envelope("replayed"),
+            Rejection::Envelope("unknown_issuer"),
+            Rejection::Envelope("token_lifetime_too_long"),
+            Rejection::Envelope("jti_required"),
+            Rejection::AmbiguousPolicy,
             Rejection::Claims(ClaimReject::PullRequestTarget),
             Rejection::Claims(ClaimReject::SelfHostedRunner),
             Rejection::Claims(ClaimReject::MissingEnvironment),
@@ -205,6 +245,14 @@ mod tests {
             (Rejection::Envelope("wrong_audience"), 401, "wrong_audience"),
             (Rejection::Envelope("expired"), 401, "expired"),
             (Rejection::Envelope("replayed"), 401, "replayed"),
+            (Rejection::Envelope("unknown_issuer"), 401, "unknown_issuer"),
+            (
+                Rejection::Envelope("token_lifetime_too_long"),
+                401,
+                "token_lifetime_too_long",
+            ),
+            (Rejection::Envelope("jti_required"), 401, "jti_required"),
+            (Rejection::AmbiguousPolicy, 403, "ambiguous_policy"),
             (
                 Rejection::Claims(ClaimReject::PullRequestTarget),
                 403,
@@ -284,8 +332,11 @@ mod tests {
     #[test]
     fn the_audit_row_is_unchained_and_carries_the_reason_and_the_claims() {
         let claims = json!({ "repository": "acme/app", "jti": "j" });
-        let entry = Rejection::Claims(ClaimReject::NoMatchingPolicy)
-            .audit_entry(&HeaderMap::new(), Some(&claims));
+        let entry = Rejection::Claims(ClaimReject::NoMatchingPolicy).audit_entry(
+            ACTOR_GITHUB,
+            &HeaderMap::new(),
+            Some(&claims),
+        );
         assert_eq!(entry.action, REJECTED);
         assert_eq!(entry.org_id, None, "it matched no org: no chain to join");
         assert_eq!(entry.actor_user_id, None);
@@ -297,7 +348,8 @@ mod tests {
     #[test]
     fn a_token_that_did_not_verify_records_no_claims() {
         // Nothing in an unverified token is ours to repeat.
-        let entry = Rejection::Envelope("invalid_token").audit_entry(&HeaderMap::new(), None);
+        let entry =
+            Rejection::Envelope("invalid_token").audit_entry(ACTOR_GITHUB, &HeaderMap::new(), None);
         assert!(entry.metadata.get("claims").is_none());
     }
 }

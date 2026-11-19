@@ -126,7 +126,7 @@ function withGlobals(command: Command): Command {
       )
       .option(
         "--service-account <id>",
-        "in GitHub Actions: the ID of the service account to act as via OIDC"
+        "in GitHub Actions, or with OXY_OIDC_TOKEN_FILE: the ID of the service account to act as via trusted access"
       )
       .option("--org <slug>", "value for the {org} placeholder")
       .option("--workspace <id>", "value for the {workspace} placeholder")

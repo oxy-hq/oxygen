@@ -12,6 +12,13 @@
 //!   org ([`revoke_grant`]);
 //! - `/api/orgs/{org_id}/token-policy` — what the org asks of the tokens that
 //!   reach it ([`token_policy`]);
+//! - `/api/orgs/{org_id}/oidc-issuers` — the OIDC issuers whose tokens the
+//!   org trusts ([`oidc_issuers`]), and
+//!   `…/service-accounts/{sa_id}/oidc-issuer-trust-policies` (and the org-wide
+//!   `/api/orgs/{org_id}/oidc-issuer-trust-policies` list) — which of their
+//!   tokens, by claim conditions, may act as the account
+//!   ([`issuer_trust_policies`]). Managing either is managing service
+//!   accounts: the same door;
 //! - `/api/orgs/{org_id}/oxygen-access` — the platform actions the org's custom
 //!   apps ask for, and their approval ([`oxygen_access`]). Approving is creating a
 //!   principal (the app's service account), so it is the `ServiceAccountManage`
@@ -35,6 +42,8 @@ mod audit;
 pub(crate) mod dto;
 pub mod handlers;
 mod inventory;
+mod issuer_trust_policies;
+pub mod oidc_issuers;
 mod oxygen_access;
 pub mod repo_resolve;
 mod revoke_grant;

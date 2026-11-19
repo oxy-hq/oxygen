@@ -83,9 +83,11 @@ pub const DB_POOL_PROBE_FAILURE_REASONS: [&str; 3] = [
 /// Every reason a trusted-access exchange is refused with — the wire `code`
 /// of the refusal, plus `malformed_request` for a body that named no token.
 /// `service_account_required` is a run that named no account to act as.
+/// `unknown_issuer`, `token_lifetime_too_long`, `jti_required` and
+/// `ambiguous_policy` are a registered OIDC issuer's token's.
 /// The one label of `oxy_oidc_exchange_rejected_total`, and a closed set: the
 /// server's refusal enum maps onto exactly these, and a test there pins it.
-pub const OIDC_EXCHANGE_REJECT_REASONS: [&str; 10] = [
+pub const OIDC_EXCHANGE_REJECT_REASONS: [&str; 14] = [
     "malformed_request",
     "invalid_token",
     "wrong_audience",
@@ -96,6 +98,10 @@ pub const OIDC_EXCHANGE_REJECT_REASONS: [&str; 10] = [
     "missing_environment",
     "no_matching_policy",
     "service_account_required",
+    "unknown_issuer",
+    "token_lifetime_too_long",
+    "jti_required",
+    "ambiguous_policy",
 ];
 
 /// Give the synchronous counters an alert can be written against a sample at

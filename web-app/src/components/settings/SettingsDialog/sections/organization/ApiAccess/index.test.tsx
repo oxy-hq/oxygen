@@ -8,6 +8,8 @@ import useSettingsDialog from "@/stores/useSettingsDialog";
 import type { Grant, Token } from "@/types/apiToken";
 import type {
   InventoryToken,
+  IssuerTrustPolicy,
+  OidcIssuer,
   ServiceAccount,
   TokenPolicy,
   TrustPolicy
@@ -48,12 +50,16 @@ const queries: {
   policies: Query<TrustPolicy[]>;
   inventory: Query<InventoryToken[]>;
   policy: Query<TokenPolicy>;
+  issuers: Query<OidcIssuer[]>;
+  issuerPolicies: Query<IssuerTrustPolicy[]>;
 } = {
   accounts: pending(),
   tokens: pending(),
   policies: pending(),
   inventory: pending(),
-  policy: pending()
+  policy: pending(),
+  issuers: pending(),
+  issuerPolicies: pending()
 };
 const reads = { accounts: 0 };
 const calls = {
@@ -68,7 +74,12 @@ const calls = {
   updatePolicy: vi.fn(),
   deletePolicy: vi.fn(),
   revokeGrant: vi.fn(),
-  savePolicy: vi.fn()
+  savePolicy: vi.fn(),
+  createIssuer: vi.fn(),
+  deleteIssuer: vi.fn(),
+  createIssuerPolicy: vi.fn(),
+  updateIssuerPolicy: vi.fn(),
+  deleteIssuerPolicy: vi.fn()
 };
 const mutation = (fn: ReturnType<typeof vi.fn>) => ({ mutateAsync: fn, isPending: false });
 
@@ -93,7 +104,14 @@ vi.mock("@/hooks/api/orgApiAccess", () => ({
   useOrgTokens: () => queries.inventory,
   useRevokeOrgTokenGrant: () => mutation(calls.revokeGrant),
   useTokenPolicy: () => queries.policy,
-  useUpdateTokenPolicy: () => mutation(calls.savePolicy)
+  useUpdateTokenPolicy: () => mutation(calls.savePolicy),
+  useOidcIssuers: () => queries.issuers,
+  useCreateOidcIssuer: () => mutation(calls.createIssuer),
+  useDeleteOidcIssuer: () => mutation(calls.deleteIssuer),
+  useIssuerTrustPolicies: () => queries.issuerPolicies,
+  useCreateIssuerTrustPolicy: () => mutation(calls.createIssuerPolicy),
+  useUpdateIssuerTrustPolicy: () => mutation(calls.updateIssuerPolicy),
+  useDeleteIssuerTrustPolicy: () => mutation(calls.deleteIssuerPolicy)
 }));
 
 // Extend and Activity are the shared token components; their hooks are mocked the way the
@@ -206,6 +224,39 @@ const trustPolicy = (over: Partial<TrustPolicy> = {}): TrustPolicy => ({
   ...over
 });
 
+const ROLE = "arn:aws:iam::123456789012:role/ferret-task";
+
+const awsIssuer = (over: Partial<OidcIssuer> = {}): OidcIssuer => ({
+  id: "iss-1",
+  org_id: "org-1",
+  name: "oxy-management",
+  issuer: "https://abc123-def456.tokens.sts.global.api.aws",
+  key_source: "discovery",
+  discovery_url: null,
+  jwks_uri: "https://abc123-def456.tokens.sts.global.api.aws/.well-known/jwks.json",
+  inline_key_ids: [],
+  jti_single_use: true,
+  preset: "aws",
+  policy_count: 0,
+  created_by: null,
+  created_at: "2026-11-19T00:00:00Z",
+  ...over
+});
+
+const awsPolicy = (over: Partial<IssuerTrustPolicy> = {}): IssuerTrustPolicy => ({
+  id: "tp-1",
+  org_id: "org-1",
+  service_account: { id: "sa-1", name: "deployer" },
+  issuer: { id: "iss-1", name: "oxy-management", issuer: awsIssuer().issuer },
+  conditions: [{ claim: "sub", value: ROLE }],
+  grants: [grant()],
+  created_by: null,
+  created_at: "2026-11-19T00:00:00Z",
+  last_used_at: null,
+  disabled_at: null,
+  ...over
+});
+
 const inventoryToken = (over: Partial<InventoryToken> = {}): InventoryToken => ({
   ...token(),
   grants_here: [grant()],
@@ -247,6 +298,8 @@ beforeEach(() => {
   queries.policies = loaded([trustPolicy()]);
   queries.inventory = loaded([inventoryToken()]);
   queries.policy = loaded(OPEN_POLICY);
+  queries.issuers = loaded([awsIssuer()]);
+  queries.issuerPolicies = loaded([]);
   reads.accounts = 0;
 });
 
@@ -674,6 +727,127 @@ describe("adding a trusted-access policy", () => {
     expect(snippet).toHaveTextContent("OXY_SERVICE_ACCOUNT: sa-1 # acme/deployer");
     expect(snippet).toHaveTextContent("environment: production");
     expect(snippet).toHaveTextContent("id-token: write");
+  });
+});
+
+describe("trusted access from an OIDC issuer", () => {
+  it("adds a policy for an AWS role, then shows what the workload runs", async () => {
+    calls.createIssuerPolicy.mockResolvedValue(awsPolicy());
+    const user = show();
+    expect(screen.getByTestId("api-access-issuer-no-policies")).toBeInTheDocument();
+    await user.click(screen.getByTestId("api-access-trust-policy-create"));
+    // No single workspace on offer: the whole organization, or apps only.
+    expect(screen.queryByTestId("api-access-trust-access-workspaces")).not.toBeInTheDocument();
+    await user.type(screen.getByTestId("api-access-trust-role"), "ferret-task");
+    await user.click(screen.getByTestId("api-access-trust-submit"));
+    expect(calls.createIssuerPolicy).not.toHaveBeenCalled();
+    await user.clear(screen.getByTestId("api-access-trust-role"));
+    await user.type(screen.getByTestId("api-access-trust-role"), ROLE);
+    await user.click(screen.getByTestId("api-access-trust-submit"));
+    expect(calls.createIssuerPolicy).toHaveBeenCalledWith({
+      orgId: "org-1",
+      saId: "sa-1",
+      request: {
+        issuer_id: "iss-1",
+        conditions: [{ claim: "sub", value: ROLE }],
+        grants: [{ kind: "workspace", workspace_id: null, role_ceiling: "member" }]
+      }
+    });
+    // A policy alone does nothing: the workload's commands come next, naming the account by id.
+    const snippet = await screen.findByTestId("api-access-client-setup");
+    expect(snippet).toHaveTextContent("aws sts get-web-identity-token");
+    expect(snippet).toHaveTextContent("--signing-algorithm RS256");
+    expect(snippet).toHaveTextContent("OXY_SERVICE_ACCOUNT=sa-1");
+    expect(snippet).toHaveTextContent("acme/deployer");
+  });
+
+  it("asks STS for the deployment's audience, not an org subdomain's", async () => {
+    // On acme.<host> the browser's origin is the subdomain; the exchange takes only the
+    // audience of the deployment's own address, which the server injects as appBaseUrl.
+    window.__OXY_ORG__ = {
+      orgId: "org-1",
+      orgSlug: "acme",
+      subdomain: "acme",
+      appBaseUrl: "https://app.example.com"
+    };
+    try {
+      calls.createIssuerPolicy.mockResolvedValue(awsPolicy());
+      const user = show();
+      await user.click(screen.getByTestId("api-access-trust-policy-create"));
+      await user.type(screen.getByTestId("api-access-trust-role"), ROLE);
+      await user.click(screen.getByTestId("api-access-trust-submit"));
+      const snippet = await screen.findByTestId("api-access-client-setup");
+      expect(snippet).toHaveTextContent("--audience 'oxy:app.example.com'");
+      expect(snippet).toHaveTextContent("--target https://app.example.com");
+    } finally {
+      delete window.__OXY_ORG__;
+    }
+  });
+
+  it("takes claim conditions for a custom issuer, refusing a bare '*'", async () => {
+    queries.issuers = loaded([awsIssuer({ preset: "custom", name: "gitlab" })]);
+    calls.createIssuerPolicy.mockResolvedValue(
+      awsPolicy({ conditions: [{ claim: "sub", value: "project_path:acme/app:*" }] })
+    );
+    const user = show();
+    await user.click(screen.getByTestId("api-access-trust-policy-create"));
+    const value = screen.getByTestId("api-access-trust-condition-value");
+    await user.type(value, "*");
+    await user.click(screen.getByTestId("api-access-trust-submit"));
+    expect(calls.createIssuerPolicy).not.toHaveBeenCalled();
+    await user.clear(value);
+    await user.type(value, "project_path:acme/app:*");
+    await user.click(screen.getByTestId("api-access-trust-submit"));
+    expect(calls.createIssuerPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          conditions: [{ claim: "sub", value: "project_path:acme/app:*" }]
+        })
+      })
+    );
+    // No AWS role, so no workload commands.
+    expect(screen.queryByTestId("api-access-client-setup")).not.toBeInTheDocument();
+  });
+
+  it("lists each policy under its issuer, by the account and the role", async () => {
+    queries.issuerPolicies = loaded([awsPolicy()]);
+    show();
+    const row = screen.getByTestId("api-access-trust-policy-row");
+    expect(row).toHaveTextContent("deployer");
+    expect(row).toHaveTextContent(ROLE);
+  });
+
+  it("registers an AWS account's issuer", async () => {
+    queries.issuers = loaded([]);
+    calls.createIssuer.mockResolvedValue(awsIssuer());
+    const user = show();
+    await user.click(screen.getByTestId("api-access-issuer-create"));
+    await user.type(screen.getByTestId("api-access-issuer-name"), "oxy-management");
+    await user.type(screen.getByTestId("api-access-issuer-url"), "http://not-https.example");
+    await user.click(screen.getByTestId("api-access-issuer-submit"));
+    expect(calls.createIssuer).not.toHaveBeenCalled();
+    await user.clear(screen.getByTestId("api-access-issuer-url"));
+    await user.type(screen.getByTestId("api-access-issuer-url"), awsIssuer().issuer);
+    await user.click(screen.getByTestId("api-access-issuer-submit"));
+    expect(calls.createIssuer).toHaveBeenCalledWith({
+      orgId: "org-1",
+      request: {
+        name: "oxy-management",
+        issuer: awsIssuer().issuer,
+        key_source: "discovery",
+        jti_single_use: true,
+        preset: "aws"
+      }
+    });
+  });
+
+  it("says what removing an issuer ends", async () => {
+    queries.issuers = loaded([awsIssuer({ policy_count: 2 })]);
+    const user = show();
+    await user.click(screen.getByTestId("api-access-issuer-delete"));
+    expect(screen.getByTestId("api-access-issuer-delete-dialog")).toHaveTextContent(
+      /Its 2 trust policies are deleted with it, and every token they minted stops working now/
+    );
   });
 });
 

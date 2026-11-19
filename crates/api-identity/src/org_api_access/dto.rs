@@ -2,7 +2,8 @@
 //! Phase 3), mapped from stored rows with no database.
 
 use chrono::{DateTime, Utc};
-use entity::{oidc_trust_policies, service_accounts};
+use entity::{oidc_issuer_trust_policies, oidc_issuers, oidc_trust_policies, service_accounts};
+use oxy_auth::workload_identity::Condition;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -107,6 +108,127 @@ impl TrustPolicyDto {
 #[derive(Debug, Serialize)]
 pub struct TrustPolicyList {
     pub trust_policies: Vec<TrustPolicyDto>,
+}
+
+/// The wire shape of a registered token issuer.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OidcIssuerDto {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    /// The `iss` its tokens carry, without a trailing `/`.
+    pub issuer: String,
+    /// `discovery | jwks_uri | inline`.
+    pub key_source: String,
+    /// `discovery` only, when the document was not read from the issuer.
+    pub discovery_url: Option<String>,
+    /// Where its keys are read from (`discovery` and `jwks_uri`).
+    pub jwks_uri: Option<String>,
+    /// `inline` only: the `kid`s of the stored keys. Never the keys.
+    pub inline_key_ids: Vec<String>,
+    pub jti_single_use: bool,
+    /// Which settings-form preset filled it in. Display only.
+    pub preset: Option<String>,
+    /// Trust policies on it, across the org's accounts.
+    pub policy_count: u64,
+    pub created_by: Option<CreatorDto>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl OidcIssuerDto {
+    pub(super) fn of(
+        row: &oidc_issuers::Model,
+        inline_key_ids: Vec<String>,
+        policy_count: u64,
+        created_by: Option<CreatorDto>,
+    ) -> Self {
+        Self {
+            id: row.id,
+            org_id: row.org_id,
+            name: row.name.clone(),
+            issuer: row.issuer.clone(),
+            key_source: row.key_source.clone(),
+            discovery_url: row.discovery_url.clone(),
+            jwks_uri: row.jwks_uri.clone(),
+            inline_key_ids,
+            jti_single_use: row.jti_single_use,
+            preset: row.preset.clone(),
+            policy_count,
+            created_by,
+            created_at: row.created_at.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct OidcIssuerList {
+    pub issuers: Vec<OidcIssuerDto>,
+}
+
+/// The issuer a trust policy names, as the policy shows it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PolicyIssuerDto {
+    pub id: Uuid,
+    pub name: String,
+    pub issuer: String,
+}
+
+/// The account a trust policy acts as, as the policy shows it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PolicyAccountDto {
+    pub id: Uuid,
+    pub name: String,
+}
+
+/// The wire shape of an OIDC issuer trust policy.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct IssuerTrustPolicyDto {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub service_account: PolicyAccountDto,
+    pub issuer: PolicyIssuerDto,
+    /// What a token's claims must say, ordered by claim.
+    pub conditions: Vec<Condition>,
+    pub grants: Vec<GrantDto>,
+    pub created_by: Option<CreatorDto>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub disabled_at: Option<DateTime<Utc>>,
+}
+
+impl IssuerTrustPolicyDto {
+    pub(super) fn of(
+        row: &oidc_issuer_trust_policies::Model,
+        account: &service_accounts::Model,
+        issuer: &oidc_issuers::Model,
+        grants: Vec<GrantDto>,
+        created_by: Option<CreatorDto>,
+    ) -> Self {
+        Self {
+            id: row.id,
+            org_id: row.org_id,
+            service_account: PolicyAccountDto {
+                id: account.user_id,
+                name: account.name.clone(),
+            },
+            issuer: PolicyIssuerDto {
+                id: issuer.id,
+                name: issuer.name.clone(),
+                issuer: issuer.issuer.clone(),
+            },
+            conditions: oxy_auth::workload_identity::conditions::stored(&row.conditions),
+            grants,
+            created_by,
+            created_at: row.created_at.into(),
+            last_used_at: row.last_used_at.map(Into::into),
+            disabled_at: row.disabled_at.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct IssuerTrustPolicyList {
+    pub trust_policies: Vec<IssuerTrustPolicyDto>,
 }
 
 #[derive(Debug, Serialize)]

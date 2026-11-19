@@ -60,6 +60,11 @@ pub enum TokenError {
     /// 400 `environment_required` — a trust policy names no environment while
     /// the org requires one.
     EnvironmentRequired,
+    /// 409 `issuer_exists` — the org already registered this token issuer.
+    IssuerExists,
+    /// 422 `issuer_unusable` — an issuer whose discovery document or keys
+    /// could not be read, or do not describe it. The reason is the `error`.
+    IssuerUnusable(String),
     /// 400 `exceeds_policy` — the new expiry outlives the tightest lifetime cap
     /// among the orgs the token holds grants in. The body names the cap as
     /// `max_lifetime_days`.
@@ -240,6 +245,16 @@ impl TokenError {
                 StatusCode::BAD_REQUEST,
                 "a trust policy must name the deployment 'environment' its workflow runs in".into(),
                 Some("environment_required"),
+            ),
+            Self::IssuerExists => (
+                StatusCode::CONFLICT,
+                "the organization has already registered this issuer".into(),
+                Some("issuer_exists"),
+            ),
+            Self::IssuerUnusable(message) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                message.clone(),
+                Some("issuer_unusable"),
             ),
             Self::ExceedsPolicy { max_lifetime_days } => (
                 StatusCode::BAD_REQUEST,

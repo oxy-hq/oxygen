@@ -84,6 +84,78 @@ export interface UpdateTrustPolicyRequest {
   disabled?: boolean;
 }
 
+/** Where a registered issuer's signing keys come from. */
+export type IssuerKeySource = "discovery" | "jwks_uri" | "inline";
+
+/** An OIDC issuer whose tokens the org trusts. */
+export interface OidcIssuer {
+  id: string;
+  org_id: string;
+  name: string;
+  /** The `iss` its tokens carry, without a trailing `/`. */
+  issuer: string;
+  key_source: IssuerKeySource;
+  /** `discovery` only, when the document was not read from the issuer. */
+  discovery_url: string | null;
+  /** Where its keys are read from (`discovery` and `jwks_uri`). */
+  jwks_uri: string | null;
+  /** `inline` only: the `kid`s of the stored keys. */
+  inline_key_ids: string[];
+  /** Each token's `jti` may be exchanged once only. */
+  jti_single_use: boolean;
+  /** Which settings-form preset filled it in. Display only. */
+  preset: string | null;
+  /** Trust policies on it, across the org's service accounts. */
+  policy_count: number;
+  created_by: { id: string; label: string } | null;
+  created_at: string;
+}
+
+export interface CreateOidcIssuerRequest {
+  name: string;
+  issuer: string;
+  key_source: IssuerKeySource;
+  discovery_url?: string;
+  jwks_uri?: string;
+  /** A JSON Web Key Set, public keys only. */
+  jwks?: unknown;
+  jti_single_use: boolean;
+  preset: string;
+}
+
+/** A top-level claim of the token, and the value it must have: exact, or a prefix ending in one `*`. */
+export interface ClaimCondition {
+  claim: string;
+  value: string;
+}
+
+/** Trusted access from a registered issuer: tokens whose claims meet the conditions act as the account. */
+export interface IssuerTrustPolicy {
+  id: string;
+  org_id: string;
+  service_account: { id: string; name: string };
+  issuer: { id: string; name: string; issuer: string };
+  /** Ordered by claim. */
+  conditions: ClaimCondition[];
+  grants: Grant[];
+  created_by: { id: string; label: string } | null;
+  created_at: string;
+  last_used_at: string | null;
+  disabled_at: string | null;
+}
+
+export interface CreateIssuerTrustPolicyRequest {
+  issuer_id: string;
+  conditions: ClaimCondition[];
+  grants: GrantInput[];
+}
+
+/** The issuer and conditions are fixed; a policy for other tokens is another policy. */
+export interface UpdateIssuerTrustPolicyRequest {
+  grants?: GrantInput[];
+  disabled?: boolean;
+}
+
 /** A row of the org inventory: a token, plus what it reaches *in this org*. */
 export interface InventoryToken extends Token {
   grants_here: Grant[];

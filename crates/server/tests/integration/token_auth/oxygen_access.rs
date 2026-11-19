@@ -259,6 +259,23 @@ async fn no_token_or_trust_policy_is_ever_made_for_the_apps_account() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     assert_eq!(body["code"], "app_account");
+
+    // Nor through an OIDC issuer trust policy, for the same reason: its
+    // tokens would carry the same standing.
+    super::oidc_issuer_access::trust_issuers();
+    let issuer = super::oidc_issuer_access::the_issuer(&fx).await;
+    let (status, body) = in_session(
+        &fx.cookie,
+        "POST",
+        &super::oidc_issuer_access::policies_uri(fx.org_id, account.user_id),
+        Some(super::oidc_issuer_access::policy_body(
+            issuer,
+            json!([super::oidc::whole_org("admin")]),
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "app_account");
 }
 
 #[tokio::test]

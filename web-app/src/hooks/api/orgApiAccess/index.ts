@@ -1,4 +1,5 @@
 export * from "./tokenEndpoints";
+export * from "./useOidcIssuerTrust";
 export * from "./useOrgTokens";
 export * from "./useServiceAccounts";
 export * from "./useServiceAccountTokens";

@@ -20,7 +20,7 @@
 import type { PlaceholderValues } from "../api/paths.js";
 import { noteVariableCredential } from "../auth/agent-token.js";
 import { loadCredential } from "../auth/credentials.js";
-import { exchangeOidcOnce, githubOidcAvailable, OidcExchangeError } from "../auth/oidc.js";
+import { exchangeOidcOnce, OidcExchangeError, oidcAvailable } from "../auth/oidc.js";
 import { dossierPath, isCloned, slugForDirectory } from "../customer/dossier.js";
 import { type Customer, customersOrg, resolveCustomer } from "../github/customers.js";
 import * as log from "../ui/log.js";
@@ -49,7 +49,10 @@ export interface GlobalFlags {
   project?: string;
   customer?: string;
   refresh?: boolean;
-  /** `--service-account <id>`: which account a GitHub OIDC exchange acts as, by its ID. */
+  /**
+   * `--service-account <id>`: which account a trusted-access exchange (GitHub
+   * Actions, or a registered issuer's token in OXY_OIDC_TOKEN_FILE) acts as, by its ID.
+   */
   serviceAccount?: string;
 }
 
@@ -285,7 +288,7 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
     const have = stored();
     if (have) return have;
     // No exchange either: a named variable is the only source, not the first.
-    if (!envOnly(flags) && githubOidcAvailable()) return minted();
+    if (!envOnly(flags) && oidcAvailable()) return minted();
     throw notAuthenticated(env().target, flags);
   };
 
@@ -306,7 +309,7 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
       if (envOnly(flags)) return undefined;
       // No account named: no exchange to attempt, so no bearer — silently, as
       // in any job that never had `id-token: write`.
-      if (!githubOidcAvailable() || !serviceAccount()) return undefined;
+      if (!oidcAvailable() || !serviceAccount()) return undefined;
       try {
         return (await minted()).token;
       } catch (cause) {
@@ -316,7 +319,7 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
         // line, or the "not authenticated" that follows explains nothing.
         if (cause.oidcCode !== "unsupported") {
           once("oidc-warned", () => {
-            log.warn(`GitHub OIDC is available, but the exchange was refused: ${cause.message}`);
+            log.warn(`Trusted access is available, but the exchange was refused: ${cause.message}`);
             if (cause.hint) for (const line of cause.hint.split("\n")) log.hint(line);
           });
         }

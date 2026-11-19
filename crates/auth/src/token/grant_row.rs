@@ -1,14 +1,15 @@
 //! A grant as the row that stores it.
 //!
 //! A token's grants live in `api_token_grants` and a trust policy's in
-//! `oidc_trust_policy_grants`. The two tables say what is granted in the same
+//! `oidc_trust_policy_grants` (an OIDC issuer trust policy's in
+//! `oidc_issuer_trust_policy_grants`). The tables say what is granted in the same
 //! five columns and differ only in the parent a row hangs off (a token's grant
 //! can also be revoked). [`GrantRow`] is that shared part, read from a grant in
 //! one place, so the three writers — a personal token, a `ci` token and a trust
 //! policy — cannot come to store the same grant differently.
 
 use chrono::{DateTime, FixedOffset};
-use entity::{api_token_grants, oidc_trust_policy_grants};
+use entity::{api_token_grants, oidc_issuer_trust_policy_grants, oidc_trust_policy_grants};
 use sea_orm::Set;
 use uuid::Uuid;
 
@@ -99,6 +100,24 @@ impl GrantRow {
         created_at: DateTime<FixedOffset>,
     ) -> oidc_trust_policy_grants::ActiveModel {
         oidc_trust_policy_grants::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            policy_id: Set(policy_id),
+            kind: Set(self.kind.to_string()),
+            org_id: Set(self.org_id),
+            workspace_id: Set(self.workspace_id),
+            role_ceiling: Set(self.role_ceiling),
+            app_id: Set(self.app_id),
+            created_at: Set(created_at),
+        }
+    }
+
+    /// The row under an OIDC issuer trust policy.
+    pub(super) fn for_issuer_policy(
+        self,
+        policy_id: Uuid,
+        created_at: DateTime<FixedOffset>,
+    ) -> oidc_issuer_trust_policy_grants::ActiveModel {
+        oidc_issuer_trust_policy_grants::ActiveModel {
             id: Set(Uuid::new_v4()),
             policy_id: Set(policy_id),
             kind: Set(self.kind.to_string()),

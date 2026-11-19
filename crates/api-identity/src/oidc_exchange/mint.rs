@@ -18,21 +18,22 @@ use oxy_auth::token::ci_mint::{self, PolicyMint};
 use oxy_auth::token::trust_policy::Candidate;
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use super::Failure;
 use super::reject::Rejection;
 use crate::user_tokens::audit::Event;
 
-const EXCHANGED: &str = "oidc.token_exchanged";
+pub(super) const EXCHANGED: &str = "oidc.token_exchanged";
 
 /// The account's `users` row as the audit actor: the token acts as it, and the
 /// exchange is the account's own act.
-async fn actor_of(
+pub(super) async fn actor_of(
     db: &DatabaseConnection,
-    candidate: &Candidate,
+    account_id: Uuid,
     headers: &HeaderMap,
 ) -> Result<Option<RequestActor>, Failure> {
-    let user = Users::find_by_id(candidate.account.user_id)
+    let user = Users::find_by_id(account_id)
         .one(db)
         .await?
         .filter(|u| u.status == UserStatus::Active);
@@ -60,7 +61,7 @@ pub(super) async fn mint(
     let refuse = |reject| Failure::Refused(Rejection::Claims(reject), Some(claims.recorded()));
     // An account with no usable `users` row mints nothing — as it
     // authenticates nothing.
-    let actor = actor_of(db, chosen, headers)
+    let actor = actor_of(db, chosen.account.user_id, headers)
         .await?
         .ok_or_else(|| refuse(ClaimReject::NoMatchingPolicy))?;
 

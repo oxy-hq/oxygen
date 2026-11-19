@@ -80,6 +80,15 @@ pub(crate) async fn grant_dtos<C: ConnectionTrait>(
     policy_ids: &[Uuid],
 ) -> Result<HashMap<Uuid, Vec<GrantDto>>, TokenError> {
     let rows = trust_policy::grants_for(db, policy_ids).await?;
+    grant_dtos_of(db, &rows).await
+}
+
+/// `rows` as DTOs, by policy — a GitHub policy's grants, or an OIDC issuer
+/// policy's in the same shape.
+pub(super) async fn grant_dtos_of<C: ConnectionTrait>(
+    db: &C,
+    rows: &[GrantRow],
+) -> Result<HashMap<Uuid, Vec<GrantDto>>, TokenError> {
     let shaped: Vec<api_token_grants::Model> = rows.iter().map(as_token_grant).collect();
     let names = view::names_for(db, &shaped).await?;
     let mut out: HashMap<Uuid, Vec<GrantDto>> = HashMap::new();
@@ -145,7 +154,7 @@ pub(crate) async fn list(
     dtos(db, &rows).await
 }
 
-fn role_of(account: &service_accounts::Model) -> Result<AccountRole, TokenError> {
+pub(super) fn role_of(account: &service_accounts::Model) -> Result<AccountRole, TokenError> {
     service_account::role_of(account)
         .ok_or_else(|| TokenError::Internal("service account has an unknown org_role".into()))
 }
@@ -180,7 +189,7 @@ async fn check_apps<C: ConnectionTrait>(
 }
 
 /// Every workspace and app the grants name exists in the org.
-async fn check_targets(
+pub(super) async fn check_targets(
     db: &DatabaseConnection,
     org_id: Uuid,
     grants: &[PolicyGrant],
@@ -214,7 +223,7 @@ async fn repository_of(
 
 /// The grant set, in an order that depends on what it grants and not on row
 /// ids — so replacing a set with an equal one reads as no change.
-fn grants_summary(grants: &[GrantRow]) -> Value {
+pub(super) fn grants_summary(grants: &[GrantRow]) -> Value {
     let mut summary: Vec<Value> = grants
         .iter()
         .map(|g| {
@@ -264,7 +273,7 @@ fn entry(
         .metadata(detail)
 }
 
-fn invalidate(tokens: &[api_tokens::Model]) {
+pub(super) fn invalidate(tokens: &[api_tokens::Model]) {
     for token in tokens {
         oxy_auth::token::cache::invalidate_token(token.id);
     }

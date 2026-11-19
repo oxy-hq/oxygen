@@ -14,7 +14,7 @@ use entity::{service_accounts, users};
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::token::account_access::{CreateAccountBody, PatchAccountBody};
 use oxy_auth::token::service_account::{self, CreateError};
-use oxy_auth::token::trust_policy;
+use oxy_auth::token::{issuer_trust_policy, trust_policy};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -89,7 +89,10 @@ pub(super) async fn dtos<C: ConnectionTrait>(
     let creators = creators(db, rows).await?;
     let ids: Vec<Uuid> = rows.iter().map(|r| r.user_id).collect();
     let counts = service_account::token_counts(db, &ids).await?;
-    let policies = trust_policy::counts(db, &ids).await?;
+    let mut policies = trust_policy::counts(db, &ids).await?;
+    for (account, count) in issuer_trust_policy::counts(db, &ids).await? {
+        *policies.entry(account).or_default() += count;
+    }
     Ok(rows
         .iter()
         .map(|row| {

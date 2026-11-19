@@ -1,4 +1,4 @@
-// `is_safe_outbound` and `is_public_ip` from `host.rs`, in TypeScript: the
+// `is_safe_outbound` and `is_public_ip` from the server, in TypeScript: the
 // first-layer check every `ctx.fetch` URL meets before anything is sent. The
 // names and suffixes come from `FETCH_RULES` in the contract, which the Rust
 // drift test holds to the host; the IP arithmetic below follows the Rust

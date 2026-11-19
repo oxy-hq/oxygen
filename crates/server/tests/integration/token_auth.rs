@@ -37,6 +37,7 @@ mod monitoring_contract;
 mod new_tokens;
 mod notification_sessions;
 mod oidc;
+mod oidc_issuer_access;
 mod org_inventory;
 mod oxygen_access;
 mod partner_promote;

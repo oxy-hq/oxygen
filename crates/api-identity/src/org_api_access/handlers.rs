@@ -18,19 +18,22 @@ use oxy_auth::extractor::SessionOnly;
 use oxy_auth::token::account_access::{
     CreateAccountBody, CreateAccountTokenBody, PatchAccountBody,
 };
+use oxy_auth::token::issuer_trust_policy_access::{CreateIssuerPolicyBody, PatchIssuerPolicyBody};
 use oxy_auth::token::trust_policy_access::{CreatePolicyBody, PatchPolicyBody};
 use uuid::Uuid;
 
 use super::dto::{
-    OrgTokenList, ServiceAccountDto, ServiceAccountList, TrustPolicyDto, TrustPolicyList,
+    IssuerTrustPolicyDto, IssuerTrustPolicyList, OidcIssuerDto, OidcIssuerList, OrgTokenList,
+    ServiceAccountDto, ServiceAccountList, TrustPolicyDto, TrustPolicyList,
 };
 use super::inventory::InventoryQuery;
+use super::oidc_issuers::{self, CreateIssuerBody};
 use super::oxygen_access::{AppAccessDto, AppAccessList, ApproveBody};
 use super::token_policy::{self, TokenPolicyDto};
 use super::{
     ManageApiAccess, ManagesServiceAccounts, ManagesTokenPolicy, RevokesTokenGrants,
-    ViewsTokenInventory, account_tokens, accounts, inventory, oxygen_access, revoke_grant,
-    trust_policies,
+    ViewsTokenInventory, account_tokens, accounts, inventory, issuer_trust_policies, oxygen_access,
+    revoke_grant, trust_policies,
 };
 use crate::token_activity::{ActivityQuery, ActivityResponse, page_size};
 use crate::user_tokens::dto::TokenDto;
@@ -292,6 +295,114 @@ pub async fn delete_trust_policy(
     let db = establish_connection().await?;
     let account = accounts::find(&db, ctx.org.id, sa_id).await?;
     trust_policies::delete(&db, &actor, &account, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── OIDC issuers and their trust policies ───────────────────────────────────
+//
+// The same door as an account's GitHub trust policies
+// (`service_account_manage`), and every mutation session-only: an issuer is
+// what those policies trust, and registering one is part of managing them.
+
+/// List the OIDC issuers whose tokens the organization trusts
+pub async fn list_oidc_issuers(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+) -> Result<Json<OidcIssuerList>, TokenError> {
+    let db = establish_connection().await?;
+    let issuers = oidc_issuers::list(&db, ctx.org.id).await?;
+    Ok(Json(OidcIssuerList { issuers }))
+}
+
+/// Register an OIDC issuer, and where its signing keys come from
+pub async fn create_oidc_issuer(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    body: Bytes,
+) -> Result<(StatusCode, Json<OidcIssuerDto>), TokenError> {
+    let body: CreateIssuerBody = parse(&body)?;
+    let db = establish_connection().await?;
+    let issuer = oidc_issuers::create(&db, &actor, ctx.org.id, body).await?;
+    Ok((StatusCode::CREATED, Json(issuer)))
+}
+
+/// Delete a registered issuer, its trust policies, and the tokens they minted
+pub async fn delete_oidc_issuer(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, id)): Path<(Uuid, String)>,
+) -> Result<StatusCode, TokenError> {
+    let id = token_id(&id)?;
+    let db = establish_connection().await?;
+    oidc_issuers::delete(&db, &actor, ctx.org.id, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// List every OIDC issuer trust policy in the organization, across its service accounts
+pub async fn list_org_issuer_policies(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+) -> Result<Json<IssuerTrustPolicyList>, TokenError> {
+    let db = establish_connection().await?;
+    let trust_policies = issuer_trust_policies::list_org(&db, ctx.org.id).await?;
+    Ok(Json(IssuerTrustPolicyList { trust_policies }))
+}
+
+/// List a service account's OIDC issuer trust policies
+pub async fn list_issuer_policies(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    Path((_org_id, sa_id)): Path<(Uuid, String)>,
+) -> Result<Json<IssuerTrustPolicyList>, TokenError> {
+    let sa_id = token_id(&sa_id)?;
+    let db = establish_connection().await?;
+    let account = accounts::find(&db, ctx.org.id, sa_id).await?;
+    let trust_policies = issuer_trust_policies::list(&db, &account).await?;
+    Ok(Json(IssuerTrustPolicyList { trust_policies }))
+}
+
+/// Register an OIDC issuer trust policy: which tokens, by their claims, may act as the account
+pub async fn create_issuer_policy(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, sa_id)): Path<(Uuid, String)>,
+    body: Bytes,
+) -> Result<(StatusCode, Json<IssuerTrustPolicyDto>), TokenError> {
+    let sa_id = token_id(&sa_id)?;
+    let body: CreateIssuerPolicyBody = parse(&body)?;
+    let db = establish_connection().await?;
+    let account = accounts::find(&db, ctx.org.id, sa_id).await?;
+    let policy = issuer_trust_policies::create(&db, &actor, &account, body).await?;
+    Ok((StatusCode::CREATED, Json(policy)))
+}
+
+/// Edit an OIDC issuer trust policy's grants, or disable it
+pub async fn update_issuer_policy(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, sa_id, id)): Path<(Uuid, String, String)>,
+    body: Bytes,
+) -> Result<Json<IssuerTrustPolicyDto>, TokenError> {
+    let (sa_id, id) = (token_id(&sa_id)?, token_id(&id)?);
+    let body: PatchIssuerPolicyBody = parse(&body)?;
+    let db = establish_connection().await?;
+    let account = accounts::find(&db, ctx.org.id, sa_id).await?;
+    let policy = issuer_trust_policies::patch(&db, &actor, &account, id, body).await?;
+    Ok(Json(policy))
+}
+
+/// Delete an OIDC issuer trust policy, ending the tokens it minted
+pub async fn delete_issuer_policy(
+    OrgAdminFor(ctx, _): ManagesServiceAccounts,
+    _: Session,
+    actor: RequestActor,
+    Path((_org_id, sa_id, id)): Path<(Uuid, String, String)>,
+) -> Result<StatusCode, TokenError> {
+    let (sa_id, id) = (token_id(&sa_id)?, token_id(&id)?);
+    let db = establish_connection().await?;
+    let account = accounts::find(&db, ctx.org.id, sa_id).await?;
+    issuer_trust_policies::delete(&db, &actor, &account, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

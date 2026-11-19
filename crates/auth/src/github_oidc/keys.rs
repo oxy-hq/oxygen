@@ -88,7 +88,7 @@ impl JwksCache {
         if self.claim_refresh().await {
             match (self.fetch)().await {
                 Ok(keys) => self.state.write().await.keys = Some(keys),
-                Err(()) => tracing::warn!("github oidc: the JWKS refresh failed"),
+                Err(()) => tracing::warn!("oidc: a JWKS refresh failed"),
             }
         }
         match self.lookup(kid).await {

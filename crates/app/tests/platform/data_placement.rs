@@ -574,6 +574,18 @@ const TABLES: &[(&str, Placement)] = &[
         },
     ),
     (
+        "oidc_issuer_trust_policies",
+        Control("which tokens of a registered OIDC issuer may act as an Oxygen service account"),
+    ),
+    (
+        "oidc_issuer_trust_policy_grants",
+        Control("what a token matching an OIDC issuer trust policy is granted"),
+    ),
+    (
+        "oidc_issuers",
+        Control("the OIDC token issuers an org trusts, and where their keys come from"),
+    ),
+    (
         "oidc_trust_policies",
         Control("which GitHub Actions runs may act as a service account"),
     ),

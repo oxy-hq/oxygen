@@ -478,7 +478,7 @@ export const ABSENT_GLOBALS = [
 ] as const;
 
 /**
- * `is_safe_outbound` in `host.rs`, the first-layer check every `ctx.fetch`
+ * `is_safe_outbound` on the server, the first-layer check every `ctx.fetch`
  * URL meets before anything is sent: the scheme, the host names refused by
  * name, and the suffixes an internal name ends with. The IP rules (loopback,
  * unspecified, private, link-local, broadcast, documentation, v4-mapped and

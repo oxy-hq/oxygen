@@ -21,6 +21,17 @@
  * naming THEIR account. An id never changes hands. oxyc passes the value
  * through untouched; the deployment refuses anything that is not an id.
  *
+ * A SERVICE ON ANOTHER PLATFORM trades its own identity token the same way.
+ * When `OXY_OIDC_TOKEN_FILE` names a file holding a token from an OIDC issuer
+ * the org registered — the JWT STS signs for an AWS workload's role, say,
+ * requested for this deployment's audience — that file is read in place of
+ * asking GitHub, and posted to the same exchange with the same account id.
+ * The deployment verifies it against the registered issuer and matches its
+ * claims against the account's trust policies on that issuer. The file is
+ * read again on each exchange, so whatever writes it (the workload asking STS
+ * for a fresh token, a platform rotating it) decides which token goes; an
+ * issuer registered as single use refuses the same token twice.
+ *
  * This is the third and last credential source, after `OXY_TOKEN` and the
  * login cache (`context/resolve.ts`). `oxyc publish` had its own, app-scoped
  * version of this first (`publish/server.ts`, audience `oxy-publish`); that
@@ -28,6 +39,7 @@
  * app that has only the older registration.
  */
 
+import { readFile } from "node:fs/promises";
 import { withUserAgent } from "../api/user-agent.js";
 import { CliError, ExitCode, type ExitCodeValue, exitCodeForStatus } from "../util/errors.js";
 import { revokeOnExit } from "./exit-revoke.js";
@@ -93,6 +105,49 @@ export function githubOidcAvailable(env: NodeJS.ProcessEnv = process.env): boole
   return Boolean(env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
 }
 
+/** The variable that names a file holding an identity token from a registered OIDC issuer. */
+export const OIDC_TOKEN_FILE_ENV = "OXY_OIDC_TOKEN_FILE";
+
+/** The token file, when this process was given one. */
+export function oidcTokenFile(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env[OIDC_TOKEN_FILE_ENV]?.trim() || undefined;
+}
+
+/**
+ * Whether this process can trade an identity for an Oxy token at all: a token
+ * file, or a GitHub Actions job that may mint one.
+ */
+export function oidcAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
+  return oidcTokenFile(env) !== undefined || githubOidcAvailable(env);
+}
+
+/** Where an org admin registers an issuer, and adds its trust policies. */
+const WHERE_ISSUERS_ARE =
+  "Settings → Organization → API tokens → Service accounts → Trusted access";
+
+/**
+ * The token in the file, read now. Read on every exchange, never kept: what
+ * writes the file decides which token goes next.
+ */
+export async function readOidcTokenFile(path: string): Promise<string> {
+  const unreadable = (detail: string) =>
+    new OidcExchangeError(`could not read the identity token at ${path}`, {
+      status: 0,
+      oidcCode: "token_file",
+      code: ExitCode.AUTH,
+      detail,
+      hint: `write a token from the registered issuer, requested for this deployment's audience (oxy:<host>), to that file and point ${OIDC_TOKEN_FILE_ENV} at it. On AWS: aws sts get-web-identity-token --audience oxy:<host> --signing-algorithm RS256. The commands for a policy are on it, under ${WHERE_ISSUERS_ARE}.`
+    });
+  let value: string;
+  try {
+    value = (await readFile(path, "utf8")).trim();
+  } catch (cause) {
+    throw unreadable((cause as Error).message);
+  }
+  if (!value) throw unreadable("the file is empty");
+  return value;
+}
+
 export type OidcErrorCode =
   // 401 — the token itself was not acceptable.
   | "invalid_token"
@@ -104,6 +159,13 @@ export type OidcErrorCode =
   | "self_hosted_runner"
   | "missing_environment"
   | "no_matching_policy"
+  // A registered issuer's token only.
+  | "unknown_issuer"
+  | "token_lifetime_too_long"
+  | "jti_required"
+  | "ambiguous_policy"
+  /** The token file could not be read. Ours, not the server's. */
+  | "token_file"
   /**
    * 400 — the request carried no service account ID. From oxyc that means the
    * value it was given is not one: `acme/deployer`, say, instead of the id.
@@ -180,13 +242,19 @@ const NAME_THE_ACCOUNT = `set OXY_SERVICE_ACCOUNT to the service account's ID (o
  * A job that could mint a GitHub OIDC token and names no account to trade it
  * for. Raised BEFORE any request: nothing is minted, nothing is spent.
  */
-export function noServiceAccount(target: string): OidcExchangeError {
+export function noServiceAccount(
+  target: string,
+  env: NodeJS.ProcessEnv = process.env
+): OidcExchangeError {
+  const has = oidcTokenFile(env)
+    ? `this process has an identity token file (${OIDC_TOKEN_FILE_ENV})`
+    : "this job can mint a GitHub OIDC token";
   return new OidcExchangeError(`not authenticated for ${target}`, {
     status: 0,
     oidcCode: "no_service_account",
     code: ExitCode.AUTH,
     detail:
-      "this job can mint a GitHub OIDC token, but names no service account to act as —\n" +
+      `${has}, but names no service account to act as —\n` +
       "the deployment never picks one on a run's behalf.",
     hint: `${NAME_THE_ACCOUNT}\nOr set OXY_TOKEN from a secret.`
   });
@@ -275,7 +343,11 @@ const KNOWN_CODES: ReadonlySet<string> = new Set([
   "missing_environment",
   "no_matching_policy",
   "service_account_required",
-  "rate_limited"
+  "rate_limited",
+  "unknown_issuer",
+  "token_lifetime_too_long",
+  "jti_required",
+  "ambiguous_policy"
 ]);
 
 /** The one refusal with no `code`: the server could not use the body at all. */
@@ -328,6 +400,95 @@ function wrongAudience(
 }
 
 /**
+ * A refusal of a registered issuer's token, in words about that token and
+ * its issuer. `undefined` for a code whose GitHub wording already fits.
+ */
+function issuerRefusal(
+  base: { status: number; oidcCode: OidcErrorCode; code: ExitCodeValue },
+  serverSaid: string | undefined,
+  theirs: unknown,
+  target: string
+): OidcExchangeError | undefined {
+  const detail = serverSaid;
+  switch (base.oidcCode) {
+    case "invalid_token":
+      return new OidcExchangeError("the deployment rejected the identity token", {
+        ...base,
+        detail,
+        hint: `its signature did not verify against the keys of the issuer registered for its 'iss', or it is not an RS256 JWT (on AWS, request --signing-algorithm RS256). Check the issuer under ${WHERE_ISSUERS_ARE}.`
+      });
+    case "wrong_audience": {
+      const audience =
+        typeof theirs === "string" && theirs.startsWith("oxy:") ? theirs : oidcAudience(target);
+      return new OidcExchangeError(
+        "the identity token was requested for another audience than this deployment's",
+        {
+          ...base,
+          detail,
+          hint:
+            theirs === "oxy"
+              ? `${target} has no public URL configured (OXY_API_URL), so it accepts no identity token. Set OXY_TOKEN from a secret, or have the deployment's operator set OXY_API_URL.`
+              : `request the token for the audience ${audience}, alone, and point oxyc at that host.`
+        }
+      );
+    }
+    case "expired":
+      return new OidcExchangeError("the identity token has expired", {
+        ...base,
+        detail,
+        hint: "write a fresh token to the file before each run: a token is good for minutes."
+      });
+    case "replayed":
+      return new OidcExchangeError("the identity token has already been exchanged", {
+        ...base,
+        detail,
+        hint: "its issuer is registered as single use: write a new token to the file for each exchange (on AWS, call get-web-identity-token again)."
+      });
+    case "unknown_issuer":
+      return new OidcExchangeError(
+        "the token's issuer is not registered in the service account's organization",
+        {
+          ...base,
+          detail,
+          hint: `an org admin registers the issuer under ${WHERE_ISSUERS_ARE}. Check too that OXY_SERVICE_ACCOUNT names an account of that organization.`
+        }
+      );
+    case "token_lifetime_too_long":
+      return new OidcExchangeError("the identity token was issued to live more than an hour", {
+        ...base,
+        detail,
+        hint: "request a shorter one: at most 3600 seconds (on AWS, --duration-seconds 300)."
+      });
+    case "jti_required":
+      return new OidcExchangeError("the identity token carries no 'jti'", {
+        ...base,
+        detail,
+        hint: `its issuer is registered as single use, which spends each token's 'jti'. An org admin registers it again with single use off if its tokens have none (${WHERE_ISSUERS_ARE}).`
+      });
+    case "no_matching_policy":
+      return new OidcExchangeError(
+        "no trust policy of the named service account matches this token",
+        {
+          ...base,
+          detail,
+          hint: `a policy names its issuer and the claims a token must have (on AWS, the role's ARN as 'sub'). Check the token's claims, and that OXY_SERVICE_ACCOUNT names the account the policy is on (${WHERE_ISSUERS_ARE}).`
+        }
+      );
+    case "ambiguous_policy":
+      return new OidcExchangeError(
+        "more than one trust policy of the named service account matches this token",
+        {
+          ...base,
+          detail,
+          hint: `the exchange never picks between policies or merges their grants. An org admin narrows or disables one, so exactly one matches (${WHERE_ISSUERS_ARE}).`
+        }
+      );
+    default:
+      return undefined;
+  }
+}
+
+/**
  * One refused exchange, as an error a person can act on.
  *
  * The server's `code` decides the wording — its `error` string is kept as
@@ -357,6 +518,11 @@ export function exchangeError(
     body?.code && KNOWN_CODES.has(body.code) ? (body.code as OidcErrorCode) : "unknown";
   const code = exitCodeForStatus(status);
   const base = { status, oidcCode, code };
+
+  if (oidcTokenFile(env)) {
+    const refused = issuerRefusal(base, serverSaid, body?.audience, target);
+    if (refused) return refused;
+  }
 
   switch (oidcCode) {
     case "invalid_token":
@@ -448,14 +614,20 @@ interface ExchangeResponse {
   grants?: Grant[];
 }
 
-/** One attempt: a fresh id token for `audience`, posted to the exchange. */
+/**
+ * One attempt: a fresh id token for `audience` — from GitHub, or the token
+ * file read again — posted to the exchange.
+ */
 async function attempt(
   url: string,
   env: NodeJS.ProcessEnv,
   serviceAccount: string,
   audience: string
 ) {
-  const idToken = await requestGithubIdToken(audience, env);
+  const tokenFile = oidcTokenFile(env);
+  const idToken = tokenFile
+    ? await readOidcTokenFile(tokenFile)
+    : await requestGithubIdToken(audience, env);
   return send(url, {
     method: "POST",
     // The exchange is a request to the deployment like any other, so it says
@@ -493,7 +665,7 @@ export async function exchangeOidc(
 ): Promise<OidcCredential> {
   const env = opts.env ?? process.env;
   const serviceAccount = opts.serviceAccount?.trim();
-  if (!serviceAccount) throw noServiceAccount(target);
+  if (!serviceAccount) throw noServiceAccount(target, env);
   // From the URL the token is about to be posted to — no request, and
   // nothing the deployment says can change it.
   const audience = oidcAudience(target);

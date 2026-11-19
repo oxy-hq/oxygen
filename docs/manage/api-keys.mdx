@@ -23,6 +23,7 @@ opens with the same guide as this table.
 | **Personal access token** (`oxy_pat_…`) | you | `oxyc`, a script on your machine, anything that should act as you |
 | **Service account token** (`oxy_sat_…`) | your organization | an integration or a scheduled job that should outlive whoever set it up |
 | **Trusted access** | nothing — nothing is stored | GitHub Actions: the job trades its own identity for a 15-minute token |
+| **Trusted access from an OIDC issuer** | nothing — nothing is stored | a service on another platform, such as AWS: it trades the token its platform signs for it for a 15-minute token |
 
 A personal token carries your reach, so it stops working when you do. An
 integration that several people depend on belongs to a service account, which an
@@ -35,6 +36,16 @@ service account → **Trusted access** gives you the workflow block to paste.
 If the caller is one of your custom apps, its token lives in one of the app's
 secrets. Create it there, without copying anything: see
 [A token for a custom app](#a-token-for-a-custom-app).
+
+If it runs on a platform that signs identity tokens for its workloads, such as
+AWS (ECS, Lambda, EC2) through IAM outbound identity federation, register that
+issuer under Settings → Organization → **API tokens** → **Service accounts** →
+**Trusted access**, then add a trust policy saying which of its tokens may act
+as which service account. For AWS that is the IAM role the workload runs as.
+The policy then shows the commands the workload runs: ask STS for a token for
+this deployment, and trade it for a 15-minute token. Any other OIDC issuer works
+the same way with **Custom OIDC**: you name the issuer, its keys, and the claims
+a token must have.
 
 ## Creating a personal access token
 

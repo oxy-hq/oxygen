@@ -5,6 +5,15 @@
 //! construction**: the JWT is the credential, and the claims are what gate it.
 //! The repository stores no secret.
 //!
+//! A token from any OIDC issuer an org registered — the JWT AWS STS signs for
+//! a role, a GitLab CI job's `id_token` — is traded
+//! the same way, at the same route, with the same body ([`issuer`]). Which of
+//! the two a token is, is read from its `iss` before anything is verified:
+//! GitHub's issuer — or a token whose `iss` cannot be read — takes the path
+//! below, unchanged; any other is looked up among the issuers registered in
+//! the named account's org, verified only against the one that matches, and
+//! admitted by exactly one of that account's trust policies on it.
+//!
 //! The steps, each failing closed:
 //!
 //! 1. **The envelope** (`oxy_auth::github_oidc::verify`): RS256 against
@@ -43,6 +52,7 @@
 //! is a separate route with its own table, and is untouched by any of this.
 
 pub mod audience;
+mod issuer;
 mod mint;
 mod reject;
 
@@ -52,18 +62,19 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use oxy::database::client::establish_connection;
-use oxy_auth::github_oidc::{self, GithubOidcClaims, OidcError};
+use oxy_auth::github_oidc::{self, GITHUB_OIDC_ISSUER, GithubOidcClaims, OidcError};
 use oxy_auth::token::ci_mint::PolicyMint;
 use oxy_auth::token::exchange::{self, Decision};
 use oxy_auth::token::personal::{self, Minted};
 use oxy_auth::token::trust_policy::{self, Candidate};
 use oxy_auth::token::trust_policy_access::RepoIds;
+use oxy_auth::workload_identity;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use self::reject::Rejection;
+use self::reject::{ACTOR_GITHUB, ACTOR_OIDC_ISSUER, Rejection};
 use crate::public_rate_limit::{self, PublicRoute};
 use crate::user_tokens::dto::{GrantDto, grant_dto};
 use crate::user_tokens::error::TokenError;
@@ -72,7 +83,8 @@ use oxy_custom_apps::github_oidc_keys::github_keys;
 
 #[derive(Deserialize)]
 struct ExchangeBody {
-    /// The GitHub Actions OIDC JWT, requested for this deployment's audience.
+    /// The GitHub Actions OIDC JWT, or a token from an issuer registered in the
+    /// account's org, requested for this deployment's audience.
     token: String,
     /// The id of the account to act as. Required. Read as any JSON value so
     /// that one of the wrong type is answered as a missing id, not as an
@@ -194,7 +206,7 @@ async fn chosen(
 
 async fn response(
     db: &DatabaseConnection,
-    candidate: &Candidate,
+    account_name: String,
     minted: Minted,
 ) -> Result<ExchangeResponse, Failure> {
     let grants = personal::grants_for(db, &[minted.row.id]).await?;
@@ -210,17 +222,47 @@ async fn response(
         token: minted.secret,
         token_id: minted.row.id,
         expires_at,
-        service_account: candidate.account_name(),
+        service_account: account_name,
         grants: grants.iter().map(|g| grant_dto(g, &names)).collect(),
     })
+}
+
+/// Which kind of token a request carries, read from its unverified `iss`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Provider {
+    GithubActions,
+    RegisteredIssuer,
+}
+
+impl Provider {
+    /// The audit actor of a refusal.
+    fn actor(self) -> &'static str {
+        match self {
+            Self::GithubActions => ACTOR_GITHUB,
+            Self::RegisteredIssuer => ACTOR_OIDC_ISSUER,
+        }
+    }
+}
+
+/// The issuer to look up for a token that is not GitHub's. `None` — GitHub's
+/// issuer, or no `iss` that can be read — is the GitHub path, which refuses
+/// what it cannot verify exactly as it always has.
+fn other_issuer(token: &str) -> Option<String> {
+    workload_identity::unverified_issuer(token)
+        .filter(|iss| workload_identity::normalized_issuer(iss) != GITHUB_OIDC_ISSUER)
 }
 
 async fn run(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     body: &[u8],
+    provider: &mut Provider,
 ) -> Result<ExchangeResponse, Failure> {
     let request = parse(body)?;
+    if let Some(iss) = other_issuer(&request.token) {
+        *provider = Provider::RegisteredIssuer;
+        return issuer::run(db, headers, &request, &iss).await;
+    }
     let claims = verified(db, &request.token).await?;
     let picked = chosen(db, &claims, request.service_account).await?;
     // What it minted from is what it found under lock, not what was chosen.
@@ -231,7 +273,7 @@ async fn run(
         repository = %claims.repository,
         "oidc exchange: minted a ci token"
     );
-    response(db, &candidate, minted).await
+    response(db, candidate.account_name(), minted).await
 }
 
 fn internal(detail: &str) -> Response {
@@ -240,7 +282,7 @@ fn internal(detail: &str) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
 }
 
-/// Exchange a GitHub Actions OIDC token for a 15-minute `oxy_ci_` token
+/// Exchange a GitHub Actions token, or one from a registered OIDC issuer, for a 15-minute `oxy_ci_` token
 pub async fn exchange(headers: HeaderMap, body: Bytes) -> Response {
     // Public: a per-client budget stands in front of the verifier.
     if let Some(retry_after_secs) = public_rate_limit::check(PublicRoute::OidcExchange, &headers) {
@@ -250,11 +292,15 @@ pub async fn exchange(headers: HeaderMap, body: Bytes) -> Response {
         Ok(db) => db,
         Err(e) => return internal(&e.to_string()),
     };
-    match run(&db, &headers, &body).await {
+    let mut provider = Provider::GithubActions;
+    match run(&db, &headers, &body, &mut provider).await {
         Ok(minted) => Json(minted).into_response(),
         Err(Failure::Internal(detail)) => internal(&detail),
         Err(Failure::Refused(rejection, claims)) => {
-            rejection.record(&db, &headers, claims.as_ref()).await;
+            let actor = provider.actor();
+            rejection
+                .record(&db, actor, &headers, claims.as_ref())
+                .await;
             rejection.into_response()
         }
     }

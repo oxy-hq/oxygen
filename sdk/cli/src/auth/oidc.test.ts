@@ -9,6 +9,9 @@
  * the status maps to.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GITHUB_ID_TOKEN_ROUTES, inGithubActions, stubFetch } from "../testing/stub-fetch.js";
 import { CliError, ExitCode } from "../util/errors.js";
@@ -18,8 +21,10 @@ import {
   exchangeOidcOnce,
   fallsBackToPublisher,
   githubOidcAvailable,
+  OIDC_TOKEN_FILE_ENV,
   OidcExchangeError,
   oidcAudience,
+  oidcAvailable,
   RATE_LIMIT_MAX_WAIT_S,
   resetOidcExchanges,
   retryAfterSeconds
@@ -508,4 +513,105 @@ describe("exchangeOidcOnce", () => {
     await exchangeOidcOnce(TARGET, "9b2c1d3e-5f60-4a7b-8c9d-0e1f2a3b4c5d");
     expect(calls.filter((x) => x.path === "/api/auth/oidc/exchange")).toHaveLength(2);
   });
+});
+
+describe("a service with an identity token file", () => {
+  let dir: string;
+  let tokenFile: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "oxyc-oidc-"));
+    tokenFile = join(dir, "token");
+    writeFileSync(tokenFile, "sts-jwt-oxy\n");
+    vi.stubEnv(OIDC_TOKEN_FILE_ENV, tokenFile);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("counts as trusted access, with or without GitHub's variables", () => {
+    expect(oidcAvailable({ [OIDC_TOKEN_FILE_ENV]: "/tmp/oxy-token" })).toBe(true);
+    expect(oidcAvailable({ [OIDC_TOKEN_FILE_ENV]: "  " })).toBe(false);
+    expect(oidcAvailable({})).toBe(false);
+  });
+
+  it("posts the file's token to the exchange, and never asks GitHub", async () => {
+    // GitHub's variables are set too (beforeEach): the named file wins.
+    const calls = stubFetch(TARGET, {
+      ...GITHUB_ID_TOKEN_ROUTES,
+      "POST /api/auth/oidc/exchange": () => ({ status: 200, body: MINTED })
+    });
+    const credential = await exchangeOidc(TARGET, { serviceAccount: ACCOUNT });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/auth/oidc/exchange"]);
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({
+      token: "sts-jwt-oxy",
+      service_account: ACCOUNT
+    });
+    expect(credential.token).toBe("oxy_ci_minted");
+  });
+
+  it("reads the file again on each exchange: what writes it picks the token", async () => {
+    const calls = stubFetch(TARGET, {
+      "POST /api/auth/oidc/exchange": () => ({ status: 200, body: MINTED })
+    });
+    await exchangeOidc(TARGET, { serviceAccount: ACCOUNT });
+    writeFileSync(tokenFile, "fresh-jwt");
+    await exchangeOidc(TARGET, { serviceAccount: ACCOUNT });
+    expect(calls.map((c) => JSON.parse(c.body ?? "{}").token)).toEqual([
+      "sts-jwt-oxy",
+      "fresh-jwt"
+    ]);
+  });
+
+  it("says how to get a token when the file cannot be read", async () => {
+    vi.stubEnv(OIDC_TOKEN_FILE_ENV, join(dir, "missing"));
+    const calls = stubFetch(TARGET, {});
+    const error = await exchangeOidc(TARGET, { serviceAccount: ACCOUNT }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(OidcExchangeError);
+    expect((error as OidcExchangeError).oidcCode).toBe("token_file");
+    expect((error as OidcExchangeError).hint).toMatch(/get-web-identity-token/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("names no account, asks nothing, and says there is a token file", async () => {
+    const error = await exchangeOidc(TARGET, {}).catch((e: unknown) => e);
+    expect((error as OidcExchangeError).oidcCode).toBe("no_service_account");
+    expect((error as OidcExchangeError).detail).toMatch(/identity token file/);
+  });
+
+  /** code → [status, a word its message must carry, a word its hint must]. */
+  const CASES: Array<[string, number, RegExp, RegExp]> = [
+    ["invalid_token", 401, /rejected the identity token/, /RS256/],
+    ["wrong_audience", 401, /another audience/, /audience oxy:app\.oxygen-hq\.com, alone/],
+    ["expired", 401, /identity token has expired/, /fresh token/],
+    ["replayed", 401, /already been exchanged/, /single use/],
+    [
+      "unknown_issuer",
+      401,
+      /not registered in the service account's organization/,
+      /Trusted access/
+    ],
+    ["token_lifetime_too_long", 401, /more than an hour/, /duration-seconds/],
+    ["jti_required", 401, /no 'jti'/, /single use/],
+    ["no_matching_policy", 403, /matches this token/, /role's ARN/],
+    ["ambiguous_policy", 403, /more than one trust policy/, /exactly one matches/]
+  ];
+
+  for (const [code, status, message, hint] of CASES) {
+    it(`words ${code} for a token file, not a workflow`, async () => {
+      stubFetch(TARGET, {
+        "POST /api/auth/oidc/exchange": () => ({
+          status,
+          body: { error: "the server's words", code, audience: "oxy:app.oxygen-hq.com" }
+        })
+      });
+      const error = (await exchangeOidc(TARGET, { serviceAccount: ACCOUNT }).catch(
+        (e: unknown) => e
+      )) as OidcExchangeError;
+      expect(error.oidcCode).toBe(code);
+      expect(error.message).toMatch(message);
+      expect(error.hint).toMatch(hint);
+    });
+  }
 });

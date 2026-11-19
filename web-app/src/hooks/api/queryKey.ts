@@ -372,6 +372,11 @@ const orgKeys = {
     [...orgKeys.serviceAccountTokens(orgId, saId), tokenId, "activity"] as const,
   trustPolicies: (orgId: string, saId: string) =>
     [...orgKeys.serviceAccounts(orgId), saId, "trust-policies"] as const,
+  // Under the service accounts prefix, so every API-access write refreshes it.
+  issuerTrustPolicies: (orgId: string) =>
+    [...orgKeys.serviceAccounts(orgId), "oidc-issuer-trust-policies"] as const,
+  // Under the same prefix: deleting an issuer deletes policies on every account.
+  oidcIssuers: (orgId: string) => [...orgKeys.serviceAccounts(orgId), "oidc-issuers"] as const,
   /** Prefix of every filtered read of one org's token inventory. */
   tokenInventoryAll: (orgId: string) => [...orgKeys.all, "token-inventory", orgId] as const,
   tokenInventory: (

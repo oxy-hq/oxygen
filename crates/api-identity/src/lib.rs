@@ -64,6 +64,7 @@
 pub mod admin;
 mod authz;
 pub mod oidc_exchange;
+pub mod oidc_issuer_fetch;
 pub mod org_api_access;
 pub mod public_rate_limit;
 pub mod sign_in;
@@ -220,6 +221,30 @@ fn org_api_access_routes() -> Router<AppState> {
         .route(
             "/service-accounts/{sa_id}/trust-policies/{id}",
             patch(org_handlers::update_trust_policy).delete(org_handlers::delete_trust_policy),
+        )
+        // OIDC issuers the org trusts (registration may read the issuer's
+        // discovery document and keys over public HTTPS), and which of their
+        // tokens, by claim conditions, may act as an account. Postgres only
+        // otherwise.
+        .route(
+            "/oidc-issuers",
+            get(org_handlers::list_oidc_issuers).post(org_handlers::create_oidc_issuer),
+        )
+        .route(
+            "/oidc-issuers/{id}",
+            delete(org_handlers::delete_oidc_issuer),
+        )
+        .route(
+            "/oidc-issuer-trust-policies",
+            get(org_handlers::list_org_issuer_policies),
+        )
+        .route(
+            "/service-accounts/{sa_id}/oidc-issuer-trust-policies",
+            get(org_handlers::list_issuer_policies).post(org_handlers::create_issuer_policy),
+        )
+        .route(
+            "/service-accounts/{sa_id}/oidc-issuer-trust-policies/{id}",
+            patch(org_handlers::update_issuer_policy).delete(org_handlers::delete_issuer_policy),
         )
         .route("/tokens", get(org_handlers::list_org_tokens))
         .route(
@@ -437,6 +462,11 @@ const API_ROLES: &[RouteRoleDecl] = &[
     fleet("/orgs/{org_id}/service-accounts/{sa_id}/tokens/{id}/activity"),
     fleet("/orgs/{org_id}/service-accounts/{sa_id}/trust-policies"),
     fleet("/orgs/{org_id}/service-accounts/{sa_id}/trust-policies/{id}"),
+    fleet("/orgs/{org_id}/service-accounts/{sa_id}/oidc-issuer-trust-policies"),
+    fleet("/orgs/{org_id}/service-accounts/{sa_id}/oidc-issuer-trust-policies/{id}"),
+    fleet("/orgs/{org_id}/oidc-issuer-trust-policies"),
+    fleet("/orgs/{org_id}/oidc-issuers"),
+    fleet("/orgs/{org_id}/oidc-issuers/{id}"),
     fleet("/orgs/{org_id}/tokens"),
     fleet("/orgs/{org_id}/tokens/{id}/activity"),
     fleet("/orgs/{org_id}/tokens/{id}/revoke-grant"),

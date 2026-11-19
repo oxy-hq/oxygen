@@ -1,14 +1,19 @@
 import type { ApiKeyActivityResponse } from "@/types/apiKey";
 import type { ExtendBody, Token, TokenWithSecret } from "@/types/apiToken";
 import type {
+  CreateIssuerTrustPolicyRequest,
+  CreateOidcIssuerRequest,
   CreateServiceAccountRequest,
   CreateServiceAccountTokenRequest,
   CreateTrustPolicyRequest,
   InventoryFilters,
   InventoryToken,
+  IssuerTrustPolicy,
+  OidcIssuer,
   ServiceAccount,
   TokenPolicy,
   TrustPolicy,
+  UpdateIssuerTrustPolicyRequest,
   UpdateServiceAccountRequest,
   UpdateTrustPolicyRequest
 } from "@/types/orgApiAccess";
@@ -145,6 +150,65 @@ export class TrustPolicyService {
 
   static async remove(orgId: string, saId: string, policyId: string): Promise<void> {
     await apiClient.delete(`${account(orgId, saId)}/trust-policies/${policyId}`);
+  }
+}
+
+/** The OIDC issuers whose tokens the org trusts. */
+export class OidcIssuerService {
+  static async list(orgId: string): Promise<OidcIssuer[]> {
+    const response = await apiClient.get<{ issuers: OidcIssuer[] }>(`/orgs/${orgId}/oidc-issuers`);
+    return response.data.issuers ?? [];
+  }
+
+  /** Unless its keys are pasted inline, the server reads them before it answers. */
+  static async create(orgId: string, body: CreateOidcIssuerRequest): Promise<OidcIssuer> {
+    const response = await apiClient.post<OidcIssuer>(`/orgs/${orgId}/oidc-issuers`, body);
+    return response.data;
+  }
+
+  /** Ends every trust policy on it, and the tokens they minted. */
+  static async remove(orgId: string, issuerId: string): Promise<void> {
+    await apiClient.delete(`/orgs/${orgId}/oidc-issuers/${issuerId}`);
+  }
+}
+
+/** Trusted access from a registered issuer: which tokens, by their claims, may act as a service account. */
+export class IssuerTrustPolicyService {
+  /** Every account's policies in the org. */
+  static async listOrg(orgId: string): Promise<IssuerTrustPolicy[]> {
+    const response = await apiClient.get<{ trust_policies: IssuerTrustPolicy[] }>(
+      `/orgs/${orgId}/oidc-issuer-trust-policies`
+    );
+    return response.data.trust_policies ?? [];
+  }
+
+  static async create(
+    orgId: string,
+    saId: string,
+    body: CreateIssuerTrustPolicyRequest
+  ): Promise<IssuerTrustPolicy> {
+    const response = await apiClient.post<IssuerTrustPolicy>(
+      `${account(orgId, saId)}/oidc-issuer-trust-policies`,
+      body
+    );
+    return response.data;
+  }
+
+  static async update(
+    orgId: string,
+    saId: string,
+    policyId: string,
+    body: UpdateIssuerTrustPolicyRequest
+  ): Promise<IssuerTrustPolicy> {
+    const response = await apiClient.patch<IssuerTrustPolicy>(
+      `${account(orgId, saId)}/oidc-issuer-trust-policies/${policyId}`,
+      body
+    );
+    return response.data;
+  }
+
+  static async remove(orgId: string, saId: string, policyId: string): Promise<void> {
+    await apiClient.delete(`${account(orgId, saId)}/oidc-issuer-trust-policies/${policyId}`);
   }
 }
 

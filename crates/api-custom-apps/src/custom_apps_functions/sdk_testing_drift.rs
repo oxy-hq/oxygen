@@ -36,6 +36,9 @@ use super::cli_capabilities_drift::{
 const CONTRACT_TS: &str = include_str!("../../../../sdk/typescript/src/testing/host-contract.ts");
 const FUNCTION_LINT_TS: &str = include_str!("../../../../sdk/cli/src/publish/function-lint.ts");
 const GATES_TS: &str = include_str!("../../../../sdk/typescript/src/testing/gates.ts");
+/// Where `is_safe_outbound` lives: `oxy_shared`, because the Kubernetes token
+/// issuer fetch in `api-identity` uses the same guard as `ctx.fetch`.
+const PUBLIC_ONLY_RS: &str = include_str!("../../../shared/src/http/public_only.rs");
 
 /// Every file a `source:` in the contract may name, by that name.
 const SOURCES: &[(&str, &str)] = &[
@@ -478,7 +481,7 @@ fn the_sdk_absent_globals_are_the_clis() {
 #[test]
 fn the_sdk_fetch_rules_are_is_safe_outbounds() {
     let ts = strip_comments(CONTRACT_TS);
-    let body = fn_body(source("host.rs"), "fn is_safe_outbound(");
+    let body = fn_body(PUBLIC_ONLY_RS, "pub fn is_safe_outbound(");
     let host_rules: BTreeSet<String> = body.lines().flat_map(quoted).collect();
     let sdk_rules: BTreeSet<String> = block(&ts, "export const FETCH_RULES", "} as const;")
         .lines()
@@ -490,7 +493,8 @@ fn the_sdk_fetch_rules_are_is_safe_outbounds() {
     );
     assert_eq!(
         sdk_rules, host_rules,
-        "FETCH_RULES in host-contract.ts differs from `is_safe_outbound` in host.rs (the \
+        "FETCH_RULES in host-contract.ts differs from `is_safe_outbound` in \
+         crates/shared/src/http/public_only.rs (the \
          scheme, the literal hosts and INTERNAL_SUFFIXES). Change both in one PR."
     );
 }

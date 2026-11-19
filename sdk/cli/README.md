@@ -58,7 +58,7 @@ and `cache`.
 | `--target <url>` | — | explicit base URL; overrides `--env` |
 | `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer: any credential. **Named, it is the only source** — an unset variable is exit `4`, never a fallback to your login |
 | `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the API token for `/external/api` |
-| `--service-account <id>` | `OXY_SERVICE_ACCOUNT` | in GitHub Actions: the **ID** of the service account the OIDC exchange acts as |
+| `--service-account <id>` | `OXY_SERVICE_ACCOUNT` | in GitHub Actions, or with `OXY_OIDC_TOKEN_FILE`: the **ID** of the service account the trusted-access exchange acts as |
 | `--org <slug>` | — | value for the `{org}` placeholder |
 | `--workspace <id>` | — | value for the `{workspace}` placeholder |
 | `--project <id>` | — | value for the `{project}` placeholder |
@@ -626,6 +626,42 @@ exchange route (404) reads as "not authenticated", with that reason — except
 in `publish` and `checks run`, which fall back to the app's registered
 publisher, as they also do on `no_matching_policy` and when no account is
 named.
+
+### A service on another platform without a stored secret
+
+A service whose platform signs identity tokens for it — ferret on ECS, through
+AWS IAM outbound identity federation — signs in the same way, with its own
+token instead of GitHub's. Write a token requested for the audience
+`oxy:<the deployment's host>` to a file, set `OXY_OIDC_TOKEN_FILE` to that file
+and `OXY_SERVICE_ACCOUNT` to the account's ID; `oxyc` reads the file, posts it to
+`/api/auth/oidc/exchange`, and uses the fifteen-minute `oxy_ci_…` token that
+comes back. When both are set, the file wins over GitHub's variables.
+
+```sh
+# On AWS: the workload's IAM role needs sts:GetWebIdentityToken. A regional
+# STS endpoint, and RS256 (the signature Oxygen verifies).
+aws sts get-web-identity-token \
+  --region "$AWS_REGION" --endpoint-url "https://sts.$AWS_REGION.amazonaws.com" \
+  --audience oxy:app.oxygen-hq.com --signing-algorithm RS256 --duration-seconds 300 \
+  --query WebIdentityToken --output text > /tmp/oxy-token
+
+OXY_SERVICE_ACCOUNT=3f2504e0-4f89-41d3-9a0c-0305e82c3301 \
+OXY_OIDC_TOKEN_FILE=/tmp/oxy-token \
+  oxyc api /api/orgs --target https://app.oxygen-hq.com
+```
+
+An org admin registers the issuer, then a trust policy on the account saying
+which of its tokens may act as it (Settings → Organization → API tokens →
+Service accounts → Trusted access). For AWS that is the account's issuer URL and
+the IAM role's ARN; the policy's menu shows these commands filled in. Any other
+OIDC issuer works through **Custom OIDC**: its keys, and the claims a token must
+have. The file is read again on each exchange, so whatever writes it picks the
+token; an issuer registered as single use (the AWS preset is) refuses the same
+token twice. A token must be asked for with a life of at most an hour.
+Refusals name what to fix: `unknown_issuer` (the issuer is not registered in
+the account's org), `replayed`, `token_lifetime_too_long`, `wrong_audience` (it
+says which audience to ask for), `no_matching_policy` (no policy's conditions,
+for AWS the role, match the token), `ambiguous_policy` (more than one does).
 
 ## Acting as an organization
 
@@ -1858,7 +1894,8 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 | --- | --- | --- |
 | `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC. `from-proxy`: an egress proxy adds it, so none is sent ([A token the proxy adds](#a-token-the-proxy-adds)) |
 | `OXY_API_KEY` | — | an API token, for the `/external/api` surface and for `checks run` (the name is historical: it held a legacy API key until those were removed) |
-| `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a GitHub OIDC exchange acts as (`--service-account`); never `<org>/<name>` |
+| `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a trusted-access exchange acts as (`--service-account`); never `<org>/<name>` |
+| `OXY_OIDC_TOKEN_FILE` | — | a file holding a token from an OIDC issuer the org registered, traded at the exchange instead of GitHub's ([A service on another platform without a stored secret](#a-service-on-another-platform-without-a-stored-secret)) |
 | `OXY_AGENT` | detected | the name of the agent driving `oxyc`, sent in the user agent — see below |
 | `OXY_CREDENTIALS_PATH` | OS config dir | the shared `credentials.json` |
 | `OXYC_ORG` | `oxy-hq` | GitHub org the customer repos live in |
