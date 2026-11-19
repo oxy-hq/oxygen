@@ -365,10 +365,9 @@ pub mod testing {
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     // `data` and `semantic` left with their handlers for `oxy-api-semantic`
     // (2026-11-16); `projects` had no reader once `data`'s did not need it.
-    /// The staff console's audit log, for `oxy-api-identity`'s user-status
-    /// tests, which read a suspension back as a bounded grant lists it (admin
-    /// split, PR 5). Leaves when `admin::audit` moves to the console crate.
-    pub use crate::server::api::admin::audit;
+    // `audit` (the staff console's audit log, for `oxy-api-identity`'s
+    // user-status read-back) left with `admin::audit` for `oxy-api-admin`
+    // (2026-11-20); those tests read the listing's scoped query directly.
     pub use crate::server::api::{billing, compiled_reader, custom_apps_gates};
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,

@@ -937,6 +937,10 @@ mod tests {
             "oxy_api_admin::internal_jobs_fleet",
             "oxy_api_admin::internal_jobs_reach",
             "oxy_api_admin::internal_jobs_rows",
+            // The admin split (2026-11-20): the platform audit log, the
+            // audit table and the anchor's S3 read, kept and not the data
+            // plane as it was at `oxy_app::server::api::admin::audit`.
+            "oxy_api_admin::audit",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1304,6 +1308,9 @@ mod tests {
             "oxy_api_admin::internal_jobs_fleet",
             "oxy_api_admin::internal_jobs_reach",
             "oxy_api_admin::internal_jobs_rows",
+            // The admin split (2026-11-20): the audit log. It searches and
+            // verifies `audit_events`; no warehouse query.
+            "oxy_api_admin::audit",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

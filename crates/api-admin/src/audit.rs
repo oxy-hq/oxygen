@@ -1,9 +1,12 @@
 //! `/api/admin/audit` — platform audit-log search for Oxy staff.
 //!
 //! Read-only view over the append-only `audit_events` stream. Gated on
-//! `Action::PlatformAudit` (`view_audit`) by `admin::router`, and narrowed to the
+//! `Action::PlatformAudit` (`view_audit`) by `oxy-app`'s `admin::router`, which
+//! wraps the section [`crate::admin_sections`] hands it, and narrowed to the
 //! caller's grant scope here — the gate cannot see scope. Filtering, scoping and
 //! paging are all done in the DB via [`audit::search_events`].
+//!
+//! Out of `oxy-app`'s `api::admin::audit` in the admin split (2026-11-20).
 
 use axum::Json;
 use axum::Router;
@@ -15,10 +18,10 @@ use oxy_app_core::pagination::{self, Paged, trim_overfetch};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::audit::{self, AuditEventDto, AuditFilter};
 
-pub(crate) fn router() -> Router<AppState> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/audit", get(list_audit))
         // Makes the tamper-evident chain actually falsifiable (review #9): walks
@@ -66,7 +69,7 @@ pub async fn verify_audit_anchor(
     // read of that tenant's audit trail.
     oxy_server_authz::staff::scope::deny_out_of_scope(&db, &actor, org_id).await?;
     let cfg = oxy_app_core::audit::anchor::AnchorConfig::from_env();
-    let s3 = crate::server::api::custom_apps_storage::s3::client().await;
+    let s3 = oxy_custom_apps::storage::s3::client().await;
     // A verification that cannot complete — an unlocked or lapsed object, a
     // rewritten pointer, S3 unreachable — is itself what the operator came to
     // learn, so it is a 200 with `present`/`matches` false and the reason in

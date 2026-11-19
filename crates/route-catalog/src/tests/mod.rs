@@ -124,6 +124,10 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/admin/airhouse",
     // The admin split (PR 5): the user directory (`oxy-api-identity`).
     "/api/admin/users",
+    // The admin split (2026-11-20): the platform audit log (`oxy-api-admin`,
+    // a section on the admin seam). The walk of `admin::router` reached it
+    // in-tree; now only its own seed does.
+    "/api/admin/audit",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",

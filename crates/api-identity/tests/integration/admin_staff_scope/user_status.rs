@@ -9,14 +9,13 @@
 //! the writer's own standing. A change is audited in its own transaction.
 
 use axum::Json;
-use axum::extract::{OriginalUri, Path, Query};
-use axum::http::{StatusCode, Uri};
+use axum::extract::Path;
+use axum::http::StatusCode;
 use entity::audit_events;
 use entity::org_members::OrgRole;
 use entity::users::{self, UserStatus};
 use oxy_api_identity::admin::users_admin::{SetStatusBody, set_user_status};
-use oxy_app::surface::testing::audit::{AuditQuery, list_audit};
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{self, AuditFilter, RequestActor};
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
@@ -27,7 +26,7 @@ use serde_json::json;
 use std::time::Duration;
 use uuid::Uuid;
 
-use super::fixture::{Reply, World, as_actor, grant, grant_as, member_of, reply, seed_user, world};
+use super::fixture::{Reply, World, grant, grant_as, member_of, reply, seed_user, world};
 
 async fn set_status(actor: &AuthenticatedUser, user: Uuid, status: &str) -> Reply {
     let body = Json(SetStatusBody {
@@ -288,20 +287,34 @@ async fn a_status_change_rereads_the_targets_grant_under_its_lock() {
     assert_eq!(refused.body["denial"], "role_not_below", "{}", refused.body);
 }
 
-/// `user.status.updated` rows, as `actor`'s `GET /admin/audit` lists them.
-async fn status_events_as(actor: &AuthenticatedUser) -> Reply {
-    let query = Query(AuditQuery {
+/// The ids of the `user.status.updated` rows `actor`'s `GET /admin/audit`
+/// lists: the query that handler runs, narrowed by the same grant scope
+/// (`staff::scope::list_scope`), at its default page of 100.
+///
+/// The query, not the handler: `list_audit` is `oxy-api-admin`'s since the
+/// admin split's audit move (2026-11-20), and S3 forbids this crate
+/// depending on another surface even for tests. That the handler narrows
+/// exactly this way is pinned beside it, in `oxy-api-admin`'s
+/// `admin_staff_scope::audit`.
+async fn status_events_as(db: &DatabaseConnection, actor: &AuthenticatedUser) -> Vec<String> {
+    let org_scope = oxy_server_authz::staff::scope::list_scope(db, actor)
+        .await
+        .expect("the audit listing's scope resolves for a staff caller");
+    let filter = AuditFilter {
         action: Some("user.status.updated".into()),
         actor: None,
         org_id: None,
         outcome: None,
         q: None,
         token_id: None,
-        limit: None,
-        offset: None,
-    });
-    let uri = OriginalUri(Uri::from_static("/api/admin/audit"));
-    reply(list_audit(as_actor(actor), uri, query).await).await
+        org_scope,
+    };
+    audit::search_events(db, &filter, 100, 0)
+        .await
+        .expect("search the audit log")
+        .into_iter()
+        .map(|e| e.id.to_string())
+        .collect()
 }
 
 /// A suspension takes effect in every org the person is in, so each of those orgs'
@@ -331,8 +344,8 @@ async fn a_status_change_is_audited_in_every_org_of_the_target() {
         .iter()
         .find(|r| r.org_id == Some(w.org_a))
         .expect("org A row");
-    let seen = status_events_as(&w.bounded).await;
-    assert_eq!(seen.column(None, "id"), vec![a_row.id.to_string()]);
+    let seen = status_events_as(&w.db, &w.bounded).await;
+    assert_eq!(seen, vec![a_row.id.to_string()]);
 
     let loner = seed_user(&w.db, "loner@tenant.test").await;
     let done = set_status(&w.unbounded, loner.id, "deleted").await;
@@ -365,9 +378,8 @@ async fn a_status_change_is_audited_and_a_refused_one_writes_nothing() {
     );
 
     // So the bounded grant finds its own action in its own, org-scoped, audit view.
-    let mine = status_events_as(&w.bounded).await;
-    assert_eq!(mine.status, StatusCode::OK);
-    assert_eq!(mine.column(None, "id"), vec![row.id.to_string()]);
+    let mine = status_events_as(&w.db, &w.bounded).await;
+    assert_eq!(mine, vec![row.id.to_string()]);
 
     let outside = seed_user(&w.db, "outside@tenant.test").await;
     member_of(&w.db, outside.id, w.org_b, OrgRole::Member).await;

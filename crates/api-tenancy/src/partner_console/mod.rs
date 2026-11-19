@@ -393,8 +393,8 @@ pub async fn list_org_members(
 #[derive(Deserialize)]
 pub struct AuditQuery {
     pub limit: Option<u64>,
-    /// Same spelling as `admin/audit.rs`. One way to page an audit log across
-    /// the platform, not two.
+    /// Same spelling as the staff console's `GET /admin/audit`. One way to
+    /// page an audit log across the platform, not two.
     pub offset: Option<u64>,
 }
 

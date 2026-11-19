@@ -4199,3 +4199,227 @@ fn the_composition_carries_the_compile_console_nest() {
         ]
     );
 }
+
+/// The platform audit log's routes (`oxy-api-admin`'s section since the admin
+/// split's audit move, 2026-11-20), as `(method, path, owner, bounded global
+/// admin asking about org B, the same asking about org A)`, read off the
+/// served router on `main` (dfd8ec6edc) before the move. `{o}` is an org id.
+///
+/// Every other caller this test sends — not staff, the owner while acting,
+/// an App Operator bounded to org A (no `PlatformAudit`) — is 403 on each of
+/// these, the wrong verbs included.
+const ADMIN_AUDIT_ROUTES: &[(&str, &str, u16, u16, u16)] = &[
+    ("GET", "/admin/audit", 200, 200, 200),
+    ("GET", "/admin/audit?org_id={o}", 200, 200, 200),
+    ("GET", "/admin/audit?org_id=not-a-uuid", 400, 400, 400),
+    ("GET", "/admin/audit/verify/{o}", 200, 404, 200),
+    ("GET", "/admin/audit/anchor/{o}", 200, 404, 200),
+    ("GET", "/admin/audit/verify/not-a-uuid", 400, 400, 400),
+    ("POST", "/admin/audit", 405, 405, 405),
+    ("DELETE", "/admin/audit/verify/{o}", 405, 405, 405),
+    ("TRACE", "/admin/audit", 405, 405, 405),
+    ("TRACE", "/admin/audit/anchor/{o}", 405, 405, 405),
+];
+
+/// Paths the section does not mount: the outer router's 404 for every caller.
+const ADMIN_AUDIT_UNMOUNTED: &[&str] = &[
+    "/admin/audit/",
+    "/admin/audit/verify",
+    "/admin/audit/verify/{o}/deeper",
+    "/admin/auditx",
+];
+
+async fn admin_audit_sweep(router: &Router, who: &str, org: &str, col: Option<usize>) {
+    for (m, p, owner, ga_out, ga_in) in ADMIN_AUDIT_ROUTES {
+        let path = p.replace("{o}", org);
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let want = match col {
+            None => 403,
+            Some(0) => *owner,
+            Some(1) => *ga_out,
+            Some(_) => *ga_in,
+        };
+        let got = status(router, &method, &path).await;
+        assert_eq!(got.as_u16(), want, "{who} {m} {p}: got {got}");
+    }
+    for p in ADMIN_AUDIT_UNMOUNTED {
+        let path = p.replace("{o}", org);
+        let got = status(router, &Method::GET, &path).await;
+        assert_eq!(got, StatusCode::NOT_FOUND, "{who} GET {p}");
+    }
+}
+
+/// The served router mounts the audit log inside `/api/admin` behind the
+/// layers `admin::router` gave it in `oxy-app` — the staff door, the refusal
+/// while acting, and `PlatformAudit` — answering what `main` answered before
+/// the move ([`ADMIN_AUDIT_ROUTES`]). The bounded App Operator is the
+/// capability layer's witness: the door admits any standing, so without
+/// `PlatformAudit` on the section it would reach the handlers. The bounded
+/// Global Admin's 404s on org B are the handlers' own fences.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_audit_section_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+    let router = served(ServeMode::Cloud).await;
+    let nobody = uuid::Uuid::new_v4().to_string();
+    for (m, p, ..) in ADMIN_AUDIT_ROUTES {
+        assert_eq!(
+            classify(m, &format!("/api{}", p.replace("{o}", &nobody))),
+            RouteRole::FleetOk,
+            "{m} {p} is Postgres (and the anchor's S3) only and must stay FleetOk"
+        );
+    }
+
+    // A run that panicked mid-way (a retry, say) leaves its bounded grant
+    // behind, which would make the guest staff below; these tests are serial
+    // (`serial-db`), so clear the guest's grants before the non-staff pass.
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    entity::app_admins::Entity::delete_many()
+        .filter(entity::app_admins::Column::Email.eq(oxy_auth::user::LOCAL_GUEST_EMAIL))
+        .exec(&db)
+        .await
+        .expect("clear a stale guest grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
+
+    admin_audit_sweep(&router, "non-staff", &nobody, None).await;
+    let owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    admin_audit_sweep(&router, "owner", &nobody, Some(0)).await;
+
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let now = chrono::Utc::now();
+    let org = |name: &'static str| {
+        let id = uuid::Uuid::new_v4();
+        entity::organizations::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(name.into()),
+            slug: ActiveValue::Set(format!("admin-audit-{}", id.simple())),
+            ..Default::default()
+        }
+    };
+
+    // Acting as a tenant closes the console, the audit log included.
+    let acting = org("Admin audit acting")
+        .insert(&db)
+        .await
+        .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router admin audit".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    let mut acting_answers = Vec::new();
+    for (m, p, ..) in ADMIN_AUDIT_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let path = p.replace("{o}", &nobody);
+        acting_answers.push((*m, *p, status(&router, &method, &path).await));
+    }
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    for (m, p, got) in acting_answers {
+        assert_eq!(got, StatusCode::FORBIDDEN, "acting {m} {p}: got {got}");
+    }
+    drop(owner);
+
+    // Staff bounded to org A, asking about org B and then about org A.
+    let in_scope = org("Admin audit in scope")
+        .insert(&db)
+        .await
+        .expect("org A");
+    let out_of_scope = org("Admin audit out of scope")
+        .insert(&db)
+        .await
+        .expect("org B");
+    for role in ["app_operator", "global_admin"] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the bounded grant");
+        entity::app_admin_scope_orgs::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            app_admin_id: ActiveValue::Set(grant.id),
+            org_id: ActiveValue::Set(in_scope.id),
+            created_at: ActiveValue::Set(now.into()),
+            created_by: ActiveValue::Set(None),
+        }
+        .insert(&db)
+        .await
+        .expect("bound it to org A");
+        // The grant read is cached per process, and the guest's "no grant"
+        // from the non-staff pass above is in it.
+        oxy_server_authz::globals::invalidate_admin_cache();
+        let (out_col, in_col) = if role == "app_operator" {
+            (None, None)
+        } else {
+            (Some(1), Some(2))
+        };
+        let b = out_of_scope.id.to_string();
+        let a = in_scope.id.to_string();
+        admin_audit_sweep(&router, &format!("{role}@A asking B"), &b, out_col).await;
+        admin_audit_sweep(&router, &format!("{role}@A asking A"), &a, in_col).await;
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+    }
+    for id in [acting.id, in_scope.id, out_of_scope.id] {
+        entity::organizations::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded org");
+    }
+}
+
+/// The composition hands the admin seam the audit log behind `PlatformAudit`,
+/// the capability `admin::router` gave it in `oxy-app`. It declares nothing
+/// (the console's `/{*rest}` FleetOk wildcard places it).
+#[test]
+fn the_composition_carries_the_audit_section() {
+    use oxy_app::surface::Action;
+    let seams = surface_seams();
+    let sections: Vec<_> = seams
+        .admin
+        .iter()
+        .filter(|s| s.capability == Action::PlatformAudit)
+        .collect();
+    assert_eq!(sections.len(), 1, "sections behind PlatformAudit");
+    assert!(
+        sections[0].decls.is_empty(),
+        "PlatformAudit declares nothing"
+    );
+}

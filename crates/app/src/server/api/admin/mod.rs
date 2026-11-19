@@ -9,7 +9,9 @@
 
 pub mod app_admins;
 pub mod assume;
-pub mod audit;
+// `audit` (`/audit*`, the platform audit log) is `oxy-api-admin`'s since
+// the admin split's audit move (2026-11-20): a section behind
+// `PlatformAudit`, arriving through `extracted`.
 pub mod billing;
 // `compiles` (`/compiles*`, the compile boundary's operator surface) is
 // `oxy-api-previews`' since the admin split's PR 6, and `internal_jobs*`
@@ -177,7 +179,9 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         .route_layer(cap(Action::PlatformOperate))
         // The custom-app registry is NOT merged here: it is the `/customer-apps`
         // surface in `router::global`, behind the one `apps::guarded` stack.
-        .merge(audit::router().route_layer(cap(Action::PlatformAudit)))
+        // The platform audit log (`/audit*`, `PlatformAudit`) moved to
+        // `oxy-api-admin` (admin split, 2026-11-20) and arrives through
+        // `extracted` below, behind the capability it had here.
         // Every staff member's sandbox agent tokens (`PlatformOperate`) and every
         // token carrying a standing (`PlatformGrants`) moved to
         // `oxy-api-identity` and arrive through `extracted` below, behind the

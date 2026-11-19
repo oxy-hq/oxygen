@@ -17,7 +17,11 @@ edition.workspace = true
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }     # AppState, admin_db (connect, db_err, error_body)
+oxy-app-core = { workspace = true }     # AppState, admin_db (connect, db_err, error_body), audit, pagination
+oxy = { workspace = true }              # database client (the audit log's connect)
+oxy-custom-apps = { workspace = true }  # storage::s3, the client the audit anchor is read with
+entity = { workspace = true }           # the audit_events row
+tracing = { workspace = true }
 oxy-auth = { workspace = true }         # the authenticated-user extractor
 oxy-server-authz = { workspace = true } # staff::scope, the grant fences
 agentic-runtime = { workspace = true }  # RetentionConfig, DurableTransport (reaper, retention)
@@ -44,7 +48,6 @@ oxy-cameras = { workspace = true }
 tempfile = { workspace = true }
 url = { workspace = true }
 oxy-test-utils = { workspace = true }   # tests/common takes its Postgres from here
-entity = { workspace = true }
 agentic-core = { workspace = true }     # the TaskSpec the cases enqueue
 tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }

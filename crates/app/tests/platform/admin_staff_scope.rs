@@ -6,7 +6,8 @@
 //! which has no org, so a grant bounded to org A passes every one of them; the
 //! handler behind the gate is the only thing that can narrow what it returns. A
 //! security review of other work read three handlers that did not —
-//! `admin::audit::list_audit`, `admin::explorer` and `admin::internal_jobs` — and
+//! `admin::audit::list_audit`, `admin::explorer` and `admin::internal_jobs` (all
+//! three moved out of `oxy-app` since, with their cases) — and
 //! auditing the rest of the console against the same question found the same gap on
 //! the assume-session log, the org and workspace directories, LLM usage, workspace
 //! health, the compile operator surface and one invitation write.
@@ -30,14 +31,17 @@
 //! queue and runs live in the runtime tables), so each test owns its database and
 //! every total asserted here is exact.
 
-mod audit_and_assume;
+mod assume;
+// The audit log's cases (`audit`, half of the former `audit_and_assume`)
+// moved with the handlers to `oxy-api-admin`'s `admin_staff_scope` (admin
+// split, 2026-11-20), and include `fixture` from here.
 // The compile console's cases (`compiles`) moved with the handlers to
 // `oxy-api-previews`' `admin_staff_scope` (admin split, PR 6), and include
 // `fixture` from here.
 mod fences;
 // `oxy-api-identity`'s user-directory cases, `oxy-api-previews`' compile
-// console cases and `oxy-api-admin`'s internal-jobs cases include this file
-// by path; the helpers only they use read as dead code from here.
+// console cases and `oxy-api-admin`'s internal-jobs and audit cases include
+// this file by path; the helpers only they use read as dead code from here.
 #[allow(dead_code)]
 mod fixture;
 // The task queue's cases (`internal_jobs`) moved with the handlers to

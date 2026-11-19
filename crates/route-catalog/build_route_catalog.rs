@@ -187,6 +187,16 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_previews::admin::compiles",
         function: "router",
     },
+    // The platform audit log, `oxy-api-admin`'s since 2026-11-20 (out of
+    // `oxy-app`'s `admin::audit`, where the walk of `admin::router` read
+    // it): a section on `SurfaceSeams::admin`, so it lands INSIDE
+    // `/api/admin`, and the walk above no longer reaches it.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_admin::audit",
+        function: "router",
+    },
     // Workspace previews (`oxy-api-previews`, `SurfaceSeams::previews`), mounted
     // beside the workspace tree, not in it (its own access middleware), so it is
     // not reached by the walk above.

@@ -422,13 +422,14 @@ pub async fn current(
     ))
 }
 
-/// Default and ceiling for one page of `/assume/history`, matching `admin/audit.rs`.
+/// Default and ceiling for one page of `/assume/history`, matching the audit
+/// log's (`GET /admin/audit`, `oxy-api-admin`'s `audit`).
 const HISTORY_PAGE: u64 = 100;
 const HISTORY_MAX_PAGE: u64 = 500;
 
 /// How `/assume/history` is paged.
 ///
-/// `limit`/`offset` with the same defaults and ceiling as `admin/audit.rs`,
+/// `limit`/`offset` with the same defaults and ceiling as `GET /admin/audit`,
 /// deliberately: both read an append-only log for the same auditor, and a
 /// second spelling of "page an audit log" in the same admin surface is a thing
 /// to memorise for no benefit.

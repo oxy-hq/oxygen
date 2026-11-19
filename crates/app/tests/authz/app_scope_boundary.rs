@@ -440,6 +440,10 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         // `staff_surface` until it moved, now required here. Its membership
         // writes are `/users/{user_id}/org-memberships/{org_id}`.
         "crates/api-identity/src/admin/users_admin.rs",
+        // The platform audit log (admin split, 2026-11-20): parsed out of
+        // `staff_surface` until it moved, now required here. Its chain and
+        // anchor verifiers are `/audit/{verify,anchor}/{org_id}`.
+        "crates/api-admin/src/audit.rs",
     ];
     for file in extracted_sections {
         assert!(

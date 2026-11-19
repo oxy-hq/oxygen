@@ -417,6 +417,9 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_observability::admin_sections())
             .chain(oxy_api_threads::admin_sections())
             .chain(oxy_api_custom_apps::admin_sections())
+            // The platform audit log (`/admin/audit*`, `PlatformAudit`),
+            // `oxy-api-admin`'s since 2026-11-20.
+            .chain(oxy_api_admin::admin_sections())
             .collect(),
         // Staff-console trees nested beside `/admin`, each behind the staff
         // door, the refusal while acting and the capability it names, in

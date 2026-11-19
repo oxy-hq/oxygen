@@ -75,6 +75,9 @@ pub(crate) fn flat_api() -> Router {
             .into_iter()
             .chain(oxy_api_identity::admin_sections())
             .chain(oxy_api_custom_apps::admin_sections())
+            // The audit log, which `publish_token_mint` and `service_tokens`
+            // read back (`oxy-api-admin`'s since 2026-11-20).
+            .chain(oxy_api_admin::admin_sections())
             .collect(),
         oxy_api_admin::admin_nests()
             .into_iter()
