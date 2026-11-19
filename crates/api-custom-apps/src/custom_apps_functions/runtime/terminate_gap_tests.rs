@@ -96,8 +96,16 @@ const LINGER_ENV: &str = "OXY_TERMINATE_GAP_LINGER_SECS";
 const REPORT: &str = "TERMINATE_GAP";
 
 const TIMEOUT: Duration = Duration::from_secs(1);
-/// Past `TIMEOUT + TIMEOUT_GRACE` with room for the child's own startup.
-const CHILD_DEADLINE: Duration = Duration::from_secs(40);
+/// The timeout for the loop that keeps everything. These cases assert that the
+/// *heap limit* stops it, so the wall clock must not be able to win the race:
+/// filling the heap takes well under a second on an idle machine and far longer
+/// on a starved one, and a `Timeout` that fires first is then the correct
+/// answer, not a regression. Generous enough that only a loop that never stops
+/// reaches it.
+const HEAP_LIMIT_TIMEOUT: Duration = Duration::from_secs(25);
+/// Past `HEAP_LIMIT_TIMEOUT + TIMEOUT_GRACE` plus the longest linger, with room
+/// for the child's own startup.
+const CHILD_DEADLINE: Duration = Duration::from_secs(60);
 
 /// What a child process did.
 struct Child {
@@ -307,24 +315,24 @@ fn terminate_gap_child() {
         rt.block_on(bench_body());
         std::process::exit(0);
     }
-    let artifact = match case.as_str() {
-        "bounded" => BOUNDED,
-        "unbounded" => UNBOUNDED,
+    let (artifact, timeout) = match case.as_str() {
+        "bounded" => (BOUNDED, TIMEOUT),
+        "unbounded" => (UNBOUNDED, HEAP_LIMIT_TIMEOUT),
         other => panic!("unknown case {other}"),
     };
-    rt.block_on(child_body(artifact));
+    rt.block_on(child_body(artifact, timeout));
     // The abandoned isolate thread would keep the process alive forever.
     std::process::exit(0);
 }
 
-async fn child_body(artifact: &str) {
+async fn child_body(artifact: &str, timeout: Duration) {
     let pool = WarmPool::new(1);
     let org = uuid::Uuid::new_v4();
     // Warm the pool so the stuck call takes a pool slot, as in production.
     let _ = invoke(&pool, org, TRIVIAL, TIMEOUT).await;
     println!("{REPORT} started=1");
     let started = Instant::now();
-    let result = invoke(&pool, org, artifact, TIMEOUT).await;
+    let result = invoke(&pool, org, artifact, timeout).await;
     println!("{REPORT} result={}", show(&result));
     println!("{REPORT} elapsed_ms={}", started.elapsed().as_millis());
     tokio::time::sleep(Duration::from_secs(1)).await;
