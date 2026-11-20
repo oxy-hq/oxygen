@@ -1,7 +1,8 @@
 # BIRD Mini-Dev data loader
 
 Design: `internal-docs/agent-engine-runtime.md` (section "Eval suite: BIRD Mini-Dev subset").
-Latest report: `evals/bird/reports/2026-11-18-fsm-baseline.md`.
+Latest report: `evals/bird/reports/2026-11-20-react-vs-fsm.md` (react vs FSM); FSM baseline:
+`evals/bird/reports/2026-11-18-fsm-baseline.md`.
 
 Fetches BIRD Mini-Dev, splits its single Postgres dump into one database per BIRD
 DB, and loads four of them into a local Docker Postgres. Python 3.11+, stdlib only.
