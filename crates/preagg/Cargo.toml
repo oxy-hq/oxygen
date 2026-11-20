@@ -2,7 +2,7 @@
 name = "oxy-preagg"
 version.workspace = true
 authors.workspace = true
-description = "The pre-aggregation runtime's domain half: deciding a rollup is stale, rebuilding it (CTAS, pull, manifest, cache), retracting it, and the builder-generation sweep. Below oxy-app; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The pre-aggregation runtime's domain half: deciding a rollup is stale, rebuilding it (CTAS, pull, manifest, cache), retracting it, the builder-generation sweep and the post-promote nudge. Below oxy-app; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -12,12 +12,17 @@ edition.workspace = true
 agentic-automation = { workspace = true }
 agentic-connector = { workspace = true }
 agentic-core = { workspace = true }
+# `scheduler::enqueue_preagg_cycle_for_promote`: the post-promote nudge's enqueue.
+agentic-pipeline = { workspace = true }
 # `RefreshKeyCache`, the Layer-1 refresh-key cache a cycle threads through.
 agentic-semantic = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 # `preagg_ledger` and `preagg_blob`: the cache's node-local and cross-node halves.
 oxy-compile = { workspace = true }
 oxy-shared = { workspace = true }
+# `workspaces` and `semantic_views`: the promote nudge's two reads.
+entity = { workspace = true }
+sea-orm = { workspace = true }
 
 chrono = { workspace = true }
 serde_json = { workspace = true }

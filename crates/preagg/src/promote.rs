@@ -26,7 +26,7 @@
 //!
 //! **The tick's oracle is the builder's source.** This reads the promoted
 //! revision out of Postgres, and the cycle it enqueues resolves its views
-//! through `preagg_executor::load_views` → `resolve_query_scan_source` →
+//! through `oxy-app`'s `preagg_executor::load_views` → `resolve_query_scan_source` →
 //! `scan_dir` on a `WorkspaceManager` that
 //! `preagg_workspace::build_workspace_manager` pins to that same promoted
 //! revision — so a hash detected here is the hash the cycle builds, on every

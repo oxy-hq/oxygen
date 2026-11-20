@@ -103,8 +103,8 @@ fn server_files() -> Vec<(String, String)> {
     // the weekly job, which runs in it through the global driver's loop.
     walk(&manifest.join("../api-billing/src"), &mut out);
     // The pre-aggregation runtime's domain half (2026-11-20), out of
-    // `src/server/preagg_{freshness,generation,rebuild,retract}`; the cycle
-    // runs it in this binary.
+    // `src/server/preagg_{freshness,generation,rebuild,retract,promote}`; the
+    // cycle and the compile worker run it in this binary.
     walk(&manifest.join("../preagg/src"), &mut out);
     // `oxy test`'s event handler and reporters (2026-11-20), out of
     // `src/server/service/eval.rs` and `src/integrations/eval/reporters`.

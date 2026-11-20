@@ -22,7 +22,9 @@ pub mod ide_proxy;
 pub mod metrics_server;
 pub use oxy_app_core::preagg_context;
 pub mod preagg_executor;
-pub mod preagg_promote;
+// The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
+// 2026-11-20; re-exported so `compile_worker` and the prelude keep this path.
+pub use oxy_preagg::promote as preagg_promote;
 pub(crate) mod preagg_workspace;
 pub mod previews;
 pub mod queued_analytics;

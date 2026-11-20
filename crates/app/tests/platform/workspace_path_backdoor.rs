@@ -151,7 +151,7 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../api-billing/src"),
         // The pre-aggregation runtime's domain half, `oxy-preagg` since
         // 2026-11-20 (out of `src/server/preagg_{freshness,generation,
-        // rebuild,retract}`).
+        // rebuild,retract,promote}`).
         manifest.join("../preagg/src"),
         // `oxy test`, its event handler and the reporters, `oxy-api-eval` since
         // 2026-11-20 (out of `src/cli`, `src/server/service`, `src/integrations`).

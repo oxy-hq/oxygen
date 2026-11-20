@@ -298,8 +298,9 @@ fn source_files() -> Vec<(String, String)> {
     let billing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-billing/src");
     walk(&billing, &billing, "../api-billing/src/", &mut out);
     // `oxy-preagg` (2026-11-20): the pre-aggregation runtime's domain half,
-    // out of `src/server/preagg_{freshness,generation,rebuild,retract}`,
-    // walked above before the move.
+    // out of `src/server/preagg_{freshness,generation,rebuild,retract}`, and
+    // the post-promote nudge (`src/server/preagg_promote.rs`) the same day,
+    // walked above before the moves.
     let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
     // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler and the

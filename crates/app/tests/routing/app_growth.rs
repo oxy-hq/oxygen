@@ -60,9 +60,10 @@ const SERVER: &[&str] = &[
     "ide_proxy",
     "metrics_server",
     // The pre-aggregation runtime's domain half (`freshness`, `generation`,
-    // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20.
+    // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20, and the
+    // post-promote nudge (`preagg_promote`, now `oxy_preagg::promote`,
+    // re-exported in `server/mod.rs`) followed it the same day.
     "preagg_executor",
-    "preagg_promote",
     "preagg_workspace",
     "previews",
     "queued_analytics",
