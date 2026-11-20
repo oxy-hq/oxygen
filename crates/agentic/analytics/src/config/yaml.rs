@@ -195,6 +195,22 @@ pub struct AgentConfig {
     /// semantic model and LLM paths (identical to today's behaviour).
     #[serde(default)]
     pub semantic_engine: Option<SemanticEngineConfig>,
+
+    /// Which agent runtime runs this agent: `fsm` (default, the staged
+    /// pipeline) or `react` (the tool-calling loop). A typo is a parse error.
+    #[serde(default)]
+    pub runtime: AgentRuntime,
+}
+
+/// The runtime an `.agentic.yml` opts into.
+#[derive(Default, Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRuntime {
+    /// The staged FSM pipeline.
+    #[default]
+    Fsm,
+    /// The react tool-calling loop.
+    React,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

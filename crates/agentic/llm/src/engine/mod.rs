@@ -32,11 +32,15 @@ use crate::{ContentBlock, LlmClient, StopReason, ThinkingConfig, Usage, pricing,
 
 mod call;
 mod fold;
+mod ids;
 #[cfg(test)]
 mod mock;
 mod render;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ids;
+mod trace;
 
 use call::{Attempt, RetryBudget};
 use fold::{Folded, STATE};
@@ -49,6 +53,10 @@ pub struct EngineConfig {
     pub max_continuations: u32,
     pub max_rate_limit_retries: u32,
     pub max_transient_retries: u32,
+    /// Dynamic system-prompt suffix kept out of the Anthropic cache prefix
+    /// (`Today is YYYY-MM-DD.`); the same value `run_with_tools` takes as
+    /// `ToolLoopConfig::system_date_hint`.
+    pub system_date_hint: Option<String>,
 }
 
 impl Default for EngineConfig {
@@ -58,6 +66,7 @@ impl Default for EngineConfig {
             max_continuations: 2,
             max_rate_limit_retries: retry::MAX_RATE_LIMIT_RETRIES,
             max_transient_retries: retry::MAX_TRANSIENT_RETRIES,
+            system_date_hint: None,
         }
     }
 }
@@ -90,7 +99,12 @@ impl LlmEngine {
     }
 
     /// Decides what to do with a finished stream: return, or stream again.
-    fn next_step(&self, run: &mut TurnRun, f: Folded) -> Result<Step, EngineError> {
+    fn next_step(
+        &self,
+        run: &mut TurnRun,
+        mut f: Folded,
+        t: &Transcript,
+    ) -> Result<Step, EngineError> {
         if f.tool_calls.is_empty() && f.text.trim().is_empty() && has_thinking(&f) {
             if run.continuations >= self.cfg.max_continuations {
                 return Err(EngineError::Fatal(
@@ -110,6 +124,8 @@ impl LlmEngine {
             run.max_tokens = Some(self.cap(run.max_tokens).saturating_mul(2));
             return Ok(Step::Again);
         }
+        let (taken, turn_index) = ids::taken_ids(t);
+        ids::ensure_unique(&mut f, taken, turn_index);
         Ok(Step::Done(self.decision(f, &run.usage)))
     }
 
@@ -243,7 +259,7 @@ impl Engine for LlmEngine {
             let f = self.call_with_retry(&attempt, &mut budget, events).await?;
             run.round += 1;
             add_usage(&mut run.usage, &f.usage);
-            if let Step::Done(d) = self.next_step(&mut run, f)? {
+            if let Step::Done(d) = self.next_step(&mut run, f, transcript)? {
                 return Ok(d);
             }
         }

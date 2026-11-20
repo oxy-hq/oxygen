@@ -45,6 +45,26 @@ Migrator: `AnalyticsMigrator` with tracking table `seaql_migrations_analytics`.
 - `extension::AnalyticsMigrator` — extension table migrations
 - `extension::crud::*` — extension table CRUD
 
+## `react` module (the react runtime pilot)
+
+`src/react/` is the analytics toolset for `agentic-runtime`'s react loop: `search` and
+`read` over the agent's `context:` file snapshot, `query` (raw SQL or semantic) behind a
+read-only gate, the system prompt, answer citations and table rendering. The loop is in
+`agentic-runtime`; `agentic-pipeline::react_run` assembles a run. See
+`internal-docs/agent-engine-runtime.md` (Phase 3 as built).
+
+- **Leak boundary.** `search` and `read` reach only the files the agent's `context:`
+  globs resolve (view, topic, `.sql`, `.md`; no `.test.` names, no `..` or symlink
+  escapes), loaded once into `WorkspaceFiles`. That keeps eval gold SQL and notes out of
+  the agent's reach; never add a tool that reads the workspace outside the snapshot.
+- **Layering.** Analytics knowledge stays here. `agentic-runtime` must not learn
+  anything about analytics: a tool talks to the loop only through `ToolReply` and opaque
+  `Artifact { event_type, payload }` rows, and never through an analytics type.
+- **The read-only gate fails closed.** `query` runs nothing that
+  `read_only::gate` has not accepted as one read statement. A parse error is a refusal,
+  never a fallback. A gate relaxation needs a test that the fake connector never
+  received the write.
+
 ## Rules
 
 - Must NOT import any other domain crate (`agentic-automation`)

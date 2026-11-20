@@ -29,6 +29,7 @@ pub(super) use helpers::{
 mod fanout_worker;
 mod solver;
 pub use solver::AnalyticsSolver;
+pub(crate) use solver::select_thinking;
 
 use std::collections::HashMap;
 

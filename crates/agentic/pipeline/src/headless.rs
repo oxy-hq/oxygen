@@ -21,14 +21,20 @@ use agentic_core::orchestrator::OrchestratorError;
 use crate::agent_definition::{self, AgentDefinitionError};
 use crate::context_documents;
 use crate::platform::{self, PlatformContext};
+use crate::react_run::{
+    self, EVAL_ENTRY_REACT, HARNESS_ENTRY_REACT, ReactPolicy, STREAMING_ENTRY_REACT,
+};
 
 /// What to do with each `Event<AnalyticsEvent>` the pipeline emits during a
 /// headless run. `Drain` discards them (eval / fire-and-forget); `Forward`
 /// forwards them to a caller-owned sink without ever blocking the solver.
 /// `ForwardWithStates` forwards the same way and also wires the orchestrator's
 /// own events (`StateEnter` / `StateExit` / `FanOut` / `SubSpec*`), which
-/// `Forward` never carries — the eval harness's timing breakdown needs them.
-enum EventDestination {
+/// `Forward` never carries on an FSM run — the eval harness's timing breakdown
+/// needs them. On a react run, which only the harness entry starts (see
+/// [`HARNESS_ENTRY_REACT`]), every row that maps to an event is forwarded,
+/// core `done` / `error` included.
+pub(crate) enum EventDestination {
     Drain,
     Forward(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
     ForwardWithStates(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
@@ -73,7 +79,8 @@ pub async fn run_agentic_eval(
     agent_ref: &str,
     prompt: String,
 ) -> Result<String, HeadlessError> {
-    run_agentic_headless(platform, agent_ref, prompt, EventDestination::Drain).await
+    let destination = EventDestination::Drain;
+    run_agentic_headless(platform, agent_ref, prompt, destination, EVAL_ENTRY_REACT).await
 }
 
 /// Run ONE turn against an agent's instructions — no tools, no databases, no FSM.
@@ -171,6 +178,7 @@ pub async fn run_agentic_streaming(
         agent_ref,
         prompt,
         EventDestination::Forward(event_sink),
+        STREAMING_ENTRY_REACT,
     )
     .await
     .map_err(|e| e.to_string())
@@ -181,6 +189,8 @@ pub async fn run_agentic_streaming(
 /// `Done`, ...). Opt-in, so existing streaming surfaces (Slack, documents, the
 /// health probe) keep receiving exactly what they did. Used by the eval
 /// harness to time each pipeline state.
+/// It is the one headless entry that honors `runtime: react`
+/// ([`HARNESS_ENTRY_REACT`]); the others run such an agent on the FSM.
 pub async fn run_agentic_streaming_with_states(
     platform: Arc<dyn PlatformContext>,
     agent_ref: &str,
@@ -192,6 +202,7 @@ pub async fn run_agentic_streaming_with_states(
         agent_ref,
         prompt,
         EventDestination::ForwardWithStates(event_sink),
+        HARNESS_ENTRY_REACT,
     )
     .await
     .map_err(|e| e.to_string())
@@ -205,6 +216,7 @@ async fn run_agentic_headless(
     agent_ref: &str,
     prompt: String,
     destination: EventDestination,
+    react: ReactPolicy,
 ) -> Result<String, HeadlessError> {
     use agentic_analytics::build_analytics_handlers;
     use agentic_core::orchestrator::Orchestrator;
@@ -215,6 +227,10 @@ async fn run_agentic_headless(
 
     let (config, domain_docs) = load_agent(&*platform, agent_ref, &base_dir).await?;
     let ctx = build_context(&*platform, &config, domain_docs, &base_dir).await;
+    if react_run::picks_react(&config, react, agent_ref) {
+        let run = (agent_ref, base_dir.as_path());
+        return react_run::run_headless(&*platform, &config, ctx, run, prompt, destination).await;
+    }
 
     let (solver, automation_files) = config
         .build_solver_with_context(&base_dir, ctx)

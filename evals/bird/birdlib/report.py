@@ -51,6 +51,9 @@ def _stats(records: list[dict], price_in: float, price_out: float, price_cr: flo
         # Latency and rounds average only runs with a measurement (run failures carry zeros).
         "lat_mean": div(sum(secs), m), "lat_median": statistics.median(secs) if secs else 0.0,
         "rounds": div(sum(r.get("llm_rounds", 0) for r in measured), m),
+        # Turns = LLM calls (one `LlmStart` each) for both runtimes; see README "Turns and tokens".
+        "rounds_median": statistics.median([r.get("llm_rounds", 0) for r in measured])
+        if measured else 0.0,
         "input_tokens": tin, "output_tokens": tout,
         "cache_read_tokens": cr, "cache_write_tokens": cw,
         "cost": (tin * price_in + tout * price_out + cr * price_cr + cw * price_cw) / 1e6,
@@ -110,18 +113,25 @@ def failure_kind(cot: str) -> str:
     return "other run error"
 
 
+TITLES = {"fsm": "BIRD Mini-Dev FSM baseline", "react": "BIRD Mini-Dev react runtime"}
+
+
 def render(results: dict, model: str, price_in: float, price_out: float,
-           price_cache_read=None, price_cache_write=None) -> str:
+           price_cache_read=None, price_cache_write=None, runtime: str = "fsm") -> str:
+    from . import settings  # settings imports this module
+    settings.check_declared(results, model, runtime)
     stats = summarize(results, price_in, price_out, price_cache_read, price_cache_write)
     pcr, pcw = cache_prices(price_in, price_cache_read, price_cache_write)
     judges = sorted({_execution(r)["judge_model"] for r in results.values()} - {None})
     t = stats["total"]
     lines = [
-        f"# BIRD Mini-Dev FSM baseline",
+        f"# {TITLES[runtime]}",
         "",
         f"Eval model: `{model}` (${price_in}/M input, ${price_out}/M output, "
         f"${pcr:g}/M cache read, ${pcw:g}/M cache write). "
         f"Judge model: `{', '.join(judges) or 'unknown'}`.",
+        "",
+        settings.describe(results, runtime),
         "",
         f"**Answer accuracy: {_pct(t['answer_acc'])} ({t['correct']}/{t['judged']} judged)**; "
         f"EX {_pct(t['ex'])}, Soft-F1 {_pct(t['soft_f1'])}; {t['graded']} graded, "
@@ -162,7 +172,7 @@ def render(results: dict, model: str, price_in: float, price_out: float,
               + (", ".join(f"{n} {k}" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1]))
                  or "none") + ". They count against answer accuracy and carry no timing or usage."]
     lines += render_timing({db: _execution(results[db])["records"] for db in results},
-                           [r for _, r in recs])
+                           [r for _, r in recs], runtime)
     lines += ["", f"Judge-call tokens are not in the agent token counts or the $ column. "
               f"{t['run_failures']} run failures carry no usage; their entire cost is missing, so $ "
               "is a lower bound."]
@@ -254,7 +264,7 @@ def _timing_row(label: str, s: dict) -> str:
             f"{_pct(sh['startup'])} | {_pct(sh['other'])} ({s['other_runs']} runs) |")
 
 
-def render_timing(per_db: dict, pooled: list[dict]) -> list[str]:
+def render_timing(per_db: dict, pooled: list[dict], runtime: str = "fsm") -> list[str]:
     tot = timing_summary(pooled)
     lines = ["", "## Timing", "",
              "Wall time per question; shares are of summed wall time across timed runs. LLM, tool, "
@@ -267,9 +277,12 @@ def render_timing(per_db: dict, pooled: list[dict]) -> list[str]:
     lines += [_timing_row(db, timing_summary(rs)) for db, rs in per_db.items()]
     lines.append(_timing_row("**total**", tot))
     c = tot["ttft_coverage"]
+    na = f"n/a ({runtime})" if runtime != "fsm" else "n/a"
+    ttft = f"{tot['ttft_mean_ms']:.0f} ms" if c[0] else na
+    stream = f"{tot['stream_mean_ms']:.0f} ms" if c[0] else na
     lines += ["", "### LLM detail (all dbs)", "",
               f"- calls per question {tot['calls_mean']:.1f}; mean {tot['ms_per_call']:.0f} ms per call",
-              f"- TTFT mean {tot['ttft_mean_ms']:.0f} ms and stream mean {tot['stream_mean_ms']:.0f} ms "
+              f"- TTFT mean {ttft} and stream mean {stream} "
               f"per measured round; coverage {c[0]} / {c[1]} rounds (llm_ttft_rounds / llm_calls). "
               "Schema rounds and tool-call-only rounds stream no token and are excluded, so "
               "ttft + stream is below llm_ms. TTFT is a proxy for network + queueing + prefill and "
@@ -298,15 +311,33 @@ def render_timing(per_db: dict, pooled: list[dict]) -> list[str]:
     return lines
 
 
-def load_results(dbs=config.DBS) -> dict:
-    """Read `<db>.test.results.json` and tag each record with its question id (by prompt)."""
+def check_runtime(records: list[dict], runtime: str, where: str) -> None:
+    """Raise when a record names another runtime. A record without the field is `fsm` (the
+    archived baseline). A run that failed before answering never recorded one, so it is exempt."""
+    answered = [r for r in records if not run_failed(r)]
+    for r in answered:
+        got = r.get("runtime") or "fsm"
+        if got != runtime:
+            raise ValueError(f"{where}: record runtime {got!r} is not the requested {runtime!r}")
+    if runtime == "react" and records and not any(r.get("runtime") == "react" for r in answered):
+        raise ValueError(f"{where}: no record is labeled react (every run failed?)")
+
+
+def load_results(runtime: str = "fsm", root: Path = ROOT, dbs=config.DBS) -> dict:
+    """Read `<db>.test.results.json` (fsm) or `<db>.react.test.results.json` (react) from `root`
+    and tag each record with its question id (by prompt)."""
+    if runtime not in cases.RUNTIMES:
+        raise ValueError(f"unknown runtime {runtime!r}")
     ids: dict[str, list[int]] = {}
     for row in cases.load_rows():
         ids.setdefault(row["question"], []).append(row["question_id"])
     out = {}
     for db in dbs:
-        data = json.loads((ROOT / f"{db}.test.results.json").read_text())
-        for r in _execution(data)["records"]:
+        path = Path(root) / cases.test_file(db, runtime).replace(".test.yml", ".test.results.json")
+        data = json.loads(path.read_text())
+        records = _execution(data)["records"]
+        check_runtime(records, runtime, path.name)
+        for r in records:
             c = ids.get(r.get("prompt") or "", [])
             if len(c) == 1:
                 r["question_id"] = c[0]

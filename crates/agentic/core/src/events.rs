@@ -112,6 +112,11 @@ pub enum CoreEvent {
     LlmEnd {
         state: String,
         output_tokens: usize,
+        /// Provider-reported uncached input tokens of this round (cache reads and
+        /// writes excluded). 0 when the emitter does not report it: the FSM tool
+        /// loop reports prompt size on `LlmStart`; the react driver reports it here.
+        #[serde(default)]
+        input_tokens: usize,
         /// Tokens written to the prompt cache on this round (Anthropic only).
         /// Persisted rows from before caching support deserialise as 0.
         #[serde(default)]

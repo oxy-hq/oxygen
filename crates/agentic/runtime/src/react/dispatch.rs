@@ -5,14 +5,14 @@ use std::time::Instant;
 
 use agentic_core::events::CoreEvent;
 use agentic_core::react::{
-    Effect, Entry, EventSink, Tool, ToolCallReq, ToolCx, ToolFailure, ToolReply, Toolset,
+    Artifact, Effect, Entry, EventSink, Tool, ToolCallReq, ToolCx, ToolFailure, ToolReply, Toolset,
 };
 use futures::future::join_all;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::driver::LoopConfig;
-use super::events::{ReactEvent, emit_core, emit_react};
+use super::events::{ReactEvent, emit_core, emit_react, send_row};
 use super::results::persistable_value;
 
 /// Everything a dispatch needs besides the toolset and the calls.
@@ -56,18 +56,44 @@ pub async fn dispatch_turn(
         let started = Instant::now();
         let outcomes = join_all(batch.iter().map(|c| call_one(toolset, c, &cx))).await;
         let duration_ms = started.elapsed().as_millis() as u64;
-        for (call, outcome) in batch.iter().zip(outcomes) {
+        for (call, mut outcome) in batch.iter().zip(outcomes) {
             if let Ok((reply, Effect::Suspend)) = &outcome {
                 out.suspended = Some(suspend_info(call, reply));
                 let call_id = call.id.clone();
                 emit_react(cx.ev, ReactEvent::ReactSuspended { call_id }).await;
                 return out;
             }
+            let artifacts = take_artifacts(&mut outcome);
             out.entries
                 .push(record(cx.ev, call, outcome, duration_ms).await);
+            for a in artifacts.into_iter().filter(artifact_allowed) {
+                send_row(cx.ev, (a.event_type, a.payload)).await;
+            }
         }
     }
     out
+}
+
+/// The artifacts of a successful call, taken so they emit after its result rows.
+fn take_artifacts(o: &mut CallOutcome) -> Vec<Artifact> {
+    o.as_mut()
+        .map(|(r, _)| std::mem::take(&mut r.artifacts))
+        .unwrap_or_default()
+}
+
+/// An artifact may not pose as a row only the runtime writes: a `done` or
+/// `error` would end the run twice, a `react_*` would forge the loop's own
+/// record. Such an artifact is dropped, with a warning.
+fn artifact_allowed(a: &Artifact) -> bool {
+    let t = a.event_type.as_str();
+    let reserved = t == "done" || t == "error" || t.starts_with("react_");
+    if reserved {
+        tracing::warn!(
+            event_type = t,
+            "tool artifact uses a reserved event type; dropped"
+        );
+    }
+    !reserved
 }
 
 /// Maximal runs of consecutive parallel-safe calls; every other call alone.

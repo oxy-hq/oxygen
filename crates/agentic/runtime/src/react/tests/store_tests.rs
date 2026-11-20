@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::super::AskUser;
 use super::super::testkit::*;
 use super::super::{
     Budgets, InMemoryStore, LoopConfig, ReactEvent, StoreError, TranscriptStore, rebuild, run_loop,

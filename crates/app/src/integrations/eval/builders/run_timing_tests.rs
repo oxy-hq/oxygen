@@ -36,6 +36,7 @@ fn llm_end(state: &str, duration_ms: u64) -> Ev {
     core(CoreEvent::LlmEnd {
         state: state.into(),
         output_tokens: 7,
+        input_tokens: 0,
         cache_creation_input_tokens: 2,
         cache_read_input_tokens: 3,
         duration_ms,
@@ -240,6 +241,7 @@ fn sub_spec_events_imply_fanout() {
     let tagged = core(CoreEvent::LlmEnd {
         state: "solving".into(),
         output_tokens: 1,
+        input_tokens: 0,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
         duration_ms: 50,

@@ -36,6 +36,9 @@ struct SavedRecord {
     llm_rounds: u32,
     final_sql: Option<String>,
     timing: Option<RunTiming>,
+    /// Kept so a regraded react file still reads as react.
+    runtime: Option<String>,
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -128,6 +131,8 @@ fn actual_from(record: SavedRecord) -> TargetOutput {
         final_sql: record.final_sql,
         llm_rounds: record.llm_rounds,
         timing: record.timing,
+        runtime: record.runtime,
+        model: record.model,
         ..Default::default()
     }
 }
@@ -148,7 +153,7 @@ mod tests {
             r#"{"cot": "x", "choice": "FAIL", "score": 0.0, "prompt": "How many?",
                 "expected": "SELECT 1", "actual_output": "Three.", "answer_text": "Three.",
                 "duration_ms": 12.5, "input_tokens": 7, "output_tokens": 3, "llm_rounds": 2,
-                "final_sql": "SELECT 3", "judge_verdict": "INCORRECT"}"#,
+                "final_sql": "SELECT 3", "judge_verdict": "INCORRECT", "runtime": "react", "model": "m-1"}"#,
         );
         let (outputs, errors) = parse_outputs(&text).unwrap();
         assert!(errors.is_empty());
@@ -160,6 +165,8 @@ mod tests {
             (7, 3, 2)
         );
         assert_eq!(actual.duration_ms, 12.5);
+        assert_eq!(actual.runtime.as_deref(), Some("react"));
+        assert_eq!(actual.model.as_deref(), Some("m-1"));
         assert_eq!(expected.task_description.as_deref(), Some("How many?"));
         assert_eq!(expected.final_sql.as_deref(), Some("SELECT 1"));
     }

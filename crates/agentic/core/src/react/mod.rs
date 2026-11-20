@@ -7,5 +7,5 @@ pub mod tool;
 pub mod transcript;
 
 pub use engine::{Decision, Engine, EngineError, EventSink, ToolCallReq, Turn, TurnUsage};
-pub use tool::{Effect, ResultHandle, Tool, ToolCx, ToolFailure, ToolReply, Toolset};
+pub use tool::{Artifact, Effect, ResultHandle, Tool, ToolCx, ToolFailure, ToolReply, Toolset};
 pub use transcript::{Entry, PriorTurn, Transcript};

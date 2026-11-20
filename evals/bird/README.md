@@ -51,6 +51,42 @@ cd evals/bird && ../../target/debug/oxy test financial.test.yml --case 0 --forma
   `gen-cases --runs 3` and does not commit that.
 - BIRD's `evidence` field is never written into a test file: the agent gets the bare question.
 
+## The react arm and the comparison
+
+`<db>.react.agentic.yml` is its FSM file plus `runtime: react` (a test checks that nothing else
+differs). `gen-cases --runtime react` writes only `<db>.react.test.yml` (suite `bird-react-<db>`,
+same cases); the FSM files stay as they are. Run it the same way, from `evals/bird`:
+
+```bash
+../../target/debug/oxy test financial.react.test.yml --output-json   # -> financial.react.test.results.json
+python3 evals/bird/bird.py report --runtime react --dir <dir> --model ... --price-in ... --price-out ...
+python3 evals/bird/bird.py compare --fsm-dir <dir> --react-dir <dir> --model ... --price-in ... --price-out ...
+```
+
+- Every record carries `runtime` (`react` once the run's `RuntimeSelected` event is seen, else
+  `fsm`). A record without the field is `fsm`, which is how the archived baseline loads.
+  `load_results` raises when a record disagrees with the requested runtime; a run that failed
+  before answering records none and is exempt.
+- A react run's answer SQL is its `AnswerResult` (the result the answer cites), which arrives
+  after the core `Done`; it pins `final_sql`. The FSM keeps the last successful query.
+- Turns and tokens: "turns" is the LLM calls per question (one `LlmStart` each) for both runtimes:
+  an FSM question runs several states and tool rounds, a react question one call per loop turn.
+  Median turns is over runs that produced a measurement. Output and cache tokens come from
+  `LlmEnd` in both. Input: a react `LlmEnd` carries the provider's uncached input (`input_tokens`),
+  and the react `LlmStart` estimate is not counted; the FSM reports prompt size on `LlmStart`
+  (an estimate on the first round, then the previous round's provider uncached input plus its
+  output plus an estimate for the tool results), so the two inputs are close, not identical in
+  meaning. The react `LlmEnd.duration_ms` is the model call's wall time (retry backoff included), so the
+  Timing section works; TTFT shows `n/a (react)` when no round streamed a token.
+- Each record carries the `model` its LLM calls reported. `report` and `compare` print it, the
+  judge model, and the `thinking:` keys in the agent files and `config.yml` (none set means the
+  solving state's default, adaptive; read from this checkout, not from the run). `report` and
+  `compare` refuse when any recorded model differs from `--model`; `compare` also refuses when the
+  arms' recorded models differ. Archived records have none and read `unrecorded`, which passes
+  (it cannot be checked) and is printed.
+- `compare` prints per-db and pooled tables (answer accuracy, EX, Soft-F1, median latency,
+  median turns, tokens, cost) and the question ids whose judge verdicts differ.
+
 ## Regrade without re-running the agent
 
 A change to the grader (judge prompt, gold-SQL timeout, SKIP rule) is applied to an execution-graded

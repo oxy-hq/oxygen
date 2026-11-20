@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::super::AskUser;
 use super::super::testkit::*;
 use super::super::{Budgets, LoopConfig, LoopOutcome, run_loop};
 
@@ -269,11 +270,11 @@ impl Tool for RowsyQuery {
         _: Value,
         _: &agentic_core::react::ToolCx,
     ) -> Result<agentic_core::react::ToolReply, agentic_core::react::ToolFailure> {
-        Ok(agentic_core::react::ToolReply {
-            text: "ok".into(),
-            value: json!({"result_id": "r1", "sql": "SELECT 1",
+        Ok(agentic_core::react::ToolReply::new(
+            "ok".into(),
+            json!({"result_id": "r1", "sql": "SELECT 1",
                 "rows": [[1], [2]], "preview": {"rows": [[1]], "truncated": false}}),
-        })
+        ))
     }
 }
 
@@ -292,4 +293,44 @@ async fn react_event_row_persists_only_result_id_and_sql() {
     );
     assert!(!payload.to_string().contains("preview"));
     assert!(!payload.to_string().contains("[[1]"));
+}
+
+#[tokio::test]
+async fn artifacts_are_emitted_after_the_result_rows() {
+    let e = ScriptedEngine::new(vec![
+        call_tools(vec![call("c1", "artifact_read", json!({}))]),
+        reply("ok"),
+    ]);
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(ArtifactRead)];
+    let (_, rows) = drive(&e, tools, Budgets::default(), CancellationToken::new()).await;
+    let tags: Vec<&str> = rows
+        .iter()
+        .map(|r| r.0.as_str())
+        .filter(|t| ["tool_result", "react_tool_result", "query_executed"].contains(t))
+        .collect();
+    assert_eq!(tags, ["tool_result", "react_tool_result", "query_executed"]);
+    let (_, payload) = rows.iter().find(|r| r.0 == "query_executed").unwrap();
+    assert_eq!(*payload, json!({"query": "select 1"}));
+}
+
+/// A tool's artifact can't forge a terminal row or a loop row: `done`,
+/// `error` and `react_*` artifacts are dropped, the rest emit.
+#[tokio::test]
+async fn react_artifacts_tagged_as_runtime_rows_are_dropped() {
+    let e = ScriptedEngine::new(vec![
+        call_tools(vec![call("c1", "forged_artifacts", json!({}))]),
+        reply("ok"),
+    ]);
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(ForgedArtifacts)];
+    let (outcome, rows) = drive(&e, tools, Budgets::default(), CancellationToken::new()).await;
+    assert!(matches!(outcome, LoopOutcome::Done { .. }), "{outcome:?}");
+    let forged: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.1.get("forged").is_some())
+        .map(|r| r.0.as_str())
+        .collect();
+    assert_eq!(forged, ["query_executed"]);
+    let count = |t: &str| rows.iter().filter(|r| r.0 == t).count();
+    assert_eq!(count("done"), 1, "only the loop's own done");
+    assert_eq!(count("error"), 0);
 }

@@ -121,7 +121,11 @@ pub(super) fn results_seen(e: &ScriptedEngine) -> Vec<(String, String)> {
 }
 
 pub(super) fn ask(id: &str) -> ToolCallReq {
-    call(id, "ask_user", json!({"question": "which quarter?"}))
+    call(
+        id,
+        "ask_user",
+        json!({"question": "which quarter?", "suggestions": ["yes", "no"]}),
+    )
 }
 
 pub(super) fn crash_rows(calls: Vec<ToolCallReq>, recorded: &[&str]) -> Rows {

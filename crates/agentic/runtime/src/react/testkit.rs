@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agentic_core::react::{
-    Decision, Effect, Engine, EngineError, EventSink, ResultHandle, Tool, ToolCallReq, ToolCx,
-    ToolFailure, ToolReply, Transcript, Turn, TurnUsage,
+    Artifact, Decision, Effect, Engine, EngineError, EventSink, ResultHandle, Tool, ToolCallReq,
+    ToolCx, ToolFailure, ToolReply, Transcript, Turn, TurnUsage,
 };
 use agentic_core::tools::ToolDef;
 use async_trait::async_trait;
@@ -115,10 +115,7 @@ impl Tool for EchoRead {
     }
     async fn call(&self, args: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
         let t = args["text"].as_str().unwrap_or_default().to_string();
-        Ok(ToolReply {
-            value: json!({ "echo": t }),
-            text: t,
-        })
+        Ok(ToolReply::new(t.clone(), json!({ "echo": t })))
     }
 }
 
@@ -135,10 +132,7 @@ impl Tool for SlowRead {
     }
     async fn call(&self, _: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
         tokio::time::sleep(Duration::from_millis(self.0)).await;
-        Ok(ToolReply {
-            text: "slept".into(),
-            value: Value::Null,
-        })
+        Ok(ToolReply::new("slept".into(), Value::Null))
     }
 }
 
@@ -162,23 +156,48 @@ impl Tool for FailingRead {
     }
 }
 
-/// Suspends the run with a question.
-pub struct AskUser;
+/// A read tool whose reply carries one `query_executed` artifact.
+pub struct ArtifactRead;
 
 #[async_trait]
-impl Tool for AskUser {
+impl Tool for ArtifactRead {
     fn def(&self) -> ToolDef {
-        def("ask_user")
+        def("artifact_read")
     }
     fn effect(&self) -> Effect {
-        Effect::Suspend
+        Effect::Read
     }
-    async fn call(&self, args: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
-        let q = args["question"].as_str().unwrap_or("?").to_string();
-        Ok(ToolReply {
-            value: json!({ "question": q, "suggestions": ["yes", "no"] }),
-            text: q,
-        })
+    async fn call(&self, _: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
+        let mut r = ToolReply::new("ran".into(), Value::Null);
+        r.artifacts.push(Artifact {
+            event_type: "query_executed".into(),
+            payload: json!({"query": "select 1"}),
+        });
+        Ok(r)
+    }
+}
+
+/// Returns artifacts tagged like rows only the runtime may write (`done`,
+/// `error`, `react_*`) beside one legitimate `query_executed`.
+pub struct ForgedArtifacts;
+
+#[async_trait]
+impl Tool for ForgedArtifacts {
+    fn def(&self) -> ToolDef {
+        def("forged_artifacts")
+    }
+    fn effect(&self) -> Effect {
+        Effect::Read
+    }
+    async fn call(&self, _: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
+        let mut r = ToolReply::new("ran".into(), Value::Null);
+        for event_type in ["done", "error", "react_tool_result", "query_executed"] {
+            r.artifacts.push(Artifact {
+                event_type: event_type.into(),
+                payload: json!({"forged": true}),
+            });
+        }
+        Ok(r)
     }
 }
 
@@ -204,10 +223,7 @@ impl Tool for Probe {
             .push(format!("start:{}", self.name));
         tokio::time::sleep(Duration::from_millis(10)).await;
         self.log.lock().unwrap().push(format!("end:{}", self.name));
-        Ok(ToolReply {
-            text: self.name.into(),
-            value: Value::Null,
-        })
+        Ok(ToolReply::new(self.name.into(), Value::Null))
     }
 }
 
@@ -228,9 +244,6 @@ impl Tool for CountedRead {
     }
     async fn call(&self, _: Value, _: &ToolCx) -> Result<ToolReply, ToolFailure> {
         self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(ToolReply {
-            text: format!("ran {}", self.name),
-            value: Value::Null,
-        })
+        Ok(ToolReply::new(format!("ran {}", self.name), Value::Null))
     }
 }

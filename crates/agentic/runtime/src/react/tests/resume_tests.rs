@@ -5,6 +5,7 @@ use agentic_core::human_input::SuspendedRunData;
 use agentic_core::react::{Decision, Effect};
 use serde_json::json;
 
+use super::super::AskUser;
 use super::super::testkit::*;
 use super::super::{LoopOutcome, SuspensionInput, suspension_data};
 use super::resume_support::*;
@@ -203,4 +204,20 @@ fn suspension_data_round_trips_through_its_serde() {
         (back.original_input.as_str(), back.trace_id.as_str()),
         ("revenue?", "t1")
     );
+}
+
+#[tokio::test]
+async fn artifacts_are_not_reemitted_on_resume() {
+    let ts = toolset(vec![Arc::new(ArtifactRead), Arc::new(AskUser)]);
+    let e1 = ScriptedEngine::new(vec![call_tools(vec![
+        call("c1", "artifact_read", json!({})),
+        ask("c2"),
+    ])]);
+    let (out, rows) = first_run(&ts, &e1).await;
+    assert!(matches!(out, LoopOutcome::Suspended { .. }));
+    assert_eq!(count(&rows, "query_executed"), 1);
+    let e2 = ScriptedEngine::new(vec![reply("done")]);
+    let (out, new_rows) = resume(&ts, &e2, rows, Some("A"), 30).await;
+    assert!(matches!(out, LoopOutcome::Done { .. }));
+    assert_eq!(count(&new_rows, "query_executed"), 0);
 }

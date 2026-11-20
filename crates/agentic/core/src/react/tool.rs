@@ -49,6 +49,29 @@ pub struct ToolCx {
 pub struct ToolReply {
     pub text: String,
     pub value: Value,
+    /// Opaque event rows the runtime emits after this call's result rows,
+    /// only when the call succeeded. Never re-emitted on resume.
+    #[serde(default)]
+    pub artifacts: Vec<Artifact>,
+}
+
+impl ToolReply {
+    /// A reply with no artifacts.
+    pub fn new(text: String, value: Value) -> Self {
+        Self {
+            text,
+            value,
+            artifacts: Vec::new(),
+        }
+    }
+}
+
+/// An event row a tool asks the runtime to emit: `event_type` and `payload`
+/// are opaque to the runtime (it writes them as `(event_type, payload)`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Artifact {
+    pub event_type: String,
+    pub payload: Value,
 }
 
 /// A failed tool call, rendered back to the model so it can correct itself.

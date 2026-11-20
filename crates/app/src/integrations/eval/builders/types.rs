@@ -267,6 +267,12 @@ pub struct Record {
     /// Per-question wall-time breakdown (agentic target runs only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timing: Option<oxy::exec_types::RunTiming>,
+    /// Which agent runtime answered: `react` or `fsm`. Absent in records written before the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    /// The model the agent's LLM calls reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl std::fmt::Display for Record {

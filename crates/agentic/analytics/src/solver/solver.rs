@@ -604,24 +604,17 @@ impl AnalyticsSolver {
         state: &str,
         default: ThinkingConfig,
     ) -> ThinkingConfig {
-        // Extended thinking override takes absolute precedence.
-        if self.extended_thinking_active
-            && let Some(global) = &self.global_thinking
-        {
-            return global.clone();
-        }
-        if let Some(t) = self
+        let per_state = self
             .state_configs
             .get(state)
             .and_then(|c| c.thinking.as_ref())
-            .map(|t| t.to_thinking_config())
-        {
-            return t;
-        }
-        if let Some(global) = &self.global_thinking {
-            return global.clone();
-        }
-        default
+            .map(|t| t.to_thinking_config());
+        select_thinking(
+            self.extended_thinking_active,
+            per_state,
+            self.global_thinking.as_ref(),
+            default,
+        )
     }
 
     /// Return the max tool rounds for a state, falling back to `default`.
@@ -631,6 +624,22 @@ impl AnalyticsSolver {
             .and_then(|c| c.max_retries)
             .unwrap_or(default)
     }
+}
+
+/// The thinking precedence every FSM state uses, shared with the react
+/// runtime (`AgentConfig::solving_thinking`): an active extended-thinking
+/// override wins outright, then the state's own config, then the global
+/// config, then `default`.
+pub(crate) fn select_thinking(
+    extended_active: bool,
+    per_state: Option<ThinkingConfig>,
+    global: Option<&ThinkingConfig>,
+    default: ThinkingConfig,
+) -> ThinkingConfig {
+    if extended_active && let Some(global) = global {
+        return global.clone();
+    }
+    per_state.or_else(|| global.cloned()).unwrap_or(default)
 }
 
 #[cfg(test)]

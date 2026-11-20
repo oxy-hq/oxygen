@@ -88,6 +88,8 @@ pub(super) async fn run_target(
     );
     out.final_sql = usage.final_sql;
     out.llm_rounds = usage.llm_rounds;
+    out.runtime = usage.runtime;
+    out.model = usage.model;
     out.timing = Some(timing.finish(run_end));
     Ok(vec![out])
 }
@@ -109,31 +111,83 @@ fn spawn_event_consumer(
 }
 
 /// What the target step reads off the event stream besides timing.
-#[derive(Default)]
 struct RunUsage {
     input_tokens: i32,
     output_tokens: i32,
     final_sql: Option<String>,
     llm_rounds: u32,
+    /// `react` once a `RuntimeSelected` event is seen; every other run is the FSM.
+    runtime: Option<String>,
+    /// The model of the first `LlmEnd` that names one.
+    model: Option<String>,
+    /// An `AnswerResult` fixed `final_sql`; later queries no longer replace it.
+    sql_pinned: bool,
+}
+
+impl Default for RunUsage {
+    fn default() -> Self {
+        Self {
+            input_tokens: 0,
+            output_tokens: 0,
+            final_sql: None,
+            llm_rounds: 0,
+            runtime: Some("fsm".to_string()),
+            model: None,
+            sql_pinned: false,
+        }
+    }
 }
 
 impl RunUsage {
     fn observe(&mut self, ev: &AgenticEvent<AnalyticsEvent>) {
-        let (di, dobj) = usage_delta(ev);
+        let react = self.runtime.as_deref() == Some("react");
+        let (di, dobj) = usage_delta(ev, react);
+        if let AgenticEvent::Core(CoreEvent::LlmEnd { model, .. }) = ev
+            && self.model.is_none()
+            && !model.is_empty()
+        {
+            self.model = Some(model.clone());
+        }
         self.input_tokens = self.input_tokens.saturating_add(di);
         self.output_tokens = self.output_tokens.saturating_add(dobj);
-        last_successful_sql(ev, &mut self.final_sql);
+        self.observe_runtime_and_answer(ev);
+        if !self.sql_pinned {
+            last_successful_sql(ev, &mut self.final_sql);
+        }
         self.llm_rounds += count_llm_round(ev);
+    }
+
+    /// `RuntimeSelected` names the runtime; `AnswerResult` (which follows the core
+    /// `Done`) is the react run's own answer SQL and pins `final_sql`.
+    fn observe_runtime_and_answer(&mut self, ev: &AgenticEvent<AnalyticsEvent>) {
+        match ev {
+            AgenticEvent::Domain(AnalyticsEvent::RuntimeSelected { runtime }) => {
+                self.runtime = Some(runtime.clone());
+            }
+            AgenticEvent::Domain(AnalyticsEvent::AnswerResult { sql, .. }) => {
+                self.final_sql = Some(sql.clone());
+                self.sql_pinned = true;
+            }
+            _ => {}
+        }
     }
 }
 
 /// Per-event token delta `(input, output)` — the same match arms target.rs uses,
 /// extracted so it is unit-testable without a live pipeline.
-fn usage_delta(ev: &AgenticEvent<AnalyticsEvent>) -> (i32, i32) {
+///
+/// The FSM reports input on `LlmStart.prompt_tokens` (its `LlmEnd.input_tokens` is 0).
+/// A react run reports the provider's uncached input on `LlmEnd.input_tokens`; its
+/// `LlmStart` size is a characters/4 estimate and is not counted.
+fn usage_delta(ev: &AgenticEvent<AnalyticsEvent>, react: bool) -> (i32, i32) {
     if let AgenticEvent::Core(core) = ev {
         match core {
-            CoreEvent::LlmStart { prompt_tokens, .. } => (*prompt_tokens as i32, 0),
-            CoreEvent::LlmEnd { output_tokens, .. } => (0, *output_tokens as i32),
+            CoreEvent::LlmStart { prompt_tokens, .. } if !react => (*prompt_tokens as i32, 0),
+            CoreEvent::LlmEnd {
+                input_tokens,
+                output_tokens,
+                ..
+            } => (*input_tokens as i32, *output_tokens as i32),
             _ => (0, 0),
         }
     } else {
@@ -178,6 +232,8 @@ fn build_target_output(
         final_sql: None,
         llm_rounds: 0,
         timing: None,
+        runtime: None,
+        model: None,
     }
 }
 
@@ -241,5 +297,115 @@ mod tests {
             .map(count_llm_round)
             .sum();
         assert_eq!(rounds, 3);
+    }
+
+    fn selected() -> AgenticEvent<AnalyticsEvent> {
+        AgenticEvent::Domain(AnalyticsEvent::RuntimeSelected {
+            runtime: "react".into(),
+        })
+    }
+
+    fn answer(sql: &str) -> AgenticEvent<AnalyticsEvent> {
+        AgenticEvent::Domain(AnalyticsEvent::AnswerResult {
+            result_id: "r2".into(),
+            sql: sql.into(),
+        })
+    }
+
+    fn done() -> AgenticEvent<AnalyticsEvent> {
+        AgenticEvent::Core(CoreEvent::Done {
+            trace_id: "t".into(),
+        })
+    }
+
+    fn observe_all(events: &[AgenticEvent<AnalyticsEvent>]) -> RunUsage {
+        let mut usage = RunUsage::default();
+        events.iter().for_each(|e| usage.observe(e));
+        usage
+    }
+
+    #[test]
+    fn answer_result_pins_final_sql() {
+        let usage = observe_all(&[
+            selected(),
+            executed("a", true),
+            answer("b"),
+            executed("c", true),
+        ]);
+        assert_eq!(usage.final_sql.as_deref(), Some("b"));
+        assert_eq!(usage.runtime.as_deref(), Some("react"));
+    }
+
+    /// `AnswerResult` follows the core `Done`; the consumer must keep reading.
+    #[tokio::test]
+    async fn answer_result_after_done_still_pins_final_sql() {
+        let (tx, rx) = mpsc::channel(8);
+        let consumer = spawn_event_consumer(rx, Instant::now());
+        for ev in [selected(), executed("a", true), done(), answer("b")] {
+            tx.send(ev).await.unwrap();
+        }
+        drop(tx);
+        let (usage, _) = consumer.await.unwrap();
+        assert_eq!(usage.final_sql.as_deref(), Some("b"));
+        assert_eq!(usage.runtime.as_deref(), Some("react"));
+    }
+
+    #[test]
+    fn fsm_run_keeps_last_successful_sql() {
+        let usage = observe_all(&[
+            executed("a", true),
+            executed("b", false),
+            executed("c", true),
+        ]);
+        assert_eq!(usage.final_sql.as_deref(), Some("c"));
+        assert_eq!(usage.runtime.as_deref(), Some("fsm"));
+    }
+
+    #[test]
+    fn react_turn_records_provider_usage_not_the_estimate() {
+        let usage = observe_all(&[
+            selected(),
+            AgenticEvent::Core(CoreEvent::LlmStart {
+                state: "react".into(),
+                prompt_tokens: 99_999,
+                sub_spec_index: None,
+            }),
+            AgenticEvent::Core(CoreEvent::LlmEnd {
+                state: "react".into(),
+                output_tokens: 22,
+                input_tokens: 111,
+                cache_creation_input_tokens: 44,
+                cache_read_input_tokens: 3333,
+                duration_ms: 5,
+                model: "m-1".into(),
+                sub_spec_index: None,
+            }),
+        ]);
+        assert_eq!((usage.input_tokens, usage.output_tokens), (111, 22));
+        assert_eq!(usage.model.as_deref(), Some("m-1"));
+        assert_eq!(usage.llm_rounds, 1);
+    }
+
+    #[test]
+    fn fsm_input_still_comes_from_llm_start() {
+        let usage = observe_all(&[
+            AgenticEvent::Core(CoreEvent::LlmStart {
+                state: "s".into(),
+                prompt_tokens: 500,
+                sub_spec_index: None,
+            }),
+            AgenticEvent::Core(CoreEvent::LlmEnd {
+                state: "s".into(),
+                output_tokens: 7,
+                input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                duration_ms: 5,
+                model: "m-0".into(),
+                sub_spec_index: None,
+            }),
+        ]);
+        assert_eq!((usage.input_tokens, usage.output_tokens), (500, 7));
+        assert_eq!(usage.model.as_deref(), Some("m-0"));
     }
 }

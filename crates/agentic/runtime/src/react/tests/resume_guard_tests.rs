@@ -8,6 +8,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::super::AskUser;
 use super::super::testkit::*;
 use super::super::{InMemoryStore, LoopCx, LoopOutcome, ReactEvent, ResumeInput, resume_loop};
 use super::resume_support::*;

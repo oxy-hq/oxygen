@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::super::AskUser;
 use super::super::testkit::*;
 use super::super::{Budgets, LoopConfig, LoopOutcome, ReactEvent, run_loop};
 
@@ -157,7 +158,7 @@ async fn react_a_suspend_tool_returns_suspended_with_no_result_and_no_terminal_r
     let e = ScriptedEngine::new(vec![call_tools(vec![call(
         "c1",
         "ask_user",
-        json!({"question": "which?"}),
+        json!({"question": "which?", "suggestions": ["yes", "no"]}),
     )])]);
     let (out, rows) = drive(&e).await;
     match out {
@@ -182,4 +183,34 @@ async fn react_a_suspend_tool_returns_suspended_with_no_result_and_no_terminal_r
             call_id: "c1".into()
         })
     );
+}
+
+#[tokio::test]
+async fn react_llm_end_carries_the_turn_usage_and_the_decide_time() {
+    use agentic_core::react::TurnUsage;
+    let usage = TurnUsage {
+        input_tokens: 111,
+        output_tokens: 22,
+        cache_read_tokens: 3333,
+        cache_write_tokens: 44,
+        cost_usd: None,
+        model: "m-1".into(),
+    };
+    let Ok(agentic_core::react::Decision::Reply(mut t)) = reply("hi") else {
+        unreachable!()
+    };
+    t.usage = usage;
+    let e = ScriptedEngine::new(vec![Ok(agentic_core::react::Decision::Reply(t))]).with_delay(20);
+    let (_, rows) = drive(&e).await;
+    let end = rows
+        .iter()
+        .find(|(t, _)| t == "llm_end")
+        .expect("an llm_end row");
+    let p = &end.1;
+    assert_eq!(p["input_tokens"], 111);
+    assert_eq!(p["output_tokens"], 22);
+    assert_eq!(p["cache_read_input_tokens"], 3333);
+    assert_eq!(p["cache_creation_input_tokens"], 44);
+    assert_eq!(p["model"], "m-1");
+    assert!(p["duration_ms"].as_u64().unwrap() >= 20, "{p}");
 }

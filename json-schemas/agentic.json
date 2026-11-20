@@ -31,6 +31,14 @@
     "llm": {
       "$ref": "#/definitions/LlmConfigYaml"
     },
+    "runtime": {
+      "description": "Which agent runtime runs this agent: `fsm` (default, the staged pipeline) or `react` (the tool-calling loop). A typo is a parse error.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AgentRuntime"
+        }
+      ]
+    },
     "semantic_engine": {
       "description": "Optional vendor semantic engine configuration.\n\nWhen absent, the solver routes exclusively through the internal semantic model and LLM paths (identical to today's behaviour).",
       "anyOf": [
@@ -82,6 +90,25 @@
     }
   },
   "definitions": {
+    "AgentRuntime": {
+      "description": "The runtime an `.agentic.yml` opts into.",
+      "oneOf": [
+        {
+          "description": "The staged FSM pipeline.",
+          "type": "string",
+          "enum": [
+            "fsm"
+          ]
+        },
+        {
+          "description": "The react tool-calling loop.",
+          "type": "string",
+          "enum": [
+            "react"
+          ]
+        }
+      ]
+    },
     "ExtendedThinkingConfigYaml": {
       "description": "Extended thinking mode preset configuration.\n\nOverrides the default model and/or thinking config when the user activates \"extended thinking\" mode from the UI.",
       "type": "object",

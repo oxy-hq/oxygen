@@ -99,12 +99,13 @@ impl LlmEngine {
             },
         );
         async {
+            let started = std::time::Instant::now();
             let stream = self
                 .client
                 .observed_stream(
                     &span,
                     a.system,
-                    "",
+                    self.cfg.system_date_hint.as_deref().unwrap_or(""),
                     a.messages,
                     a.tools,
                     &self.cfg.thinking,
@@ -112,7 +113,10 @@ impl LlmEngine {
                     a.max_tokens,
                 )
                 .await?;
-            fold::fold(stream, ev).await
+            let f = fold::fold(stream, ev).await?;
+            let ms = started.elapsed().as_millis() as u64;
+            super::trace::record_round(&f, self.client.provider().model_name(), ms);
+            Ok(f)
         }
         .instrument(span.clone())
         .await

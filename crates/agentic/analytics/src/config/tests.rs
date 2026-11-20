@@ -584,3 +584,22 @@ fn resolve_vendor_falls_back_to_ref_then_default() {
     );
     assert_eq!(resolve_vendor(None, None), &LlmVendor::Anthropic);
 }
+
+// ── runtime key ───────────────────────────────────────────────────────────
+
+#[test]
+fn runtime_defaults_to_fsm() {
+    let config = AgentConfig::from_yaml("instructions: hi\n").unwrap();
+    assert_eq!(config.runtime, AgentRuntime::Fsm);
+}
+
+#[test]
+fn runtime_react_parses() {
+    let config = AgentConfig::from_yaml("runtime: react\n").unwrap();
+    assert_eq!(config.runtime, AgentRuntime::React);
+}
+
+#[test]
+fn runtime_typo_fails_to_parse() {
+    assert!(AgentConfig::from_yaml("runtime: reakt\n").is_err());
+}

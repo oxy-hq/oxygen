@@ -80,14 +80,14 @@ use crate::engine::{EngineError, SemanticEngine};
 #[cfg(test)]
 use crate::llm::ReasoningEffort;
 use crate::llm::{
-    AnthropicProvider, DEFAULT_MODEL, LlmClient, OpenAiCompatProvider, OpenAiProvider,
-    ThinkingConfig,
+    AnthropicProvider, LlmClient, OpenAiCompatProvider, OpenAiProvider, ThinkingConfig,
 };
 use crate::semantic::SemanticCatalog;
 use crate::solver::AnalyticsSolver;
 use crate::validation::Validator;
 
 pub mod error;
+mod llm_client;
 pub mod yaml;
 
 #[cfg(test)]
@@ -97,8 +97,8 @@ mod tests;
 
 pub use error::ConfigError;
 pub use yaml::{
-    AgentConfig, ExtendedThinkingConfigYaml, LlmConfigYaml, LlmVendor, SemanticEngineConfig,
-    StateConfig, ThinkingConfigYaml, VendorKind,
+    AgentConfig, AgentRuntime, ExtendedThinkingConfigYaml, LlmConfigYaml, LlmVendor,
+    SemanticEngineConfig, StateConfig, ThinkingConfigYaml, VendorKind,
 };
 
 /// Files bucketed by type after glob expansion.
@@ -429,6 +429,28 @@ pub(crate) fn resolve_timezone(
     Ok(parse_timezone(agent_tz)?.or(project_tz))
 }
 
+/// Expand one `context:` glob pattern to the paths it matches.
+///
+/// A relative pattern resolves against `base_dir`. Shared by
+/// [`AgentConfig::resolve_context`] and the react runtime's workspace
+/// snapshot so the two cannot disagree about which files a pattern reaches.
+pub(crate) fn resolve_context_pattern(
+    base_dir: &Path,
+    pattern: &str,
+) -> Result<Vec<PathBuf>, ConfigError> {
+    // Make the pattern absolute by prepending base_dir when relative.
+    let abs_pattern = if Path::new(pattern).is_absolute() {
+        pattern.to_owned()
+    } else {
+        base_dir.join(pattern).to_string_lossy().into_owned()
+    };
+    let mut paths = Vec::new();
+    for entry in glob::glob(&abs_pattern)? {
+        paths.push(entry.map_err(|e| ConfigError::Io(e.into_error()))?);
+    }
+    Ok(paths)
+}
+
 impl AgentConfig {
     /// Parse an [`AgentConfig`] from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, ConfigError> {
@@ -453,15 +475,7 @@ impl AgentConfig {
         let mut ctx = ResolvedContext::default();
 
         for pattern in &self.context {
-            // Make the pattern absolute by prepending base_dir when relative.
-            let abs_pattern = if Path::new(pattern).is_absolute() {
-                pattern.clone()
-            } else {
-                base_dir.join(pattern).to_string_lossy().into_owned()
-            };
-
-            for entry in glob::glob(&abs_pattern)? {
-                let path = entry.map_err(|e| ConfigError::Io(e.into_error()))?;
+            for path in resolve_context_pattern(base_dir, pattern)? {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 if name.ends_with(".procedure.yml")
@@ -580,83 +594,22 @@ impl AgentConfig {
                 .map_err(ConfigError::SemanticError)?
         };
 
-        // 5. Build LLM client.
-        //
-        // Precedence (highest → lowest):
-        //   a. Explicit `llm:` fields in the agent YAML.
-        //   b. Project model resolved from config.yml via BuildContext.
-        //   c. Environment variables / built-in defaults.
-        //
-        // When `llm.model` is absent in the YAML the project model config
-        // (vendor, model_ref, api_key, base_url) is used wholesale.
-        let pmi = &build_ctx.project_model_info;
-        let model = self
-            .llm
-            .model
-            .as_deref()
-            .or(pmi.as_ref().map(|m| m.model.as_str()))
-            .unwrap_or(DEFAULT_MODEL)
-            .to_string();
-
-        // Vendor precedence: explicit `llm.vendor` → ref's vendor → default.
-        //
-        // An explicitly-written `llm.vendor` always wins, including over a
-        // `ref`. That combination is the only way to inherit a config.yml
-        // model's managed `key_var` secret and `api_url` while overriding the
-        // wire protocol — needed for OpenAI-compatible gateways that serve
-        // `/chat/completions` but not `/responses` (LangDock and similar).
-        //
-        // This used to be unexpressible: `llm.vendor` was a defaulted
-        // `LlmVendor`, so "user wrote anthropic" and "field absent" were
-        // indistinguishable and the code conservatively let the ref's vendor
-        // win whenever a ref was present — silently ignoring the field its own
-        // docs said would override. `Option` makes the distinction real.
-        let effective_vendor =
-            resolve_vendor(self.llm.vendor.as_ref(), pmi.as_ref().map(|m| &m.vendor));
-
-        // API key: YAML → project resolved key → vendor env var.
-        let api_key = self
-            .llm
-            .api_key
-            .clone()
-            .or_else(|| pmi.as_ref().and_then(|m| m.api_key.clone()))
-            .or_else(|| match effective_vendor {
-                LlmVendor::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
-                LlmVendor::OpenAi | LlmVendor::OpenAiCompat => std::env::var("OPENAI_API_KEY").ok(),
-            })
-            .unwrap_or_default();
-
-        // Base URL: YAML → project resolved URL.
-        let effective_base_url = self
-            .llm
-            .base_url
-            .as_deref()
-            .or(pmi.as_ref().and_then(|m| m.base_url.as_deref()));
-
-        // Azure fields and custom headers come from the project model config
-        // (not overridable per-state).
-        let azure_deployment_id = pmi.as_ref().and_then(|m| m.azure_deployment_id.as_deref());
-        let azure_api_version = pmi.as_ref().and_then(|m| m.azure_api_version.as_deref());
-        let headers = pmi.as_ref().and_then(|m| m.headers.as_ref());
-
-        let spec = LlmClientSpec {
-            vendor: effective_vendor,
-            api_key: &api_key,
-            model: &model,
-            base_url: effective_base_url,
-            azure_deployment_id,
-            azure_api_version,
-            headers,
-        };
+        // 5. Build LLM client: the agent's YAML `llm:` fields over the project
+        //    model over env vars / defaults (`effective_model_info`, which the
+        //    react runtime reads too).
+        let effective = self.effective_model_info(build_ctx.project_model_info.as_ref());
+        let spec = effective.client_spec();
         let client = build_llm_client(spec).with_genai_context(build_ctx.genai.clone());
 
         // Build per-state clients for states that declare a `model:` override.
         // Inherits vendor / api_key / base_url / headers / azure from the global config.
         let state_clients: std::collections::HashMap<String, LlmClient> = self
             .states
-            .iter()
-            .filter_map(|(state_name, state_cfg)| {
-                state_cfg.model.as_deref().map(|state_model| {
+            .keys()
+            .filter_map(|state_name| {
+                // The UI override replaces these clients wholesale below
+                // (`with_client_override`); see `AgentConfig::state_model`.
+                self.state_own_model(state_name).map(|state_model| {
                     let c = build_llm_client(LlmClientSpec {
                         model: state_model,
                         ..spec
@@ -717,9 +670,8 @@ impl AgentConfig {
         .await;
 
         // Wire global thinking config: llm.thinking > top-level thinking.
-        let effective_thinking = self.llm.thinking.as_ref().or(self.thinking.as_ref());
-        if let Some(thinking_cfg) = effective_thinking {
-            solver = solver.with_global_thinking(thinking_cfg.to_thinking_config());
+        if let Some(thinking) = self.global_thinking() {
+            solver = solver.with_global_thinking(thinking);
         }
 
         // Apply runtime overrides from the UI "extended thinking" mode toggle.

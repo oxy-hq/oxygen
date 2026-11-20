@@ -31,6 +31,14 @@ pub enum QuerySource {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
 pub enum AnalyticsEvent {
+    /// Which runtime is running this question. Emitted once, first, by a
+    /// react run; an FSM run emits nothing.
+    RuntimeSelected { runtime: String },
+
+    /// The result the answer rests on: the primary cited result, else the
+    /// last cited one. Emitted once when the run is done.
+    AnswerResult { result_id: String, sql: String },
+
     /// The schema catalog was resolved: these tables will be referenced.
     SchemaResolved { tables: Vec<String> },
 

@@ -1,0 +1,277 @@
+[
+ {
+  "errors": [
+   "agentic pipeline asked a clarifying question: This request needs a nested, multi-grain computation that the structured query builder can't express faithfully in one pass. Specifically it requires: (1) pre-aggregating each account's average post-transaction balance and keeping only accounts > 1,000 (a HAVING filter on a sub-aggregate), then (2) mapping those accounts' branch districts, filtering to districts with inhabitants > 100,000, and (3) returning per gender four different-shaped results \u2014 a district count, the most-populous district(s) WITH ties, average salary, and average urban-inhabitant ratio. The tie-aware \"most populous district\" and the mixed grains can't be produced by a single flat measures/dimensions spec. How would you like to proceed?</prompt>\n<parameter name=\"suggestions\">[\"Hand this off to be answered with custom/raw SQL (it can't be done with the structured builder)\", \"Simplify: approximate 'most-populous district' as a single top-1 row (drop tie handling) so it fits the structured builder\", \"Break it into several separate structured queries (one per metric per gender) and I'll assemble the results\", \"Relax the per-account average-balance filter to a simpler top-level balance filter\"]",
+   "agentic pipeline asked a clarifying question: The data distinguishes two kinds of \"withdrawal\": VYDAJ (all debit / outgoing / money-leaving transactions, the general \"amount withdrawn\") and VYBER (cash withdrawals only \u2014 money physically taken out in cash). Which should \"withdrawal transactions\" and \"total amount withdrawn\" mean for this analysis?",
+   "agentic pipeline asked a clarifying question: This profiling request needs several things the structured query builder can't express faithfully: (a) \"top-3 loan amounts including ties\" requires window ranking (DENSE_RANK), not a plain LIMIT; (b) \"number of loans in the region across ALL clients\" and \"average of the region's district average salaries\" are region-level aggregates at a broader grain than the female-client loan rows (joining through the female filter would undercount); (c) per-row derived fields \u2014 total payments (monthly\u00d7duration), interest paid, the High/Medium/Low income category, and the completed age on 2026-10-09 with the birthday adjustment \u2014 require row-level CASE/arithmetic; and (d) \"total deposits\" needs a filtered sum of credit transactions. None of these fit the measure/dimension/filter spec, so I can't guarantee correct numbers here. How would you like to proceed?</prompt>\n<parameter name=\"suggestions\">[\"This needs a hand-written SQL query \u2014 please route it to a raw-SQL path instead of the structured builder\", \"Give me a simplified version: the 3 largest female-held loans (LIMIT 3, no tie handling) with the base loan/account/district/region/client fields only, and I'll compute the derived and region-level fields myself\", \"Keep only the fields the spec can handle correctly and explicitly drop the region-level aggregates, income category, and age\", \"Yes, drop tie handling and approximate region loan count via the female-filtered path \u2014 accuracy caveats are acceptable\"]",
+   "agentic pipeline asked a clarifying question: This request needs a few things the semantic layer can't express directly \u2014 most importantly a *distinct count of external counterparty accounts* that is deduplicated across BOTH the transactions table (transfers to/from other banks) AND the standing-orders table (payments to other banks), plus a dense-rank over that derived count. The available catalog only exposes pre-aggregated sums/counts (e.g. total received, total withdrawn, loan count) and raw dimensions \u2014 it has no distinct-counterparty measure, no cross-view dedup, and no window-ranking. To give you the most useful answer within these limits, how would you like to scope the \"external counterparties\"?</prompt>\n<parameter name=\"suggestions\">[\"Count distinct counterparty accounts from the transactions table only (PREVOD transfers to/from other banks) \u2014 the closest single-view answer\", \"Count distinct recipient accounts from standing orders only (payments to other banks)\", \"I need the true deduplicated union across both transactions and orders with dense rank \u2014 understood this requires custom SQL beyond the semantic layer\", \"Just give me per-gold-card-account totals (received, withdrawn, loan count, district/region) without the counterparty count/ranking\"]",
+   "agentic pipeline asked a clarifying question: This profile needs per-account logic that the structured query builder can't express in a single query \u2014 specifically: (a) two different time windows in the same row (card/loan counts \"as of 1996-12-31\" vs. transaction activity \"during 1997\"); (b) directional sums of the transaction amount (money-in on PRIJEM vs. money-out on VYDAJ+VYBER) as two separate columns; (c) a derived loan-standing label with no/defaulted/repaying/paid-off priority logic; (d) owner age in completed years at 1996-12-31; (e) a gapped RANK() over 1997 peak balance with an ascending-account-id tiebreak; and (f) \"0 if none\" requiring outer joins from an account spine. These require hand-written SQL (window functions, CASE, conditional aggregation), not the semantic breakdown builder. How would you like to proceed?</prompt>\n<parameter name=\"suggestions\">[\"Hand off to a custom/raw-SQL path \u2014 this report needs window functions and conditional aggregation the builder can't produce\", \"Give me a simpler, correct subset the builder CAN do (e.g. per-account 1997 transaction count + total money-in + money-out, Tabor only), and I'll compute the rest elsewhere\", \"Confirm 'Tabor' = district.district_name 'Tabor' and that an account 'held at the Tabor branch' means account.district_id = Tabor's district_id, then proceed with the subset\"]"
+  ],
+  "metrics": [
+   {
+    "type": "Execution",
+    "ex": 0.10869565,
+    "soft_f1": 0.2159294,
+    "answer_acc": 0.39130434,
+    "judge_errors": 0,
+    "judge_model": "claude-opus-4-8",
+    "graded": 3,
+    "skipped": 0,
+    "records": [
+     {
+      "cot": "result sets differ (agent 1 rows, gold 1 rows)",
+      "choice": "FAIL",
+      "score": 0.0,
+      "prompt": "Among female clients living in the district with the lowest average salary, give the account IDs of the oldest client and the difference between the highest and lowest district-average salaries.",
+      "expected": "WITH oldest AS (SELECT c.client_id FROM client AS c JOIN district AS d ON d.district_id = c.district_id WHERE c.gender = 'F' AND d.a11 = (SELECT MIN(a11) FROM district) ORDER BY c.birth_date NULLS FIRST, c.client_id NULLS FIRST LIMIT 1) SELECT DISTINCT a.account_id, (SELECT MAX(a11) - MIN(a11) FROM district) FROM oldest AS o JOIN disp AS x ON x.client_id = o.client_id JOIN account AS a ON a.account_id = x.account_id ORDER BY a.account_id NULLS FIRST",
+      "actual_output": "The oldest female client in the lowest-salary district (district 67, average salary 8,110) has **account ID 2,679**, born on **August 4, 1919**.\n\nThe gap between the highest and lowest district-average salaries is **4,431** (12,541 \u2212 8,110).",
+      "duration_ms": 73516.255208,
+      "input_tokens": 30037,
+      "output_tokens": 4709,
+      "soft_f1": 0.0,
+      "llm_rounds": 10,
+      "final_sql": "SELECT\n  \"disp\".\"account_id\" AS \"disp__account_id\",\n  \"client\".\"district_id\" AS \"client__district_id\",\n  \"client_district\".\"a11\" AS \"client_district__average_salary\",\n  date_trunc('day', \"client\".\"birth_date\") AS \"client__birth_date__day\"\nFROM\n  client AS \"client\"\nLEFT JOIN district AS \"client_district\" ON \"client\".\"district_id\" = \"client_district\".\"district_id\"\nLEFT JOIN disp AS \"disp\" ON \"client\".\"client_id\" = \"disp\".\"client_id\"\nWHERE\n  \"client\".\"gender\" = 'F'\n  AND \"disp\".\"type\" = 'OWNER'\nORDER BY\n  \"client_district__average_salary\" ASC, \"client__birth_date__day\" ASC\nLIMIT 1",
+      "judge_verdict": "INCORRECT",
+      "judge_reason": "The answer gives account ID 2,679 but the gold account_id is 3214; the salary difference 4431 matches but the account ID does not.",
+      "answer_text": "The oldest female client in the lowest-salary district (district 67, average salary 8,110) has **account ID 2,679**, born on **August 4, 1919**.\n\nThe gap between the highest and lowest district-average salaries is **4,431** (12,541 \u2212 8,110).",
+      "gold_preview": "account_id | ?column?\n3214 | 4431",
+      "timing": {
+       "wall_ms": 73513,
+       "startup_ms": 312,
+       "llm_calls": 10,
+       "llm_ms": 72516,
+       "llm_ttft_rounds": 1,
+       "llm_ttft_ms": 1441,
+       "llm_stream_ms": 1252,
+       "output_tokens": 4709,
+       "cache_read_input_tokens": 81198,
+       "cache_creation_input_tokens": 29620,
+       "llm_by_state": {
+        "clarifying": {
+         "calls": 2,
+         "ms": 9961
+        },
+        "interpreting": {
+         "calls": 1,
+         "ms": 2693
+        },
+        "specifying": {
+         "calls": 7,
+         "ms": 59862
+        }
+       },
+       "tool_calls": 12,
+       "tool_ms": 574,
+       "tools_by_name": {
+        "compile_semantic_query": {
+         "calls": 5,
+         "ms": 14,
+         "errors": 0
+        },
+        "sample_columns": {
+         "calls": 4,
+         "ms": 551,
+         "errors": 0
+        },
+        "search_automations": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "search_catalog": {
+         "calls": 2,
+         "ms": 9,
+         "errors": 0
+        }
+       },
+       "query_count": 2,
+       "query_ms": 118,
+       "query_failures": 0,
+       "states": {
+        "clarifying": 9951,
+        "executing": 118,
+        "interpreting": 2692,
+        "specifying": 60466
+       },
+       "fanout": true,
+       "other_ms": null
+      }
+     },
+     {
+      "cot": "result sets match",
+      "choice": "PASS",
+      "score": 1.0,
+      "prompt": "In which district did the female client born on 1976-01-29 open her account?",
+      "expected": "SELECT DISTINCT d.a2 FROM client AS c JOIN disp AS x ON x.client_id = c.client_id JOIN account AS a ON a.account_id = x.account_id JOIN district AS d ON d.district_id = a.district_id WHERE c.gender = 'F' AND c.birth_date = '1976-01-29' ORDER BY d.a2 NULLS FIRST",
+      "actual_output": "The female client born on 1976-01-29 opened her account in the **Tachov** district.",
+      "duration_ms": 26030.717374999997,
+      "input_tokens": 14895,
+      "output_tokens": 1314,
+      "soft_f1": 1.0,
+      "llm_rounds": 6,
+      "final_sql": "SELECT\n  \"district\".\"a2\" AS \"district__district_name\"\nFROM\n  district AS \"district\"\nLEFT JOIN account AS \"account\" ON \"district\".\"district_id\" = \"account\".\"district_id\"\nLEFT JOIN disp AS \"disp\" ON \"account\".\"account_id\" = \"disp\".\"account_id\"\nLEFT JOIN client AS \"client\" ON \"disp\".\"client_id\" = \"client\".\"client_id\"\nWHERE\n  \"client\".\"gender\" = 'F'\n  AND \"client\".\"birth_date\" = '1976-01-29'\n  AND \"disp\".\"type\" = 'OWNER'\nLIMIT 1",
+      "judge_verdict": "CORRECT",
+      "judge_reason": "The answer states \"Tachov\", matching the gold row value.",
+      "answer_text": "The female client born on 1976-01-29 opened her account in the **Tachov** district.",
+      "gold_preview": "a2\nTachov",
+      "timing": {
+       "wall_ms": 26030,
+       "startup_ms": 258,
+       "llm_calls": 6,
+       "llm_ms": 25677,
+       "llm_ttft_rounds": 1,
+       "llm_ttft_ms": 1040,
+       "llm_stream_ms": 365,
+       "output_tokens": 1314,
+       "cache_read_input_tokens": 48870,
+       "cache_creation_input_tokens": 13004,
+       "llm_by_state": {
+        "clarifying": {
+         "calls": 3,
+         "ms": 15265
+        },
+        "interpreting": {
+         "calls": 1,
+         "ms": 1405
+        },
+        "specifying": {
+         "calls": 2,
+         "ms": 9007
+        }
+       },
+       "tool_calls": 5,
+       "tool_ms": 4,
+       "tools_by_name": {
+        "compile_semantic_query": {
+         "calls": 1,
+         "ms": 1,
+         "errors": 0
+        },
+        "propose_semantic_query": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "sample_columns": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "search_automations": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "search_catalog": {
+         "calls": 1,
+         "ms": 3,
+         "errors": 0
+        }
+       },
+       "query_count": 1,
+       "query_ms": 98,
+       "query_failures": 0,
+       "states": {
+        "clarifying": 15256,
+        "executing": 99,
+        "interpreting": 1405,
+        "specifying": 9011
+       },
+       "fanout": false,
+       "other_ms": 0
+      }
+     },
+     {
+      "cot": "result sets differ (agent 1 rows, gold 1 rows)",
+      "choice": "PASS",
+      "score": 0.0,
+      "prompt": "Among south Bohemia districts, in the one with the largest population, what percentage of resident clients are male? Round to two decimals.",
+      "expected": "WITH chosen AS (SELECT district_id FROM district WHERE a3 = 'south Bohemia' ORDER BY CASE WHEN (a4) IS NULL THEN NULL ELSE CAST(COALESCE(SUBSTRING(CAST((a4) AS TEXT) FROM '^[[:space:]]*[+-]?[0-9]+'), '0') AS BIGINT) END DESC NULLS LAST, district_id NULLS FIRST LIMIT 1) SELECT ROUND(CAST(100.0 * SUM(CASE WHEN c.gender = 'M' THEN 1 ELSE 0 END) / NULLIF(NULLIF(COUNT(*), 0), 0) AS DECIMAL), 2) FROM client AS c JOIN chosen AS d ON d.district_id = c.district_id",
+      "actual_output": "In **Ceske Budejovice**, the most populous district in south Bohemia, **40.00%** of resident clients are male \u2014 18 of the 45 total clients.",
+      "duration_ms": 32173.546041999998,
+      "input_tokens": 15721,
+      "output_tokens": 1985,
+      "soft_f1": 0.0,
+      "llm_rounds": 7,
+      "final_sql": "SELECT\n  \"client_district\".\"a2\" AS \"client_district__district_name\",\n  COUNT(CASE WHEN (\"client\".\"gender\") = 'M' THEN 1 END) AS \"client__male_client_count\",\n  COUNT(*) AS \"client__client_count\",\n  SUM(CAST(\"client_district\".a4 AS bigint)) AS \"client_district__total_inhabitants\"\nFROM\n  client AS \"client\"\nLEFT JOIN district AS \"client_district\" ON \"client\".\"district_id\" = \"client_district\".\"district_id\"\nWHERE\n  \"client_district\".\"a3\" = 'south Bohemia'\nGROUP BY\n  1\nORDER BY\n  \"client_district__total_inhabitants\" DESC\nLIMIT 1",
+      "judge_verdict": "CORRECT",
+      "judge_reason": "The answer gives 40.00%, matching the gold value of 40.",
+      "answer_text": "In **Ceske Budejovice**, the most populous district in south Bohemia, **40.00%** of resident clients are male \u2014 18 of the 45 total clients.",
+      "gold_preview": "round\n40",
+      "timing": {
+       "wall_ms": 32173,
+       "startup_ms": 276,
+       "llm_calls": 7,
+       "llm_ms": 31669,
+       "llm_ttft_rounds": 1,
+       "llm_ttft_ms": 1133,
+       "llm_stream_ms": 676,
+       "output_tokens": 1985,
+       "cache_read_input_tokens": 59037,
+       "cache_creation_input_tokens": 14215,
+       "llm_by_state": {
+        "clarifying": {
+         "calls": 3,
+         "ms": 14535
+        },
+        "interpreting": {
+         "calls": 1,
+         "ms": 1809
+        },
+        "specifying": {
+         "calls": 3,
+         "ms": 15325
+        }
+       },
+       "tool_calls": 6,
+       "tool_ms": 190,
+       "tools_by_name": {
+        "compile_semantic_query": {
+         "calls": 1,
+         "ms": 2,
+         "errors": 0
+        },
+        "propose_semantic_query": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "sample_columns": {
+         "calls": 2,
+         "ms": 178,
+         "errors": 0
+        },
+        "search_automations": {
+         "calls": 1,
+         "ms": 0,
+         "errors": 0
+        },
+        "search_catalog": {
+         "calls": 1,
+         "ms": 10,
+         "errors": 0
+        }
+       },
+       "query_count": 1,
+       "query_ms": 28,
+       "query_failures": 0,
+       "states": {
+        "clarifying": 14547,
+        "executing": 29,
+        "interpreting": 1808,
+        "specifying": 15510
+       },
+       "fanout": false,
+       "other_ms": 10
+      }
+     }
+    ]
+   }
+  ],
+  "stats": {
+   "total_attempted": 46,
+   "answered": 41
+  },
+  "test_name": "financial.test.yml"
+ }
+]

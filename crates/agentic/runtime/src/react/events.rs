@@ -81,16 +81,18 @@ pub(super) async fn emit_react(ev: &EventSink, e: ReactEvent) {
 }
 
 /// `react_turn` plus the `LlmEnd` the existing UI transforms read.
-pub(super) async fn emit_turn(ev: &EventSink, turn: &Turn) {
+/// `duration_ms` is the model call's wall time (retries included).
+pub(super) async fn emit_turn(ev: &EventSink, turn: &Turn, duration_ms: u64) {
     let u = &turn.usage;
     emit_core(
         ev,
         CoreEvent::LlmEnd {
             state: "react".into(),
             output_tokens: u.output_tokens as usize,
+            input_tokens: u.input_tokens as usize,
             cache_creation_input_tokens: u.cache_write_tokens as usize,
             cache_read_input_tokens: u.cache_read_tokens as usize,
-            duration_ms: 0,
+            duration_ms,
             model: u.model.clone(),
             sub_spec_index: None,
         },

@@ -32,6 +32,10 @@ pub struct TargetOutput {
     pub llm_rounds: u32,
     /// Wall-time breakdown of the run (agentic eval target only).
     pub timing: Option<super::RunTiming>,
+    /// Agent runtime that produced the run (`react` / `fsm`); eval target only.
+    pub runtime: Option<String>,
+    /// Model the run's LLM calls reported (first `LlmEnd`); eval target only.
+    pub model: Option<String>,
 }
 
 #[derive(Debug)]
@@ -94,6 +98,8 @@ impl TryFrom<OutputGetter<'_>> for TargetOutput {
             final_sql: None,
             llm_rounds: 0,
             timing: None,
+            runtime: None,
+            model: None,
         })
     }
 }

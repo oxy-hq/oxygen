@@ -1,6 +1,10 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from birdlib import report
+from birdlib import compare, report
 
 
 def rec(choice="PASS", verdict="CORRECT", qid=1, ms=1000.0, tin=100, tout=10, f1=1.0, rounds=2,
@@ -163,5 +167,171 @@ class MeasuredRunTests(unittest.TestCase):
         self.assertIn("| 2 | 20.0 / 20.0 | 6.0 |", out)
 
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+def with_runtime(records, runtime):
+    return [dict(r, runtime=runtime) for r in records]
+
+
+class RuntimeTests(unittest.TestCase):
+    def write(self, tmp, name, records):
+        (Path(tmp) / name).write_text(json.dumps(results(records)))
+
+    def test_load_results_rejects_a_runtime_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write(tmp, "financial.react.test.results.json",
+                       with_runtime([rec(qid=1)], "fsm"))
+            with self.assertRaises(ValueError):
+                report.load_results("react", Path(tmp), dbs=["financial"])
+            self.write(tmp, "financial.test.results.json", with_runtime([rec(qid=1)], "react"))
+            with self.assertRaises(ValueError):
+                report.load_results("fsm", Path(tmp), dbs=["financial"])
+
+    def test_react_file_loads_and_failed_runs_are_exempt(self):
+        failed = rec(qid=2, choice="FAIL", verdict="INCORRECT", ms=0.0, rounds=0)
+        failed["cot"] = "Run failed with error: x"
+        failed["answer_text"] = None  # a failed run never recorded a runtime
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write(tmp, "financial.react.test.results.json",
+                       with_runtime([rec(qid=1)], "react") + [failed])
+            out = report.load_results("react", Path(tmp), dbs=["financial"])
+        self.assertEqual(len(report._execution(out["financial"])["records"]), 2)
+
+    def test_archived_records_without_runtime_load_as_fsm(self):
+        with mock.patch.object(report.cases, "load_rows", return_value=[]):
+            res = report.load_results("fsm", FIXTURES / "fsm_archive", dbs=["financial"])
+        recs = report._execution(res["financial"])["records"]
+        self.assertTrue(recs and all("runtime" not in r for r in recs))
+        s = report.summarize(res)["total"]
+        self.assertEqual((s["correct"], s["judged"]), (2, 3))
+        # The same records, read as react, are a mismatch.
+        with self.assertRaises(ValueError):
+            report.check_runtime(recs, "react", "archive")
+
+    def test_render_title_follows_runtime(self):
+        res = {"a": results([rec()])}
+        self.assertIn("# BIRD Mini-Dev FSM baseline", report.render(res, "m", 1.0, 1.0))
+        react = {"a": results(with_model([rec()], "m"))}  # react records carry their model
+        self.assertIn("# BIRD Mini-Dev react runtime",
+                      report.render(react, "m", 1.0, 1.0, runtime="react"))
+
+
+class CompareTests(unittest.TestCase):
+    def test_compare_lists_differing_verdicts(self):
+        fsm = {"financial": results([rec(qid=1), rec(qid=2), rec(qid=3, rounds=4)])}
+        react = {"financial": results(with_model([
+            rec(qid=1), rec(qid=2, choice="FAIL", verdict="INCORRECT"), rec(qid=3, rounds=8)],
+            "m"))}
+        self.assertEqual(compare.differing(fsm, react),
+                         [("financial", 2, ["CORRECT"], ["INCORRECT"])])
+        out = compare.render(fsm, react, "m", 1.0, 1.0)
+        self.assertIn("(1)", out)
+        self.assertIn("- financial 2: fsm CORRECT, react INCORRECT", out)
+        self.assertNotIn("financial 1:", out)
+        for label in ("answer accuracy", "EX", "Soft-F1", "median latency s", "median turns",
+                      "tokens in / out", "cost", "### pooled", "### financial"):
+            self.assertIn(label, out)
+
+    def test_median_turns_per_arm(self):
+        fsm = {"a": results([rec(qid=i, rounds=r) for i, r in enumerate([2, 4, 10])])}
+        react = {"a": results(with_model([rec(qid=i, rounds=r)
+                                          for i, r in enumerate([6, 8, 9])], "m"))}
+        out = compare.render(fsm, react, "m", 1.0, 1.0)
+        self.assertIn("| median turns | 4.0 | 8.0 |", out)
+
+
+def with_model(records, model):
+    return [dict(r, model=model) for r in records]
+
+
+class SettingsTests(unittest.TestCase):
+    def test_compare_refuses_when_the_arms_ran_different_models(self):
+        fsm = {"a": results(with_model([rec(qid=1)], "model-x"))}
+        react = {"a": results(with_model([rec(qid=1)], "model-y"))}
+        with self.assertRaisesRegex(ValueError, "different models"):
+            compare.check_same_model(fsm, react)
+        with self.assertRaises(ValueError):  # render refuses too, through the declared model
+            compare.render(fsm, react, "model-x", 1.0, 1.0)
+
+    def test_compare_prints_models_thinking_and_judge(self):
+        fsm = {"a": results(with_model([rec(qid=1)], "model-x"))}
+        react = {"a": results(with_model([rec(qid=1)], "model-x"))}
+        out = compare.render(fsm, react, "model-x", 1.0, 1.0)
+        self.assertIn("Recorded model: `model-x`", out)
+        self.assertIn("Thinking:", out)
+        self.assertIn("Judge model: `judge-x`", out)
+        self.assertIn("excluded from the median", out)
+
+    def test_unrecorded_baseline_is_printed_when_react_matches_the_declared_model(self):
+        fsm = {"a": results([rec(qid=1)])}
+        react = {"a": results(with_model([rec(qid=1)], "model-y"))}
+        self.assertIn("unrecorded", compare.render(fsm, react, "model-y", 1.0, 1.0))
+
+    def test_compare_refuses_a_recorded_model_that_is_not_the_declared_one(self):
+        archive = {"a": results([rec(qid=1)])}  # unrecorded
+        react = {"a": results(with_model([rec(qid=1)], "model-x"))}
+        with self.assertRaisesRegex(ValueError, "react: .*model-x.*--model is 'model-y'"):
+            compare.render(archive, react, "model-y", 1.0, 1.0)
+        with self.assertRaisesRegex(ValueError, "fsm: "):
+            compare.render(react, archive, "model-y", 1.0, 1.0)
+
+    def test_a_react_record_without_a_model_is_refused(self):
+        unrecorded = {"a": results([rec(qid=1)])}
+        fsm = {"a": results(with_model([rec(qid=1)], "model-x"))}
+        with self.assertRaisesRegex(ValueError, "react: .*unrecorded"):
+            compare.render(fsm, unrecorded, "model-x", 1.0, 1.0)
+        with self.assertRaisesRegex(ValueError, "react: .*unrecorded"):
+            report.render(unrecorded, "model-x", 1.0, 1.0, runtime="react")
+        report.render(unrecorded, "model-x", 1.0, 1.0, runtime="fsm")  # the archived baseline
+
+    def test_report_refuses_a_recorded_model_that_is_not_the_declared_one(self):
+        res = {"a": results(with_model([rec()], "model-x"))}
+        for runtime in ("fsm", "react"):
+            with self.assertRaisesRegex(ValueError, "--model is 'model-y'"):
+                report.render(res, "model-y", 1.0, 1.0, runtime=runtime)
+        report.render(res, "model-x", 1.0, 1.0)
+
+    def test_thinking_line_says_where_it_comes_from(self):
+        out = compare.render({"a": results(with_model([rec()], "m"))},
+                             {"a": results(with_model([rec()], "m"))}, "m", 1.0, 1.0)
+        self.assertIn("solving state:", out)
+        self.assertIn("from the agent files in this checkout", out)
+
+    def test_report_prints_the_recorded_model(self):
+        res = {"a": results(with_model([rec()], "model-x"))}
+        self.assertIn("Recorded model: `model-x`", report.render(res, "model-x", 1.0, 1.0))
+
+    def test_an_all_failed_react_file_raises(self):
+        failed = rec(qid=1, choice="FAIL", verdict="INCORRECT", ms=0.0, rounds=0)
+        failed["cot"] = "Run failed with error: x"
+        failed["answer_text"] = None
+        with self.assertRaisesRegex(ValueError, "labeled react"):
+            report.check_runtime([failed], "react", "f")
+        report.check_runtime([failed], "fsm", "f")
+
+    def test_react_timing_without_ttft_is_n_a(self):
+        r = dict(rec(qid=1), model="m")
+        r["timing"] = timing(ttft_rounds=0, ttft=0, stream=0)
+        out = report.render({"a": results([r])}, "m", 1.0, 1.0, runtime="react")
+        self.assertIn("TTFT mean n/a (react)", out)
+
+
+class CliTests(unittest.TestCase):
+    def test_a_refusal_prints_an_error_and_exits_2(self):
+        import contextlib
+        import io
+
+        import bird
+        err = io.StringIO()
+        argv = ["compare", "--fsm-dir", "x", "--react-dir", "y", "--model", "m",
+                "--price-in", "1", "--price-out", "1"]
+        with mock.patch("birdlib.compare.run", side_effect=ValueError("arms differ")), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(bird.main(argv), 2)
+        self.assertEqual(err.getvalue(), "error: arms differ\n")
+
+
 if __name__ == "__main__":
     unittest.main()
+

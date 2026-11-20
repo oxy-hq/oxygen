@@ -149,6 +149,8 @@ pub(super) async fn run_solver(
             answer_text: None,
             gold_preview: None,
             timing: None,
+            runtime: None,
+            model: None,
         });
     }
 

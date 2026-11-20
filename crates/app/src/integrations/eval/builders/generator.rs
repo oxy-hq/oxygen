@@ -54,6 +54,8 @@ pub(super) async fn run_generator(
             final_sql: case.expected_sql.clone(),
             llm_rounds: 0,
             timing: None,
+            runtime: None,
+            model: None,
         };
         for _ in 0..runs {
             all_targets.push(AgenticInput {

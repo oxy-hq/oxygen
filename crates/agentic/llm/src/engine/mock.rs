@@ -24,6 +24,7 @@ pub(super) enum Round {
 pub(super) struct Seen {
     pub messages: Vec<Vec<Value>>,
     pub max_tokens: Vec<Option<u32>>,
+    pub date_suffixes: Vec<String>,
 }
 
 /// Pops one [`Round`] per `stream` call and records what it was sent.
@@ -37,7 +38,7 @@ impl LlmProvider for MockProvider {
     async fn stream(
         &self,
         _system: &str,
-        _system_date_suffix: &str,
+        system_date_suffix: &str,
         messages: &[Value],
         _tools: &[ToolDef],
         _thinking: &ThinkingConfig,
@@ -48,6 +49,7 @@ impl LlmProvider for MockProvider {
             let mut seen = self.seen.lock().unwrap();
             seen.messages.push(messages.to_vec());
             seen.max_tokens.push(max_tokens_override);
+            seen.date_suffixes.push(system_date_suffix.to_string());
         }
         let round = self.rounds.lock().unwrap().pop_front();
         match round {

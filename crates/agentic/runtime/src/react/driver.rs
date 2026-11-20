@@ -105,11 +105,13 @@ pub(super) async fn run_loop_from(
         }
         // Raced against cancel: a cancelled run must not wait out a stream
         // and its retries, nor write the turn it was deciding.
+        let decide_start = std::time::Instant::now();
         let decided = tokio::select! {
             biased;
             _ = cancel.cancelled() => return LoopOutcome::Cancelled,
             r = engine.decide(&transcript, &defs, ev) => r,
         };
+        let decide_ms = decide_start.elapsed().as_millis() as u64;
         let decision = match decided {
             Ok(d) => d,
             Err(e) => {
@@ -119,12 +121,12 @@ pub(super) async fn run_loop_from(
         };
         match decision {
             Decision::Reply(turn) => {
-                emit_turn(ev, &turn).await;
+                emit_turn(ev, &turn, decide_ms).await;
                 return finish(ev, cfg, LoopOutcome::Done { answer: turn }).await;
             }
             Decision::CallTools(turn) => {
                 meter.charge(&turn.usage);
-                emit_turn(ev, &turn).await;
+                emit_turn(ev, &turn, decide_ms).await;
                 let calls = turn.tool_calls.clone();
                 transcript.entries.push(Entry::Assistant(turn));
                 let cx = DispatchCx { cfg, ev, cancel };

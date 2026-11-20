@@ -15,7 +15,7 @@ use crate::{Chunk, ContentBlock, LlmClient, LlmError, StopReason, ToolCallChunk,
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-fn engine(rounds: Vec<Round>, cfg: EngineConfig) -> (LlmEngine, Arc<Mutex<Seen>>) {
+pub(super) fn engine(rounds: Vec<Round>, cfg: EngineConfig) -> (LlmEngine, Arc<Mutex<Seen>>) {
     let seen = Arc::new(Mutex::new(Seen::default()));
     let provider = MockProvider {
         rounds: Mutex::new(rounds.into()),
@@ -27,7 +27,7 @@ fn engine(rounds: Vec<Round>, cfg: EngineConfig) -> (LlmEngine, Arc<Mutex<Seen>>
     )
 }
 
-fn done(stop_reason: StopReason) -> Result<Chunk, LlmError> {
+pub(super) fn done(stop_reason: StopReason) -> Result<Chunk, LlmError> {
     Ok(Chunk::Done(Usage {
         input_tokens: 10,
         output_tokens: 5,
@@ -36,11 +36,11 @@ fn done(stop_reason: StopReason) -> Result<Chunk, LlmError> {
     }))
 }
 
-fn text(t: &str) -> Result<Chunk, LlmError> {
+pub(super) fn text(t: &str) -> Result<Chunk, LlmError> {
     Ok(Chunk::Text(t.into()))
 }
 
-fn tool_call(id: &str) -> Result<Chunk, LlmError> {
+pub(super) fn tool_call(id: &str) -> Result<Chunk, LlmError> {
     Ok(Chunk::ToolCall(ToolCallChunk {
         id: id.into(),
         name: "query".into(),
@@ -55,7 +55,7 @@ fn thinking_block() -> ContentBlock {
     }
 }
 
-fn question(q: &str) -> Transcript {
+pub(super) fn question(q: &str) -> Transcript {
     Transcript {
         system: "sys".into(),
         entries: vec![Entry::User(q.into())],
@@ -63,7 +63,10 @@ fn question(q: &str) -> Transcript {
 }
 
 /// Runs one `decide` and returns it with the event types it emitted.
-async fn decide(e: &LlmEngine, t: &Transcript) -> (Result<Decision, EngineError>, Vec<String>) {
+pub(super) async fn decide(
+    e: &LlmEngine,
+    t: &Transcript,
+) -> (Result<Decision, EngineError>, Vec<String>) {
     let (tx, mut rx) = mpsc::channel(256);
     let out = e.decide(t, &[], &tx).await;
     drop(tx);

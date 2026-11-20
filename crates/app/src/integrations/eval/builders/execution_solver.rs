@@ -133,6 +133,8 @@ fn base_record(actual: &TargetOutput, expected: &TargetOutput) -> Record {
         answer_text: Some(actual.output.clone()),
         gold_preview: None,
         timing: actual.timing.clone(),
+        runtime: actual.runtime.clone(),
+        model: actual.model.clone(),
     }
 }
 
@@ -255,6 +257,8 @@ fn failed_run_record(error_msg: &str, expected: &TargetOutput) -> Record {
         answer_text: None,
         gold_preview: None,
         timing: None,
+        runtime: None,
+        model: None,
     }
 }
 

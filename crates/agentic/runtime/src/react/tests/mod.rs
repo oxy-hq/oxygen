@@ -1,3 +1,4 @@
+mod ask_user_tests;
 mod dispatch_tests;
 mod loop_tests;
 mod results_tests;

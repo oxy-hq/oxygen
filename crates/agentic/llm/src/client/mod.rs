@@ -9,7 +9,7 @@ use super::constants::DEFAULT_MODEL;
 /// Maximum number of characters included in the `llm.output` tracing preview.
 /// Text beyond this limit is truncated with a count suffix to keep log lines
 /// readable without losing all context for long outputs.
-const LLM_OUTPUT_PREVIEW_MAX_CHARS: usize = 2000;
+pub(crate) const LLM_OUTPUT_PREVIEW_MAX_CHARS: usize = 2000;
 use super::genai::{self, GenAiContext, InferenceRequest};
 use super::{
     AnthropicProvider, Chunk, LlmError, LlmProvider, OpenAiCompatProvider, ThinkingConfig, Usage,

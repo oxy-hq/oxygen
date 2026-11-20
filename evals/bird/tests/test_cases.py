@@ -1,6 +1,7 @@
 import unittest
+from pathlib import Path
 
-from birdlib import cases
+from birdlib import cases, config
 
 
 def row(qid, db, difficulty="simple", evidence="EVIDENCE_SENTINEL"):
@@ -38,6 +39,26 @@ class CasesTests(unittest.TestCase):
 
     def test_runs_override(self):
         self.assertIn("runs: 3", cases.render_test_file("financial", ROWS, set(), runs=3))
+
+    def test_gen_cases_react_targets_the_react_agent(self):
+        fsm = cases.render_test_file("financial", ROWS, set())
+        react = cases.render_test_file("financial", ROWS, set(), runtime="react")
+        self.assertIn("target: financial.react.agentic.yml", react)
+        self.assertIn('name: "bird-react-financial"', react)
+        names = lambda t: [l for l in t.splitlines() if l.strip().startswith("- name:")]
+        self.assertEqual(names(react), names(fsm))
+        # Everything but the suite name and target is identical.
+        body = lambda t: t.split("settings:", 1)[1]
+        self.assertEqual(body(react), body(fsm))
+
+    def test_react_agents_differ_only_by_runtime(self):
+        root = Path(__file__).resolve().parent.parent
+        for db in config.DBS:
+            fsm = (root / f"{db}.agentic.yml").read_text().splitlines()
+            react = (root / f"{db}.react.agentic.yml").read_text().splitlines()
+            self.assertEqual(react.count("runtime: react"), 1, db)
+            self.assertEqual([l for l in react if l != "runtime: react"], fsm, db)
+            self.assertFalse(any(l.startswith("runtime:") for l in fsm), db)
 
 
 if __name__ == "__main__":

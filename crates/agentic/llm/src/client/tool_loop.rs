@@ -355,6 +355,7 @@ impl LlmClient {
                     CoreEvent::LlmEnd {
                         state: config.state.clone(),
                         output_tokens: usage.output_tokens,
+                        input_tokens: 0,
                         cache_creation_input_tokens: usage.cache_creation_input_tokens,
                         cache_read_input_tokens: usage.cache_read_input_tokens,
                         duration_ms: round_llm_ms,

@@ -20,6 +20,7 @@ pub mod metric_sink;
 pub mod metric_tree_runner;
 pub mod pipeline;
 mod preagg_exec;
+pub mod react;
 mod schemas;
 mod semantic;
 mod solver;

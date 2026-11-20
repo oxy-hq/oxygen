@@ -259,6 +259,7 @@ dependencies = [
  "sqlparser 0.62.0",
  "statrs 0.19.1",
  "strsim",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
