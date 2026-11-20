@@ -302,6 +302,11 @@ fn source_files() -> Vec<(String, String)> {
     // walked above before the move.
     let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
+    // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler and the
+    // reporters, out of `src/cli/commands/test.rs`, `src/server/service/eval.rs`
+    // and `src/integrations/eval/reporters`, all walked above before the move.
+    let eval = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-eval/src");
+    walk(&eval, &eval, "../api-eval/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
     walk(
         &api_health,

@@ -9951,6 +9951,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-eval"
+version = "0.5.161"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "indexmap 2.14.0",
+ "indicatif 0.18.4",
+ "itertools 0.15.0",
+ "oxy",
+ "oxy-app",
+ "oxy-shared",
+ "serde_json",
+ "strip-ansi-escapes",
+ "tokio",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-experiment"
 version = "0.5.161"
 dependencies = [
@@ -10723,10 +10744,7 @@ dependencies = [
  "home",
  "human-panic",
  "humantime",
- "indexmap 2.14.0",
- "indicatif 0.18.4",
  "indoc",
- "itertools 0.15.0",
  "jsonwebtoken 11.0.0",
  "lazy_static",
  "libc",
@@ -10785,7 +10803,6 @@ dependencies = [
  "slugify",
  "sqlparser 0.62.0",
  "sqlx",
- "strip-ansi-escapes",
  "syn 2.0.117",
  "syntect",
  "tabled",
@@ -11379,6 +11396,7 @@ dependencies = [
  "oxy-api-billing",
  "oxy-api-custom-apps",
  "oxy-api-documents",
+ "oxy-api-eval",
  "oxy-api-experiment",
  "oxy-api-frontline",
  "oxy-api-github",

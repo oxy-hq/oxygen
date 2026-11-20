@@ -149,6 +149,10 @@ AREAS = [
     # feature history attributed.
     ("crates/api-airway",                                 "Airway surface"),
     ("crates/api-source-upload",                          "Airway surface"),
+    # The eval context: `oxy test` and its reporters moved out of oxy-app into
+    # crates/api-eval 2026-11-20; the engine's path keeps its history.
+    ("crates/api-eval",                                   "Evals (oxy test)"),
+    ("crates/app/src/integrations/eval",                  "Evals (oxy test)"),
     ("crates/app/src/server/api/source_upload.rs",        "Source uploads"),
     # Schedules + the automation run surface, out of oxy-app 2026-11-15; the old
     # paths keep the scheduler's history attributed.

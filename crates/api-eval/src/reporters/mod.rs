@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use super::builders::types::EvalResult;
+use oxy_app::surface::eval::EvalResult;
 use oxy_shared::errors::OxyError;
 
 pub trait Reporter {

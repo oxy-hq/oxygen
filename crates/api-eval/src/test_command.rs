@@ -3,7 +3,7 @@
 //!
 //! Scope: `.test.yml` files only. The inline `workflow.tests` / `agent.tests`
 //! entry points were removed with classic-agent retirement, and the eval engine
-//! (`integrations::eval::builders::eval::EvalMapper`) only accepts `.agentic.yml`
+//! (`oxy-app`'s `integrations::eval::builders::eval::EvalMapper`) only accepts `.agentic.yml`
 //! targets. This command rejects anything else up front so the failure surfaces
 //! at the CLI boundary instead of deep inside the executable pipeline.
 
@@ -19,14 +19,20 @@ use ::oxy::adapters::workspace::manager::WorkspaceManager;
 use ::oxy::config::resolve_local_workspace_path;
 use oxy_shared::errors::OxyError;
 
-use super::OutputFormat;
-use crate::integrations::eval::{EvalResult, JsonReporter, MetricKind, PrettyReporter, Reporter};
-use crate::server::service::eval::{
+use crate::reporters::{JsonReporter, PrettyReporter, Reporter};
+use crate::service::{
     EvalEventsHandler, SharedTokenStats, TokenStats, regrade_eval, run_eval_with_tag,
 };
 use oxy::config::WorkingCopy;
+use oxy_app::surface::eval::{EvalResult, MetricKind};
 
 const TEST_FILE_SUFFIX: &str = ".test.yml";
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum OutputFormat {
+    Pretty,
+    Json,
+}
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum ThresholdMode {

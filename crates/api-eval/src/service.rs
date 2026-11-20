@@ -12,8 +12,8 @@ use oxy::{
 };
 use oxy_shared::errors::OxyError;
 
-use crate::integrations::eval::{EvalInput, EvalLauncher, EvalResult};
 use oxy::config::WorkingCopy;
+use oxy_app::surface::eval::{EvalInput, EvalLauncher, EvalResult};
 
 /// Global token stats accumulated across all eval runs, shared between
 /// the event handler and the calling command.

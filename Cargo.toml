@@ -32,6 +32,7 @@ members = [
   "crates/api-threads",
   "crates/api-workspaces",
   "crates/api-semantic",
+  "crates/api-eval",
   "crates/cli-shim",
   "crates/app-core",
   "crates/auth",

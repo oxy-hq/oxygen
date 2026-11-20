@@ -133,6 +133,22 @@ pub mod fleet {
     pub use crate::server::{ide_proxy, role_middleware, servability};
 }
 
+/// The eval engine `oxy test` drives: the launcher, its input, and the result
+/// and metric types the command's reporters and threshold gate read.
+///
+/// Not platform: the eval context's own engine (`integrations::eval::builders`),
+/// re-exported while it is the half of that context still in `oxy-app`. The
+/// command, its event handler and the reporters moved to `oxy-api-eval`
+/// (2026-11-20, top down: the engine builds runs on `OxyProjectContext`, so the
+/// crate sits above `oxy-app`). The engine follows it, and this module goes with
+/// it (`internal-docs/domain-boundaries.md`, Pending).
+pub mod eval {
+    pub use crate::integrations::eval::builders::types::{
+        Correctness, Execution, RunStats, Similarity,
+    };
+    pub use crate::integrations::eval::{EvalInput, EvalLauncher, EvalResult, MetricKind};
+}
+
 /// The workspace runtime a queued job or a handler rebuilds a workspace from:
 /// the project context the global driver builds for a workspace (the promoted
 /// revision's semantic model, never a working copy), the workspace manager

@@ -1,14 +1,14 @@
 //! Unit tests for the `oxy test` subcommand.
 //!
-//! Co-located via `#[path = "test_command_tests.rs"] mod tests;` from `test.rs`
-//! to keep `test.rs` under the 400-line file limit.
+//! Co-located via `#[path = "test_command_tests.rs"] mod tests;` from
+//! `test_command.rs` to keep it under the 400-line file limit.
 //!
 //! Everything here is LLM-free and database-free — argument parsing, pure
 //! validation, and the threshold gate.
 
 use super::*;
-use crate::integrations::eval::builders::types::{Correctness, Execution, RunStats, Similarity};
 use clap::Parser;
+use oxy_app::surface::eval::{Correctness, Execution, RunStats, Similarity};
 
 /// Builds a `TestArgs` from a CLI-style argv, mirroring how clap parses it in
 /// `main`. The leading "oxy" stands in for argv[0].

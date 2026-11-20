@@ -1,0 +1,33 @@
+[package]
+name = "oxy-api-eval"
+version.workspace = true
+authors.workspace = true
+description = "The eval context: the `oxy test` command (LLM-as-judge evals over .test.yml files), its own oxy-cli-shim owner, out of oxy-app (internal-docs/domain-boundaries.md S10). Mounts no route; registered by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# The only oxy-app dependency, through `oxy_app::surface` only: the eval engine
+# (`surface::eval`, until `integrations::eval::builders` moves here too). oxy-app
+# never depends back on this crate. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy = { workspace = true }
+oxy-shared = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+indexmap = { workspace = true }
+indicatif = { workspace = true }
+itertools = { workspace = true }
+serde_json = { workspace = true }
+strip-ansi-escapes = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

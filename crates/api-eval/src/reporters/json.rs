@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::integrations::eval::builders::types::EvalResult;
+use oxy_app::surface::eval::EvalResult;
 use oxy_shared::errors::OxyError;
 
 use super::Reporter;

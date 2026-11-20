@@ -153,6 +153,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // 2026-11-20 (out of `src/server/preagg_{freshness,generation,
         // rebuild,retract}`).
         manifest.join("../preagg/src"),
+        // `oxy test`, its event handler and the reporters, `oxy-api-eval` since
+        // 2026-11-20 (out of `src/cli`, `src/server/service`, `src/integrations`).
+        manifest.join("../api-eval/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

@@ -2,9 +2,9 @@ use std::io::Write;
 
 use indexmap::IndexMap;
 
-use crate::integrations::eval::builders::types::{Correctness, EvalResult, MetricKind};
 use oxy::exec_types::ReferenceKind;
 use oxy::theme::StyledText;
+use oxy_app::surface::eval::{Correctness, EvalResult, MetricKind};
 use oxy_shared::errors::OxyError;
 
 use super::Reporter;

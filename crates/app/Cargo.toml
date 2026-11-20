@@ -133,7 +133,6 @@ enum_dispatch = { workspace = true }
 # CLI
 clap = { workspace = true, features = ["derive", "env"] }
 colored = { workspace = true }
-indicatif = { workspace = true }
 
 # Database
 sea-orm = { workspace = true }
@@ -175,8 +174,6 @@ parking_lot = { workspace = true }
 governor = { workspace = true }
 base64 = { workspace = true, features = ["std"] }
 regex = { workspace = true }
-indexmap = { workspace = true }
-itertools = { workspace = true }
 glob = { workspace = true }
 home = { workspace = true }
 human-panic = { workspace = true }
@@ -192,7 +189,6 @@ terminal-light = { workspace = true }
 terminal_size = { workspace = true }
 secrecy = { workspace = true }
 serde_with = { workspace = true }
-strip-ansi-escapes = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 rustls = { workspace = true, features = ["aws_lc_rs"] }

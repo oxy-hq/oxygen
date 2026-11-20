@@ -57,6 +57,8 @@ oxy-api-workspace-health = { path = "../api-workspace-health" }
 oxy-api-threads = { path = "../api-threads" }
 oxy-api-workspaces = { path = "../api-workspaces" }
 oxy-api-semantic = { path = "../api-semantic" }
+# `oxy test`, its own oxy-cli-shim owner (S10). Mounts no route.
+oxy-api-eval = { path = "../api-eval" }
 oxy-cli-shim = { path = "../cli-shim" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.
 oxy-app-dylib = { path = "../app-dylib", optional = true }

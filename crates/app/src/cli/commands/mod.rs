@@ -21,7 +21,6 @@ mod seed_org_workspace;
 pub(crate) mod seed_partners;
 pub(crate) mod seed_platform_grants;
 mod seed_threads;
-mod test;
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
@@ -46,8 +45,9 @@ use ::oxy::config::WorkingCopy;
 use tracing::debug;
 
 // The one-shot subcommands `oxy` runs, in the order `--help` lists them after
-// `oxy-server`'s own (`start`, `serve`, `worker`). Registered with the
-// `oxy-cli-shim` parser by `oxy-server` as an owner; the top-level arguments
+// `oxy-server`'s own (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
+// Registered with the `oxy-cli-shim` parser by `oxy-server` as an owner; the
+// top-level arguments
 // (`[INPUT]`, `--output`) and `--version` are the shim's.
 // A plain comment, not `///`: clap would print a doc comment on this enum as
 // the root command's `about`, above `Usage:`.
@@ -57,12 +57,6 @@ pub enum SubCommand {
     ///
     /// Run SQL queries against databases or execute automations for data processing.
     Run(RunArgs),
-    /// Run evaluation tests defined in .test.yml files
-    ///
-    /// Executes the cases in a `.test.yml` file against its `.agentic.yml`
-    /// target, scores each run with an LLM judge, and reports accuracy and
-    /// consistency. Omit the file to run every `.test.yml` in the project.
-    Test(test::TestArgs),
     /// Does nothing; kept so existing scripts keep working
     ///
     /// It used to build vector embeddings and sync Looker and Omni metadata.
@@ -144,12 +138,6 @@ pub enum SubCommand {
     /// Hosts deployment-wide actions for the camera fleet (currently:
     /// device log retention sweep). Reserved for ops / cron flows.
     Cameras(cameras::CamerasArgs),
-}
-
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub enum OutputFormat {
-    Pretty,
-    Json,
 }
 
 #[derive(Parser, Debug)]
@@ -530,10 +518,6 @@ pub async fn run(
         SubCommand::Run(run_args) => {
             sentry_config::add_operation_context("run", Some(&run_args.file));
             handle_run_command(run_args).await?;
-        }
-        SubCommand::Test(test_args) => {
-            sentry_config::add_operation_context("test", test_args.file.as_deref());
-            test::handle_test_command(test_args).await?;
         }
         SubCommand::Build(_) => {
             sentry_config::add_operation_context("build", None);

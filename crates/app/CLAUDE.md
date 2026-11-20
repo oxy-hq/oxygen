@@ -48,7 +48,7 @@ after the skill's checklist says the work really is request-scoped.
 | `cli/` | Command surface. `cli/commands/` has one file per one-shot command: `run.rs`, `compile.rs`, `migrate*.rs` (`migrate.rs` also holds the migration runner `serve`/`worker` call), `admin.rs`, `clean.rs`, … `mod.rs` declares them as `SubCommand`. The long-lived `serve` / `start` / `worker` are `oxy-server`'s (`crates/server/src/commands/`), reaching oxy-app through `host.rs`. HTTP-client commands (`publish`, `login`, `proxy`, `assume`, `api`) are not here — they are `oxyc` (`sdk/cli`). |
 | `server/` | The Axum server (~80k LOC) — see breakdown below. |
 | `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. |
-| `integrations/` | External integrations (eval, QuickBooks OAuth, the OAuth provider). The Slack bot is `oxy-api-slack`. |
+| `integrations/` | External integrations (the eval engine, QuickBooks OAuth, the OAuth provider). The Slack bot is `oxy-api-slack`; the `oxy test` command, its event handler and the eval reporters are `oxy-api-eval` (`crates/api-eval`), which reaches the engine through `surface::eval` until it follows. |
 | — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `oxy-api-identity`'s `sign_in/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
 | `observability_boot.rs` / `observability_setup.rs` | Tracing/observability bootstrap for the binary. |
 
@@ -61,7 +61,7 @@ after the skill's checklist says the work really is request-scoped.
 | `server/role_manifest.rs` (~230 lines; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
 | `server/{worker_runtime,worker_health,worker_metrics}.rs`, `preagg_*`, `compile_*` | Durable-task worker fleet + pre-aggregation + compile-boundary workers. The pre-aggregation runtime's domain half (`freshness`, `rebuild`, `retract`, `generation`) is `oxy-preagg` (`crates/preagg`) since 2026-11-20; the cycle (`preagg_executor`), the promote nudge and the workspace manager stay here. |
 | `server/{servability,admission,ide_proxy,role_middleware}.rs` | Whether a replica can serve a workspace without the working copy, self-routing reverse proxy (the `IdeOnly` routes left → ide upstream; `?branch=` escalates nothing since the IDE was removed), admission control. `ServeMode` itself now lives in `oxy-app-core` — see below. |
-| `server/service/` | Server-side services (api keys, app, eval, project, formatters). |
+| `server/service/` | Server-side services (api keys, project, formatters). The eval launch helpers left with `oxy test` for `oxy-api-eval`. |
 
 **Five modules now live in `oxy-app-core` (`crates/app-core`), not here** — `audit`,
 `serve_mode`, `org_host_dispatch`, `custom_apps_host_dispatch`, `member_authz`. They moved

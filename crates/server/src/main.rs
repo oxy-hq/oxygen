@@ -615,10 +615,16 @@ fn main() {
         // The parser is `oxy-cli-shim`'s and knows no command. This binary
         // owns the long-lived ones (`start`, `serve`, `worker`), listed first;
         // oxy-app owns most of the one-shot rest, and a context that has left
-        // oxy-app brings its own (`oxy airway`, from `oxy-api-airway`).
+        // oxy-app brings its own (`oxy airway`, from `oxy-api-airway`; `oxy
+        // test`, from `oxy-api-eval`). `test` was second among oxy-app's
+        // commands, after `run`; registered ahead of them, it lists just before
+        // `run`, the nearest `--help` can keep it to where it was.
         let owners = vec![
             oxy_cli_shim::Owner::of::<commands::ServerCommand>(|command, seams| {
                 Box::pin(commands::run(command, seams))
+            }),
+            oxy_cli_shim::Owner::of::<oxy_api_eval::Command>(|command, _seams| {
+                Box::pin(oxy_api_eval::run(command))
             }),
             oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(|command, seams| {
                 Box::pin(oxy_app::cli::run(command, seams))
