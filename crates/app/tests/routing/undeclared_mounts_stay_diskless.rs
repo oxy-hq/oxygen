@@ -227,6 +227,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // an `AdminNest`: the queue, run and workspace tables in Postgres and
         // the durable transport's reaper and retention, never a working copy.
         "../api-admin/src",
+        // The weekly custom-app usage report (`/admin/usage-report*`), out of
+        // `oxy-app`'s `api/admin/` in the admin split's PR 8b, two
+        // `AdminSection`s placed by the console's FleetOk wildcard: the report,
+        // preference and delivery rows and the staff grants, never a working copy.
+        "../api-billing/src",
         // The metric tree and the anomaly inbox, moved out of
         // `build_workspace_routes` on 2026-11-15, where all seventeen routes
         // were `route_fleet` (a `FleetState` handler type refused a

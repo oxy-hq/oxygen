@@ -31,6 +31,7 @@ dev-dynamic = ["dep:oxy-app-dylib"]
 # (only this crate consumes it), so it is a direct path dependency.
 oxy-app = { path = "../app", default-features = false }
 oxy-api-admin = { path = "../api-admin" }
+oxy-api-billing = { path = "../api-billing" }
 oxy-api-github = { path = "../api-github" }
 oxy-api-tenancy = { path = "../api-tenancy" }
 oxy-api-documents = { path = "../api-documents" }

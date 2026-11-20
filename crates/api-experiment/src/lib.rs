@@ -48,7 +48,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::{GlobalTickSeam, TaskSeam};
+use oxy_app::surface::seams::{GlobalTickSeam, TaskSeam, TickPass};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::RouteRoleDecl;
 
@@ -219,6 +219,7 @@ pub fn tasks() -> Vec<TaskSeam> {
 pub fn global_ticks() -> Vec<GlobalTickSeam> {
     vec![GlobalTickSeam {
         name: "experiment_tick",
+        pass: TickPass::AfterSchedules,
         tick: |db, now| Box::pin(experiment::tick::tick_experiments(db, now)),
     }]
 }

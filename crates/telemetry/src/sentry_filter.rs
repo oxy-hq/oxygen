@@ -609,8 +609,9 @@ mod tests {
     /// report's domain half (out of `oxy_app::server::api::admin::usage_report`)
     /// and the usage trio (out of `oxy_app_core`) into `oxy_usage_report`: Oxy's
     /// own Postgres and the workspace's usage facts, no warehouse query, kept and
-    /// not the data plane as there. Pinned at both barriers, so a later rule
-    /// naming one of these crates cannot silently drop them.
+    /// not the data plane as there; PR 8b its surface into `oxy_api_billing`,
+    /// pinned with the other admin sections below. Pinned at both barriers, so
+    /// a later rule naming one of these crates cannot silently drop them.
     #[test]
     fn the_admin_split_move_downs_keep_their_sentry_lines() {
         for module in [
@@ -955,6 +956,15 @@ mod tests {
             // audit table and the anchor's S3 read, kept and not the data
             // plane as it was at `oxy_app::server::api::admin::audit`.
             "oxy_api_admin::audit",
+            // The admin split (PR 8b): the usage report's surface, Oxy's own
+            // Postgres and the mail provider, kept and not the data plane
+            // as it was at `oxy_app::server::api::admin::usage_report`.
+            "oxy_api_billing",
+            "oxy_api_billing::usage_report",
+            "oxy_api_billing::usage_report::delivery",
+            "oxy_api_billing::usage_report::handlers",
+            "oxy_api_billing::usage_report::job",
+            "oxy_api_billing::usage_report::recipients",
             // The admin split (2026-11-20): the grant table, Oxy's own
             // Postgres only, kept and not the data plane as it was at
             // `oxy_app::server::api::admin::app_admins`.
@@ -1329,6 +1339,15 @@ mod tests {
             // The admin split (2026-11-20): the audit log. It searches and
             // verifies `audit_events`; no warehouse query.
             "oxy_api_admin::audit",
+            // The admin split (PR 8b): the usage report's surface. It stores
+            // and mails a report and reads staff grants; the week's reads
+            // are `oxy_usage_report::collect`'s, below it.
+            "oxy_api_billing",
+            "oxy_api_billing::usage_report",
+            "oxy_api_billing::usage_report::delivery",
+            "oxy_api_billing::usage_report::handlers",
+            "oxy_api_billing::usage_report::job",
+            "oxy_api_billing::usage_report::recipients",
             // The admin split (2026-11-20): the grant table. It reads and
             // writes `app_admins`; no warehouse query.
             "oxy_api_admin::app_admins",

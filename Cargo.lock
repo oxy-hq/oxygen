@@ -9779,6 +9779,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-billing"
+version = "0.5.161"
+dependencies = [
+ "agentic-core",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "async-trait",
+ "axum",
+ "chrono",
+ "entity",
+ "futures",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-authz",
+ "oxy-cameras",
+ "oxy-custom-apps",
+ "oxy-oltp",
+ "oxy-server-authz",
+ "oxy-shared",
+ "oxy-test-utils",
+ "oxy-usage-report",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-custom-apps"
 version = "0.5.161"
 dependencies = [
@@ -10720,7 +10759,6 @@ dependencies = [
  "oxy-telemetry",
  "oxy-tenancy",
  "oxy-test-utils",
- "oxy-usage-report",
  "oxy-workspace-fs",
  "oxy-world-model",
  "parking_lot 0.12.5",
@@ -11314,6 +11352,7 @@ dependencies = [
  "oxy-api-admin",
  "oxy-api-airway",
  "oxy-api-automations",
+ "oxy-api-billing",
  "oxy-api-custom-apps",
  "oxy-api-documents",
  "oxy-api-experiment",

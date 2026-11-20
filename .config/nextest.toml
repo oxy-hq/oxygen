@@ -214,6 +214,16 @@ filter = "kind(test) & package(=oxy-api-admin) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-billing`'s integration group: the weekly usage report's database
+# cases, which moved out of oxy-app's `platform` binary with the report's
+# surface (admin split, PR 8b) — same harness (`common::fresh_db`, its own
+# database per test), same group as they had there. No module reaches the
+# shared database, so there is no `serial-db` pin.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-billing) & binary(=integration)"
+test-group = "db-per-test"
+retries = 2
+
 # `oxy-api-metric-monitoring`'s integration group: `anomaly_bulk_status`, which
 # moved out of oxy-app's `platform` binary with the anomaly inbox (2026-11-15) —
 # same harness (`common::fresh_db`, its own database per test), same group.

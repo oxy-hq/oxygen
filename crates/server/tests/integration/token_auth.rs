@@ -64,6 +64,7 @@ mod trust_policy_cli;
 mod trusted_access;
 mod trusted_publish;
 mod usage;
+mod usage_report_mount;
 mod workspace_inventory;
 
 use axum::body::Body;

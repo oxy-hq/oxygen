@@ -79,6 +79,9 @@ pub(crate) fn flat_api() -> Router {
             // read back, and the grant table `service_tokens` refuses a
             // service (`oxy-api-admin`'s since 2026-11-20).
             .chain(oxy_api_admin::admin_sections())
+            // The usage report's two sections (`oxy-api-billing`'s since admin
+            // split PR 8b), which `flat_api_surface` mounted in-tree before.
+            .chain(oxy_api_billing::admin_sections())
             .collect(),
         oxy_api_admin::admin_nests()
             .into_iter()

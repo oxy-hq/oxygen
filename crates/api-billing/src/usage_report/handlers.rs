@@ -12,13 +12,14 @@ use oxy_authz::Scope;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
-use crate::emails::usage_report::{DeliveryMode, delivery_mode};
 use oxy_app_core::admin_db::{connect, db_err, error_body};
+use oxy_app_core::emails::usage_report::{DeliveryMode, delivery_mode};
 use oxy_server_authz::staff::scope;
 
+use oxy_usage_report::store;
+use oxy_usage_report::view::ReportView;
+
 use super::delivery::{self, CopyError};
-use super::store;
-use super::view::ReportView;
 
 #[derive(Serialize)]
 pub struct LatestReport {

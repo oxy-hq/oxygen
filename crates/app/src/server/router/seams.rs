@@ -246,6 +246,9 @@ pub fn require_fleet_jobs(jobs: &[FleetJobSeam]) -> Result<(), String> {
 pub struct GlobalTickSeam {
     /// Names the tick in the driver's log line.
     pub name: &'static str,
+    /// Where in the driver's loop it runs: inside the pass, after the schedule
+    /// ticks, or once per iteration of the loop. See [`TickPass`].
+    pub pass: TickPass,
     /// Runs one pass at `now`; how many items it advanced. Called every
     /// `OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS` (30 s), so it must be cheap when
     /// nothing is due: an indexed SELECT of due rows.
@@ -253,6 +256,23 @@ pub struct GlobalTickSeam {
         &'a DatabaseConnection,
         DateTime<Utc>,
     ) -> Pin<Box<dyn Future<Output = usize> + Send + 'a>>,
+}
+
+/// Where in the global driver's loop a [`GlobalTickSeam`] runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TickPass {
+    /// Inside the driver's pass, after `oxy-app`'s schedule ticks
+    /// ([`run_global_ticks`]): in the local pass once the workspace's context
+    /// is built, and in the cloud pass only on a node that claimed a
+    /// workspace this tick, which leaves an idle node's tick at the claim
+    /// alone. The experiment tick and the token sweep.
+    AfterSchedules,
+    /// Once per iteration of the driver's loop (`recovery::spawn_recovery`),
+    /// after the pass, on every process that runs the driver, in either mode
+    /// and whatever it claimed ([`run_loop_ticks`]). For work that belongs to
+    /// no workspace, which a claim-gated pass could starve: the weekly
+    /// custom-app usage report, called inline there before it left `oxy-app`.
+    EveryLoop,
 }
 
 static GLOBAL_TICKS: OnceLock<Vec<GlobalTickSeam>> = OnceLock::new();
@@ -281,12 +301,29 @@ pub fn global_ticks() -> &'static [GlobalTickSeam] {
     GLOBAL_TICKS.get().map(Vec::as_slice).unwrap_or(&[])
 }
 
-/// One pass of every installed tick, in order; how many items they advanced in
-/// all. Called by the global driver (`recovery.rs`) after its own schedule
-/// ticks, in both the local and the cloud pass.
+/// One pass of every installed [`TickPass::AfterSchedules`] tick, in order; how
+/// many items they advanced in all. Called by the global driver
+/// (`recovery.rs`) after its own schedule ticks, in both the local and the
+/// cloud pass.
 pub(crate) async fn run_global_ticks(db: &DatabaseConnection, now: DateTime<Utc>) -> usize {
+    run_ticks(global_ticks(), TickPass::AfterSchedules, db, now).await
+}
+
+/// One run of every installed [`TickPass::EveryLoop`] tick, in order; how many
+/// items they advanced in all. Called by the global driver's loop
+/// (`recovery::spawn_recovery`) after each pass.
+pub(crate) async fn run_loop_ticks(db: &DatabaseConnection, now: DateTime<Utc>) -> usize {
+    run_ticks(global_ticks(), TickPass::EveryLoop, db, now).await
+}
+
+async fn run_ticks(
+    ticks: &[GlobalTickSeam],
+    pass: TickPass,
+    db: &DatabaseConnection,
+    now: DateTime<Utc>,
+) -> usize {
     let mut total = 0;
-    for seam in global_ticks() {
+    for seam in ticks.iter().filter(|t| t.pass == pass) {
         let advanced = (seam.tick)(db, now).await;
         if advanced > 0 {
             tracing::info!(target: "global_tick", tick = seam.name, advanced, "global tick advanced work");
@@ -731,6 +768,7 @@ mod tests {
         fn tick(name: &'static str) -> GlobalTickSeam {
             GlobalTickSeam {
                 name,
+                pass: TickPass::AfterSchedules,
                 tick: |_, _| Box::pin(async { 0usize }),
             }
         }
@@ -738,6 +776,54 @@ mod tests {
         install_global_ticks(&[tick("second")]);
         let names: Vec<&str> = global_ticks().iter().map(|t| t.name).collect();
         assert_eq!(names, ["first"]);
+    }
+
+    /// Each runner runs the ticks of its own pass and no other, in order: a
+    /// tick at the wrong pass runs on the wrong nodes, or not at all.
+    #[tokio::test]
+    async fn each_runner_runs_only_the_ticks_of_its_pass() {
+        use std::sync::Mutex;
+        static RAN: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+        fn tick(name: &'static str, pass: TickPass) -> GlobalTickSeam {
+            GlobalTickSeam {
+                name,
+                pass,
+                tick: match name {
+                    "a" => |_, _| {
+                        Box::pin(async {
+                            RAN.lock().unwrap().push("a");
+                            1usize
+                        })
+                    },
+                    "b" => |_, _| {
+                        Box::pin(async {
+                            RAN.lock().unwrap().push("b");
+                            2usize
+                        })
+                    },
+                    _ => |_, _| {
+                        Box::pin(async {
+                            RAN.lock().unwrap().push("c");
+                            4usize
+                        })
+                    },
+                },
+            }
+        }
+        let ticks = [
+            tick("a", TickPass::AfterSchedules),
+            tick("b", TickPass::EveryLoop),
+            tick("c", TickPass::AfterSchedules),
+        ];
+        let db = DatabaseConnection::default();
+        let now = Utc::now();
+        assert_eq!(
+            run_ticks(&ticks, TickPass::AfterSchedules, &db, now).await,
+            5
+        );
+        assert_eq!(std::mem::take(&mut *RAN.lock().unwrap()), ["a", "c"]);
+        assert_eq!(run_ticks(&ticks, TickPass::EveryLoop, &db, now).await, 2);
+        assert_eq!(std::mem::take(&mut *RAN.lock().unwrap()), ["b"]);
     }
 
     #[test]

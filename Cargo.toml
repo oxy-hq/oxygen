@@ -4,6 +4,7 @@ members = [
   "crates/app",
   "crates/server",
   "crates/api-admin",
+  "crates/api-billing",
   "crates/api-github",
   "crates/api-tenancy",
   "crates/api-documents",

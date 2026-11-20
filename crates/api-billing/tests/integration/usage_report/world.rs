@@ -11,9 +11,9 @@ use entity::{
     app_storage_usage_samples, apps, custom_app_event, custom_app_view_event, organizations, users,
     workspaces,
 };
-use oxy_app::emails::{EmailMessage, EmailProvider};
-use oxy_app::server::api::admin::usage_report::period::Period;
+use oxy_app_core::emails::{EmailMessage, EmailProvider};
 use oxy_shared::errors::OxyError;
+use oxy_usage_report::period::Period;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend, Statement,
 };

@@ -76,7 +76,7 @@ pub mod user_tokens;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, post};
-use oxy_app::surface::seams::GlobalTickSeam;
+use oxy_app::surface::seams::{GlobalTickSeam, TickPass};
 use oxy_app::surface::{Action, AdminSection, org_middleware, subscription_guard_middleware};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
@@ -411,6 +411,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 pub fn global_ticks() -> Vec<GlobalTickSeam> {
     vec![GlobalTickSeam {
         name: "token_sweep",
+        pass: TickPass::AfterSchedules,
         tick: |db, _now| {
             Box::pin(async move {
                 token_sweep::sweep(db).await;

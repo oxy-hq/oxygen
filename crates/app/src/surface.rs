@@ -352,7 +352,7 @@ pub mod seams {
     pub use crate::server::router::{
         BackgroundDeps, BackgroundSeam, ExampleAppsSeam, FleetJobDeps, FleetJobSeam,
         GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS,
-        NotificationsSeam, TaskDeps, TaskSeam,
+        NotificationsSeam, TaskDeps, TaskSeam, TickPass,
     };
 }
 

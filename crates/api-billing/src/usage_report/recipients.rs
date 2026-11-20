@@ -19,14 +19,15 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_authz::Scope;
 use serde::{Deserialize, Serialize};
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, db_err, error_body};
+use oxy_usage_report::store;
 
 use super::delivery::{self, Recipient};
-use super::store;
 
-/// Mounted under `/api/admin`, behind `Action::PlatformGrants`.
-pub(crate) fn router() -> Router<AppState> {
+/// Mounted under `/api/admin`, behind `Action::PlatformGrants`
+/// ([`crate::admin_sections`]).
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/usage-report/recipients", get(list_recipients))
         .route("/usage-report/recipients/{email}", put(set_recipient))
@@ -133,8 +134,8 @@ fn not_a_recipient() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::authz::globals::StaffAddress;
     use oxy_authz::PlatformRole;
+    use oxy_server_authz::globals::StaffAddress;
     use uuid::Uuid;
 
     fn recipient(email: &str, role: Option<PlatformRole>, scope: Scope) -> Recipient {

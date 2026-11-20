@@ -38,7 +38,7 @@ pub use seams::{
     CUSTOM_APP_BACKGROUND_JOBS, CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam,
     HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount,
     PREVIEW_BACKGROUND_JOBS, PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam,
-    global_ticks, install_global_ticks, require_notifications, require_task_kinds,
+    TickPass, global_ticks, install_global_ticks, require_notifications, require_task_kinds,
 };
 pub use seams::{CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs};
 

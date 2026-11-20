@@ -1,8 +1,10 @@
 //! The weekly pass: write last week's report once, then email it.
 //!
-//! Driven by the global singleton worker's tick (`router::recovery`,
-//! `OXY_INPROC_GLOBAL_WORKER`), beside the token sweep — not a loop of its
-//! own, and never from a request.
+//! Driven by the global singleton driver's loop (`OXY_INPROC_GLOBAL_WORKER`):
+//! [`crate::global_ticks`] hands [`tick`] to `oxy-app` at `TickPass::EveryLoop`,
+//! which runs it once per iteration of `router::recovery`'s loop, where it was
+//! called inline before the admin split's PR 8b — not a loop of its own, and
+//! never from a request.
 //!
 //! **Why this is not a `TaskSpec` on the queue.** The queue is per workspace:
 //! every run carries a workspace id, and in cloud mode a run whose workspace
@@ -29,12 +31,12 @@ use chrono::{DateTime, Utc};
 use futures::future::FutureExt;
 use sea_orm::{DatabaseConnection, DbErr};
 
-use crate::emails::usage_report::ReportMailer;
+use oxy_app_core::emails::usage_report::ReportMailer;
+use oxy_usage_report::collect;
+use oxy_usage_report::period::Period;
+use oxy_usage_report::store::{self, StoredReport};
 
-use super::collect;
 use super::delivery::{self, Delivered};
-use super::period::Period;
-use super::store::{self, StoredReport};
 
 /// The least time between two passes by one process.
 const EVERY: Duration = Duration::from_secs(10 * 60);

@@ -21,7 +21,9 @@ pub mod billing;
 // since PR 7: each an `AdminNest` behind `PlatformOperate`, arriving through
 // `SurfaceSeams::admin_nests` and nested by `router::global`.
 pub mod routing;
-pub mod usage_report;
+// `usage_report` (`/usage-report*`, the weekly custom-app usage report) is
+// `oxy-api-billing`'s since the admin split's PR 8b: two sections, behind
+// `PlatformOperate` and `PlatformGrants`, arriving through `extracted`.
 // `users_admin` and `user_scope` (the user directory, `/users*`) are
 // `oxy-api-identity`'s since the admin split's PR 5: a section behind
 // `PlatformUsers`, arriving through `extracted`.
@@ -200,14 +202,9 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // an App Operator, who ships apps, must not reach either; and `cap(..)`
         // decides on a nil-org resource, so the scope-fenced shims there, not
         // the handler crates' own routers, carry the per-org fence.
-        // The weekly custom-app usage report. A cross-tenant read, so the handlers
-        // narrow it to the orgs the caller's grant reaches (`scope::list_scope`);
-        // this layer cannot. The same capability decides who is emailed the report
-        // (`usage_report::delivery::AUDIENCE`), so the mail's link always opens.
-        .merge(usage_report::router().route_layer(cap(Action::PlatformOperate)))
-        // Who gets it, and switching it off for another person: the staff list,
-        // so the capability that administers staff access.
-        .merge(usage_report::recipients::router().route_layer(cap(Action::PlatformGrants)))
+        // The weekly custom-app usage report (`PlatformOperate`) and who gets it
+        // (`PlatformGrants`) moved to `oxy-api-billing` (admin split, PR 8b) and
+        // arrive through `extracted` below, behind the capabilities they had here.
         .merge(billing::router().route_layer(strict))
         // The grant table (`/app-admins*`, `PlatformGrants`) moved to
         // `oxy-api-admin` (admin split, 2026-11-20) and arrives through

@@ -23,7 +23,7 @@
 //!   `worker_ctx_follows_promote`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`,
 //!   `connector_vars_from_workspace_secrets`,
-//!   `anomaly_notify`, `usage_report`, `encryption_key_check` and `master_key_kms` are database-backed
+//!   `anomaly_notify`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `local_mode_router` calls `api_router(..)`, which
@@ -115,7 +115,8 @@ mod run_retention;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 mod shared_state_boot;
-mod usage_report;
+// `usage_report` moved to `oxy-api-billing`'s integration group with the
+// usage report's surface (admin split, PR 8b).
 mod walker_storage_divergence;
 mod worker_ctx_follows_promote;
 // `workspace_details_fields` moved to `oxy-api-workspaces`' integration group

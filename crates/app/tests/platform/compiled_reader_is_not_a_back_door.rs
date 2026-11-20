@@ -293,6 +293,10 @@ fn source_files() -> Vec<(String, String)> {
         "../usage-report/src/",
         &mut out,
     );
+    // `oxy-api-billing` (admin split PR 8b): the usage report's surface, out
+    // of `src/server/api/admin/usage_report`, walked above before the move.
+    let billing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-billing/src");
+    walk(&billing, &billing, "../api-billing/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
     walk(
         &api_health,

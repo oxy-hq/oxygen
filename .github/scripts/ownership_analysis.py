@@ -107,6 +107,9 @@ AREAS = [
     # Usage reporting's domain crate, 2026-11-20 (admin split PR 8a): the usage
     # report's pure half, out of crates/app/src/server/api/admin/usage_report.
     ("crates/usage-report",                               "Admin (backend)"),
+    # Billing's surface crate, 2026-11-20 (admin split PR 8b): the usage
+    # report's routes, delivery and job, out of the same directory.
+    ("crates/api-billing",                                "Admin (backend)"),
     ("crates/app/src/server/previews",                    "Workspace previews"),
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),

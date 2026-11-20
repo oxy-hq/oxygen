@@ -421,6 +421,11 @@ fn surface_seams() -> SurfaceSeams {
             // the grant table (`/admin/app-admins*`, `PlatformGrants`),
             // `oxy-api-admin`'s since 2026-11-20.
             .chain(oxy_api_admin::admin_sections())
+            // The weekly custom-app usage report (`/admin/usage-report*`,
+            // `PlatformOperate`) and who gets it (`/admin/usage-report/
+            // recipients*`, `PlatformGrants`), `oxy-api-billing`'s since
+            // admin split PR 8b.
+            .chain(oxy_api_billing::admin_sections())
             .collect(),
         // Staff-console trees nested beside `/admin`, each behind the staff
         // door, the refusal while acting and the capability it names, in
@@ -471,6 +476,9 @@ fn surface_seams() -> SurfaceSeams {
         global_ticks: oxy_api_experiment::global_ticks()
             .into_iter()
             .chain(oxy_api_identity::global_ticks())
+            // The weekly custom-app usage report, once per loop of the
+            // driver (`TickPass::EveryLoop`), where `oxy-app` called it inline.
+            .chain(oxy_api_billing::global_ticks())
             .collect(),
         outer: Some(custom_apps_seams::outer),
         outer_decls: oxy_api_custom_apps::serve::serve_dispatch_roles().to_vec(),
@@ -718,6 +726,26 @@ mod tests {
             oxy_app::server::router::require_task_kinds(&seams.tasks),
             Ok(()),
             "a kind registered twice would shadow one executor with another"
+        );
+    }
+
+    /// The weekly custom-app usage report's pass reached the global driver
+    /// from inside `oxy-app` (`router::recovery` called it inline) until the
+    /// report's surface moved to `oxy-api-billing`; now only this composition
+    /// hands it over, once per loop of the driver as it ran. Missing, no
+    /// report is ever written and nothing else fails; at `AfterSchedules`, a
+    /// cloud node that claimed no workspace would not run it.
+    #[test]
+    fn the_composition_runs_the_usage_report_on_every_loop() {
+        let seams = surface_seams();
+        let ticks: Vec<_> = seams
+            .global_ticks
+            .iter()
+            .map(|t| (t.name, t.pass))
+            .collect();
+        assert!(
+            ticks.contains(&("usage_report", oxy_app::host::router::TickPass::EveryLoop)),
+            "the usage report's pass is not handed to the driver's loop: {ticks:?}"
         );
     }
 

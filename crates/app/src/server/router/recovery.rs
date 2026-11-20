@@ -569,11 +569,14 @@ pub fn spawn_recovery(
                     // tokens, expiry notices, unused tokens) is
                     // `oxy-api-identity`'s tick, run with the other surfaces'
                     // through `SurfaceSeams::global_ticks`.
-                    // The weekly custom-app usage report: written once a week
-                    // and emailed to the staff who want it. Claimed by a unique
-                    // row per week and per address, throttled per process, so
-                    // every driver running it writes and sends once between them.
-                    crate::server::api::admin::usage_report::job::tick(&db).await;
+                    // The surfaces' every-loop ticks (`GlobalTickSeam`s at
+                    // `TickPass::EveryLoop`), last, on every pass of this loop
+                    // whatever this node claimed: today the weekly custom-app
+                    // usage report (`oxy-api-billing`), written once a week and
+                    // emailed to the staff who want it. Claimed by a unique row
+                    // per week and per address, throttled per process, so every
+                    // driver running it writes and sends once between them.
+                    super::seams::run_loop_ticks(&db, chrono::Utc::now()).await;
                 }
             }
         }
@@ -1904,6 +1907,44 @@ mod experiment_tick_wiring_tests {
             .nth(1)
             .and_then(|rest| rest.split(end).next())
             .unwrap_or_else(|| panic!("`{start}` … `{end}` not found"))
+    }
+
+    /// The every-loop ticks (the weekly usage report, `oxy-api-billing`) run
+    /// in the driver's loop itself, after the pass, where the report's
+    /// `job::tick` was called inline before it left `oxy-app` — not inside
+    /// the pass, whose cloud half ticks only on a node that claimed a
+    /// workspace. An ABSENCE again: drop the call and no report is written.
+    #[test]
+    fn the_driver_loop_runs_the_every_loop_ticks() {
+        let s = src();
+        let driver_loop = between(
+            s,
+            "pub fn spawn_recovery(",
+            "pub(super) async fn run_recovery(",
+        );
+        let after_pass = driver_loop
+            .split("periodic tick: stranded runs only")
+            .nth(1)
+            .expect("the loop's periodic `run_recovery` call");
+        assert!(
+            after_pass.contains("super::seams::run_loop_ticks(&db,"),
+            "the global driver's loop must run the every-loop ticks after its pass \
+             (the weekly usage report among them)"
+        );
+        let passes = [
+            between(
+                s,
+                "async fn recover_local(",
+                "async fn recover_all_workspaces(",
+            ),
+            include_str!("periodic/mod.rs"),
+        ];
+        for body in passes {
+            assert!(
+                !body.contains("run_loop_ticks("),
+                "the every-loop ticks run once per loop, not inside a pass"
+            );
+        }
     }
 
     /// The regression is an ABSENCE: drop the call and everything compiles,

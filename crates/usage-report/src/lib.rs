@@ -3,9 +3,9 @@
 //! routes, no entities, no migrator.
 //!
 //! The weekly custom-app usage report's pure half, out of `oxy-app`'s
-//! `server::api::admin::usage_report` (re-exported there at the old paths); the
-//! weekly job, the delivery, the recipients and the routes stay with the
-//! surface. Operator notes: `internal-docs/custom-app-usage-report.md`.
+//! `server::api::admin::usage_report`; the weekly job, the delivery, the
+//! recipients and the routes are the surface's, `oxy-api-billing` (admin split
+//! PR 8b). Operator notes: `internal-docs/custom-app-usage-report.md`.
 //!
 //! - [`period`] names the week; [`collect`] reads it out of Postgres (or the
 //!   workspace's Airhouse) into a [`model::Snapshot`]; [`store`] keeps it.

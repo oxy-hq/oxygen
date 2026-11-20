@@ -6,7 +6,7 @@
 //! that each reader is mailed once, their own slice, unless they said no.
 //!
 //! The rules for what a report calls out are pure and tested beside them
-//! (`usage_report::highlights`). Own database per test through
+//! (`oxy_usage_report::highlights`). Own database per test through
 //! `common::fresh_db`.
 
 mod airhouse;
@@ -16,9 +16,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Duration;
-use oxy_app::emails::usage_report::{DeliveryMode, ReportMailer};
-use oxy_app::server::api::admin::usage_report::collect::collect;
-use oxy_app::server::api::admin::usage_report::{delivery, job, store};
+use oxy_api_billing::usage_report::{delivery, job};
+use oxy_app_core::emails::usage_report::{DeliveryMode, ReportMailer};
+use oxy_usage_report::collect::collect;
+use oxy_usage_report::store;
 
 use world::{Outbox, World, now};
 

@@ -4890,3 +4890,193 @@ async fn the_composition_carries_the_app_admins_section() {
         "the sections mounting /app-admins"
     );
 }
+
+/// The weekly usage report's routes (`oxy-api-billing`'s two sections since
+/// admin split PR 8b), as `(method, path, staff answer)`, read off the served
+/// router on `main` (2b45e1761d) before the move. The staff answer is the
+/// owner's, and a Global Admin's bounded to one org: both hold
+/// `PlatformOperate` and `PlatformGrants`. No report is written, so the
+/// report is `null` and a copy is `no_report`.
+///
+/// Every other caller this test sends — not staff, the owner while acting,
+/// an App Operator (neither capability) — is 403 on each of these, the wrong
+/// verbs included.
+const USAGE_REPORT_ROUTES: &[(&str, &str, u16)] = &[
+    ("GET", "/admin/usage-report", 200),
+    ("GET", "/admin/usage-report/email-preference", 200),
+    ("POST", "/admin/usage-report/send-to-me", 404),
+    ("GET", "/admin/usage-report/recipients", 200),
+    ("POST", "/admin/usage-report", 405),
+    ("DELETE", "/admin/usage-report/email-preference", 405),
+    ("GET", "/admin/usage-report/send-to-me", 405),
+    ("POST", "/admin/usage-report/recipients", 405),
+    (
+        "GET",
+        "/admin/usage-report/recipients/someone@example.com",
+        405,
+    ),
+    ("TRACE", "/admin/usage-report", 405),
+    ("TRACE", "/admin/usage-report/recipients", 405),
+];
+
+/// Paths neither section mounts: the outer router's 404 for every caller.
+const USAGE_REPORT_UNMOUNTED: &[&str] = &[
+    "/admin/usage-report/",
+    "/admin/usage-report/nothing-here",
+    "/admin/usage-report/recipients/a@b.c/deeper",
+    "/admin/usage-reportx",
+];
+
+async fn usage_report_sweep(router: &Router, who: &str, staff: bool) {
+    for (m, p, want) in USAGE_REPORT_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let want = if staff { *want } else { 403 };
+        let got = status(router, &method, p).await;
+        assert_eq!(got.as_u16(), want, "{who} {m} {p}: got {got}");
+    }
+    for p in USAGE_REPORT_UNMOUNTED {
+        let got = status(router, &Method::GET, p).await;
+        assert_eq!(got, StatusCode::NOT_FOUND, "{who} GET {p}");
+    }
+}
+
+/// The served router mounts the usage report inside `/api/admin` behind the
+/// layers `admin::router` gave it in `oxy-app` — the staff door, the refusal
+/// while acting, and `PlatformOperate` / `PlatformGrants` — answering what
+/// `main` answered before the move ([`USAGE_REPORT_ROUTES`]). The App
+/// Operator is the capability layers' witness: the door admits any standing,
+/// so without a capability on each section it would reach the handlers.
+/// Which section holds which capability is pinned in `oxy-api-billing`.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_usage_report_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+    let router = served(ServeMode::Cloud).await;
+    for (m, p, _) in USAGE_REPORT_ROUTES {
+        assert_eq!(
+            classify(m, &format!("/api{p}")),
+            RouteRole::FleetOk,
+            "{m} {p} is Postgres only and must stay FleetOk"
+        );
+    }
+
+    // A run that panicked mid-way leaves its grant behind, which would make
+    // the guest staff below; these tests are serial (`serial-db`).
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    entity::app_admins::Entity::delete_many()
+        .filter(entity::app_admins::Column::Email.eq(oxy_auth::user::LOCAL_GUEST_EMAIL))
+        .exec(&db)
+        .await
+        .expect("clear a stale guest grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
+
+    usage_report_sweep(&router, "non-staff", false).await;
+    let owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    usage_report_sweep(&router, "owner", true).await;
+
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let now = chrono::Utc::now();
+    let org = |name: &'static str| {
+        let id = uuid::Uuid::new_v4();
+        entity::organizations::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(name.into()),
+            slug: ActiveValue::Set(format!("usage-report-{}", id.simple())),
+            ..Default::default()
+        }
+    };
+
+    // Acting as a tenant closes the console, the usage report included.
+    let acting = org("Usage report acting")
+        .insert(&db)
+        .await
+        .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router usage report".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    let mut acting_answers = Vec::new();
+    for (m, p, _) in USAGE_REPORT_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        acting_answers.push((*m, *p, status(&router, &method, p).await));
+    }
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    for (m, p, got) in acting_answers {
+        assert_eq!(got, StatusCode::FORBIDDEN, "acting {m} {p}: got {got}");
+    }
+    drop(owner);
+
+    // Staff bounded to one org: an App Operator holds neither capability, a
+    // Global Admin both.
+    let in_scope = org("Usage report scope")
+        .insert(&db)
+        .await
+        .expect("the org");
+    for role in ["app_operator", "global_admin"] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the bounded grant");
+        entity::app_admin_scope_orgs::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            app_admin_id: ActiveValue::Set(grant.id),
+            org_id: ActiveValue::Set(in_scope.id),
+            created_at: ActiveValue::Set(now.into()),
+            created_by: ActiveValue::Set(None),
+        }
+        .insert(&db)
+        .await
+        .expect("bound it to the org");
+        // The grant read is cached per process.
+        oxy_server_authz::globals::invalidate_admin_cache();
+        usage_report_sweep(&router, role, role == "global_admin").await;
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+    }
+    for id in [acting.id, in_scope.id] {
+        entity::organizations::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded org");
+    }
+}

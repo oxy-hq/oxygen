@@ -128,6 +128,11 @@ const REQUIRED_GROUPS: &[&str] = &[
     // a section on the admin seam). The walk of `admin::router` reached it
     // in-tree; now only its own seed does.
     "/api/admin/audit",
+    // The admin split (PR 8b): the weekly usage report (`oxy-api-billing`,
+    // two sections on the admin seam, a seed each). `/api/admin/usage-report`
+    // alone would survive either seed's loss, so one path per seed.
+    "/api/admin/usage-report/send-to-me",
+    "/api/admin/usage-report/recipients",
     // The admin split (2026-11-20): the grant table (`oxy-api-admin`, a
     // section on the admin seam). Reached by the walk of `admin::router`
     // in-tree, and required nowhere; now only its own seed reaches it.

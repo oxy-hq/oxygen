@@ -111,6 +111,11 @@ crates/api-previews/                               @luong-komorebi @hotay
 # with the task fleet's console (internal jobs); audit, app admins and
 # assume-role follow it out of crates/app/src/server/api/admin/.
 crates/api-admin/                                  @hotay @luong-komorebi
+# Billing's surface crate (`oxy-api-billing`), 2026-11-20 (admin split PR 8b):
+# the usage report's routes, delivery and weekly job out of
+# crates/app/src/server/api/admin/usage_report/; the staff and tenant billing
+# routes follow it in PR 9.
+crates/api-billing/                                @hotay @luong-komorebi
 # Usage reporting's domain crate (`oxy-usage-report`), 2026-11-20 (admin split
 # PR 8a): the usage report's pure half out of crates/app/src/server/api/admin/,
 # and the usage trio out of crates/app-core/.

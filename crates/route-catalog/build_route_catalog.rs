@@ -197,6 +197,23 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_admin::audit",
         function: "router",
     },
+    // The weekly custom-app usage report and who gets it, `oxy-api-billing`'s
+    // since admin split PR 8b (out of `oxy-app`'s `admin::usage_report`,
+    // where the walk of `admin::router` read both): two sections on
+    // `SurfaceSeams::admin`, so they land INSIDE `/api/admin`, and the walk
+    // above no longer reaches them.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_billing::usage_report",
+        function: "router",
+    },
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_billing::usage_report::recipients",
+        function: "router",
+    },
     // The grant table, `oxy-api-admin`'s since 2026-11-20 (out of `oxy-app`'s
     // `admin::app_admins`): a section on the same seam, inside `/api/admin`.
     Seed {
@@ -620,7 +637,7 @@ const SEEDS: &[Seed] = &[
 /// webhooks, the worktree registry).
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
-/// Both lists watch `crates/api-admin/src`, `crates/api-github/src`, `crates/api-tenancy/src`,
+/// Both lists watch `crates/api-admin/src`, `crates/api-billing/src`, `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`, `crates/api-identity/src`,
 /// `crates/api-operating-graph/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
@@ -655,6 +672,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/airhouse/src",
     "crates/oltp/src",
     "crates/api-admin/src",
+    "crates/api-billing/src",
     "crates/api-github/src",
     "crates/api-tenancy/src",
     "crates/api-documents/src",
@@ -703,6 +721,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/cameras/src/routes",
     "crates/airhouse/src/api",
     "crates/api-admin/src",
+    "crates/api-billing/src",
     "crates/api-github/src",
     "crates/api-tenancy/src",
     "crates/api-documents/src",

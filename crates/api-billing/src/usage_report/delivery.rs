@@ -22,11 +22,11 @@ use chrono::{DateTime, Utc};
 use oxy_authz::{Cap, Scope};
 use sea_orm::{DatabaseConnection, DbErr};
 
-use crate::emails::usage_report::{DeliveryMode, ReportMailer};
-use crate::server::authz::globals::{self, StaffAddress};
-
-use super::email;
-use super::store::{self, Preference, StoredReport};
+use oxy_app_core::emails::usage_report::{DeliveryMode, ReportMailer};
+use oxy_server_authz::globals::{self, StaffAddress};
+use oxy_usage_report::email;
+use oxy_usage_report::model::Snapshot;
+use oxy_usage_report::store::{self, Preference, StoredReport};
 
 /// The capability that makes someone a reader of this report. The router gates
 /// the console page on `Action::PlatformOperate`, which is this capability.
@@ -166,7 +166,7 @@ pub async fn deliver(
 }
 
 async fn send(
-    slice: &super::model::Snapshot,
+    slice: &Snapshot,
     to: &str,
     mailer: &ReportMailer,
     console_url: Option<&str>,
