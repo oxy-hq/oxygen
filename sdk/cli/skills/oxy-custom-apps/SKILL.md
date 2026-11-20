@@ -414,6 +414,16 @@ weigh nothing, so your own token declarations still win; adopting it means delet
 them, and deleting any `--oxy-shell-*` or `!important` rules aimed at the shell or
 kit. Without the import, nothing about the app's look changes.
 
+**The desk UI comes from the SDK, never copied** (SDK ≥ 2.30). The reference app's
+components, patterns and recipes ship in `@oxy-hq/sdk/ui` with `@oxy-hq/sdk/ui.css`, imported
+after `theme.css` and `shell.css`: `import { SidePanel, LoadError, DefaultTabs, ui } from
+"@oxy-hq/sdk/ui"`. A Tailwind app imports `@oxy-hq/sdk/tailwind.css` before
+`@import "tailwindcss"` so its utilities read the theme. Money, percent, dates and CSV come from
+`@oxy-hq/sdk/format`, which runs in a Function too. Run `checkThemeCss()` from
+`@oxy-hq/sdk/testing` in the app's tests: it fails on CSS that restates an SDK token or keys its
+own mode. A piece the SDK lacks is built in the app from the `ui` recipes; a defect in a shared
+piece is fixed in the SDK, so every app gets it.
+
 Six rules of the design system go beyond the reference:
 
 - **Overlays blur the page behind them** (`--scrim`, and `--scrim-blur`, 8px; 0px under
@@ -423,10 +433,9 @@ Six rules of the design system go beyond the reference:
 - **The top bar's Ask Oxygen is the reference's secondary button**, so a button the app
   puts beside it (`topBarExtra`) is the secondary too (`btnCompactSecondary`: the
   `--btn-surface` fill, `--border-subtle` edge, full ink, `--btn-surface-hover` on hover).
-- **An attention strip on a page whose ground is not the card** (the reference's
-  `AlertStrip`, `bg-card py-2`, on a grey page) takes the card's inner padding
-  (`--card-padding`) at its sides, so its label lines up with the cards below rather than
-  sitting on the box's edge.
+- **An attention strip on a page whose ground is not the card** insets its label 13px (a
+  tile's 1px frame + `--padding-sm-x`, 12px), so it lines up with the tiles below rather than
+  sitting on the box's edge; the SDK's `AlertStrip` draws it so.
 - **A side panel on the desk runs the whole window's height and is modal.** A right-hand
   detail panel (the reference's `SidePanel`) runs from the top of the window to the bottom
   (`fixed`, `top: 0`, `bottom: 0`), over the top bar rather than under it, as Store Ops'
