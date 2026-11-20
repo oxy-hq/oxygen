@@ -10,8 +10,8 @@
 //! Pure apart from [`retention_horizon_days`], which reads boot config: the
 //! fleet handler reads, this module decides, and the handler serializes.
 
-use oxy_app_core::llm_usage::price;
 use oxy_observability::types::OrgAppTotals;
+use oxy_usage_report::llm_usage::price;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::evaluator::{HealthThresholds, WorkspaceSignals};
 
-pub use oxy_app_core::customer_runs::exclude_daemon_runs;
+pub use oxy_usage_report::customer_runs::exclude_daemon_runs;
 
 #[derive(Debug, FromQueryResult)]
 struct RunAggRow {

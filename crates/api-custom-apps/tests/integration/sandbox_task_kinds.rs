@@ -47,7 +47,7 @@ fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
             "pub const SYSTEM_SOURCE_TYPES: &[&str] = &[",
         ),
         (
-            "../app-core/src/customer_runs.rs",
+            "../usage-report/src/customer_runs.rs",
             "const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[",
         ),
         (

@@ -66,7 +66,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "app_table_watch",
 ];
 
-/// SQL predicate excluding [`NON_WORKSPACE_RUN_SOURCES`], for a table aliased
+/// SQL predicate excluding `NON_WORKSPACE_RUN_SOURCES`, for a table aliased
 /// `alias` (empty for an unaliased `agentic_runs`).
 ///
 /// Rows with a NULL `source_type` are explicitly kept: a bare `NOT IN` evaluates

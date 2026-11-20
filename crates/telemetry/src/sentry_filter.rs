@@ -605,8 +605,12 @@ mod tests {
     /// of `oxy-app`'s `api::admin` (kept, and not data plane, as there): the
     /// connect-on-demand handle and its error body (`internal-jobs: DB error`,
     /// which every admin section's failed query logs), the staff scope fences,
-    /// the delegation bound, and the audit chain anchor. Pinned at both barriers,
-    /// so a later rule naming one of these crates cannot silently drop them.
+    /// the delegation bound, and the audit chain anchor. PR 8a moved the usage
+    /// report's domain half (out of `oxy_app::server::api::admin::usage_report`)
+    /// and the usage trio (out of `oxy_app_core`) into `oxy_usage_report`: Oxy's
+    /// own Postgres and the workspace's usage facts, no warehouse query, kept and
+    /// not the data plane as there. Pinned at both barriers, so a later rule
+    /// naming one of these crates cannot silently drop them.
     #[test]
     fn the_admin_split_move_downs_keep_their_sentry_lines() {
         for module in [
@@ -617,6 +621,16 @@ mod tests {
             "oxy_server_authz::staff::org_filter",
             "oxy_server_authz::staff::delegation",
             "oxy_server_authz::staff::stored_grant",
+            "oxy_usage_report",
+            "oxy_usage_report::collect",
+            "oxy_usage_report::customer_runs",
+            "oxy_usage_report::email",
+            "oxy_usage_report::highlights",
+            "oxy_usage_report::llm_usage",
+            "oxy_usage_report::model",
+            "oxy_usage_report::period",
+            "oxy_usage_report::store",
+            "oxy_usage_report::view",
             // What stayed: the anchor loop's own log line.
             "oxy_app::server::audit_anchor",
         ] {

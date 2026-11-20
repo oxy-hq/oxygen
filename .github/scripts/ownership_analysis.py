@@ -104,6 +104,9 @@ AREAS = [
     # The staff console crate, started 2026-11-19 (admin split PR 7); its
     # sections leave crates/app/src/server/api/admin, the "Admin (backend)" area.
     ("crates/api-admin",                                  "Admin (backend)"),
+    # Usage reporting's domain crate, 2026-11-20 (admin split PR 8a): the usage
+    # report's pure half, out of crates/app/src/server/api/admin/usage_report.
+    ("crates/usage-report",                               "Admin (backend)"),
     ("crates/app/src/server/previews",                    "Workspace previews"),
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),

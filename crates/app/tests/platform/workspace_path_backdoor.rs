@@ -143,6 +143,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../api-workspaces/src"),
         // The semantic surface, `oxy-api-semantic` since 2026-11-16.
         manifest.join("../api-semantic/src"),
+        // The usage report's domain half, `oxy-usage-report` since 2026-11-20
+        // (out of `src/server/api/admin/usage_report`).
+        manifest.join("../usage-report/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

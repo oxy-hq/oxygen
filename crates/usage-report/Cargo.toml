@@ -1,0 +1,29 @@
+[package]
+name = "oxy-usage-report"
+version.workspace = true
+authors.workspace = true
+description = "Usage reporting's domain logic: the weekly custom-app usage report's model, judgement, collection, store and mail body, and the customer-run predicate and token rate table the platform's usage readers share. Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+entity = { workspace = true }
+oxy-app-core = { workspace = true }           # `emails::usage_report`, the mail renderer `email` fills
+oxy-authz = { workspace = true }              # `Scope`, the reader's reach a report is narrowed to
+oxy-custom-apps = { workspace = true }        # `usage_reads`, the Postgres-or-Airhouse usage reads `collect` runs
+oxy-shared = { workspace = true }
+
+# `customer_runs` and `llm_usage`: the customer-run predicate and the token rate table.
+agentic-llm = { workspace = true }
+agentic-runtime = { workspace = true }
+
+chrono = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

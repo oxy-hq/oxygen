@@ -96,6 +96,9 @@ fn server_files() -> Vec<(String, String)> {
     // `src/server/health_eval_executor.rs`.
     walk(&manifest.join("../workspace-health/src"), &mut out);
     walk(&manifest.join("../api-workspace-health/src"), &mut out);
+    // The usage report's domain half (2026-11-20), out of
+    // `src/server/api/admin/usage_report`; its weekly job still runs in this binary.
+    walk(&manifest.join("../usage-report/src"), &mut out);
     // The health probes and route discovery (2026-11-16), served by the
     // binary from `oxy-server`'s `core_routes`.
     walk(&manifest.join("../server/src/core_routes"), &mut out);

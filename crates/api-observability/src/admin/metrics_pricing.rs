@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::metrics::{DayCost, LlmUsageOverview, ModelCost, OrgCost, OrgUsageDetail, UsageTotals};
 use super::metrics_rollup::{DayModelRow, OrgModelRow};
 
-pub(crate) use oxy_app_core::llm_usage::price;
+pub(crate) use oxy_usage_report::llm_usage::price;
 
 /// Fold per-(day, model) rows into the window total + the day series. Shared by
 /// the cross-tenant overview and the per-org detail so both price identically.

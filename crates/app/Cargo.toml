@@ -65,6 +65,7 @@ oxy-app-core = { workspace = true }
 oxy-tenancy = { workspace = true }
 oxy-identity = { workspace = true }
 oxy-custom-apps = { workspace = true }
+oxy-usage-report = { workspace = true }  # the usage report's domain half (`server::api::admin::usage_report`)
 oxy-authz = { workspace = true }
 oxy-server-authz = { workspace = true }
 oxy-billing = { workspace = true }

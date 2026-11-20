@@ -14,6 +14,7 @@ members = [
   "crates/route-catalog",
   "crates/tenancy",
   "crates/identity",
+  "crates/usage-report",
   "crates/custom-apps",
   "crates/api-airway",
   "crates/api-experiment",
@@ -120,6 +121,7 @@ oxy-auth = { path = "crates/auth" }
 oxy-app-core = { path = "crates/app-core" }
 oxy-tenancy = { path = "crates/tenancy" }
 oxy-identity = { path = "crates/identity" }
+oxy-usage-report = { path = "crates/usage-report" }
 oxy-custom-apps = { path = "crates/custom-apps" }
 oxy-authz = { path = "crates/authz" }
 oxy-server-authz = { path = "crates/server-authz" }

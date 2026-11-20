@@ -210,7 +210,7 @@ fn llm_cost_is_the_admin_metrics_price() {
     let week = assemble::orgs(src, &[], 1)[0].last7d;
     let model = Some("claude-haiku-4-5".to_string());
     let metrics =
-        oxy_app_core::llm_usage::price(&model, tokens[0], tokens[1], tokens[2], tokens[3]);
+        oxy_usage_report::llm_usage::price(&model, tokens[0], tokens[1], tokens[2], tokens[3]);
     assert_eq!(Some(week.llm_cost_usd), metrics);
     assert!(week.llm_cost_usd > 0.0, "a priced model");
 }

@@ -47,7 +47,7 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
-use oxy_app_core::usage_period::Period;
+use oxy_usage_report::period::Period;
 
 /// Weeks returned when the caller names none.
 pub const DEFAULT_WEEKS: u32 = 8;

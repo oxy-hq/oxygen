@@ -25,7 +25,7 @@
 //! is "a schedule seeded it **and** nobody fired it by hand".
 //!
 //! **Pricing is not here.** Every row carries tokens and a model; dollars come
-//! from `oxy_app_core::llm_usage::price`, which is the same rate table
+//! from `oxy_usage_report::llm_usage::price`, which is the same rate table
 //! `/admin/metrics` and `ctx.platform.facts()` use. Three surfaces pricing a
 //! run three ways is the failure that sharing a table avoids.
 //!
@@ -39,10 +39,10 @@ use uuid::Uuid;
 
 /// One run's model and token sums — the columns every rollup below prices.
 ///
-/// Taken from `oxy-app-core` rather than restated, so this surface and
+/// Taken from `oxy-usage-report` rather than restated, so this surface and
 /// `/admin/metrics` cannot disagree about what a run's tokens *are* before they
 /// disagree about what they cost.
-use oxy_app_core::llm_usage::RUN_TOKENS;
+use oxy_usage_report::llm_usage::RUN_TOKENS;
 
 /// Per-run token rollup for one org, narrowed by a `workspaces.org_id` join.
 ///

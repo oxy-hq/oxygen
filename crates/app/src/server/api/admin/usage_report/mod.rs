@@ -14,19 +14,18 @@
 //! - [`view`] is the console's read of a report, and `handlers` the routes;
 //!   [`recipients`] lists who gets it and lets an admin switch one person off.
 //!
+//! `period`, `collect`, `model`, `store`, `highlights`, `email` and `view` are
+//! the `oxy-usage-report` crate's (the report's domain half, with no route or
+//! `AppState`), re-exported here at their old paths; the rest is the surface.
+//!
 //! Operator notes: `internal-docs/custom-app-usage-report.md`.
 
-pub mod collect;
 pub mod delivery;
-pub mod email;
 mod handlers;
-pub mod highlights;
 pub mod job;
-pub mod model;
-pub mod period;
 pub mod recipients;
-pub mod store;
-pub mod view;
+
+pub use oxy_usage_report::{collect, email, highlights, model, period, store, view};
 
 use axum::Router;
 use axum::routing::{get, post};

@@ -12,6 +12,7 @@ edition.workspace = true
 # oxy-api-workspace-health's, behind the `ReconcileRunner` / `SmokeRunner` seams.
 oxy = { workspace = true }                   # health_check config, Toast integration model
 oxy-app-core = { workspace = true }          # compiled_reader
+oxy-usage-report = { workspace = true }      # customer_runs, the customer-run predicate
 oxy-airlayer-compat = { workspace = true }   # semantic query requests
 oxy-metric-monitoring = { workspace = true } # duration/week-start config shared with monitors
 oxy-observability = { workspace = true }     # custom-app availability burn rate

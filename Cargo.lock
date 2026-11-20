@@ -9836,6 +9836,7 @@ dependencies = [
  "oxy-telemetry",
  "oxy-tenancy",
  "oxy-test-utils",
+ "oxy-usage-report",
  "parking_lot 0.12.5",
  "parquet",
  "rand 0.10.2",
@@ -10203,6 +10204,7 @@ dependencies = [
  "oxy-oltp",
  "oxy-shared",
  "oxy-test-utils",
+ "oxy-usage-report",
  "sea-orm",
  "serde",
  "serde_json",
@@ -10717,6 +10719,7 @@ dependencies = [
  "oxy-telemetry",
  "oxy-tenancy",
  "oxy-test-utils",
+ "oxy-usage-report",
  "oxy-workspace-fs",
  "oxy-world-model",
  "parking_lot 0.12.5",
@@ -10780,7 +10783,6 @@ dependencies = [
  "agentic-connector",
  "agentic-core",
  "agentic-http",
- "agentic-llm",
  "agentic-pipeline",
  "agentic-runtime",
  "agentic-semantic",
@@ -11546,6 +11548,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-usage-report"
+version = "0.5.161"
+dependencies = [
+ "agentic-llm",
+ "agentic-runtime",
+ "chrono",
+ "entity",
+ "oxy-app-core",
+ "oxy-authz",
+ "oxy-custom-apps",
+ "oxy-shared",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-web"
 version = "0.5.161"
 dependencies = [
@@ -11581,6 +11602,7 @@ dependencies = [
  "oxy-observability",
  "oxy-shared",
  "oxy-slack-client",
+ "oxy-usage-report",
  "rand 0.10.2",
  "reqwest 0.13.4",
  "sea-orm",

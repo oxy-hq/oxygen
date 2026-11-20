@@ -2,7 +2,7 @@
 //! leaves.
 //!
 //! Presentation only. What goes in the report — which apps, which sentences —
-//! is decided in `server::api::admin::usage_report`, which hands this module a
+//! is decided in `oxy_usage_report::email`, which hands this module a
 //! [`ReportEmail`] already narrowed to what its reader may see.
 //!
 //! Same sender as the other platform mail (the magic-link SES identity). Two

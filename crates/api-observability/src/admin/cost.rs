@@ -2,7 +2,7 @@
 //! the dimensions that say why it is what it is.
 //!
 //! The SQL is [`super::cost_rollup`]; the derived numbers are
-//! [`super::derive`]; the rates are `oxy_app_core::llm_usage::price`, shared
+//! [`super::derive`]; the rates are `oxy_usage_report::llm_usage::price`, shared
 //! with `/admin/metrics` and `ctx.platform.facts()` so three surfaces cannot
 //! price one run three ways.
 //!
@@ -20,8 +20,8 @@ use axum::response::Response;
 use axum::{Json, Router, routing::get};
 use oxy_app_core::AppState;
 use oxy_app_core::admin_db::db_err;
-use oxy_app_core::llm_usage::price;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_usage_report::llm_usage::price;
 use sea_orm::FromQueryResult;
 use serde::Serialize;
 use std::collections::BTreeMap;

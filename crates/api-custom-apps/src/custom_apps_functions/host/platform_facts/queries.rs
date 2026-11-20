@@ -40,7 +40,7 @@ use uuid::Uuid;
 use super::Windows;
 use super::app_use::{self, AppAtRow, AppCountRow, OrgPersonRow};
 use super::llm_cost::{self, LlmCostRow};
-use oxy_app_core::customer_runs::exclude_daemon_runs;
+use oxy_usage_report::customer_runs::exclude_daemon_runs;
 
 const ORGS_SQL: &str = "\
 SELECT o.id, o.slug, o.name, o.created_at, \

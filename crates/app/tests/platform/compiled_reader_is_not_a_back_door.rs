@@ -283,6 +283,16 @@ fn source_files() -> Vec<(String, String)> {
     );
     let health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-health/src");
     walk(&health, &health, "../workspace-health/src/", &mut out);
+    // `oxy-usage-report` (2026-11-20): the usage report's domain half, out of
+    // `src/server/api/admin/usage_report`, and the usage trio out of
+    // `../app-core/src`, both walked above before the move.
+    let usage_report = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../usage-report/src");
+    walk(
+        &usage_report,
+        &usage_report,
+        "../usage-report/src/",
+        &mut out,
+    );
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
     walk(
         &api_health,

@@ -33,8 +33,9 @@ oxy-auth = { workspace = true }                # AuthenticatedUserExtractor, for
 # created mid-period. Free in the graph: `oxy-app`, already a dependency above,
 # pulls this crate.
 oxy-custom-apps = { workspace = true }
+oxy-usage-report = { workspace = true }   # `llm_usage`, the token columns and the rate table
 # The admin section's cost rollup reads Postgres directly (`agentic_runs` ×
-# `agentic_run_events`), priced by `oxy_app_core::llm_usage`.
+# `agentic_run_events`), priced by `oxy_usage_report::llm_usage`.
 sea-orm = { workspace = true }
 # The fleet list reads the current and the prior window side by side.
 futures = { workspace = true }

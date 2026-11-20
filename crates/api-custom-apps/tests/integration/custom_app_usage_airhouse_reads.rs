@@ -1172,7 +1172,7 @@ fn usage_backfill_kind_is_handed_to_the_fleet_and_is_a_platform_daemon() {
             "pub const SYSTEM_SOURCE_TYPES: &[&str] = &[",
         ),
         (
-            "../app-core/src/customer_runs.rs",
+            "../usage-report/src/customer_runs.rs",
             "const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[",
         ),
         (

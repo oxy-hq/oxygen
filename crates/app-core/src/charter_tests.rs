@@ -76,17 +76,9 @@ const BACKLOG: &[(&str, &str)] = &[
     ("custom_app_environment", "oxy-custom-apps"),
     ("custom_apps_host_dispatch", "oxy-custom-apps"),
     ("custom_domain_host", "oxy-custom-apps"),
-    (
-        "customer_runs",
-        "usage reporting (admin usage_report's domain crate)",
-    ),
     ("emails", "its own P2 vendor-client crate (SES)"),
     ("function_answer", "oxy-custom-apps"),
     ("internal_orgs", "oxy-tenancy"),
-    (
-        "llm_usage",
-        "usage reporting (admin usage_report's domain crate)",
-    ),
     ("notifications", "a notifications domain crate"),
     (
         "operating_graph",
@@ -94,10 +86,6 @@ const BACKLOG: &[(&str, &str)] = &[
     ),
     ("staging_pin_scope", "oxy-custom-apps"),
     ("ttl_lru", "oxy-custom-apps"),
-    (
-        "usage_period",
-        "usage reporting (admin usage_report's domain crate)",
-    ),
     ("usage_probe", "oxy-custom-apps"),
     ("widgets", "a home-widgets domain crate"),
 ];

@@ -15,7 +15,7 @@
 //!    arithmetic over a measured driver. With nothing supplied, the meter
 //!    reports its quantity and says plainly that no cost was configured.
 //!
-//! LLM is neither: it is priced per model by `oxy_app_core::llm_usage::price`,
+//! LLM is neither: it is priced per model by `oxy_usage_report::llm_usage::price`,
 //! from a rate table we already trust, and it is reported on the Cost panel. It
 //! is deliberately absent here so the two panels cannot double-count.
 //!

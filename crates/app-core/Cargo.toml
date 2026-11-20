@@ -37,8 +37,7 @@ agentic-pipeline = { workspace = true }
 airhouse = { workspace = true, features = ["sql-rules"] }
 sqlparser = { workspace = true, features = ["visitor"] }
 
-# `customer_runs` and `llm_usage`: the customer-run predicate and the token rate table.
-agentic-llm = { workspace = true }
+# `notifications::task`: the delivery task's queue.
 agentic-runtime = { workspace = true }
 
 # `notifications`: the write path (inbox content in the org's OLTP store, the

@@ -111,6 +111,10 @@ crates/api-previews/                               @luong-komorebi @hotay
 # with the task fleet's console (internal jobs); audit, app admins and
 # assume-role follow it out of crates/app/src/server/api/admin/.
 crates/api-admin/                                  @hotay @luong-komorebi
+# Usage reporting's domain crate (`oxy-usage-report`), 2026-11-20 (admin split
+# PR 8a): the usage report's pure half out of crates/app/src/server/api/admin/,
+# and the usage trio out of crates/app-core/.
+crates/usage-report/                               @hotay @luong-komorebi
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay
 

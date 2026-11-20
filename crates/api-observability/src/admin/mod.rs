@@ -21,7 +21,7 @@
 //! the cross-tenant overview, and `GET /metrics/orgs/{org_id}/llm-usage`, one
 //! org's daily series), moved out of `oxy-app`'s `admin::metrics` in the admin
 //! split behind the same capability. Its SQL is [`metrics_rollup`] and its
-//! pricing [`metrics_pricing`], both on `oxy_app_core::llm_usage`, the rate
+//! pricing [`metrics_pricing`], both on `oxy_usage_report::llm_usage`, the rate
 //! table `cost_rollup` prices with.
 //!
 //! ## Two rules every handler here keeps

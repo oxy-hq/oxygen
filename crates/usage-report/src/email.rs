@@ -7,8 +7,10 @@
 
 use oxy_shared::errors::OxyError;
 
-use crate::emails::EmailMessage;
-use crate::emails::usage_report::{EmailHighlight, EmailOrg, EmailStat, ReportEmail, render};
+use oxy_app_core::emails::EmailMessage;
+use oxy_app_core::emails::usage_report::{
+    EmailHighlight, EmailOrg, EmailStat, ReportEmail, render,
+};
 
 use super::highlights::{Highlight, Tone, highlights};
 use super::model::{OrgUsage, Snapshot, Summary, plural};

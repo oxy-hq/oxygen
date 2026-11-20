@@ -11,7 +11,7 @@ use oxy_app::surface::admin_scope::org_scope_clause;
 
 // Shared CTE
 
-pub(crate) use oxy_app_core::llm_usage::RUN_TOKENS;
+pub(crate) use oxy_usage_report::llm_usage::RUN_TOKENS;
 
 /// Per-run token rollup over the window ([`RUN_TOKENS`] per run).
 ///

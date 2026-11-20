@@ -96,7 +96,7 @@ pub async fn insert_if_absent(db: &DatabaseConnection, snapshot: &Snapshot) -> R
     Ok(inserted.rows_affected() == 1)
 }
 
-/// Drop reports older than [`WEEKS_KEPT`] weeks before `newest_start`; their
+/// Drop reports older than `WEEKS_KEPT` weeks before `newest_start`; their
 /// delivery rows go with them.
 pub async fn prune(db: &DatabaseConnection, newest_start: DateTime<Utc>) -> Result<u64, DbErr> {
     let keep_from = newest_start - chrono::Duration::weeks(WEEKS_KEPT - 1);
@@ -234,7 +234,7 @@ pub async fn set_wants_email(
 }
 
 /// Addresses are compared as `app_admins` stores them.
-pub(super) fn normalize(email: &str) -> String {
+pub fn normalize(email: &str) -> String {
     email.trim().to_ascii_lowercase()
 }
 
