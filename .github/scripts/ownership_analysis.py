@@ -91,7 +91,8 @@ AREAS = [
     ("crates/agentic/semantic",                           "Semantic (agentic shim)"),
     # The pre-aggregation runtime's domain half, 2026-11-20; the pre-extraction
     # paths keep their history (`preagg_promote.rs` followed as
-    # `oxy_preagg::promote` the same day), and the cycle that stayed in oxy-app
+    # `oxy_preagg::promote` the same day, the cycle's body as
+    # `oxy_preagg::cycle`), and the executor shell that stayed in oxy-app
     # joins them.
     ("crates/preagg",                                     "Pre-aggregation runtime"),
     ("crates/app/src/server/preagg_freshness.rs",         "Pre-aggregation runtime"),

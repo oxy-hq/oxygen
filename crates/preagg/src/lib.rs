@@ -15,14 +15,21 @@
 //!   cycle when a promote declared a rollup hash the previous revision did
 //!   not. `oxy-app` re-exports it at `server::preagg_promote`.
 //!
-//! The cycle itself, `PreaggTaskExecutor`, stays in `oxy-app`'s
-//! `server::preagg_executor` for now: it builds an `OxyProjectContext` and
-//! resolves the compiled scan source, both `oxy-app`'s workspace runtime. What
-//! this crate needs of a workspace is the [`WorkspaceContext`] trait's
-//! `get_connector`, which is how it reached `OxyProjectContext` before.
+//! - [`cycle`] is one `preagg_cycle` task's body (`run_preagg_task`), its
+//!   request (`PreaggCycleRequest`, `RollupTarget`) and its rollup resolution.
+//!   `oxy-app` re-exports the request types at `server::preagg_executor`.
+//!
+//! The executor shell, `PreaggTaskExecutor` and `build_task_config`, stays in
+//! `oxy-app`'s `server::preagg_executor` for now: it builds an
+//! `OxyProjectContext` per task, which is `oxy-app`'s workspace runtime. What
+//! this crate needs of a workspace is [`cycle::CycleWorkspace`]: the
+//! [`WorkspaceContext`] trait's `get_connector`, plus `is_database_configured`
+//! and `load_views` (the compiled scan source's views), which `oxy-app`
+//! implements for `OxyProjectContext`.
 //!
 //! [`WorkspaceContext`]: agentic_automation::workspace::WorkspaceContext
 
+pub mod cycle;
 pub mod freshness;
 pub mod generation;
 pub mod promote;

@@ -2,7 +2,7 @@
 //! change made wrong, and the bookkeeping that lets the invalidation prove it
 //! finished.
 //!
-//! Separate from `oxy-app`'s `preagg_executor` because it answers a different question.
+//! Separate from [`crate::cycle`] because it answers a different question.
 //! The executor asks "is this rollup STALE?" — a freshness question, answered
 //! by a refresh key. This asks "was this rollup built by a builder that stored
 //! the wrong thing?" — which no refresh key can answer, because the stored

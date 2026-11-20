@@ -9,7 +9,7 @@
 //! removed it), and the node-local ledger is the only surviving evidence it
 //! ran.
 //!
-//! Split out of `oxy-app`'s `preagg_executor` for size, and because every function here
+//! Split out of the cycle (then `oxy-app`'s `preagg_executor`) for size, and because every function here
 //! takes a `cache_dir` rather than reaching for the process's state dir —
 //! which is what makes the "second cycle after a zero-row rebuild" case
 //! testable at all.

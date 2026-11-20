@@ -200,7 +200,7 @@ fn source_files() -> Vec<(String, String)> {
 }
 
 /// Strip what is not a call: line comments (a doc comment naming the call is
-/// not a call — `preagg_executor.rs` explains the cost in prose and would
+/// not a call — `crates/preagg/src/cycle.rs` explains the cost in prose and would
 /// otherwise read as an offender) and every `#[cfg(test)]` item.
 ///
 /// Test modules are matched by attribute, not by the name `tests`: the

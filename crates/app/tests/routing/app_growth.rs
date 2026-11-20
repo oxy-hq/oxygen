@@ -62,7 +62,9 @@ const SERVER: &[&str] = &[
     // The pre-aggregation runtime's domain half (`freshness`, `generation`,
     // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20, and the
     // post-promote nudge (`preagg_promote`, now `oxy_preagg::promote`,
-    // re-exported in `server/mod.rs`) followed it the same day.
+    // re-exported in `server/mod.rs`) followed it the same day, and so did
+    // the cycle's body (`oxy_preagg::cycle`); `preagg_executor` keeps the
+    // executor shell and re-exports the request types.
     "preagg_executor",
     "preagg_workspace",
     "previews",

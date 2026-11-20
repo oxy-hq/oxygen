@@ -231,8 +231,8 @@ crates/infrastructure/semantic/                    @haitrr @luong-komorebi
 crates/semantic/                                   @haitrr @luong-komorebi
 crates/agentic/semantic/                           @haitrr @luong-komorebi
 # The pre-aggregation runtime's domain half (`oxy-preagg`), 2026-11-20: rollup
-# freshness, rebuild, retraction and the builder-generation sweep, out of
-# crates/app/src/server/preagg_*.
+# freshness, rebuild, retraction, the builder-generation sweep and the cycle
+# that drives them, out of crates/app/src/server/preagg_*.
 crates/preagg/                                     @haitrr @luong-komorebi
 internal-docs/semantic-validation-standardization.md  @haitrr @luong-komorebi
 

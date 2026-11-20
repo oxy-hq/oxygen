@@ -912,6 +912,10 @@ mod tests {
             // The post-promote nudge followed it (out of
             // `oxy_app::server::preagg_promote`), classified as it was there.
             "oxy_preagg::promote",
+            // The cycle's body followed it (out of
+            // `oxy_app::server::preagg_executor`, which keeps the executor
+            // shell), classified as it was there.
+            "oxy_preagg::cycle",
             "oxy_app::server::preagg_executor",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
@@ -1329,6 +1333,10 @@ mod tests {
             // The post-promote nudge followed it (out of
             // `oxy_app::server::preagg_promote`), classified as it was there.
             "oxy_preagg::promote",
+            // The cycle's body followed it (out of
+            // `oxy_app::server::preagg_executor`, which keeps the executor
+            // shell), classified as it was there.
+            "oxy_preagg::cycle",
             "oxy_app::server::preagg_executor",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data

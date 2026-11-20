@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-/// The bag `run_preagg_task`/`RebuildContext` need, built fresh per task from
+/// The bag `cycle::run_preagg_task`/`RebuildContext` need, built fresh per task from
 /// the payload's `workspace_id` by `oxy-app`'s `preagg_executor`
 /// (`build_task_config`).
 pub struct PreaggWorkerConfig {
