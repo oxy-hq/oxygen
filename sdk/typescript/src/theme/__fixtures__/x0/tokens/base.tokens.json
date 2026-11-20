@@ -645,5 +645,282 @@
       },
       "$description": "Blurs the page behind a dialog or sheet."
     }
+  },
+  "type-scale": {
+    "3xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.625,
+          "unit": "rem"
+        },
+        "$description": "text-3xs (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-3xs line height (x0)."
+      }
+    },
+    "2xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.6875,
+          "unit": "rem"
+        },
+        "$description": "text-2xs (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-2xs line height (x0)."
+      }
+    },
+    "xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        },
+        "$description": "text-xs (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-xs line height (x0)."
+      }
+    },
+    "sm": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.8125,
+          "unit": "rem"
+        },
+        "$description": "text-sm (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-sm line height (x0)."
+      }
+    },
+    "md": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.875,
+          "unit": "rem"
+        },
+        "$description": "text-md (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-md line height (x0)."
+      }
+    },
+    "base": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1,
+          "unit": "rem"
+        },
+        "$description": "text-base (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-base line height (x0)."
+      }
+    },
+    "lg": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "text-lg (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-lg line height (x0)."
+      }
+    },
+    "xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.5,
+          "unit": "rem"
+        },
+        "$description": "text-xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-xl line height (x0)."
+      }
+    },
+    "2xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        },
+        "$description": "text-2xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "text-2xl line height (x0)."
+      }
+    },
+    "3xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.625,
+          "unit": "rem"
+        },
+        "$description": "text-3xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1,
+        "$description": "text-3xl line height (x0)."
+      }
+    },
+    "4xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 4,
+          "unit": "rem"
+        },
+        "$description": "text-4xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1,
+        "$description": "text-4xl line height (x0)."
+      }
+    },
+    "5xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 6,
+          "unit": "rem"
+        },
+        "$description": "text-5xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "text-5xl line height (x0)."
+      }
+    },
+    "6xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 8.75,
+          "unit": "rem"
+        },
+        "$description": "text-6xl (x0)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "text-6xl line height (x0)."
+      }
+    }
+  },
+  "padding": {
+    "sm-x": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "As the reference."
+    }
+  },
+  "control-padding": {
+    "sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "As the reference."
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "As the reference."
+    }
+  },
+  "table": {
+    "band-h": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1.55,
+        "unit": "rem"
+      },
+      "$description": "As the reference."
+    },
+    "header-h": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      },
+      "$description": "As the reference."
+    },
+    "cell-padding-x": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0.6,
+        "unit": "rem"
+      },
+      "$description": "As the reference."
+    },
+    "cell-padding-y": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0.4,
+        "unit": "rem"
+      },
+      "$description": "As the reference."
+    }
+  },
+  "measure": {
+    "prose": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "rem"
+      },
+      "$description": "As the reference."
+    },
+    "form": {
+      "$type": "dimension",
+      "$value": {
+        "value": 36,
+        "unit": "rem"
+      },
+      "$description": "As the reference."
+    }
   }
 }

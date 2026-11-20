@@ -3731,3 +3731,88 @@
 .oxy-phone-hint {
   font-family: var(--font-sans, var(--oxy-shell-font));
 }
+
+/* ─── PhoneOptionSheet (2.30.0; the navigation build's block, appended) ───
+   A choice of one, full screen (PhoneOptionSheet.tsx): 48px rows on the kit's
+   card surface (PhoneCard's, the foreground mixed into the page), the card's
+   edge between them, the chosen one in the label's weight with a check in the
+   row's own ink, not the link blue. It reads no name an app sets for itself
+   (themeTokens.test.ts), so an app without theme.css draws it in its shell
+   tokens, as the rest of the kit. */
+.oxy-phone-options {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--card-radius, var(--oxy-shell-radius));
+  background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
+}
+
+.oxy-phone-options__option {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--card-border, var(--oxy-shell-border));
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--oxy-shell-foreground);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background var(--oxy-duration-fast) var(--oxy-ease-out);
+}
+
+.oxy-phone-options__option:last-child {
+  border-bottom: 0;
+}
+
+.oxy-phone-options__option:active {
+  background: color-mix(in srgb, var(--oxy-shell-foreground) 6%, transparent);
+}
+
+.oxy-phone-options__option:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
+}
+
+.oxy-phone-options__text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oxy-phone-options__label {
+  overflow-wrap: anywhere;
+  font-weight: 400;
+}
+
+.oxy-phone-options__option--on .oxy-phone-options__label {
+  font-weight: 600;
+}
+
+.oxy-phone-options__detail {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--oxy-shell-muted-fg);
+}
+
+.oxy-phone-options__check {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--oxy-shell-foreground);
+}

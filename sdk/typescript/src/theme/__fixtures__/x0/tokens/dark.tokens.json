@@ -294,9 +294,17 @@
       "$value": "{palette.neutral.dark.9}",
       "$description": "Unjudged series."
     },
+    "status-info": {
+      "$value": "{color.link}",
+      "$description": "Info ink."
+    },
     "status-info-line": {
       "$value": "{color.link}",
       "$description": "Info line."
+    },
+    "status-info-series": {
+      "$value": "{color.brand}",
+      "$description": "Info series."
     },
     "dot-success": {
       "$value": "{color.status-success-series}",
@@ -708,6 +716,18 @@
           "cssUnit": "%"
         }
       }
+    }
+  },
+  "app-mark": {
+    "ground": {
+      "$type": "color",
+      "$value": "{color.brand-subtle}",
+      "$description": "App mark square: the brand tint."
+    },
+    "ink": {
+      "$type": "color",
+      "$value": "{color.link}",
+      "$description": "App mark glyph: the link blue."
     }
   }
 }

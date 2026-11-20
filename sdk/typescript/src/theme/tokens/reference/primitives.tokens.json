@@ -670,6 +670,19 @@
           "hex": "#5d73ff"
         },
         "$description": "#5d73ff: reference-app@7c1ee7e src/index.css:426"
+      },
+      "app-mark-ground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1647,
+            0.251,
+            0.8
+          ],
+          "hex": "#2a40cc",
+          "alpha": 0.3
+        },
+        "$description": "rgba(42,64,204,0.3): reference-app@3caad1f src/index.css:460 (oxy-blue-600 at 30%, so the page shows through the app mark's square). The same value as palette.light.status-info-line, kept its own so the dark mark does not move with the light info edge, as palette.derived.dark.chart-div-pos-1 does for blue-600"
       }
     },
     "light": {
@@ -1376,6 +1389,18 @@
           "hex": "#3550ff"
         },
         "$description": "#3550ff: reference-app@7c1ee7e src/index.css:681"
+      },
+      "app-mark-ground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8431,
+            0.8627,
+            1
+          ],
+          "hex": "#d7dcff"
+        },
+        "$description": "#d7dcff: reference-app@3caad1f src/index.css:702 (oxy-blue-100, the app mark's square; no other palette step has it)"
       }
     },
     "any": {
@@ -1628,6 +1653,30 @@
             "hex": "#aeb9ff"
           },
           "$description": "#aeb9ff: Diverging, far above: oxy-blue-200 (index.css:454)."
+        },
+        "status-info-series": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.3098,
+              0.4039,
+              1
+            ],
+            "hex": "#4f67ff"
+          },
+          "$description": "#4f67ff: FIX, not the reference (decision 64, 20 Nov): the chart's info series read --brand (#445dff), which measures 2.73:1 on a selected row (--row-selected over --card), under the 3:1 a chart line needs. #4f67ff is the smallest step lighter that clears it (3.02); --brand itself stays #445dff for buttons. Light keeps --brand."
+        },
+        "status-info": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.5765,
+              0.6353,
+              1
+            ],
+            "hex": "#93a2ff"
+          },
+          "$description": "#93a2ff: FIX, not the reference (decision 64, 20 Nov): the info ink was --link (#8696ff, reference-app@7c1ee7e src/index.css:300), and the info chip's word on its tint on a selected row (--status-info on --status-info-bg over --row-selected over --card) measured 3.99:1, under 4.5. #93a2ff is the smallest step lighter that clears it (4.51); --link stays #8696ff for links. Light keeps --link."
         }
       },
       "light": {
@@ -1635,13 +1684,13 @@
           "$value": {
             "colorSpace": "srgb",
             "components": [
-              0.7451,
-              0.5098,
+              0.698,
+              0.4784,
               0.0157
             ],
-            "hex": "#be8204"
+            "hex": "#b27a04"
           },
-          "$description": "#be8204: FIX, not the reference: #ca8a04 (reference-app@7c1ee7e src/index.css:668) measures 2.72:1 on the light canvas and 2.94 on the card, under the 3:1 a chart mark needs (WCAG 1.4.11). #be8204, the same hue a step darker, measures 3.05 and 3.29."
+          "$description": "#b27a04: FIX, not the reference: #ca8a04 (reference-app@7c1ee7e src/index.css:668) measures 2.72:1 on the light canvas and 2.94 on the card, under the 3:1 a chart mark needs (WCAG 1.4.11); the first fix, #be8204, measured 3.05 / 3.29 there but 2.69 on a selected row (--row-selected over --card). Decision 64 (20 Nov): #b27a04, the smallest step darker that clears the selected row (3.02)."
         },
         "brand-hover": {
           "$value": {
@@ -1814,6 +1863,18 @@
             "alpha": 0.7
           },
           "$description": "rgba(235,60,62,0.7): FIX, not the reference: the reference's glow is its dot again at 0.7 (reference-app@7c1ee7e src/index.css:422-423; rgba(239,68,68,0.7) at :431, in both themes). The light dot is corrected (derived.light.dot-error), so its glow is that dot at 0.7, by the same rule."
+        },
+        "status-success-series": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0824,
+              0.6,
+              0.2745
+            ],
+            "hex": "#159946"
+          },
+          "$description": "#159946: FIX, not the reference (decision 64, 20 Nov): #16a34a (reference-app@7c1ee7e src/index.css:667) measures 2.69:1 on a selected row (--row-selected over --card), under the 3:1 a chart line needs (WCAG 1.4.11). #159946 is the smallest step darker that clears it (3.02)."
         }
       }
     }

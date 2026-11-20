@@ -1,0 +1,627 @@
+/* ── patterns ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). The looks are the recipes'
+   (card, panel, tile, eyebrow, note, figure, row state) and the other groups'
+   pieces (DataSheet, ToggleChip, SearchField, Panel, Button, Chip, Sparkline);
+   what is here is the frame each pattern lays them in. Elements outside a recipe
+   set their own margin, font and edge: an app without Tailwind has no preflight.
+   Lengths that are a pattern's own geometry (6px, 12px, 24px) are the
+   reference's, literal, as its Tailwind steps were. */
+
+/* ── ReorderSheet ─────────────────────────────────────────────────────────────
+   Toolbar (find left, actions right), the column toggles, the sheet, a footer;
+   spacingSm apart. The pick is a 16px box in the brand accent. */
+.oxy-ui-reorder-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-reorder-sheet__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-reorder-sheet__search {
+  width: 100%;
+  max-width: 20rem;
+}
+
+.oxy-ui-reorder-sheet__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.oxy-ui-reorder-sheet__empty {
+  padding-block: var(--space-sm);
+}
+
+.oxy-ui-reorder-sheet__dash {
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-reorder-sheet__pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.oxy-ui-reorder-sheet__check {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.oxy-ui-reorder-sheet__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ── MapSidebar, MapDetailCard ────────────────────────────────────────────────
+   One panel, two views, one set of parts (mapPanel.tsx): the frame (an edge on
+   the card surface), a fixed header, a scrolling body whose sections sit
+   spacingLg apart, sections with an eyebrow head and a hairline foot, tiles on
+   the field surface. The hidden view is display: none (the `hidden` attribute
+   loses to a class's display otherwise). */
+.oxy-ui-map-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+.oxy-ui-map-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.oxy-ui-map-view[hidden] {
+  display: none;
+}
+
+.oxy-ui-map-panel__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-md);
+}
+
+.oxy-ui-map-panel__heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.oxy-ui-map-panel__title {
+  margin: 0;
+  color: var(--foreground);
+}
+
+/* Focus lands on the title only when its view comes back and the row that
+   opened the other one is gone: a place to read from, not a control. */
+.oxy-ui-map-panel__title:focus {
+  outline: none;
+}
+
+.oxy-ui-map-panel__meta {
+  margin: 0;
+}
+
+.oxy-ui-map-panel__back {
+  flex-shrink: 0;
+  margin-left: calc(-1 * var(--space-xs));
+}
+
+.oxy-ui-map-panel__back-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.oxy-ui-map-panel__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-md);
+}
+
+.oxy-ui-map-panel__actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-md);
+}
+
+.oxy-ui-map-panel__actions > * {
+  flex: 1;
+}
+
+.oxy-ui-map-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-map-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-map-section__name,
+.oxy-ui-map-section__heading {
+  margin: 0;
+}
+
+.oxy-ui-map-section__heading {
+  font: inherit;
+}
+
+.oxy-ui-map-section__toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background-color: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oxy-ui-map-section__caret {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-map-section__title {
+  flex: 1;
+}
+
+.oxy-ui-map-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-map-section__foot {
+  margin: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 6px;
+}
+
+.oxy-ui-map-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: 6px var(--space-sm);
+  color: var(--foreground);
+}
+
+.oxy-ui-map-tile--row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-map-tile--action {
+  width: 100%;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition-property: background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-map-tile--action[aria-pressed="true"] {
+  background-color: var(--segment-selected);
+}
+
+/* ── FlagRow ──────────────────────────────────────────────────────────────────
+   rank | name + measure, then the sentence | sparkline | figure, deviation.
+   The name and the sentence stack under 48rem and sit side by side above it;
+   the sparkline shows from 40rem. A rule under each row. */
+.oxy-ui-flag-row {
+  display: flex;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-flag-row__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-md);
+  margin: 0;
+  border: 0;
+  padding: 12px var(--space-md);
+  background-color: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+button.oxy-ui-flag-row__main {
+  cursor: pointer;
+}
+
+.oxy-ui-flag-row__rank {
+  width: 20px;
+  flex-shrink: 0;
+  padding-top: var(--space-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-flag-row__claim {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oxy-ui-flag-row__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* The reference's `text-base font-medium` and `text-xl font-semibold`: the
+   scale's own line (1.4), so the row is the reference's height (84.7px with a
+   sentence on two lines), not the text recipes' tighter 1.375 and 1.25. */
+.oxy-ui-flag-row__name {
+  font-size: var(--type-scale-base-size);
+  line-height: var(--type-scale-base-line);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+/* WHICH measure tripped, not how badly: a filled neutral caps chip. */
+.oxy-ui-flag-row__measure {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--badge-radius);
+  padding: var(--space-2xs) 6px;
+  background-color: var(--status-neutral-bg);
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-flag-row__evidence {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-flag-row__trend {
+  display: none;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.oxy-ui-flag-row__figures {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.oxy-ui-flag-row__figure {
+  display: block;
+  font-size: var(--type-scale-xl-size);
+  line-height: var(--type-scale-xl-line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.oxy-ui-flag-row__deviation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: 6px;
+}
+
+.oxy-ui-flag-row__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-right: var(--space-md);
+}
+
+@media (min-width: 40rem) {
+  .oxy-ui-flag-row__trend {
+    display: block;
+  }
+}
+
+@media (min-width: 48rem) {
+  .oxy-ui-flag-row__claim {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .oxy-ui-flag-row__identity {
+    width: 14rem;
+    flex-shrink: 0;
+  }
+
+  .oxy-ui-flag-row__name {
+    width: 7rem;
+    flex-shrink: 0;
+  }
+}
+
+/* ── ReviewList ───────────────────────────────────────────────────────────────
+   The caveat over the cards; the cards across the width (the grid's columns are
+   set inline from `min`), each on two fixed lines over the text. */
+.oxy-ui-review-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.oxy-ui-review-list__title,
+.oxy-ui-review-list__meta {
+  margin: 0;
+}
+
+.oxy-ui-review-list__note {
+  margin: var(--space-xs) 0 0;
+}
+
+.oxy-ui-review-list__empty {
+  margin: var(--space-sm) 0 0;
+}
+
+.oxy-ui-review-list__grid {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oxy-ui-review-list__item {
+  margin: 0;
+}
+
+.oxy-ui-review-list__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.oxy-ui-review-list__rating {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-sm);
+  row-gap: var(--space-xs);
+}
+
+.oxy-ui-review-list__score {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.oxy-ui-review-list__flag {
+  margin-left: auto;
+}
+
+.oxy-ui-review-list__message {
+  margin: 0;
+  white-space: pre-line;
+  color: var(--dim-foreground);
+}
+
+/* ── CoverageRebalanceList ────────────────────────────────────────────────────
+   One boxed row per move: from → to, the detail and its result, the toggle.
+   The connector is neutral; the destination and the result carry the point
+   colour (`--link`); an applied row takes the success tint. */
+.oxy-ui-rebalance-list {
+  min-width: 0;
+}
+
+.oxy-ui-rebalance-list__empty {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.oxy-ui-rebalance-list__body,
+.oxy-ui-rebalance-list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oxy-ui-rebalance-list__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oxy-ui-rebalance-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: var(--space-sm);
+  background-color: var(--card);
+  transition-property: background-color, border-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-rebalance-list__row--applied {
+  border-color: var(--status-success-line);
+  background-color: var(--status-success-bg);
+}
+
+.oxy-ui-rebalance-list__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.oxy-ui-rebalance-list__move {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground);
+}
+
+.oxy-ui-rebalance-list__from,
+.oxy-ui-rebalance-list__to {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oxy-ui-rebalance-list__to,
+.oxy-ui-rebalance-list__result {
+  font-weight: 500;
+  color: var(--link);
+}
+
+.oxy-ui-rebalance-list__arrow {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-rebalance-list__foot {
+  margin: var(--space-xs) 0 0;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-sm);
+}
+
+/* ── FacilityActivityFeed ─────────────────────────────────────────────────────
+   One line per entry in a box that scrolls; 2px of room inside the box so the
+   ring is not clipped. The secondary ink, who and where in full ink; a row that
+   names a place goes to full ink under the pointer. */
+.oxy-ui-activity-feed {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--space-2xs);
+  list-style: none;
+  overflow: auto;
+  scroll-padding: var(--space-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-activity-feed__item {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.oxy-ui-activity-feed__item:last-child {
+  border-bottom-width: 0;
+}
+
+.oxy-ui-activity-feed__row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+}
+
+.oxy-ui-activity-feed__row--action {
+  margin: 0;
+  border: 0;
+  background-color: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition-property: color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-activity-feed__row--action:hover {
+    color: var(--foreground);
+  }
+}
+
+.oxy-ui-activity-feed__ink {
+  color: var(--foreground);
+}
+
+.oxy-ui-activity-feed__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oxy-ui-activity-feed__empty {
+  margin: 0;
+}
+
+/* ── Touch (decision 16) ──────────────────────────────────────────────────────
+   Rows that are buttons reach 44px; the sheet's 16px pick keeps its drawn size
+   and grows a 44px reach around it (Store Ops' deskTouch.css). The Buttons,
+   the toggles and the find field take base.css's floor themselves. */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-reorder-sheet__pick::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--control-h-lg)) / 2));
+  }
+
+  :root:not([data-oxy-touch-targets="off"])
+    :is(
+      .oxy-ui-map-tile--action,
+      .oxy-ui-map-section__toggle,
+      .oxy-ui-flag-row__main,
+      .oxy-ui-activity-feed__row--action
+    ) {
+    min-height: var(--control-h-lg);
+  }
+}

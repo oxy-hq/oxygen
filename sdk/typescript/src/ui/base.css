@@ -1,0 +1,994 @@
+/* ============================================================================
+   @oxy-hq/sdk/ui: the recipes (base.css)
+
+   The rules behind every name in recipes.ts (`ui.card`, `ui.btnCompact`, …),
+   translated from oxy-hq/reference-app@3caad1f `src/components/ui.ts` and the
+   Tailwind theme it compiles against (`src/index.css:1151-1312`): the same
+   sizes, weights and colours per state, in both modes, with no Tailwind.
+
+   - Tokens only. Every value that is a colour, and every value the theme
+     names (space steps, control heights, the type scale, radii, the focus
+     ring), is a `var()` of a name theme.css defines (uiCss.test.ts fails on a
+     raw colour or an unknown name). No fallbacks: ui.css is imported after
+     theme.css. Lengths that are a control's own geometry (a 6px icon gap, the
+     chevron's 32px room) stay literal, as in the reference.
+   - Where the reference writes a Tailwind colour alias, the rule reads the
+     theme name it resolves to (`bg-btn-surface` is `--btn-surface`). One
+     exception, from Store Ops' copy, which is ahead: the focus ring reads the
+     theme's ring tokens (`--focus-ring-color`, `--focus-ring-width`), equal
+     to the reference's `ring-muted-foreground` at 1.5px in both modes.
+   - The radius is the theme's per family (`--button-radius`, `--input-radius`,
+     `--badge-radius`, `--card-radius`, `--radius-control`): 0 in the
+     reference, so a rounded direction rounds every piece the same way.
+   - Hover sits under `@media (hover: hover)`, as Tailwind's does, so a tap
+     never leaves a control stuck in its hover fill. A disabled control does
+     not answer a hover.
+   - Colour changes ease over motion.css's `--oxy-duration-fast` (the SDK's
+     one motion language; the reference eased them over 300ms). The focus
+     ring never eases: it reports where focus is now.
+
+   scripts/build-ui-css.mjs writes this file, then each group's own CSS, into
+   dist/ui.css inside `@layer oxy-ui`: under Tailwind's utilities, so an app
+   adjusts a piece with a utility class, and any unlayered app rule wins.
+   ============================================================================ */
+
+/* Every box carrying a ui class measures its border box, as the reference does
+   under Tailwind's preflight: a 32px button is 32px with its border. Weightless,
+   so any rule may change it. */
+:where([class*="oxy-ui-"]),
+:where([class*="oxy-ui-"])::before,
+:where([class*="oxy-ui-"])::after {
+  box-sizing: border-box;
+}
+
+/* ── Focus ─────────────────────────────────────────────────────────────────
+   The one focus treatment (ui.ts:94-113): a 1.5px ring in the ring colour,
+   keyboard focus only (`:focus-visible`), outside the box; inside it for a
+   control its container clips (a segment, a top-bar tab). The transparent
+   outline is what forced-colours mode draws (decision 18). */
+:is(
+  .oxy-ui-focus,
+  .oxy-ui-focus-inset,
+  .oxy-ui-btn,
+  .oxy-ui-field,
+  .oxy-ui-select,
+  .oxy-ui-tab,
+  .oxy-ui-top-bar-tab,
+  .oxy-ui-segment,
+  .oxy-ui-section-link
+):focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+:is(
+  .oxy-ui-focus,
+  .oxy-ui-btn,
+  .oxy-ui-field,
+  .oxy-ui-select,
+  .oxy-ui-tab,
+  .oxy-ui-section-link
+):focus-visible {
+  box-shadow: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+}
+
+:is(.oxy-ui-focus-inset, .oxy-ui-top-bar-tab, .oxy-ui-segment):focus-visible {
+  box-shadow: inset 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+}
+
+/* ── Space and layout ──────────────────────────────────────────────────────
+   Four gap steps, one per job, each about double the last (ui.ts:213-216);
+   two paddings (ui.ts:224-225). paddingMd is the same 16px as spacingMd, so
+   an edge and a gap are one size. */
+.oxy-ui-gap-xs {
+  gap: var(--space-xs);
+}
+
+.oxy-ui-gap-sm {
+  gap: var(--space-sm);
+}
+
+.oxy-ui-gap-md {
+  gap: var(--space-md);
+}
+
+.oxy-ui-gap-lg {
+  gap: var(--space-lg);
+}
+
+.oxy-ui-pad-sm {
+  padding: var(--space-sm) var(--padding-sm-x);
+}
+
+.oxy-ui-pad-md {
+  padding: var(--space-md);
+}
+
+/* One content width on every screen, padded by the block step (ui.ts:228). */
+.oxy-ui-page {
+  width: 100%;
+  padding: var(--space-md);
+}
+
+/* The reading measure for prose, at any page width (ui.ts:231). */
+.oxy-ui-prose {
+  max-width: var(--measure-prose);
+}
+
+/* Section rhythm (the gallery's RhythmSpec): sections spacingLg apart, and
+   inside each the eyebrow and every row spacingSm apart. */
+.oxy-ui-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.oxy-ui-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* An entry form's fixed narrow column (ui.ts:1028): 36rem, centred, its
+   sections at the page's own 16px rhythm. */
+.oxy-ui-form-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  max-width: var(--measure-form);
+  margin-inline: auto;
+  padding: 24px var(--space-md);
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────────────────
+   A panel in the page: border, never shadow (ui.ts:243). Shadow belongs to
+   what floats above the page. */
+.oxy-ui-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--card-radius);
+  background-color: var(--card);
+}
+
+/* A titled panel's geometry (ui.ts:259): a column, spacingSm, paddingMd. */
+.oxy-ui-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.oxy-ui-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-sm);
+}
+
+/* A boxed item inside a panel (ui.ts:347): lighter than the panel it sits on,
+   so it reads as a thing on it rather than a hole in it. */
+.oxy-ui-tile {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
+  background-color: var(--field);
+}
+
+/* ── Type ──────────────────────────────────────────────────────────────────
+   Nine sizes named by size (ui.ts:302-310), each a step of the theme's type
+   scale with the line height and weight that go with it, and no colour.
+   `leading-tight` is 1.25 and `leading-snug` 1.375, Tailwind's own constants.
+   The three caps steps are labels, never prose. */
+.oxy-ui-text-2xl {
+  font-size: var(--type-scale-2xl-size);
+  line-height: 1.25;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-text-xl {
+  font-size: var(--type-scale-xl-size);
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.oxy-ui-text-lg {
+  font-size: var(--type-scale-lg-size);
+  line-height: var(--type-scale-lg-line);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-text-base {
+  font-size: var(--type-scale-base-size);
+  line-height: 1.375;
+  font-weight: 500;
+}
+
+.oxy-ui-text-md {
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+}
+
+.oxy-ui-text-sm {
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+}
+
+.oxy-ui-text-xs {
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.oxy-ui-text-2xs {
+  font-size: var(--type-scale-2xs-size);
+  line-height: var(--type-scale-2xs-line);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oxy-ui-text-3xs {
+  font-size: var(--type-scale-3xs-size);
+  line-height: var(--type-scale-3xs-line);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The text roles. The eyebrow is the theme's eyebrow role in capitals
+   (decision 4), in the subtle ink: the floor for readable text (ui.ts:338). */
+.oxy-ui-eyebrow {
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: var(--type-eyebrow-weight);
+  letter-spacing: var(--type-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-note {
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-caption {
+  display: block;
+  font-size: var(--type-scale-2xs-size);
+  line-height: var(--type-scale-2xs-line);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-label {
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+  font-weight: 500;
+  color: var(--dim-foreground);
+}
+
+/* A figure: the theme's figure role (the reference's textLg at full ink). */
+.oxy-ui-figure {
+  font-size: var(--type-figure-size);
+  line-height: var(--type-figure-line);
+  font-weight: var(--type-figure-weight);
+  letter-spacing: var(--type-figure-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.oxy-ui-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Control heights ───────────────────────────────────────────────────────
+   32px desk, 36px a segmented strip on its own row, 44px touch (ui.ts:376-380,
+   1044). Alone, so a control that sets its own padding can take just the
+   height. */
+.oxy-ui-h-sm {
+  min-height: var(--control-h-sm);
+}
+
+.oxy-ui-h-md {
+  min-height: var(--control-h-md);
+}
+
+.oxy-ui-h-lg {
+  min-height: var(--control-h-lg);
+}
+
+.oxy-ui-control-sm {
+  min-height: var(--control-h-sm);
+  padding-inline: var(--control-padding-sm);
+}
+
+.oxy-ui-control-lg {
+  min-height: var(--control-h-lg);
+  padding-inline: var(--control-padding-lg);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────
+   Three variants at two sizes (ui.ts:583-616, 1215-1242; Button.tsx). Every
+   button is a solid surface with a hairline, and hover moves the fill. One
+   weight, 500, at every variant and size: standing is the fill's job. The
+   primary keeps a 1px band of page colour between its fill and its ring. */
+.oxy-ui-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--button-radius);
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition-property: color, background-color, border-color, text-decoration-color, opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-btn--sm {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--control-padding-sm);
+  gap: 6px;
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+}
+
+.oxy-ui-btn--lg {
+  min-height: var(--control-h-lg);
+  padding: 0 var(--control-padding-lg);
+  gap: var(--space-sm);
+  font-size: var(--type-scale-base-size);
+  line-height: var(--type-scale-base-line);
+}
+
+.oxy-ui-btn--primary {
+  border-color: transparent;
+  background-color: var(--brand);
+  color: var(--inverse-foreground);
+}
+
+.oxy-ui-btn--primary:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--background),
+    0 0 0 calc(var(--focus-ring-width) + 1px) var(--focus-ring-color);
+}
+
+.oxy-ui-btn--secondary {
+  border-color: var(--border-subtle);
+  background-color: var(--btn-surface);
+  color: var(--foreground);
+}
+
+/* The text action (ui.ts:610): no fill, no border, no side padding; the dim
+   ink going to full ink on hover. Not blue: blue is links, focus and the
+   primary action. */
+.oxy-ui-btn--text {
+  justify-content: flex-start;
+  width: fit-content;
+  border-width: 0;
+  padding-inline: 0;
+  gap: 6px;
+  background-color: transparent;
+  color: var(--dim-foreground);
+}
+
+/* Square, icon-only: the control height on both axes. */
+.oxy-ui-btn--icon {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.oxy-ui-btn--sm.oxy-ui-btn--icon {
+  width: var(--control-h-sm);
+}
+
+.oxy-ui-btn--lg.oxy-ui-btn--icon {
+  width: var(--control-h-lg);
+}
+
+@media (hover: hover) {
+  .oxy-ui-btn--primary:hover:not(:disabled, [aria-disabled="true"]) {
+    background-color: var(--brand-hover);
+  }
+
+  .oxy-ui-btn--secondary:hover:not(:disabled, [aria-disabled="true"]) {
+    background-color: var(--btn-surface-hover);
+  }
+
+  .oxy-ui-btn--text:hover:not(:disabled, [aria-disabled="true"]) {
+    color: var(--foreground);
+  }
+}
+
+.oxy-ui-btn:disabled,
+.oxy-ui-btn[aria-disabled="true"]:not([aria-busy="true"]) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────────
+   The comfortable field (ui.ts:1092): 44px, 16px text (iOS zooms under 16px),
+   the field fill on the 3:1 field edge. Focus: the ring, and the edge takes
+   the ring's colour. Disabled: a muted fill, visibly inert. */
+.oxy-ui-field {
+  width: 100%;
+  min-height: var(--control-h-lg);
+  margin: 0;
+  padding: var(--space-sm) var(--control-padding-lg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--input-radius);
+  background-color: var(--field);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--type-scale-base-size);
+  font-weight: inherit;
+  line-height: var(--type-scale-base-line);
+  letter-spacing: inherit;
+  transition-property: color, background-color, border-color, text-decoration-color, opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-field::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.oxy-ui-field:focus {
+  border-color: var(--focus-ring-color);
+}
+
+.oxy-ui-field:disabled {
+  cursor: not-allowed;
+  background-color: var(--muted);
+  color: var(--disabled-foreground);
+}
+
+/* The compact field (ui.ts:1109): select's box without the chevron. */
+.oxy-ui-field--sm {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--control-padding-sm);
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+}
+
+/* The quiet search field (ui.ts:1148): transparent until a pointer or a
+   keyboard goes looking, then an ordinary field. The edge is transparent, not
+   absent, so nothing moves when it arrives. */
+.oxy-ui-field--quiet {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+@media (hover: hover) {
+  .oxy-ui-field--quiet:hover:not(:disabled) {
+    border-color: var(--field-border);
+    background-color: var(--field);
+  }
+}
+
+.oxy-ui-field--quiet:focus {
+  border-color: var(--focus-ring-color);
+  background-color: var(--field);
+}
+
+/* The compact select (ui.ts:410): the theme's chevron, inset by the field's
+   own padding, with 32px of room for it on the right. */
+.oxy-ui-select {
+  min-height: var(--control-h-sm);
+  margin: 0;
+  padding: 0 32px 0 var(--control-padding-sm);
+  border: 1px solid var(--field-border);
+  border-radius: var(--input-radius);
+  background-color: var(--field);
+  background-image: var(--select-chevron);
+  background-size: 12px 8px;
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+  appearance: none;
+  transition-property: color, background-color, border-color, text-decoration-color, opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-select-chevron,
+.oxy-ui-select--touch {
+  background-image: var(--select-chevron);
+  background-size: 12px 8px;
+  background-repeat: no-repeat;
+  appearance: none;
+}
+
+/* The comfortable select (ui.ts:1123): the field plus the chevron at its own
+   16px inset. */
+.oxy-ui-select--touch {
+  padding-right: 40px;
+  background-position: right 1rem center;
+}
+
+.oxy-ui-select:not(:disabled),
+.oxy-ui-select--touch:not(:disabled) {
+  cursor: pointer;
+}
+
+/* A select on its leading sentinel reads as a placeholder (ui.ts:407). */
+.oxy-ui-select-placeholder {
+  color: var(--muted-foreground);
+}
+
+/* The error edge (ui.ts:1180): full-strength status ink, kept under focus,
+   the one moment the error matters most. Set by the class or by
+   aria-invalid, so the edge cannot disagree with the field's state. */
+.oxy-ui-field--error,
+.oxy-ui-field--error:focus,
+:is(.oxy-ui-field, .oxy-ui-select)[aria-invalid="true"],
+:is(.oxy-ui-field, .oxy-ui-select)[aria-invalid="true"]:focus {
+  border-color: var(--status-error);
+}
+
+/* ── Status ────────────────────────────────────────────────────────────────
+   A tag (ui.ts:438): 11px semibold tabular on its tone's tint; the tint is
+   the mark. A callout (ui.ts:537): the same treatment at block scale. */
+.oxy-ui-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--badge-radius);
+  font-size: var(--type-scale-2xs-size);
+  line-height: 1.65;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-tone-success {
+  background-color: var(--status-success-bg);
+  color: var(--status-success);
+}
+
+.oxy-ui-tone-warning {
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+
+.oxy-ui-tone-error {
+  background-color: var(--status-error-bg);
+  color: var(--status-error);
+}
+
+.oxy-ui-tone-info {
+  background-color: var(--status-info-bg);
+  color: var(--status-info);
+}
+
+/* Not a status: a chip that only labels, in the dim ink. */
+.oxy-ui-tone-neutral {
+  background-color: var(--status-neutral-bg);
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-callout {
+  border-width: 1px;
+  border-style: solid;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--type-scale-xs-size);
+  line-height: 1.45;
+}
+
+.oxy-ui-callout--success {
+  border-color: var(--status-success-line);
+  background-color: var(--status-success-bg);
+  color: var(--status-success);
+}
+
+.oxy-ui-callout--warning {
+  border-color: var(--status-warning-line);
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+
+.oxy-ui-callout--error {
+  border-color: var(--status-error-line);
+  background-color: var(--status-error-bg);
+  color: var(--status-error);
+}
+
+.oxy-ui-callout--info {
+  border-color: var(--status-info-line);
+  background-color: var(--status-info-bg);
+  color: var(--status-info);
+}
+
+.oxy-ui-callout--neutral {
+  border-color: var(--status-neutral-line);
+  background-color: var(--status-neutral-bg);
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-ink-success {
+  color: var(--status-success);
+}
+
+.oxy-ui-ink-warning {
+  color: var(--status-warning);
+}
+
+.oxy-ui-ink-error {
+  color: var(--status-error);
+}
+
+.oxy-ui-ink-info {
+  color: var(--status-info);
+}
+
+.oxy-ui-ink-neutral {
+  color: var(--dim-foreground);
+}
+
+/* A solid status mark: the chart cut of each hue (Store Ops tokens.ts:136). */
+.oxy-ui-fill-success {
+  background-color: var(--status-success-series);
+}
+
+.oxy-ui-fill-warning {
+  background-color: var(--status-warning-series);
+}
+
+.oxy-ui-fill-error {
+  background-color: var(--status-error-series);
+}
+
+.oxy-ui-fill-info {
+  background-color: var(--brand);
+}
+
+.oxy-ui-fill-neutral {
+  background-color: var(--muted-foreground);
+}
+
+/* ── Rows and selection ────────────────────────────────────────────────────
+   A selected row is a fill and nothing else (ui.ts:496-501); `ui.rowState`
+   gives one class or the other, so pointing at a selected row never drops it
+   to the hover fill. */
+.oxy-ui-row-hover {
+  transition-property: color, background-color, border-color, text-decoration-color, opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-row-hover:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.oxy-ui-row-selected {
+  background-color: var(--row-selected);
+}
+
+.oxy-ui-row-rule {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-row-rule:last-child {
+  border-bottom-width: 0;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────────
+   Underline tabs pick a SCREEN (ui.ts:626-780). Flush, no gutter: the selected
+   one is a folder tab that covers the row's rule and opens into the panel
+   below (`-1px` drops it onto the rule). */
+.oxy-ui-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-page-tabs {
+  background-color: var(--card);
+}
+
+/* In the shell's top bar the bar's own edge is the rule; hidden until the
+   caller shows it at its breakpoint (`display: flex`). */
+.oxy-ui-top-bar-tabs {
+  display: none;
+  flex-shrink: 0;
+  align-self: stretch;
+  align-items: stretch;
+}
+
+.oxy-ui-top-bar-tab,
+.oxy-ui-tab,
+.oxy-ui-segment,
+.oxy-ui-section-link {
+  margin: 0;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+  letter-spacing: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition-property: color, background-color, border-color, text-decoration-color, opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+/* One tab in the top bar: an underline on the bar's edge, not a box. Its ring
+   sits inside, because the bar clips one outside it (Store Ops tokens.ts:191). */
+.oxy-ui-top-bar-tab {
+  display: inline-flex;
+  min-height: var(--control-h-md);
+  align-items: center;
+  gap: var(--space-sm);
+  border-style: solid;
+  border-width: 0 0 2px;
+  padding: 0 10px;
+}
+
+.oxy-ui-top-bar-tab--on {
+  border-color: var(--foreground);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.oxy-ui-top-bar-tab--off {
+  border-color: transparent;
+  font-weight: 500;
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-tab {
+  display: inline-flex;
+  min-height: var(--control-h-md);
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  padding: 0 var(--control-padding-sm);
+}
+
+/* The selected tab is monochrome: the box, the fill and the open bottom edge
+   say it three times; no top edge against the top bar's own rule. */
+.oxy-ui-tab--on {
+  border-color: var(--border-subtle);
+  border-top-color: transparent;
+  border-bottom-color: var(--background);
+  background-color: var(--background);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.oxy-ui-tab--off {
+  border-color: transparent;
+  font-weight: 500;
+  color: var(--dim-foreground);
+}
+
+/* ── Segments ──────────────────────────────────────────────────────────────
+   Segmented strips pick a SLICE of one screen (ui.ts:837-880): a track on a
+   subtle edge, segments butted together with a hairline between them, the
+   selected one a fill. The track clips, so a segment's ring is inset. */
+.oxy-ui-segment-row {
+  display: inline-flex;
+  width: fit-content;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background-color: var(--segment-track);
+}
+
+.oxy-ui-segment-row > :not(:last-child) {
+  border-inline-end: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-segment {
+  display: inline-flex;
+  min-height: var(--control-h-md);
+  align-items: center;
+  gap: var(--space-sm);
+  border: 0 solid transparent;
+  padding: 0 var(--control-padding-sm);
+}
+
+.oxy-ui-segment--on {
+  background-color: var(--segment-selected);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.oxy-ui-segment--off {
+  font-weight: 500;
+  color: var(--dim-foreground);
+}
+
+/* A strip that shares a row with a 32px control takes the 32px floor
+   (DefaultTabs `sharesRow`, ui.ts:856-862). */
+.oxy-ui-segment--shares-row {
+  min-height: var(--control-h-sm);
+}
+
+/* A count riding in a tab or a segment (ui.ts:907-921): the tag's treatment
+   one step larger. Square, not a pill. */
+.oxy-ui-tab-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: var(--badge-radius);
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-tab-count--neutral {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-tab-count--neutral-on {
+  background-color: var(--segment-track);
+  color: var(--foreground);
+}
+
+/* ── Section links ─────────────────────────────────────────────────────────
+   A row in an app's Sections column (ui.ts:1007): icon, then label, 36px; the
+   selected one takes the selected-row fill and the weight. */
+.oxy-ui-section-link {
+  display: flex;
+  height: var(--control-h-md);
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.oxy-ui-section-link > svg {
+  flex-shrink: 0;
+}
+
+.oxy-ui-section-link--on {
+  background-color: var(--row-selected);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.oxy-ui-section-link--off {
+  color: var(--dim-foreground);
+}
+
+@media (hover: hover) {
+  .oxy-ui-top-bar-tab--off:hover,
+  .oxy-ui-tab--off:hover,
+  .oxy-ui-segment--off:hover:not(:disabled),
+  .oxy-ui-section-link--off:hover {
+    color: var(--foreground);
+  }
+
+  .oxy-ui-tab--off:hover,
+  .oxy-ui-segment--off:hover:not(:disabled),
+  .oxy-ui-section-link--off:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+/* One row of a touch list (ui.ts:1252): the whole row is the 44px target. */
+.oxy-ui-touch-row {
+  display: flex;
+  width: 100%;
+  min-height: var(--control-h-lg);
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px var(--control-padding-lg);
+  text-align: left;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────────
+   A cell in the secondary ink (ui.ts:952): a column of figures is read by
+   running an eye down it, so figures are right-aligned and tabular. A data
+   sheet's three fixed heights (ui.ts:972-976): band 25px, header 40px, row
+   48px, so a one-line row centres in the box a two-line row fills. */
+.oxy-ui-cell {
+  padding: var(--table-cell-padding-y) var(--table-cell-padding-x);
+  vertical-align: top;
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-sheet-band {
+  height: var(--table-band-h);
+}
+
+.oxy-ui-sheet-band-offset {
+  top: var(--table-band-h);
+}
+
+.oxy-ui-sheet-header {
+  height: var(--table-header-h);
+}
+
+.oxy-ui-sheet-row {
+  height: var(--row-h);
+}
+
+/* ── Icons ─────────────────────────────────────────────────────────────────
+   Phosphor regular at two sizes, by what the icon sits in (ui.ts:993-994). */
+.oxy-ui-icon {
+  display: block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.oxy-ui-icon-inline {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  flex-shrink: 0;
+}
+
+.oxy-ui-icon-control {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  flex-shrink: 0;
+}
+
+/* ── Touch targets (decision 16) ───────────────────────────────────────────
+   On a touch screen every desk control reaches 44px each way, and a field's
+   text is 16px, below which iOS zooms the page on focus (a platform number,
+   not a step of the scale). Nothing else changes. A screen that is not a
+   person's desk (a store's enrolled tablet) opts out as the shell's chrome
+   does: `<html data-oxy-touch-targets="off">`, `<OxyShell touchTargets={false}>`
+   or `useOxyTouchTargets(false)`. `:root:not(…)` also lifts these rules above
+   any single-class rule in a group's CSS, so the floor holds whatever order
+   the files are in. A group whose piece draws its own control adds it here,
+   in its own CSS, with the same prefix (CONVENTIONS.md). */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"])
+    :is(
+      .oxy-ui-btn,
+      .oxy-ui-select,
+      .oxy-ui-tab,
+      .oxy-ui-top-bar-tab,
+      .oxy-ui-segment,
+      .oxy-ui-section-link,
+      .oxy-ui-control-sm,
+      .oxy-ui-h-sm,
+      .oxy-ui-h-md
+    ) {
+    min-width: var(--control-h-lg);
+    min-height: var(--control-h-lg);
+  }
+
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-field {
+    min-height: var(--control-h-lg);
+  }
+
+  :root:not([data-oxy-touch-targets="off"]) :is(.oxy-ui-field, .oxy-ui-select) {
+    font-size: 16px;
+  }
+}

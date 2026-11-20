@@ -11,7 +11,9 @@
 // case that tsdown can't see. Copies here are idempotent with that.
 //
 // theme.css is generated (`pnpm build:theme` rewrites it), so it is watched
-// the same way: a regeneration reaches dist without a restart.
+// the same way: a regeneration reaches dist without a restart. src/ui is
+// watched as a tree: any CSS edit under it rebuilds dist/ui.css and recopies
+// dist/tailwind.css (scripts/build-ui-css.mjs).
 import { spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
@@ -36,6 +38,17 @@ for (const src of ASSETS) {
     if (filename === basename(src)) copyCss(src);
   });
 }
+
+function buildUiCss() {
+  const run = spawn(process.execPath, ["scripts/build-ui-css.mjs"], { stdio: "inherit" });
+  run.on("exit", (code) => {
+    if (code !== 0) console.error(`[shell-css] build-ui-css exited ${code}`);
+  });
+}
+
+watch("src/ui", { persistent: true, recursive: true }, (_event, filename) => {
+  if (filename?.endsWith(".css")) buildUiCss();
+});
 
 // tsdown owns the JS/TS build + its own onSuccess CSS copy; inherit its stdio
 // so the usual watch output shows through.

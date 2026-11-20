@@ -1,0 +1,140 @@
+/* ── charts ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). Hand-drawn SVG, no chart
+   library. The series paint straight from theme tokens in the markup (`var()` in
+   `stroke` and `fill`): `--trend-store` or a status's `-series` cut for the
+   subject, `--trend-peer` for the comparison, `--border-subtle` for the grid,
+   `--border-strong` for the crosshair. Marks are haloed in the chart's ground,
+   `--oxy-ui-chart-ground`, the card unless the app says otherwise. */
+
+.oxy-ui-sparkline,
+.oxy-ui-trend-chart {
+  --oxy-ui-chart-ground: var(--card);
+}
+
+/* ── Sparkline ─────────────────────────────────────────────────────────────── */
+.oxy-ui-sparkline {
+  display: block;
+  overflow: visible;
+}
+
+.oxy-ui-sparkline--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+  height: 44px;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--muted-foreground);
+}
+
+/* ── TrendChart ────────────────────────────────────────────────────────────── */
+.oxy-ui-trend-chart {
+  margin: 0;
+}
+
+.oxy-ui-trend-chart__plot {
+  margin-top: var(--space-sm);
+}
+
+.oxy-ui-trend-chart__svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+/* Every label is the type scale's xs step in viewBox units, so it scales with
+   the chart as the reference's do (14px on a dialog's 656px, 7px on a 324px
+   phone sheet; `fluid` draws 1:1, so 12px there). */
+.oxy-ui-trend-chart__tick {
+  font-size: var(--type-scale-xs-size);
+  fill: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-trend-chart__end {
+  font-size: var(--type-scale-xs-size);
+  fill: var(--muted-foreground);
+}
+
+.oxy-ui-trend-chart__end--own {
+  fill: var(--foreground);
+  font-weight: 500;
+}
+
+.oxy-ui-trend-chart__empty {
+  margin: 0;
+}
+
+.oxy-ui-trend-chart__readout {
+  min-height: 2.5rem;
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-trend-chart__month {
+  font-weight: 500;
+}
+
+.oxy-ui-trend-chart__prompt {
+  color: var(--muted-foreground);
+}
+
+/* The toast (reference TrendChart.tsx HoverToast): square, the muted fill on one
+   hairline, the overlay shadow, over the point with a caret. */
+.oxy-ui-trend-chart__toast {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+
+.oxy-ui-trend-chart__bubble {
+  min-width: 9rem;
+  padding: var(--space-sm) var(--padding-sm-x);
+  border: 1px solid var(--border);
+  background-color: var(--muted);
+  box-shadow: var(--shadow-overlay);
+}
+
+.oxy-ui-trend-chart__bubble > p {
+  margin: 0;
+}
+
+.oxy-ui-trend-chart__toast-month {
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.oxy-ui-trend-chart__toast-note {
+  margin-top: var(--space-2xs);
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-trend-chart__toast-value {
+  margin-top: var(--space-xs);
+  font-size: var(--type-scale-xl-size);
+  line-height: var(--type-scale-xl-line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.oxy-ui-trend-chart__caret {
+  position: absolute;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background-color: var(--muted);
+  transform: rotate(45deg);
+}

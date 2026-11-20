@@ -258,8 +258,8 @@
     },
     "status-success-series": {
       "$type": "color",
-      "$value": "{palette.light.status-success-series}",
-      "$description": "Success at chart weight (index.css:375, 667)."
+      "$value": "{palette.derived.light.status-success-series}",
+      "$description": "Success at chart weight (index.css:375, 667); one step darker than the reference so it holds 3:1 on a selected row (decision 64; see the palette entry)."
     },
     "status-warning": {
       "$type": "color",
@@ -279,7 +279,7 @@
     "status-warning-series": {
       "$type": "color",
       "$value": "{palette.derived.light.status-warning-series}",
-      "$description": "Warning at chart weight (index.css:376, 668)."
+      "$description": "Warning at chart weight (index.css:376, 668); darker than the reference so it holds 3:1 on the canvas, a card and a selected row (decision 64; see the palette entry)."
     },
     "status-error": {
       "$type": "color",
@@ -321,10 +321,20 @@
       "$value": "{color.trend-peer}",
       "$description": "An unjudged series: the comparison grey (index.css:471, 696)."
     },
+    "status-info": {
+      "$type": "color",
+      "$value": "{palette.light.link}",
+      "$description": "The info ink: the link step, as the reference's var(--link) (index.css:400, 671). Its own token since decision 64, which lightens it in dark only."
+    },
     "status-info-line": {
       "$type": "color",
       "$value": "{palette.light.status-info-line}",
-      "$description": "Info edge (index.css:402, 673), decorative as every -line. Info is retired as a status there (index.css:379-399); --status-info and --status-info-bg alias --link and --brand-subtle."
+      "$description": "Info edge (index.css:402, 673), decorative as every -line. Info is retired as a status there (index.css:379-399); --status-info-bg aliases --brand-subtle, and --status-info is its own token (decision 64)."
+    },
+    "status-info-series": {
+      "$type": "color",
+      "$value": "{palette.light.brand}",
+      "$description": "Info at chart weight: the brand blue, as the chart drew it (--brand). Its own token since decision 64, which lightens it in dark only."
     },
     "dot-success": {
       "$type": "color",
@@ -597,6 +607,18 @@
           "cssUnit": "%"
         }
       }
+    }
+  },
+  "app-mark": {
+    "ground": {
+      "$type": "color",
+      "$value": "{palette.light.app-mark-ground}",
+      "$description": "The app mark's square: oxy-blue-100, opaque (reference-app@3caad1f src/index.css:702)."
+    },
+    "ink": {
+      "$type": "color",
+      "$value": "{palette.light.link}",
+      "$description": "The app mark's glyph: oxy-blue-600, the link step (reference-app@3caad1f src/index.css:703)."
     }
   },
   "card": {

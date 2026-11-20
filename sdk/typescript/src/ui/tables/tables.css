@@ -1,0 +1,622 @@
+/* ── tables ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). What a recipe already draws
+   (the cell, the eyebrow, the note, the row fills, the sheet heights, the focus
+   rings) is composed in the components; this file holds what only these pieces
+   draw. Elements outside a recipe reset their own margin, border and font, since
+   an app without Tailwind has no preflight. */
+
+/* ── SortHeader (reference SortHeader.tsx) ────────────────────────────────────
+   The eyebrow on the <th>; the button inside inherits its case, weight and
+   tracking (a browser's own sheet sets `text-transform: none` on a button, so a
+   wrapped heading would silently lose its capitals), and its negative margin
+   with equal padding keeps the heading's text on the column's line. */
+.oxy-ui-sort-header {
+  padding: var(--space-sm) var(--padding-sm-x);
+  text-align: left;
+}
+
+.oxy-ui-sort-header--right {
+  text-align: right;
+}
+
+.oxy-ui-sort-header__button {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0 calc(-1 * var(--space-xs));
+  padding: 0 var(--space-xs);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition-property: color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-sort-header--right .oxy-ui-sort-header__button {
+  flex-direction: row-reverse;
+}
+
+.oxy-ui-sort-header__text {
+  min-width: 0;
+}
+
+.oxy-ui-sort-header:is([aria-sort="ascending"], [aria-sort="descending"])
+  > .oxy-ui-sort-header__button {
+  color: var(--foreground);
+}
+
+.oxy-ui-sort-header__arrow {
+  display: inline-flex;
+  opacity: 0;
+  transition-property: opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-sort-header__arrow[data-on] {
+  opacity: 1;
+}
+
+.oxy-ui-sort-header__caret {
+  width: 10px;
+  height: 10px;
+}
+
+@media (hover: hover) {
+  .oxy-ui-sort-header__button:hover {
+    color: var(--foreground);
+  }
+
+  .oxy-ui-sort-header__button:hover .oxy-ui-sort-header__arrow:not([data-on]) {
+    opacity: 0.4;
+  }
+}
+
+/* ── MetricCell (reference MetricCell.tsx) ────────────────────────────────────
+   Right-set like every column of figures (a flex box ignores the cell's
+   text-align, so `justify-content` does it); the figure and its comparison never
+   wrap apart. Padding only where there is a fill to pad: on bare ink it would
+   push the figure off the column's right edge. */
+/* `position: relative` anchors the hidden sentence (below) to the cell itself:
+   placed absolutely, it otherwise takes its box from whatever positioned
+   ancestor is out there (an app shell's main), outside any scroller the table
+   sits in, and widens the page at its static x (SDK-GAPS 1). */
+.oxy-ui-metric-cell {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-2xs) 6px;
+  padding-block: var(--space-2xs);
+  text-align: right;
+}
+
+.oxy-ui-metric-cell__frame {
+  display: block;
+}
+
+.oxy-ui-metric-cell__run {
+  white-space: nowrap;
+}
+
+.oxy-ui-metric-cell__figure {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The quiet ink is an untinted figure's only: a flagged figure keeps its tone's
+   ink on its tone's tint, as `chipTone` prints a status everywhere (this file
+   follows base.css, so a plain rule here would win over the tone class). */
+.oxy-ui-metric-cell__figure:where(:not(.oxy-ui-metric-cell__figure--tinted)) {
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-metric-cell__figure--tinted {
+  padding: var(--space-2xs) 6px;
+  font-weight: 600;
+}
+
+.oxy-ui-metric-cell__figure--notable {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.oxy-ui-metric-cell__figure--provisional {
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-metric-cell__comparison {
+  margin-inline-start: 6px;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-variant-numeric: tabular-nums;
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-metric-cell__label {
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-metric-cell__label--beside,
+.oxy-ui-metric-cell__as-of {
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--subtle-foreground);
+}
+
+/* Text for a screen reader only: the hint's sentence (the eye has the
+   HoverHint), the actions column's heading. Each sits in a box of its piece's
+   own that is positioned (the cell, the heading), so the 1px clip is placed
+   inside the piece wherever the piece is placed, and can never reach past a
+   scroller around it. */
+:is(.oxy-ui-metric-cell__hint, .oxy-ui-panel-table__hidden) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── PanelTable (reference PanelTable.tsx `render`) ──────────────────────────
+   The compact table under a heading: the first column sits on the caption's
+   line (no inline padding before it), every later column stands off the one
+   before by the cell's side padding; rows on the subtle rule, none under the
+   last unless a totals row closes the table. */
+.oxy-ui-panel-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-panel-table__caption,
+.oxy-ui-panel-table__note {
+  margin: 0;
+}
+
+.oxy-ui-panel-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+}
+
+.oxy-ui-panel-table__head-row {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* No side padding: the reference's compact table spaces its columns by the table's own
+   layout (`py-2` heads, `py-[0.4rem]` cells), and a start pad wrapped Elmwood's void dates on
+   a 390 phone (SDK-GAPS 6). */
+.oxy-ui-panel-table__head {
+  padding: var(--space-sm) 0;
+  text-align: left;
+  vertical-align: bottom;
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-panel-table__head--num {
+  text-align: right;
+}
+
+/* The actions column's heading holds only hidden words: it anchors them. */
+.oxy-ui-panel-table__head--actions {
+  position: relative;
+}
+
+/* The row carries the ink and weight and its cells inherit them, so a caller's row class
+   (the reference's subject row: `font-medium text-foreground`) reaches every cell
+   (SDK-GAPS 6). */
+.oxy-ui-panel-table__row {
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: 400;
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-panel-table__table:not(.oxy-ui-panel-table__table--totals)
+  > tbody
+  > .oxy-ui-panel-table__row:last-child {
+  border-bottom-width: 0;
+}
+
+.oxy-ui-panel-table__cell {
+  padding: var(--table-cell-padding-y) 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: inherit;
+  color: inherit;
+}
+
+:is(.oxy-ui-panel-table__head, .oxy-ui-panel-table__cell):first-child {
+  padding-inline-start: 0;
+}
+
+/* The name keeps full ink at the regular weight in every row, the subject's included (the
+   reference's `font-normal text-foreground` row header). */
+.oxy-ui-panel-table__cell--name {
+  font-weight: 400;
+  color: var(--foreground);
+}
+
+.oxy-ui-panel-table__cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-panel-table__cell--actions {
+  vertical-align: middle;
+  padding-block: var(--space-2xs);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A row that opens: the whole row takes the press; its name is the button the
+   keyboard reaches, drawn as the text it wraps. */
+.oxy-ui-panel-table__row--open {
+  cursor: pointer;
+}
+
+.oxy-ui-panel-table__open {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.oxy-ui-panel-table__caret {
+  display: inline-flex;
+  color: var(--muted-foreground);
+}
+
+/* Child rows (reference BookkeepingSalesTax.tsx PlatformRows): on the muted
+   fill, the name indented and in the dim ink, a strong rule closing the block
+   so a long split does not run into the next row. */
+.oxy-ui-panel-table__sub-row {
+  background-color: var(--muted);
+}
+
+.oxy-ui-panel-table__sub-row[data-last] {
+  border-bottom-color: var(--border-strong);
+}
+
+.oxy-ui-panel-table__cell.oxy-ui-panel-table__cell--sub {
+  padding-inline-start: var(--space-lg);
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-panel-table__totals {
+  background-color: var(--muted);
+}
+
+.oxy-ui-panel-table__totals > .oxy-ui-panel-table__cell {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* ── LinkList (reference WarehouseReports.tsx ReportList) ─────────────────────
+   A list of links on one column track, picked by the list's own width (a
+   container query): the compact track below 48rem, the full one from it. */
+.oxy-ui-link-list {
+  --oxy-ui-link-list-full: none;
+  --oxy-ui-link-list-compact: none;
+  container-type: inline-size;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.oxy-ui-link-list__item {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-link-list__item:last-child {
+  border-bottom-width: 0;
+}
+
+.oxy-ui-link-list__row {
+  display: grid;
+  grid-template-columns: var(--oxy-ui-link-list-compact);
+  align-items: center;
+  gap: var(--space-md);
+  min-height: var(--control-h-lg);
+  padding: 0 var(--padding-sm-x);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--dim-foreground);
+  text-decoration: none;
+}
+
+.oxy-ui-link-list__cell {
+  min-width: 0;
+}
+
+.oxy-ui-link-list__cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-link-list__cell--truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oxy-ui-link-list__cell--wide {
+  display: none;
+}
+
+@container (min-width: 48rem) {
+  .oxy-ui-link-list__row {
+    grid-template-columns: var(--oxy-ui-link-list-full);
+  }
+
+  .oxy-ui-link-list__cell--wide {
+    display: block;
+  }
+}
+
+/* ── TableScroll (Store Ops index.css:515 `.table-scroll`) ────────────────────
+   A one-cell grid: the table fills the cell (the box's width, or its own floor
+   where that is wider) and the fade shares the cell, held at the visible right
+   edge by `sticky`, so it takes no room and runs the table's height. Both
+   animations are driven by scrolling, not by time, so they are not motion: the
+   end room is there only while the box's own sideways timeline is active (the
+   table overflows), and the fade shows while there is more to the right and
+   goes at the end (opacity 0 otherwise, so a table that fits, or a browser
+   without scroll timelines, shows none). Focused, the fade stands off the box's
+   inset ring by the ring's width, so the ring stays whole in sight. */
+@keyframes oxy-ui-table-scroll-room {
+  from,
+  to {
+    padding-inline-end: var(--padding-sm-x);
+  }
+}
+
+@keyframes oxy-ui-table-scroll-end {
+  0%,
+  96% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.oxy-ui-table-scroll {
+  --oxy-ui-table-scroll-ground: var(--card);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr);
+  align-items: start;
+  width: 100%;
+  overflow-x: auto;
+  animation: oxy-ui-table-scroll-room linear both;
+  animation-timeline: scroll(self inline);
+}
+
+.oxy-ui-table-scroll > * {
+  grid-area: 1 / 1;
+}
+
+.oxy-ui-table-scroll::after {
+  content: "";
+  position: sticky;
+  /* Sticky insets count from inside the box's padding, so with the end room
+     the fade would stop that far short of the edge; it sits out on the edge. */
+  right: calc(-1 * var(--padding-sm-x));
+  z-index: 4;
+  grid-area: 1 / 1;
+  justify-self: end;
+  align-self: stretch;
+  width: 2.5rem;
+  background: linear-gradient(to left, var(--oxy-ui-table-scroll-ground), transparent);
+  pointer-events: none;
+  opacity: 0;
+  animation: oxy-ui-table-scroll-end linear both;
+  animation-timeline: scroll(nearest inline);
+}
+
+.oxy-ui-table-scroll:focus-visible::after {
+  margin: var(--focus-ring-width);
+}
+
+/* ── DataSheet (reference DataSheet.tsx) ──────────────────────────────────────
+   The box scrolls both ways; every cell is opaque (card), or scrolled columns
+   would show through the pinned ones. The band row holds at the top, the
+   header row under it (`--table-band-h`), the pinned cells at their summed
+   offsets (`--oxy-ui-pin-left`, set per cell), the action at the right edge. */
+.oxy-ui-data-sheet {
+  --oxy-ui-pin-left: 0px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-data-sheet__table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+}
+
+:is(.oxy-ui-data-sheet__band, .oxy-ui-data-sheet__head) {
+  position: sticky;
+  z-index: 2;
+  padding: 0 var(--table-cell-padding-x);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--card);
+  color: var(--muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.oxy-ui-data-sheet__band {
+  top: 0;
+}
+
+.oxy-ui-data-sheet__head {
+  top: var(--table-band-h);
+}
+
+.oxy-ui-data-sheet__head--num {
+  text-align: right;
+}
+
+.oxy-ui-data-sheet__band--corner {
+  left: 0;
+  z-index: 3;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-data-sheet__band--folded {
+  width: 1%;
+  padding: 0 6px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.oxy-ui-data-sheet__band--action {
+  right: 0;
+  z-index: 3;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-data-sheet__cell {
+  vertical-align: middle;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--card);
+}
+
+.oxy-ui-data-sheet__cell--cut {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.oxy-ui-data-sheet__cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-data-sheet__cell--folded {
+  padding-inline: 0;
+  background-color: color-mix(in srgb, var(--muted) 40%, var(--card));
+}
+
+.oxy-ui-data-sheet__pin {
+  position: sticky;
+  left: var(--oxy-ui-pin-left);
+  z-index: 1;
+}
+
+.oxy-ui-data-sheet__head.oxy-ui-data-sheet__pin {
+  z-index: 3;
+}
+
+.oxy-ui-data-sheet__pin--first {
+  left: 0;
+}
+
+.oxy-ui-data-sheet__head.oxy-ui-data-sheet__pin--first {
+  z-index: 4;
+}
+
+.oxy-ui-data-sheet__pin--last {
+  border-right: 1px solid var(--border-subtle);
+}
+
+.oxy-ui-data-sheet__name {
+  font-weight: 500;
+  text-align: left;
+  color: var(--foreground);
+}
+
+/* The row's status rides its own edge, on the pinned cell, so it survives the
+   scroll a status column would not. */
+.oxy-ui-data-sheet__name[data-tone] {
+  border-left: 3px solid transparent;
+}
+
+.oxy-ui-data-sheet__name[data-tone="success"] {
+  border-left-color: var(--status-success);
+}
+
+.oxy-ui-data-sheet__name[data-tone="warning"] {
+  border-left-color: var(--status-warning);
+}
+
+.oxy-ui-data-sheet__name[data-tone="error"] {
+  border-left-color: var(--status-error);
+}
+
+.oxy-ui-data-sheet__name[data-tone="info"] {
+  border-left-color: var(--status-info);
+}
+
+.oxy-ui-data-sheet__action {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  border-left: 1px solid var(--border-subtle);
+  text-align: right;
+}
+
+.oxy-ui-data-sheet__head.oxy-ui-data-sheet__action {
+  z-index: 3;
+}
+
+.oxy-ui-data-sheet__cell.oxy-ui-data-sheet__action {
+  padding-block: var(--space-xs);
+}
+
+/* Under 56.25rem the identity block would be as wide as the window: only the
+   first column holds, the rest scroll with the figures (a viewport query, as
+   the reference's; narrowing only the container does not trigger it). */
+@media (max-width: 56.25rem) {
+  .oxy-ui-data-sheet__cell.oxy-ui-data-sheet__pin:not(.oxy-ui-data-sheet__pin--first) {
+    position: static;
+  }
+
+  .oxy-ui-data-sheet__head.oxy-ui-data-sheet__pin:not(.oxy-ui-data-sheet__pin--first),
+  .oxy-ui-data-sheet__band--corner {
+    left: auto;
+  }
+
+  .oxy-ui-data-sheet__pin--first {
+    border-right: 1px solid var(--border-subtle);
+  }
+}
+
+/* ── Touch floor (decision 16) ───────────────────────────────────────────────
+   The sort button and a row's name button keep their drawn size and grow a
+   44px reach (Store Ops deskTouch.css). */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"])
+    :is(.oxy-ui-sort-header__button, .oxy-ui-panel-table__open)::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--control-h-lg)) / 2));
+  }
+}

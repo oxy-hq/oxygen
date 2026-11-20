@@ -1,0 +1,389 @@
+/* ── navigation ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). The looks are base.css's
+   recipes (segments, tabs, top-bar tabs, section links, counts, selects); this
+   file holds what only the components draw: the strip's room and its fallbacks,
+   the touch size, the scrolling strip's end fade, the top bar's More menu, the
+   Sections column and its sideways row, the breadcrumb's box. */
+
+/* ── DefaultTabs and Segmented ─────────────────────────────────────────────
+   A strip never wraps and never pushes its box wider: it is held to its room,
+   and once its options are wider the component swaps it for a select. */
+.oxy-ui-default-tabs,
+.oxy-ui-segmented,
+.oxy-ui-default-tabs__select,
+.oxy-ui-segmented__select {
+  max-width: 100%;
+}
+
+.oxy-ui-default-tabs__tab,
+.oxy-ui-segmented__option {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* A legend beside the strip, on its own row: the two are one control's worth
+   of furniture, so the strip owns the row. */
+.oxy-ui-default-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+/* `size="touch"` (a store tablet): the crew target (56px, decision 1) and crew
+   type, full width, each option an equal share. */
+.oxy-ui-default-tabs--touch,
+.oxy-ui-segmented--touch {
+  display: flex;
+  width: 100%;
+}
+
+.oxy-ui-default-tabs--touch > .oxy-ui-default-tabs__tab,
+.oxy-ui-segmented--touch > .oxy-ui-segmented__option {
+  min-height: 56px;
+  flex: 1 1 0%;
+  justify-content: center;
+  padding: 0 var(--control-padding-lg);
+  font-size: var(--type-scale-lg-size);
+  line-height: var(--type-scale-lg-line);
+}
+
+.oxy-ui-default-tabs--touch .oxy-ui-default-tabs__count {
+  font-size: var(--type-scale-base-size);
+  line-height: var(--type-scale-base-line);
+}
+
+/* `overflow="scroll"` (crew, an enrolled store tablet, round 16d): the strip
+   stays a strip and scrolls sideways, and its cut end takes an end fade on the
+   strip's own track while there is more past it. Paint only: the fade's margin
+   gives its width back, so a strip that fits is drawn as before, and it never
+   takes a tap. The fade follows the scroll position, not the clock, so it is not
+   motion and stays under reduced motion; a browser without scroll-driven
+   animations draws no fade. */
+.oxy-ui-default-tabs--scroll {
+  overflow-x: auto;
+}
+
+@supports (animation-timeline: scroll()) {
+  .oxy-ui-default-tabs--scroll::after {
+    content: "";
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    flex: none;
+    align-self: stretch;
+    width: 2.5rem;
+    margin-left: -2.5rem;
+    background-image: linear-gradient(
+      to left,
+      var(--segment-track),
+      color-mix(in srgb, var(--segment-track), transparent 100%)
+    );
+    pointer-events: none;
+    opacity: 0;
+    animation: oxy-ui-default-tabs-end linear both;
+    animation-timeline: scroll(nearest inline);
+  }
+}
+
+@keyframes oxy-ui-default-tabs-end {
+  0%,
+  96% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ── ParentTabs ────────────────────────────────────────────────────────────
+   The page strip hides from the width its top-bar twin shows at, so exactly
+   one of the two is drawn (and the hidden one is out of the Tab order). Either
+   one shrinks with its box rather than push it wider. */
+.oxy-ui-parent-tabs {
+  min-width: 0;
+}
+
+.oxy-ui-parent-tabs__tab {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* In the top bar: the room between the breadcrumb and the clock, and no more
+   (a 0 basis, so it never pushes either). The component measures this box and
+   fills it, the rest going behind More. Hidden below its width (the base
+   recipe's `display: none`). */
+.oxy-ui-parent-tabs--topbar-md,
+.oxy-ui-parent-tabs--topbar-xl {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+@media (min-width: 768px) {
+  .oxy-ui-parent-tabs--page-md {
+    display: none;
+  }
+
+  .oxy-ui-parent-tabs--topbar-md {
+    display: flex;
+  }
+}
+
+@media (min-width: 1280px) {
+  .oxy-ui-parent-tabs--page-xl {
+    display: none;
+  }
+
+  .oxy-ui-parent-tabs--topbar-xl {
+    display: flex;
+  }
+}
+
+/* What the split is measured from: every tab at its widest (the selected
+   weight) and the More button, out of sight and out of the way. */
+.oxy-ui-parent-tabs__measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.oxy-ui-parent-tabs__measure-row {
+  display: flex;
+  width: max-content;
+}
+
+.oxy-ui-parent-tabs__measure-tab,
+.oxy-ui-parent-tabs__measure-more {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* More: one more top-bar tab, the dots in place of a label, at the end of the
+   run. Open, it takes the hover ink; never the underline, the open screen's. */
+.oxy-ui-parent-tabs__more-wrap {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+
+.oxy-ui-parent-tabs__more {
+  border-top-width: 0;
+  border-inline-width: 0;
+}
+
+.oxy-ui-parent-tabs__more-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.oxy-ui-parent-tabs__more[aria-expanded="true"] {
+  color: var(--foreground);
+}
+
+/* The menu hangs from the bar's rule and floats over the page, so it takes the
+   overlay's elevation, as the hover hint and the dialogs do; its rows are the
+   strip's tabs, one per line. */
+.oxy-ui-parent-tabs__menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  min-width: 13rem;
+  margin: 1px 0 0;
+  padding: var(--space-xs) 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-overlay);
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-overlay);
+}
+
+.oxy-ui-parent-tabs__menu-entry {
+  margin: 0;
+  padding: 0;
+}
+
+.oxy-ui-parent-tabs__menu-item {
+  display: flex;
+  min-height: var(--control-h-md);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--control-padding-sm);
+  font-family: inherit;
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+  font-weight: 500;
+  color: var(--dim-foreground);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition-property: color, background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-parent-tabs__menu-label {
+  flex: 1 1 auto;
+}
+
+@media (hover: hover) {
+  .oxy-ui-parent-tabs__menu-item:hover {
+    background-color: var(--row-hover);
+    color: var(--foreground);
+  }
+}
+
+/* ── Subnav ────────────────────────────────────────────────────────────────
+   Below 768px: full width, a rule underneath, and one row that scrolls
+   sideways inside itself rather than widening the page. From 768px: a 220px
+   column (13.75rem, the width the reference draws: it holds "Sales Tax &
+   Bookkeeping" on one line) with its edge the full height of the content,
+   the list inside it sticking one viewport tall under the shell's 48px top
+   bar, its footer group at the foot. Fixed width, so the content never moves sideways between
+   screens. */
+.oxy-ui-subnav {
+  width: 100%;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--sidebar-background);
+}
+
+.oxy-ui-subnav__list {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.oxy-ui-subnav__group {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: row;
+  gap: var(--space-xs);
+}
+
+/* The one divider: a rule beside the footer group in the row, above it in the
+   column. */
+.oxy-ui-subnav__footer {
+  margin-left: var(--space-xs);
+  border-left: 1px solid var(--border-subtle);
+  padding-left: var(--space-xs);
+}
+
+@media (min-width: 768px) {
+  .oxy-ui-subnav {
+    width: 13.75rem;
+    border-bottom: 0;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .oxy-ui-subnav__list {
+    position: sticky;
+    top: 0;
+    height: calc(100dvh - 3rem);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: var(--space-sm) var(--space-xs);
+  }
+
+  .oxy-ui-subnav__group {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .oxy-ui-subnav__footer {
+    margin-top: auto;
+    margin-left: 0;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
+    padding-top: var(--space-xs);
+    padding-left: 0;
+  }
+}
+
+/* ── TopBarLeft ────────────────────────────────────────────────────────────
+   The breadcrumb keeps its words: the strip gives way, never the crumb. From
+   1024px its box is held to the Sections column's width (220px, less the bar's
+   12px padding and 12px gap: 196px), so the strip starts where the page does. */
+.oxy-ui-top-bar-left {
+  display: flex;
+  min-width: 0;
+  flex: none;
+}
+
+@media (min-width: 1024px) {
+  .oxy-ui-top-bar-left {
+    min-width: 12.25rem;
+  }
+}
+
+/* The dev stand-in (no shell-context): the breadcrumb's shape in plain text. */
+.oxy-ui-top-bar-left__fallback {
+  font-size: var(--type-scale-md-size);
+  line-height: var(--type-scale-md-line);
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+
+/* With the caller's names (`standIn`): the reference's stand-in, `flex
+   items-center gap-2 text-sm`, the workspace semibold in the body ink, the
+   slash and the page in the muted ink. */
+.oxy-ui-top-bar-left__fallback--crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-top-bar-left__fallback-workspace {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* ── Touch targets (decision 16) ─────────────────────────────────────────── */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-parent-tabs__menu-item {
+    min-height: var(--control-h-lg);
+  }
+}
+
+/* ── A status dot inside a tab (decision 63) ──────────────────────────────────
+   The tab's own label and figure say the state, so a StatusDot in a tab's icon
+   slot shows only its dot; its word stays for assistive tech (anchored to the
+   slot, so it can never widen a scroller). Everywhere else the word shows (38b). */
+.oxy-ui-default-tabs__icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.oxy-ui-default-tabs__icon .oxy-ui-status-dot__word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

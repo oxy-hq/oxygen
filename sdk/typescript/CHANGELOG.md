@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.30.0] - 2026-11-20
+
+### Added
+
+- **`@oxy-hq/sdk/ui` and `@oxy-hq/sdk/ui.css`: the desk UI every app used to copy.** The
+  reference app's gallery, built once: its 25 components (Button, DefaultTabs, ParentTabs,
+  Stat, Chip, StatusDot, AlertStrip, AppMark, PanelTable, DataSheet, SortHeader, MetricCell,
+  Sparkline, TrendChart, Panel, Modal, SidePanel, HoverHint, Field, SelectWithOther,
+  AttachmentsField, ToggleChip, StringListEditor, Loading, LoadError), its 7 patterns as
+  layouts with slots (ReorderSheet, MapSidebar, MapDetailCard, FlagRow, ReviewList,
+  CoverageRebalanceList, FacilityActivityFeed), its `ui.ts` recipes as the `ui` object of
+  `.oxy-ui-*` classes, and the pieces three or more apps carried that the gallery lacked
+  (Segmented, TableScroll, LinkList, ConfirmDialog, ConfirmInline, CountBadge, AsOf,
+  EmptyState, ErrorBoundary, SearchField, CopyButton, `downloadCsv`, Subnav, TopBarLeft, a
+  router and URL state, `useRetryFocus`, `useReread`, scroll focus). Each piece starts from the
+  best copy in the apps, not always the reference's: the side panel is the modal `<dialog>`
+  over the whole window (decision 40b), Try again never drops focus to the page, tabs give way
+  to a select when they do not fit, and TrendChart's month labels never collide. Plain CSS in
+  `@layer oxy-ui`, reading only `theme.css` tokens; no Tailwind and no new dependency. Nothing
+  changes for an app until it imports the entry.
+- **`@oxy-hq/sdk/tailwind.css`.** Tailwind 4 `@theme` names (`--color-*`, `--text-*`, the
+  radius steps, `--font-sans`, `--font-mono`) mapped onto `theme.css`, with the layer order
+  that puts the SDK under Tailwind's utilities. Import it before `@import "tailwindcss"`.
+- **`@oxy-hq/sdk/format`.** Money, percent, number, date, relative-time, plural and list words
+  and CSV, one rule each where the apps' copies disagreed. Runs in a Function as well as a
+  browser. With no `timeZone`, an instant shows in the viewer's zone in a browser and in UTC
+  in a Function; calendar dates are never shifted. `formatAge` moves here (unchanged).
+- **`checkThemeCss()` in `@oxy-hq/sdk/testing`.** One guard for an app's tests: it fails on a
+  rule that restates an SDK token, a literal colour in `@theme`, a bare `.dark` / `.light`, or
+  the app's own `color-scheme` or mode block.
+- **`useKeptState` and `PhoneOptionSheet` in `@oxy-hq/sdk/shell`.** State kept across the
+  phone and desk swap, and a full-screen choose-one sheet for the phone kit.
+- **Theme tokens:** the type scale, desk sizes (control and table padding, measures), the
+  radius steps, `--app-mark-ground` / `--app-mark-ink`, and `--status-info-series`.
+- **44px controls and 16px fields under a coarse pointer** for every ui piece, honouring
+  `data-oxy-touch-targets="off"`.
+
+### Changed
+
+- **Status colours pass contrast on a selected row.** Light `--status-success-series`
+  `#159946` and `--status-warning-series` `#b27a04` (was 2.69:1 on `--row-selected`, now
+  3.02:1); light `--chart-cat-5` follows the success series. Dark `--status-info` is its own
+  token, `#93a2ff` (the info chip's text: 3.99:1 to 4.52:1), so `--link` keeps `#8696ff`. The
+  chart's info line reads the new `--status-info-series` (dark `#4f67ff`), not `--brand`.
+
 ## [2.29.1] - 2026-11-18
 
 ### Changed

@@ -1,0 +1,379 @@
+/* ── figures ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). The looks are the recipes'
+   (tag, callout, eyebrow, figure, note, tile, tabCount); what is here is what
+   only these pieces draw. */
+
+/* ── Chip ─────────────────────────────────────────────────────────────────────
+   The `tag` recipe in its tone. A long entry (a settings list in a narrow
+   column) wraps inside its own box rather than running out of the column. */
+.oxy-ui-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.oxy-ui-chip--gap {
+  gap: var(--space-xs);
+}
+
+.oxy-ui-chip--removable {
+  padding-right: var(--space-2xs);
+}
+
+/* The ×: a 16px square, the chip's line height, so it does not grow the chip.
+   Its hover is a tint of the chip's OWN ink (currentColor at 15%), and the ×
+   steps from 70% to full ink. */
+.oxy-ui-chip__remove {
+  display: inline-flex;
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--badge-radius);
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition-property: opacity, background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-chip__remove:hover:not(:disabled) {
+    background-color: color-mix(in srgb, currentColor 15%, transparent);
+    opacity: 1;
+  }
+}
+
+/* Disabled: half ink, as a disabled button (warehouse's 40% measured 1.82:1 for
+   a warning chip's × in light, under the 2:1 floor a disabled mark keeps). */
+.oxy-ui-chip__remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── StatusDot ────────────────────────────────────────────────────────────────
+   A 7px round dot and its word. The fills are the `--dot-*` set, apart from
+   the status ink ramp (tuned for text on a tint); neutral is the theme's
+   neutral series. Quiet is the same colour as a 1px ring. */
+.oxy-ui-status-dot {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.oxy-ui-status-dot__dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border: 0 solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+.oxy-ui-status-dot__dot--success {
+  border-color: var(--dot-success);
+  background-color: var(--dot-success);
+}
+
+.oxy-ui-status-dot__dot--warning {
+  border-color: var(--dot-warning);
+  background-color: var(--dot-warning);
+}
+
+.oxy-ui-status-dot__dot--error {
+  border-color: var(--dot-error);
+  background-color: var(--dot-error);
+}
+
+.oxy-ui-status-dot__dot--info {
+  border-color: var(--dot-info);
+  background-color: var(--dot-info);
+}
+
+.oxy-ui-status-dot__dot--neutral {
+  border-color: var(--status-neutral-series);
+  background-color: var(--status-neutral-series);
+}
+
+.oxy-ui-status-dot__dot--quiet {
+  border-width: 1px;
+  background-color: transparent;
+}
+
+.oxy-ui-status-dot__word {
+  min-width: 0;
+}
+
+/* ── CountBadge ───────────────────────────────────────────────────────────────
+   The `tabCount` recipe. Positioned, so the words a screen reader hears stay
+   inside the badge's own box (in a row that scrolls sideways, an absolute
+   element placed against the page pushed it wider than the window: Store Ops'
+   StatusDot note). */
+.oxy-ui-count-badge {
+  position: relative;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.oxy-ui-count-badge__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── AlertStrip ───────────────────────────────────────────────────────────────
+   One line that scrolls sideways under its label when it does not fit (the
+   reference's `.scroll-row`, index.css:1693-1745). Decision 37: the strip
+   takes a tile's inner padding at both ends, 1px frame + 12px, so its label
+   starts where a tile's label does. The start is the sticky label's own
+   padding (what scrolls under it stays hidden there); the end is room the
+   trailing fade takes after the last callout. The strip keeps no inline
+   padding of its own, so the label's `left: 0` and the fade's `right: 0` hold
+   at its edges. An app whose strip must not move sets the inset to 0px. */
+.oxy-ui-alert-strip {
+  --oxy-ui-alert-strip-inset: calc(var(--padding-sm-x) + 1px);
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-block: var(--space-sm);
+  background-color: var(--card);
+}
+
+.oxy-ui-alert-strip__label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  padding-left: var(--oxy-ui-alert-strip-inset);
+  padding-right: var(--space-xs);
+  background-color: var(--card);
+}
+
+/* Each edge fades into the strip's own surface while there is more past it,
+   driven by the strip's scroll position; a strip that fits has no scroll and
+   neither fade shows. Paint only: the trailing fade's negative margin gives
+   its width and the row's gap back, less the end inset, so it takes exactly
+   that inset's room. Without scroll-driven animations (the @supports below)
+   both stay transparent and the strip still scrolls. */
+.oxy-ui-alert-strip__label::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 2.5rem;
+  background-image: linear-gradient(to right, var(--card), transparent);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.oxy-ui-alert-strip::after {
+  content: "";
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  flex: none;
+  align-self: stretch;
+  width: 2.5rem;
+  margin-left: calc(var(--oxy-ui-alert-strip-inset) - 2.5rem - var(--space-sm));
+  background-image: linear-gradient(to left, var(--card), transparent);
+  pointer-events: none;
+  opacity: 0;
+}
+
+@keyframes oxy-ui-alert-strip-start {
+  0% {
+    opacity: 0;
+  }
+
+  4%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes oxy-ui-alert-strip-end {
+  0%,
+  96% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A fade keyed to the scroll position, not to time: it says where the content
+   is, so it stays under reduced motion. `animation-timeline` after the
+   shorthand, which resets it. */
+@supports (animation-timeline: scroll()) {
+  .oxy-ui-alert-strip__label::after {
+    animation: oxy-ui-alert-strip-start linear both;
+    animation-timeline: scroll(nearest inline);
+  }
+
+  .oxy-ui-alert-strip::after {
+    animation: oxy-ui-alert-strip-end linear both;
+    animation-timeline: scroll(nearest inline);
+  }
+}
+
+/* An alert: the callout recipe, on one line, as a link, a button or a span. */
+.oxy-ui-alert-strip__alert {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: inherit;
+  letter-spacing: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* A door: its edge takes the alert's own ink on hover (the reference's 1px
+   inset ring of currentColor), and the caret steps up from half ink. */
+.oxy-ui-alert-strip__door {
+  cursor: pointer;
+  transition-property: border-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-alert-strip__caret {
+  opacity: 0.5;
+  transition-property: opacity;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-alert-strip__door:hover {
+    border-color: currentColor;
+  }
+
+  .oxy-ui-alert-strip__door:hover .oxy-ui-alert-strip__caret {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .oxy-ui-alert-strip__caret {
+    transition-property: opacity, transform;
+  }
+
+  .oxy-ui-alert-strip__door:hover .oxy-ui-alert-strip__caret {
+    transform: translateX(2px);
+  }
+}
+
+/* ── Stat ─────────────────────────────────────────────────────────────────────
+   eyebrow, figure, note; boxed, the tile at paddingSm. The figure sits at the
+   bottom of a tile with no caption, so a row lines its figures up. */
+.oxy-ui-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.oxy-ui-stat--fill {
+  height: 100%;
+}
+
+.oxy-ui-stat__label-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.oxy-ui-stat__value {
+  padding-top: var(--space-2xs);
+}
+
+.oxy-ui-stat__value--end {
+  margin-top: auto;
+}
+
+.oxy-ui-stat-grid {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+/* ── AsOf ─────────────────────────────────────────────────────────────────────
+   The note recipe; the time on one width and one line. */
+.oxy-ui-as-of {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Touch (decision 16) ──────────────────────────────────────────────────────
+   The chip's × keeps its drawn 16px and grows a 44px reach around it, so the
+   chip keeps its size (Store Ops deskTouch.css). The strip's doors take the
+   44px box itself: the strip scrolls, and its overflow would clip a reach. */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-chip__remove {
+    position: relative;
+  }
+
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-chip__remove::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--control-h-lg)) / 2));
+  }
+
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-alert-strip__door {
+    min-height: var(--control-h-lg);
+  }
+}
+
+/* ── AppMark (added with the patterns group, 19 Nov) ─────────────────────────
+   An app's icon: a square of `--app-mark-ground`, the glyph 56% of it, filled
+   from its own gradient of `--app-mark-ink` (AppMark.tsx). Square, as the
+   reference draws it; three sides, each a literal of the mark's own geometry. */
+.oxy-ui-app-mark {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--app-mark-ground);
+}
+
+.oxy-ui-app-mark--sm {
+  width: 32px;
+  height: 32px;
+}
+
+.oxy-ui-app-mark--md {
+  width: 40px;
+  height: 40px;
+}
+
+.oxy-ui-app-mark--lg {
+  width: 56px;
+  height: 56px;
+}
+
+.oxy-ui-app-mark__glyph {
+  display: block;
+  width: 56%;
+  height: 56%;
+}

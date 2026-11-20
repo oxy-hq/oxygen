@@ -1,0 +1,457 @@
+// Started from pokehouse-oxy `apps/watchlist/src/components/TrendChart.tsx` (INVENTORY section 3
+// and surprise 3: it carries `labelledIndices`, so month labels never collide, and its test; the
+// reference lacks the fix). Kept: the frame (one y-scale for both series, three gridlines and
+// their ticks, month labels thinned to fit and anchored inward at the ends, direct end labels
+// pushed apart when the lines converge, a crosshair, hit areas far larger than the marks), `fluid`
+// for a phone (drawn at its measured width, a tap picks a month, the month's figures in a line
+// under the chart), and the reference's hover toast over the point, portalled into an open
+// <dialog> or the body. The geometry is the reference's, not Watchlist's (reference-app@81ee8aa
+// `src/components/TrendChart.tsx:24-48`; SDK-GAPS entry 7): 560 x 178, the y labels 10 off their
+// gridlines, and the month labels in a band of their own under the plot; its labels are the type
+// scale's xs step in viewBox units, so they scale with the chart as the reference's do (Watchlist
+// held them at 12px on the glass; no numbered decision asks for that).
+// New: the status is a `tone` (`seriesColour`); the readout's arithmetic (Watchlist's "$X more
+// that month") arrives as `delta`, its words as `storeLabel` / `lineLabel` / `peerLabel` /
+// `caption`, its numbers through `format`; the marks are props (`shape`, `point`; decision 38b);
+// a flat series gets a scale around its value instead of one its line does not sit on; and the
+// keyboard reads it too, where the reference's was mouse-only: the plot is a slider over the
+// months (arrows step them, Home and End, Escape clears), its value the month's readout.
+//
+// The expanded trend: the same two series as the Sparkline, now readable. No legend box: the two
+// lines are direct-labelled, the more dependable identity channel. One y-scale for both series:
+// a second axis would let the subject's line sit above the comparison while its value is below.
+
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import { createPortal } from "react-dom";
+import { cx } from "../cx";
+import { ui } from "../recipes";
+import type { StatusTone } from "../tone";
+import { axisTickLabels, labelledIndices, monthLabel } from "./axis";
+import { PointMark, type PointShape } from "./marks";
+import { type SeriesShape, seriesColour, seriesGeometry, type TrendPoint } from "./series";
+
+const FIXED_W = 560;
+const H = 178;
+/** Room for the y labels: one ending 6 from its gridline reads as part of the line, 10 apart it
+ *  reads as its value, and the widest ("100%") still starts inside the frame. */
+const PAD_L = 40;
+/** The air between a y label and the gridline it names. */
+const Y_LABEL_GAP = 10;
+/** Room for the end labels: "Comparable" at the xs step is 68.5 wide. */
+const FIXED_PAD_R = 88;
+/** Air over the highest gridline. */
+const PAD_Y = 14;
+/** The band under the plot the month labels live in: its own, since sharing `PAD_Y` put the
+ *  months 4 under the lowest gridline, close enough to read as its caption. */
+const PAD_B = 24;
+/** The month labels' baseline, down from the bottom of the plot. */
+const X_LABEL_DROP = 18;
+/** Minimum gap between the two end labels before they read as one smudge. */
+const LABEL_MIN_GAP = 14;
+/** Before the first measurement in a phone sheet. */
+const FLUID_FALLBACK_W = 320;
+const FLUID_PAD_R = 80;
+
+export interface TrendChartProps<P extends TrendPoint = TrendPoint> {
+  points: readonly P[];
+  /** The subject's name in the month's readout ("North"). */
+  storeLabel: string;
+  /** The subject line's end label. */
+  lineLabel?: string;
+  /** What the comparison line actually is; say which group it is. */
+  peerLabel?: string;
+  /** What the axis is a percentage of ("sales"), for the default caption. */
+  shareOf?: string;
+  /** What the y-axis is measured in: whole-percent ticks, or a rating's one decimal. */
+  unit?: "percent" | "stars";
+  /** The eyebrow over the chart, and its accessible name. Default "Share of sales, month by
+   *  month" or "Average rating, month by month". */
+  caption?: ReactNode;
+  /** Phone: drawn at the width it is given, and a tap (not a hover) picks a month. */
+  fluid?: boolean;
+  /** The status of the measure charted: the subject's line takes its hue. */
+  tone?: StatusTone | null;
+  /** The month's extra line in the readout ("$1,240 more that month"): the app's arithmetic. */
+  delta?: (point: P) => string | null;
+  /** A value as the readout prints it. Default "24.0%", or "4.46" for stars. */
+  format?: (value: number) => string;
+  /** A month's words ("Jul", "Jul 2026"). Default English abbreviations. */
+  formatPeriod?: (period: string, withYear: boolean) => string;
+  /** The subject as a line (with its area) or as bars. Default line. */
+  shape?: SeriesShape;
+  /** The end mark and the hovered month's marks. Default a haloed dot. */
+  point?: PointShape;
+  /** Said for a series under two points. */
+  emptyText?: string;
+  className?: string;
+}
+
+/** The element's content width, kept current; null until measured or when off. */
+function useMeasuredWidth(ref: RefObject<HTMLElement | null>, on: boolean): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!on || !el) return;
+    const read = () => setWidth(Math.round(el.getBoundingClientRect().width) || null);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, on]);
+  return width;
+}
+
+const STEP_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End", "Escape"]);
+
+export function TrendChart<P extends TrendPoint = TrendPoint>({
+  points,
+  storeLabel,
+  lineLabel = "This store",
+  peerLabel = "Comparable",
+  shareOf = "sales",
+  unit = "percent",
+  caption,
+  fluid = false,
+  tone,
+  delta,
+  format,
+  formatPeriod = monthLabel,
+  shape = "line",
+  point = "dot",
+  emptyText = "Not enough history yet to show a trend.",
+  className
+}: TrendChartProps<P>) {
+  const colour = seriesColour(tone);
+  const titleId = useId();
+  const areaId = `oxy-trend-${useId()}`;
+  const [active, setActive] = useState<number | null>(null);
+  const figureRef = useRef<HTMLElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const enough = points.length >= 2;
+  const measured = useMeasuredWidth(figureRef, enough && fluid);
+  const W = fluid ? Math.max(measured ?? FLUID_FALLBACK_W, 240) : FIXED_W;
+  const padR = fluid ? FLUID_PAD_R : FIXED_PAD_R;
+  const plotW = W - PAD_L - padR;
+  const plotH = H - PAD_Y - PAD_B;
+  const g = useMemo(() => {
+    const values = points.flatMap((p) => [p.observedPct, p.peerPct]);
+    const lo = values.length ? Math.min(...values) : 0;
+    const hi = values.length ? Math.max(...values) : 0;
+    // A flat series still gets a scale its line sits on: its value in the middle.
+    const spread = unit === "stars" ? 0.1 : 1;
+    const domain: [number, number] = hi > lo ? [lo, hi] : [lo - spread, hi + spread];
+    return seriesGeometry(points, plotW, plotH, 0, domain);
+  }, [points, plotW, plotH, unit]);
+  const fmt = format ?? ((v: number) => (unit === "stars" ? v.toFixed(2) : `${v.toFixed(1)}%`));
+
+  if (!enough) {
+    return <p className={cx(ui.note, "oxy-ui-trend-chart__empty", className)}>{emptyText}</p>;
+  }
+
+  const n = points.length;
+  const xAt = (i: number) => PAD_L + (g.observed[i]?.x ?? 0);
+  const yAt = (v: number) => PAD_Y + g.y(v);
+  const ticks = [g.min, (g.min + g.max) / 2, g.max];
+  const periods = points.map((p) => p.period);
+  const shown = labelledIndices(periods, plotW);
+  const tickText = axisTickLabels(periods, shown, formatPeriod);
+  const last = points[n - 1];
+  const on = active === null ? null : points[active];
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!STEP_KEYS.has(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Escape") return setActive(null);
+    if (event.key === "Home") return setActive(0);
+    if (event.key === "End") return setActive(n - 1);
+    const from = active ?? n;
+    const by = event.key === "ArrowLeft" ? -1 : 1;
+    setActive(Math.min(n - 1, Math.max(0, active === null && by > 0 ? n - 1 : from + by)));
+  };
+
+  // The month's readout: after its name, the two figures and the app's own line.
+  const figures = (p: P) => {
+    const extra = delta?.(p);
+    return ` — ${storeLabel} ${fmt(p.observedPct)}, ${peerLabel.toLowerCase()} ${fmt(p.peerPct)}${extra ? ` · ${extra}` : ""}`;
+  };
+  // What the slider says: the month in hand, or the latest, which the end mark draws.
+  const said = on ?? last;
+  const readout = on && (
+    <>
+      <span className='oxy-ui-trend-chart__month'>{formatPeriod(on.period, true)}</span>
+      {figures(on)}
+    </>
+  );
+
+  // The end labels: pushed apart just enough to stay separate where the lines converge.
+  const a = yAt(last.observedPct);
+  const b = yAt(last.peerPct);
+  const push = Math.abs(a - b) >= LABEL_MIN_GAP ? 0 : (LABEL_MIN_GAP - Math.abs(a - b)) / 2;
+  const ownY = a <= b ? a - push : a + push;
+  const peerY = a <= b ? b + push : b - push;
+  const bar = (plotW / n) * 0.6;
+
+  return (
+    <figure ref={figureRef} className={cx("oxy-ui-trend-chart", className)}>
+      <figcaption id={titleId} className={ui.eyebrow}>
+        {caption ??
+          `${unit === "stars" ? "Average rating" : `Share of ${shareOf}`}, month by month`}
+      </figcaption>
+      {/* A slider over the months, so a keyboard and a screen reader read the chart too: the
+          drawing is its picture, the month's readout its value. */}
+      <div
+        role='slider'
+        aria-labelledby={titleId}
+        aria-orientation='horizontal'
+        aria-valuemin={0}
+        aria-valuemax={n - 1}
+        aria-valuenow={active ?? n - 1}
+        aria-valuetext={`${formatPeriod(said.period, true)}${figures(said)}`}
+        tabIndex={0}
+        className={cx("oxy-ui-trend-chart__plot", ui.focusRing)}
+        onMouseLeave={() => setActive(null)}
+        onKeyDown={onKeyDown}
+        onBlur={() => setActive(null)}
+      >
+        {/* overflow visible: the month labels sit on the bottom edge and their descenders fall
+          just outside the box. */}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          aria-hidden='true'
+          className='oxy-ui-trend-chart__svg'
+        >
+          {ticks.map((t, i) => (
+            <g key={i}>
+              <line
+                x1={PAD_L}
+                x2={PAD_L + plotW}
+                y1={yAt(t)}
+                y2={yAt(t)}
+                stroke='var(--border-subtle)'
+                strokeWidth={1}
+              />
+              <text
+                x={PAD_L - Y_LABEL_GAP}
+                y={yAt(t) + 3}
+                textAnchor='end'
+                className='oxy-ui-trend-chart__tick'
+                data-axis='value'
+              >
+                {unit === "stars" ? t.toFixed(1) : `${Math.round(t)}%`}
+              </text>
+            </g>
+          ))}
+
+          {/* The first and last months anchor inward, clear of the end labels beyond the plot. */}
+          {points.map((p, i) =>
+            shown.has(i) ? (
+              <text
+                key={p.period}
+                x={i === 0 ? PAD_L : i === n - 1 ? PAD_L + plotW : xAt(i)}
+                y={PAD_Y + plotH + X_LABEL_DROP}
+                textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
+                className='oxy-ui-trend-chart__tick'
+                data-axis='month'
+              >
+                {tickText.get(i)}
+              </text>
+            ) : null
+          )}
+
+          {shape === "line" && (
+            <>
+              <defs>
+                <linearGradient id={areaId} x1='0' y1='0' x2='0' y2='1'>
+                  <stop offset='0%' stopColor={colour} stopOpacity={0.3} />
+                  <stop offset='100%' stopColor={colour} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <path
+                d={g.observedArea}
+                transform={`translate(${PAD_L},${PAD_Y})`}
+                fill={`url(#${areaId})`}
+                stroke='none'
+              />
+            </>
+          )}
+          {shape === "bars" &&
+            points.map((p, i) => (
+              <rect
+                key={`bar-${p.period}`}
+                x={xAt(i) - bar / 2}
+                y={yAt(p.observedPct)}
+                width={bar}
+                height={Math.max(PAD_Y + plotH - yAt(p.observedPct), 1)}
+                fill={colour}
+                data-mark='bar'
+              />
+            ))}
+          <path
+            d={g.peerPath}
+            transform={`translate(${PAD_L},${PAD_Y})`}
+            fill='none'
+            stroke='var(--trend-peer)'
+            strokeWidth={2}
+            strokeLinecap='round'
+            strokeLinejoin='round'
+            data-series='peer'
+          />
+          {shape === "line" && (
+            <path
+              d={g.observedPath}
+              transform={`translate(${PAD_L},${PAD_Y})`}
+              fill='none'
+              stroke={colour}
+              strokeWidth={2}
+              strokeLinecap='round'
+              strokeLinejoin='round'
+              data-series='observed'
+            />
+          )}
+
+          <text
+            x={PAD_L + plotW + 8}
+            y={ownY + 3}
+            className='oxy-ui-trend-chart__end oxy-ui-trend-chart__end--own'
+          >
+            {lineLabel}
+          </text>
+          <text x={PAD_L + plotW + 8} y={peerY + 3} className='oxy-ui-trend-chart__end'>
+            {peerLabel}
+          </text>
+
+          {on && active !== null && (
+            <line
+              x1={xAt(active)}
+              x2={xAt(active)}
+              y1={PAD_Y}
+              y2={PAD_Y + plotH}
+              stroke='var(--border-strong)'
+              strokeWidth={1}
+              data-crosshair=''
+            />
+          )}
+          {points.map((p, i) => (
+            <g key={`m-${p.period}`}>
+              {active === i && (
+                <>
+                  <PointMark
+                    shape={point}
+                    x={xAt(i)}
+                    y={yAt(p.peerPct)}
+                    r={4}
+                    colour='var(--trend-peer)'
+                  />
+                  <PointMark
+                    shape={point}
+                    x={xAt(i)}
+                    y={yAt(p.observedPct)}
+                    r={4}
+                    colour={colour}
+                  />
+                </>
+              )}
+              {/* A hit area far larger than the mark. */}
+              <rect
+                x={xAt(i) - plotW / (n * 2) - 2}
+                y={0}
+                width={plotW / n + 4}
+                height={H}
+                fill='transparent'
+                data-hit={i}
+                onMouseEnter={() => setActive(i)}
+                onClick={fluid ? () => setActive(i) : undefined}
+              />
+            </g>
+          ))}
+          {!on && g.lastPoint && (
+            <PointMark
+              shape={point}
+              x={PAD_L + g.lastPoint.x}
+              y={PAD_Y + g.lastPoint.y}
+              r={4}
+              colour={colour}
+            />
+          )}
+        </svg>
+      </div>
+
+      {fluid ? (
+        <p className='oxy-ui-trend-chart__readout'>
+          {readout || <span className='oxy-ui-trend-chart__prompt'>Tap a month to compare.</span>}
+        </p>
+      ) : (
+        on &&
+        active !== null && (
+          <HoverToast
+            anchor={svgRef.current}
+            w={W}
+            x={xAt(active)}
+            y={yAt(on.observedPct)}
+            month={formatPeriod(on.period, true)}
+            peer={`${peerLabel} ${fmt(on.peerPct)}`}
+            value={fmt(on.observedPct)}
+            delta={delta ? delta(on) : null}
+          />
+        )
+      )}
+    </figure>
+  );
+}
+
+/**
+ * The month's figures over the point they belong to (the reference's `HoverToast`, by way of
+ * Watchlist): `position: fixed` so no ancestor's overflow clips it, portalled into the open
+ * <dialog> (which paints in the top layer) or the body. The value in the ink at the xl step, not
+ * the series colour (text owes 4.5:1). Hidden from assistive tech: the slider's value says it.
+ */
+function HoverToast({
+  anchor,
+  w,
+  x,
+  y,
+  month,
+  peer,
+  value,
+  delta
+}: {
+  anchor: SVGSVGElement | null;
+  w: number;
+  x: number;
+  y: number;
+  month: string;
+  peer: string;
+  value: string;
+  delta: string | null;
+}) {
+  if (!anchor) return null;
+  const r = anchor.getBoundingClientRect();
+  const scale = r.width / w || 1;
+  // Clamped so a first-month hover near the left edge keeps the toast on screen.
+  const left = Math.min(Math.max(r.left + x * scale, 90), window.innerWidth - 90);
+  // Above the point, clear of the 4px marker and its 2px halo.
+  const top = r.top + y * scale - 14;
+  return createPortal(
+    <div className='oxy-ui-trend-chart__toast' style={{ left, top }} aria-hidden='true'>
+      <div className='oxy-ui-trend-chart__bubble'>
+        <p className='oxy-ui-trend-chart__toast-month'>{month}</p>
+        <p className='oxy-ui-trend-chart__toast-note'>{peer}</p>
+        <p className='oxy-ui-trend-chart__toast-value'>{value}</p>
+        {delta ? <p className='oxy-ui-trend-chart__toast-note'>{delta}</p> : null}
+      </div>
+      <span className='oxy-ui-trend-chart__caret' />
+    </div>,
+    anchor.closest("dialog") ?? document.body
+  );
+}

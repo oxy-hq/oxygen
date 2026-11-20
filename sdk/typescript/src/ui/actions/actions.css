@@ -1,0 +1,36 @@
+/* ── actions: Button's own rules ───────────────────────────────────────────
+   The button's look is the `btn` recipes in base.css; this file holds what
+   only the component draws: the busy state. A busy button keeps its fill (it
+   is not disabled, it is working), shows progress in the cursor, and turns
+   its CircleNotch only where motion is welcome. */
+.oxy-ui-btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+@keyframes oxy-ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .oxy-ui-btn__spinner {
+    animation: oxy-ui-spin 1s linear infinite;
+  }
+}
+
+/* ── actions: CopyButton ───────────────────────────────────────────────────
+   The button is a Button; the status beside it is the note recipe, on the
+   button's own line. The status stays in the page while it says nothing (a
+   live region that appears with its words is not reliably announced), so it
+   takes its gap only once it has words. */
+.oxy-ui-copy-button {
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.oxy-ui-copy-button__status:not(:empty) {
+  margin-inline-start: var(--space-sm);
+}

@@ -1,0 +1,147 @@
+/* ============================================================================
+   @oxy-hq/sdk/tailwind.css: the reference's Tailwind names, on the theme
+
+   For a Tailwind 4 app on the SDK theme: the utilities the reference app's
+   class strings use (`bg-card`, `text-dim-foreground`, `text-md`,
+   `rounded-sm`) resolve to theme.css tokens, so a screen moved off its own
+   `src/index.css` palette renders as it did. No literal values: every name
+   is a var() of a theme name, so a direction (and dark mode) re-resolves per
+   element. `inline`, as the reference's own block (index.css:32-61): a plain
+   @theme would bake each value into the utility at build time.
+
+   Import it BEFORE tailwindcss, so its first line fixes the layer order:
+
+     @import "@oxy-hq/sdk/tailwind.css";
+     @import "tailwindcss";
+
+   The order puts the SDK's ui.css (`oxy-ui`) above Tailwind's preflight
+   (`base`) and under its utilities, so an app adjusts a piece with a utility
+   class and any unlayered app rule wins. ui.css states the same order, so
+   the two agree whichever loads first.
+
+   Hand-written CSS reads `var(--card)`, never `var(--color-card)`: these are
+   Tailwind's names for the utilities, not tokens to read. The faces are the
+   exception, as in Tailwind: `var(--font-sans)` and `var(--font-mono)` are
+   theme.css's own, and the last block keeps them so.
+   ============================================================================ */
+
+@layer theme, base, oxy-ui, components, utilities;
+
+@theme inline {
+  /* The type scale: thirteen steps, each with its own line height
+     (theme.css `--type-scale-*`; the reference's index.css:1185-1210). */
+  --text-3xs: var(--type-scale-3xs-size);
+  --text-3xs--line-height: var(--type-scale-3xs-line);
+  --text-2xs: var(--type-scale-2xs-size);
+  --text-2xs--line-height: var(--type-scale-2xs-line);
+  --text-xs: var(--type-scale-xs-size);
+  --text-xs--line-height: var(--type-scale-xs-line);
+  --text-sm: var(--type-scale-sm-size);
+  --text-sm--line-height: var(--type-scale-sm-line);
+  --text-md: var(--type-scale-md-size);
+  --text-md--line-height: var(--type-scale-md-line);
+  --text-base: var(--type-scale-base-size);
+  --text-base--line-height: var(--type-scale-base-line);
+  --text-lg: var(--type-scale-lg-size);
+  --text-lg--line-height: var(--type-scale-lg-line);
+  --text-xl: var(--type-scale-xl-size);
+  --text-xl--line-height: var(--type-scale-xl-line);
+  --text-2xl: var(--type-scale-2xl-size);
+  --text-2xl--line-height: var(--type-scale-2xl-line);
+  --text-3xl: var(--type-scale-3xl-size);
+  --text-3xl--line-height: var(--type-scale-3xl-line);
+  --text-4xl: var(--type-scale-4xl-size);
+  --text-4xl--line-height: var(--type-scale-4xl-line);
+  --text-5xl: var(--type-scale-5xl-size);
+  --text-5xl--line-height: var(--type-scale-5xl-line);
+  --text-6xl: var(--type-scale-6xl-size);
+  --text-6xl--line-height: var(--type-scale-6xl-line);
+
+  /* Radius: every step on the role radius it is used for (all 0 in the
+     reference, so a utility that reaches for any step lands square). */
+  --radius-xs: var(--radius-control);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-surface);
+  --radius-xl: var(--radius-surface);
+  --radius-2xl: var(--radius-overlay);
+  --radius-3xl: var(--radius-overlay);
+  --radius-4xl: var(--radius-overlay);
+
+  /* Surfaces and control fills (index.css:1212-1221). */
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-field: var(--field);
+  --color-field-border: var(--field-border);
+  --color-row-hover: var(--row-hover);
+  --color-row-selected: var(--row-selected);
+  --color-segment-track: var(--segment-track);
+  --color-segment-selected: var(--segment-selected);
+  --color-btn-surface: var(--btn-surface);
+  --color-btn-surface-hover: var(--btn-surface-hover);
+
+  /* Ink (index.css:1223-1229). */
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-dim-foreground: var(--dim-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-inverse-foreground: var(--inverse-foreground);
+
+  /* Lines: `border-border` is the 3:1 control weight, as in the reference. */
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  --color-brand: var(--brand);
+  --color-link: var(--link);
+
+  /* Status: ink, tint, line, the chart cut, and the dots (index.css:1238-1262). */
+  --color-status-success: var(--status-success);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-line: var(--status-success-line);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-line: var(--status-warning-line);
+  --color-status-error: var(--status-error);
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-line: var(--status-error-line);
+  --color-status-info: var(--status-info);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-line: var(--status-info-line);
+  --color-status-success-series: var(--status-success-series);
+  --color-status-warning-series: var(--status-warning-series);
+  --color-status-error-series: var(--status-error-series);
+  --color-dot-success: var(--dot-success);
+  --color-dot-info: var(--dot-info);
+  --color-dot-warning: var(--dot-warning);
+  --color-dot-error: var(--dot-error);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-neutral-line: var(--status-neutral-line);
+
+  /* Data visualisation (index.css:1264-1271). */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-trend-store: var(--trend-store);
+  --color-trend-peer: var(--trend-peer);
+}
+
+/* The faces: theme.css's own `--font-sans` and `--font-mono`. A Tailwind build
+   declares each theme name a stylesheet reads (a body's `font-family:
+   var(--font-sans)` is enough) on an unlayered `:root, :host`, which outranks
+   theme.css's weightless `:where(:root)`: its default stack, colour-emoji
+   faces among the fallbacks, would set the page and a direction's face would
+   never land (SDK-GAPS 2). `reference`: Tailwind knows both names, so
+   `font-sans`, `font-mono` and its preflight's `--default-font-family` resolve
+   to them, but declares neither, so theme.css's values stand. `inline`: a
+   utility reads the variable itself. An app's own `@theme` font still wins.
+   `--font-serif` stays Tailwind's: the theme has no serif face to give it. */
+@theme inline reference {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}

@@ -92,6 +92,17 @@ export {
   TableStore,
   TypedTable
 } from "./stores";
+// The theme guard for an app's own CSS and index.html <style>: no SDK token restated, no literal
+// colour in @theme, no bare .dark/.light, no own color-scheme or mode block (themeGuard.ts).
+export {
+  type CheckThemeCssOptions,
+  checkThemeCss,
+  formatThemeFindings,
+  SDK_THEME_NAMES,
+  type ThemeCssSource,
+  type ThemeFinding,
+  type ThemeGuardRule
+} from "./themeGuard";
 export {
   casesFor,
   expectation,

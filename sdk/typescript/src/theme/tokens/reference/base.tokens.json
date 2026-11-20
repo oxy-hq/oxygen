@@ -673,5 +673,282 @@
         }
       }
     }
+  },
+  "type-scale": {
+    "3xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.625,
+          "unit": "rem"
+        },
+        "$description": "text-3xs (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-3xs line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "2xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.6875,
+          "unit": "rem"
+        },
+        "$description": "text-2xs (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-2xs line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "xs": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        },
+        "$description": "text-xs (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-xs line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "sm": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.8125,
+          "unit": "rem"
+        },
+        "$description": "text-sm (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-sm line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "md": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.875,
+          "unit": "rem"
+        },
+        "$description": "text-md (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-md line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "base": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1,
+          "unit": "rem"
+        },
+        "$description": "text-base (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-base line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "lg": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "text-lg (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-lg line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.5,
+          "unit": "rem"
+        },
+        "$description": "text-xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-xl line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "2xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        },
+        "$description": "text-2xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "text-2xl line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "3xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.625,
+          "unit": "rem"
+        },
+        "$description": "text-3xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1,
+        "$description": "text-3xl line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "4xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 4,
+          "unit": "rem"
+        },
+        "$description": "text-4xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1,
+        "$description": "text-4xl line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "5xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 6,
+          "unit": "rem"
+        },
+        "$description": "text-5xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "text-5xl line height (index.css:1185-1210, ui.ts)."
+      }
+    },
+    "6xl": {
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 8.75,
+          "unit": "rem"
+        },
+        "$description": "text-6xl (index.css:1185-1210, ui.ts)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "text-6xl line height (index.css:1185-1210, ui.ts)."
+      }
+    }
+  },
+  "padding": {
+    "sm-x": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "paddingSm's inline padding (`px-3`, ui.ts:224): inside a boxed item (a figure tile, a reason, a ranked row). Its block padding is `--space-sm`, and paddingMd is `--space-md`."
+    }
+  },
+  "control-padding": {
+    "sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "Side padding of a 32px desk control (`controlSm` = `min-h-8 px-3`, ui.ts:380): buttons, selects, segments, tabs."
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "Side padding of a 44px touch control (`controlLg` = `min-h-11 px-4`, ui.ts:1044)."
+    }
+  },
+  "table": {
+    "band-h": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1.55,
+        "unit": "rem"
+      },
+      "$description": "sheetBand (ui.ts:972): the group names above a data sheet's column headings."
+    },
+    "header-h": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      },
+      "$description": "sheetHeader = h-10 (ui.ts:975): a data sheet's column-heading row, fixed whether a cell holds a check box or not. Body rows are `--row-h`."
+    },
+    "cell-padding-x": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0.6,
+        "unit": "rem"
+      },
+      "$description": "A table cell's side padding (`cell`, ui.ts:952), the BMG reorder sheet's."
+    },
+    "cell-padding-y": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0.4,
+        "unit": "rem"
+      },
+      "$description": "A table cell's top and bottom padding (`cell`, ui.ts:952)."
+    }
+  },
+  "measure": {
+    "prose": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "rem"
+      },
+      "$description": "The reading measure for running text at any page width (`prose` = max-w-3xl, ui.ts:231)."
+    },
+    "form": {
+      "$type": "dimension",
+      "$value": {
+        "value": 36,
+        "unit": "rem"
+      },
+      "$description": "An entry form's fixed column (`formPage` = max-w-xl, ui.ts:1028): the longest label and value on one line, about a tablet held upright."
+    }
   }
 }

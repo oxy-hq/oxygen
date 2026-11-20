@@ -833,6 +833,13 @@
   "note": "Neutral chart mark on background."
  },
  {
+  "fg": "--status-info-series",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info chart mark on background."
+ },
+ {
   "fg": "--chart-seq-5",
   "bg": "--card",
   "min": 3.0,
@@ -840,12 +847,20 @@
   "note": "Strongest sequential step on card."
  },
  {
-  "fg": "--link",
+  "fg": "--status-info",
   "bg": "--brand-subtle",
   "min": 4.5,
   "kind": "text",
-  "note": "The info word on its tint on the canvas: `--status-info` on `--status-info-bg`, which alias these two (the reference's info pair, held on the page and a card, `src/lib/contrast.test.ts:143-151`).",
+  "note": "The info word on its tint on the canvas: `--status-info` on `--status-info-bg` (an alias of `--brand-subtle`); the reference's info pair, held on the page and a card (`src/lib/contrast.test.ts:143-151`). Its own token since decision 64.",
   "over": "--background"
+ },
+ {
+  "fg": "--status-info",
+  "bg": "--brand-subtle",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The info word on its tint on a card (the reference's info pair, `src/lib/contrast.test.ts:143-151`).",
+  "over": "--card"
  },
  {
   "fg": "--chart-seq-1",
@@ -958,6 +973,13 @@
   "min": 3.0,
   "kind": "non-text",
   "note": "Neutral chart mark on card."
+ },
+ {
+  "fg": "--status-info-series",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info chart mark on card."
  },
  {
   "fg": "--border-subtle",

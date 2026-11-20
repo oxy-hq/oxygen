@@ -1,0 +1,13 @@
+/* ── focus ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts).
+
+   An element that takes focus only to hold a reader's place after Try again
+   (useRetryFocus.ts: the loading line, or the start of what the re-read drew,
+   lent `tabIndex=-1` for as long as it holds focus) draws no ring: it is a
+   place, not a control, and a ring around a paragraph reads as a selection. */
+[data-retry-focus]:focus,
+[data-retry-focus]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}

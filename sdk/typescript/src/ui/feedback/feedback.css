@@ -1,0 +1,162 @@
+/* ── feedback ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts).
+
+   The wait (Loading), the failure (LoadError, ErrorBoundary) and the nothing
+   (EmptyState). A loading line and the start of what a re-read drew take focus
+   after Try again with no ring (focus.css, [data-retry-focus]). */
+
+/* ── Loading ───────────────────────────────────────────────────────────── */
+/* The reference's `px-4 py-6`: 24px over and under, 16px at the sides (no space
+   token is 24px; FlagRow's 24px gap is literal too). */
+.oxy-ui-loading-bar {
+  padding: 24px var(--space-md);
+}
+
+.oxy-ui-loading-bar__label,
+.oxy-ui-loading__label {
+  margin: 0;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--muted-foreground);
+}
+
+/* Square, both track and fill: a progress bar is a measured length, and at the
+   4% floor a rounded fill is almost all cap. */
+.oxy-ui-loading-bar__track {
+  width: 100%;
+  max-width: 20rem;
+  height: 4px;
+  margin-top: var(--space-sm);
+  overflow: hidden;
+  background-color: var(--muted);
+}
+
+.oxy-ui-loading-bar__fill {
+  height: 100%;
+  background-color: var(--brand);
+}
+
+/* The sentence over the skeleton, on a card. */
+.oxy-ui-loading {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.oxy-ui-loading__label {
+  padding: var(--space-md) var(--space-md) var(--space-xs);
+}
+
+.oxy-ui-loading-line {
+  margin: 0;
+}
+
+.oxy-ui-skeleton {
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+.oxy-ui-skeleton__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-sm) 0;
+}
+
+.oxy-ui-skeleton__row:first-child {
+  border-top: 0;
+}
+
+.oxy-ui-skeleton__bar {
+  height: 0.75rem;
+  background-color: var(--muted);
+}
+
+.oxy-ui-skeleton__bar--name {
+  flex-shrink: 0;
+  width: 8rem;
+}
+
+@keyframes oxy-ui-skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .oxy-ui-loading-bar__fill {
+    transition: width var(--oxy-duration-focal) var(--oxy-ease-out);
+  }
+
+  .oxy-ui-skeleton {
+    animation: oxy-ui-skeleton-pulse 2s var(--oxy-ease-in-out) infinite;
+  }
+}
+
+/* ── LoadError ─────────────────────────────────────────────────────────── */
+.oxy-ui-load-error {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-load-error__message {
+  overflow-wrap: anywhere;
+}
+
+.oxy-ui-load-error__message > :where(p, div) {
+  margin: 0;
+}
+
+.oxy-ui-load-error__message--lg {
+  font-size: var(--type-scale-sm-size);
+}
+
+.oxy-ui-load-error__title {
+  font-weight: 600;
+}
+
+/* ── EmptyState ────────────────────────────────────────────────────────── */
+.oxy-ui-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.oxy-ui-empty-state__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-empty-state__title {
+  margin: 0;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.oxy-ui-empty-state__body {
+  max-width: 48ch;
+  margin: 0;
+}
+
+.oxy-ui-empty-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}

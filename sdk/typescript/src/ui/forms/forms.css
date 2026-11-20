@@ -1,0 +1,519 @@
+/* ── forms ───────────────────────────────────────────────────────────────────
+   This group's own rules, after base.css in dist/ui.css (scripts/build-ui-css.mjs),
+   inside @layer oxy-ui. Tokens only (uiCss.test.ts). The controls themselves are
+   the recipes' (`field`, `select`, `selectTouch`, `inputSm`, `inputQuiet`,
+   `label`, `note`), which already carry the touch floor's 44px and 16px text
+   (base.css, decision 16); what is here is what only these pieces draw. */
+
+/* ── Field ────────────────────────────────────────────────────────────────────
+   Label, control, message: one thing, so 8px apart, less than the space
+   between fields. The error is the note's size at medium weight, in the
+   error ink. */
+.oxy-ui-form-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-form-field__label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oxy-ui-form-field__error,
+.oxy-ui-string-list__error {
+  margin: 0;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+  color: var(--status-error);
+}
+
+/* ── SelectWithOther ──────────────────────────────────────────────────────────
+   Only the closed field greys on the sentinel; every option keeps full ink. */
+.oxy-ui-select-with-other {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-select-with-other__select > option {
+  color: var(--foreground);
+}
+
+/* ── AttachmentsField ─────────────────────────────────────────────────────────
+   Square tiles, three across (four from 640px), each carrying its own state. */
+.oxy-ui-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-attachments__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .oxy-ui-attachments__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.oxy-ui-attachments__tile {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--muted);
+}
+
+.oxy-ui-attachments__tile[data-status="failed"] {
+  border-color: var(--status-error-line);
+}
+
+.oxy-ui-attachments__media {
+  position: relative;
+  display: flex;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.oxy-ui-attachments__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.oxy-ui-attachments__file-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--muted-foreground);
+}
+
+/* Uploading: the theme's scrim, and the words on an opaque card chip. */
+.oxy-ui-attachments__veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--scrim);
+}
+
+.oxy-ui-attachments__veil-words {
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--card);
+  color: var(--foreground);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+}
+
+/* Failed: the card, then the error tint over it, so "Retry" never sits on the
+   bare photo; the glyph and word start under the remove corner's 44px. */
+.oxy-ui-attachments__failed {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: var(--card);
+}
+
+.oxy-ui-attachments__failed-tint {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding-top: var(--control-h-lg);
+  background-color: var(--status-error-bg);
+  color: var(--status-error);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+}
+
+.oxy-ui-attachments__retry-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Retry's target starts under the remove corner, so the two 44px targets
+   never overlap; on a tile under 88px it keeps 44px by running into the
+   caption. */
+.oxy-ui-attachments__retry {
+  position: absolute;
+  inset: var(--control-h-lg) 0 0;
+  min-height: var(--control-h-lg);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.oxy-ui-attachments__name {
+  margin: 0;
+  padding: var(--space-xs) 6px 0;
+  color: var(--foreground);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+}
+
+.oxy-ui-attachments__name--cut {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oxy-ui-attachments__name--wrap {
+  overflow-wrap: anywhere;
+}
+
+.oxy-ui-attachments__size {
+  margin: 0;
+  padding: 0 6px var(--space-xs);
+}
+
+.oxy-ui-attachments__reason {
+  margin: 0;
+  padding: 0 6px var(--space-xs);
+  color: var(--status-error);
+  font-size: var(--type-scale-sm-size);
+  line-height: 1.375;
+  overflow-wrap: anywhere;
+}
+
+/* 44px to tap, drawn as the 28px square in its corner: the card plate in the
+   body ink, opaque, so it reads over any photo in either mode. */
+.oxy-ui-attachments__remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  align-items: flex-start;
+  justify-content: flex-end;
+  margin: 0;
+  padding: var(--space-xs);
+  border: 0;
+  background-color: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.oxy-ui-attachments__remove-plate {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--card);
+  transition-property: background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-attachments__remove:hover:not(:disabled) .oxy-ui-attachments__remove-plate {
+    background-color: var(--muted);
+  }
+}
+
+.oxy-ui-attachments__remove:disabled,
+.oxy-ui-attachments__retry:disabled {
+  cursor: not-allowed;
+}
+
+.oxy-ui-attachments__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--status-error);
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  font-weight: 500;
+}
+
+.oxy-ui-attachments__notice-icon {
+  margin-top: 2px;
+}
+
+/* The picker, drawn as a field: where files go. Its input is off screen, so
+   the ring is the label's, for keyboard focus only. */
+.oxy-ui-attachments__picker {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  border: 1px solid var(--field-border);
+  border-radius: var(--input-radius);
+  background-color: var(--field);
+  color: var(--dim-foreground);
+  font-size: var(--type-scale-base-size);
+  line-height: var(--type-scale-base-line);
+  font-weight: 500;
+  cursor: pointer;
+  transition-property: color, background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-attachments__picker:focus-within {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.oxy-ui-attachments__picker:has(:focus-visible) {
+  box-shadow: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
+}
+
+@media (hover: hover) {
+  .oxy-ui-attachments__picker:not([data-disabled]):hover {
+    background-color: var(--row-hover);
+    color: var(--foreground);
+  }
+}
+
+.oxy-ui-attachments__picker[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.oxy-ui-attachments__picker-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Visually hidden, still read: positioned inside its tile or picker. */
+.oxy-ui-attachments__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── StringListEditor ─────────────────────────────────────────────────────────
+   Chips, then the 44px input with its Add (the row's stretch draws Add at the
+   input's height), then Save when the draft differs from what is saved. */
+.oxy-ui-string-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-string-list__entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oxy-ui-string-list__row {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-string-list__input {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+
+.oxy-ui-string-list__save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.oxy-ui-string-list__unsaved {
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+}
+
+/* ── ToggleChip ───────────────────────────────────────────────────────────────
+   Outlined, 24px, 10px caps (text3xs). ON is the --link outline and ink; OFF
+   is the field edge and the dim ink. Neither fills. Sharing a row with 32px
+   controls it takes controlSm's 32px and 12px (restated here because this
+   file follows base.css and would otherwise win the tie). */
+.oxy-ui-toggle-chip {
+  display: inline-flex;
+  min-height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-control);
+  background-color: var(--card);
+  color: var(--dim-foreground);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-toggle-chip--shares-row {
+  min-height: var(--control-h-sm);
+  padding-inline: var(--control-padding-sm);
+}
+
+.oxy-ui-toggle-chip[aria-pressed="true"] {
+  border-color: var(--link);
+  color: var(--link);
+}
+
+@media (hover: hover) {
+  .oxy-ui-toggle-chip[aria-pressed="false"]:hover:not(:disabled) {
+    background-color: var(--row-hover);
+    color: var(--foreground);
+  }
+
+  .oxy-ui-toggle-chip[aria-pressed="true"]:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--link) 10%, transparent);
+  }
+}
+
+.oxy-ui-toggle-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.oxy-ui-toggle-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.oxy-ui-toggle-chip-group__label {
+  margin-right: var(--space-xs);
+}
+
+/* ── SearchField ──────────────────────────────────────────────────────────────
+   The magnifier inside the field's leading padding, the × inside its trailing
+   one while there is text. The browser's own cancel mark goes: the × is ours. */
+.oxy-ui-search-field {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+}
+
+/* The magnifier where the reference draws it: at the END of the compact
+   toolbar find (ReorderSheet.tsx:164-177: `right-3`, the input's `pr-9`), at
+   the START of the 44px field (WarehouseReports.tsx, ItemPickerSheet.tsx:
+   `left-4`, the input's `pl-11`). While the compact field holds text, its ×
+   takes the magnifier's place, centred where the magnifier was. */
+.oxy-ui-search-field__glass {
+  position: absolute;
+  top: 50%;
+  right: var(--control-padding-sm);
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.oxy-ui-search-field--lg .oxy-ui-search-field__glass {
+  right: auto;
+  left: var(--control-padding-lg);
+}
+
+.oxy-ui-search-field--sm[data-filled] .oxy-ui-search-field__glass {
+  display: none;
+}
+
+.oxy-ui-search-field--sm .oxy-ui-search-field__input {
+  padding-right: calc(var(--control-padding-sm) + var(--icon-size-md) + var(--space-sm));
+}
+
+.oxy-ui-search-field--lg .oxy-ui-search-field__input {
+  padding-left: calc(var(--control-padding-lg) + var(--icon-size-md) + 12px);
+}
+
+.oxy-ui-search-field--lg[data-filled] .oxy-ui-search-field__input {
+  padding-right: 36px;
+}
+
+.oxy-ui-search-field__input::-webkit-search-cancel-button,
+.oxy-ui-search-field__input::-webkit-search-decoration {
+  appearance: none;
+}
+
+.oxy-ui-search-field__clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: transparent;
+  color: var(--muted-foreground);
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition-property: color, background-color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+.oxy-ui-search-field--lg .oxy-ui-search-field__clear {
+  right: 10px;
+}
+
+@media (hover: hover) {
+  .oxy-ui-search-field__clear:hover:not(:disabled) {
+    background-color: var(--row-hover);
+    color: var(--foreground);
+  }
+}
+
+.oxy-ui-search-field__clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Touch (decision 16) ──────────────────────────────────────────────────────
+   The toggle chip takes the 44px box; the search field's × keeps its 24px and
+   grows a 44px reach (it sits inside the field, which is 44px here too). The
+   fields, selects, picker and buttons reach 44px and 16px text by recipe. */
+@media (pointer: coarse) {
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-toggle-chip {
+    min-width: var(--control-h-lg);
+    min-height: var(--control-h-lg);
+  }
+
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-search-field__clear::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--control-h-lg)) / 2));
+  }
+}

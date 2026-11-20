@@ -52,18 +52,23 @@ describe("theme contract", () => {
     expect(contract.version).toBe(1);
   });
 
-  it("has 207 authored tokens (122 per-mode, 85 both), 30 derived aliases and 9 fixed names", () => {
-    expect(authored).toHaveLength(207);
-    expect(authored.filter((r) => r.modes === "per-mode")).toHaveLength(122);
-    expect(authored.filter((r) => r.modes === "both")).toHaveLength(85);
-    expect(aliases).toHaveLength(30);
+  // 2.30.0 added 35 mode-independent tokens for @oxy-hq/sdk/ui (the type scale's 13 steps, size and
+  // line, and the desk rhythm's 9) and the 8 Tailwind radius steps as aliases of the role radii;
+  // and 2 per-mode colours, the app mark's square and glyph (`--app-mark-ground`, `--app-mark-ink`).
+  // Decision 64 (20 Nov) made `--status-info` authored (it was an alias of `--link`) and added
+  // `--status-info-series`: 2 more per-mode colours, 1 alias fewer.
+  it("has 246 authored tokens (126 per-mode, 120 both), 37 derived aliases and 9 fixed names", () => {
+    expect(authored).toHaveLength(246);
+    expect(authored.filter((r) => r.modes === "per-mode")).toHaveLength(126);
+    expect(authored.filter((r) => r.modes === "both")).toHaveLength(120);
+    expect(aliases).toHaveLength(37);
     expect(fixed).toHaveLength(9);
-    expect(rows).toHaveLength(207 + 30 + 9);
+    expect(rows).toHaveLength(246 + 37 + 9);
     expect(contract.counts).toEqual({
-      authored: 207,
-      perMode: 122,
-      both: 85,
-      aliases: 30,
+      authored: 246,
+      perMode: 126,
+      both: 120,
+      aliases: 37,
       fixed: 9
     });
   });
@@ -129,8 +134,10 @@ describe("theme contract", () => {
     }
   });
 
-  it("states 182 contrast obligations, each naming authored colours", () => {
-    expect(pairs).toHaveLength(182);
+  // Decision 64 added 3: the info word on its tint on a card (the page's pair now names
+  // `--status-info`, its own token), and the info series on the canvas and a card.
+  it("states 185 contrast obligations, each naming authored colours", () => {
+    expect(pairs).toHaveLength(185);
     const kinds = ["text", "large-text", "non-text", "focus", "control-border"];
     for (const p of pairs) {
       for (const name of [p.fg, p.bg, ...(p.over ? [p.over] : [])]) {

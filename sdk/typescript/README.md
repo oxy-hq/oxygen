@@ -596,6 +596,98 @@ round) and text your `--font-sans`. Never put a sideways-scrolling table on a ph
 `PhoneCard`s, details open in a `PhoneSheet`, sections go in the `PhoneTabBar`,
 and the first screen answers what the person opened the app for.
 
+### Desk UI (`@oxy-hq/sdk/ui`, `ui.css`, `tailwind.css`)
+
+The desk half of the design system: the reference app's gallery (components, the
+recipes, tones, icons) as React pieces and plain CSS, so a desk screen needs no
+copied `ui.ts` and no Tailwind. Every class is `.oxy-ui-*`, every rule reads
+`theme.css` tokens, both modes.
+
+```ts
+// src/main.tsx, once, in this order
+import "@oxy-hq/sdk/theme.css";
+import "@oxy-hq/sdk/shell.css";
+import "@oxy-hq/sdk/ui.css";
+```
+
+```tsx
+import { Button, PlusIcon, ui } from "@oxy-hq/sdk/ui";
+
+<section className={`${ui.card} ${ui.panel}`}>
+  <header className={ui.panelHeader}>
+    <span className={ui.eyebrow}>Orders</span>
+    <Button variant='text' icon={<PlusIcon />}>Add a line</Button>
+  </header>
+  <input className={ui.field} placeholder='PO number' />
+  <Button variant='primary' busy={saving} busyLabel='Saving…'>Save</Button>
+</section>
+```
+
+| Export | What it is |
+| --- | --- |
+| `ui` | The recipes as class names, under the reference's own names (`ui.card`, `ui.btnCompact`, `ui.spacingSm`, `ui.sheetRow`, …) so moving an app off its `ui.ts` is `card` -> `ui.card`, and by family (`ui.btn.primary`, `ui.space.md`, `ui.control.sm`, `ui.table.cell`, `ui.text.xs`, `ui.chip.warning`). `ui.rowState(selected)` gives a row one state. |
+| `Button` | Three variants (`primary`, `secondary`, `text`) at two sizes (`sm` 32px, `lg` 44px); `icon`, `iconOnly` (give it an `aria-label`), `inert` (the box as a `<span>`, for an action nothing is behind yet), and `busy` + `busyLabel`: the button keeps focus, says `aria-busy`, shows progress and ignores presses, a form submit included. `buttonClass(variant, size)` is the class matrix. |
+| `chipTone`, `calloutTone`, `toneText`, `toneFill`, `strongestTone` | The status tones (`success`, `warning`, `error`, `info`, `neutral`) and the rule for which one a group's count wears (error, then warning, else neutral). `phoneToneOf` / `statusToneOf` translate to the phone kit's `good` / `warn` / `bad` / `neutral`. |
+| `CaretRightIcon`, `CheckIcon`, `PlusIcon`, … `Glyph` | Phosphor regular, inlined; 16px by default, `className={ui.iconInline}` for 14px. |
+| `cx` | Class joining (the shell's own). |
+
+`ui.css` puts every rule inside `@layer oxy-ui`, ordered
+`theme, base, oxy-ui, components, utilities`: above a Tailwind preflight, under
+its utilities, so a utility class adjusts a piece and any unlayered app rule wins.
+On a touch screen every desk control reaches 44px and every field takes 16px text
+(decision 16); a screen that is not a person's desk turns that off as it does the
+shell's, with `<html data-oxy-touch-targets="off">` or `useOxyTouchTargets(false)`.
+
+A Tailwind 4 app adds the reference's utility names on top, so `bg-card`,
+`text-dim-foreground`, `text-md` and `rounded-md` keep working on the theme. Import
+it before Tailwind, so its first line fixes the layer order:
+
+```css
+/* src/index.css */
+@import "@oxy-hq/sdk/tailwind.css"; /* @layer theme, base, oxy-ui, components, utilities */
+@import "tailwindcss";
+```
+
+It maps the reference's 51 `--color-*`, 26 `--text-*` (13 steps and their line
+heights) and 8 radius steps onto theme tokens, all `var()`, inside `@theme inline`.
+Hand-written CSS still reads `var(--card)`, never `var(--color-card)`.
+
+### Format (`@oxy-hq/sdk/format`)
+
+Figures, dates and lists for a reader: `formatMoney`, `formatNumber`,
+`formatPercent`, `formatDate` and its kin, `formatAsOf`, `formatDataThrough`,
+`formatAge`, `formatRelative`, `countPhrase`, `plural`, `joinNames`,
+`sentenceCase`, `toCsv`. Pure functions with no React, DOM or Node built-ins, so a
+Function imports them as readily as a screen. An instant is shown in the `timeZone` you
+pass; without one, in the viewer's own zone in a browser and in UTC in a Function, whose
+isolate has no `document` and runs on the server's clock (`defaultTimeZone()`, decision
+65). Pass the business's zone when a time belongs to a place. A calendar date
+(`"2026-11-19"`) is never shifted by a zone. The house rules (the `—` for a
+missing value, the minus, whole dollars, the compact bands) are stated once, at the
+top of `src/format/index.ts`.
+
+### The theme guard (`checkThemeCss`, `@oxy-hq/sdk/testing`)
+
+An app's test that its own CSS works with the theme rather than against it:
+
+```ts
+import { checkThemeCss, formatThemeFindings } from "@oxy-hq/sdk/testing";
+
+test("app CSS never restates an SDK token", () => {
+  const found = checkThemeCss(["src/index.css", "index.html"]);
+  expect(formatThemeFindings(found)).toBe("");
+});
+```
+
+Each finding is a `file:line` with a rule: `restates-sdk-token` (a `theme.css` name
+declared outside a Tailwind `@theme` block), `literal-colour-in-theme` (a colour
+pinned inside `@theme`), `bare-mode-class` (`.dark` / `.light` not keyed on `:root`
+or `html`; `:root:not(.dark)` and Tailwind's `@custom-variant dark` are fine),
+`own-color-scheme`, and `own-mode-block` (`[data-theme]`, `[data-oxy-mode]`,
+`prefers-color-scheme`: the SDK owns light and dark). HTML files are read for their
+`<style>` blocks. It reads structurally, so `.btn--primary:focus-visible` is never
+taken for a declaration of `--primary`.
+
 ## Who is using the app
 
 Two identity surfaces, and the difference between them is the difference between

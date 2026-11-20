@@ -1,6 +1,6 @@
 {
   "name": "@oxy-hq/sdk",
-  "version": "2.29.1",
+  "version": "2.30.0",
   "description": "React SDK for building custom-app bundles on the Oxy platform",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -29,6 +29,28 @@
     },
     "./shell.css": "./dist/shell.css",
     "./motion.css": "./dist/motion.css",
+    "./ui": {
+      "import": {
+        "types": "./dist/ui.d.mts",
+        "default": "./dist/ui.mjs"
+      },
+      "require": {
+        "types": "./dist/ui.d.cts",
+        "default": "./dist/ui.cjs"
+      }
+    },
+    "./ui.css": "./dist/ui.css",
+    "./tailwind.css": "./dist/tailwind.css",
+    "./format": {
+      "import": {
+        "types": "./dist/format.d.mts",
+        "default": "./dist/format.mjs"
+      },
+      "require": {
+        "types": "./dist/format.d.cts",
+        "default": "./dist/format.cjs"
+      }
+    },
     "./theme": {
       "import": {
         "types": "./dist/theme.d.mts",
@@ -116,6 +138,7 @@
     "build": "tsdown",
     "build:theme": "node scripts/build-theme.mjs",
     "check:theme": "node scripts/build-theme.mjs --check",
+    "build:ui-css": "node scripts/build-ui-css.mjs",
     "build:watch": "node scripts/watch-shell-css.mjs",
     "dev": "node scripts/watch-shell-css.mjs",
     "typecheck": "tsc --noEmit",

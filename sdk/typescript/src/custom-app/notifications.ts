@@ -426,14 +426,5 @@ export function badgeLabel(count: number): string | null {
   return count > 99 ? "99+" : String(count);
 }
 
-/** "now", "5m", "3h", "2d", then a date. Empty for an unreadable timestamp. */
-export function formatAge(iso: string, now: number = Date.now()): string {
-  const at = Date.parse(iso);
-  if (Number.isNaN(at)) return "";
-  const seconds = Math.max(0, (now - at) / 1000);
-  if (seconds < 60) return "now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  if (seconds < 7 * 86400) return `${Math.floor(seconds / 86400)}d`;
-  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
+/** "now", "5m", "3h", "2d", then a date. Its one home is the format entry. */
+export { formatAge } from "../format/relative";

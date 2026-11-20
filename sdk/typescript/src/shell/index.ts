@@ -22,6 +22,8 @@ export { AnswerChart } from "./AnswerChart";
 export type { AskDockProps } from "./AskDock";
 export { AskDock } from "./AskDock";
 export { useDockPrefetch } from "./dockPrefetch";
+export type { KeepAcrossLayoutsProps, KeptStateOptions } from "./keptState";
+export { KeepAcrossLayouts, useKeptState } from "./keptState";
 export type { KioskIdleOptions, KioskIdleState } from "./kioskIdle";
 export { useKioskIdle } from "./kioskIdle";
 export { workspaceLogoUrl } from "./logoUrl";
@@ -44,6 +46,8 @@ export type {
   PhoneHintProps,
   PhoneKpi,
   PhoneKpiStripProps,
+  PhoneOption,
+  PhoneOptionSheetProps,
   PhonePageProps,
   PhoneRowProps,
   PhoneSectionProps,
@@ -63,6 +67,7 @@ export {
   PhoneFilterChip,
   PhoneHint,
   PhoneKpiStrip,
+  PhoneOptionSheet,
   PhonePage,
   PhoneRow,
   PhoneSection,

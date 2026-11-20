@@ -192,7 +192,9 @@ describe("the reference's names an app no longer copies", () => {
       "--chart-3": "#8696ff",
       "--chart-4": "#aeb9ff",
       "--chart-5": "#ebedff",
-      "--status-info": "#8696ff",
+      // Not the reference's #8696ff (its --link, which keeps it): decision 64 (20 Nov) lightens
+      // the dark info ink one step so the info word holds 4.5:1 on its tint in a selected row.
+      "--status-info": "#93a2ff",
       "--status-info-bg": "rgba(134, 150, 255, 0.14)",
       "--status-info-line": "rgba(134, 150, 255, 0.32)",
       "--shadow-elevated": "0 6px 20px 0 rgba(0, 0, 0, 0.55)",

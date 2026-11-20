@@ -19,6 +19,8 @@ export type { PhoneHintProps } from "./PhoneHint";
 export { PhoneHint } from "./PhoneHint";
 export type { PhoneKpi, PhoneKpiStripProps } from "./PhoneKpiStrip";
 export { PhoneKpiStrip } from "./PhoneKpiStrip";
+export type { PhoneOption, PhoneOptionSheetProps } from "./PhoneOptionSheet";
+export { PhoneOptionSheet } from "./PhoneOptionSheet";
 export type { PhonePageProps } from "./PhonePage";
 export { PhonePage } from "./PhonePage";
 export type { PhoneRowProps } from "./PhoneRow";

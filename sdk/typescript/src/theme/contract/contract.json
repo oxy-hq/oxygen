@@ -1,10 +1,10 @@
 {
   "version": 1,
   "counts": {
-    "authored": 207,
-    "perMode": 122,
-    "both": 85,
-    "aliases": 30,
+    "authored": 246,
+    "perMode": 126,
+    "both": 120,
+    "aliases": 37,
     "fixed": 9
   },
   "tokens": [
@@ -502,12 +502,28 @@
       "description": "An unjudged series in a chart."
     },
     {
+      "name": "--status-info",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-info",
+      "description": "The info ink: the info chip's word, an info callout's text. The reference's `var(--link)` (`src/index.css:400, 671`), and still `--link`'s value in light; its own token since decision 64 (20 Nov), one step lighter than `--link` in dark so the word holds 4.5:1 on `--status-info-bg` on a selected row. Info is retired as a status there (`:379-399`); the name stays so an app's calls keep their colour."
+    },
+    {
       "name": "--status-info-line",
       "group": "Status",
       "type": "color",
       "modes": "per-mode",
       "path": "color.status-info-line",
       "description": "Info edge, decorative (reference-app `src/index.css:402, 673`). The reference retired info as a status (`:379-399`: blue is links, focus and the primary action); its ink and tint are `--status-info` and `--status-info-bg`."
+    },
+    {
+      "name": "--status-info-series",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-info-series",
+      "description": "Info as a chart mark (a chart's info series). `--brand` in light, as the chart drew it; one step lighter than `--brand` in dark (decision 64, 20 Nov) so a line holds 3:1 on a selected row while `--brand` stays the buttons' fill."
     },
     {
       "name": "--dot-success",
@@ -600,13 +616,6 @@
       "type": "alias",
       "target": "--link",
       "description": "The canon retired info as a status (reference-app `src/index.css:379-402`); the SDK shell reads `--info` as its link colour (`shell.css:49,76`)."
-    },
-    {
-      "name": "--status-info",
-      "group": "Status",
-      "type": "alias",
-      "target": "--link",
-      "description": "The reference's info ink, `var(--link)` (`src/index.css:400, 671`). Info is retired there as a status (`:379-399`); the name stays so an app's calls keep their colour."
     },
     {
       "name": "--status-info-bg",
@@ -910,6 +919,62 @@
       "type": "alias",
       "target": "--tile-radius",
       "description": "The module-icon tile corner, listed with the radius family so an audit of corners sees it. A percentage of the tile side."
+    },
+    {
+      "name": "--radius-xs",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-control",
+      "description": "Tailwind's `rounded-xs` step, on the role radius it is used for (--radius-control). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-sm",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-control",
+      "description": "Tailwind's `rounded-sm` step, on the role radius it is used for (--radius-control). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-md",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-control",
+      "description": "Tailwind's `rounded-md` step, on the role radius it is used for (--radius-control). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-lg",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-surface",
+      "description": "Tailwind's `rounded-lg` step, on the role radius it is used for (--radius-surface). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-xl",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-surface",
+      "description": "Tailwind's `rounded-xl` step, on the role radius it is used for (--radius-surface). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-2xl",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-overlay",
+      "description": "Tailwind's `rounded-2xl` step, on the role radius it is used for (--radius-overlay). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-3xl",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-overlay",
+      "description": "Tailwind's `rounded-3xl` step, on the role radius it is used for (--radius-overlay). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
+    },
+    {
+      "name": "--radius-4xl",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-overlay",
+      "description": "Tailwind's `rounded-4xl` step, on the role radius it is used for (--radius-overlay). The reference sets all eight to 0 (index.css:1279-1286); a theme that rounds sets the roles."
     },
     {
       "name": "--font-sans",
@@ -1303,6 +1368,214 @@
       "description": "Large figure tracking."
     },
     {
+      "name": "--type-scale-3xs-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.3xs.size",
+      "description": "The type scale's `text-3xs` step (index.css:1185-1210), 10px: group bands above column headings, filter chips (caps only). Tailwind's `--text-3xs` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-3xs-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.3xs.line",
+      "description": "The `text-3xs` step's own line height, bound to the size (`--text-3xs--line-height`)."
+    },
+    {
+      "name": "--type-scale-2xs-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.2xs.size",
+      "description": "The type scale's `text-2xs` step (index.css:1185-1210), 11px: column headings (caps), tags, a figure's second line. Tailwind's `--text-2xs` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-2xs-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.2xs.line",
+      "description": "The `text-2xs` step's own line height, bound to the size (`--text-2xs--line-height`)."
+    },
+    {
+      "name": "--type-scale-xs-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.xs.size",
+      "description": "The type scale's `text-xs` step (index.css:1185-1210), 12px: eyebrows (caps), tab counts, callouts, hints. Tailwind's `--text-xs` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-xs-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.xs.line",
+      "description": "The `text-xs` step's own line height, bound to the size (`--text-xs--line-height`)."
+    },
+    {
+      "name": "--type-scale-sm-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.sm.size",
+      "description": "The type scale's `text-sm` step (index.css:1185-1210), 13px: body; table cells, notes, dialog text. Tailwind's `--text-sm` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-sm-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.sm.line",
+      "description": "The `text-sm` step's own line height, bound to the size (`--text-sm--line-height`)."
+    },
+    {
+      "name": "--type-scale-md-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.md.size",
+      "description": "The type scale's `text-md` step (index.css:1185-1210), 14px: controls; buttons, selects, tabs, segments. Tailwind's `--text-md` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-md-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.md.line",
+      "description": "The `text-md` step's own line height, bound to the size (`--text-md--line-height`)."
+    },
+    {
+      "name": "--type-scale-base-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.base.size",
+      "description": "The type scale's `text-base` step (index.css:1185-1210), 16px: emphasised body, a dialog title; the touch field size iOS needs. Tailwind's `--text-base` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-base-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.base.line",
+      "description": "The `text-base` step's own line height, bound to the size (`--text-base--line-height`)."
+    },
+    {
+      "name": "--type-scale-lg-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.lg.size",
+      "description": "The type scale's `text-lg` step (index.css:1185-1210), 20px: figures and sub-headings. Tailwind's `--text-lg` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-lg-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.lg.line",
+      "description": "The `text-lg` step's own line height, bound to the size (`--text-lg--line-height`)."
+    },
+    {
+      "name": "--type-scale-xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.xl.size",
+      "description": "The type scale's `text-xl` step (index.css:1185-1210), 24px: page and record headings. Tailwind's `--text-xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.xl.line",
+      "description": "The `text-xl` step's own line height, bound to the size (`--text-xl--line-height`)."
+    },
+    {
+      "name": "--type-scale-2xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.2xl.size",
+      "description": "The type scale's `text-2xl` step (index.css:1185-1210), 36px: a hero figure. Tailwind's `--text-2xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-2xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.2xl.line",
+      "description": "The `text-2xl` step's own line height, bound to the size (`--text-2xl--line-height`)."
+    },
+    {
+      "name": "--type-scale-3xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.3xl.size",
+      "description": "The type scale's `text-3xl` step (index.css:1185-1210), 42px: display, declared and unused by the reference. Tailwind's `--text-3xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-3xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.3xl.line",
+      "description": "The `text-3xl` step's own line height, bound to the size (`--text-3xl--line-height`)."
+    },
+    {
+      "name": "--type-scale-4xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.4xl.size",
+      "description": "The type scale's `text-4xl` step (index.css:1185-1210), 64px: display, declared and unused by the reference. Tailwind's `--text-4xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-4xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.4xl.line",
+      "description": "The `text-4xl` step's own line height, bound to the size (`--text-4xl--line-height`)."
+    },
+    {
+      "name": "--type-scale-5xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.5xl.size",
+      "description": "The type scale's `text-5xl` step (index.css:1185-1210), 96px: display, declared and unused by the reference. Tailwind's `--text-5xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-5xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.5xl.line",
+      "description": "The `text-5xl` step's own line height, bound to the size (`--text-5xl--line-height`)."
+    },
+    {
+      "name": "--type-scale-6xl-size",
+      "group": "Type scale",
+      "type": "length",
+      "modes": "both",
+      "path": "type-scale.6xl.size",
+      "description": "The type scale's `text-6xl` step (index.css:1185-1210), 140px: display, declared and unused by the reference. Tailwind's `--text-6xl` maps here (tailwind.css); `.oxy-ui-text-*` recipes read it."
+    },
+    {
+      "name": "--type-scale-6xl-line",
+      "group": "Type scale",
+      "type": "number",
+      "modes": "both",
+      "path": "type-scale.6xl.line",
+      "description": "The `text-6xl` step's own line height, bound to the size (`--text-6xl--line-height`)."
+    },
+    {
       "name": "--space-2xs",
       "group": "Space and layout",
       "type": "length",
@@ -1423,6 +1696,78 @@
       "description": "Dense money-table row; ≥ 32px."
     },
     {
+      "name": "--padding-sm-x",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "padding.sm-x",
+      "description": "paddingSm's inline padding (`px-3`, ui.ts:224): inside a boxed item (a figure tile, a reason, a ranked row). Its block padding is `--space-sm`, and paddingMd is `--space-md`."
+    },
+    {
+      "name": "--control-padding-sm",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "control-padding.sm",
+      "description": "Side padding of a 32px desk control (`controlSm` = `min-h-8 px-3`, ui.ts:380): buttons, selects, segments, tabs."
+    },
+    {
+      "name": "--control-padding-lg",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "control-padding.lg",
+      "description": "Side padding of a 44px touch control (`controlLg` = `min-h-11 px-4`, ui.ts:1044)."
+    },
+    {
+      "name": "--table-band-h",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "table.band-h",
+      "description": "sheetBand (ui.ts:972): the group names above a data sheet's column headings."
+    },
+    {
+      "name": "--table-header-h",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "table.header-h",
+      "description": "sheetHeader = h-10 (ui.ts:975): a data sheet's column-heading row, fixed whether a cell holds a check box or not. Body rows are `--row-h`."
+    },
+    {
+      "name": "--table-cell-padding-x",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "table.cell-padding-x",
+      "description": "A table cell's side padding (`cell`, ui.ts:952), the BMG reorder sheet's."
+    },
+    {
+      "name": "--table-cell-padding-y",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "table.cell-padding-y",
+      "description": "A table cell's top and bottom padding (`cell`, ui.ts:952)."
+    },
+    {
+      "name": "--measure-prose",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "measure.prose",
+      "description": "The reading measure for running text at any page width (`prose` = max-w-3xl, ui.ts:231)."
+    },
+    {
+      "name": "--measure-form",
+      "group": "Desk rhythm",
+      "type": "length",
+      "modes": "both",
+      "path": "measure.form",
+      "description": "An entry form's fixed column (`formPage` = max-w-xl, ui.ts:1028): the longest label and value on one line, about a tablet held upright."
+    },
+    {
       "name": "--focus-ring-width",
       "group": "Focus",
       "type": "length",
@@ -1541,6 +1886,22 @@
       "modes": "both",
       "path": "tile.glyph-scale",
       "description": "Glyph box as a fraction of the tile side (0.4 to 0.8)."
+    },
+    {
+      "name": "--app-mark-ground",
+      "group": "App mark",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "app-mark.ground",
+      "description": "The square behind an app's mark (`AppMark` in @oxy-hq/sdk/ui; reference-app `src/components/AppMark.tsx`): the brand blue, opaque on light, translucent on dark so the surface under it shows through. The glyph's foot (`--app-mark-ink` at 70%) holds 3:1 on it."
+    },
+    {
+      "name": "--app-mark-ink",
+      "group": "App mark",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "app-mark.ink",
+      "description": "An app mark's filled glyph, faded top to bottom from full ink to 70%. Text-safe brand blue (the link step)."
     },
     {
       "name": "--card-bg",
