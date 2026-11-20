@@ -113,8 +113,9 @@ crates/api-previews/                               @luong-komorebi @hotay
 crates/api-admin/                                  @hotay @luong-komorebi
 # Billing's surface crate (`oxy-api-billing`), 2026-11-20 (admin split PR 8b):
 # the usage report's routes, delivery and weekly job out of
-# crates/app/src/server/api/admin/usage_report/; the staff and tenant billing
-# routes follow it in PR 9.
+# crates/app/src/server/api/admin/usage_report/; the staff Billing queue and
+# the tenant billing routes followed it in PR 9 (the tenant routes keep their
+# owners: see Billing / Stripe below).
 crates/api-billing/                                @hotay @luong-komorebi
 # Usage reporting's domain crate (`oxy-usage-report`), 2026-11-20 (admin split
 # PR 8a): the usage report's pure half out of crates/app/src/server/api/admin/,
@@ -372,6 +373,11 @@ internal-docs/site-scout.md                        @nresh @hotay
 # Billing / Stripe
 crates/billing/                                    @NTtanh @luong-komorebi
 crates/app/src/server/api/billing/                 @NTtanh @luong-komorebi
+# The tenant's billing routes and the Stripe webhook, out of
+# crates/app/src/server/api/billing/ into oxy-api-billing (admin split PR 9):
+# their owners follow them, over the crate's row above. (The Billing queue,
+# out of crates/app/src/server/api/admin/, takes the crate's owners.)
+crates/api-billing/src/billing/                    @NTtanh @luong-komorebi
 web-app/src/pages/billing/                         @NTtanh @luong-komorebi
 
 # Multi-tenancy / multi-org foundation. Moved into oxy-api-tenancy 2026-10-03

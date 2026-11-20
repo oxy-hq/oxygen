@@ -214,6 +214,31 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_billing::usage_report::recipients",
         function: "router",
     },
+    // The Billing queue, `oxy-api-billing`'s since admin split PR 9 (out of
+    // `oxy-app`'s `admin::billing`, where the walk of `admin::router` read it):
+    // a section on the same seam, inside `/api/admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_billing::admin::billing",
+        function: "router",
+    },
+    // The tenant's billing routes (`/orgs/{org_id}/billing*`, out of
+    // `build_org_routes`) and Stripe's webhook (`/webhooks/stripe`, out of
+    // `build_public_routes`), `oxy-api-billing`'s since PR 9: the api seam at
+    // the protected root and the public seam beside the public tree.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_billing",
+        function: "routes",
+    },
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_billing",
+        function: "public_routes",
+    },
     // The grant table, `oxy-api-admin`'s since 2026-11-20 (out of `oxy-app`'s
     // `admin::app_admins`): a section on the same seam, inside `/api/admin`.
     Seed {

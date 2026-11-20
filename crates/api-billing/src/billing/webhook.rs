@@ -23,8 +23,7 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use serde_json::Value as JsonValue;
 
-use super::handlers::billing_service;
-use super::notify;
+use oxy_app::surface::billing::{billing_service, notify};
 use oxy_billing::service::LookupOutcome;
 
 pub async fn stripe_webhook(headers: HeaderMap, body: Bytes) -> StatusCode {

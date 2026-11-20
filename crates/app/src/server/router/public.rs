@@ -1,5 +1,7 @@
-//! Routes that do not require authentication: the Stripe webhook and the
-//! OAuth callbacks. The health probes (`/health`, `/ready`, `/live`,
+//! Routes that do not require authentication: the OAuth callbacks. The Stripe
+//! webhook (`POST /webhooks/stripe`) is `oxy-api-billing`'s since the admin
+//! split's PR 9, merged beside this tree through `SurfaceSeams::public`,
+//! declared `*` FleetOk there as `route_fleet` declared it here. The health probes (`/health`, `/ready`, `/live`,
 //! `/version`) are `oxy-server`'s (`core_routes`, 2026-11-16), merged beside
 //! this tree through `SurfaceSeams::public`. The other provider-originated receivers —
 //! Slack, Toast (`oxy-api-world-model`), GitHub (`oxy-api-github`) and the
@@ -28,9 +30,7 @@
 //! `the_customer_app_data_plane_is_fleet_ok` pins that, and the DuckDB-`local`
 //! limitation is recorded in `customer-apps-oxy-starter-fleet.flow.test.yml`.
 
-use axum::routing::{get, post};
-
-use crate::api::billing;
+use axum::routing::get;
 
 use super::AppState;
 use super::role_router::RoleRouter;
@@ -48,7 +48,9 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         // handshakes (`oxyc login`'s exchange, the device flow, the ticket
         // redeem, the OIDC exchange, leak reports). The frontline PIN sign-in
         // and kiosk binding are `oxy-api-frontline`'s, through the same seam.
-        .route_fleet("/webhooks/stripe", post(billing::webhook::stripe_webhook))
+        // Stripe's webhook (`POST /webhooks/stripe`) is `oxy-api-billing`'s
+        // (admin split, PR 9), merged beside this tree through
+        // `SurfaceSeams::public`, declared `*` FleetOk there.
         // The GitHub App's webhook (`POST /webhooks/github`: a push to a
         // default branch queues a commit compile) is `oxy-api-github`'s
         // (`webhook`, 2026-11-15), merged beside this tree through

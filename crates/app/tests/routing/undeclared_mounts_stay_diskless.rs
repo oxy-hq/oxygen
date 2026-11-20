@@ -235,6 +235,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `oxy-app`'s `api/admin/` in the admin split's PR 8b, two
         // `AdminSection`s placed by the console's FleetOk wildcard: the report,
         // preference and delivery rows and the staff grants, never a working copy.
+        // Since PR 9 also the Billing queue (a third `AdminSection`, placed the
+        // same way), and the tenant's billing and Stripe's webhook, declared
+        // FleetOk by hand in `route_roles()` / `public_route_roles()` now that
+        // they left `nest_all` / `route_fleet`: the Stripe customer,
+        // subscription and webhook-event rows, and Stripe, never a working copy.
         "../api-billing/src",
         // The metric tree and the anomaly inbox, moved out of
         // `build_workspace_routes` on 2026-11-15, where all seventeen routes

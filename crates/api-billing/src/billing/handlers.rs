@@ -1,16 +1,15 @@
-use std::sync::Arc;
-
 use axum::Json;
 use axum::extract::Path;
 use axum::http::StatusCode;
 use entity::org_billing::BillingCycle;
 use oxy_billing::BillingError;
-use oxy_billing::BillingService;
 use oxy_billing::service::AdminSubscriptionItem;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::role_guards::{OrgAdminStrict, OrgMemberStrict};
+use oxy_app::surface::billing::billing_service;
+use oxy_app::surface::feature_flags::is_enabled;
+use oxy_app::surface::role_guards::{OrgAdminStrict, OrgMemberStrict};
 
 #[derive(Serialize)]
 pub struct BillingSummary {
@@ -200,44 +199,6 @@ fn internal_error<E: std::fmt::Display>(e: E) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-/// Construct a `BillingService` on demand. Gated by [`billing_disabled`] so
-/// the feature flag is the symmetric authority for both this entry point
-/// and `subscription_guard` — disabling the flag at runtime makes both the
-/// guard short-circuit AND `billing_service()` return 503 even after the
-/// `OnceCell` was previously initialized.
-pub async fn billing_service() -> Result<Arc<BillingService>, StatusCode> {
-    if billing_disabled() {
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
-    use tokio::sync::OnceCell;
-    static CELL: OnceCell<Option<Arc<BillingService>>> = OnceCell::const_new();
-    let slot = CELL
-        .get_or_init(|| async {
-            let cfg = oxy_billing::StripeConfig::maybe_from_env()?;
-            let client = oxy_billing::client::StripeClient::new(cfg);
-            let db = match oxy::database::client::establish_connection().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(?e, "billing_service: DB connect failed — disabling billing");
-                    return None;
-                }
-            };
-            Some(Arc::new(BillingService::new(client, db)))
-        })
-        .await;
-    slot.clone().ok_or(StatusCode::SERVICE_UNAVAILABLE)
-}
-
-/// Single authoritative gate for the billing subsystem. True when the
-/// `billing` feature flag is off OR the Stripe env vars aren't fully set.
-/// Used by `subscription_guard` to short-circuit and by `billing_service()`
-/// to refuse construction so handlers can't drift out of sync with the
-/// guard.
-pub fn billing_disabled() -> bool {
-    !crate::server::feature_flags::is_enabled("billing")
-        || oxy_billing::StripeConfig::maybe_from_env().is_none()
-}
-
 fn cycle_str(c: BillingCycle) -> &'static str {
     match c {
         BillingCycle::Monthly => "monthly",
@@ -250,7 +211,7 @@ fn cycle_str(c: BillingCycle) -> &'static str {
 /// return a synthetic "active" payload when billing is administratively off
 /// even if Stripe env vars are present (i.e. the flag is the single switch).
 fn billing_flag_off() -> bool {
-    !crate::server::feature_flags::is_enabled("billing")
+    !is_enabled("billing")
 }
 
 fn billing_disabled_summary() -> BillingSummary {

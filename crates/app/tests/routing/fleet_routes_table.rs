@@ -99,11 +99,16 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// Plus two on 2026-11-19 (admin split PR 7, read off the assertion) when the
 /// task fleet's console (`/api/admin/internal-jobs` and its `{*rest}`) left for
 /// `oxy-api-admin`, handed in the same way.
+/// Plus two on 2026-11-20 (admin split PR 9) when the tenant's billing
+/// (`/api/orgs/{org_id}/billing` and its `{*rest}`, the rows `nest_all`
+/// declared in `build_org_routes`) left for `oxy-api-billing`, which declares
+/// them on the api seam. (The Stripe webhook has no row; the Billing queue's
+/// routes sit under the console's `/api/admin` wildcard, which stayed.)
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 131;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 133;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];

@@ -10,13 +10,12 @@ use axum::middleware;
 use axum::routing::get;
 
 use crate::api::admin;
-use crate::api::billing;
 use crate::api::middlewares::{
     app_scope_guard, org_context, oxy_owner_or_app_admin_guard, platform_cap_guard,
     subscription_guard,
 };
 
-use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+use oxy_shared::fleet_role::RouteRoleDecl;
 
 use super::role_router::RoleRouter;
 use super::{AdminNest, AdminSection, AppState};
@@ -83,8 +82,9 @@ pub(super) fn build_global_routes(
         // `/admin/*` runs under the permissive owner-or-app-admin guard so
         // app admins can reach feature flags, custom apps, orgs / users /
         // workspaces management, and internal jobs. The sensitive subset —
-        // billing operations — escalates to strict OXY_OWNER via
-        // `route_layer` inside `admin::router()`. The `app_admins` table
+        // billing operations (`oxy-api-billing`'s section since the admin
+        // split's PR 9) — escalates to strict OXY_OWNER via `route_layer`
+        // inside `admin::router()`. The `app_admins` table
         // itself takes `PlatformGrants` plus a per-row bound instead
         // (`oxy-api-admin`'s section since 2026-11-20).
         //
@@ -156,8 +156,11 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
     // Two sub-routers under the same `org_middleware`:
     //   - `gated` covers everything that requires an active subscription
     //     (members, invitations, onboarding, workspace CRUD, github)
-    //   - `bypass` covers `/billing/*`, the only org-scoped tree the user
-    //     can hit while paywalled (so they can subscribe / open the portal)
+    //   - `bypass` covered `/billing/*`, the only org-scoped tree the user
+    //     can hit while paywalled (so they can subscribe / open the portal).
+    //     It is `oxy-api-billing`'s since the admin split's PR 9, merged
+    //     through `SurfaceSeams::api` with `org_middleware` re-applied and no
+    //     subscription guard, declared FleetOk there as `nest_all` declared it.
     let gated = RoleRouter::new(app_state.clone())
         // The org-scoped frontline routes (`/frontline/workers*`,
         // `/frontline/devices*`, `/frontline/device/leave`) and every handler
@@ -200,20 +203,14 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             ))
         });
 
-    // `/billing/*` is the only org-scoped tree a paywalled user may reach, so it
-    // sits outside the subscription guard above. So does `/feature-flags`: the
-    // shell reads it on every page, the paywall included. Postgres-backed cache,
-    // FleetOk.
+    // `/billing/*` (`oxy-api-billing`'s since the admin split's PR 9, above) is
+    // the only org-scoped tree a paywalled user may reach, so it sits outside
+    // the subscription guard above. So does `/feature-flags`: the shell reads
+    // it on every page, the paywall included. Postgres-backed cache, FleetOk.
     gated
         .route_fleet(
             "/feature-flags",
             get(crate::server::feature_flags::routes::org_flags),
-        )
-        .nest_all(
-            "/billing",
-            RouteRole::FleetOk,
-            billing::router(),
-            "Stripe customer + subscription rows",
         )
         .map_router(|r| r.layer(middleware::from_fn(org_context::org_middleware)))
 }

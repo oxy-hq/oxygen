@@ -136,6 +136,14 @@ const REQUIRED_GROUPS: &[&str] = &[
     // alone would survive either seed's loss, so one path per seed.
     "/api/admin/usage-report/send-to-me",
     "/api/admin/usage-report/recipients",
+    // The admin split (PR 9): billing (`oxy-api-billing`), a seed each: the
+    // Billing queue (a section on the admin seam; `/api/admin/orgs` alone is
+    // also tenancy's), the tenant's billing (the api seam) and Stripe's
+    // webhook (the public seam). The walks of `admin::router`,
+    // `build_org_routes` and `build_public_routes` reached them in-tree.
+    "/api/admin/billing/prices",
+    "/api/orgs/{org_id}/billing/status",
+    "/api/webhooks/stripe",
     // The admin split (2026-11-20): the grant table (`oxy-api-admin`, a
     // section on the admin seam). Reached by the walk of `admin::router`
     // in-tree, and required nowhere; now only its own seed reaches it.

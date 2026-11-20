@@ -64,27 +64,36 @@ pub(crate) fn flat_api() -> Router {
         // Assume-role, `oxy-api-admin`'s since the admin split (2026-11-20;
         // was `build_global_routes`), which `assume_binding` drives.
         .merge(oxy_api_admin::routes())
+        // The tenant's billing, `oxy-api-billing`'s since the admin split's
+        // PR 9 (was `build_org_routes` inside `build_global_routes`).
+        .merge(oxy_api_billing::routes())
         .merge(
             oxy_api_custom_apps::routes()
                 .layer(axum::Extension(oxy_api_notifications::live_kinds())),
         );
     let public_seam = oxy_api_frontline::public_routes()
         .merge(oxy_api_identity::public_routes())
-        .merge(oxy_api_custom_apps::public_routes());
+        .merge(oxy_api_custom_apps::public_routes())
+        // Stripe's webhook, `oxy-api-billing`'s since the admin split's PR 9
+        // (was `build_public_routes`, which `flat_api_surface` still builds).
+        .merge(oxy_api_billing::public_routes());
     oxy_app::server::router::flat_api_surface(
         api_seam,
         public_seam,
-        oxy_api_tenancy::admin_sections()
+        // `oxy-api-billing`'s first, as `surface_seams` chains it: the usage
+        // report's two sections (admin split PR 8b) and the Billing queue
+        // (PR 9), which `service_tokens` reads as owner-only. First, because
+        // the queue's `GET /orgs` shares a method router with tenancy's
+        // `POST /orgs`, whose wrong-verb answer is the later router's.
+        oxy_api_billing::admin_sections()
             .into_iter()
+            .chain(oxy_api_tenancy::admin_sections())
             .chain(oxy_api_identity::admin_sections())
             .chain(oxy_api_custom_apps::admin_sections())
             // The audit log, which `publish_token_mint` and `service_tokens`
             // read back, and the grant table `service_tokens` refuses a
             // service (`oxy-api-admin`'s since 2026-11-20).
             .chain(oxy_api_admin::admin_sections())
-            // The usage report's two sections (`oxy-api-billing`'s since admin
-            // split PR 8b), which `flat_api_surface` mounted in-tree before.
-            .chain(oxy_api_billing::admin_sections())
             .collect(),
         oxy_api_admin::admin_nests()
             .into_iter()

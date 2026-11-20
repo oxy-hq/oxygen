@@ -119,7 +119,12 @@ AREAS = [
     # report's pure half, out of crates/app/src/server/api/admin/usage_report.
     ("crates/usage-report",                               "Admin (backend)"),
     # Billing's surface crate, 2026-11-20 (admin split PR 8b): the usage
-    # report's routes, delivery and job, out of the same directory.
+    # report's routes, delivery and job, out of the same directory. Its
+    # `billing/` (PR 9: the tenant's billing routes and the Stripe webhook,
+    # out of crates/app/src/server/api/billing) stays "Billing (backend)", and
+    # is listed first so it wins; the Billing queue (`admin/`, out of
+    # crates/app/src/server/api/admin) is Admin, with the crate.
+    ("crates/api-billing/src/billing",                    "Billing (backend)"),
     ("crates/api-billing",                                "Admin (backend)"),
     ("crates/app/src/server/previews",                    "Workspace previews"),
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),

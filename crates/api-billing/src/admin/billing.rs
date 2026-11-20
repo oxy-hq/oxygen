@@ -6,8 +6,10 @@
 //! Prices ad-hoc in the Stripe Dashboard). Plus admin queue listing.
 //!
 //! `OXY_OWNER` enforcement happens at the router layer via
-//! `oxy_owner_guard_middleware`; handlers here assume the caller has
-//! already been allow-listed.
+//! `oxy_owner_guard_middleware`, which `oxy-app`'s `admin::router` applies to
+//! the section [`crate::admin_sections`] hands it (it names
+//! `Action::PlatformOwnerOnly`); handlers here assume the caller has already
+//! been allow-listed.
 
 use axum::Json;
 use axum::Router;
@@ -24,10 +26,11 @@ use oxy_billing::service::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::emails::billing_checkout::{CheckoutEmail, EmailSendOutcome, send_checkout_email};
-use crate::server::api::billing::handlers::billing_service;
-use crate::server::api::billing::notify;
-use crate::server::router::AppState;
+use oxy_app::surface::billing::{billing_service, notify};
+use oxy_app_core::AppState;
+use oxy_app_core::emails::billing_checkout::{
+    CheckoutEmail, EmailSendOutcome, send_checkout_email,
+};
 
 #[derive(Deserialize)]
 pub struct ListOrgsQuery {
@@ -36,7 +39,7 @@ pub struct ListOrgsQuery {
     pub page_size: Option<u64>,
 }
 
-pub(crate) fn router() -> Router<AppState> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/orgs", get(list_orgs))
         .route("/billing/prices", get(list_prices))
@@ -195,7 +198,7 @@ pub async fn provision_subscription(
 }
 
 #[derive(Serialize)]
-struct ProvisionCheckoutResponseBody {
+pub struct ProvisionCheckoutResponseBody {
     session_id: String,
     url: String,
     expires_at: i64,
@@ -206,7 +209,7 @@ struct ProvisionCheckoutResponseBody {
 }
 
 #[derive(Serialize)]
-struct CheckoutPendingBody {
+pub struct CheckoutPendingBody {
     session_id: String,
     url: String,
     expires_at: i64,

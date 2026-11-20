@@ -139,6 +139,11 @@ fn api_seam_routes() -> SeamRouter {
         // closes `/admin` and the exit cannot live behind the door it locks.
         // Undeclared (FleetOk), as `oxy-app`'s global tree merged it.
         .merge(oxy_api_admin::routes())
+        // The tenant's billing (`/orgs/{org_id}/billing*`), `oxy-api-billing`'s
+        // since the admin split's PR 9: `org_middleware` re-applied and no
+        // subscription guard, as `build_org_routes` mounted it, so a paywalled
+        // org still reaches it.
+        .merge(oxy_api_billing::routes())
         // The environment planes writes pin a semantic branch through a port
         // `oxy-app` implements (a surface may not depend on `oxy-app`). The
         // staff console's "Test notifications" reads an app's kinds through a
@@ -160,6 +165,9 @@ fn public_seam_routes() -> SeamRouter {
         .merge(oxy_api_slack::public_routes())
         .merge(oxy_api_world_model::public_routes())
         .merge(oxy_api_github::public_routes())
+        // Stripe's webhook (`POST /webhooks/stripe`), `oxy-api-billing`'s since
+        // the admin split's PR 9: signature-verified over the raw body.
+        .merge(oxy_api_billing::public_routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
@@ -360,6 +368,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_slack::route_roles())
                 .chain(oxy_api_threads::route_roles())
                 .chain(oxy_api_workspaces::route_roles())
+                .chain(oxy_api_billing::route_roles())
                 .copied()
                 .collect(),
         },
@@ -400,6 +409,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_slack::public_route_roles())
                 .chain(oxy_api_world_model::public_route_roles())
                 .chain(oxy_api_github::public_route_roles())
+                .chain(oxy_api_billing::public_route_roles())
                 .copied()
                 .collect(),
         },
@@ -414,8 +424,23 @@ fn surface_seams() -> SurfaceSeams {
             decls: core_routes::catalog_route_roles().to_vec(),
         },
         // Staff-console sections, each behind the capability it names.
-        admin: oxy_api_tenancy::admin_sections()
+        // `oxy-api-billing`'s: the weekly custom-app usage report
+        // (`/admin/usage-report*`, `PlatformOperate`) and who gets it
+        // (`/admin/usage-report/recipients*`, `PlatformGrants`) since admin
+        // split PR 8b, and the Billing queue (`/admin/orgs`,
+        // `/admin/billing/prices`, `/admin/orgs/{org_id}/billing/*`,
+        // `PlatformOwnerOnly`: the strict owner guard) since PR 9.
+        //
+        // `oxy-api-billing`'s FIRST: its Billing queue mounts `GET /orgs`, and
+        // tenancy's org console `POST /orgs`. axum merges the two into one
+        // method router whose wrong-verb 405 is the later router's, under that
+        // router's guard; in-tree `billing` merged before every extracted
+        // section, so a wrong verb on `/admin/orgs` answered behind tenancy's
+        // `PlatformOrgs`, not the owner guard. Its other two sections share no
+        // path, so their place does not matter.
+        admin: oxy_api_billing::admin_sections()
             .into_iter()
+            .chain(oxy_api_tenancy::admin_sections())
             .chain(oxy_api_workspace_health::admin_sections())
             .chain(oxy_api_airway::admin_sections())
             .chain(oxy_api_identity::admin_sections())
@@ -426,11 +451,6 @@ fn surface_seams() -> SurfaceSeams {
             // the grant table (`/admin/app-admins*`, `PlatformGrants`),
             // `oxy-api-admin`'s since 2026-11-20.
             .chain(oxy_api_admin::admin_sections())
-            // The weekly custom-app usage report (`/admin/usage-report*`,
-            // `PlatformOperate`) and who gets it (`/admin/usage-report/
-            // recipients*`, `PlatformGrants`), `oxy-api-billing`'s since
-            // admin split PR 8b.
-            .chain(oxy_api_billing::admin_sections())
             .collect(),
         // Staff-console trees nested beside `/admin`, each behind the staff
         // door, the refusal while acting and the capability it names, in

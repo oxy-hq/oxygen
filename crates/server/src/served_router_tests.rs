@@ -5343,3 +5343,354 @@ async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
         assert_eq!(got, StatusCode::OK, "after ending GET {p}: got {got}");
     }
 }
+
+/// The Billing queue's routes (`oxy-api-billing`'s third section since admin
+/// split PR 9, out of `oxy-app`'s `admin::billing`), as `(method, path, the
+/// Global Owner's answer)`. Stripe is not configured, so every handler that
+/// runs answers 503 from `billing_service`; a wrong verb is 405. Only routes
+/// whose handler reads no body are sent their own verb, so a 503 is the
+/// handler's and not an extractor's.
+///
+/// Every other caller this test sends — not staff, the owner while acting, a
+/// Global Admin with every capability, an App Operator — is 403 on each of
+/// these, the wrong verbs included: the strict owner guard `billing` carried
+/// in-tree (`PlatformOwnerOnly` in `extracted_sections`).
+const BILLING_QUEUE_ROUTES: &[(&str, &str, u16)] = &[
+    ("GET", "/admin/orgs", 503),
+    ("GET", "/admin/billing/prices", 503),
+    (
+        "GET",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/subscription",
+        503,
+    ),
+    (
+        "GET",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/checkout",
+        503,
+    ),
+    (
+        "POST",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/checkout/resend",
+        503,
+    ),
+    (
+        "POST",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/checkout/cancel",
+        503,
+    ),
+    ("POST", "/admin/billing/prices", 405),
+    (
+        "GET",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/provision-subscription",
+        405,
+    ),
+    (
+        "GET",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/provision-checkout",
+        405,
+    ),
+    (
+        "GET",
+        "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/resync",
+        405,
+    ),
+    ("TRACE", "/admin/billing/prices", 405),
+];
+
+/// Paths the Billing queue does not mount: the outer router's 404 for every
+/// caller.
+const BILLING_QUEUE_UNMOUNTED: &[&str] = &[
+    "/admin/billing",
+    "/admin/billing/prices/x",
+    "/admin/orgs/00000000-0000-0000-0000-000000000000/billing/nothing-here",
+];
+
+async fn billing_queue_sweep(router: &Router, who: &str, owner: bool) {
+    for (m, p, want) in BILLING_QUEUE_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let want = if owner { *want } else { 403 };
+        let got = status(router, &method, p).await;
+        assert_eq!(got.as_u16(), want, "{who} {m} {p}: got {got}");
+    }
+    for p in BILLING_QUEUE_UNMOUNTED {
+        let got = status(router, &Method::GET, p).await;
+        assert_eq!(got, StatusCode::NOT_FOUND, "{who} GET {p}");
+    }
+}
+
+/// The served router mounts the Billing queue inside `/api/admin` behind the
+/// layers `admin::router` gave it in `oxy-app` — the staff door, the refusal
+/// while acting, and the strict owner guard — answering as [`BILLING_QUEUE_ROUTES`]
+/// says. The Global Admin is the owner guard's witness: it holds every
+/// capability, so behind any capability guard it would reach the handlers.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_billing_queue_behind_the_owner_guard() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+    let router = served(ServeMode::Cloud).await;
+    for (m, p, _) in BILLING_QUEUE_ROUTES {
+        assert_eq!(
+            classify(m, &format!("/api{p}")),
+            RouteRole::FleetOk,
+            "{m} {p} is Postgres and Stripe only and must stay FleetOk"
+        );
+    }
+
+    // A run that panicked mid-way leaves its grant behind, which would make
+    // the guest staff below; these tests are serial (`serial-db`).
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    entity::app_admins::Entity::delete_many()
+        .filter(entity::app_admins::Column::Email.eq(oxy_auth::user::LOCAL_GUEST_EMAIL))
+        .exec(&db)
+        .await
+        .expect("clear a stale guest grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
+
+    billing_queue_sweep(&router, "non-staff", false).await;
+    assert_eq!(
+        status(&router, &Method::DELETE, "/admin/orgs").await,
+        StatusCode::FORBIDDEN,
+        "non-staff DELETE /admin/orgs"
+    );
+    let owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    billing_queue_sweep(&router, "owner", true).await;
+    // `/admin/orgs` is two sections' path: the queue's GET (owner-only) and
+    // tenancy's POST (`PlatformOrgs`). A wrong verb takes the later-merged
+    // router's 405 under its guard, which on `main` was tenancy's: the owner
+    // and a Global Admin read 405, an App Operator 403 (below).
+    assert_eq!(
+        status(&router, &Method::DELETE, "/admin/orgs").await,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "owner DELETE /admin/orgs"
+    );
+
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let now = chrono::Utc::now();
+
+    // Acting as a tenant closes the console, the Billing queue included.
+    let org_id = uuid::Uuid::new_v4();
+    let acting = entity::organizations::ActiveModel {
+        id: ActiveValue::Set(org_id),
+        name: ActiveValue::Set("Billing queue acting".into()),
+        slug: ActiveValue::Set(format!("billing-queue-{}", org_id.simple())),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router billing queue".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    let mut acting_answers = Vec::new();
+    for (m, p, _) in BILLING_QUEUE_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        acting_answers.push((*m, *p, status(&router, &method, p).await));
+    }
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    for (m, p, got) in acting_answers {
+        assert_eq!(got, StatusCode::FORBIDDEN, "acting {m} {p}: got {got}");
+    }
+    drop(owner);
+
+    // Staff who are not the owner, unbounded: a Global Admin holds every
+    // capability and an App Operator ships apps; the Billing queue is neither's.
+    for role in ["app_operator", "global_admin"] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(true),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the grant");
+        // The grant read is cached per process.
+        oxy_server_authz::globals::invalidate_admin_cache();
+        billing_queue_sweep(&router, role, false).await;
+        let want = if role == "global_admin" {
+            StatusCode::METHOD_NOT_ALLOWED
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(
+            status(&router, &Method::DELETE, "/admin/orgs").await,
+            want,
+            "{role} DELETE /admin/orgs: tenancy's `PlatformOrgs`, not the owner guard"
+        );
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+    }
+    entity::organizations::Entity::delete_by_id(acting.id)
+        .exec(&db)
+        .await
+        .expect("remove the seeded org");
+}
+
+/// The tenant's billing routes (`oxy-api-billing`'s on the api seam since admin
+/// split PR 9, out of `build_org_routes`), as the browser calls them.
+fn tenant_billing_routes() -> Vec<(Method, String)> {
+    vec![
+        (Method::GET, format!("/orgs/{ORG}/billing")),
+        (Method::GET, format!("/orgs/{ORG}/billing/status")),
+        (Method::POST, format!("/orgs/{ORG}/billing/portal-session")),
+        (Method::GET, format!("/orgs/{ORG}/billing/invoices")),
+        (
+            Method::GET,
+            format!("/orgs/{ORG}/billing/checkout-sessions/cs_test"),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_tenant_billing_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(tenant_billing_routes()).await;
+    use oxy_app::surface::roles::{RouteRole, classify};
+    for (m, p) in tenant_billing_routes() {
+        let uri = format!(
+            "/api{}",
+            p.replace(ORG, "00000000-0000-0000-0000-000000000000")
+        );
+        assert_eq!(
+            classify(m.as_str(), &uri),
+            RouteRole::FleetOk,
+            "{m} {uri}: the Stripe customer and subscription rows, FleetOk"
+        );
+    }
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_tenant_billing_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(tenant_billing_routes()).await;
+}
+
+/// Stripe's webhook (`oxy-api-billing`'s on the public seam since admin split
+/// PR 9, out of `build_public_routes`), served in both modes as it was, and
+/// declared FleetOk. TRACE, which it does not take, is 405 where it is mounted
+/// and the outer 404 where it is not, with no credential and without reaching
+/// the handler; a POST would not tell, since unconfigured Stripe answers 404.
+#[tokio::test]
+async fn both_modes_mount_the_stripe_webhook() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(&router, &Method::TRACE, "/webhooks/stripe").await,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{mode:?} serves the Stripe webhook"
+        );
+        assert_eq!(
+            status(&router, &Method::TRACE, "/webhooks/stripe-nothing").await,
+            StatusCode::NOT_FOUND,
+            "{mode:?} control"
+        );
+    }
+    assert_eq!(classify("POST", "/api/webhooks/stripe"), RouteRole::FleetOk);
+}
+
+/// The composition hands billing's three shares to the seams `oxy-app` mounted
+/// them from: the Billing queue to `admin` (one section, naming
+/// `PlatformOwnerOnly`), the tenant's routes to `api` (behind
+/// `org_middleware`, whose `Path` answers an unparseable org id 400 before any
+/// database), and the webhook to `public`, each with the declarations
+/// `nest_all` and `route_fleet` made in-tree. No database.
+#[tokio::test]
+async fn the_composition_carries_billing_on_its_three_seams() {
+    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+        tree.clone()
+            .with_state(oxy_app::surface::bare_app_state())
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("oneshot")
+            .status()
+    }
+    let seams = surface_seams();
+    let owner_only: Vec<_> = seams
+        .admin
+        .iter()
+        .filter(|s| s.capability == oxy_app::surface::Action::PlatformOwnerOnly)
+        .collect();
+    assert_eq!(
+        owner_only.len(),
+        1,
+        "one owner-only section: the Billing queue"
+    );
+    assert_eq!(
+        trace(&owner_only[0].routes, "/billing/prices").await,
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    assert_eq!(
+        trace(&seams.api.routes, "/orgs/not-a-uuid/billing/status").await,
+        StatusCode::BAD_REQUEST,
+        "the api seam mounts the tenant's billing behind org_middleware"
+    );
+    assert_eq!(
+        trace(&seams.public.routes, "/webhooks/stripe").await,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "the public seam mounts the webhook"
+    );
+    for path in ["/orgs/{org_id}/billing", "/orgs/{org_id}/billing/{*rest}"] {
+        assert!(
+            seams.api.decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the api seam declares {path} FleetOk"
+        );
+    }
+    assert!(
+        seams.public.decls.iter().any(|d| d.method == "*"
+            && d.path == "/webhooks/stripe"
+            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+        "the public seam declares the webhook FleetOk"
+    );
+}

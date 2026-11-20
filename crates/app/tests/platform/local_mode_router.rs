@@ -48,10 +48,13 @@ async fn local_router_has_its_public_tree() {
     )
     .await
     .expect("build router");
-    // The Stripe webhook is public-tree and POST only: TRACE gets 405 where it
-    // is mounted and 404 where it is not, without reaching the handler.
+    // The QuickBooks OAuth callback is public-tree and GET only: TRACE gets
+    // 405 where it is mounted and 404 where it is not, without reaching the
+    // handler. (The probe was the Stripe webhook until it left for
+    // `oxy-api-billing` in the admin split's PR 9; `served_router_tests` holds
+    // it on the served router, in both modes.)
     for (uri, want) in [
-        ("/webhooks/stripe", StatusCode::METHOD_NOT_ALLOWED),
+        ("/quickbooks/oauth/callback", StatusCode::METHOD_NOT_ALLOWED),
         ("/webhooks/nothing-mounts-this", StatusCode::NOT_FOUND),
     ] {
         let req = Request::builder()

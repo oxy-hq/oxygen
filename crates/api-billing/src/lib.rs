@@ -5,38 +5,56 @@
 //! report's surface ([`usage_report`]: the console's routes, who gets it,
 //! the delivery and the weekly pass), out of `oxy-app`'s
 //! `api::admin::usage_report`. The report's domain half is `oxy-usage-report`,
-//! below this crate. Named for billing because the staff billing console
-//! (`admin::billing`) and the tenant billing routes (`api::billing`) follow it
-//! here in PR 9: the report is what a deployment's usage costs, read by the
-//! staff who bill for it.
+//! below this crate. PR 9 brought the rest of billing's routes, out of
+//! `oxy-app`: the staff billing console ([`admin::billing`], out of
+//! `admin::billing`) and the tenant billing routes with the Stripe webhook
+//! ([`billing`], out of `api::billing`). The service gate (`billing_service`,
+//! `billing_disabled`) and the past-due dispatcher (`notify`) stayed in
+//! `oxy-app`, which reads them too, and arrive through
+//! `oxy_app::surface::billing`.
 //!
-//! Mounted by the `oxy-server` composition root through two seams:
+//! Mounted by the `oxy-server` composition root through four seams:
 //!
-//! - `SurfaceSeams::admin` ([`admin_sections`]): two sections merged inside
-//!   `/api/admin`, ahead of the refusal while acting, behind the capabilities
+//! - `SurfaceSeams::admin` ([`admin_sections`]): three sections merged inside
+//!   `/api/admin`, ahead of the refusal while acting, behind the gates
 //!   `admin::router` gave them in-tree. `oxy-app` applies the staff door, the
-//!   refusal and the capability guard; this crate only names the capability.
+//!   refusal and the gate; this crate only names it.
+//! - `SurfaceSeams::api` ([`routes`], [`route_roles`]): the tenant's
+//!   `/orgs/{org_id}/billing/*`, at the protected root, behind
+//!   `org_middleware` only, as `build_org_routes` mounted it: billing is the
+//!   one org tree a paywalled org may reach, so no subscription guard.
+//! - `SurfaceSeams::public` ([`public_routes`], [`public_route_roles`]):
+//!   `POST /webhooks/stripe`, outside the auth stack; the handler verifies
+//!   Stripe's signature over the raw body instead.
 //! - `SurfaceSeams::global_ticks` ([`global_ticks`]): the weekly pass, at
 //!   `TickPass::EveryLoop`, which runs it where `router::recovery` called it
 //!   inline: once per iteration of the global driver's loop, on every process
 //!   that runs the driver, whatever that node claimed.
 //!
-//! Every route reads or writes Postgres only (the report, preference and
-//! delivery rows, the staff grants), and sends mail; nothing reads a working
-//! copy, so the console's FleetOk wildcard places them and they declare
-//! nothing.
+//! Every route reads or writes Postgres (the report, preference and delivery
+//! rows, the staff grants, the Stripe customer and subscription rows), calls
+//! Stripe, and sends mail; nothing reads a working copy. The console's FleetOk
+//! wildcard places the admin sections, which declare nothing; the tenant
+//! routes and the webhook declare the FleetOk rows `nest_all` and
+//! `route_fleet` declared for them in `oxy-app`.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`).
 #![recursion_limit = "256"]
 
+pub mod admin;
+pub mod billing;
 pub mod usage_report;
 
+use axum::Router;
+use axum::routing::post;
 use oxy_app::surface::seams::{GlobalTickSeam, TickPass};
 use oxy_app::surface::{Action, AdminSection};
+use oxy_app_core::AppState;
+use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The staff console's sections this crate hands `oxy-app`, merged inside
-/// `/api/admin` before the refusal while acting, each behind the capability
+/// `/api/admin` before the refusal while acting, each behind the gate
 /// `admin::router` gave it in-tree:
 ///
 /// - the report itself and the caller's own switch (`/usage-report`,
@@ -45,13 +63,20 @@ use oxy_app::surface::{Action, AdminSection};
 ///   mails, so the mail's link always opens;
 /// - who gets it, and switching it off for another person
 ///   (`/usage-report/recipients*`) behind `PlatformGrants`: the staff list,
-///   so the capability that administers staff access.
+///   so the capability that administers staff access;
+/// - the Billing queue ([`admin::billing`]: `/orgs`, `/billing/prices`,
+///   `/orgs/{org_id}/billing/*`) behind `PlatformOwnerOnly`, the action whose
+///   ring (`Ring::GlobalOwnerOnly`) names the Billing queue. `oxy-app` gates a
+///   section naming it with the strict owner guard (`oxy_owner_guard`) that
+///   `admin::router` layered on billing in-tree, not the capability guard: a
+///   Global Admin is 403 there and no database is read to say so.
 ///
 /// Sections, not nests, because that is how they were mounted: a
 /// `route_layer` on a router merged inside `admin::router`, which is exactly
-/// what `extracted_sections` builds. Neither declares anything: the console's
-/// `/{*rest}` FleetOk wildcard places them, as it did. The handlers narrow a
-/// bounded grant to the orgs it reaches themselves (`staff::scope`).
+/// what `extracted_sections` builds. None declares anything: the console's
+/// `/{*rest}` FleetOk wildcard places them, as it did. The usage report's
+/// handlers narrow a bounded grant to the orgs it reaches themselves
+/// (`staff::scope`); the Billing queue's caller is the Global Owner, unbounded.
 pub fn admin_sections() -> Vec<AdminSection> {
     vec![
         AdminSection {
@@ -64,7 +89,64 @@ pub fn admin_sections() -> Vec<AdminSection> {
             routes: usage_report::recipients::router(),
             decls: Vec::new(),
         },
+        AdminSection {
+            capability: Action::PlatformOwnerOnly,
+            routes: admin::billing::router(),
+            decls: Vec::new(),
+        },
     ]
+}
+
+/// The api seam's share: the tenant's billing routes under
+/// `/orgs/{org_id}/billing`, merged at the protected root (`/api`) where
+/// `build_global_routes` nested `build_org_routes`, so they keep the session
+/// auth stack; cloud only, like the global tree they left.
+///
+/// Carries `org_middleware` and NOT the subscription guard, as
+/// `build_org_routes` mounted them: billing is the one org-scoped tree a
+/// paywalled org must still reach, to subscribe or open the portal.
+pub fn routes() -> Router<AppState> {
+    Router::new().nest("/orgs/{org_id}", billing::org_routes())
+}
+
+/// Pod placement for [`routes`], absolute (merged at the protected root, so
+/// there is no prefix to join): the two rows `oxy-app`'s
+/// `nest_all("/billing", RouteRole::FleetOk, ..)` declared, method `*`. The
+/// Stripe customer and subscription rows, and Stripe itself.
+pub fn route_roles() -> &'static [RouteRoleDecl] {
+    ROUTE_ROLES
+}
+
+const ROUTE_ROLES: &[RouteRoleDecl] = &[
+    RouteRoleDecl {
+        method: "*",
+        path: "/orgs/{org_id}/billing/{*rest}",
+        role: RouteRole::FleetOk,
+    },
+    RouteRoleDecl {
+        method: "*",
+        path: "/orgs/{org_id}/billing",
+        role: RouteRole::FleetOk,
+    },
+];
+
+/// The public seam's share: Stripe's webhook, beside `oxy-app`'s public tree,
+/// outside the auth stack. Stripe carries no user credential; the handler
+/// verifies the `stripe-signature` header over the raw body, and answers 404
+/// while Stripe is not configured.
+pub fn public_routes() -> Router<AppState> {
+    Router::new().route("/webhooks/stripe", post(billing::webhook::stripe_webhook))
+}
+
+/// Pod placement for [`public_routes`], relative to `/api`: method `*`,
+/// FleetOk, as `oxy-app`'s `route_fleet` declared it. It reads and writes the
+/// webhook-event and billing rows in Postgres, so any replica serves it.
+pub fn public_route_roles() -> &'static [RouteRoleDecl] {
+    &[RouteRoleDecl {
+        method: "*",
+        path: "/webhooks/stripe",
+        role: RouteRole::FleetOk,
+    }]
 }
 
 /// The weekly custom-app usage report's pass ([`usage_report::job`]), run by
@@ -110,6 +192,18 @@ mod tests {
         "/usage-report/recipients",
         "/usage-report/recipients/someone@example.com",
     ];
+    /// The Billing queue's paths (admin split PR 9), one per route.
+    const BILLING_QUEUE: &[&str] = &[
+        "/orgs",
+        "/billing/prices",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/subscription",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/provision-subscription",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/provision-checkout",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/checkout",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/checkout/resend",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/checkout/cancel",
+        "/orgs/00000000-0000-0000-0000-000000000000/billing/resync",
+    ];
 
     /// TRACE, which no route takes: 405 from a mounted path, 404 from an
     /// unmounted one, without running a handler or reaching a database.
@@ -128,12 +222,15 @@ mod tests {
             .status()
     }
 
-    /// The two sections `oxy-app`'s `admin::router` merged before the move:
-    /// the report behind `PlatformOperate` and its recipients behind
-    /// `PlatformGrants`, each mounting its own paths and not the other's, and
-    /// neither declaring a placement. A swapped capability, or a route moved
-    /// into the other section, would hand the staff list to whoever reads the
-    /// report (or the reverse), and every route would still answer.
+    /// The three sections `oxy-app`'s `admin::router` merged before the
+    /// moves: the report behind `PlatformOperate`, its recipients behind
+    /// `PlatformGrants` (PR 8b), and the Billing queue naming
+    /// `PlatformOwnerOnly` (PR 9), which `oxy-app` gates with the strict owner
+    /// guard `billing` carried in-tree. Each mounts its own paths and not the
+    /// others', and none declares a placement. A swapped capability, or a
+    /// route moved into another section, would hand the staff list to whoever
+    /// reads the report (or the Billing queue to any staff member), and every
+    /// route would still answer.
     #[tokio::test]
     async fn each_section_mounts_its_own_routes_behind_the_capability_it_had() {
         let sections = admin_sections();
@@ -143,39 +240,153 @@ mod tests {
             .collect();
         assert_eq!(
             got,
-            vec![(Action::PlatformOperate, 0), (Action::PlatformGrants, 0)]
+            vec![
+                (Action::PlatformOperate, 0),
+                (Action::PlatformGrants, 0),
+                (Action::PlatformOwnerOnly, 0)
+            ]
         );
-        for (section, own, other) in [
-            (&sections[0], REPORT, RECIPIENTS),
-            (&sections[1], RECIPIENTS, REPORT),
-        ] {
+        let paths = [REPORT, RECIPIENTS, BILLING_QUEUE];
+        for (i, section) in sections.iter().enumerate() {
             let router = section
                 .routes
                 .clone()
                 .with_state(oxy_app::surface::bare_app_state());
-            for path in own {
-                assert_eq!(
-                    trace(&router, path).await,
-                    StatusCode::METHOD_NOT_ALLOWED,
-                    "{:?} must mount {path}",
-                    section.capability
-                );
-            }
-            for path in other {
-                assert_eq!(
-                    trace(&router, path).await,
-                    StatusCode::NOT_FOUND,
-                    "{:?} must not mount {path}",
-                    section.capability
-                );
+            for (j, set) in paths.iter().enumerate() {
+                let want = if i == j {
+                    StatusCode::METHOD_NOT_ALLOWED
+                } else {
+                    StatusCode::NOT_FOUND
+                };
+                for path in *set {
+                    assert_eq!(
+                        trace(&router, path).await,
+                        want,
+                        "{:?} on {path}",
+                        section.capability
+                    );
+                }
             }
             for path in [
                 "/usage-report/",
                 "/usage-reportx",
                 "/usage-report/recipients/a/b",
+                "/orgs/",
+                "/billing",
+                "/orgs/00000000-0000-0000-0000-000000000000/billing",
+                "/orgs/00000000-0000-0000-0000-000000000000/billing/nothing",
             ] {
                 assert_eq!(trace(&router, path).await, StatusCode::NOT_FOUND, "{path}");
             }
+        }
+    }
+
+    /// The tenant's billing routes, relative to their `/orgs/{org_id}/billing`
+    /// nest, as `oxy-app`'s `api::billing::router` mounted them: `/` is the
+    /// summary, and nothing else answers.
+    #[tokio::test]
+    async fn the_tenant_router_mounts_the_five_billing_routes() {
+        let router = Router::new()
+            .nest("/billing", billing::router())
+            .with_state(oxy_app::surface::bare_app_state());
+        for path in [
+            "/billing",
+            "/billing/status",
+            "/billing/portal-session",
+            "/billing/invoices",
+            "/billing/checkout-sessions/cs_test",
+        ] {
+            assert_eq!(
+                trace(&router, path).await,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{path}"
+            );
+        }
+        for path in [
+            "/billing/nothing",
+            "/billing/checkout-sessions",
+            "/billingx",
+        ] {
+            assert_eq!(trace(&router, path).await, StatusCode::NOT_FOUND, "{path}");
+        }
+    }
+
+    /// The api seam's share runs behind `org_middleware`, as
+    /// `build_org_routes` mounted it: an org id the middleware's `Path` cannot
+    /// parse is its 400, answered before any database is read, where the bare
+    /// routes would answer TRACE 405. Nothing else under `/orgs/{org_id}` is
+    /// this crate's.
+    #[tokio::test]
+    async fn the_tenant_routes_run_behind_org_middleware() {
+        let router = routes().with_state(oxy_app::surface::bare_app_state());
+        for path in [
+            "/orgs/not-a-uuid/billing",
+            "/orgs/not-a-uuid/billing/status",
+            "/orgs/not-a-uuid/billing/portal-session",
+            "/orgs/not-a-uuid/billing/invoices",
+            "/orgs/not-a-uuid/billing/checkout-sessions/cs_test",
+        ] {
+            assert_eq!(
+                trace(&router, path).await,
+                StatusCode::BAD_REQUEST,
+                "{path}"
+            );
+        }
+        for path in [
+            "/orgs/not-a-uuid",
+            "/orgs/not-a-uuid/members",
+            "/orgs/not-a-uuid/billingx",
+        ] {
+            assert_eq!(trace(&router, path).await, StatusCode::NOT_FOUND, "{path}");
+        }
+    }
+
+    /// The two rows `oxy-app`'s `nest_all("/billing", RouteRole::FleetOk, ..)`
+    /// declared, and the webhook's one `route_fleet` row: declared, not merely
+    /// unclassified (which also reads FleetOk and is what a dropped row would
+    /// look like), and matched by the classifier on live URIs.
+    #[test]
+    fn the_tenant_routes_and_the_webhook_are_declared_fleet_ok() {
+        use oxy_app::surface::roles::declared_role_in;
+        let api: Vec<_> = route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api{}", d.path), d.role))
+            .collect();
+        assert_eq!(api.len(), 2);
+        for uri in [
+            "/api/orgs/00000000-0000-0000-0000-000000000000/billing",
+            "/api/orgs/00000000-0000-0000-0000-000000000000/billing/status",
+            "/api/orgs/00000000-0000-0000-0000-000000000000/billing/checkout-sessions/cs",
+        ] {
+            assert_eq!(
+                declared_role_in(&api, "GET", uri),
+                Some(RouteRole::FleetOk),
+                "{uri}"
+            );
+        }
+        let public: Vec<_> = public_route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api{}", d.path), d.role))
+            .collect();
+        assert_eq!(public.len(), 1);
+        assert_eq!(
+            declared_role_in(&public, "POST", "/api/webhooks/stripe"),
+            Some(RouteRole::FleetOk)
+        );
+    }
+
+    /// The webhook has a route behind its declaration, and only one: TRACE,
+    /// which it does not take, answers 405 there and 404 beside it, without
+    /// running the handler (which reads the environment and a database).
+    #[tokio::test]
+    async fn the_public_router_mounts_only_the_stripe_webhook() {
+        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        assert_eq!(
+            trace(&router, "/webhooks/stripe").await,
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        for path in ["/webhooks/stripe/", "/webhooks/github", "/billing"] {
+            assert_eq!(trace(&router, path).await, StatusCode::NOT_FOUND, "{path}");
         }
     }
 

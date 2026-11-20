@@ -1,11 +1,12 @@
 //! `/api/admin/*` — Oxy-staff admin surface. The outer guard in
 //! `router::global` is `oxy_owner_or_app_admin_guard_middleware` so both
 //! OXY_OWNER staff and members of the `app_admins` table can reach most
-//! admin features. One subset — billing operations — escalates to a strict
-//! OXY_OWNER guard via `route_layer` below; that inner layer runs after the
-//! outer permissive check and denies app-admin callers with 403. Every other
-//! section escalates to the capability its surface is about, including the
-//! airway admission config (`Action::PlatformOperate`).
+//! admin features. One subset — billing operations, `oxy-api-billing`'s
+//! section since the admin split's PR 9 — escalates to a strict OXY_OWNER
+//! guard via `route_layer` in [`extracted_sections`]; that inner layer runs
+//! after the outer permissive check and denies app-admin callers with 403.
+//! Every other section escalates to the capability its surface is about,
+//! including the airway admission config (`Action::PlatformOperate`).
 
 // `app_admins` (`/app-admins*`, the grant table) is `oxy-api-admin`'s since
 // the admin split (2026-11-20): a section behind `PlatformGrants`,
@@ -14,7 +15,10 @@ pub mod assume;
 // `audit` (`/audit*`, the platform audit log) is `oxy-api-admin`'s since
 // the admin split's audit move (2026-11-20): a section behind
 // `PlatformAudit`, arriving through `extracted`.
-pub mod billing;
+// `billing` (`/orgs`, `/billing/prices`, `/orgs/{org_id}/billing/*`, the
+// Billing queue) is `oxy-api-billing`'s since the admin split's PR 9: a
+// section naming `PlatformOwnerOnly`, arriving through `extracted` and gated
+// by the strict owner guard there.
 // `compiles` (`/compiles*`, the compile boundary's operator surface) is
 // `oxy-api-previews`' since the admin split's PR 6, and `internal_jobs*`
 // (`/internal-jobs*`, the task fleet's operator console) `oxy-api-admin`'s
@@ -128,7 +132,9 @@ use crate::server::router::{AdminSection, AppState};
 /// a tenant. `require(Action::Platform*)` generalises the pattern that was already here.
 ///
 /// One gate remains owner-only rather than capability-gated, deliberately:
-/// * `billing` — the Billing queue, `Ring::GlobalOwnerOnly`.
+/// * `billing` — the Billing queue, `Ring::GlobalOwnerOnly`. `oxy-api-billing`'s
+///   section since the admin split's PR 9: it names `Action::PlatformOwnerOnly`,
+///   and [`extracted_sections`] gates that name with the strict owner guard.
 ///
 /// `app_admins` — the **grant table itself** — used to be the second. It is
 /// capability-gated (`PlatformGrants`) and row-fenced instead, and since the admin
@@ -167,10 +173,10 @@ use crate::server::router::{AdminSection, AppState};
 /// In PR 5: the user directory (`/users*`, `PlatformUsers`) is
 /// `oxy-api-identity`'s.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
-    // route_layer applied per sub-router so only billing gets the strict
-    // owner guard; everything else escalates to a capability, and anything
-    // not named here runs only under the outer permissive guard.
-    let strict = middleware::from_fn(oxy_owner_guard::oxy_owner_guard_middleware);
+    // route_layer applied per sub-router so only billing (an extracted
+    // section, below) gets the strict owner guard; everything else escalates
+    // to a capability, and anything not named here runs only under the outer
+    // permissive guard.
     let cap = |action| middleware::from_fn(platform_cap_guard::require(action));
 
     // The staff surface. Everything here is refused while the caller is acting as
@@ -205,7 +211,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // The weekly custom-app usage report (`PlatformOperate`) and who gets it
         // (`PlatformGrants`) moved to `oxy-api-billing` (admin split, PR 8b) and
         // arrive through `extracted` below, behind the capabilities they had here.
-        .merge(billing::router().route_layer(strict))
+        // The Billing queue (`/orgs`, `/billing/prices`, `/orgs/{org_id}/billing/*`)
+        // moved to `oxy-api-billing` (admin split, PR 9) and arrives through
+        // `extracted` below, naming `PlatformOwnerOnly`: the strict owner guard
+        // it had here, applied by `extracted_sections`.
         // The grant table (`/app-admins*`, `PlatformGrants`) moved to
         // `oxy-api-admin` (admin split, 2026-11-20) and arrives through
         // `extracted` below, behind the capability it had here.
@@ -226,15 +235,26 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
 /// The sections extracted surfaces contribute, each wrapped in the capability
 /// guard it names. `oxy-app` applies the guard rather than the surface, so a
 /// section cannot reach the console without one.
+///
+/// One name takes a different guard: `Action::PlatformOwnerOnly`
+/// (`Ring::GlobalOwnerOnly`, the Billing queue's ring) is gated by the strict
+/// owner guard (`oxy_owner_guard`) that `billing` carried in-tree before the
+/// admin split's PR 9, not by the capability guard. Both admit the Global
+/// Owner only, but they do not refuse alike: the owner guard reads no
+/// database and answers a non-owner 403, where the capability guard loads
+/// platform facts and answers 500 when it cannot. The section keeps the guard
+/// it had.
 fn extracted_sections(sections: Vec<AdminSection>) -> Router<AppState> {
     sections.into_iter().fold(Router::new(), |router, section| {
-        router.merge(
-            section
+        let routes = match section.capability {
+            Action::PlatformOwnerOnly => section.routes.route_layer(middleware::from_fn(
+                oxy_owner_guard::oxy_owner_guard_middleware,
+            )),
+            capability => section
                 .routes
-                .route_layer(middleware::from_fn(platform_cap_guard::require(
-                    section.capability,
-                ))),
-        )
+                .route_layer(middleware::from_fn(platform_cap_guard::require(capability))),
+        };
+        router.merge(routes)
     })
 }
 
@@ -274,7 +294,11 @@ mod tests {
     //! lives in `crates/app/tests/authz/app_scope_boundary.rs` as a source scan of
     //! `oxy-api-admin`'s `admin_sections`.
     //! A fixture that mounts its own probe under `strict` proves the *middleware* works
-    //! and nothing whatsoever about what ships.
+    //! and nothing whatsoever about what ships. The billing probe is therefore mounted
+    //! through `extracted_sections`, as `oxy-api-billing`'s section is (admin split,
+    //! PR 9); that the shipped section names `PlatformOwnerOnly` is pinned in that
+    //! crate, and that the served router answers as `main` did in `oxy-server`'s
+    //! `served_router_tests`.
     //!
     //! The escalation does NOT touch the database — `oxy_owner_guard`
     //! consults only the `OXY_OWNER` env var — so we can pin the layering
@@ -325,11 +349,20 @@ mod tests {
     /// Build the same router shape as `admin::router()` minus the leaf
     /// handlers (DB-heavy). One stub handler per surface so we can assert
     /// per-path response codes.
+    ///
+    /// The billing probe goes through [`extracted_sections`] as a section
+    /// naming `PlatformOwnerOnly`, the way `oxy-api-billing`'s Billing queue
+    /// arrives since the admin split's PR 9, so these tests pin the guard that
+    /// name gets: the strict owner guard, which needs no database. Gated by the
+    /// capability guard instead, the non-owner below would read 500 here (no
+    /// database to load platform facts from), not 403.
     fn test_router() -> Router {
-        let strict = middleware::from_fn(oxy_owner_guard::oxy_owner_guard_middleware);
-        let billing = Router::new()
-            .route("/billing/probe", get(|| async { StatusCode::OK }))
-            .route_layer(strict.clone());
+        let billing = extracted_sections(vec![AdminSection {
+            capability: Action::PlatformOwnerOnly,
+            routes: Router::new().route("/billing/probe", get(|| async { StatusCode::OK })),
+            decls: Vec::new(),
+        }])
+        .with_state(test_app_state());
         // `partners` and `app-admins` mount WITHOUT the strict layer — a Global Admin
         // must reach both. (Partners is the regression guard for the 403-on-partners
         // bug; app-admins is capability-gated now, with the delegation bound doing the

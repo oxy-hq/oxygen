@@ -5,15 +5,17 @@ authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
 # tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
 # oxy-app: oxy-app never depends on it.
-description = "Billing's HTTP surface: the weekly custom-app usage report's console routes, recipients, delivery and weekly job (out of oxy-app's api::admin::usage_report), with the staff and tenant billing routes to follow — a sibling crate mounted by oxy-server"
+description = "Billing's HTTP surface: the weekly custom-app usage report's console routes, recipients, delivery and weekly job (out of oxy-app's api::admin::usage_report), the staff Billing queue (out of api::admin::billing), and the tenant billing routes with the Stripe webhook (out of api::billing) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
 
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
-# types (`AdminSection`, `seams::{GlobalTickSeam, TickPass}`) and the
-# capability they name (`Action`). oxy-app never depends back on this crate.
+# types (`AdminSection`, `seams::{GlobalTickSeam, TickPass}`), the capability
+# they name (`Action`), `org_middleware`, the org role guards, the feature-flag
+# read, and billing's base (`billing::{billing_service, notify}`, which oxy-app
+# reads too). oxy-app never depends back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
@@ -22,19 +24,22 @@ oxy-usage-report = { workspace = true } # the report's domain half: period, coll
 oxy-auth = { workspace = true }         # the authenticated-user extractor
 oxy-authz = { workspace = true }        # `Cap` (the audience), `Scope` (a reader's reach)
 oxy-server-authz = { workspace = true } # staff::scope (the reader's reach), globals (who holds the audience)
+oxy-billing = { workspace = true }      # the Billing queue's and the tenant routes' Stripe service and DTOs
+oxy-shared = { workspace = true }       # fleet_role: the tenant routes' and the webhook's FleetOk rows
+entity = { workspace = true }           # org_billing::BillingCycle
 axum = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }       # the Stripe webhook's payload
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-serde_json = { workspace = true }
-uuid = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
 # The usage report's database cases (moved from oxy-app's `platform` group
@@ -53,10 +58,9 @@ url = { workspace = true }
 oxy-test-utils = { workspace = true }   # tests/common takes its Postgres from here
 agentic-core = { workspace = true }
 agentic-runtime = { workspace = true }  # the harness runs its migrator
-# The cases' own seeds and fakes: the rows the report reads, the mail
-# provider that keeps what it is given, and the in-memory Airhouse.
-entity = { workspace = true }
-oxy-shared = { workspace = true }
+# The cases' own fakes: the mail provider that keeps what it is given, and
+# the in-memory Airhouse. (Their seeds' `entity` rows and `oxy-shared` are
+# normal dependencies since PR 9.)
 async-trait = { workspace = true }
 oxy-custom-apps = { workspace = true, features = ["test-fixtures"] }
 

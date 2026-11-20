@@ -610,7 +610,8 @@ mod tests {
     /// and the usage trio (out of `oxy_app_core`) into `oxy_usage_report`: Oxy's
     /// own Postgres and the workspace's usage facts, no warehouse query, kept and
     /// not the data plane as there; PR 8b its surface into `oxy_api_billing`,
-    /// pinned with the other admin sections below. Pinned at both barriers, so
+    /// pinned with the other admin sections below, as is PR 9's billing surface
+    /// (what stayed of it in `oxy-app` is pinned here). Pinned at both barriers, so
     /// a later rule naming one of these crates cannot silently drop them.
     #[test]
     fn the_admin_split_move_downs_keep_their_sentry_lines() {
@@ -634,6 +635,10 @@ mod tests {
             "oxy_usage_report::view",
             // What stayed: the anchor loop's own log line.
             "oxy_app::server::audit_anchor",
+            // What stayed of billing when its routes left (PR 9): the service
+            // gate and the past-due dispatcher's lines.
+            "oxy_app::server::api::billing",
+            "oxy_app::server::api::billing::notify",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),
@@ -973,6 +978,17 @@ mod tests {
             "oxy_api_billing::usage_report::handlers",
             "oxy_api_billing::usage_report::job",
             "oxy_api_billing::usage_report::recipients",
+            // The admin split (PR 9): the Billing queue, the tenant's billing
+            // routes and the Stripe webhook, Oxy's own Postgres, Stripe and
+            // the mail provider, kept and not the data plane as they were at
+            // `oxy_app::server::api::admin::billing` and
+            // `oxy_app::server::api::billing` (which keeps the service gate and
+            // the past-due dispatcher).
+            "oxy_api_billing::admin",
+            "oxy_api_billing::admin::billing",
+            "oxy_api_billing::billing",
+            "oxy_api_billing::billing::handlers",
+            "oxy_api_billing::billing::webhook",
             // The admin split (2026-11-20): the grant table, Oxy's own
             // Postgres only, kept and not the data plane as it was at
             // `oxy_app::server::api::admin::app_admins`.
@@ -1371,6 +1387,15 @@ mod tests {
             "oxy_api_billing::usage_report::handlers",
             "oxy_api_billing::usage_report::job",
             "oxy_api_billing::usage_report::recipients",
+            // The admin split (PR 9): the Billing queue, the tenant's billing
+            // routes and the Stripe webhook. They read and write the Stripe
+            // customer, subscription and webhook-event rows and call Stripe;
+            // no warehouse query.
+            "oxy_api_billing::admin",
+            "oxy_api_billing::admin::billing",
+            "oxy_api_billing::billing",
+            "oxy_api_billing::billing::handlers",
+            "oxy_api_billing::billing::webhook",
             // The admin split (2026-11-20): the grant table. It reads and
             // writes `app_admins`; no warehouse query.
             "oxy_api_admin::app_admins",

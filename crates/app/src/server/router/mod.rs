@@ -427,9 +427,12 @@ mod router_split_tests {
         )
         .await
         .expect("router built");
-        // The Stripe webhook is public-tree, POST only: TRACE gets 405 where it
-        // is mounted and 404 where it is not, without reaching the handler.
-        // That confirms public routes are mounted on the local router.
+        // The QuickBooks OAuth callback is public-tree, GET only: TRACE gets
+        // 405 where it is mounted and 404 where it is not, without reaching the
+        // handler. That confirms public routes are mounted on the local router.
+        // (The probe was the Stripe webhook until it left for `oxy-api-billing`
+        // in the admin split's PR 9; `oxy-server`'s `served_router_tests` holds
+        // it on the served router, in both modes.)
         let trace = |uri: &'static str| {
             let router = router.clone();
             async move {
@@ -442,7 +445,7 @@ mod router_split_tests {
             }
         };
         assert_eq!(
-            trace("/webhooks/stripe").await,
+            trace("/quickbooks/oauth/callback").await,
             StatusCode::METHOD_NOT_ALLOWED
         );
         assert_eq!(

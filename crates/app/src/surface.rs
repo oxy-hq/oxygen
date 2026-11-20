@@ -38,6 +38,14 @@ pub use crate::server::api::middlewares::org_context::{
 /// Subscription gating for org-scoped routes.
 pub use crate::server::api::middlewares::subscription_guard::subscription_guard_middleware;
 
+/// Billing's base, which `oxy-app` reads as well as billing's surface
+/// (`oxy-api-billing`, since the admin split's PR 9): the one switch for the
+/// subsystem (`billing_service`, which the paywall's `billing_disabled` shares)
+/// and the past-due dispatcher the Stripe webhook and the staff resync call.
+pub mod billing {
+    pub use crate::server::api::billing::{billing_service, notify};
+}
+
 /// Workspace-scoped request context, as the workspace seam provides it.
 ///
 /// `OrgMembershipExtractor` (the caller's org membership, for a workspace

@@ -400,7 +400,11 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
     // reachable only by the Global Owner, who is unbounded by definition.
     // (`app_admins` is no longer in the block: `oxy-api-admin`'s section since
     // 2026-11-20. It keys on `{id}`, not an org, and is row-fenced by
-    // `may_delegate`, pinned by `the_grant_table_is_capability_gated_..`.)
+    // `may_delegate`, pinned by `the_grant_table_is_capability_gated_..`.
+    // Nor is `billing`: `oxy-api-billing`'s section since the admin split's
+    // PR 9, naming `PlatformOwnerOnly`, which `extracted_sections` gates with
+    // the strict owner guard, so it stays out of this sweep as before. Both
+    // names stay listed so a router that moves back is still skipped.)
     let owner_strict = ["billing", "app_admins"];
     let mut routers: Vec<String> = Vec::new();
     for piece in merge_block.split("::router()").take(32) {
