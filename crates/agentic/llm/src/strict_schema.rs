@@ -9,6 +9,9 @@
 //! - string constraints (`minLength`, `maxLength`) are not supported;
 //! - array `minItems` is supported only with the values 0 and 1, and no other
 //!   array constraint is supported.
+//! - every object must set `additionalProperties: false`; an object that
+//!   leaves it out 400s ("For 'object' type, 'additionalProperties' must be
+//!   explicitly set to false"), so the provider adds it where it is absent.
 //!
 //! A schema written for validation (the legacy specify schema's
 //! `join_path` is `minItems: 3, maxItems: 3`) therefore 400s every request that
@@ -54,11 +57,25 @@ pub(crate) fn sanitize_for_strict(schema: &Value) -> Value {
 
 fn sanitize_in_place(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
+    close_object(obj);
     let removed = strip_constraints(obj);
     if !removed.is_empty() {
         restate_in_description(obj, &removed);
     }
     recurse_into_subschemas(obj);
+}
+
+/// Set `additionalProperties: false` on an object schema that leaves it out.
+/// An explicit value is the author's and is kept.
+fn close_object(obj: &mut Map<String, Value>) {
+    let is_object = match obj.get("type") {
+        Some(Value::String(t)) => t == "object",
+        Some(Value::Array(ts)) => ts.iter().any(|t| t == "object"),
+        _ => false,
+    };
+    if is_object && !obj.contains_key("additionalProperties") {
+        obj.insert("additionalProperties".to_string(), Value::Bool(false));
+    }
 }
 
 /// Remove unsupported keywords from one schema node; return what was removed.
@@ -207,6 +224,34 @@ mod tests {
             "additionalProperties": false
         });
         assert_eq!(sanitize_for_strict(&schema), schema);
+    }
+
+    #[test]
+    fn an_object_without_additional_properties_is_closed_at_every_level() {
+        // The react `ask_user` tool's schema, which 400'd every react request.
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "suggestions": {"type": "array", "items": {"type": "string"}},
+                "filter": {"type": ["object", "null"], "properties": {"k": {"type": "string"}}}
+            },
+            "required": ["question"]
+        });
+        let out = sanitize_for_strict(&schema);
+        assert_eq!(out["additionalProperties"], false);
+        assert_eq!(out["properties"]["filter"]["additionalProperties"], false);
+        assert!(
+            out["properties"]["question"]
+                .get("additionalProperties")
+                .is_none()
+        );
+        assert!(
+            out["properties"]["suggestions"]
+                .get("additionalProperties")
+                .is_none()
+        );
+        assert_eq!(out["required"], json!(["question"]));
     }
 
     #[test]
