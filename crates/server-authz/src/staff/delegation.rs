@@ -6,7 +6,8 @@
 //! `/admin/app-admins`; which rows they may touch once inside is this module.
 //!
 //! **Why the grant table stopped being owner-only.** It was, and the rationale in
-//! `admin/mod.rs` was sound as far as it went: "a capability that could edit the grant
+//! `admin/mod.rs` (now on `oxy_api_admin::admin_sections`, beside the mount) was
+//! sound as far as it went: "a capability that could edit the grant
 //! table would let its holder widen their own grant, and the ceiling would mean
 //! nothing." That is an argument against an *unbounded* capability, not against
 //! delegation. `oxy_authz::may_delegate` supplies the bound — a write is admissible only

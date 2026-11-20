@@ -197,6 +197,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_admin::audit",
         function: "router",
     },
+    // The grant table, `oxy-api-admin`'s since 2026-11-20 (out of `oxy-app`'s
+    // `admin::app_admins`): a section on the same seam, inside `/api/admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_admin::app_admins",
+        function: "router",
+    },
     // Workspace previews (`oxy-api-previews`, `SurfaceSeams::previews`), mounted
     // beside the workspace tree, not in it (its own access middleware), so it is
     // not reached by the walk above.

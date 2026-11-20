@@ -85,8 +85,10 @@ pub(super) fn build_global_routes(
         // `/admin/*` runs under the permissive owner-or-app-admin guard so
         // app admins can reach feature flags, custom apps, orgs / users /
         // workspaces management, and internal jobs. The sensitive subset —
-        // billing operations and the `app_admins` table itself — escalates
-        // to strict OXY_OWNER via `route_layer` inside `admin::router()`.
+        // billing operations — escalates to strict OXY_OWNER via
+        // `route_layer` inside `admin::router()`. The `app_admins` table
+        // itself takes `PlatformGrants` plus a per-row bound instead
+        // (`oxy-api-admin`'s section since 2026-11-20).
         //
         // Declared rather than `nest_all`: the console is FleetOk wholesale
         // except creating an org, which scaffolds its Default workspace onto

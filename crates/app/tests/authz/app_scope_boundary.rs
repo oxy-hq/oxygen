@@ -398,6 +398,9 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
 
     // `x::router()` for every merged module, minus the owner-strict ones: those are
     // reachable only by the Global Owner, who is unbounded by definition.
+    // (`app_admins` is no longer in the block: `oxy-api-admin`'s section since
+    // 2026-11-20. It keys on `{id}`, not an org, and is row-fenced by
+    // `may_delegate`, pinned by `the_grant_table_is_capability_gated_..`.)
     let owner_strict = ["billing", "app_admins"];
     let mut routers: Vec<String> = Vec::new();
     for piece in merge_block.split("::router()").take(32) {
@@ -937,21 +940,43 @@ fn the_capability_guard_refuses_on_unreadable_standing() {
 /// stopped being mounted that way, and passed the whole time.
 #[test]
 fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
-    let modrs = read("crates/app/src/server/api/admin/mod.rs");
-
-    let mount = modrs
-        .split("app_admins::router()")
-        .nth(1)
-        .expect("app_admins is no longer mounted in admin::router")
-        .split(')')
-        .next()
-        .unwrap_or_default();
+    // `oxy-api-admin`'s section since the admin split (2026-11-20): `oxy-app`'s
+    // `extracted_sections` wraps it in the capability the section names, so the
+    // capability is read off the one `AdminSection` literal that mounts it. Per
+    // literal, not file-wide: the crate hands over several sections, and a
+    // file-wide needle would be satisfied by any other one behind the same gate.
+    let sections_src = read("crates/api-admin/src/lib.rs");
+    let mounts: Vec<&str> = sections_src
+        .split("AdminSection {")
+        .skip(1)
+        .map(|s| s.split('}').next().unwrap_or_default())
+        .filter(|s| s.contains("app_admins::router()"))
+        .collect();
+    assert_eq!(
+        mounts.len(),
+        1,
+        "app_admins must be mounted by exactly one `AdminSection` in oxy-api-admin's \
+         `admin_sections`; found {}",
+        mounts.len()
+    );
     assert!(
-        mount.contains("Action::PlatformGrants"),
-        "app_admins must mount under `cap(Action::PlatformGrants)`; found `{mount}`"
+        mounts[0].contains("capability: Action::PlatformGrants"),
+        "app_admins must mount under `Action::PlatformGrants`; found `{}`",
+        mounts[0]
+    );
+    // And that section reaches the served router: the composition root chains
+    // the crate's sections onto the admin seam, and `admin::router` no longer
+    // mounts its own copy beside it.
+    assert!(
+        read("crates/server/src/main.rs").contains(".chain(oxy_api_admin::admin_sections())"),
+        "oxy-server no longer chains oxy-api-admin's sections onto the admin seam"
+    );
+    assert!(
+        !read("crates/app/src/server/api/admin/mod.rs").contains("app_admins::router()"),
+        "`admin::router` mounts the grant table again, beside its oxy-api-admin section"
     );
 
-    let src = read("crates/app/src/server/api/admin/app_admins.rs");
+    let src = read("crates/api-admin/src/app_admins.rs");
     let body_of = |name: &str| -> &str {
         src.split(&format!("pub async fn {name}("))
             .nth(1)
@@ -1037,9 +1062,10 @@ fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
 /// owner", which is precisely the wrong half.
 #[test]
 fn an_unexpandable_stored_role_denies_everyone_but_the_owner() {
-    let src = read("crates/app/src/server/api/admin/app_admins.rs");
+    let src = read("crates/api-admin/src/app_admins.rs");
     // `delegatable` sits beside the stored grant shape in `oxy-server-authz` since the
-    // admin split's PR 3; its callers, the grant-table handlers, stay in `app_admins.rs`.
+    // admin split's PR 3; its callers, the grant-table handlers, are `oxy-api-admin`'s
+    // `app_admins.rs` since 2026-11-20.
     let grant = read("crates/server-authz/src/staff/stored_grant.rs");
     let body = grant
         .split("fn delegatable(")
@@ -1088,7 +1114,7 @@ fn an_unexpandable_stored_role_denies_everyone_but_the_owner() {
 /// the entire check for a revoke, so reading one the delete does not hold is not a check.
 #[test]
 fn both_grant_writes_lock_their_target_and_hold_one_connection() {
-    let src = read("crates/app/src/server/api/admin/app_admins.rs");
+    let src = read("crates/api-admin/src/app_admins.rs");
     let body_of = |name: &str| -> &str {
         src.split(&format!("pub async fn {name}("))
             .nth(1)
@@ -1144,7 +1170,7 @@ fn both_grant_writes_lock_their_target_and_hold_one_connection() {
 /// the one the change's own end-to-end verification performed.
 #[test]
 fn the_grant_audit_records_scope_on_both_sides() {
-    let src = read("crates/app/src/server/api/admin/app_admins.rs");
+    let src = read("crates/api-admin/src/app_admins.rs");
     let body_of = |name: &str| -> &str {
         src.split(&format!("pub async fn {name}("))
             .nth(1)

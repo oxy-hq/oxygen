@@ -186,7 +186,7 @@ async fn find_org(conn: &DatabaseConnection, slug: &str) -> Result<Option<Uuid>,
         .map(|o| o.id))
 }
 
-/// Upsert one grant + its scope rows, mirroring `admin::app_admins::create_app_admin`
+/// Upsert one grant + its scope rows, mirroring `oxy_api_admin::app_admins::create_app_admin`
 /// so the seeded shape and the console-created shape can't drift.
 async fn upsert_grant(
     conn: &DatabaseConnection,

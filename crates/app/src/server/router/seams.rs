@@ -63,7 +63,8 @@ impl Default for SurfaceSeam {
 /// (`oxy_owner_or_app_admin_guard`) and the refusal while an operator is acting
 /// as a tenant (`assume::block_admin_while_acting`). On top of those, every
 /// in-tree section escalates to the capability its surface is about —
-/// `audit` to `PlatformAudit`, `app_admins` to `PlatformGrants`. A section
+/// `audit` to `PlatformAudit`, `app_admins` to `PlatformGrants` (both
+/// `oxy-api-admin`'s sections now). A section
 /// therefore NAMES its capability and `oxy-app` applies the guard: an
 /// extracted surface cannot mount an admin route that skips it, the way it
 /// could if it had to remember the `route_layer` itself.

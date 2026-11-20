@@ -7,7 +7,9 @@
 //! section escalates to the capability its surface is about, including the
 //! airway admission config (`Action::PlatformOperate`).
 
-pub mod app_admins;
+// `app_admins` (`/app-admins*`, the grant table) is `oxy-api-admin`'s since
+// the admin split (2026-11-20): a section behind `PlatformGrants`,
+// arriving through `extracted`.
 pub mod assume;
 // `audit` (`/audit*`, the platform audit log) is `oxy-api-admin`'s since
 // the admin split's audit move (2026-11-20): a section behind
@@ -126,15 +128,12 @@ use crate::server::router::{AdminSection, AppState};
 /// One gate remains owner-only rather than capability-gated, deliberately:
 /// * `billing` — the Billing queue, `Ring::GlobalOwnerOnly`.
 ///
-/// `app_admins` — the **grant table itself** — used to be the second, on the reasoning
-/// that "a capability that could edit the grant table would let its holder widen their
-/// own grant, and the ceiling would mean nothing". That objection is real and is
-/// answered by bounding the write rather than withholding the capability: `may_delegate`
-/// admits only a grant strictly weaker than the writer's own, so the one row a holder
-/// can never touch is their own, and only the owner can mint a peer. See
-/// `admin::delegation`. **The capability gate here is a door, not the control** — the
-/// handlers carry the row-level half (`actor_facts` once, then `refuse(may_delegate(..))`
-/// per row), exactly as scope works.
+/// `app_admins` — the **grant table itself** — used to be the second. It is
+/// capability-gated (`PlatformGrants`) and row-fenced instead, and since the admin
+/// split (2026-11-20) it is `oxy-api-admin`'s section, arriving through `extracted`
+/// behind that capability. Why a capability and not the owner-only guard, and why
+/// that gate is a door rather than the control, is argued on
+/// `oxy_api_admin::admin_sections`, beside the mount.
 ///
 /// **Scope is not enforced here** — see `platform_cap_guard`. A scoped operator passes
 /// these gates and the handler filters its rows.
@@ -210,7 +209,9 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // so the capability that administers staff access.
         .merge(usage_report::recipients::router().route_layer(cap(Action::PlatformGrants)))
         .merge(billing::router().route_layer(strict))
-        .merge(app_admins::router().route_layer(cap(Action::PlatformGrants)))
+        // The grant table (`/app-admins*`, `PlatformGrants`) moved to
+        // `oxy-api-admin` (admin split, 2026-11-20) and arrives through
+        // `extracted` below, behind the capability it had here.
         // Sections from extracted surface crates, each behind the capability it
         // names. Merged before the acting block below, so they are refused while
         // acting exactly as the in-tree sections are.
@@ -268,9 +269,11 @@ mod tests {
     //! nested under `route_layer(oxy_owner_guard_middleware)` still rejects with 403.
     //!
     //! `app_admins` was the second such surface and is no longer: it is capability-gated
-    //! plus row-fenced (see `admin::delegation`). These tests build their own router, so
-    //! they cannot notice that change — which is exactly why the assertion that the real
-    //! mount matches lives in `crates/app/tests/app_scope_boundary.rs` as a source scan.
+    //! plus row-fenced (see `oxy_server_authz::staff::delegation`), and `oxy-api-admin`'s
+    //! section since the admin split. These tests build their own router, so they cannot
+    //! notice that change — which is exactly why the assertion that the real mount matches
+    //! lives in `crates/app/tests/authz/app_scope_boundary.rs` as a source scan of
+    //! `oxy-api-admin`'s `admin_sections`.
     //! A fixture that mounts its own probe under `strict` proves the *middleware* works
     //! and nothing whatsoever about what ships.
     //!

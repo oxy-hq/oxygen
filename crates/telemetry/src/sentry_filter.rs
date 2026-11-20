@@ -955,6 +955,10 @@ mod tests {
             // audit table and the anchor's S3 read, kept and not the data
             // plane as it was at `oxy_app::server::api::admin::audit`.
             "oxy_api_admin::audit",
+            // The admin split (2026-11-20): the grant table, Oxy's own
+            // Postgres only, kept and not the data plane as it was at
+            // `oxy_app::server::api::admin::app_admins`.
+            "oxy_api_admin::app_admins",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1325,6 +1329,9 @@ mod tests {
             // The admin split (2026-11-20): the audit log. It searches and
             // verifies `audit_events`; no warehouse query.
             "oxy_api_admin::audit",
+            // The admin split (2026-11-20): the grant table. It reads and
+            // writes `app_admins`; no warehouse query.
+            "oxy_api_admin::app_admins",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

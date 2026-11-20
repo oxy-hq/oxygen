@@ -3,8 +3,9 @@
 //! [`delegatable`]: the delegation bound ([`oxy_authz::may_delegate`]) applied to
 //! a row as it exists in the table.
 //!
-//! The grant-table handlers (`oxy-app`'s `admin::app_admins`) and the user
-//! directory's status fence (`admin::user_scope`) both decide on this shape.
+//! The grant-table handlers (`oxy-api-admin`'s `app_admins`, out of `oxy-app`'s
+//! `admin::app_admins` since 2026-11-20) and the user directory's status fence
+//! (`admin::user_scope`) both decide on this shape.
 //! Down from `admin::app_admins` in the admin split's PR 3, so the user
 //! directory can leave `oxy-app` without taking the grant table's routes.
 

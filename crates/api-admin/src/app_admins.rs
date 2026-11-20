@@ -27,6 +27,13 @@
 //!
 //! Replaces the legacy `OXY_APP_ADMINS` env var, which can only ever seed
 //! `global_admin` at unbounded scope.
+//!
+//! Out of `oxy-app`'s `api::admin::app_admins` in the admin split (2026-11-20).
+//! A section on `SurfaceSeams::admin` ([`crate::admin_sections`]) behind
+//! `PlatformGrants`: `oxy-app`'s `admin::router` applies the staff door, the
+//! refusal while acting and that capability, as it did in-tree. Why the grant
+//! table takes a capability rather than the owner-only guard is argued on
+//! [`crate::admin_sections`].
 
 use std::collections::HashMap;
 
@@ -46,13 +53,13 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::authz::globals::invalidate_admin_cache;
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::audit;
+use oxy_server_authz::globals::invalidate_admin_cache;
 use oxy_server_authz::staff::delegation;
 use oxy_server_authz::staff::stored_grant::delegatable;
 
-pub(crate) fn router() -> Router<AppState> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/app-admins", get(list_app_admins).post(create_app_admin))
         .route("/app-admins/{id}", delete(delete_app_admin))

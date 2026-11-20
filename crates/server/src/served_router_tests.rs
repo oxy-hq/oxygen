@@ -4423,3 +4423,470 @@ fn the_composition_carries_the_audit_section() {
         "PlatformAudit declares nothing"
     );
 }
+
+/// The grant table's routes (`oxy-api-admin`'s section since the admin split's
+/// app-admins move, 2026-11-20), as `(method, path, body, owner, Global Admin
+/// bounded to org A)`, read off the served router on `main` (2b45e1761d)
+/// before the move. `{a}` / `{b}` are org A and org B, `{t}` a fresh target
+/// email, `{row}` the id of a grant bounded to org A and `{peer}` one bounded
+/// to A and B, both seeded by the owner first. Run in order: the owner's
+/// writes are undone before the bounded pass.
+///
+/// Every other caller this test sends — not staff, the owner while acting, an
+/// App Operator bounded to org A (no `PlatformGrants`) — is 403 on each of
+/// these, the wrong verbs included.
+const ADMIN_APP_ADMINS_ROUTES: &[(&str, &str, Option<&str>, u16, u16)] = &[
+    ("GET", "/admin/app-admins", None, 200, 200),
+    (
+        "POST",
+        "/admin/app-admins",
+        Some(r#"{"email":"{t}","role":"app_operator","scope_org_ids":["{a}"]}"#),
+        200,
+        200,
+    ),
+    (
+        "POST",
+        "/admin/app-admins",
+        Some(r#"{"email":"{t}","role":"app_operator","scope_org_ids":["{b}"]}"#),
+        200,
+        403,
+    ),
+    (
+        "POST",
+        "/admin/app-admins",
+        Some(r#"{"email":"{t}","role":"global_admin","scope_org_ids":["{a}"]}"#),
+        200,
+        403,
+    ),
+    (
+        "POST",
+        "/admin/app-admins",
+        Some(r#"{"email":"no-at-sign"}"#),
+        400,
+        400,
+    ),
+    (
+        "POST",
+        "/admin/app-admins",
+        Some(r#"{"email":"{t}","role":"bogus"}"#),
+        400,
+        400,
+    ),
+    ("DELETE", "/admin/app-admins/{peer}", None, 204, 403),
+    ("DELETE", "/admin/app-admins/{row}", None, 204, 204),
+    (
+        "DELETE",
+        "/admin/app-admins/00000000-0000-0000-0000-00000000dead",
+        None,
+        404,
+        404,
+    ),
+    ("DELETE", "/admin/app-admins/not-a-uuid", None, 400, 400),
+    ("PUT", "/admin/app-admins", None, 405, 405),
+    ("DELETE", "/admin/app-admins", None, 405, 405),
+    ("GET", "/admin/app-admins/{row}", None, 405, 405),
+    ("TRACE", "/admin/app-admins", None, 405, 405),
+    ("TRACE", "/admin/app-admins/{row}", None, 405, 405),
+];
+
+/// Paths the section does not mount: the outer router's 404 for every caller.
+const ADMIN_APP_ADMINS_UNMOUNTED: &[&str] = &[
+    "/admin/app-admins/",
+    "/admin/app-admins/{row}/deeper",
+    "/admin/app-adminsx",
+];
+
+/// What the bounded test world needs to fill a row of
+/// [`ADMIN_APP_ADMINS_ROUTES`].
+struct GrantWorld {
+    db: sea_orm::DatabaseConnection,
+    a: uuid::Uuid,
+    b: uuid::Uuid,
+    target: String,
+    row: String,
+    peer: String,
+}
+
+impl GrantWorld {
+    fn fill(&self, s: &str) -> String {
+        s.replace("{a}", &self.a.to_string())
+            .replace("{b}", &self.b.to_string())
+            .replace("{t}", &self.target)
+            .replace("{row}", &self.row)
+            .replace("{peer}", &self.peer)
+    }
+
+    /// (Re)create the two target grants as the owner would, straight into
+    /// the table, and point `{row}` / `{peer}` at them.
+    async fn seed(&mut self, tag: &str) {
+        use sea_orm::{ActiveModelTrait, ActiveValue};
+        self.clear().await;
+        let now = chrono::Utc::now();
+        let mut ids = Vec::new();
+        for (who, scope) in [("row", vec![self.a]), ("peer", vec![self.a, self.b])] {
+            let grant = entity::app_admins::ActiveModel {
+                id: ActiveValue::Set(uuid::Uuid::new_v4()),
+                email: ActiveValue::Set(format!("{who}-{tag}-{}", self.target)),
+                granted_by: ActiveValue::Set(None),
+                created_at: ActiveValue::Set(now.into()),
+                role: ActiveValue::Set("app_operator".into()),
+                scope_all: ActiveValue::Set(false),
+                updated_at: ActiveValue::Set(now.into()),
+            }
+            .insert(&self.db)
+            .await
+            .expect("seed a target grant");
+            for org_id in scope {
+                entity::app_admin_scope_orgs::ActiveModel {
+                    id: ActiveValue::Set(uuid::Uuid::new_v4()),
+                    app_admin_id: ActiveValue::Set(grant.id),
+                    org_id: ActiveValue::Set(org_id),
+                    created_at: ActiveValue::Set(now.into()),
+                    created_by: ActiveValue::Set(None),
+                }
+                .insert(&self.db)
+                .await
+                .expect("scope the target grant");
+            }
+            ids.push(grant.id.to_string());
+        }
+        self.row = ids[0].clone();
+        self.peer = ids[1].clone();
+    }
+
+    /// Remove every grant this test made for a target (never the guest's).
+    async fn clear(&self) {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        entity::app_admins::Entity::delete_many()
+            .filter(entity::app_admins::Column::Email.contains(&self.target))
+            .exec(&self.db)
+            .await
+            .expect("clear the target grants");
+    }
+}
+
+async fn admin_app_admins_call(
+    router: &Router,
+    method: &Method,
+    path: &str,
+    body: Option<&str>,
+) -> StatusCode {
+    let mut req = Request::builder().method(method).uri(path);
+    let body = match body {
+        Some(b) => {
+            req = req.header("content-type", "application/json");
+            Body::from(b.to_string())
+        }
+        None => Body::empty(),
+    };
+    router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
+        .expect("oneshot")
+        .status()
+}
+
+async fn admin_app_admins_sweep(
+    router: &Router,
+    who: &str,
+    w: &mut GrantWorld,
+    col: Option<usize>,
+) {
+    w.seed(who.split('@').next().unwrap_or(who)).await;
+    for (m, p, body, owner, ga) in ADMIN_APP_ADMINS_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let want = match col {
+            None => 403,
+            Some(0) => *owner,
+            Some(_) => *ga,
+        };
+        let path = w.fill(p);
+        let body = body.map(|b| w.fill(b));
+        let got = admin_app_admins_call(router, &method, &path, body.as_deref()).await;
+        assert_eq!(got.as_u16(), want, "{who} {m} {p}: got {got}");
+    }
+    for p in ADMIN_APP_ADMINS_UNMOUNTED {
+        let got = status(router, &Method::GET, &w.fill(p)).await;
+        assert_eq!(got, StatusCode::NOT_FOUND, "{who} GET {p}");
+    }
+}
+
+/// `platform.grant.*` audit rows naming `target`, oldest first, as their action.
+async fn grant_audit_actions(db: &sea_orm::DatabaseConnection, target: &str) -> Vec<String> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    entity::audit_events::Entity::find()
+        .filter(entity::audit_events::Column::Action.starts_with("platform.grant."))
+        .filter(entity::audit_events::Column::TargetLabel.eq(target))
+        .order_by_asc(entity::audit_events::Column::Seq)
+        .all(db)
+        .await
+        .expect("read the grant audit rows")
+        .into_iter()
+        .map(|e| e.action)
+        .collect()
+}
+
+/// The served router mounts the grant table inside `/api/admin` behind the
+/// layers `admin::router` gave it in `oxy-app` — the staff door, the refusal
+/// while acting, and `PlatformGrants` — answering what `main` answered before
+/// the move ([`ADMIN_APP_ADMINS_ROUTES`]). The bounded App Operator is the
+/// capability layer's witness: the door admits any standing, and its GET
+/// would list every grant without `PlatformGrants` on the section (its writes
+/// would still meet `may_delegate`). The bounded Global Admin's 403s are the
+/// handlers' own row fence. Writes are audited, and each one clears the grant
+/// cache itself: the guest's own grant, written and revoked through the
+/// handler, takes effect on the very next request with no invalidation here.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_app_admins_section_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+    let router = served(ServeMode::Cloud).await;
+    for (m, p, ..) in ADMIN_APP_ADMINS_ROUTES {
+        let path = p.replace("{row}", &uuid::Uuid::new_v4().to_string());
+        assert_eq!(
+            classify(m, &format!("/api{path}")),
+            RouteRole::FleetOk,
+            "{m} {p} is Postgres only and must stay FleetOk"
+        );
+    }
+
+    // A run that panicked mid-way leaves its grant behind, which would make
+    // the guest staff below; these tests are serial (`serial-db`).
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let guest = oxy_auth::user::LOCAL_GUEST_EMAIL;
+    entity::app_admins::Entity::delete_many()
+        .filter(entity::app_admins::Column::Email.eq(guest))
+        .exec(&db)
+        .await
+        .expect("clear a stale guest grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
+
+    let org = |name: &'static str| {
+        let id = uuid::Uuid::new_v4();
+        entity::organizations::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(name.into()),
+            slug: ActiveValue::Set(format!("admin-grants-{}", id.simple())),
+            ..Default::default()
+        }
+    };
+    let a = org("Admin grants in scope")
+        .insert(&db)
+        .await
+        .expect("org A");
+    let b = org("Admin grants out of scope")
+        .insert(&db)
+        .await
+        .expect("org B");
+    let mut w = GrantWorld {
+        db: db.clone(),
+        a: a.id,
+        b: b.id,
+        target: format!("grant-{}@served.test", uuid::Uuid::new_v4().simple()),
+        row: String::new(),
+        peer: String::new(),
+    };
+
+    admin_app_admins_sweep(&router, "non-staff", &mut w, None).await;
+    assert!(
+        grant_audit_actions(&db, &w.target).await.is_empty(),
+        "a refused write was audited"
+    );
+    let owner = OwnerEnv::set(guest);
+    admin_app_admins_sweep(&router, "owner", &mut w, Some(0)).await;
+    // The owner's three admissible writes to `{t}`: a create, then two updates.
+    assert_eq!(
+        grant_audit_actions(&db, &w.target).await,
+        vec![
+            "platform.grant.created",
+            "platform.grant.updated",
+            "platform.grant.updated"
+        ]
+    );
+
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+
+    // Acting as a tenant closes the console, the grant table included.
+    let now = chrono::Utc::now();
+    let acting = org("Admin grants acting")
+        .insert(&db)
+        .await
+        .expect("seed the org");
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(guest.into()),
+        org_id: ActiveValue::Set(acting.id),
+        reason: ActiveValue::Set("served-router admin grants".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    w.seed("acting").await;
+    let mut acting_answers = Vec::new();
+    for (m, p, body, ..) in ADMIN_APP_ADMINS_ROUTES {
+        let method = Method::from_bytes(m.as_bytes()).unwrap();
+        let body = body.map(|b| w.fill(b));
+        let got = admin_app_admins_call(&router, &method, &w.fill(p), body.as_deref()).await;
+        acting_answers.push((*m, *p, got));
+    }
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    for (m, p, got) in acting_answers {
+        assert_eq!(got, StatusCode::FORBIDDEN, "acting {m} {p}: got {got}");
+    }
+
+    // The handlers clear the grant cache themselves. "No grant" for the guest
+    // is cached by the non-owner request first; nothing below invalidates.
+    w.clear().await;
+    drop(owner);
+    assert_eq!(
+        status(&router, &Method::GET, "/admin/app-admins").await,
+        StatusCode::FORBIDDEN,
+        "the guest holds no grant yet"
+    );
+    let owner = OwnerEnv::set(guest);
+    let grant_guest = format!(r#"{{"email":"{guest}"}}"#);
+    let got = admin_app_admins_call(
+        &router,
+        &Method::POST,
+        "/admin/app-admins",
+        Some(&grant_guest),
+    )
+    .await;
+    assert_eq!(got, StatusCode::OK, "the owner grants the guest");
+    drop(owner);
+    assert_eq!(
+        status(&router, &Method::GET, "/admin/app-admins").await,
+        StatusCode::OK,
+        "a grant written through the console is in force on the next request"
+    );
+    let guest_grant = entity::app_admins::Entity::find()
+        .filter(entity::app_admins::Column::Email.eq(guest))
+        .one(&db)
+        .await
+        .expect("read the guest's grant")
+        .expect("the guest's grant was written");
+    let owner = OwnerEnv::set(guest);
+    let got = admin_app_admins_call(
+        &router,
+        &Method::DELETE,
+        &format!("/admin/app-admins/{}", guest_grant.id),
+        None,
+    )
+    .await;
+    assert_eq!(got, StatusCode::NO_CONTENT, "the owner revokes it");
+    drop(owner);
+    assert_eq!(
+        status(&router, &Method::GET, "/admin/app-admins").await,
+        StatusCode::FORBIDDEN,
+        "a grant revoked through the console is gone on the next request"
+    );
+    assert_eq!(
+        grant_audit_actions(&db, guest)
+            .await
+            .last()
+            .map(String::as_str),
+        Some("platform.grant.revoked")
+    );
+
+    // Staff bounded to org A: an App Operator (no `PlatformGrants`), then a
+    // Global Admin, whose writes the delegation bound narrows to org A.
+    for role in ["app_operator", "global_admin"] {
+        let grant = entity::app_admins::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            email: ActiveValue::Set(guest.into()),
+            granted_by: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(now.into()),
+            role: ActiveValue::Set(role.into()),
+            scope_all: ActiveValue::Set(false),
+            updated_at: ActiveValue::Set(now.into()),
+        }
+        .insert(&db)
+        .await
+        .expect("seed the bounded grant");
+        entity::app_admin_scope_orgs::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4()),
+            app_admin_id: ActiveValue::Set(grant.id),
+            org_id: ActiveValue::Set(a.id),
+            created_at: ActiveValue::Set(now.into()),
+            created_by: ActiveValue::Set(None),
+        }
+        .insert(&db)
+        .await
+        .expect("bound it to org A");
+        oxy_server_authz::globals::invalidate_admin_cache();
+        let col = (role == "global_admin").then_some(1);
+        admin_app_admins_sweep(&router, &format!("{role}@A"), &mut w, col).await;
+        entity::app_admins::Entity::delete_by_id(grant.id)
+            .exec(&db)
+            .await
+            .expect("remove the grant");
+        oxy_server_authz::globals::invalidate_admin_cache();
+    }
+    w.clear().await;
+    for id in [acting.id, a.id, b.id] {
+        entity::organizations::Entity::delete_by_id(id)
+            .exec(&db)
+            .await
+            .expect("remove the seeded org");
+    }
+}
+
+/// The composition hands the admin seam the grant table behind
+/// `PlatformGrants`, the capability `admin::router` gave it in `oxy-app`,
+/// declaring nothing (the console's `/{*rest}` FleetOk wildcard places it).
+/// Identified by what it mounts, not by its capability: identity's standing
+/// tokens are behind `PlatformGrants` too.
+#[tokio::test]
+async fn the_composition_carries_the_app_admins_section() {
+    let seams = surface_seams();
+    let mut carrying = Vec::new();
+    for section in seams.admin {
+        let got = section
+            .routes
+            .clone()
+            .with_state(oxy_app::surface::bare_app_state())
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri("/app-admins")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("oneshot")
+            .status();
+        if got == StatusCode::METHOD_NOT_ALLOWED {
+            carrying.push((section.capability, section.decls.len()));
+        }
+    }
+    assert_eq!(
+        carrying,
+        vec![(oxy_app::surface::Action::PlatformGrants, 0)],
+        "the sections mounting /app-admins"
+    );
+}
