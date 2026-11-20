@@ -226,6 +226,10 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `oxy-app`'s `api/admin/` in the admin split's PR 7, nested FleetOk as
         // an `AdminNest`: the queue, run and workspace tables in Postgres and
         // the durable transport's reaper and retention, never a working copy.
+        // Since 2026-11-20 also assume-role (`/assume*`), merged UNDECLARED at
+        // the protected tree's root through `SurfaceSeams::api`, as
+        // `oxy-app`'s `merge_undeclared` had it: the session and audit tables
+        // only, so the FleetOk default holds while this scan stays clean.
         "../api-admin/src",
         // The weekly custom-app usage report (`/admin/usage-report*`), out of
         // `oxy-app`'s `api/admin/` in the admin split's PR 8b, two

@@ -31,16 +31,16 @@
 //! queue and runs live in the runtime tables), so each test owns its database and
 //! every total asserted here is exact.
 
-mod assume;
-// The audit log's cases (`audit`, half of the former `audit_and_assume`)
-// moved with the handlers to `oxy-api-admin`'s `admin_staff_scope` (admin
-// split, 2026-11-20), and include `fixture` from here.
+// The impersonation log's cases (`assume`) and the audit log's (`audit`),
+// the two halves of the former `audit_and_assume`, moved with the handlers
+// to `oxy-api-admin`'s `admin_staff_scope` (admin split, 2026-11-20), and
+// include `fixture` from here.
 // The compile console's cases (`compiles`) moved with the handlers to
 // `oxy-api-previews`' `admin_staff_scope` (admin split, PR 6), and include
 // `fixture` from here.
 mod fences;
 // `oxy-api-identity`'s user-directory cases, `oxy-api-previews`' compile
-// console cases and `oxy-api-admin`'s internal-jobs and audit cases include
+// console cases and `oxy-api-admin`'s internal-jobs, audit and assume cases include
 // this file by path; the helpers only they use read as dead code from here.
 #[allow(dead_code)]
 mod fixture;

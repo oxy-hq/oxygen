@@ -969,6 +969,11 @@ mod tests {
             // Postgres only, kept and not the data plane as it was at
             // `oxy_app::server::api::admin::app_admins`.
             "oxy_api_admin::app_admins",
+            // The admin split (2026-11-20): the assume-role routes, the
+            // session and audit tables only, kept and not the data plane as
+            // they were at `oxy_app::server::api::admin::assume` (which keeps
+            // the refusal while acting and its log line).
+            "oxy_api_admin::assume",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1351,6 +1356,9 @@ mod tests {
             // The admin split (2026-11-20): the grant table. It reads and
             // writes `app_admins`; no warehouse query.
             "oxy_api_admin::app_admins",
+            // The admin split (2026-11-20): assume-role. It opens, ends and
+            // lists `admin_assume_sessions`; no warehouse query.
+            "oxy_api_admin::assume",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

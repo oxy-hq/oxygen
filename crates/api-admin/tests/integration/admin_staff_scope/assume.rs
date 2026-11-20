@@ -1,13 +1,14 @@
-//! `/admin/assume/history` — the impersonation log, which names the tenant
-//! that was entered. (`GET /admin/audit` moved with its handlers to
-//! `oxy-api-admin`'s `admin_staff_scope::audit`, admin split 2026-11-20; this
-//! file was `audit_and_assume.rs`, and `audit_and_explorer.rs` before that.)
+//! `/assume/history` — the impersonation log, which names the tenant that was
+//! entered. Moved with the handler from `oxy-app`'s
+//! `tests/platform/admin_staff_scope/assume.rs` (admin split, 2026-11-20),
+//! beside the audit log's cases it was split from (`audit_and_assume.rs`, and
+//! `audit_and_explorer.rs` before that).
 
 use axum::extract::{OriginalUri, Query};
 use axum::http::{StatusCode, Uri};
 use chrono::{Duration, Utc};
 use entity::admin_assume_sessions;
-use oxy_app::server::api::admin::assume::{HistoryQuery, history};
+use oxy_api_admin::assume::{HistoryQuery, history};
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;

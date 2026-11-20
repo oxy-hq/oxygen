@@ -252,6 +252,10 @@ async fn nothing_else_on_the_api_exists(s: &Scene) {
         // `/admin/standing-tokens`) are `oxy-api-identity`'s, refused to the
         // token in `oxy-server`'s `token_auth::sandbox_agent_reach`.
         ("GET", "/orgs".to_string()),
+        // `oxy-api-admin`'s since the admin split (2026-11-20), which this
+        // fixture's tree does not mount (S3: no surface depends on another),
+        // so here it is the outer 404. The token's refusal on the mounted
+        // route is `oxy-server`'s `token_auth::sandbox_agent_reach`.
         ("GET", "/assume".to_string()),
     ];
     for (method, uri) in outside {

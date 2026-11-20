@@ -414,7 +414,10 @@ pub mod roles {
 }
 
 /// Staff assume-role sessions — platform authz, not a tenant context: whether
-/// a staff member is acting inside an org right now.
+/// a staff member is acting inside an org right now, who may act
+/// (`may_act_as`), and the refusal of the staff console while acting. The
+/// `/api/assume` routes themselves are `oxy-api-admin`'s (admin split,
+/// 2026-11-20), which reach `may_act_as` through here.
 pub use crate::server::api::admin::assume;
 
 /// Staff-scope fencing: whether a bounded platform grant reaches this org.

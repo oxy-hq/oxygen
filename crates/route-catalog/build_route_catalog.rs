@@ -222,6 +222,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_admin::app_admins",
         function: "router",
     },
+    // Assume-role, `oxy-api-admin`'s since 2026-11-20 (out of `oxy-app`'s
+    // `admin::assume`, where the walk of `build_global_routes` read it): on
+    // `SurfaceSeams::api`, at the `/api` root, outside `/api/admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_admin::assume",
+        function: "router",
+    },
     // Workspace previews (`oxy-api-previews`, `SurfaceSeams::previews`), mounted
     // beside the workspace tree, not in it (its own access middleware), so it is
     // not reached by the walk above.

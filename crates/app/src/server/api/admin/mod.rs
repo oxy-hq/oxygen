@@ -215,7 +215,9 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         .merge(extracted_sections(extracted))
         .route_layer(middleware::from_fn(assume::block_admin_while_acting));
 
-    // Assume-role itself lives at `/api/assume`, NOT here — see `assume::router`.
+    // Assume-role itself lives at `/api/assume`, NOT here — see
+    // `oxy_api_admin::assume::router` (on `SurfaceSeams::api` since the admin
+    // split, 2026-11-20; the refusal above stayed in `assume`).
     // It has to be reachable while acting (that's where the exit is) and by
     // partners (who are not staff and would be 403'd by this surface's guard).
     staff_surface

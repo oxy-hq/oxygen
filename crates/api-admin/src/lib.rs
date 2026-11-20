@@ -5,32 +5,35 @@
 //! Started in the admin split's PR 7 with the durable task fleet's operator
 //! console ([`internal_jobs`], `/api/admin/internal-jobs/*`), out of
 //! `oxy-app`'s `api::admin::internal_jobs*`. The platform audit log
-//! ([`audit`], `/api/admin/audit*`) and the grant table's routes
-//! ([`app_admins`], `/api/admin/app-admins*`) followed on 2026-11-20. The
-//! `/api/assume` routes and `routing` follow in later PRs, and the console
-//! shell (`admin::router`: the door, the capability layers,
-//! `extracted_sections`) last, with the router assembly.
+//! ([`audit`], `/api/admin/audit*`), the grant table's routes
+//! ([`app_admins`], `/api/admin/app-admins*`) and the assume-role routes
+//! ([`assume`], `/api/assume*`) followed on 2026-11-20. `routing` follows in a
+//! later PR, and the console shell (`admin::router`: the door, the capability
+//! layers, `extracted_sections`) last, with the router assembly.
 //!
 //! Only the staff console goes here. A section about a tenant context goes to
 //! that context's surface, never here by audience: orgs went to
 //! `oxy-api-tenancy`, the user directory to `oxy-api-identity`, the compile
 //! console to `oxy-api-previews`.
 //!
-//! Mounted by the `oxy-server` composition root through two seams:
+//! Mounted by the `oxy-server` composition root through three seams:
 //! `SurfaceSeams::admin_nests` ([`admin_nests`]), chained ahead of
 //! `oxy-api-previews`' compile console so the route-role table keeps the
-//! order it had in `oxy-app` (internal jobs, then compiles), and
+//! order it had in `oxy-app` (internal jobs, then compiles),
 //! `SurfaceSeams::admin` ([`admin_sections`]), the audit log and the grant
-//! table, merged inside `/api/admin` as they were in `oxy-app`. Every route
-//! reads or writes Postgres only (the task queue, the run, workspace, audit
-//! and grant tables; the audit anchor reads S3, never a working copy), so
-//! both are FleetOk.
+//! table, merged inside `/api/admin` as they were in `oxy-app`, and
+//! `SurfaceSeams::api` ([`routes`]), assume-role, merged at the root of the
+//! protected tree OUTSIDE `/admin`, as `oxy-app`'s global tree merged it.
+//! Every route reads or writes Postgres only (the task queue, the run,
+//! workspace, audit, grant and assume-session tables; the audit anchor reads
+//! S3, never a working copy), so all three are FleetOk.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`).
 #![recursion_limit = "256"]
 
 pub mod app_admins;
+pub mod assume;
 pub mod audit;
 pub mod internal_jobs;
 mod internal_jobs_dead_letter;
@@ -39,8 +42,29 @@ mod internal_jobs_fleet;
 mod internal_jobs_reach;
 mod internal_jobs_rows;
 
+use axum::Router;
 use oxy_app::surface::roles::RouteRole;
 use oxy_app::surface::{Action, AdminNest, AdminSection};
+use oxy_app_core::AppState;
+
+/// The routes this crate hands `SurfaceSeams::api`: assume-role (`/assume`,
+/// `/assume/current`, `/assume/history`), out of `oxy-app`'s
+/// `admin::assume` (admin split, 2026-11-20).
+///
+/// **Not a section or a nest, on purpose.** Both would put the routes behind
+/// the staff door and the refusal while acting: a partner, who is not staff,
+/// could not reach them at all, and staff could start a session and never end
+/// it, because acting closes `/admin`. The exit cannot live behind the door it
+/// locks. The api seam merges it where `oxy-app`'s `build_global_routes` did:
+/// the root of the protected tree, behind the authentication stack alone
+/// (and internal auth on the internal port), cloud only. The handlers
+/// authorize (`may_act_as`, `PlatformAudit` for the history).
+///
+/// No declarations: the routes are Postgres rows only, so the FleetOk default
+/// is the truth, as it was for the undeclared merge in `oxy-app`.
+pub fn routes() -> Router<AppState> {
+    assume::router()
+}
 
 /// The staff console's sibling trees this crate hands `oxy-app`: today the
 /// task fleet's operator console, nested at `/api/admin/internal-jobs` behind
@@ -215,6 +239,69 @@ mod tests {
                 .unwrap()
                 .status();
             assert_eq!(got, want, "{uri}");
+        }
+    }
+
+    /// Every assume-role route is mounted where the web app and `oxyc assume`
+    /// call it (`/api/assume`, `/api/assume/current`, `/api/assume/history`),
+    /// and the api seam's router is the assume router. TRACE, which none takes,
+    /// answers 405 from a mounted path and 404 from an unmounted one, without
+    /// running a handler or reaching a database.
+    #[tokio::test]
+    async fn every_assume_route_is_mounted() {
+        let router = routes().with_state(oxy_app::surface::bare_app_state());
+        for (uri, want) in [
+            ("/assume", StatusCode::METHOD_NOT_ALLOWED),
+            ("/assume/current", StatusCode::METHOD_NOT_ALLOWED),
+            ("/assume/history", StatusCode::METHOD_NOT_ALLOWED),
+            ("/assume/", StatusCode::NOT_FOUND),
+            ("/assume/current/x", StatusCode::NOT_FOUND),
+            ("/assumex", StatusCode::NOT_FOUND),
+            // Never under `/admin`: that is the door acting closes.
+            ("/admin/assume", StatusCode::NOT_FOUND),
+        ] {
+            let got = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::TRACE)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status();
+            assert_eq!(got, want, "{uri}");
+        }
+    }
+
+    /// No section or nest of this crate mounts assume-role: one would put the
+    /// exit behind the staff door and the refusal while acting.
+    #[tokio::test]
+    async fn assume_role_is_never_behind_the_staff_door() {
+        let state = oxy_app::surface::bare_app_state();
+        let trees = admin_sections()
+            .into_iter()
+            .map(|s| s.routes)
+            .chain(admin_nests().into_iter().map(|n| n.routes));
+        for tree in trees {
+            for uri in ["/assume", "/assume/current", "/assume/history"] {
+                let got = tree
+                    .clone()
+                    .with_state(state.clone())
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::TRACE)
+                            .uri(uri)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+                    .status();
+                assert_eq!(got, StatusCode::NOT_FOUND, "{uri} on a staff tree");
+            }
         }
     }
 

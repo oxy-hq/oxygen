@@ -1,7 +1,8 @@
 //! `GET /admin/audit` — the platform audit log, which carries a tenant's own
 //! trail. Moved with the handlers from `oxy-app`'s
 //! `tests/platform/admin_staff_scope/audit_and_assume.rs` (admin split,
-//! 2026-11-20); the `/admin/assume/history` half stayed there, as `assume.rs`.
+//! 2026-11-20); the `/assume/history` half followed on the same day, as
+//! `assume.rs` beside this file.
 
 use axum::extract::{OriginalUri, Query};
 use axum::http::{StatusCode, Uri};

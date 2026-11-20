@@ -61,6 +61,9 @@ pub(crate) fn flat_api() -> Router {
         // since 2026-11-16 (was `build_org_routes` inside
         // `build_global_routes`).
         .merge(oxy_api_workspaces::routes())
+        // Assume-role, `oxy-api-admin`'s since the admin split (2026-11-20;
+        // was `build_global_routes`), which `assume_binding` drives.
+        .merge(oxy_api_admin::routes())
         .merge(
             oxy_api_custom_apps::routes()
                 .layer(axum::Extension(oxy_api_notifications::live_kinds())),

@@ -134,6 +134,11 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_slack::routes())
         .merge(oxy_api_threads::routes())
         .merge(oxy_api_workspaces::routes())
+        // Assume-role (`/assume*`), `oxy-api-admin`'s since the admin split
+        // (2026-11-20): at this root, NOT behind the staff door, because acting
+        // closes `/admin` and the exit cannot live behind the door it locks.
+        // Undeclared (FleetOk), as `oxy-app`'s global tree merged it.
+        .merge(oxy_api_admin::routes())
         // The environment planes writes pin a semantic branch through a port
         // `oxy-app` implements (a surface may not depend on `oxy-app`). The
         // staff console's "Test notifications" reads an app's kinds through a

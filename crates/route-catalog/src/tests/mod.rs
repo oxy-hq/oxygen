@@ -87,6 +87,9 @@ const REQUIRED_GROUPS: &[&str] = &[
     // `oxy-api-custom-apps`, on the public seam; `/api/customer-apps` above is
     // the admin console's mount and does not cover it.
     "/api/customer-apps/{org_slug}/{app_slug}/health",
+    // `oxy-api-admin`'s assume-role, on the api seam at the root since the
+    // admin split (2026-11-20); the walk of `build_global_routes` reached it
+    // in-tree, now only its own seed does.
     "/api/assume",
     "/api/airhouse/",
     "/api/partners/",

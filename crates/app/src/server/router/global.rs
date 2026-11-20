@@ -73,15 +73,13 @@ pub(super) fn build_global_routes(
             "per-org OLTP status is Postgres-only; no workspace files on any path",
         )
         .nest("/orgs/{org_id}", build_org_routes(app_state))
-        // Assume-role ("act as"). Authenticated, NOT admin-gated: staff act as any
-        // org, a partner acts as an assigned client with `develop_apps`. The
-        // handlers authorize (`assume::may_act_as`). It must sit outside /admin
-        // because acting CLOSES /admin — the exit cannot live behind the door it
-        // locks.
-        .merge_undeclared(
-            admin::assume::router(),
-            "assume-role sessions are Postgres rows; the exit cannot live behind the door it locks",
-        )
+        // Assume-role ("act as", `/assume*`) is `oxy-api-admin`'s since the admin
+        // split (2026-11-20), merged at this same root through `SurfaceSeams::api`,
+        // undeclared (FleetOk) as it was here. Authenticated, NOT admin-gated: staff
+        // act as any org, a partner acts as an assigned client with `develop_apps`,
+        // and the handlers authorize (`assume::may_act_as`, which stayed in
+        // `oxy-app`). It must sit outside /admin because acting CLOSES /admin — the
+        // exit cannot live behind the door it locks.
         // `/admin/*` runs under the permissive owner-or-app-admin guard so
         // app admins can reach feature flags, custom apps, orgs / users /
         // workspaces management, and internal jobs. The sensitive subset —

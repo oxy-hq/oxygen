@@ -5080,3 +5080,266 @@ async fn the_admin_seam_mounts_the_usage_report_behind_the_staff_layers() {
             .expect("remove the seeded org");
     }
 }
+
+/// The composition hands assume-role (`oxy-api-admin`'s since the admin split,
+/// 2026-11-20) to the api seam, the root of the protected tree, where
+/// `oxy-app`'s global tree merged it, and to no staff-console section or nest:
+/// either would put the exit behind the staff door and the refusal while
+/// acting. Undeclared, as it was: the FleetOk default places it.
+#[tokio::test]
+async fn the_composition_carries_assume_role_on_the_api_seam() {
+    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+        tree.clone()
+            .with_state(oxy_app::surface::bare_app_state())
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("oneshot")
+            .status()
+    }
+    let seams = surface_seams();
+    for uri in ["/assume", "/assume/current", "/assume/history"] {
+        assert_eq!(
+            trace(&seams.api.routes, uri).await,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "the api seam mounts {uri}"
+        );
+        for section in &seams.admin {
+            assert_eq!(
+                trace(&section.routes, uri).await,
+                StatusCode::NOT_FOUND,
+                "{uri}"
+            );
+        }
+        // A nest may hold a bare `/{id}` route (the compile console's
+        // `/{revision_id}`), which answers any one-segment path, so a nest
+        // mounts nothing for assume-role when the path answers exactly as an
+        // unmounted sibling of it does.
+        for nest in &seams.admin_nests {
+            let control = format!("/nothing-mounts-this{}", &uri["/assume".len()..]);
+            assert_eq!(
+                trace(&nest.routes, uri).await,
+                trace(&nest.routes, &control).await,
+                "{uri} on the nest at /admin{}",
+                nest.prefix
+            );
+        }
+    }
+    // No `/assumex` control here: the api seam carries other surfaces'
+    // one-segment `/{param}` routes, which answer it. The assume router's own
+    // exact paths are `oxy-api-admin`'s `every_assume_route_is_mounted`.
+    assert!(
+        !seams.api.decls.iter().any(|d| d.path.contains("assume")),
+        "assume-role declares nothing; the FleetOk default places it"
+    );
+}
+
+/// POST, GET or DELETE `path` with an optional JSON body; the status and the
+/// body (JSON, or `Null` when empty).
+async fn assume_call(
+    router: &Router,
+    method: Method,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> (StatusCode, serde_json::Value) {
+    let mut req = Request::builder().method(method).uri(path);
+    let body = match body {
+        Some(b) => {
+            req = req.header("content-type", "application/json");
+            Body::from(b.to_string())
+        }
+        None => Body::empty(),
+    };
+    let response = router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
+        .expect("oneshot");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+/// The `admin.assume.*` audit actions written for `org`, oldest first.
+async fn assume_audit_actions(db: &sea_orm::DatabaseConnection, org: uuid::Uuid) -> Vec<String> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    entity::audit_events::Entity::find()
+        .filter(entity::audit_events::Column::Action.starts_with("admin.assume."))
+        .filter(entity::audit_events::Column::OrgId.eq(org))
+        .order_by_asc(entity::audit_events::Column::Seq)
+        .all(db)
+        .await
+        .expect("read the assume audit rows")
+        .into_iter()
+        .map(|e| e.action)
+        .collect()
+}
+
+/// The served router mounts assume-role at `/api/assume*` OUTSIDE the staff
+/// console, and acting closes the console, answering what `main` answered
+/// before the move (read off the served router at 7cdd65f7ea):
+///
+/// * not staff: a blank reason is 400 (checked before any authority), a real
+///   one 403 (`may_act_as`), the history 403 (`PlatformAudit`), and the
+///   caller's live sessions an empty list;
+/// * the Global Owner: a session of exactly 60 minutes, audited
+///   `admin.assume.started` in the same transaction, listed by `/current`;
+/// * while it is live, the console is 403 on an in-tree route
+///   (`/admin/feature-flags`), an extracted section (`/admin/audit`) and a
+///   sibling nest (`/admin/internal-jobs/queue-stats`), and `/api/assume` itself
+///   still answers: the exit is not behind the door it locks;
+/// * ending it is 204, audited `admin.assume.ended`, and the console is back.
+///
+/// Dropping `oxy_api_admin::routes()` from the api seam turns every assume
+/// call here 404; moving it behind the staff door turns the exit 403 while
+/// acting; dropping the refusal while acting turns the console 200.
+#[tokio::test]
+async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+    use serde_json::json;
+
+    for (m, p) in [
+        ("POST", "/api/assume"),
+        ("DELETE", "/api/assume"),
+        ("GET", "/api/assume/current"),
+        ("GET", "/api/assume/history"),
+    ] {
+        assert_eq!(
+            classify(m, p),
+            RouteRole::FleetOk,
+            "{m} {p} is Postgres only and must stay FleetOk"
+        );
+    }
+
+    let router = served(ServeMode::Cloud).await;
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let guest = oxy_auth::user::LOCAL_GUEST_EMAIL;
+    // A run that panicked mid-way leaves a grant behind, which would make the
+    // guest staff below; these tests are serial (`serial-db`).
+    entity::app_admins::Entity::delete_many()
+        .filter(entity::app_admins::Column::Email.eq(guest))
+        .exec(&db)
+        .await
+        .expect("clear a stale guest grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
+    // Likewise a live session the guest was left holding, which would make
+    // `/assume/current` non-empty and the console refuse before acting.
+    entity::admin_assume_sessions::Entity::update_many()
+        .col_expr(
+            entity::admin_assume_sessions::Column::EndedAt,
+            sea_orm::sea_query::Expr::value(chrono::Utc::now().fixed_offset()),
+        )
+        .filter(entity::admin_assume_sessions::Column::ActorEmail.eq(guest))
+        .filter(entity::admin_assume_sessions::Column::EndedAt.is_null())
+        .exec(&db)
+        .await
+        .expect("end a stale guest session");
+
+    let id = uuid::Uuid::new_v4();
+    let org = entity::organizations::ActiveModel {
+        id: ActiveValue::Set(id),
+        name: ActiveValue::Set("Assume seam".into()),
+        slug: ActiveValue::Set(format!("assume-seam-{}", id.simple())),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the org");
+    let start = |reason: &str| json!({ "org_id": org.id, "reason": reason });
+
+    // Not staff.
+    let (got, _) = assume_call(&router, Method::POST, "/assume", Some(start("  "))).await;
+    assert_eq!(got, StatusCode::BAD_REQUEST, "a blank reason, not staff");
+    let (got, _) = assume_call(&router, Method::POST, "/assume", Some(start("probe"))).await;
+    assert_eq!(got, StatusCode::FORBIDDEN, "not staff may not act");
+    let (got, _) = assume_call(&router, Method::GET, "/assume/history", None).await;
+    assert_eq!(got, StatusCode::FORBIDDEN, "the history is an audit read");
+    let (got, live) = assume_call(&router, Method::GET, "/assume/current", None).await;
+    assert_eq!((got, live), (StatusCode::OK, json!([])));
+    assert!(assume_audit_actions(&db, org.id).await.is_empty());
+
+    // The Global Owner acts.
+    let owner = OwnerEnv::set(guest);
+    let (got, _) = assume_call(&router, Method::POST, "/assume", Some(start(""))).await;
+    assert_eq!(got, StatusCode::BAD_REQUEST, "a blank reason, as the owner");
+    let (got, session) = assume_call(
+        &router,
+        Method::POST,
+        "/assume",
+        Some(start(" seam probe ")),
+    )
+    .await;
+    assert_eq!(got, StatusCode::OK, "{session}");
+    assert_eq!(session["org_id"], json!(org.id));
+    assert_eq!(session["reason"], "seam probe");
+    let row = entity::admin_assume_sessions::Entity::find()
+        .filter(entity::admin_assume_sessions::Column::OrgId.eq(org.id))
+        .one(&db)
+        .await
+        .expect("read the session")
+        .expect("the session was written");
+    // `expires_at` is computed in the handler a moment before the insert stamps
+    // `started_at`, so the span is a hair under the hour, never over it.
+    let span = (row.expires_at - row.started_at).num_seconds();
+    assert!(
+        (3595..=3600).contains(&span),
+        "a 60-minute session: {span}s"
+    );
+    assert_eq!(
+        assume_audit_actions(&db, org.id).await,
+        vec!["admin.assume.started"]
+    );
+    let (got, live) = assume_call(&router, Method::GET, "/assume/current", None).await;
+    assert_eq!(got, StatusCode::OK);
+    assert_eq!(live[0]["id"], json!(row.id), "{live}");
+
+    // Acting closes the console: in-tree, a section and a nest.
+    let mut acting = Vec::new();
+    for p in [
+        "/admin/feature-flags",
+        "/admin/audit",
+        "/admin/internal-jobs/queue-stats",
+    ] {
+        acting.push((p, status(&router, &Method::GET, p).await));
+    }
+    // The exit still answers (this is the end below).
+    let (ended, _) = assume_call(&router, Method::DELETE, "/assume", None).await;
+    let mut after = Vec::new();
+    for p in [
+        "/admin/feature-flags",
+        "/admin/audit",
+        "/admin/internal-jobs/queue-stats",
+    ] {
+        after.push((p, status(&router, &Method::GET, p).await));
+    }
+    drop(owner);
+    let actions = assume_audit_actions(&db, org.id).await;
+    entity::organizations::Entity::delete_by_id(org.id)
+        .exec(&db)
+        .await
+        .expect("remove the seeded org");
+    for (p, got) in acting {
+        assert_eq!(got, StatusCode::FORBIDDEN, "acting GET {p}: got {got}");
+    }
+    assert_eq!(ended, StatusCode::NO_CONTENT, "the exit while acting");
+    assert_eq!(actions, vec!["admin.assume.started", "admin.assume.ended"]);
+    for (p, got) in after {
+        assert_eq!(got, StatusCode::OK, "after ending GET {p}: got {got}");
+    }
+}

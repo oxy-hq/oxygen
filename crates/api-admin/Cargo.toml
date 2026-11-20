@@ -12,8 +12,10 @@ edition.workspace = true
 
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
-# type (`AdminNest`), the capability it names (`Action`) and the pod placement
-# (`roles::RouteRole`). oxy-app never depends back on this crate.
+# types (`AdminNest`, `AdminSection`), the capability it names (`Action`), the pod
+# placement (`roles::RouteRole`) and who may act as an org (`assume::may_act_as`,
+# which oxy-app's own org and workspace context call too). oxy-app never depends
+# back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
@@ -23,7 +25,7 @@ oxy-custom-apps = { workspace = true }  # storage::s3, the client the audit anch
 entity = { workspace = true }           # the audit_events row, the app_admins and app_admin_scope_orgs rows
 tracing = { workspace = true }
 oxy-auth = { workspace = true }         # the authenticated-user extractor
-oxy-server-authz = { workspace = true } # staff::{scope, delegation, stored_grant}, the grant fences; globals' grant cache
+oxy-server-authz = { workspace = true } # staff::{scope, delegation, stored_grant}, the grant fences; globals' grant cache; assume_liveness, the platform facts
 oxy-authz = { workspace = true }        # PlatformRole, Scope, may_delegate (the grant table's bound)
 agentic-runtime = { workspace = true }  # RetentionConfig, DurableTransport (reaper, retention)
 axum = { workspace = true }
