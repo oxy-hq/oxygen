@@ -268,7 +268,7 @@ pub(crate) fn read_empty_since(cache_dir: &std::path::Path) -> HashMap<String, S
 
 /// Fetch the shared manifest through from S3 (mirrored there by whichever node
 /// last rebuilt this workspace's pre-aggregations — see
-/// `preagg_rebuild::mirror_manifest_to_s3`) and write it to disk so
+/// `oxy_preagg::rebuild::mirror_manifest_to_s3`) and write it to disk so
 /// `read_cache_facts` picks it up normally.
 ///
 /// This used to return early whenever a local manifest existed, which made the
@@ -1125,7 +1125,7 @@ pub struct PreaggRebuildResponse {
 /// scheduled cycle uses, drained by `PreaggTaskExecutor` on the worker fleet.
 /// Not pinned to this node: the executor rebuilds `WorkspaceManager` fresh from
 /// `workspace_id`, so any fleet node can pick up the task, and the built
-/// Parquet + manifest are mirrored to S3 (`preagg_rebuild::write_preagg_parquet`
+/// Parquet + manifest are mirrored to S3 (`oxy_preagg::rebuild::write_preagg_parquet`
 /// / manifest write) so a later query on a DIFFERENT node still finds it.
 ///
 /// Returns as soon as the rebuild is submitted, not once it finishes — a

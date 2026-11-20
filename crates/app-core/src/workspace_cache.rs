@@ -62,7 +62,7 @@ pub fn new_semantic_layer_cache() -> Arc<SemanticLayerCache> {
 ///   * it holds a bare `Arc<SemanticEngine>`. The old alias wrapped the engine in
 ///     a `Mutex` on the stated grounds that it is "`Send` but not `Sync`". It is
 ///     both, so the lock only serialised compiles that could have run in
-///     parallel; `preagg_rebuild` had already been sharing a bare
+///     parallel; `preagg_rebuild` (now `oxy_preagg::rebuild`) had already been sharing a bare
 ///     `Arc<SemanticEngine>` across spawned tasks, which is only possible for a
 ///     `Sync` type.
 pub use oxy_airlayer_compat::SemanticEngineCache;

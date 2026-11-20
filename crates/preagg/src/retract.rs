@@ -1,7 +1,7 @@
 //! Removing a rollup this builder cannot replace.
 //!
 //! The third responsibility of the pre-aggregation cycle, beside building
-//! (`preagg_rebuild`) and publishing: a stored artifact is known WRONG and
+//! (`rebuild`) and publishing: a stored artifact is known WRONG and
 //! this builder cannot produce a right one, so the entry and its Parquet go
 //! rather than keep answering. Removal is not data loss — the read path falls
 //! back to the warehouse and answers correctly, just without the badge —
@@ -34,12 +34,12 @@ use uuid::Uuid;
 
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use super::preagg_rebuild::{mirror_manifest_to_s3, same_rollup_identity};
+use crate::rebuild::{mirror_manifest_to_s3, same_rollup_identity};
 use oxy_compile::preagg_ledger;
 
 /// Why the artifact is going, which decides what is remembered about it.
 #[derive(Debug, Clone)]
-pub(super) enum Retraction {
+pub(crate) enum Retraction {
     /// Zero rows. The probed refresh-key value rides along so the next tick's
     /// staleness check has something to compare against — the manifest fields
     /// it would normally read are about to be deleted — and the names because
@@ -67,7 +67,7 @@ pub(super) enum Retraction {
 /// carries the retraction to other nodes by the same recency rule it carries a
 /// build with. The mirrored Parquet is left in the bucket — there is no delete
 /// path, and nothing references it once the entry is gone.
-pub(super) async fn retract_rollup(
+pub(crate) async fn retract_rollup(
     rollup_hash: &str,
     workspace_id: Uuid,
     generation: u32,
@@ -107,7 +107,7 @@ pub(super) async fn retract_rollup(
 /// stays hash-scoped: the sweep is holding one specific artifact's hash and has
 /// checked that this node holds ITS file (`local_parquet_present`), so widening
 /// it would destroy entries the sweep never examined.
-pub(super) async fn retract_under_publish_lock(
+pub(crate) async fn retract_under_publish_lock(
     rollup_hash: &str,
     cache_dir: &std::path::Path,
     generation: u32,
@@ -266,7 +266,7 @@ pub(super) async fn retract_under_publish_lock(
 /// fleet-wide entry. A node with no local file is serving nothing wrong from
 /// it — whatever is being served comes from another node's build — so deleting
 /// the entry buys nothing here and costs a good artifact everywhere.
-pub(super) fn local_parquet_present(cache_dir: &std::path::Path, rollup_hash: &str) -> bool {
+pub(crate) fn local_parquet_present(cache_dir: &std::path::Path, rollup_hash: &str) -> bool {
     agentic_semantic::preagg::load_local_manifest(cache_dir)
         .and_then(|m| {
             m.rollups

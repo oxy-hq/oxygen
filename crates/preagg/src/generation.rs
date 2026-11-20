@@ -2,7 +2,7 @@
 //! change made wrong, and the bookkeeping that lets the invalidation prove it
 //! finished.
 //!
-//! Separate from `preagg_executor` because it answers a different question.
+//! Separate from `oxy-app`'s `preagg_executor` because it answers a different question.
 //! The executor asks "is this rollup STALE?" — a freshness question, answered
 //! by a refresh key. This asks "was this rollup built by a builder that stored
 //! the wrong thing?" — which no refresh key can answer, because the stored
@@ -12,8 +12,8 @@ use std::sync::{Arc, RwLock};
 
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use super::preagg_executor::PreaggWorkerConfig;
-use super::preagg_retract;
+use crate::retract;
+use crate::worker_config::PreaggWorkerConfig;
 use oxy_compile::preagg_ledger;
 
 /// Generation of the rollup *builder*. Bump this by hand, in the same commit,
@@ -62,14 +62,14 @@ use oxy_compile::preagg_ledger;
 /// the claim checkable rather than inferred — the sweep no longer force-rebuilds
 /// entries another node already replaced correctly, and its failure-retraction
 /// cannot delete one of them fleet-wide over a transient warehouse error.
-pub(super) const PREAGG_BUILDER_GENERATION: u32 = 1;
+pub const PREAGG_BUILDER_GENERATION: u32 = 1;
 
 /// Stamp file inside the workspace's airlayer cache dir. Deliberately NOT part
 /// of `manifest.json`: the manifest's shape is airlayer's, and a node that
 /// pulls a newer manifest from S3 has not thereby rebuilt anything locally.
 const BUILDER_GENERATION_FILE: &str = "builder_generation";
 
-pub(super) fn read_builder_generation(cache_dir: &std::path::Path) -> Option<u32> {
+pub fn read_builder_generation(cache_dir: &std::path::Path) -> Option<u32> {
     std::fs::read_to_string(cache_dir.join(BUILDER_GENERATION_FILE))
         .ok()?
         .trim()
@@ -80,7 +80,7 @@ pub(super) fn read_builder_generation(cache_dir: &std::path::Path) -> Option<u32
 /// Stamp the current generation. Best-effort: a failed write costs one
 /// redundant rebuild next cycle, which is the right way round — the stamp must
 /// never run ahead of the rebuilds it certifies.
-pub(super) fn write_builder_generation(cache_dir: &std::path::Path) {
+pub fn write_builder_generation(cache_dir: &std::path::Path) {
     let write = std::fs::create_dir_all(cache_dir).and_then(|()| {
         std::fs::write(
             cache_dir.join(BUILDER_GENERATION_FILE),
@@ -98,9 +98,7 @@ pub(super) fn write_builder_generation(cache_dir: &std::path::Path) {
 /// The rollup hashes this workspace's manifest says have actually been built.
 /// Empty when nothing has — in which case a generation bump has nothing to
 /// invalidate and the stamp can be written immediately.
-pub(super) fn built_rollup_hashes(
-    cache_dir: &std::path::Path,
-) -> std::collections::HashSet<String> {
+pub fn built_rollup_hashes(cache_dir: &std::path::Path) -> std::collections::HashSet<String> {
     agentic_semantic::preagg::load_local_manifest(cache_dir)
         .map(|m| m.rollups.into_iter().map(|r| r.rollup_hash).collect())
         .unwrap_or_default()
@@ -156,7 +154,7 @@ pub(super) fn built_rollup_hashes(
 /// known wrong — and the query falls back to the warehouse and answers
 /// correctly without the badge.
 #[derive(Debug, Default)]
-pub(super) struct GenerationSweep {
+pub struct GenerationSweep {
     pending: std::collections::HashSet<String>,
 }
 
@@ -172,7 +170,7 @@ impl GenerationSweep {
     /// status read, so opening the Pre-aggregation tab could hand a node 30
     /// entries it never built and no way to tell them from the previous
     /// builder's.
-    pub(super) fn new(
+    pub fn new(
         built: std::collections::HashSet<String>,
         declared: &std::collections::HashSet<String>,
         ledger: &preagg_ledger::RollupLedger,
@@ -187,22 +185,22 @@ impl GenerationSweep {
         }
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.pending.len()
     }
 
-    pub(super) fn contains(&self, hash: &str) -> bool {
+    pub fn contains(&self, hash: &str) -> bool {
         self.pending.contains(hash)
     }
 
     /// The rollup was rebuilt and its manifest entry committed.
-    pub(super) fn rebuilt(&mut self, hash: &str) {
+    pub fn rebuilt(&mut self, hash: &str) {
         self.pending.remove(hash);
     }
 
     /// The artifact was REMOVED rather than replaced — nothing of the previous
     /// builder's is being served for this hash, which is what the stamp claims.
-    pub(super) fn retracted(&mut self, hash: &str) {
+    pub fn retracted(&mut self, hash: &str) {
         self.pending.remove(hash);
     }
 
@@ -212,14 +210,14 @@ impl GenerationSweep {
     /// `Err` leaves the hash pending until the cycle retracts it, so a
     /// retraction that itself fails is retried next cycle rather than papered
     /// over.
-    pub(super) fn record<E>(&mut self, hash: &str, outcome: &Result<bool, E>) {
+    pub fn record<E>(&mut self, hash: &str, outcome: &Result<bool, E>) {
         if outcome.is_ok() {
             self.rebuilt(hash);
         }
     }
 
     /// No cycle can rebuild this one until something outside the cycle changes.
-    pub(super) fn unrebuildable(&mut self, hash: &str) {
+    pub fn unrebuildable(&mut self, hash: &str) {
         self.pending.remove(hash);
     }
 
@@ -227,11 +225,11 @@ impl GenerationSweep {
     /// which is exactly what a PER-NODE stamp claims. The manifest entry is
     /// another node's build, and destroying it from here would mirror the
     /// deletion fleet-wide to fix a problem this node does not have.
-    pub(super) fn absent(&mut self, hash: &str) {
+    pub fn absent(&mut self, hash: &str) {
         self.pending.remove(hash);
     }
 
-    pub(super) fn is_complete(&self) -> bool {
+    pub fn is_complete(&self) -> bool {
         self.pending.is_empty()
     }
 }
@@ -272,7 +270,7 @@ impl GenerationSweep {
 /// One shape worth knowing: the caller `await`s this per rollup inside its
 /// loop, so N rollups behind one unreachable database is N serial publish-lock
 /// acquisitions and N full-manifest uploads before the first rebuild spawns.
-pub(super) async fn resolve_failed_rollup(
+pub async fn resolve_failed_rollup(
     sweep: &mut GenerationSweep,
     rollup_hash: &str,
     view_name: &str,
@@ -285,7 +283,7 @@ pub(super) async fn resolve_failed_rollup(
         return;
     }
 
-    if !preagg_retract::local_parquet_present(cache_dir, rollup_hash) {
+    if !retract::local_parquet_present(cache_dir, rollup_hash) {
         sweep.absent(rollup_hash);
         tracing::info!(
             view = %view_name,
@@ -296,11 +294,11 @@ pub(super) async fn resolve_failed_rollup(
         return;
     }
 
-    match preagg_retract::retract_rollup(
+    match retract::retract_rollup(
         rollup_hash,
         config.workspace_id,
         PREAGG_BUILDER_GENERATION,
-        preagg_retract::Retraction::Wrong,
+        retract::Retraction::Wrong,
         &config.manifest_write_lock,
         cache,
     )

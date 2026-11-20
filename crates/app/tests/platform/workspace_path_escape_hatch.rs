@@ -102,6 +102,10 @@ fn server_files() -> Vec<(String, String)> {
     // Its surface (admin split PR 8b): the routes, served by this binary, and
     // the weekly job, which runs in it through the global driver's loop.
     walk(&manifest.join("../api-billing/src"), &mut out);
+    // The pre-aggregation runtime's domain half (2026-11-20), out of
+    // `src/server/preagg_{freshness,generation,rebuild,retract}`; the cycle
+    // runs it in this binary.
+    walk(&manifest.join("../preagg/src"), &mut out);
     // The health probes and route discovery (2026-11-16), served by the
     // binary from `oxy-server`'s `core_routes`.
     walk(&manifest.join("../server/src/core_routes"), &mut out);

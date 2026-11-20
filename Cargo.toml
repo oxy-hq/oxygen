@@ -16,6 +16,7 @@ members = [
   "crates/tenancy",
   "crates/identity",
   "crates/usage-report",
+  "crates/preagg",
   "crates/custom-apps",
   "crates/api-airway",
   "crates/api-experiment",
@@ -123,6 +124,7 @@ oxy-app-core = { path = "crates/app-core" }
 oxy-tenancy = { path = "crates/tenancy" }
 oxy-identity = { path = "crates/identity" }
 oxy-usage-report = { path = "crates/usage-report" }
+oxy-preagg = { path = "crates/preagg" }
 oxy-custom-apps = { path = "crates/custom-apps" }
 oxy-authz = { path = "crates/authz" }
 oxy-server-authz = { path = "crates/server-authz" }
@@ -560,7 +562,7 @@ aho-corasick = "1.1"
 #     match no prior verdict and cannot be judged fresh. Expect one full rebuild
 #     after deploy, and a cold preagg tier until it finishes.
 #     This is ALSO why `PREAGG_BUILDER_GENERATION` is NOT bumped for this pin —
-#     see its doc in crates/app/src/server/preagg_generation.rs, which this bump
+#     see its doc in crates/preagg/src/generation.rs, which this bump
 #     corrects: the "the artifact keeps its name" premise it rested on no longer
 #     holds. Independently, `generate_build_sql` emits an unchanged CTAS for any
 #     rollup that previously built (`396e84b` only turns silently-dropped
@@ -614,7 +616,7 @@ aho-corasick = "1.1"
 # names a release rather than a main-branch commit. `34802d4` is an ancestor, so
 # this is a clean fast-forward with nothing reverted. Nothing here touches the
 # semantic model, the query planner or pre-aggregation — `PREAGG_BUILDER_GENERATION`
-# in crates/app/src/server/preagg_generation.rs stays put, and no rollup hash moves.
+# in crates/preagg/src/generation.rs stays put, and no rollup hash moves.
 # Two things to know:
 #
 #   * **BigQuery grows service-account auth (#106), and it is additive.**
@@ -659,7 +661,7 @@ aho-corasick = "1.1"
 #     byte-identically. **No rollup hash moves** — airlayer's own
 #     `definition_fingerprint_ignores_measure_direction` and
 #     `..._ignores_default_cohort` tests pin that, so
-#     `PREAGG_BUILDER_GENERATION` in crates/app/src/server/preagg_generation.rs
+#     `PREAGG_BUILDER_GENERATION` in crates/preagg/src/generation.rs
 #     stays at 1 and nothing rebuilds.
 #
 #   * **`opportunity` and `opportunity_drill` changed shape, and this one is

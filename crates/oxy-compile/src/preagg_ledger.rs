@@ -35,8 +35,8 @@
 //! cross-node half (the manifest and Parquet mirror), since 2026-11-16 (Wave
 //! D2). It was a private module of `oxy-app`'s preagg runtime, which still
 //! writes it (the rebuild, the retraction, the generation sweep, the freshness
-//! evaluators — `preagg_rebuild`, `preagg_retract`, `preagg_generation`,
-//! `preagg_freshness`, all in `oxy-app`); it came down so the IDE's
+//! evaluators — `rebuild`, `retract`, `generation` and `freshness`, then in
+//! `oxy-app`, `oxy-preagg` since 2026-11-20); it came down so the IDE's
 //! pre-aggregation status (`oxy-api-semantic`'s `preagg`) can read
 //! [`empty_rollups`] without reaching into `oxy-app`. The body is unchanged;
 //! only the visibility widened from `oxy-app`'s `server` module to `pub`.

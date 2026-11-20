@@ -12,15 +12,13 @@ use agentic_automation::workspace::WorkspaceContext;
 use agentic_connector::{DatabaseConnector, SqlDialect};
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use crate::agentic_wiring::OxyProjectContext;
-
-use super::preagg_retract::{Retraction, retract_under_publish_lock};
+use crate::retract::{Retraction, retract_under_publish_lock};
 use oxy_compile::preagg_ledger;
 
 // ── Shared context for a single rollup rebuild within a cycle ─────────────────
 
 #[derive(Clone)]
-pub(super) struct RebuildContext {
+pub struct RebuildContext {
     pub schema: String,
     /// The pre-aggregation cache key — see `state_dir::airlayer_cache_key`.
     pub workspace_id: Uuid,
@@ -58,12 +56,12 @@ pub(super) struct RebuildContext {
 /// genuinely empty now, so the entry and its Parquet are RETRACTED rather than
 /// left behind. Either way the caller can rely on nothing older still being
 /// served for this hash (see `PREAGG_BUILDER_GENERATION`).
-pub(super) async fn rebuild_rollup(
+pub async fn rebuild_rollup(
     view: oxy_airlayer_compat::View,
     rollup: oxy_airlayer_compat::preagg::RollupSpec,
     current_refresh_key_value: Option<String>,
     date_str: String,
-    ctx: Arc<OxyProjectContext>,
+    ctx: Arc<dyn WorkspaceContext>,
     rebuild_ctx: RebuildContext,
     cache: Arc<RwLock<RefreshKeyCache>>,
 ) -> Result<bool, String> {
@@ -221,7 +219,7 @@ async fn mirror_parquet_to_s3(
 /// Best-effort S3 mirror of the manifest after `commit_manifest_and_cache`
 /// updates it — every rebuild rewrites the whole file, so this always mirrors
 /// the current, complete manifest, not just the rollup that just changed.
-pub(super) async fn mirror_manifest_to_s3(cache_dir: &std::path::Path) {
+pub(crate) async fn mirror_manifest_to_s3(cache_dir: &std::path::Path) {
     let Some(cache_key) = cache_dir.file_name().and_then(|n| n.to_str()) else {
         return;
     };
@@ -285,7 +283,7 @@ async fn build_warehouse_table(
 /// validates the layer, and it must happen ONCE per cycle so a single
 /// malformed view is one reported failure rather than a failure attributed to
 /// every rollup in the workspace. See [`RebuildContext::engine`].
-pub(super) fn build_layer_engine(
+pub fn build_layer_engine(
     layer_views: Vec<oxy_airlayer_compat::View>,
     dialect: &oxy_airlayer_compat::Dialect,
 ) -> Result<Arc<oxy_airlayer_compat::SemanticEngine>, String> {
@@ -410,7 +408,7 @@ async fn materialize_parquet(
 /// reap in [`commit_manifest_and_cache`], and the zero-row retraction in
 /// [`rebuild_rollup`]. Two matchers would be two chances to disagree about
 /// what is still being served.
-pub(super) fn same_rollup_identity(
+pub(crate) fn same_rollup_identity(
     entry: &oxy_airlayer_compat::preagg::LocalRollupEntry,
     view_name: &str,
     rollup_name: &str,
@@ -569,7 +567,7 @@ async fn commit_manifest_and_cache(
         // entry" to "the new entry", never through a state where this identity
         // names no rollup. And the Parquet unlinks below happen only after
         // this returns, so no reader can hold an entry pointing at a file we
-        // already removed. This is `preagg_retract`'s manifest-first rule
+        // already removed. This is `retract`'s manifest-first rule
         // applied to a replacement rather than a removal.
         agentic_semantic::preagg::save_local_manifest(&cache_dir_owned, &manifest)
             .map_err(|e| e.to_string())?;
@@ -613,7 +611,7 @@ async fn commit_manifest_and_cache(
     // S3 IS NOT CLEANED. The shrunken manifest is re-mirrored by the caller, so
     // no entry references the old blob any more and no node will read it — but
     // the object itself stays in the bucket. `oxy_compile::preagg_blob` has no
-    // delete path at all; `preagg_retract` documents the same gap for the
+    // delete path at all; `retract` documents the same gap for the
     // artifacts it removes. Reaping locally does not close it.
 
     {
@@ -626,7 +624,7 @@ async fn commit_manifest_and_cache(
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
-pub(super) fn connector_to_airlayer_dialect(dialect: SqlDialect) -> oxy_airlayer_compat::Dialect {
+pub fn connector_to_airlayer_dialect(dialect: SqlDialect) -> oxy_airlayer_compat::Dialect {
     match dialect {
         SqlDialect::Snowflake => oxy_airlayer_compat::Dialect::Snowflake,
         SqlDialect::BigQuery => oxy_airlayer_compat::Dialect::BigQuery,

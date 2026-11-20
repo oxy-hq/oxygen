@@ -5,11 +5,11 @@
 //! is recorded; a `sql:` key is a probe — a value compared against the one the
 //! last build was for. Both read through the same three places, in the same
 //! order, because the manifest is not the only record of a build: a rollup
-//! that rebuilt to ZERO rows has no manifest entry at all (`preagg_retract`
+//! that rebuilt to ZERO rows has no manifest entry at all (`retract`
 //! removed it), and the node-local ledger is the only surviving evidence it
 //! ran.
 //!
-//! Split out of `preagg_executor` for size, and because every function here
+//! Split out of `oxy-app`'s `preagg_executor` for size, and because every function here
 //! takes a `cache_dir` rather than reaching for the process's state dir —
 //! which is what makes the "second cycle after a zero-row rebuild" case
 //! testable at all.
@@ -21,14 +21,13 @@ use agentic_connector::{ConnectorError, DatabaseConnector};
 use agentic_core::result::TypedValue;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use crate::agentic_wiring::OxyProjectContext;
 use oxy_compile::preagg_ledger;
 
 /// The refresh key that governs one rollup: the per-rollup `refresh_key:` if
 /// the declaration carries one, else the view-level key. `None` means the
 /// worker skips this rollup — `oxy-api-semantic`'s `preagg::declared_rollups` filters on
 /// the same rule so the IDE never lists a rollup that will never be built.
-pub(crate) fn rollup_refresh_key<'a>(
+pub fn rollup_refresh_key<'a>(
     rollup: &'a oxy_airlayer_compat::preagg::RollupSpec,
     view: &'a oxy_airlayer_compat::View,
 ) -> Option<&'a oxy_airlayer_compat::RefreshKey> {
@@ -48,12 +47,12 @@ pub(crate) fn rollup_refresh_key<'a>(
 /// Dispatch to the appropriate refresh-key evaluator based on key kind.
 ///
 /// Returns `(current_value, is_stale, error_msg)`.
-pub(super) async fn evaluate_refresh_key(
+pub async fn evaluate_refresh_key(
     rk: &oxy_airlayer_compat::RefreshKey,
     rollup_hash: &str,
     cache_dir: &std::path::Path,
     cache: &Arc<RwLock<RefreshKeyCache>>,
-    ctx: &OxyProjectContext,
+    ctx: &dyn WorkspaceContext,
     database_name: &str,
 ) -> (Option<String>, bool, Option<String>) {
     match rk {
@@ -72,7 +71,7 @@ pub(super) async fn evaluate_refresh_key(
 ///
 /// Returns `(None, is_stale)`. `is_stale` is false if the in-memory cache or
 /// the manifest confirms the rollup was built within the interval.
-pub(super) fn eval_every_refresh_key(
+pub(crate) fn eval_every_refresh_key(
     interval_str: &str,
     rollup_hash: &str,
     cache_dir: &std::path::Path,
@@ -269,11 +268,11 @@ const UNIX_EPOCH_DAYS_FROM_CE: i32 = 719_163;
 /// Returns `(current_value, is_stale, error_msg)`. On connector/query error,
 /// `error_msg` is `Some(...)` and the rollup is treated as fresh (not stale)
 /// to avoid rebuild thrashing while the warehouse is unavailable.
-pub(super) async fn eval_sql_refresh_key(
+pub(crate) async fn eval_sql_refresh_key(
     sql: &str,
     rollup_hash: &str,
     cache_dir: &std::path::Path,
-    ctx: &OxyProjectContext,
+    ctx: &dyn WorkspaceContext,
     database_name: &str,
 ) -> (Option<String>, bool, Option<String>) {
     let connector = match ctx.get_connector(database_name).await {

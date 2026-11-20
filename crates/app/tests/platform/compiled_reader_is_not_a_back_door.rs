@@ -297,6 +297,11 @@ fn source_files() -> Vec<(String, String)> {
     // of `src/server/api/admin/usage_report`, walked above before the move.
     let billing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-billing/src");
     walk(&billing, &billing, "../api-billing/src/", &mut out);
+    // `oxy-preagg` (2026-11-20): the pre-aggregation runtime's domain half,
+    // out of `src/server/preagg_{freshness,generation,rebuild,retract}`,
+    // walked above before the move.
+    let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
+    walk(&preagg, &preagg, "../preagg/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
     walk(
         &api_health,

@@ -22,7 +22,7 @@
 //!
 //! Additions only. A rollup whose declaration was DELETED has no replacement
 //! coming and cannot be rebuilt — its leftovers need a retraction, which is
-//! `preagg_retract`'s job and not something a cycle tick reaches.
+//! `oxy_preagg::retract`'s job and not something a cycle tick reaches.
 //!
 //! **The tick's oracle is the builder's source.** This reads the promoted
 //! revision out of Postgres, and the cycle it enqueues resolves its views

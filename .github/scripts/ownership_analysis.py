@@ -89,6 +89,17 @@ AREAS = [
     ("crates/agentic/llm",                                "Agentic LLM client"),
     ("crates/semantic",                                   "Semantic model"),
     ("crates/agentic/semantic",                           "Semantic (agentic shim)"),
+    # The pre-aggregation runtime's domain half, 2026-11-20; the pre-extraction
+    # paths keep their history, and the cycle that stayed in oxy-app joins them.
+    ("crates/preagg",                                     "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_freshness.rs",         "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_generation.rs",        "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_rebuild.rs",           "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_rebuild",              "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_retract.rs",           "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_executor.rs",          "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_promote.rs",           "Pre-aggregation runtime"),
+    ("crates/app/src/server/preagg_workspace.rs",         "Pre-aggregation runtime"),
     ("crates/world-model",                                "World Model (backend)"),
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
     # The IDE graph + cohort handlers moved into crates/api-world-model 2026-11-12;

@@ -897,6 +897,14 @@ mod tests {
             // The rollup ledger, down from `oxy-app`'s preagg runtime into
             // `oxy-compile` (Wave D2, 2026-11-16): kept, as it was there.
             "oxy_compile::preagg_ledger",
+            // The preagg runtime's domain half, down from `oxy-app`'s
+            // `server::preagg_*` into `oxy-preagg` (2026-11-20): kept, as it
+            // was there, and the cycle that stayed with it.
+            "oxy_preagg::freshness",
+            "oxy_preagg::generation",
+            "oxy_preagg::rebuild",
+            "oxy_preagg::retract",
+            "oxy_app::server::preagg_executor",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
             // answer down from `api::data` into the workspace runtime. Kept,
@@ -1290,6 +1298,16 @@ mod tests {
             // The rollup ledger (Wave D2, down from `oxy-app`'s preagg
             // runtime): a file in the cache directory, no warehouse.
             "oxy_compile::preagg_ledger",
+            // The preagg runtime's domain half (2026-11-20, out of
+            // `oxy_app::server::preagg_*`): its rebuild and refresh-key probe
+            // run warehouse SQL, but for the background cycle, never a
+            // custom-app request, and `oxy_app::server` was not the data
+            // plane either. Classified as it was there.
+            "oxy_preagg::freshness",
+            "oxy_preagg::generation",
+            "oxy_preagg::rebuild",
+            "oxy_preagg::retract",
+            "oxy_app::server::preagg_executor",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data
             // plane, as `api::{semantic, semantic_scan, data, preagg}` were

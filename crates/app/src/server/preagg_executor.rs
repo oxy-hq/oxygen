@@ -25,29 +25,18 @@ use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
-use super::preagg_freshness::{evaluate_refresh_key, rollup_refresh_key};
-use super::preagg_generation::{
-    GenerationSweep, PREAGG_BUILDER_GENERATION, built_rollup_hashes, read_builder_generation,
-    resolve_failed_rollup, write_builder_generation,
-};
-use super::preagg_rebuild::{
-    RebuildContext, build_layer_engine, connector_to_airlayer_dialect, rebuild_rollup,
-};
 use super::preagg_workspace::{build_workspace_manager, manifest_write_lock_for};
 use crate::agentic_wiring::OxyProjectContext;
 use oxy_compile::preagg_ledger;
-
-/// The bag `run_preagg_task`/`RebuildContext` need, built fresh per task from
-/// the payload's `workspace_id` — see [`build_task_config`].
-pub(super) struct PreaggWorkerConfig {
-    pub renewal_threshold: std::time::Duration,
-    /// The pre-aggregation cache key. Not the workspace PATH, which the
-    /// reader side resolves per-branch — see `state_dir::airlayer_cache_key`.
-    pub workspace_id: Uuid,
-    pub schema: String,
-    pub database: Option<String>,
-    pub manifest_write_lock: Arc<tokio::sync::Mutex<()>>,
-}
+use oxy_preagg::freshness::{evaluate_refresh_key, rollup_refresh_key};
+use oxy_preagg::generation::{
+    GenerationSweep, PREAGG_BUILDER_GENERATION, built_rollup_hashes, read_builder_generation,
+    resolve_failed_rollup, write_builder_generation,
+};
+use oxy_preagg::rebuild::{
+    RebuildContext, build_layer_engine, connector_to_airlayer_dialect, rebuild_rollup,
+};
+use oxy_preagg::worker_config::PreaggWorkerConfig;
 
 /// One rollup, addressed the way the UI addresses it.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -401,7 +390,7 @@ async fn run_preagg_task(
 
             let (current_value, mut is_stale, rk_err) = match refresh_key {
                 Some(rk) => {
-                    evaluate_refresh_key(rk, &rollup.hash, &cache_dir, &cache, &ctx, database_name)
+                    evaluate_refresh_key(rk, &rollup.hash, &cache_dir, &cache, &*ctx, database_name)
                         .await
                 }
                 // Forced, and nothing to probe.

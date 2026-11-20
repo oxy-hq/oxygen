@@ -1,0 +1,35 @@
+[package]
+name = "oxy-preagg"
+version.workspace = true
+authors.workspace = true
+description = "The pre-aggregation runtime's domain half: deciding a rollup is stale, rebuilding it (CTAS, pull, manifest, cache), retracting it, and the builder-generation sweep. Below oxy-app; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# `WorkspaceContext`: the one call the runtime makes on a workspace (`get_connector`).
+agentic-automation = { workspace = true }
+agentic-connector = { workspace = true }
+agentic-core = { workspace = true }
+# `RefreshKeyCache`, the Layer-1 refresh-key cache a cycle threads through.
+agentic-semantic = { workspace = true }
+oxy-airlayer-compat = { workspace = true }
+# `preagg_ledger` and `preagg_blob`: the cache's node-local and cross-node halves.
+oxy-compile = { workspace = true }
+oxy-shared = { workspace = true }
+
+chrono = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+serde_yaml = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

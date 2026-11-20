@@ -10751,6 +10751,7 @@ dependencies = [
  "oxy-metric-monitoring",
  "oxy-observability",
  "oxy-oltp",
+ "oxy-preagg",
  "oxy-project",
  "oxy-semantic",
  "oxy-server-authz",
@@ -11254,6 +11255,28 @@ dependencies = [
  "tokio-postgres",
  "tracing",
  "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-preagg"
+version = "0.5.161"
+dependencies = [
+ "agentic-automation",
+ "agentic-connector",
+ "agentic-core",
+ "agentic-semantic",
+ "async-trait",
+ "chrono",
+ "oxy-airlayer-compat",
+ "oxy-compile",
+ "oxy-shared",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
  "uuid",
  "workspace-hack",
 ]

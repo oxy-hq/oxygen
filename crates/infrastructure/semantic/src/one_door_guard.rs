@@ -66,7 +66,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     // ── 2. Layers the cache must not hold ───────────────────────────────────
     (
-        "crates/app/src/server/preagg_rebuild.rs",
+        "crates/preagg/src/rebuild.rs",
         "Cycle-scoped: a filtered view subset with topics dropped, under a \
          `with_default` dialect map rather than the workspace's. Already built \
          once per cycle, and deliberately so — see `RebuildContext::engine`, \
