@@ -2825,6 +2825,14 @@ const ADMIN_SPLIT_PR4_ROUTES: &[(&str, &str, Option<u16>)] = &[
         "/admin/workspaces/{w}/airhouse/provision",
         Some(404),
     ),
+    // Joined the Airhouse section after the split (2026-11-21), when
+    // `oxy admin airhouse rotate-sa` became a route. Same shim, same answers:
+    // the owner's random workspace is the shim's 404 before any rotation.
+    (
+        "POST",
+        "/admin/workspaces/{w}/airhouse/rotate-sa",
+        Some(404),
+    ),
 ];
 
 /// What a `global_admin` bounded to another org gets on each route, for an org
@@ -2834,8 +2842,9 @@ const ADMIN_SPLIT_PR4_ROUTES: &[(&str, &str, Option<u16>)] = &[
 /// does not confirm the tenant exists. The three writes whose body names a
 /// writer or role answer the JSON extractor's 422, which runs before the
 /// handler's fence — as on `main`.
-const ADMIN_SPLIT_PR4_OUT_OF_SCOPE: &[u16] =
-    &[200, 404, 404, 404, 422, 422, 422, 404, 404, 404, 200, 404];
+const ADMIN_SPLIT_PR4_OUT_OF_SCOPE: &[u16] = &[
+    200, 404, 404, 404, 422, 422, 422, 404, 404, 404, 200, 404, 404,
+];
 
 fn admin_split_pr4_routes(o: &str, w: &str) -> Vec<(Method, String)> {
     ADMIN_SPLIT_PR4_ROUTES

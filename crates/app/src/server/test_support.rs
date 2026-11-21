@@ -82,7 +82,7 @@ pub(crate) async fn test_db() -> Option<DatabaseConnection> {
         .get_or_init(|| async {
             let lock = AdvisoryLock::acquire(&url, MIGRATION_LOCK_KEY).await;
             use migration::MigratorTrait;
-            // Startup order, mirroring `cli::commands::admin`. The central
+            // Startup order, mirroring `oxy serve`'s. The central
             // migrator alone is not enough: `agentic_runs` and friends belong to
             // the runtime migrator and its own tracking table.
             migration::Migrator::up(&db, None)

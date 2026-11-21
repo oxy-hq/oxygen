@@ -1174,6 +1174,10 @@ fn airhouse_admin_routes_are_fleet_ok() {
             "POST",
             format!("/api/admin/workspaces/{ws}/airhouse/provision"),
         ),
+        (
+            "POST",
+            format!("/api/admin/workspaces/{ws}/airhouse/rotate-sa"),
+        ),
     ] {
         assert_eq!(
             classify(method, &path),
@@ -1292,6 +1296,10 @@ fn tenant_data_plane_routes_are_fleet_ok() {
         (
             "POST",
             format!("/api/admin/workspaces/{ws}/airhouse/provision"),
+        ),
+        (
+            "POST",
+            format!("/api/admin/workspaces/{ws}/airhouse/rotate-sa"),
         ),
     ] {
         assert_eq!(

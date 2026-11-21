@@ -1,4 +1,5 @@
-//! Scope fence for the admin Airhouse surface.
+//! Scope fence for the admin Airhouse surface: the fleet, provisioning, and
+//! the service-account rotation.
 //!
 //! A fenced shim: the handlers live in the
 //! `airhouse` crate, which sits below `oxy-app` and cannot read `app_admins`,
@@ -32,10 +33,16 @@ where
     S: Clone + Send + Sync + 'static,
 {
     // `admin::router()` supplies the `/admin` prefix at the mount.
-    Router::new().route("/airhouse", get(list_fleet)).route(
-        "/workspaces/{workspace_id}/airhouse/provision",
-        post(provision),
-    )
+    Router::new()
+        .route("/airhouse", get(list_fleet))
+        .route(
+            "/workspaces/{workspace_id}/airhouse/provision",
+            post(provision),
+        )
+        .route(
+            "/workspaces/{workspace_id}/airhouse/rotate-sa",
+            post(rotate_sa),
+        )
 }
 
 async fn conn() -> Result<sea_orm::DatabaseConnection, StatusCode> {
@@ -133,6 +140,55 @@ pub async fn provision(
     let entry = match out.as_ref() {
         Ok(_) => entry,
         Err((status, why)) => entry.failure(format!("{status}: {why}")),
+    };
+    audit::record_best_effort(&db, entry).await;
+
+    out
+}
+
+/// The bearer-leak response: revoke the workspace's Airhouse service account and
+/// mint a fresh one. This was `oxy admin airhouse rotate-sa`, which ran on an
+/// operator's laptop with the deployment's database URL and Airhouse admin
+/// token, and left no audit row.
+///
+/// Fenced and audited exactly as [`provision`] is. The audit names the old and
+/// new account ids (never a bearer), and on failure the reason: a 502 after the
+/// revoke means the old account is already dead, which is what the next
+/// operator to read `/admin/audit` needs to know.
+pub async fn rotate_sa(
+    user: oxy_app_core::audit::RequestActor,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<inner::RotatedSa>, (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    let org_id = workspace_org(&db, workspace_id).await.map_err(msg)?;
+    scope::deny_out_of_scope_opt(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+
+    let out = inner::rotate_service_account(
+        AuthenticatedUserExtractor(user.user.clone()),
+        Path(workspace_id),
+    )
+    .await;
+    let entry = audit::AuditEntry::for_request(&user, "airhouse.sa_rotated")
+        .workspace(workspace_id)
+        .target(
+            "airhouse_service_account",
+            workspace_id.to_string(),
+            out.as_ref()
+                .map(|Json(r)| r.new_sa_id.clone())
+                .unwrap_or_default(),
+        );
+    let entry = match out.as_ref() {
+        Ok(Json(r)) => entry.metadata(serde_json::json!({
+            "old_sa_id": r.old_sa_id,
+            "new_sa_id": r.new_sa_id,
+        })),
+        Err((status, why)) => entry.failure(format!("{status}: {why}")),
+    };
+    let entry = match org_id {
+        Some(org) => entry.org(org),
+        None => entry,
     };
     audit::record_best_effort(&db, entry).await;
 

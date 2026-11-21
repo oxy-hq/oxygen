@@ -16,7 +16,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ExitCode } from "../util/errors.js";
-import { type AirhouseFleetRow, provisionPath, tenantNameFor } from "./airhouse.js";
+import {
+  type AirhouseFleetRow,
+  provisionPath,
+  type RotatedSa,
+  rotateSaPath,
+  tenantNameFor
+} from "./airhouse.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
 const SCRATCH: string[] = [];
@@ -74,13 +80,24 @@ let requests: Array<{ method: string; url: string; body: string }> = [];
 let provisionStatus = 200;
 let provisionBody = "";
 let truncatedUnprovisioned = false;
+let rotateStatus = 200;
+let rotateBody = "";
 
 beforeEach(() => {
   requests = [];
   provisionStatus = 200;
   provisionBody = "";
   truncatedUnprovisioned = false;
+  rotateStatus = 200;
+  rotateBody = "";
 });
+
+const ROTATED: RotatedSa = {
+  workspace_id: WS_WITH,
+  old_sa_id: "sa-1",
+  new_sa_id: "sa-2",
+  rotated_at: "2026-11-21T00:00:00+00:00"
+};
 
 function json(res: import("node:http").ServerResponse, value: unknown): void {
   res.writeHead(200, { "content-type": "application/json" });
@@ -110,6 +127,13 @@ beforeAll(async () => {
             return res.end(provisionBody);
           }
           return json(res, row(ws, ws === WS_WITH ? "Analytics" : "Sandbox", true));
+        }
+        if (method === "POST" && url === rotateSaPath(ws)) {
+          if (rotateStatus !== 200) {
+            res.writeHead(rotateStatus, { "content-type": "text/plain" });
+            return res.end(rotateBody);
+          }
+          return json(res, { ...ROTATED, workspace_id: ws });
         }
       }
       res.writeHead(404);
@@ -263,5 +287,73 @@ describe("airhouse provision", () => {
     expect(r.status).toBe(ExitCode.REQUEST);
     expect(r.stderr).toMatch(/tenant name is already taken at Airhouse/);
     expect(r.stderr).toContain(`server: tenant name ${tenantNameFor(WS_WITHOUT)} is taken`);
+  });
+});
+
+describe("airhouse rotate-sa", () => {
+  it("prints what it revokes, then posts to the workspace's route with no body", async () => {
+    const r = await oxyc("airhouse", "rotate-sa", "--workspace", WS_WITH, "--yes");
+    expect(r.status, r.stderr).toBe(0);
+    const posts = requests.filter((q) => q.method === "POST");
+    expect(posts.map((q) => q.url)).toEqual([rotateSaPath(WS_WITH)]);
+    expect(posts[0]?.body).toBe("");
+    expect(r.stderr).toContain(`for workspace Analytics (${WS_WITH}), org Acme`);
+    expect(r.stderr).toContain("service   sa-1 — REVOKED, and a new one minted in its place");
+    expect(r.stdout).toContain(
+      "rotated Airhouse service account sa-1 → sa-2 at 2026-11-21T00:00:00+00:00"
+    );
+  });
+
+  // The path is the contract with `oxy_api_tenancy::admin::airhouse`'s router.
+  it("posts to the admin route the server mounts", () => {
+    expect(rotateSaPath(WS_WITH)).toBe(`/api/admin/workspaces/${WS_WITH}/airhouse/rotate-sa`);
+  });
+
+  // `--json` is the server's body, unchanged: a script reads the new account id from it.
+  it("emits the server's body with --json, and nothing that authenticates", async () => {
+    const r = await oxyc("airhouse", "rotate-sa", "--workspace", WS_WITH, "--yes", "--json");
+    expect(r.status, r.stderr).toBe(0);
+    const body = JSON.parse(r.stdout);
+    expect(body).toEqual(ROTATED);
+    expect(Object.keys(body).sort()).toEqual([
+      "new_sa_id",
+      "old_sa_id",
+      "rotated_at",
+      "workspace_id"
+    ]);
+  });
+
+  // Exit 8, terminal or not: a revoke cannot be taken back.
+  it("refuses without --yes with exit 8, and posts nothing", async () => {
+    const r = await oxyc("airhouse", "rotate-sa", "--workspace", WS_WITH);
+    expect(r.status).toBe(ExitCode.REFUSED);
+    expect(r.stderr).toContain("rotate-sa needs --yes");
+    expect(r.stderr).toContain("service   sa-1 — REVOKED");
+    expect(requests.some((q) => q.method === "POST")).toBe(false);
+  });
+
+  it.each([
+    [[], /name the workspace: --workspace <id>/],
+    [["--workspace", "not-a-uuid"], /--workspace not-a-uuid is not a workspace id/]
+  ])("refuses %j before any request", async (args, message) => {
+    const r = await oxyc("airhouse", "rotate-sa", ...(args as string[]), "--yes");
+    expect(r.status).toBe(ExitCode.USAGE);
+    expect(r.stderr).toMatch(message as RegExp);
+    expect(requests).toEqual([]);
+  });
+
+  it.each([
+    [404, "no Airhouse tenant", ExitCode.NOT_FOUND, /no Airhouse tenant to rotate/],
+    [409, "no service account", ExitCode.REQUEST, /oxyc airhouse provision` binds one/],
+    [502, "airhouse error: down", ExitCode.UNAVAILABLE, /run it again; the revoke is idempotent/],
+    [503, "not configured", ExitCode.UNAVAILABLE, /no Airhouse configured/],
+    [403, "forbidden", ExitCode.AUTH, /platform staff standing/]
+  ])("maps a %i to its exit code and reason", async (status, body, code, reason) => {
+    rotateStatus = status;
+    rotateBody = body;
+    const r = await oxyc("airhouse", "rotate-sa", "--workspace", WS_WITH, "--yes");
+    expect(r.status).toBe(code);
+    expect(r.stderr).toMatch(reason);
+    expect(r.stderr).toContain(`server: ${body}`);
   });
 });

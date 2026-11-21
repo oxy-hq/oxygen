@@ -25,6 +25,11 @@ use uuid::Uuid;
 
 use crate::entity::tenants::Entity as AirhouseTenants;
 
+/// `POST /admin/workspaces/{workspace_id}/airhouse/rotate-sa`, the bearer-leak
+/// response. Its own file: this one is the fleet and provisioning.
+mod rotate_sa;
+pub use rotate_sa::{RotatedSa, rotate_service_account};
+
 /// Ceiling on one fleet read. Large enough that no real deployment notices,
 /// small enough that a runaway one cannot page the whole workspaces table into
 /// a JSON response.

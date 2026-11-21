@@ -68,6 +68,10 @@ async fn oltp_admin_routes_are_mounted_on_the_real_router() {
             "POST",
             format!("/admin/workspaces/{org}/airhouse/provision"),
         ),
+        (
+            "POST",
+            format!("/admin/workspaces/{org}/airhouse/rotate-sa"),
+        ),
     ] {
         let req = Request::builder()
             .method(method)
@@ -108,6 +112,7 @@ async fn airhouse_admin_routes_are_mounted_on_the_real_router() {
     for (method, path) in [
         ("GET", "/admin/airhouse".to_string()),
         ("POST", format!("/admin/workspaces/{ws}/airhouse/provision")),
+        ("POST", format!("/admin/workspaces/{ws}/airhouse/rotate-sa")),
     ] {
         let req = Request::builder()
             .method(method)

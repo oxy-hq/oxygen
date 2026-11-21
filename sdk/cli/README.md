@@ -737,14 +737,15 @@ without a terminal).
 ## Airhouse tenants
 
 Staff can see a workspace's Airhouse tenant — the warehouse behind
-`ctx.airhouse` and `type: airhouse_managed` — and repair it, without the admin
-console. The server provisions a workspace's tenant itself; `provision` is the
+`ctx.airhouse` and `type: airhouse_managed` — repair it, and rotate its
+service account, without the admin console or a database URL. The server provisions a workspace's tenant itself; `provision` is the
 repair and backfill tool, for a workspace that predates that or whose tenant or
 service account did not come up.
 
 ```bash
 oxyc airhouse status [--workspace <id>] [--json]
 oxyc airhouse provision --workspace <id> [--yes] [--json]
+oxyc airhouse rotate-sa --workspace <id> --yes [--json]
 ```
 
 `status` lists every workspace, with a tenant or without; with `--workspace` it
@@ -760,6 +761,17 @@ refuses unless `--yes`. It is idempotent — an existing tenant is reconciled
 workspace's UUID. A 404 can be a workspace outside your staff grant's scope, a
 503 is a deployment with no Airhouse configured, and an active `assume` session
 closes `/admin`.
+
+`rotate-sa` is the response to a suspected bearer leak: it revokes the
+workspace's service account at Airhouse and mints a fresh one under the same
+name. The old account stops working at once (credentials already minted under
+it last until they expire, 24h at most), so it always needs `--yes`, terminal
+or not, and exits `8` without it after printing what it would revoke. `--json`
+prints `{ workspace_id, old_sa_id, new_sa_id, rotated_at }`; the new bearer is
+never shown. 404 is no workspace, no tenant, or one outside your grant; 409 is
+a tenant with no service account (provision first); a 502 may have revoked the
+old account without binding a new one, so run it again (the revoke is
+idempotent). It replaced the Rust `oxy admin airhouse rotate-sa`.
 
 ## Feature flags
 

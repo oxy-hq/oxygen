@@ -41,9 +41,6 @@
 //! Deliberately absent, each for a reason that is checkable rather than a
 //! guess:
 //!
-//! - **`oxy admin --airway`** seeds a `TaskSpec::Airway` onto the queue and
-//!   exits. The connector is built by whichever worker claims the row, and
-//!   that worker installed at its own boot.
 //! - **`oxy compile`** and **`oxy run`** never build a source connector.
 //!   `oxy run` in particular must keep working with no database at all, so
 //!   giving it a boot install would trade a real capability for a setting it

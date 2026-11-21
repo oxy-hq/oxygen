@@ -1,4 +1,3 @@
-mod admin;
 mod agentic_cli;
 mod compile;
 mod looker;
@@ -110,12 +109,6 @@ pub enum SubCommand {
     /// Supports analytics and builder domains. Use --json for LLM-readable output.
     /// Requires OXY_DATABASE_URL to be set.
     Agentic(agentic_cli::AgenticArgs),
-    /// Operator-only administration commands.
-    ///
-    /// Hosts deployment-wide actions like Airhouse SA rotation. These are
-    /// not reachable through the user-facing API; reserve them for ops
-    /// runbook flows.
-    Admin(admin::AdminArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -566,10 +559,6 @@ pub async fn run(
         }
         SubCommand::Agentic(agentic_args) => {
             agentic_cli::handle_agentic_command(agentic_args).await?;
-        }
-
-        SubCommand::Admin(admin_args) => {
-            admin::handle_admin_command(admin_args).await?;
         }
     }
 

@@ -190,8 +190,8 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
 /// behind the capability it had in `oxy-app` before the admin split (PR 4)
 /// moved `admin::{oltp, airhouse}` here: an org's OLTP database
 /// (`/oltp`, `/orgs/{org_id}/oltp*`) behind `PlatformOltp`, and a workspace's
-/// Airhouse tenant (`/airhouse`, `/workspaces/{workspace_id}/airhouse/provision`)
-/// behind `PlatformAirhouse`. One ring, two actions: the action name is what
+/// Airhouse tenant (`/airhouse`, `/workspaces/{workspace_id}/airhouse/provision`
+/// and `/rotate-sa`) behind `PlatformAirhouse`. One ring, two actions: the action name is what
 /// lands in an audit row and in the grant UI.
 ///
 /// None declares anything: the console's `/{*rest}` FleetOk wildcard places

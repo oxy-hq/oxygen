@@ -1,17 +1,19 @@
 /**
- * `oxyc airhouse status | provision` — a workspace's Airhouse tenant, from a laptop.
+ * `oxyc airhouse status | provision | rotate-sa` — a workspace's Airhouse tenant, from a laptop.
  *
  * A thin client over the admin console's routes, as `oxyc oltp` is over OLTP's.
  * The server provisions a workspace's tenant itself; `provision` is the repair
  * and backfill tool — a workspace that predates that, or whose tenant or service
- * account did not come up.
+ * account did not come up. `rotate-sa` is the bearer-leak response (it was
+ * `oxy admin airhouse rotate-sa`, deleted when this landed).
  *
  *   GET  /api/admin/airhouse                                    every workspace, with a tenant or without
  *   POST /api/admin/workspaces/{workspace_id}/airhouse/provision    no body; idempotent
+ *   POST /api/admin/workspaces/{workspace_id}/airhouse/rotate-sa    no body; revokes, then re-mints
  *
- * Both sit behind the `PlatformAirhouse` capability and the admin scope fence,
+ * All three sit behind the `PlatformAirhouse` capability and the admin scope fence,
  * so a workspace outside a bounded staff grant answers 404 rather than 403.
- * Neither returns a credential. There is no route that reads one workspace's
+ * None returns a credential. There is no route that reads one workspace's
  * tenant, so `status --workspace` reads the fleet and picks the row out.
  */
 
@@ -19,7 +21,7 @@ import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { table } from "../ui/render.js";
 import { out } from "../ui/tty.js";
-import { CliError, ExitCode, usageError } from "../util/errors.js";
+import { CliError, ExitCode, refusal, usageError } from "../util/errors.js";
 import { call, confirm, PROVISION_TIMEOUT_MS } from "./oltp-client.js";
 
 /** One row of `GET /admin/airhouse` — `airhouse::api::admin::AirhouseFleetRow`. */
@@ -53,6 +55,18 @@ const FLEET_PATH = "/api/admin/airhouse";
 
 export const provisionPath = (workspaceId: string) =>
   `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/airhouse/provision`;
+
+export const rotateSaPath = (workspaceId: string) =>
+  `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/airhouse/rotate-sa`;
+
+/** `airhouse::api::admin::RotatedSa` — ids and a time, never a bearer. */
+export interface RotatedSa {
+  workspace_id: string;
+  old_sa_id: string;
+  new_sa_id: string;
+  /** RFC 3339. */
+  rotated_at: string;
+}
 
 /** The tenant name the server derives — `tenant_name_for_workspace` in `crates/airhouse`. */
 export const tenantNameFor = (workspaceId: string) => `oxy-ws-${workspaceId}`;
@@ -270,6 +284,107 @@ function printPlan(
     if (hasTenant(current) && !current.service_account_ready) {
       lines.push("  service   not bound — provisioning binds it");
     }
+  }
+  process.stderr.write(`${lines.join("\n")}\n`);
+}
+
+/**
+ * Why a rotation was refused. Its own map: the provisioning one's 409 is a
+ * tenant-name collision, which a rotation never raises.
+ */
+function rotateRefusal(status: number): string | undefined {
+  switch (status) {
+    case 404:
+      return (
+        "no such workspace here, or it has no Airhouse tenant to rotate — or one outside your " +
+        "staff grant's scope, which answers 404 on purpose"
+      );
+    case 409:
+      return "the tenant has no service account to rotate — `oxyc airhouse provision` binds one";
+    case 502:
+      return (
+        "Airhouse failed the rotation. The revoke runs first, so the old account may already be " +
+        "dead and the workspace unable to mint until a rotation succeeds — run it again; the " +
+        "revoke is idempotent"
+      );
+    default:
+      return refusalReason(status);
+  }
+}
+
+/**
+ * Revoke the workspace's service account and mint a fresh one: the response to
+ * a suspected bearer leak.
+ *
+ * Always needs `--yes`, terminal or not. The old account stops working the
+ * moment the call lands and nothing brings it back, so this is exit 8's case
+ * ("irreversible without --yes") rather than a prompt someone can wave through.
+ */
+export async function runAirhouseRotateSa(
+  ctx: Context,
+  workspace: string | undefined,
+  flags: { yes?: boolean; json?: boolean }
+): Promise<void> {
+  // EVERY USAGE ERROR BEFORE A REQUEST.
+  const workspaceId = parseWorkspace(workspace, "rotate-sa --workspace");
+  if (workspaceId === undefined) {
+    throw usageError(
+      "name the workspace: --workspace <id>",
+      "`oxyc airhouse status` lists every workspace and its service account"
+    );
+  }
+
+  const fleet = await fetchFleet(ctx);
+  const current = fleet.rows.find((r) => r.workspace_id.toLowerCase() === workspaceId);
+  printRotatePlan(ctx.target(), workspaceId, current);
+  if (!flags.yes) {
+    throw refusal("rotate-sa needs --yes", {
+      detail:
+        "it revokes the workspace's Airhouse service account at once; credentials minted under " +
+        "it keep working until they expire (24h at most), and the new account's bearer is never shown",
+      remedy: `re-run with --yes: oxyc airhouse rotate-sa --workspace ${workspaceId} --yes`
+    });
+  }
+
+  const rotated = await call<RotatedSa>(ctx, "POST", rotateSaPath(workspaceId), {
+    refusal: rotateRefusal,
+    routesArea: "airhouse",
+    timeoutMs: PROVISION_TIMEOUT_MS
+  });
+  if (flags.json) {
+    process.stdout.write(`${JSON.stringify(rotated, null, 2)}\n`);
+    return;
+  }
+  process.stdout.write(
+    `${out.green(`rotated Airhouse service account ${rotated.old_sa_id} → ${rotated.new_sa_id} at ${rotated.rotated_at}`)}\n`
+  );
+  // The CLI this replaced said the same: other replicas hold the old bearer in
+  // their broker cache until a mint fails over to the new one.
+  log.info(
+    "other replicas pick up the new account on their next cache miss; restart them for a hard cutover"
+  );
+}
+
+/** What is about to be revoked, on stderr — stdout is the result. */
+function printRotatePlan(
+  target: string,
+  workspaceId: string,
+  current: AirhouseFleetRow | undefined
+): void {
+  const lines: string[] = [];
+  if (!current) {
+    lines.push(`On ${target}, for workspace ${workspaceId}:`);
+    lines.push("  service   not on the fleet page — the server decides whether there is one");
+  } else {
+    const org = current.org_name ? `, org ${current.org_name}` : "";
+    lines.push(
+      `On ${target}, for workspace ${current.workspace_name} (${current.workspace_id})${org}:`
+    );
+    lines.push(
+      current.service_account_id
+        ? `  service   ${current.service_account_id} — REVOKED, and a new one minted in its place`
+        : "  service   none bound — there is nothing to rotate; provision binds one"
+    );
   }
   process.stderr.write(`${lines.join("\n")}\n`);
 }

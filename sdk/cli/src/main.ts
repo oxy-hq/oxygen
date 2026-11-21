@@ -24,7 +24,11 @@ import { approverFrom, approverOption } from "./auth/approver.js";
 import { runExitRevokes } from "./auth/exit-revoke.js";
 import type { BootstrapFlags } from "./bootstrap/target.js";
 import { runActivity } from "./commands/activity.js";
-import { runAirhouseProvision, runAirhouseStatus } from "./commands/airhouse.js";
+import {
+  runAirhouseProvision,
+  runAirhouseRotateSa,
+  runAirhouseStatus
+} from "./commands/airhouse.js";
 import { runApi } from "./commands/api.js";
 import {
   runAppsBuilds,
@@ -584,7 +588,7 @@ function buildProgram(): Command {
   const airhouse = program
     .command("airhouse")
     .description(
-      "a workspace's Airhouse tenant (ctx.airhouse) — status and provisioning, for staff"
+      "a workspace's Airhouse tenant (ctx.airhouse) — status, provisioning and service-account rotation, for staff"
     );
 
   withGlobals(
@@ -611,6 +615,21 @@ function buildProgram(): Command {
       .option("--json", "emit the server's response")
   ).action(async (opts: Record<string, unknown>) => {
     await runAirhouseProvision(createContext(globals(opts)), opts.workspace as string | undefined, {
+      yes: opts.yes as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    airhouse
+      .command("rotate-sa")
+      .description(
+        "revoke a workspace's Airhouse service account and mint a fresh one (--workspace <id> --yes): the bearer-leak response"
+      )
+      .option("--yes", "rotate; without it nothing is sent (exit 8)")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runAirhouseRotateSa(createContext(globals(opts)), opts.workspace as string | undefined, {
       yes: opts.yes as boolean | undefined,
       json: opts.json as boolean | undefined
     });

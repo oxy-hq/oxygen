@@ -18,6 +18,7 @@
 //! console serves them:
 //!   - GET    /admin/airhouse
 //!   - POST   /admin/workspaces/{workspace_id}/airhouse/provision
+//!   - POST   /admin/workspaces/{workspace_id}/airhouse/rotate-sa
 //!   - GET    /admin/oltp
 //!   - GET    /admin/orgs/{org_id}/oltp
 //!   - POST   /admin/orgs/{org_id}/oltp/test-connection
