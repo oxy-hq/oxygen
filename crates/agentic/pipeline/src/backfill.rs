@@ -1048,11 +1048,9 @@ fn range_scope(stored: &Option<Value>) -> Vec<String> {
 /// A scope is a SET of resource names, so it is compared as one.
 ///
 /// Sorted and deduped, because the alternative is an identity that depends on
-/// argument order: `--resources shipments,ledger_detail` and
-/// `--resources ledger_detail,shipments` name the same backfill, and without
-/// this the second would miss the first's range and re-run every chunk — the
-/// same wasted replay `find_or_create_backfill_range` exists to avoid. The
-/// runtime does not care either: `resources` is a filter over the pipeline's
+/// argument order: `resources: [shipments, ledger_detail]` and
+/// `resources: [ledger_detail, shipments]` name the same backfill, so they must
+/// store and compare as the same scope. The runtime does not care either: `resources` is a filter over the pipeline's
 /// resource map, not an execution order.
 ///
 /// Applied on the way IN as well as on the way out, so a row written by this
@@ -1121,68 +1119,6 @@ pub async fn create_backfill_range(
     .insert(db)
     .await?;
     Ok(id)
-}
-
-/// Find an existing range that exactly matches this window (same workspace,
-/// pipeline, `[from, to)`, granularity) or create one. Its caller was `oxy
-/// airway backfill` (deleted 2026-11-21), so that re-running with the same
-/// window RESUMED that range
-/// (drives only its not-`done` chunks) instead of spawning a duplicate range
-/// that re-runs everything. The HTTP path deliberately creates a fresh range per
-/// request — each user-initiated backfill is its own entry in the ranges gantt,
-/// and a range's own "Resume" is the explicit resume path there.
-#[allow(clippy::too_many_arguments)]
-pub async fn find_or_create_backfill_range(
-    db: &DatabaseConnection,
-    workspace_id: Uuid,
-    pipeline_ref: &str,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    granularity: ChunkGranularity,
-    concurrency: i32,
-    created_by: Option<Uuid>,
-    resources: &[String],
-) -> Result<Uuid, DbErr> {
-    // The SCOPE is part of the identity, not just the window: re-running a
-    // backfill for the same dates under a different `--resources`
-    // is a different backfill, and resuming the old range would drive the old
-    // scope's chunks while reporting the new one.
-    //
-    // It is matched while CHOOSING the row rather than after, and that is not a
-    // refactor. Taking the newest range for the window and then comparing makes
-    // only the most recent one a resume candidate, so alternating scopes never
-    // resumes: scope A creates a range, unscoped creates another, then A again
-    // finds the unscoped one newest, mismatches, and re-runs every chunk from
-    // scratch — re-spending exactly the report jobs this scope exists to save.
-    // The scope is not a SQL filter because NULL and `[]` both mean "every
-    // resource"; `range_scope` is what reconciles them, so the comparison
-    // belongs in Rust.
-    let existing = BackfillRange::find()
-        .filter(RangeCol::WorkspaceId.eq(workspace_id))
-        .filter(RangeCol::PipelineRef.eq(pipeline_ref))
-        .filter(RangeCol::RequestedFrom.eq(from.fixed_offset()))
-        .filter(RangeCol::RequestedTo.eq(to.fixed_offset()))
-        .filter(RangeCol::Granularity.eq(granularity.as_str()))
-        .order_by_desc(RangeCol::CreatedAt)
-        .all(db)
-        .await?
-        .into_iter()
-        .find(|r| range_scope(&r.resources) == normalize_scope(resources));
-    if let Some(existing) = existing {
-        return Ok(existing.id);
-    }
-    create_backfill_range(
-        db,
-        workspace_id,
-        pipeline_ref,
-        from,
-        to,
-        granularity,
-        concurrency,
-        created_by,
-        resources,
-    )
-    .await
 }
 
 /// Drive a backfill range to completion: split its `[requested_from,

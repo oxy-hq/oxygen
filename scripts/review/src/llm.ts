@@ -38,7 +38,7 @@ export function usageOf(
   const models = Object.values(result?.modelUsage ?? {});
   if (!models.length) return undefined;
   const sum = (pick: (m: (typeof models)[number]) => number) =>
-    models.reduce((n, m) => n + (pick(m) || 0), 0);
+    models.reduce<number>((n, m) => n + (pick(m) || 0), 0);
   return {
     input: sum((m) => m.inputTokens),
     cacheWrite: sum((m) => m.cacheCreationInputTokens),

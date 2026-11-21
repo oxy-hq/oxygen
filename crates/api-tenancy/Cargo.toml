@@ -11,8 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Imported through `oxy_app::surface` (the S4 prelude) plus the backlog that
-# `crates/app/tests/routing/surface_contract.rs` lists. oxy-app never depends
+# Imported through `oxy_app::surface` (the S4 prelude) only, which
+# `crates/app/tests/routing/surface_contract.rs` enforces. oxy-app never depends
 # back on this crate. default-features off so a `--no-default-features` build
 # of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }

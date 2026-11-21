@@ -637,7 +637,7 @@ pub async fn accept_invitation(
     // Sync the Stripe seat quantity to reflect the newly added member. Spawned
     // so the user-facing request doesn't block on Stripe; the reconciliation
     // loop is the safety net if this fails.
-    if let Ok(svc) = oxy_app::server::api::billing::billing_service().await {
+    if let Ok(svc) = oxy_app::surface::billing::billing_service().await {
         let org_id_bg = invitation.org_id;
         tokio::spawn(async move {
             if let Err(e) = svc.sync_seats(org_id_bg).await {

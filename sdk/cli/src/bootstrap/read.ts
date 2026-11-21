@@ -416,7 +416,7 @@ async function billingReading(
   const detail = (parseJson(body) ?? {}) as { status?: string; cancel_at_period_end?: boolean };
   const subscriptionStatus = detail.status ?? "unknown";
   const grants = subscriptionStatus === "active" || subscriptionStatus === "trialing";
-  // `grants_access` (crates/billing/src/state.rs) also grants `past_due`
+  // The server's access rule (`grants_access`) also grants `past_due`
   // while it is inside `grace_period_ends_at`, and that window is not on this
   // response — so a paying org in grace must not be reported `no`, which
   // would exit 9 on an account that is working.

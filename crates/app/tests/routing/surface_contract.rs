@@ -36,8 +36,9 @@ use std::path::{Path, PathBuf};
 const BACKLOG: &[(&str, &str)] = &[
     // custom-apps vertical
     // tenancy (api-tenancy)
-    // billing: seat sync when a member is added or removed
-    ("api-tenancy", "server::api::billing::billing_service"),
+    // (billing seat sync when a member is added or removed — cleared
+    // 2026-11-21: `billing_service` is billing's base, reached through the
+    // prelude's `surface::billing` since the admin split's PR 9.)
     // (workspace context: schedule cleanup on delete, the directory read —
     // cleared 2026-11-16: the cleanup went down to
     // `agentic_pipeline::scheduler`, the read's test moved to

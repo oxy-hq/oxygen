@@ -365,7 +365,7 @@ pub async fn remove_member(
 
     // Sync Stripe seat quantity (decrement). Same best-effort pattern as
     // accept_invitation — reconciliation catches any failure.
-    if let Ok(svc) = oxy_app::server::api::billing::billing_service().await {
+    if let Ok(svc) = oxy_app::surface::billing::billing_service().await {
         let org_id_bg = ctx.org.id;
         tokio::spawn(async move {
             if let Err(e) = svc.sync_seats(org_id_bg).await {

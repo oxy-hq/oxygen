@@ -438,7 +438,7 @@ impl AnalyticsSolver {
                 //
                 // How long "slower" lasts is not this call's to promise. The
                 // heartbeat rebuilds a rollup only when it has a refresh key
-                // to judge staleness by (`preagg_executor`, which skips the
+                // to judge staleness by (`oxy_preagg::cycle`, which skips the
                 // rest as `RollupSkippedNoRefreshKey`), so a keyless rollup
                 // edited in place stays declined until someone forces a
                 // rebuild. That is the pre-existing shape of the rebuild
