@@ -50,7 +50,7 @@ after the skill's checklist says the work really is request-scoped.
 | `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. |
 | `integrations/` | External integrations (the eval engine, QuickBooks OAuth, the OAuth provider). The Slack bot is `oxy-api-slack`; the `oxy test` command, its event handler and the eval reporters are `oxy-api-eval` (`crates/api-eval`), which reaches the engine through `surface::eval` until it follows. |
 | — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `oxy-api-identity`'s `sign_in/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
-| `observability_boot.rs` / `observability_setup.rs` | Tracing/observability bootstrap for the binary. |
+| `observability_boot.rs` | Tracing/observability bootstrap for the binary. |
 
 ### `server/` internals
 

@@ -315,8 +315,7 @@ all of them. Preserve the file's existing style. Explain the root cause alongsid
 ### 5. Validate
 
 There's no build step. `oxy test` reloads the agent file, its context and its semantic files
-from disk on every run, and `oxy build` (which does nothing any more) plays no part. Check
-the files you edited, then re-run:
+from disk on every run. Check the files you edited, then re-run:
 
 ```bash
 oxy validate agents/sales.agentic.yml

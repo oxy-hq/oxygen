@@ -404,7 +404,6 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use crate::intent_types::IntentCluster;
     use crate::scope::WorkspaceScope;
     use crate::types::*;
 
@@ -452,71 +451,6 @@ mod tests {
             _: &WorkspaceScope,
             _: &[String],
         ) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
-            unimplemented!()
-        }
-        async fn fetch_unprocessed_questions(
-            &self,
-            _: usize,
-        ) -> Result<Vec<(String, String, String)>, OxyError> {
-            unimplemented!()
-        }
-        async fn load_embeddings(
-            &self,
-        ) -> Result<Vec<(String, String, Vec<f32>, String, String)>, OxyError> {
-            unimplemented!()
-        }
-        async fn store_clusters(&self, _: &[IntentCluster]) -> Result<(), OxyError> {
-            unimplemented!()
-        }
-        async fn load_clusters(&self) -> Result<Vec<IntentCluster>, OxyError> {
-            unimplemented!()
-        }
-        #[allow(clippy::too_many_arguments)]
-        async fn store_classification(
-            &self,
-            _: &str,
-            _: &str,
-            _: u32,
-            _: &str,
-            _: f32,
-            _: &[f32],
-            _: &str,
-            _: &str,
-        ) -> Result<(), OxyError> {
-            unimplemented!()
-        }
-        #[allow(clippy::too_many_arguments)]
-        async fn update_classification(
-            &self,
-            _: &str,
-            _: &str,
-            _: u32,
-            _: &str,
-            _: f32,
-            _: &[f32],
-            _: &str,
-            _: &str,
-        ) -> Result<(), OxyError> {
-            unimplemented!()
-        }
-        async fn get_intent_analytics(&self, _: u32) -> Result<Vec<IntentAnalyticsRow>, OxyError> {
-            unimplemented!()
-        }
-        async fn get_outliers(&self, _: usize) -> Result<Vec<(String, String)>, OxyError> {
-            unimplemented!()
-        }
-        async fn load_unknown_classifications(
-            &self,
-        ) -> Result<Vec<(String, String, Vec<f32>, String)>, OxyError> {
-            unimplemented!()
-        }
-        async fn get_unknown_count(&self) -> Result<usize, OxyError> {
-            unimplemented!()
-        }
-        async fn update_cluster_record(&self, _: &IntentCluster) -> Result<(), OxyError> {
-            unimplemented!()
-        }
-        async fn get_next_cluster_id(&self) -> Result<u32, OxyError> {
             unimplemented!()
         }
         async fn store_metric_usages(&self, _: Vec<MetricUsageRecord>) -> Result<(), OxyError> {

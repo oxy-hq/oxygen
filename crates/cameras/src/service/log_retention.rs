@@ -19,12 +19,10 @@
 //!
 //! ## Where the sweep runs
 //!
-//! Two surfaces, same service code underneath:
-//!
-//!   - **In-process background loop** kicked from `oxy serve`.
-//!     Default interval 6 hours; set to 0 to disable.
-//!   - **CLI subcommand** (`oxy cameras sweep-logs`) for manual
-//!     runs and cron-based deployments that want exact timing.
+//! In one place: the **in-process background loop** kicked from
+//! `oxy serve`. Default interval 6 hours; set to 0 to disable. (An
+//! `oxy cameras sweep-logs` CLI ran the same code on demand; nothing
+//! called it, and it was deleted 2026-11-21.)
 //!
 //! ## Failure semantics
 //!
@@ -57,8 +55,7 @@ pub const DEFAULT_WARN_DAYS: i64 = 30;
 /// (process restart) doesn't matter.
 pub const DEFAULT_SWEEP_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
-/// Per-workspace sweep result — surfaces in both the CLI output
-/// and the loop's tracing line.
+/// Per-workspace sweep result — surfaces in the loop's tracing line.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct SweepStats {
     /// Rows deleted from the info/debug bucket.
@@ -173,9 +170,8 @@ pub async fn sweep_workspace(workspace_id: Uuid, policy: Policy) -> ServiceResul
 ///
 /// Returns the aggregate stats across all workspaces that
 /// completed cleanly. The per-workspace breakdown is in the log
-/// stream rather than the return value because the loop caller
-/// (background or CLI) just needs a top-level number for its
-/// operator-facing line.
+/// stream rather than the return value because the loop just needs
+/// a top-level number for its operator-facing line.
 pub async fn sweep_all(db: &DatabaseConnection, policy: Policy) -> ServiceResult<SweepStats> {
     let workspace_ids = workspaces_with_edge_boxes(db).await?;
     if workspace_ids.is_empty() {
@@ -211,8 +207,7 @@ pub async fn sweep_all(db: &DatabaseConnection, policy: Policy) -> ServiceResult
 /// Spawn the in-process background loop. Honors:
 ///
 ///   - `OXY_CAMERA_LOG_SWEEP_INTERVAL_HOURS` — tick cadence; `0`
-///     disables the loop (operators using the CLI on cron want
-///     this).
+///     disables the loop, and with it the sweep.
 ///   - `OXY_CAMERA_LOG_RETENTION_INFO_DAYS` and
 ///     `..._WARN_DAYS` — per-bucket windows.
 ///

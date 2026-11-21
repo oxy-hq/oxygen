@@ -12,7 +12,6 @@ pub mod fleet_health;
 pub(crate) mod flush_queue;
 pub mod global;
 pub mod heartbeat;
-pub mod intent_types;
 pub mod layer;
 pub mod scope;
 pub mod store;

@@ -6,6 +6,7 @@
 mod build_sessions;
 mod custom_apps;
 mod execution_analytics;
+#[cfg(test)]
 mod intents;
 mod latency_cost;
 mod metrics;
@@ -241,16 +242,15 @@ mod retention_ttl_tests {
     }
 }
 
-use crate::intent_types::IntentCluster;
 use crate::scope::WorkspaceScope;
 use crate::store::ObservabilityStore;
 use crate::types::{
     AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
     ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
     ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
-    IntentAnalyticsRow, LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData,
-    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals,
-    OrgAppTraffic, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData, MetricDetailData,
+    MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals, OrgAppTraffic, SpanRecord,
+    TraceDetailRow, TraceEnrichmentRow, TraceRow,
 };
 
 pub struct ClickHouseObservabilityStorage {
@@ -685,109 +685,6 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
             traces::get_trace_enrichments(self, scope, trace_ids),
         )
         .await
-    }
-
-    async fn fetch_unprocessed_questions(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<(String, String, String)>, OxyError> {
-        intents::fetch_unprocessed_questions(self, limit).await
-    }
-
-    async fn load_embeddings(
-        &self,
-    ) -> Result<Vec<(String, String, Vec<f32>, String, String)>, OxyError> {
-        intents::load_embeddings(self).await
-    }
-
-    async fn store_clusters(&self, clusters: &[IntentCluster]) -> Result<(), OxyError> {
-        intents::store_clusters(self, clusters).await
-    }
-
-    async fn load_clusters(&self) -> Result<Vec<IntentCluster>, OxyError> {
-        intents::load_clusters(self).await
-    }
-
-    async fn store_classification(
-        &self,
-        trace_id: &str,
-        question: &str,
-        cluster_id: u32,
-        intent_name: &str,
-        confidence: f32,
-        embedding: &[f32],
-        source_type: &str,
-        source: &str,
-    ) -> Result<(), OxyError> {
-        intents::store_classification(
-            self,
-            trace_id,
-            question,
-            cluster_id,
-            intent_name,
-            confidence,
-            embedding,
-            source_type,
-            source,
-        )
-        .await
-    }
-
-    async fn update_classification(
-        &self,
-        trace_id: &str,
-        question: &str,
-        cluster_id: u32,
-        intent_name: &str,
-        confidence: f32,
-        embedding: &[f32],
-        source_type: &str,
-        source: &str,
-    ) -> Result<(), OxyError> {
-        // ReplacingMergeTree ordered by (trace_id, question) handles upsert-
-        // style semantics; reuse the store path.
-        intents::store_classification(
-            self,
-            trace_id,
-            question,
-            cluster_id,
-            intent_name,
-            confidence,
-            embedding,
-            source_type,
-            source,
-        )
-        .await
-    }
-
-    async fn get_intent_analytics(&self, days: u32) -> Result<Vec<IntentAnalyticsRow>, OxyError> {
-        with_query_timeout(
-            "get_intent_analytics",
-            intents::get_intent_analytics(self, days),
-        )
-        .await
-    }
-
-    async fn get_outliers(&self, limit: usize) -> Result<Vec<(String, String)>, OxyError> {
-        with_query_timeout("get_outliers", intents::get_outliers(self, limit)).await
-    }
-
-    async fn load_unknown_classifications(
-        &self,
-    ) -> Result<Vec<(String, String, Vec<f32>, String)>, OxyError> {
-        intents::load_unknown_classifications(self).await
-    }
-
-    async fn get_unknown_count(&self) -> Result<usize, OxyError> {
-        intents::get_unknown_count(self).await
-    }
-
-    async fn update_cluster_record(&self, cluster: &IntentCluster) -> Result<(), OxyError> {
-        intents::update_cluster_record(self, cluster).await
-    }
-
-    async fn get_next_cluster_id(&self) -> Result<u32, OxyError> {
-        intents::get_next_cluster_id(self).await
     }
 
     async fn store_metric_usages(&self, metrics: Vec<MetricUsageRecord>) -> Result<(), OxyError> {

@@ -730,11 +730,6 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OBSERVABILITY_BACKEND",
-        "crates/app/src/observability_setup.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
-    ),
-    (
-        "OXY_OBSERVABILITY_BACKEND",
         "crates/server/src/main.rs",
         "telemetry and logging bootstrap, read before the app layer exists",
     ),

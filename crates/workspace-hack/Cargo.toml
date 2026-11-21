@@ -36,7 +36,7 @@ arrow-ipc = { version = "58", features = ["lz4", "zstd"] }
 arrow-schema-16b9e34609685ca1 = { package = "arrow-schema", version = "58", default-features = false, features = ["canonical_extension_types", "ffi"] }
 arrow-schema-6c4dbccea9cbf3a9 = { package = "arrow-schema", version = "57", default-features = false, features = ["ffi"] }
 async-compression = { version = "0.4", default-features = false, features = ["brotli", "bzip2", "gzip", "tokio", "xz", "zstd"] }
-async-openai = { version = "0.41", features = ["byot", "chat-completion", "embedding", "responses"] }
+async-openai = { version = "0.41", features = ["byot", "chat-completion", "responses"] }
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
 aws-runtime = { version = "1", default-features = false, features = ["event-stream", "http-02x", "http-1x", "sigv4a"] }

@@ -323,10 +323,8 @@ pre_aggregations:
 - Neither checks **cross-file** wiring — an entity join that matches nothing,
   a topic naming a view that does not exist, a measure that a twin lacks. Run
   a real query through the topic before calling it done.
-- **`oxy build` does not validate the semantic model** — it does nothing any
-  more. `oxy sync` writes table and column
-  metadata to `.databases/`, which is the place to read real column names
-  from.
+- **`oxy sync`** writes table and column metadata to `.databases/`, which is
+  the place to read real column names from.
 - `inherits_from:` and `{{ globals.* }}` were removed from views; a file using
   either is refused at load. Inline the values.
 

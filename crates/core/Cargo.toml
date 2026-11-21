@@ -46,8 +46,6 @@ async-openai = { workspace = true, features = [
   "_api",
   "responses",
   "chat-completion",
-  "embedding-types",
-  "embedding",
 ] }
 async-stream = { workspace = true }
 async-trait = { workspace = true }

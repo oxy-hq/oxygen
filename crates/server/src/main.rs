@@ -39,9 +39,8 @@ use std::env;
 
 /// The long-lived server command this invocation runs, if any. Read before
 /// clap runs because the subscriber must exist before anything logs, and
-/// matched anywhere in argv rather than as "the first non-flag": a global
-/// value-taking flag (`oxy --output text serve`) would otherwise make the
-/// value look like the command.
+/// matched anywhere in argv rather than as "the first non-flag", so a flag
+/// placed before the command cannot hide it.
 ///
 /// Only these three get the OpenTelemetry layer. A one-shot command
 /// (`oxy run`, `oxy validate`) has no reader for its trace ids, and in a shell

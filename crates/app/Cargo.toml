@@ -92,8 +92,6 @@ async-openai = { workspace = true, features = [
     "_api",
     "responses",
     "chat-completion",
-    "embedding-types",
-    "embedding",
 ] }
 
 # Serialization

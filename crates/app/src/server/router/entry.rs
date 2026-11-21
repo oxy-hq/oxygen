@@ -242,8 +242,8 @@ pub async fn api_router(
     // Camera fleet log retention sweep (IoT Phase 6a). DELETEs old
     // rows from `oxy_cam_device_logs` per the configured policy
     // (default: info/debug 7d, warn+ 30d). Honors
-    // OXY_CAMERA_LOG_SWEEP_INTERVAL_HOURS=0 to disable when
-    // operators prefer the `oxy cameras sweep-logs` CLI on cron.
+    // OXY_CAMERA_LOG_SWEEP_INTERVAL_HOURS=0 to disable it; this loop
+    // is the only sweep (the `oxy cameras sweep-logs` CLI was deleted).
     oxy_cameras::service::log_retention::spawn(
         agentic_state.db.clone(),
         agentic_state.shutdown_token.clone(),

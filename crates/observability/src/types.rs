@@ -124,14 +124,6 @@ pub struct TraceEnrichmentRow {
     pub duration_ns: i64,
 }
 
-// ── Intent analytics rows ──────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct IntentAnalyticsRow {
-    pub intent_name: String,
-    pub count: u64,
-}
-
 // ── Metric analytics result types ──────────────────────────────────────────
 
 #[derive(Debug, Clone)]

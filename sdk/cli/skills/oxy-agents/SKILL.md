@@ -288,7 +288,6 @@ oxy test agents/sales.agentic.test.yml          # LLM-judged evals
   usefully resumed from the CLI, because `oxy agentic answer` only marks the
   run as running and does not deliver the text. Ask a more specific question,
   or continue in the app.
-- **`oxy build` does not check agents.** It does nothing any more.
 - **`oxy test`** runs `.test.yml` evals against an agent and scores each case
   with an LLM judge. The format and flags are in
   [references/quick-reference.md](references/quick-reference.md).

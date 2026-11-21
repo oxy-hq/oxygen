@@ -28,8 +28,7 @@ use super::migrate;
 #[derive(Parser, Debug, Clone)]
 pub struct CompileArgs {
     /// Path to the workspace directory. Defaults to walking up from
-    /// the current directory until a `config.yml` is found (same
-    /// resolution as `oxy build`).
+    /// the current directory until a `config.yml` is found.
     #[clap(long)]
     pub workspace_path: Option<PathBuf>,
 

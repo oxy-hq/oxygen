@@ -23,7 +23,7 @@ use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 
-use clap::{ArgMatches, Args, Command, Subcommand};
+use clap::{ArgMatches, Command, Subcommand};
 
 /// What an owner's run function returns. `Box<dyn Error>` so the binary's
 /// `main` keeps one error path: print, record to Sentry, flush telemetry.
@@ -48,25 +48,6 @@ impl<C: 'static> Owner<C> {
             run: Box::new(move |matches, ctx| Ok(run(S::from_arg_matches(matches)?, ctx))),
         }
     }
-}
-
-// The top-level arguments, shared by every subcommand. A plain comment: clap
-// prints a doc comment here as the root command's `about`, above `Usage:`.
-#[derive(Args, Debug)]
-struct Global {
-    /// The question to ask or command to execute
-    ///
-    /// When no subcommand is provided, this input will be processed
-    /// as a question for the default AI agent or as a query suggestion.
-    #[clap(default_value = "")]
-    input: String,
-
-    /// Output format: 'text' (default) or 'code' for SQL
-    ///
-    /// Control how results are displayed in the terminal.
-    /// Use 'code' for syntax-highlighted SQL output.
-    #[clap(long, value_name = "FORMAT")]
-    output: Option<String>,
 }
 
 /// The command's name, which `--version` prints first. It is `oxy-app` — the
@@ -129,14 +110,14 @@ fn release_long_version(
     )
 }
 
-/// The whole command tree: the top-level arguments, then each owner's
-/// subcommands in order.
+/// The whole command tree: each owner's subcommands in order. There are no
+/// top-level arguments: the bare positional (`oxy "<question>"`) and `--output`
+/// were parsed and never read, and were deleted.
 fn command<C>(owners: &[Owner<C>]) -> Command {
     let root = Command::new(NAME)
         .author(env!("CARGO_PKG_AUTHORS"))
         .version(env!("CARGO_PKG_VERSION"))
         .long_version(long_version());
-    let root = Global::augment_args(root);
     owners.iter().fold(root, |cmd, owner| (owner.augment)(cmd))
 }
 

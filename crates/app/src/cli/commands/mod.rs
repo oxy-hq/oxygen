@@ -1,9 +1,7 @@
 mod admin;
 mod agentic_cli;
-mod cameras;
 pub mod clean;
 mod compile;
-mod intent;
 mod looker;
 pub(crate) mod migrate;
 mod migrate_agents;
@@ -46,9 +44,8 @@ use tracing::debug;
 
 // The one-shot subcommands `oxy` runs, in the order `--help` lists them after
 // `oxy-server`'s own (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
-// Registered with the `oxy-cli-shim` parser by `oxy-server` as an owner; the
-// top-level arguments
-// (`[INPUT]`, `--output`) and `--version` are the shim's.
+// Registered with the `oxy-cli-shim` parser by `oxy-server` as an owner;
+// `--version` is the shim's.
 // A plain comment, not `///`: clap would print a doc comment on this enum as
 // the root command's `about`, above `Usage:`.
 #[derive(clap::Subcommand, Debug)]
@@ -57,12 +54,6 @@ pub enum SubCommand {
     ///
     /// Run SQL queries against databases or execute automations for data processing.
     Run(RunArgs),
-    /// Does nothing; kept so existing scripts keep working
-    ///
-    /// It used to build vector embeddings and sync Looker and Omni metadata.
-    /// Nothing read the embeddings, and the metadata caches were removed, so
-    /// there is nothing left to build.
-    Build(BuildArgs),
     /// Compile the workspace into the compile-boundary Postgres schema (Phase 1.6a observation mode).
     ///
     /// Walks every recognized YAML/SQL file, parses it, and writes a
@@ -116,11 +107,6 @@ pub enum SubCommand {
     ///
     /// Check that the Looker integrations configured in your project can connect.
     Looker(looker::LookerArgs),
-    /// Intent classification and clustering
-    ///
-    /// Discover and classify user intents from agent questions using
-    /// unsupervised clustering techniques (HDBSCAN) and LLM labeling.
-    Intent(intent::IntentArgs),
     /// Run and debug agentic analytics pipelines
     ///
     /// Execute agentic pipelines with interactive debugging and event streaming.
@@ -133,20 +119,6 @@ pub enum SubCommand {
     /// not reachable through the user-facing API; reserve them for ops
     /// runbook flows.
     Admin(admin::AdminArgs),
-    /// Camera fleet operator commands.
-    ///
-    /// Hosts deployment-wide actions for the camera fleet (currently:
-    /// device log retention sweep). Reserved for ops / cron flows.
-    Cameras(cameras::CamerasArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct BuildArgs {
-    /// Accepted and ignored: there is no embedding index to drop. Kept so a
-    /// script that passes it does not start failing.
-    #[clap(long, short = 'd', default_value_t = false)]
-    #[allow(dead_code)]
-    drop_all_tables: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -519,14 +491,6 @@ pub async fn run(
             sentry_config::add_operation_context("run", Some(&run_args.file));
             handle_run_command(run_args).await?;
         }
-        SubCommand::Build(_) => {
-            sentry_config::add_operation_context("build", None);
-
-            // Nothing is left to build: the vector-embeddings reindex built an enum
-            // index nothing read and was removed, and the Looker and Omni syncs went
-            // with their metadata caches. Kept so existing scripts do not fail.
-            println!("{}", "Nothing to build".info());
-        }
         SubCommand::Compile(compile_args) => {
             sentry_config::add_operation_context("compile", None);
             if let Err(e) = compile::run_compile(compile_args).await {
@@ -670,20 +634,12 @@ pub async fn run(
         SubCommand::Looker(looker_args) => {
             looker::handle_looker_command(looker_args).await?;
         }
-        SubCommand::Intent(intent_args) => {
-            intent::handle_intent_command(intent_args).await?;
-        }
-
         SubCommand::Agentic(agentic_args) => {
             agentic_cli::handle_agentic_command(agentic_args).await?;
         }
 
         SubCommand::Admin(admin_args) => {
             admin::handle_admin_command(admin_args).await?;
-        }
-
-        SubCommand::Cameras(cameras_args) => {
-            cameras::handle_cameras_command(cameras_args).await?;
         }
     }
 

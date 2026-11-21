@@ -155,19 +155,19 @@ async fn live_a_workspace_reads_its_own_traces_and_nobody_elses() {
         ("globex-1", "globex question"),
         ("unclaimed-1", "unclaimed question"),
     ] {
-        storage
-            .store_classification(
-                trace,
-                question,
-                1,
-                "revenue",
-                0.9,
-                &[0.1, 0.2],
-                "agent",
-                "a",
-            )
-            .await
-            .expect("classification");
+        super::intents::store_classification(
+            &storage,
+            trace,
+            question,
+            1,
+            "revenue",
+            0.9,
+            &[0.1, 0.2],
+            "agent",
+            "a",
+        )
+        .await
+        .expect("classification");
     }
 
     let acme = scope(ACME);

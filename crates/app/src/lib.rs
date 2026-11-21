@@ -26,7 +26,6 @@ pub mod host;
 pub mod integrations;
 pub mod managed_connection_resolver;
 pub mod observability_boot;
-pub mod observability_setup;
 pub mod server;
 pub mod surface;
 

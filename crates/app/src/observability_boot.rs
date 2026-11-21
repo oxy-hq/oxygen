@@ -165,24 +165,6 @@ async fn open_store(
     Ok(Arc::new(storage) as Arc<dyn ObservabilityStore>)
 }
 
-/// Open the ClickHouse observability store once, for standalone CLI commands
-/// ([`crate::observability_setup`]). Errors are printed loudly and yield
-/// `None` — callers decide whether that is fatal. No retry: a one-shot command
-/// should fail fast, unlike the long-lived server in [`finalize`].
-pub(crate) async fn open_clickhouse_store() -> (Option<Arc<dyn ObservabilityStore>>, Option<String>)
-{
-    match try_open_clickhouse_store().await {
-        Ok(store) => (
-            Some(store),
-            Some("Observability: clickhouse (OXY_CLICKHOUSE_URL)".to_string()),
-        ),
-        Err(e) => {
-            eprintln!("{}", e.message().error());
-            (None, None)
-        }
-    }
-}
-
 /// Spawn the bridge task against `receiver` and register the global store.
 fn install(receiver: UnboundedReceiver<SpanRecord>, store: Arc<dyn ObservabilityStore>) {
     tracing::info!("Observability: clickhouse (OXY_CLICKHOUSE_URL)");

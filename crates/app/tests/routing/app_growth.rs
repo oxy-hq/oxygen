@@ -33,7 +33,6 @@ const SRC: &[&str] = &[
     "integrations",
     "managed_connection_resolver",
     "observability_boot",
-    "observability_setup",
     "server",
     "surface",
 ];

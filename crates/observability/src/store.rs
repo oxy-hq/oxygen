@@ -1,7 +1,7 @@
 //! Trait definition for observability storage backends.
 //!
 //! The [`ObservabilityStore`] trait abstracts the storage backend for
-//! observability data (traces, intents, metrics, execution analytics).
+//! observability data (traces, metrics, execution analytics).
 //!
 //! It has exactly one production implementation — `ClickHouseObservabilityStorage`
 //! — and the multi-engine era it was built for is over (see
@@ -14,15 +14,14 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use oxy_shared::errors::OxyError;
 
-use crate::intent_types::IntentCluster;
 use crate::scope::WorkspaceScope;
 use crate::types::{
     AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
     ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
     ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
-    IntentAnalyticsRow, LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData,
-    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals,
-    OrgAppTraffic, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData, MetricDetailData,
+    MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals, OrgAppTraffic, SpanRecord,
+    TraceDetailRow, TraceEnrichmentRow, TraceRow,
 };
 
 /// Abstraction over an observability storage backend.
@@ -99,78 +98,6 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         scope: &WorkspaceScope,
         trace_ids: &[String],
     ) -> Result<Vec<TraceEnrichmentRow>, OxyError>;
-
-    // ── Intents ───────────────────────────────────────────────────────────
-    //
-    // Not scoped, on purpose: these feed the classifier job and the
-    // `oxy intent` CLI, which fit clusters over every tenant's questions.
-    // None of them may be reached from a route under `/{workspace_id}/`
-    // without taking a `WorkspaceScope` first — what a workspace is shown of
-    // the clusters goes through `get_cluster_map_data`, which is.
-
-    /// Fetch unprocessed questions from spans that lack classifications.
-    /// Returns tuples of `(trace_id, question, source)`.
-    async fn fetch_unprocessed_questions(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<(String, String, String)>, OxyError>;
-
-    /// Load all embeddings from intent_classifications.
-    /// Returns tuples of `(trace_id, question, embedding, intent_name, source)`.
-    async fn load_embeddings(
-        &self,
-    ) -> Result<Vec<(String, String, Vec<f32>, String, String)>, OxyError>;
-
-    /// Store clusters (replace all existing, then insert new ones).
-    async fn store_clusters(&self, clusters: &[IntentCluster]) -> Result<(), OxyError>;
-
-    async fn load_clusters(&self) -> Result<Vec<IntentCluster>, OxyError>;
-
-    async fn store_classification(
-        &self,
-        trace_id: &str,
-        question: &str,
-        cluster_id: u32,
-        intent_name: &str,
-        confidence: f32,
-        embedding: &[f32],
-        source_type: &str,
-        source: &str,
-    ) -> Result<(), OxyError>;
-
-    /// Upsert a classification keyed by `(trace_id, question)`. ClickHouse has
-    /// no `UPDATE`, so the write is a plain insert that `ReplacingMergeTree`
-    /// collapses on that key during background merges; until a merge runs both
-    /// rows exist, which is why the read queries select `FINAL`.
-    async fn update_classification(
-        &self,
-        trace_id: &str,
-        question: &str,
-        cluster_id: u32,
-        intent_name: &str,
-        confidence: f32,
-        embedding: &[f32],
-        source_type: &str,
-        source: &str,
-    ) -> Result<(), OxyError>;
-
-    async fn get_intent_analytics(&self, days: u32) -> Result<Vec<IntentAnalyticsRow>, OxyError>;
-
-    /// Get outlier questions (classified as "unknown").
-    async fn get_outliers(&self, limit: usize) -> Result<Vec<(String, String)>, OxyError>;
-
-    /// Load unknown classifications for incremental clustering.
-    /// Returns tuples of `(trace_id, question, embedding, source)`.
-    async fn load_unknown_classifications(
-        &self,
-    ) -> Result<Vec<(String, String, Vec<f32>, String)>, OxyError>;
-
-    async fn get_unknown_count(&self) -> Result<usize, OxyError>;
-
-    /// Update a single cluster (upsert).
-    async fn update_cluster_record(&self, cluster: &IntentCluster) -> Result<(), OxyError>;
-
-    async fn get_next_cluster_id(&self) -> Result<u32, OxyError>;
 
     // ── Metrics ───────────────────────────────────────────────────────────
 

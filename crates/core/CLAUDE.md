@@ -33,7 +33,6 @@ other domain crates     ┘
 | `service` (~4.8k) | Cross-cutting services: `secret_manager.rs`, DB pool, project services. |
 | `adapters` (~3.2k) | External-system adapters. |
 | `semantic` (~2.5k) | Semantic-model file discovery + `loader.rs` (skips hidden/build dirs — stray copies cause "duplicate view" errors). Compilation itself is `oxy-semantic`/airlayer. |
-| `intent` (~1.4k) | Intent classification/routing. |
 | `metrics` (~1.3k) | Metrics plumbing. |
 | `github` (~0.9k) | GitHub API helpers. |
 | `observability` (~0.9k) | Core observability hooks (distinct from the `oxy-observability` crate). |

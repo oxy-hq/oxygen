@@ -1,6 +1,6 @@
 //! Platform tests that don't belong to a single product domain — the compile
 //! boundary and the workspace-source rules it rests on, compiled readers, the
-//! CLI `build`/`run` commands, router shape in local mode, project queries,
+//! CLI `run` command, router shape in local mode, project queries,
 //! workspace detail fields, and the partner-table regression guard.
 //!
 //! One binary for the whole group; see `tests/authz/main.rs` for why. Add a case
@@ -64,7 +64,6 @@ mod airway_fleet_control;
 mod analytics_run_thread_access;
 mod anomaly_notify;
 mod artifact_naming_agrees;
-mod build;
 // `chat_org_standing` moved to `oxy-api-threads`' integration group with the
 // chat handlers (2026-11-16).
 mod compile;
