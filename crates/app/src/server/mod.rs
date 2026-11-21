@@ -7,10 +7,13 @@ pub mod audit_anchor;
 pub mod auth_provider_check;
 pub mod authz;
 pub mod build_identity;
-pub mod compile_config_gate;
-pub mod compile_git;
-pub mod compile_maintenance;
-pub mod compile_oltp;
+// The compile boundary's runtime leaves, `oxy-compile-runtime`'s since
+// 2026-11-21; re-exported so every caller, the prelude and `tests/platform`
+// keep these paths.
+pub use oxy_compile_runtime::config_gate as compile_config_gate;
+pub use oxy_compile_runtime::git as compile_git;
+pub use oxy_compile_runtime::maintenance as compile_maintenance;
+pub use oxy_compile_runtime::oltp as compile_oltp;
 pub mod compile_reconcile;
 pub mod compile_request;
 pub mod compile_worker;

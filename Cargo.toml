@@ -17,6 +17,7 @@ members = [
   "crates/identity",
   "crates/usage-report",
   "crates/preagg",
+  "crates/compile-runtime",
   "crates/feature-flags",
   "crates/custom-apps",
   "crates/api-airway",
@@ -127,6 +128,7 @@ oxy-tenancy = { path = "crates/tenancy" }
 oxy-identity = { path = "crates/identity" }
 oxy-usage-report = { path = "crates/usage-report" }
 oxy-preagg = { path = "crates/preagg" }
+oxy-compile-runtime = { path = "crates/compile-runtime" }
 oxy-feature-flags = { path = "crates/feature-flags" }
 oxy-custom-apps = { path = "crates/custom-apps" }
 oxy-authz = { path = "crates/authz" }

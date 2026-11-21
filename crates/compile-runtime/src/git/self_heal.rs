@@ -22,7 +22,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 use super::{commit_sha, github_slug_of};
-use crate::server::workspace_repo_facts::stored_default_branch;
+use oxy_app_core::workspace_repo_facts::stored_default_branch;
 
 /// The commit a self-heal recompiles.
 #[derive(Debug, Clone, PartialEq, Eq)]

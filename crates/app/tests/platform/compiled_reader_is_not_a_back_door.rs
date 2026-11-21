@@ -303,6 +303,16 @@ fn source_files() -> Vec<(String, String)> {
     // walked above before the moves.
     let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
+    // `oxy-compile-runtime` (2026-11-21): the compile boundary's runtime
+    // leaves, out of `src/server/compile_{git,oltp,config_gate,maintenance}`,
+    // walked above before the move.
+    let compile_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compile-runtime/src");
+    walk(
+        &compile_runtime,
+        &compile_runtime,
+        "../compile-runtime/src/",
+        &mut out,
+    );
     // `oxy-feature-flags` (2026-11-20): the feature-flag runtime's domain
     // half, out of `src/server/feature_flags`, walked above before the move.
     let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");

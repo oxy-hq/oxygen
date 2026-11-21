@@ -947,6 +947,15 @@ mod tests {
             // `oxy_app::server::preagg_workspace`), classified as it was there.
             "oxy_preagg::manifest_lock",
             "oxy_app::server::preagg_executor",
+            // The compile boundary's runtime leaves, down from `oxy-app`'s
+            // `server::compile_{git,config_gate,oltp,maintenance}` into
+            // `oxy-compile-runtime` (2026-11-21): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::git",
+            "oxy_compile_runtime::git::task",
+            "oxy_compile_runtime::config_gate",
+            "oxy_compile_runtime::oltp",
+            "oxy_compile_runtime::maintenance",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
             // answer down from `api::data` into the workspace runtime. Kept,
@@ -1389,6 +1398,15 @@ mod tests {
             // shell), classified as it was there.
             "oxy_preagg::cycle",
             "oxy_app::server::preagg_executor",
+            // The compile boundary's runtime leaves, down from `oxy-app`'s
+            // `server::compile_{git,config_gate,oltp,maintenance}` into
+            // `oxy-compile-runtime` (2026-11-21): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::git",
+            "oxy_compile_runtime::git::task",
+            "oxy_compile_runtime::config_gate",
+            "oxy_compile_runtime::oltp",
+            "oxy_compile_runtime::maintenance",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data
             // plane, as `api::{semantic, semantic_scan, data, preagg}` were

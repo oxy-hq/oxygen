@@ -19,7 +19,7 @@
 mod download;
 mod preflight;
 mod remote;
-pub(crate) mod self_heal;
+pub mod self_heal;
 mod task;
 mod unpack;
 
@@ -35,7 +35,7 @@ pub use download::MAX_ARCHIVE_BYTES;
 pub use task::{enqueue, fetch_for_task, retry_policy};
 pub use unpack::{Limits, MAX_TREE_BYTES, MAX_TREE_FILES, UnpackError, Unpacked};
 
-use crate::server::workspace_repo_facts::stored_repo_subdir;
+use oxy_app_core::workspace_repo_facts::stored_repo_subdir;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGitError {
@@ -235,7 +235,7 @@ async fn workspace_row(
 }
 
 /// The `(owner, repo)` on github.com that `row`'s remote names.
-pub(crate) fn github_repository(
+pub fn github_repository(
     row: &entity::workspaces::Model,
 ) -> Result<(String, String), CompileGitError> {
     let remote = row
@@ -247,7 +247,7 @@ pub(crate) fn github_repository(
 }
 
 /// The `(owner, repo)` a github.com remote URL names; `None` for any other URL.
-pub(crate) fn github_slug_of(remote: &str) -> Option<(String, String)> {
+pub fn github_slug_of(remote: &str) -> Option<(String, String)> {
     remote::github_slug(remote)
 }
 
@@ -325,8 +325,7 @@ pub async fn fetch(source: &CommitSource) -> Result<FetchedTree, CompileGitError
     let workspace_path = workspace_root_in(&tree, source.repo_subdir.as_deref())?;
     preflight::check(
         &workspace_path,
-        crate::server::role_manifest::current_process_role()
-            != crate::server::role_manifest::Role::All,
+        oxy_app_core::process_role::current_process_role() != oxy_shared::fleet_role::Role::All,
         oxy_compile::blob_store::bucket().is_some(),
     )?;
     Ok(FetchedTree {

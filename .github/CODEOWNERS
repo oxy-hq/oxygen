@@ -159,6 +159,9 @@ internal-docs/frontline-identity.md                @luong-komorebi @NTtanh
 
 # Fleet, routing, compile boundary, project/workspace domain
 crates/oxy-compile/                                @luong-komorebi @NTtanh
+# The compile boundary's runtime leaves (`oxy-compile-runtime`), 2026-11-21:
+# out of crates/app/src/server/compile_{git,oltp,config_gate,maintenance}.
+crates/compile-runtime/                            @luong-komorebi @NTtanh
 crates/project/                                    @luong-komorebi @NTtanh
 crates/workspace-fs/                               @luong-komorebi @NTtanh
 crates/app-core/                                   @luong-komorebi @haitrr

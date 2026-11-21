@@ -1,0 +1,45 @@
+[package]
+name = "oxy-compile-runtime"
+version.workspace = true
+authors.workspace = true
+description = "The compile boundary's runtime half: fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# `TaskSpec` and its retry policy: a commit compile is a queued task.
+agentic-core = { workspace = true }
+# `COMPILE_GIT_SOURCE_TYPE` and `TaskScope`: the task's run stamp and scope.
+agentic-runtime = { workspace = true }
+entity = { workspace = true }
+# The strict `Config` type the gate deserialises, and the GitHub client.
+oxy = { workspace = true }
+# `process_role` and `workspace_repo_facts`.
+oxy-app-core = { workspace = true }
+oxy-compile = { workspace = true }
+# `manifest::is_safe_relative_path`: an unpacked entry's path check.
+oxy-custom-apps = { workspace = true }
+# The config gate's rollout flags (`cache`, `rollout`).
+oxy-feature-flags = { workspace = true }
+# `migrator`: apply a revision's OLTP schemas before it is promoted.
+oxy-oltp = { workspace = true }
+oxy-shared = { workspace = true }
+oxy-telemetry = { workspace = true }
+
+flate2 = { workspace = true }
+reqwest = { workspace = true }
+sea-orm = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

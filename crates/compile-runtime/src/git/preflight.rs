@@ -12,7 +12,7 @@
 //! `dataset:` or `path:` keeps its data in the repository. It is deprecated: a
 //! compile for the cloud roles refuses it, naming the database and pointing at
 //! Airhouse — the same rule the config gate applies to every compile
-//! (`compile_config_gate.rs`), stated here first so a commit compile stops
+//! (`config_gate.rs`), stated here first so a commit compile stops
 //! before it starts. A database path that leaves the tree is refused on every
 //! role, ahead of that.
 //!

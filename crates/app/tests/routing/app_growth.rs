@@ -45,10 +45,9 @@ const SERVER: &[&str] = &[
     "auth_provider_check",
     "authz",
     "build_identity",
-    "compile_config_gate",
-    "compile_git",
-    "compile_maintenance",
-    "compile_oltp",
+    // The compile boundary's runtime leaves (`compile_config_gate`,
+    // `compile_git`, `compile_maintenance`, `compile_oltp`) left for
+    // `oxy-compile-runtime` on 2026-11-21, re-exported in `server/mod.rs`.
     "compile_reconcile",
     "compile_request",
     "compile_worker",

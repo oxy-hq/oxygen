@@ -70,6 +70,9 @@ oxy-server-authz = { workspace = true }
 oxy-billing = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
+# The compile boundary's runtime half (`git`, `config_gate`, `oltp`,
+# `maintenance`), re-exported at `server::compile_*`.
+oxy-compile-runtime = { workspace = true }
 oxy-preagg = { workspace = true }
 # The feature-flag runtime's domain half; its HTTP half is `oxy-api-admin`'s.
 oxy-feature-flags = { workspace = true }
@@ -161,9 +164,6 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 aws-sdk-s3 = { workspace = true }
-# customer-apps publish pipeline: tarball pack/unpack + bundle LRU cache
-tar = { workspace = true }
-flate2 = { workspace = true }
 # rayon: the metric-tree surfaces fan work across cores. (Build-time brotli for
 # bundle assets, with its own rayon fan-out, is `oxy-custom-apps::precompress`.)
 rayon = { workspace = true }
@@ -219,6 +219,10 @@ oxy-custom-apps = { workspace = true, features = ["test-fixtures"] }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
+# `platform::compile_from_git`'s fixture packs a commit tarball (the unpack
+# itself is `oxy-compile-runtime`'s since 2026-11-21).
+tar = { workspace = true }
+flate2 = { workspace = true }
 assert_cmd = { workspace = true }
 serial_test = { workspace = true }
 oxy-test-utils = { workspace = true }

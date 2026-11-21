@@ -1089,7 +1089,7 @@ where
         // carry no mirror.)
         //
         // File DuckDB is deprecated and refused at compile on the cloud roles
-        // (`compile_config_gate.rs`), so no new revision carries a mirror; this
+        // (`compile-runtime/src/config_gate.rs`), so no new revision carries a mirror; this
         // arm serves the revisions compiled before that refusal until their
         // workspaces move to Airhouse, and goes with them.
         //

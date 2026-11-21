@@ -74,6 +74,13 @@ AREAS = [
     ("crates/app/src/server/authz",                       "Authorization (app enforce)"),
     ("crates/auth",                                       "Authentication"),
     ("crates/oxy-compile",                                "Compile boundary"),
+    # The compile boundary's runtime leaves moved into crates/compile-runtime
+    # 2026-11-21; the pre-extraction paths keep their history.
+    ("crates/compile-runtime",                            "Compile boundary"),
+    ("crates/app/src/server/compile_git",                 "Compile boundary"),
+    ("crates/app/src/server/compile_oltp.rs",             "Compile boundary"),
+    ("crates/app/src/server/compile_config_gate.rs",      "Compile boundary"),
+    ("crates/app/src/server/compile_maintenance.rs",      "Compile boundary"),
     ("crates/project",                                    "Project domain"),
     ("crates/workspace-fs",                               "Workspace FS"),
     ("crates/app-core",                                   "App-layer core seam"),

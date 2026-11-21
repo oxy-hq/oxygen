@@ -106,6 +106,10 @@ fn server_files() -> Vec<(String, String)> {
     // `src/server/preagg_{freshness,generation,rebuild,retract,promote}`; the
     // cycle and the compile worker run it in this binary.
     walk(&manifest.join("../preagg/src"), &mut out);
+    // The compile boundary's runtime leaves (2026-11-21), out of
+    // `src/server/compile_{git,oltp,config_gate,maintenance}`; the compile
+    // worker and the workspace middleware run them in this binary.
+    walk(&manifest.join("../compile-runtime/src"), &mut out);
     // The feature-flag runtime's domain half (2026-11-20), out of
     // `src/server/feature_flags`; every process here loads and reads it.
     walk(&manifest.join("../feature-flags/src"), &mut out);
