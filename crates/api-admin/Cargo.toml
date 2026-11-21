@@ -13,8 +13,9 @@ edition.workspace = true
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
 # types (`AdminNest`, `AdminSection`), the capability it names (`Action`), the pod
-# placement (`roles::RouteRole`) and who may act as an org (`assume::may_act_as`,
-# which oxy-app's own org and workspace context call too). oxy-app never depends
+# placement (`roles::RouteRole`), the route-role table the routing manifest
+# serves (`roles::{current_process_role, dump_manifest}`) and who may act as an
+# org (`assume::may_act_as`, which oxy-app's own org and workspace context call too). oxy-app never depends
 # back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.

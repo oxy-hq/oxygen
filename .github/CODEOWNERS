@@ -108,8 +108,10 @@ crates/api-identity/                               @luong-komorebi @hotay
 # the run sweep), out of `oxy-app` since 2026-11-14. Luong and Tay wrote it.
 crates/api-previews/                               @luong-komorebi @hotay
 # Staff console crate (`oxy-api-admin`), started 2026-11-19 by the admin split
-# with the task fleet's console (internal jobs); audit, app admins and
-# assume-role follow it out of crates/app/src/server/api/admin/.
+# with the task fleet's console (internal jobs); audit, app admins,
+# assume-role and (2026-11-21) the routing manifest followed it out of
+# crates/app/src/server/api/admin/, which keeps only the console shell
+# (mod.rs) and assume-role's authority (assume.rs).
 crates/api-admin/                                  @hotay @luong-komorebi
 # Billing's surface crate (`oxy-api-billing`), 2026-11-20 (admin split PR 8b):
 # the usage report's routes, delivery and weekly job out of

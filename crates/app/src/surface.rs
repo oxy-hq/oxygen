@@ -388,6 +388,10 @@ pub use crate::server::router::AdminSection;
 
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
+    /// The installed declarations, as `(method, path, role)` rows: what
+    /// `oxy-api-admin`'s `/admin/routing-manifest` serves (admin split,
+    /// 2026-11-21, when it left `oxy-app`'s `api::admin::routing`).
+    pub use crate::server::role_manifest::dump_manifest;
     /// Whether this process can claim a working-copy compile. The compile
     /// console (`oxy-api-previews`' `admin::compiles`) queues one only where it
     /// can, and otherwise refuses with `needs_working_copy`.

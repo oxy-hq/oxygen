@@ -10,9 +10,11 @@
 //! ([`assume`], `/api/assume*`) followed on 2026-11-20, and the feature-flag
 //! routes ([`feature_flags`]: the staff half at `/api/admin/feature-flags*`
 //! and the org member's read at `/api/orgs/{org_id}/feature-flags`) on
-//! 2026-11-21. `routing` follows in a later PR, and the console shell
-//! (`admin::router`: the door, the capability layers, `extracted_sections`)
-//! last, with the router assembly.
+//! 2026-11-21, and the route-role table ([`routing`],
+//! `/api/admin/routing-manifest`) the same day. What is left in `oxy-app`'s
+//! `api/admin/` is the console shell (`admin::router`: the capability layers,
+//! `extracted_sections`) and assume-role's authority (`admin::assume`); the
+//! shell leaves last, with the router assembly.
 //!
 //! Only the staff console's machinery goes here: Oxy's own operational state,
 //! which no tenant context owns. A section about a tenant context goes to
@@ -28,14 +30,14 @@
 //! `oxy-api-previews`' compile console so the route-role table keeps the
 //! order it had in `oxy-app` (internal jobs, then compiles),
 //! `SurfaceSeams::admin` ([`admin_sections`]), the audit log, the grant
-//! table and the feature-flag console, merged inside `/api/admin` as they
+//! table, the feature-flag console and the route-role table, merged inside `/api/admin` as they
 //! were in `oxy-app`, and `SurfaceSeams::api` ([`routes`]), assume-role and
 //! the org member's flag read, merged at the root of the protected tree
 //! OUTSIDE `/admin`, as `oxy-app`'s global tree merged them.
 //! Every route reads or writes Postgres only (the task queue, the run,
 //! workspace, audit, grant, assume-session and feature-flag tables, and the
-//! flag cache; the audit anchor reads S3, never a working copy), so all
-//! three are FleetOk.
+//! flag cache; the audit anchor reads S3, never a working copy; the
+//! route-role table is in memory), so all three are FleetOk.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`).
@@ -51,6 +53,7 @@ mod internal_jobs_failure_groups;
 mod internal_jobs_fleet;
 mod internal_jobs_reach;
 mod internal_jobs_rows;
+pub mod routing;
 
 use axum::Router;
 use oxy_app::surface::roles::RouteRole;
@@ -128,7 +131,9 @@ pub fn admin_nests() -> Vec<AdminNest> {
 /// behind `PlatformGrants`, and the feature-flag console (`/feature-flags`,
 /// `/feature-flags/evaluate`, `/feature-flags/{key}`) behind
 /// `PlatformOperate`: the flags are deployment-wide operational config, beside
-/// routing and the task fleet.
+/// routing and the task fleet, and the route-role table (`/routing-manifest`)
+/// behind `PlatformOperate`, its own section as it had its own `route_layer`
+/// at the head of `admin::router`'s `staff_surface` chain.
 ///
 /// A section, not a nest, because that is how it was mounted: a
 /// `route_layer` on a router merged inside `admin::router`, ahead of the
@@ -168,6 +173,11 @@ pub fn admin_sections() -> Vec<AdminSection> {
         AdminSection {
             capability: Action::PlatformOperate,
             routes: feature_flags::router(),
+            decls: Vec::new(),
+        },
+        AdminSection {
+            capability: Action::PlatformOperate,
+            routes: routing::router(),
             decls: Vec::new(),
         },
     ]

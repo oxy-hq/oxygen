@@ -27,7 +27,10 @@ pub mod assume;
 // (`/internal-jobs*`, the task fleet's operator console) `oxy-api-admin`'s
 // since PR 7: each an `AdminNest` behind `PlatformOperate`, arriving through
 // `SurfaceSeams::admin_nests` and nested by `router::global`.
-pub mod routing;
+// `routing` (`/routing-manifest`, the route-role table) is `oxy-api-admin`'s
+// since 2026-11-21: a section behind `PlatformOperate`, arriving through
+// `extracted`. What is left here is the console shell (this file: the door's
+// capability layers, `extracted_sections`) and `assume`'s authority.
 // `usage_report` (`/usage-report*`, the weekly custom-app usage report) is
 // `oxy-api-billing`'s since the admin split's PR 8b: two sections, behind
 // `PlatformOperate` and `PlatformGrants`, arriving through `extracted`.
@@ -176,57 +179,64 @@ use crate::server::router::{AdminSection, AppState};
 /// In PR 5: the user directory (`/users*`, `PlatformUsers`) is
 /// `oxy-api-identity`'s.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
-    // route_layer applied per sub-router so only billing (an extracted
-    // section, below) gets the strict owner guard; everything else escalates
-    // to a capability, and anything not named here runs only under the outer
+    // route_layer applied per section (in `extracted_sections`) so only
+    // billing gets the strict owner guard; everything else escalates to a
+    // capability, and anything not named here runs only under the outer
     // permissive guard.
-    let cap = |action| middleware::from_fn(platform_cap_guard::require(action));
 
     // The staff surface. Everything here is refused while the caller is acting as
     // a tenant: you cannot wield staff powers and wear a customer's identity in
     // the same breath. Ending the session (below) restores all of it.
     // The feature-flag console (`/feature-flags*`, `PlatformOperate`) moved to
-    // `oxy-api-admin` (2026-11-21) and arrives through `extracted` below,
-    // behind the capability it had here.
-    let staff_surface = routing::router()
-        .route_layer(cap(Action::PlatformOperate))
+    // `oxy-api-admin` (2026-11-21) and arrives through `extracted`, behind the
+    // capability it had here. So did the route-role table
+    // (`/routing-manifest`, `PlatformOperate`), the last in-tree router, the
+    // same day: the chain now starts with the extracted sections.
+    let staff_surface = extracted_sections(extracted);
+    // `route_layer` panics on a router with no routes, which is what a
+    // composition handing in no sections (a test's bare seams) builds now that
+    // no in-tree router heads the chain; such a console mounts nothing to
+    // refuse, so it skips the layer.
+    if !staff_surface.has_routes() {
+        return staff_surface;
+    }
+    let staff_surface = staff_surface
         // The custom-app registry is NOT merged here: it is the `/customer-apps`
         // surface in `router::global`, behind the one `apps::guarded` stack.
         // The platform audit log (`/audit*`, `PlatformAudit`) moved to
         // `oxy-api-admin` (admin split, 2026-11-20) and arrives through
-        // `extracted` below, behind the capability it had here.
+        // `extracted` above, behind the capability it had here.
         // Every staff member's sandbox agent tokens (`PlatformOperate`) and every
         // token carrying a standing (`PlatformGrants`) moved to
-        // `oxy-api-identity` and arrive through `extracted` below, behind the
+        // `oxy-api-identity` and arrive through `extracted` above, behind the
         // capabilities they had here.
         // Org and workspace administration (`/orgs*`, `/workspaces*`), and an
         // org's subdomain (`/orgs/{org_id}/subdomain`), moved to
-        // `oxy-api-tenancy` and arrive through `extracted` below, behind
+        // `oxy-api-tenancy` and arrive through `extracted` above, behind
         // `PlatformOrgs` — the capability they had here.
         // The user directory (`/users*`, `PlatformUsers`) moved to
         // `oxy-api-identity` (admin split, PR 5) and arrives through
-        // `extracted` below, behind the capability it had here.
+        // `extracted` above, behind the capability it had here.
         // Per-org OLTP (`PlatformOltp`) and a workspace's Airhouse tenant
         // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4)
-        // and arrive through `extracted` below, each its own section behind the
+        // and arrive through `extracted` above, each its own section behind the
         // capability it had here. Provisioning creates a billable resource, so
         // an App Operator, who ships apps, must not reach either; and `cap(..)`
         // decides on a nil-org resource, so the scope-fenced shims there, not
         // the handler crates' own routers, carry the per-org fence.
         // The weekly custom-app usage report (`PlatformOperate`) and who gets it
         // (`PlatformGrants`) moved to `oxy-api-billing` (admin split, PR 8b) and
-        // arrive through `extracted` below, behind the capabilities they had here.
+        // arrive through `extracted` above, behind the capabilities they had here.
         // The Billing queue (`/orgs`, `/billing/prices`, `/orgs/{org_id}/billing/*`)
         // moved to `oxy-api-billing` (admin split, PR 9) and arrives through
-        // `extracted` below, naming `PlatformOwnerOnly`: the strict owner guard
+        // `extracted` above, naming `PlatformOwnerOnly`: the strict owner guard
         // it had here, applied by `extracted_sections`.
         // The grant table (`/app-admins*`, `PlatformGrants`) moved to
         // `oxy-api-admin` (admin split, 2026-11-20) and arrives through
-        // `extracted` below, behind the capability it had here.
+        // `extracted` above, behind the capability it had here.
         // Sections from extracted surface crates, each behind the capability it
-        // names. Merged before the acting block below, so they are refused while
-        // acting exactly as the in-tree sections are.
-        .merge(extracted_sections(extracted))
+        // names, are the chain's head above: inside the acting block below, so
+        // they are refused while acting exactly as the in-tree sections were.
         .route_layer(middleware::from_fn(assume::block_admin_while_acting));
 
     // Assume-role itself lives at `/api/assume`, NOT here — see

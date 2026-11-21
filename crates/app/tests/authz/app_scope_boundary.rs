@@ -494,7 +494,10 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         .join("\n");
 
     // How many router files this sweep actually read a router out of: the
-    // floor above counts names, this counts what was scanned. Both are 8.
+    // floor above counts names, this counts what was scanned. Both are 8, at
+    // their floors, since 2026-11-21: `staff_surface` names no router of its
+    // own once the route-role table (`routing`, no org-keyed route) moved to
+    // `oxy-api-admin`, so every name and file counted is an extracted section.
     let mut swept = 0;
     for file in &router_files {
         let src = read(file);

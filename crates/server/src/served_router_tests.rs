@@ -5202,12 +5202,12 @@ async fn assume_audit_actions(db: &sea_orm::DatabaseConnection, org: uuid::Uuid)
 ///   caller's live sessions an empty list;
 /// * the Global Owner: a session of exactly 60 minutes, audited
 ///   `admin.assume.started` in the same transaction, listed by `/current`;
-/// * while it is live, the console is 403 on an in-tree route
-///   (`/admin/routing-manifest`), two extracted sections (`/admin/audit`, and
-///   `/admin/feature-flags`, the in-tree probe until it moved to
-///   `oxy-api-admin` on 2026-11-21) and a sibling nest
-///   (`/admin/internal-jobs/queue-stats`), and `/api/assume` itself still
-///   answers: the exit is not behind the door it locks;
+/// * while it is live, the console is 403 on three extracted sections
+///   (`/admin/routing-manifest` and `/admin/feature-flags`, each the in-tree
+///   probe until it moved to `oxy-api-admin` on 2026-11-21, and
+///   `/admin/audit`) and a sibling nest (`/admin/internal-jobs/queue-stats`),
+///   and `/api/assume` itself still answers: the exit is not behind the door
+///   it locks. No in-tree console route is left to probe;
 /// * ending it is 204, audited `admin.assume.ended`, and the console is back.
 ///
 /// Dropping `oxy_api_admin::routes()` from the api seam turns every assume
@@ -5319,7 +5319,7 @@ async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
     assert_eq!(got, StatusCode::OK);
     assert_eq!(live[0]["id"], json!(row.id), "{live}");
 
-    // Acting closes the console: in-tree, two sections and a nest.
+    // Acting closes the console: three sections and a nest.
     let mut acting = Vec::new();
     for p in [
         "/admin/routing-manifest",
@@ -5719,6 +5719,44 @@ async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
             && d.path == "/orgs/{org_id}/feature-flags"
             && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
         "the api seam declares /orgs/{{org_id}}/feature-flags FleetOk"
+    );
+}
+
+/// The composition hands the route-role table (`/routing-manifest`,
+/// `oxy-api-admin`'s since 2026-11-21) to the admin seam as exactly one
+/// section, behind `PlatformOperate`, the `route_layer` `admin::router` gave
+/// it in-tree. No database. (Only the sections are probed: a nest's tree is
+/// relative to its own `/admin{prefix}` and the api seam's to the protected
+/// root, so a `/{id}`-shaped route in either matches the bare path and the
+/// probe would prove nothing; the served router's answer is pinned by the
+/// assume-role test's `/admin/routing-manifest` probes.)
+#[tokio::test]
+async fn the_composition_carries_the_routing_manifest_as_one_section() {
+    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+        tree.clone()
+            .with_state(oxy_app::surface::bare_app_state())
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("oneshot")
+            .status()
+    }
+    let seams = surface_seams();
+    let mut console = Vec::new();
+    for section in &seams.admin {
+        if trace(&section.routes, "/routing-manifest").await == StatusCode::METHOD_NOT_ALLOWED {
+            console.push((section.capability, section.decls.len()));
+        }
+    }
+    assert_eq!(
+        console,
+        vec![(oxy_app::surface::Action::PlatformOperate, 0)],
+        "one section mounts the route-role table, behind PlatformOperate, declaring nothing"
     );
 }
 

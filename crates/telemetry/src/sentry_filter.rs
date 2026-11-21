@@ -1046,6 +1046,9 @@ mod tests {
             "oxy_feature_flags::store",
             "oxy_feature_flags::targeting",
             "oxy_api_admin::feature_flags",
+            // The route-role table (2026-11-21): in memory only, kept and not
+            // the data plane as it was at `oxy_app::server::api::admin::routing`.
+            "oxy_api_admin::routing",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1472,6 +1475,10 @@ mod tests {
             "oxy_feature_flags::store",
             "oxy_feature_flags::targeting",
             "oxy_api_admin::feature_flags",
+            // The route-role table (2026-11-21, out of
+            // `oxy_app::server::api::admin::routing`): the in-memory
+            // declarations, no warehouse query.
+            "oxy_api_admin::routing",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -107,6 +107,9 @@ const REQUIRED_GROUPS: &[&str] = &[
     // until then), and the org member's read beside it on the api seam.
     "/api/admin/feature-flags",
     "/api/orgs/{org_id}/feature-flags",
+    // `oxy-api-admin`'s route-role table, a section on the admin seam since
+    // 2026-11-21 (the last in-tree router of `admin::router` until then).
+    "/api/admin/routing-manifest",
     // `oxy-api-workspace-health`, on the admin seam.
     "/api/admin/workspace-health",
     // The admin split (PR 1): three admin-seam groups that left `oxy-app`'s

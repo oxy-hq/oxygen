@@ -28,8 +28,9 @@ fn the_nest_is_the_one_oxy_app_mounted() {
 
 /// The sections `oxy-app`'s `admin::router` merged before the moves: the
 /// audit log behind `PlatformAudit`, the grant table behind
-/// `PlatformGrants` and the feature-flag console behind `PlatformOperate`,
-/// each declaring nothing.
+/// `PlatformGrants`, the feature-flag console behind `PlatformOperate` and
+/// the route-role table behind `PlatformOperate` (its own `route_layer` there,
+/// so its own section here), each declaring nothing.
 #[test]
 fn the_section_is_the_one_oxy_app_merged() {
     let sections = admin_sections();
@@ -42,6 +43,7 @@ fn the_section_is_the_one_oxy_app_merged() {
         vec![
             (Action::PlatformAudit, 0),
             (Action::PlatformGrants, 0),
+            (Action::PlatformOperate, 0),
             (Action::PlatformOperate, 0)
         ]
     );
@@ -155,6 +157,46 @@ async fn every_feature_flag_console_route_is_mounted() {
             .status();
         assert_eq!(got, want, "{uri}");
     }
+}
+
+/// The route-role table is mounted where the console calls it
+/// (`/api/admin/routing-manifest`), in the section [`admin_sections`] hands
+/// in last, and nowhere else in this crate's staff trees. TRACE, which it
+/// does not take, answers 405 from a mounted path and 404 from an unmounted
+/// one, without running a handler.
+#[tokio::test]
+async fn the_routing_manifest_is_mounted_in_its_own_section() {
+    let state = oxy_app::surface::bare_app_state();
+    let trace = |uri: &'static str| {
+        Request::builder()
+            .method(Method::TRACE)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let router = routing::router().with_state(state.clone());
+    for (uri, want) in [
+        ("/routing-manifest", StatusCode::METHOD_NOT_ALLOWED),
+        ("/routing-manifest/x", StatusCode::NOT_FOUND),
+        ("/routing-manifestx", StatusCode::NOT_FOUND),
+    ] {
+        let got = router.clone().oneshot(trace(uri)).await.unwrap().status();
+        assert_eq!(got, want, "{uri}");
+    }
+    let mut mounting = Vec::new();
+    for (i, section) in admin_sections().into_iter().enumerate() {
+        let got = section
+            .routes
+            .with_state(state.clone())
+            .oneshot(trace("/routing-manifest"))
+            .await
+            .unwrap()
+            .status();
+        if got != StatusCode::NOT_FOUND {
+            mounting.push((i, section.capability));
+        }
+    }
+    assert_eq!(mounting, vec![(3, Action::PlatformOperate)]);
 }
 
 /// The one row `oxy-app`'s `route_fleet("/feature-flags", ..)` declared
