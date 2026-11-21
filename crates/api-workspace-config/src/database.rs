@@ -140,22 +140,19 @@ pub async fn list_databases(
     AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
 ) -> Result<Json<Vec<DatabaseInfo>>, StatusCode> {
     let config_manager = &workspace_manager.config_manager;
-    let secrets_manager = &workspace_manager.secrets_manager;
-
     // `Some` on a node that owns the workspace files, `None` on one that does
     // not. Not an error either way — "could not look" is one of this
     // endpoint's three answers.
-    let semantic_manager = match config_manager.workspace_file_resolver() {
-        Some(with_files) => Some(
-            SemanticManager::from_config(with_files, secrets_manager.clone(), false)
-                .await
-                .map_err(|e| {
+    let semantic_manager =
+        match config_manager.workspace_file_resolver() {
+            Some(with_files) => Some(SemanticManager::from_config(with_files).await.map_err(
+                |e| {
                     tracing::error!("Failed to create semantic manager: {}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
-                })?,
-        ),
-        None => None,
-    };
+                },
+            )?),
+            None => None,
+        };
 
     let mut databases = Vec::new();
 

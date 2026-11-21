@@ -784,6 +784,7 @@ fn workspace_config_routes() -> Vec<&'static str> {
         "/databases/inspect-schemas",
         "/databases/inspect-schema-tables",
         "/databases/warehouse/schema",
+        "/databases/sync",
         "/secrets",
         "/secrets/bulk",
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7",
@@ -793,7 +794,7 @@ fn workspace_config_routes() -> Vec<&'static str> {
 
 /// The workspace seam carries the workspace's databases and secrets into the
 /// `/{workspace_id}` tree, with the nine FleetOk declarations `oxy-app`'s
-/// `route_fleet` used to write; and a real GET of the databases list, through
+/// `route_fleet` used to write (and `/databases/sync`, added 2026-11-21); and a real GET of the databases list, through
 /// the composition `serve` uses, reaches its handler and answers from the
 /// empty workspace's config, not the router's 404 or the workspace
 /// middleware's 503.
@@ -806,6 +807,7 @@ async fn the_workspace_tree_mounts_the_workspace_config_surface() {
         "/databases/inspect-schemas",
         "/databases/inspect-schema-tables",
         "/databases/{database_name}/schema",
+        "/databases/sync",
         "/secrets",
         "/secrets/bulk",
         "/secrets/{id}",

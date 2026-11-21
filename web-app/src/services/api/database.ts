@@ -2,7 +2,6 @@ import type {
   CreateDatabaseConfigResponse,
   DatabaseInfo,
   DatabaseSchema,
-  DatabaseSyncResponse,
   InspectEvent,
   SchemaListResult,
   SchemaTablesResult,
@@ -78,28 +77,6 @@ export class DatabaseService {
     return response.data;
   }
 
-  static async syncDatabase(
-    projectId: string,
-    branchName: string,
-    database?: string,
-    options?: { datasets?: string[]; tables?: string[] }
-  ): Promise<DatabaseSyncResponse> {
-    const params = new URLSearchParams();
-    params.append("branch", branchName);
-    if (database) params.append("database", database);
-    if (options?.datasets && options.datasets.length > 0) {
-      for (const dataset of options.datasets) {
-        params.append("datasets", dataset);
-      }
-    }
-    if (options?.tables && options.tables.length > 0) {
-      params.append("tables", options.tables.join(","));
-    }
-
-    const response = await apiClient.post(`/${projectId}/databases/sync?${params.toString()}`);
-    return response.data;
-  }
-
   static async buildDatabase(
     projectId: string,
     branchName: string
@@ -144,8 +121,8 @@ export class DatabaseService {
   /**
    * Lightweight schema/table discovery for the onboarding table picker.
    * Returns just `{ schema, table, column_count }` per table. Full column
-   * metadata is pulled lazily by `syncDatabase({ tables: [...] })` once the
-   * user has selected which tables to include.
+   * metadata is `oxyc sync <database> --tables …` (`POST /databases/sync`),
+   * which renders files for a checkout rather than answering the UI.
    */
   static async inspectDatabase(
     projectId: string,

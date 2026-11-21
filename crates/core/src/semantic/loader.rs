@@ -11,7 +11,7 @@ use crate::{
 };
 use oxy_shared::errors::OxyError;
 
-use crate::config::WorkingCopy;
+use crate::config::ResolveWorkspaceFile;
 use futures::StreamExt;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -539,11 +539,14 @@ pub(super) struct DDLRecord {
 }
 
 impl SchemaLoader {
-    pub async fn from_database(
+    pub async fn from_database<S>(
         database: &Database,
-        config: &ConfigManager<WorkingCopy>,
+        config: &ConfigManager<S>,
         secrets_manager: &SecretsManager,
-    ) -> Result<Self, OxyError> {
+    ) -> Result<Self, OxyError>
+    where
+        ConfigManager<S>: ResolveWorkspaceFile,
+    {
         // System-side schema load has no user / workspace context —
         // `airhouse_managed` can't mint here. Bail with the canonical
         // friendly message before `from_db` produces its low-level
@@ -728,11 +731,17 @@ impl SchemaLoader {
 
     pub async fn load_ddl(&self) -> Result<HashMap<String, String>, OxyError> {
         match &self.database.database_type {
+            // Postgres-family queries are empty (information_schema exposes no
+            // DDL text), so these render no `.sql` file rather than failing
+            // the whole sync after their models loaded.
             DatabaseType::ClickHouse(_)
             | DatabaseType::DuckDB(_)
             | DatabaseType::MotherDuck(_)
             | DatabaseType::Bigquery(_)
-            | DatabaseType::Snowflake(_) => {
+            | DatabaseType::Snowflake(_)
+            | DatabaseType::Postgres(_)
+            | DatabaseType::PostgresManaged(_)
+            | DatabaseType::Redshift(_) => {
                 let queries = self.database.get_ddl_queries()?;
                 let records: Vec<DDLRecord> = fetch_schema_models(queries, &self.connector).await?;
                 let datasets = records.into_iter().fold(HashMap::new(), |mut acc, record| {

@@ -77,6 +77,7 @@ never sent to the server as a literal.
     oxyc login-link --next /ide    # one-time URL that signs a browser in as your token
     oxyc workspace clone <id>      # clone the workspace's repository to edit locally; push to deploy
     oxyc airway run <ref> --workspace <id>   # run a deployed pipeline and stream it; also backfill, coverage, leases
+    oxyc sync [db] --workspace <id>          # write .databases/ schema files into the checkout (server introspects the deployed config)
     oxyc looker test <name> --workspace <id> # check a Looker integration's credentials; exit 9 when they fail
     oxyc guide                     # this page, to paste into a context file
 

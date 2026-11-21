@@ -5,6 +5,9 @@
 //! - [`database`]: the configured databases (`config.yml`'s `databases:` and
 //!   their synced datasets), a database's live schema, and the connection
 //!   probe and schema inspection the onboarding flow streams.
+//! - [`sync`] (2026-11-21): `POST /databases/sync`, one database's
+//!   `.databases/` files rendered from the warehouse for `oxyc sync` to write
+//!   into a checkout (it was `oxy sync`). Writes no server state.
 //! - [`secrets`]: the workspace's project secrets (`secrets`, a child of the
 //!   Workspace aggregate), CRUD, bulk create and reveal. A custom app's
 //!   non-production secret is staff's and never listed or reached here; a
@@ -25,8 +28,8 @@
 //!
 //! Every route is FleetOk, method `*`, as `route_fleet` declared them: the
 //! listing reads the in-memory `Config` (its datasets degrade to `null` without
-//! a working copy), the schema and inspection talk to the warehouse, and the
-//! secrets live in Postgres.
+//! a working copy), the schema, inspection and sync talk to the warehouse, and
+//! the secrets live in Postgres.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
@@ -36,6 +39,7 @@
 pub mod database;
 pub mod integration;
 pub mod secrets;
+pub mod sync;
 
 use axum::Router;
 use axum::routing::{get, post};
@@ -78,6 +82,9 @@ fn database_routes() -> Router<AppState> {
             "/{database_name}/schema",
             get(database::get_database_schema),
         )
+        // One database's `.databases/` files, rendered from the compiled
+        // config and the warehouse; `oxyc sync` writes them locally.
+        .route("/sync", post(sync::sync_database_handler))
 }
 
 /// Each handler enforces `WorkspaceAdmin` via its extractor signature.
@@ -103,8 +110,8 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree:
-/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk, and
-/// the Looker credentials check added here (2026-11-21).
+/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk, plus
+/// the Looker credentials check and `/databases/sync` added here (2026-11-21).
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     WORKSPACE_ROUTE_ROLES
 }
@@ -117,6 +124,9 @@ const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] = &[
     fleet("/databases/inspect-schemas"),
     fleet("/databases/inspect-schema-tables"),
     fleet("/databases/{database_name}/schema"),
+    // Renders from the compiled config and the warehouse; writes nothing
+    // (2026-11-21, `oxyc sync`).
+    fleet("/databases/sync"),
     fleet("/secrets"),
     fleet("/secrets/bulk"),
     fleet("/secrets/{id}"),
@@ -143,6 +153,7 @@ mod tests {
         "/databases/inspect-schemas",
         "/databases/inspect-schema-tables",
         "/databases/warehouse/schema",
+        "/databases/sync",
         "/secrets",
         "/secrets/bulk",
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7",
@@ -175,8 +186,8 @@ mod tests {
         let declared = workspace_route_roles();
         assert_eq!(
             declared.len(),
-            11,
-            "five database paths, four secret paths, two integration paths"
+            12,
+            "six database paths, four secret paths, two integration paths"
         );
         for decl in declared {
             let same = declared
@@ -213,6 +224,7 @@ mod tests {
             ("POST", "/databases/inspect-schemas"),
             ("POST", "/databases/inspect-schema-tables"),
             ("GET", "/databases/warehouse/schema"),
+            ("POST", "/databases/sync"),
             ("GET", "/secrets"),
             ("POST", "/secrets"),
             ("POST", "/secrets/bulk"),

@@ -323,8 +323,11 @@ pre_aggregations:
 - Neither checks **cross-file** wiring — an entity join that matches nothing,
   a topic naming a view that does not exist, a measure that a twin lacks. Run
   a real query through the topic before calling it done.
-- **`oxy sync`** writes table and column metadata to `.databases/`, which is
-  the place to read real column names from.
+- **`oxyc sync <database> --workspace <id>`** writes table and column metadata
+  to `.databases/`, which is the place to read real column names from. The
+  server introspects the warehouse from the DEPLOYED `config.yml` and `oxyc`
+  writes the files into the checkout (`-o` to replace existing ones). The old
+  `oxy sync` only prints this command now.
 - `inherits_from:` and `{{ globals.* }}` were removed from views; a file using
   either is refused at load. Inline the values.
 

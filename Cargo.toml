@@ -1011,7 +1011,6 @@ tower = "0.5.3"
 # is entirely internal, so the two never meet at a type boundary.
 tower-http = "0.7.0"
 tower-serve-static = "0.1.2"
-tqdm = "0.8.0"
 tracing-appender = "0.2.5"
 tracing-log = "0.2.0"
 tracing-subscriber = "0.3.23"

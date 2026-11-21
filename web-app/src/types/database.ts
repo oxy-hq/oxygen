@@ -58,12 +58,6 @@ export interface DatabaseSchema {
   tables: TableInfo[];
 }
 
-export interface DatabaseSyncResponse {
-  success: boolean;
-  message: string;
-  sync_time_secs?: number;
-}
-
 // Database Configuration Types
 interface PostgresConfig {
   host?: string;

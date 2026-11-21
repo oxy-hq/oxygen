@@ -1325,6 +1325,10 @@ mod tests {
             // workspace middleware, so not the custom-app data plane.
             "oxy_api_workspace_config::database",
             "oxy_api_workspace_config::secrets",
+            // `POST /databases/sync` (2026-11-21), a sibling of `database`'s
+            // schema reads: behind the workspace middleware and
+            // `WorkspaceAdmin`, rendering files for `oxyc sync`.
+            "oxy_api_workspace_config::sync",
             // The GitHub App's webhook receiver, out of `oxy-app` on
             // 2026-11-15: an HMAC check and the compile queue, no warehouse.
             "oxy_api_github::webhook",

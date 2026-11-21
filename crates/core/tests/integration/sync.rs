@@ -1,181 +1,135 @@
-use assert_cmd::assert::OutputAssertExt;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+//! The `.databases/` render behind `POST /api/{workspace_id}/databases/sync`
+//! (`oxy::semantic::render`), against the CI fixture's real databases: the
+//! BigQuery `primary_database` (key from `BIGQUERY_SAMPLE_KEY`) and the DuckDB
+//! `local`.
+//!
+//! These were the `oxy sync` binary tests. The command is a stub now (`oxyc
+//! sync` writes what the route returns), so the file assertions they made run
+//! against the rendered files instead. The write rules they also pinned (skip
+//! an existing file, `--overwrite` prunes a stale `models/` file and never the
+//! database directory) moved with the writing, to
+//! `sdk/cli/src/commands/sync.test.ts`. Nothing here touches the fixture's disk,
+//! so these no longer race each other on `.databases/`.
 
-fn setup_command() -> Command {
-    let mut cmd = Command::new(oxy_test_utils::get_oxy_binary());
-    cmd.current_dir(oxy_test_utils::oxy_example_fixture_dir())
-        .arg("sync");
-    cmd
+use oxy::adapters::secrets::SecretsManager;
+use oxy::config::{ConfigBuilder, ConfigManager, OnMissing, Origin, WorkingCopy};
+use oxy::semantic::render::{RenderedFile, render_databases, select_databases};
+use oxy::service::sync::SyncFilter;
+
+async fn fixture_config() -> ConfigManager<WorkingCopy> {
+    // The `oxy` binary installs this at startup (`crates/server/src/main.rs`
+    // does it for the server); an in-process render has to, or the BigQuery
+    // client panics choosing one. Errors only when already installed.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    ConfigBuilder::new()
+        .with_workspace_path(oxy_test_utils::oxy_example_fixture_dir())
+        .expect("fixture workspace")
+        .build_with_working_copy(Origin::Disk, OnMissing::Fail)
+        .await
+        .expect("fixture config")
 }
 
-fn file_contains(path: &Path, expected_content: &str) -> bool {
-    match fs::read_to_string(path) {
-        Ok(content) => content.contains(expected_content),
-        Err(_) => false,
-    }
+async fn render(database: &str, datasets: &[&str]) -> Vec<RenderedFile> {
+    let config = fixture_config().await;
+    let secrets = SecretsManager::from_environment().expect("secrets");
+    let filter = SyncFilter {
+        database: Some(database.to_string()),
+        datasets: datasets.iter().map(|d| d.to_string()).collect(),
+        tables: vec![],
+    };
+    render_databases(&config, &secrets, filter)
+        .await
+        .expect("render")
 }
 
-#[test]
-fn test_sync_database_creates_expected_files() {
-    let mut cmd = setup_command();
-    cmd.arg("primary_database")
-        .arg("-d")
-        .arg("dbt_prod_metrics")
-        .assert()
-        .success();
+fn content<'a>(files: &'a [RenderedFile], path: &str) -> &'a str {
+    &files
+        .iter()
+        .find(|f| f.path == path)
+        .unwrap_or_else(|| panic!("{path} was not rendered"))
+        .content
+}
 
-    let examples_dir = oxy_test_utils::oxy_example_fixture_dir();
-    let sql_file = examples_dir.join(".databases/primary_database/dbt_prod_metrics.sql");
-    let models_dir = examples_dir.join(".databases/primary_database/dbt_prod_metrics/models");
+/// Was `test_sync_database_creates_expected_files`: the same DDL and model
+/// assertions, made on the rendered files.
+#[tokio::test]
+async fn bigquery_dataset_renders_its_ddl_and_one_model_per_table() {
+    let files = render("primary_database", &["dbt_prod_metrics"]).await;
 
-    assert!(sql_file.exists(), "SQL file was not created");
-    assert!(models_dir.exists(), "Models directory was not created");
-
-    assert!(
-        file_contains(
-            &sql_file,
-            "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.monthly_active_organizations"
-        ),
-        "SQL file missing monthly_active_organizations table"
-    );
-    assert!(
-        file_contains(
-            &sql_file,
-            "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.monthly_active_users"
-        ),
-        "SQL file missing monthly_active_users table"
-    );
-    assert!(
-        file_contains(
-            &sql_file,
-            "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.monthly_active_organizations_with_warehouse"
-        ),
-        "SQL file missing monthly_active_organizations_with_warehouse table"
-    );
-    assert!(
-        file_contains(
-            &sql_file,
-            "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.monthly_active_users_with_warehouse"
-        ),
-        "SQL file missing monthly_active_users_with_warehouse table"
-    );
-
-    let sem_files = [
-        "monthly_active_organizations.schema.yml",
-        "monthly_active_organizations_with_warehouse.schema.yml",
-        "monthly_active_users.schema.yml",
-        "monthly_active_users_with_warehouse.schema.yml",
-    ];
-
-    for sem_file in &sem_files {
-        let sem_path = models_dir.join(sem_file);
-        assert!(sem_path.exists(), "Missing .schema.yml file: {sem_file}");
-
-        let file_name_without_ext = sem_file.replace(".schema.yml", "");
+    let sql = content(&files, ".databases/primary_database/dbt_prod_metrics.sql");
+    for table in [
+        "monthly_active_organizations",
+        "monthly_active_users",
+        "monthly_active_organizations_with_warehouse",
+        "monthly_active_users_with_warehouse",
+    ] {
         assert!(
-            file_contains(
-                &sem_path,
-                &format!("table: dbt_prod_metrics.{file_name_without_ext}")
-            ),
-            "{sem_file} does not contain expected table definition"
+            sql.contains(&format!(
+                "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.{table}"
+            )),
+            "SQL file missing {table} table"
+        );
+        let model = content(
+            &files,
+            &format!(".databases/primary_database/dbt_prod_metrics/models/{table}.schema.yml"),
+        );
+        assert!(
+            model.contains(&format!("table: dbt_prod_metrics.{table}")),
+            "{table}.schema.yml does not contain expected table definition"
         );
     }
-}
-
-#[test]
-fn test_sync_database_fails_with_invalid_database() {
-    let mut cmd = setup_command();
-    let result = cmd.arg("non_existent_database").assert().failure();
-
-    let output = String::from_utf8(result.get_output().stderr.clone()).unwrap();
-    assert!(output.contains("Database 'non_existent_database' not found in config"));
-}
-
-#[test]
-fn test_sync_database_with_overwrite_flag() {
-    let mut cmd = setup_command();
-    cmd.arg("primary_database")
-        .arg("-d")
-        .arg("dbt_prod_metrics")
-        .assert()
-        .success();
-
-    let examples_dir = oxy_test_utils::oxy_example_fixture_dir();
-    let sql_file = examples_dir.join(".databases/primary_database/dbt_prod_metrics.sql");
-    let models_dir = examples_dir.join(".databases/primary_database/dbt_prod_metrics/models");
-
-    assert!(sql_file.exists(), "SQL file was not created");
-    assert!(models_dir.exists(), "Models directory was not created");
-
-    let dummy_file = models_dir.join("dummy_test_file.schema.yml");
-    std::fs::write(&dummy_file, "test content for deletion").expect("Failed to write dummy file");
-    assert!(dummy_file.exists(), "Failed to create dummy file for test");
-    let mut cmd = setup_command();
-    cmd.arg("primary_database")
-        .arg("-d")
-        .arg("dbt_prod_metrics")
-        .arg("--overwrite")
-        .assert()
-        .success();
-
+    // Every path sits under the database's directory, which is what `oxyc sync`
+    // refuses anything else on.
     assert!(
-        !dummy_file.exists(),
-        "Dummy file was not removed during overwrite"
-    );
-
-    let sql_file_overwrite = examples_dir.join(".databases/primary_database/dbt_prod_metrics.sql");
-    let models_dir_overwrite =
-        examples_dir.join(".databases/primary_database/dbt_prod_metrics/models");
-
-    assert!(
-        sql_file_overwrite.exists(),
-        "SQL file was not recreated during overwrite"
-    );
-    assert!(
-        models_dir_overwrite.exists(),
-        "Models directory was not recreated during overwrite"
-    );
-
-    assert!(
-        file_contains(
-            &sql_file_overwrite,
-            "CREATE TABLE `df-warehouse-prod.dbt_prod_metrics.monthly_active_organizations`"
-        ),
-        "SQL file missing monthly_active_organizations table after overwrite"
+        files
+            .iter()
+            .all(|f| f.path.starts_with(".databases/primary_database/"))
     );
 }
 
-#[test]
-fn test_sync_entire_database_with_overwrite_flag() {
-    let mut cmd = setup_command();
-    cmd.arg("local").assert().success();
-
-    let examples_dir = oxy_test_utils::oxy_example_fixture_dir();
-    let database_dir = examples_dir.join(".databases/local");
-
-    assert!(database_dir.exists(), "Database directory was not created");
-
-    let dummy_file = database_dir.join("dummy_test_file.txt");
-    std::fs::write(&dummy_file, "test content that should not be deleted")
-        .expect("Failed to write dummy file");
-    assert!(dummy_file.exists(), "Failed to create dummy file for test");
-
-    let mut cmd = setup_command();
-    cmd.arg("local").arg("--overwrite").assert().success();
-
+/// Was `test_sync_database_fails_with_invalid_database`: the same message,
+/// which the route answers as 404 before any warehouse is asked.
+#[tokio::test]
+async fn an_unknown_database_is_refused_before_any_warehouse_is_asked() {
+    let config = fixture_config().await;
+    let filter = SyncFilter {
+        database: Some("non_existent_database".to_string()),
+        ..Default::default()
+    };
+    let err = select_databases(&config, filter).unwrap_err();
     assert!(
-        database_dir.exists(),
-        "Database directory was not preserved during overwrite"
+        err.to_string()
+            .contains("Database 'non_existent_database' not found in config"),
+        "{err}"
     );
+}
 
+/// Was `test_sync_entire_database_with_overwrite_flag`'s first half: syncing
+/// the whole DuckDB `local` produces its files, all under `.databases/local/`.
+#[tokio::test]
+async fn duckdb_database_renders_under_its_own_directory() {
+    let files = render("local", &[]).await;
+    assert!(!files.is_empty(), "the DuckDB fixture rendered nothing");
     assert!(
-        dummy_file.exists(),
-        "Dummy file in parent directory was incorrectly deleted"
+        files
+            .iter()
+            .all(|f| f.path.starts_with(".databases/local/")),
+        "{:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
     );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path.contains("/models/") && f.path.ends_with(".schema.yml"))
+    );
+}
 
-    if dummy_file.exists() {
-        let _ = fs::remove_file(&dummy_file);
-    }
+/// Rendering writes nothing: the fixture's `.databases/` is not created by a
+/// render, which is what lets a fleet node with no working copy serve one.
+#[tokio::test]
+async fn rendering_writes_nothing_to_the_workspace() {
+    let dir = oxy_test_utils::oxy_example_fixture_dir().join(".databases/local");
+    let before = dir.exists();
+    let _ = render("local", &[]).await;
+    assert_eq!(dir.exists(), before);
 }

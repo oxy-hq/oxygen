@@ -105,6 +105,7 @@ import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
 import { runRepos } from "./commands/repos.js";
 import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
+import { registerSync } from "./commands/sync-cli.js";
 import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
 import { runTokensCreateAgent } from "./commands/tokens-agent.js";
 import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
@@ -1650,6 +1651,7 @@ function buildProgram(): Command {
   registerHome(program, { withGlobals, globals, collect });
   registerWorkspace(program, { withGlobals, globals, collect });
   registerAirway(program, { withGlobals, globals, collect });
+  registerSync(program, { withGlobals, globals, collect });
   registerLooker(program, { withGlobals, globals, collect });
 
   const preview = program

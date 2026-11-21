@@ -100,6 +100,9 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/databases/inspect"),
     ("POST", "/databases/inspect-schemas"),
     ("POST", "/databases/inspect-schema-tables"),
+    // Rendering `.databases/` files for `oxyc sync` (2026-11-21): schema reads
+    // returned in the response, nothing written.
+    ("POST", "/databases/sync"),
     // A Looker integration's credentials check (`oxyc looker test`): signs in
     // and lists the models, nothing is written.
     ("POST", "/integrations/looker/{name}/test"),

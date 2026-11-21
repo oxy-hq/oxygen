@@ -837,6 +837,34 @@ shows the holder and asks first; with no terminal it refuses (exit `8`) unless
 is released and it exits `6` naming who holds it now. Both need a workspace
 admin; staff act inside a tenant through `oxyc assume`.
 
+## Database schema sync
+
+Write a workspace's `.databases/` schema files (each dataset's DDL and one
+`<table>.schema.yml` per table) into your checkout. The server introspects the
+warehouses the **deployed** `config.yml` names, with the workspace's secrets,
+and renders the files; `oxyc` writes them. It replaced the Rust `oxy sync`
+(2026-11-21), which now prints this command and exits `2` for one release.
+
+```bash
+oxyc sync [database] --workspace <id> [-d <dataset>]... [--tables <schema.table>]... [-o] [--dry-run] [--dir <checkout>] [--json]
+```
+
+Run it from the checkout's root (or pass `--dir`). Each request renders one
+database (`POST /api/{workspace_id}/databases/sync` → `[{ path, content }]`);
+with no database named, `oxyc` lists them and asks for each, so one failure
+does not stop the rest, and a type sync cannot introspect (`airhouse_managed`,
+`airhouse`, `mysql`) is skipped with a warning. An existing file is skipped
+unless `-o`/`--overwrite`, which also prunes a stale file from each `models/`
+directory it writes (never the database directory); with `--tables`,
+`--overwrite` replaces only those tables' models, prunes nothing and keeps an
+existing dataset `.sql`. `--dry-run` prints the
+plan and writes nothing; `--json` prints `{dry_run, databases, files}`. Every
+path is checked before anything is written: one outside `.databases/` in the
+checkout, symlinks included, exits `8` and writes nothing. Exit `4` not signed
+in or not a workspace admin, `5` no such database, `6` it cannot connect as
+configured (or, named, cannot be synced), `7` the warehouse failed or the
+sync outlasted the server's limit (narrow it with `-d`).
+
 ## Looker integrations
 
 Check a Looker integration's credentials on a deployment. This replaced the

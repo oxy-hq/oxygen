@@ -17,6 +17,7 @@ mod seed_org_workspace;
 pub(crate) mod seed_partners;
 pub(crate) mod seed_platform_grants;
 mod seed_threads;
+mod sync;
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
@@ -24,8 +25,7 @@ use crate::cli::commands::migrate_automations::{
     MOVED_EXIT_CODE, MigrateAutomationsArgs, moved_message,
 };
 use crate::cli::commands::run::{RunArgs, handle_run_command};
-use crate::server::service::sync::{SyncFilter, sync_databases};
-use ::oxy::adapters::secrets::SecretsManager;
+use crate::cli::commands::sync::SyncArgs;
 use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
@@ -39,7 +39,6 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use ::oxy::config::WorkingCopy;
-use tracing::debug;
 
 // The one-shot subcommands `oxy` runs, in the order `--help` lists them after
 // `oxy-server`'s own (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
@@ -62,10 +61,13 @@ pub enum SubCommand {
     /// inspecting what the compile boundary produces before any read
     /// path depends on it.
     Compile(compile::CompileArgs),
-    /// Synchronize and collect metadata from connected databases
+    /// Moved to `oxyc sync` (prints the command and exits 2)
     ///
-    /// Extract schema information, table structures, and relationships
-    /// from your databases to enable better query suggestions and validation.
+    /// Introspecting the warehouses into `.databases/` is
+    /// `oxyc sync [database] --workspace <id>` now (`npm i -g @oxy-hq/cli`): the
+    /// server renders the files from the deployed config and `oxyc` writes
+    /// them. This stub stays for one release so an old invocation is told what
+    /// to type instead.
     Sync(SyncArgs),
     /// Validate configuration files for syntax and structure
     ///
@@ -113,32 +115,6 @@ pub enum SubCommand {
     /// Supports analytics and builder domains. Use --json for LLM-readable output.
     /// Requires OXY_DATABASE_URL to be set.
     Agentic(agentic_cli::AgenticArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct SyncArgs {
-    /// Specific database to sync (syncs all if not specified)
-    ///
-    /// Target a single database connection from your config.yml
-    /// instead of syncing metadata from all configured databases.
-    database: Option<String>,
-    /// Specific datasets/tables to sync within the database
-    ///
-    /// Limit synchronization to particular tables or schemas
-    /// instead of processing the entire database structure.
-    #[clap(long, short = 'd', num_args = 0..)]
-    datasets: Vec<String>,
-    /// Overwrite existing metadata files during sync
-    ///
-    /// Replace existing schema files and metadata instead of
-    /// skipping tables that have already been synchronized.
-    #[clap(
-        long,
-        short = 'o',
-        default_value_t = false,
-        help = "Overwrite existing files during sync"
-    )]
-    overwrite: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -427,35 +403,9 @@ pub async fn run(
                 exit(1);
             }
         }
-        SubCommand::Sync(sync_args) => {
-            sentry_config::add_operation_context("sync", None);
-            if let Some(ref db) = sync_args.database {
-                sentry_config::add_database_context(db, None);
-            }
-            let config = ConfigBuilder::new()
-                .with_workspace_path(&resolve_local_workspace_path()?)?
-                .build_with_working_copy(Origin::Disk, OnMissing::Fail)
-                .await?;
-
-            let secrets_manager = SecretsManager::from_environment()?;
-            let filter = sync_args.database.clone().map(|db| SyncFilter {
-                database: Some(db),
-                datasets: sync_args.datasets.clone(),
-                tables: vec![],
-            });
-            debug!(sync_args = ?sync_args, "Syncing");
-            println!("🔄Syncing databases");
-            let sync_metrics =
-                sync_databases(config.clone(), secrets_manager, filter, sync_args.overwrite)
-                    .await?;
-            println!(
-                "✅Sync finished:\n\n{}",
-                sync_metrics
-                    .into_iter()
-                    .map(|m| m.map_or_else(|e| e.to_string().error().to_string(), |v| v.to_string()))
-                    .collect::<Vec<_>>()
-                    .join("\n---\n")
-            )
+        SubCommand::Sync(args) => {
+            eprintln!("{}", sync::moved_message(&args).warning());
+            exit(sync::MOVED_EXIT_CODE);
         }
         SubCommand::Validate(args) => {
             let config: ::oxy::config::ConfigManager<WorkingCopy> = ConfigBuilder::new()

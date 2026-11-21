@@ -81,10 +81,10 @@ path = "junit.xml"
 #     background coordinator/sweeper in one test observes another test's rows
 #     (seen as runs ending "failed" instead of "done", or the coordinator timing
 #     out).
-#   * The `oxy` CLI sync tests mutate the same on-disk example fixture directory
-#     (`.databases/...`); one test's `--overwrite` deletes files another asserts
-#     on. They live under `kind(test)` in the `oxy` package and are covered by
-#     the same group.
+#   * The `oxy` sync tests used to drive the CLI against the same on-disk
+#     example fixture (`.databases/...`), so one test's `--overwrite` deleted
+#     files another asserted on. Since 2026-11-21 they render in memory (`oxyc
+#     sync` does the writing) and no longer need the group for that.
 #
 # `db-per-test` — the `oxy-app` integration binaries that touch Postgres. These
 # do NOT share a schema: `tests/common/mod.rs` gives every test its own database,

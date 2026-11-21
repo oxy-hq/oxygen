@@ -80,14 +80,14 @@ databases:
 - Queries are executed in the cloud and results are streamed back to Oxygen.
 - You can query both cloud-based tables and local files using DuckDB's hybrid execution model.
 - MotherDuck provides automatic caching and optimization for better query performance.
-- **Schema sync**: Use `oxy sync` to automatically generate semantic models from your MotherDuck database schema.
+- **Schema sync**: Use `oxyc sync` to automatically generate semantic models from your MotherDuck database schema.
 
 # Syncing your schema
 
-You can automatically generate semantic models from your MotherDuck database schema using the `oxy sync` command:
+You can automatically generate semantic models from your MotherDuck database schema using the `oxyc sync` command, from the root of your checkout (see [Database Sync](/build/connect-data/sync-schema)):
 
 ```bash
-oxy sync
+oxyc sync --workspace <workspace-id>
 ```
 
 This will:
@@ -113,10 +113,10 @@ You can also sync specific databases using command-line options:
 
 ```bash
 # Sync only the motherduck database
-oxy sync motherduck
+oxyc sync motherduck --workspace <workspace-id>
 
 # Sync with overwrite flag to replace existing files
-oxy sync --overwrite
+oxyc sync --overwrite --workspace <workspace-id>
 ```
 
 # Troubleshooting
@@ -124,4 +124,4 @@ oxy sync --overwrite
 - **Token issues**: Ensure your `MOTHERDUCK_TOKEN` environment variable is set correctly and contains a valid token.
 - **Database not found**: Verify the database name in your config matches an existing database in your MotherDuck account.
 - **Connection errors**: Check your internet connectivity and verify you can access MotherDuck through their web console.
-- **Sync issues**: If `oxy sync` fails, ensure your token has read permissions on the database schema.
+- **Sync issues**: If `oxyc sync` fails, ensure your token has read permissions on the database schema.

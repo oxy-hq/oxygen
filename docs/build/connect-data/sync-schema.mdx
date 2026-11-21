@@ -1,7 +1,7 @@
 ---
 title: Database Synchronization
 sidebarTitle: Database Sync
-description: Learn how to synchronize database schema information with the Oxygen sync command
+description: Learn how to synchronize database schema information into your repository with oxyc sync
 ---
 import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
@@ -10,79 +10,92 @@ import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
 # Oxygen sync
 
-The `oxy sync` command collects semantic information from your databases and stores it in your local repository for use by agents and other Oxygen features. This semantic information includes table structures, relationships, and sample data that help agents understand your data model.
+The `oxyc sync` command collects schema information from your databases and writes it into your repository, under `.databases/`, for use by agents and other Oxygen features. The files hold table structures, column names and types, and the DDL, which help agents understand your data model.
+
+Oxygen introspects the databases on the server, with the connection settings and secrets your **deployed** workspace has, and `oxyc` writes the files into your local checkout. No warehouse credentials are needed on your machine, only an `oxyc` login. Because the server reads the deployed `config.yml`, push a change to a database's configuration before you sync it.
+
+<Note>
+`oxy sync` has moved to `oxyc sync`. The old command now prints the `oxyc` command to run and exits with code 2.
+</Note>
 
 ## Command Overview
 
 ```bash
-oxy sync [DATABASE_NAME] [OPTIONS]
+oxyc sync [DATABASE_NAME] --workspace <workspace-id> [OPTIONS]
 ```
+
+Install `oxyc` with `npm i -g @oxy-hq/cli`, sign in with `oxyc login`, and run the command from the root of your checkout.
 
 ### Arguments
 
-- `DATABASE_NAME` (optional): The name of a specific database to sync, as defined in your `config.yml` file. If omitted, all databases will be synced.
+- `DATABASE_NAME` (optional): The name of a specific database to sync, as defined in your `config.yml` file. If omitted, every database is synced, one at a time. `--database <name>` is the same.
 
 ### Options
 
-- `-d, --datasets <DATASETS>`: Specify one or more datasets to sync within the database. Can be used multiple times.
-- `-o, --overwrite`: Overwrite existing files during synchronization. By default, existing files are skipped.
+- `--workspace <id>`: The workspace whose deployed configuration names the databases.
+- `-d, --datasets <DATASET>`: Sync only this dataset (schema) within the named database. Repeat it for more than one.
+- `--tables <SCHEMA.TABLE>`: Sync only this table within the named database. Repeat it for more than one.
+- `-o, --overwrite`: Overwrite existing files. By default, existing files are skipped.
+- `--dry-run`: Print what would be written, and write nothing.
+- `--dir <path>`: The checkout to write into. The default is the current directory.
+- `--json`: Print a machine-readable report of each database and each file.
 
 ## Usage Examples
 
 ### Sync All Databases
 
 ```bash
-oxy sync
+oxyc sync --workspace <workspace-id>
 ```
 
-This command will synchronize all databases defined in your `config.yml` file. By default, it will skip any files that already exist.
+This syncs every database defined in your deployed `config.yml`. Existing files are skipped. If one database fails, the others still sync, and the command exits non-zero.
 
 ### Sync a Specific Database
 
 ```bash
-oxy sync my_database
+oxyc sync my_database --workspace <workspace-id>
 ```
-
-This syncs only the database named "my_database" from your configuration.
 
 ### Sync Specific Datasets
 
 ```bash
-oxy sync my_database -d customers -d orders
+oxyc sync my_database -d customers -d orders --workspace <workspace-id>
 ```
 
-This will sync only the "customers" and "orders" datasets from the "my_database" database.
+This syncs only the "customers" and "orders" datasets from the "my_database" database.
 
 ### Overwrite Existing Files
 
 ```bash
-oxy sync -o
+oxyc sync -o --workspace <workspace-id>
 ```
 
-By using the `-o` flag, existing semantic files will be overwritten during synchronization.
+With `-o`, existing files are replaced, and a stale model file in a dataset's `models/` directory is removed. Files elsewhere under `.databases/` are left alone.
 
 ## Output and Warnings
 
-The `sync` command provides feedback about the synchronization process:
+1. **Skipped files**: When a file already exists and overwrite mode is off (the default), it is listed as skipped.
+2. **Overwritten and deleted files**: With `-o`, the files replaced and the stale models removed are listed.
+3. **Skipped databases**: A database whose type cannot be synced (for example `airhouse_managed`) is skipped with a warning.
 
-1. **Skipped Files**: When a file already exists and overwrite mode is off (default), the command will display a warning indicating which files were skipped.
-
-2. **Overwritten Files**: When the `-o` flag is used, the command will display a warning showing which existing files were overwritten.
+Exit codes: `0` success, `4` not signed in or not a workspace admin, `5` no such database or workspace, `6` the database cannot connect as configured, `7` a retryable failure (the warehouse failed, or the sync took too long: narrow it with `-d`).
 
 ## Understanding the Synced Data
 
-When you run the `oxy sync` command, Oxygen will:
+When you run `oxyc sync`, Oxygen will:
 
 1. Connect to each configured database
-2. Extract schema information, including tables, columns, relationships, and data types
+2. Extract schema information, including tables, columns and data types
 3. Generate semantic models representing this data
-4. Save these models as files in your project directory
+4. Write these models as files under `.databases/` in your checkout:
+   - `.databases/<database>/<dataset>.sql`: the dataset's DDL, where the database exposes it
+   - `.databases/<database>/<dataset>/models/<table>.schema.yml`: one file per table
 
-These semantic files are then used by agents when you ask questions about your data, enabling them to generate accurate SQL queries and understand your data structure.
+These semantic files are then used by agents when you ask questions about your data, enabling them to generate accurate SQL queries and understand your data structure. Commit them like any other workspace file.
 
 ## Configuration
 
-Before using the `sync` command, ensure your databases are properly configured in your `config.yml` file. For example:
+Before using the `sync` command, ensure your databases are properly configured in your `config.yml` file, and that the configuration is deployed. For example:
 
 ```yaml
 databases:
@@ -91,15 +104,17 @@ databases:
     host: localhost
     port: 5432
     user: postgres
-    password: mysecretpassword
+    password_var: POSTGRES_PASSWORD
     database: mydb
 
   - name: my_bigquery_db
     type: bigquery
-    key_path: path/to/keyfile.json
+    key_json_var: BIGQUERY_KEY_JSON
     datasets:
       analytics: ["*"]
       marketing: ["users", "campaigns"]
 ```
+
+Reference credentials through the workspace's secrets (`password_var`, `key_json_var`): the server resolves them when it syncs. A connection that reads a file from the workspace (a `key_path`, a local DuckDB file) cannot be synced by the cloud.
 
 See the [configuration documentation](/guide/reference/yaml/config) for more details on setting up your database connections.
