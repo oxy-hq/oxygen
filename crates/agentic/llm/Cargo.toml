@@ -13,6 +13,7 @@ oxy-shared = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 futures-core = { workspace = true }
+llm-prices = "1.8"
 reqwest = { workspace = true, features = ["json", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
