@@ -60,6 +60,32 @@ A reworded, moved or landed line is a move: the PR must name it. A `none` on a P
 visibly adds behaviour is flagged by the review as `should_fix`; be honest, the line is
 cheap.
 
+## A series of PRs: one line, picked before they start
+
+When several PRs land one piece of work, especially agents running in parallel, choose
+the line **once, before the first PR is written**, and give every PR the same trailer.
+
+- **Search before you add.** Run `ids` on a fresh `origin/main`, then list the open PRs
+  that edit the roadmap, since one of them may already add your line:
+
+  ```bash
+  gh pr list -R oxy-hq/oxygen-internal --limit 200 --json number,files \
+    --jq '.[] | select(any(.files[]; .path == "internal-docs/platform-roadmap.md")) | .number'
+  ```
+
+  Don't search for "Roadmap:" instead: the PR template puts that line in every body.
+- **Only one PR adds the line.** The rest cite it and leave the doc alone. Two PRs that
+  each add a line for the same work end up with duplicate lines and a summary that
+  conflicts on every merge.
+- **A trailer resolves against the doc at your PR head, not main.** To cite a line that
+  landed on main after you branched, merge `origin/main` in and push first, then edit
+  the trailer. If the line is still only in an open sibling PR, wait until that PR has
+  merged (merging it is a person's call), then merge `origin/main` in as above.
+  Otherwise the status fails with `No roadmap line <id> at the PR head`.
+
+On 2026-11-21 the oxy-to-oxyc CLI moves showed both failures: two PRs each added a line
+for the same work, and one cited a line before its branch had it.
+
 ## The commands
 
 ```bash
