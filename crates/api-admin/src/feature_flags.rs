@@ -1,11 +1,19 @@
-//! HTTP surface for feature flags.
+//! HTTP surface for feature flags, out of `oxy-app`'s
+//! `server::feature_flags::routes` (2026-11-21). The runtime (registry,
+//! targeting, evaluation, store, cache, exposures, rollout gates) is
+//! `oxy-feature-flags`, below `oxy-app`.
 //!
-//! - Admin (`router`, mounted at `/admin/feature-flags` behind the staff surface's
-//!   `PlatformOperate`): list, patch a flag's kill switch and rules, and preview
-//!   what any org or person would get.
-//! - Org member (`org_flags`, mounted at `/orgs/{org_id}/feature-flags`): the
-//!   evaluated variant of every `client` flag for the caller. Values only, never
-//!   the rules: an org must not learn which other orgs are named in an override.
+//! - Admin (`router`, an `AdminSection` on `SurfaceSeams::admin`, merged
+//!   inside `/admin` behind the staff door, the refusal while acting and
+//!   `PlatformOperate`): list, patch a flag's kill switch and rules, and
+//!   preview what any org or person would get.
+//! - Org member (`org_routes`, on `SurfaceSeams::api`: `org_flags` at
+//!   `/orgs/{org_id}/feature-flags`, behind `org_middleware` and no
+//!   subscription guard): the evaluated variant of every `client` flag for the
+//!   caller. Values only, never the rules: an org must not learn which other
+//!   orgs are named in an override.
+//!
+//! `internal-docs/feature-flags.md` is the guide.
 
 use std::collections::BTreeMap;
 
@@ -13,17 +21,18 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
+use axum::middleware::from_fn;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
 use chrono::{DateTime, Utc};
+use oxy_app::surface::{OrgContextExtractor, org_middleware};
+use oxy_app_core::AppState;
 use oxy_app_core::audit::{AuditEntry, RequestActor, record_best_effort};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::org_context::OrgContextExtractor;
-use crate::server::router::AppState;
 use oxy_feature_flags::evaluate::{Evaluation, FlagContext};
 use oxy_feature_flags::registry::{self, FlagDef, Unit};
 use oxy_feature_flags::targeting::Targeting;
@@ -85,11 +94,27 @@ pub struct OrgFlagsResponse {
     pub flags: BTreeMap<&'static str, ClientFlag>,
 }
 
-pub(crate) fn router() -> Router<AppState> {
+/// The staff half, relative to `/admin`: `oxy-app`'s console merges it
+/// behind `PlatformOperate` and the refusal while acting
+/// (`crate::admin_sections`).
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/feature-flags", get(list))
         .route("/feature-flags/evaluate", get(evaluate))
         .route("/feature-flags/{key}", patch(update))
+}
+
+/// The org member's half, relative to the protected root: `org_flags` under
+/// `/orgs/{org_id}`, behind `org_middleware` and NOT the subscription guard,
+/// as `build_org_routes` mounted it: the shell reads it on every page, the
+/// paywall included.
+pub fn org_routes() -> Router<AppState> {
+    Router::new().nest(
+        "/orgs/{org_id}",
+        Router::new()
+            .route("/feature-flags", get(org_flags))
+            .layer(from_fn(org_middleware)),
+    )
 }
 
 fn internal(what: &'static str) -> impl FnOnce(sea_orm::DbErr) -> Response {

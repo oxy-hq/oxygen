@@ -16,7 +16,9 @@ pub mod compile_request;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;
 pub mod factory_access;
-pub mod feature_flags;
+// `feature_flags` (the flag routes: the staff console's list, patch and
+// evaluate, and the org member's read) is `oxy-api-admin`'s since 2026-11-21;
+// the runtime is `oxy-feature-flags`.
 pub mod http_cache;
 pub mod ide_proxy;
 pub mod metrics_server;

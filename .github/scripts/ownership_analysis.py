@@ -115,6 +115,10 @@ AREAS = [
     # Workspace previews: the lower half stays in oxy-app, the upper half moved
     # into crates/api-previews 2026-11-14.
     ("crates/api-previews",                               "Workspace previews"),
+    # The feature-flag routes, 2026-11-21, out of
+    # crates/app/src/server/feature_flags/routes.rs: still "Feature flags",
+    # listed before the crate so it wins.
+    ("crates/api-admin/src/feature_flags.rs",             "Feature flags"),
     # The staff console crate, started 2026-11-19 (admin split PR 7); its
     # sections leave crates/app/src/server/api/admin, the "Admin (backend)" area.
     ("crates/api-admin",                                  "Admin (backend)"),
@@ -122,8 +126,8 @@ AREAS = [
     # report's pure half, out of crates/app/src/server/api/admin/usage_report.
     ("crates/usage-report",                               "Admin (backend)"),
     # The feature-flag runtime's domain half, 2026-11-20, out of
-    # crates/app/src/server/feature_flags (whose routes stay); the old path
-    # keeps the history.
+    # crates/app/src/server/feature_flags (whose routes followed into
+    # crates/api-admin on 2026-11-21, above); the old path keeps the history.
     ("crates/feature-flags",                              "Feature flags"),
     ("crates/app/src/server/feature_flags",               "Feature flags"),
     # Billing's surface crate, 2026-11-20 (admin split PR 8b): the usage

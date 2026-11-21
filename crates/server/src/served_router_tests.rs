@@ -5204,9 +5204,11 @@ async fn assume_audit_actions(db: &sea_orm::DatabaseConnection, org: uuid::Uuid)
 /// * the Global Owner: a session of exactly 60 minutes, audited
 ///   `admin.assume.started` in the same transaction, listed by `/current`;
 /// * while it is live, the console is 403 on an in-tree route
-///   (`/admin/feature-flags`), an extracted section (`/admin/audit`) and a
-///   sibling nest (`/admin/internal-jobs/queue-stats`), and `/api/assume` itself
-///   still answers: the exit is not behind the door it locks;
+///   (`/admin/routing-manifest`), two extracted sections (`/admin/audit`, and
+///   `/admin/feature-flags`, the in-tree probe until it moved to
+///   `oxy-api-admin` on 2026-11-21) and a sibling nest
+///   (`/admin/internal-jobs/queue-stats`), and `/api/assume` itself still
+///   answers: the exit is not behind the door it locks;
 /// * ending it is 204, audited `admin.assume.ended`, and the console is back.
 ///
 /// Dropping `oxy_api_admin::routes()` from the api seam turns every assume
@@ -5318,9 +5320,10 @@ async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
     assert_eq!(got, StatusCode::OK);
     assert_eq!(live[0]["id"], json!(row.id), "{live}");
 
-    // Acting closes the console: in-tree, a section and a nest.
+    // Acting closes the console: in-tree, two sections and a nest.
     let mut acting = Vec::new();
     for p in [
+        "/admin/routing-manifest",
         "/admin/feature-flags",
         "/admin/audit",
         "/admin/internal-jobs/queue-stats",
@@ -5331,6 +5334,7 @@ async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
     let (ended, _) = assume_call(&router, Method::DELETE, "/assume", None).await;
     let mut after = Vec::new();
     for p in [
+        "/admin/routing-manifest",
         "/admin/feature-flags",
         "/admin/audit",
         "/admin/internal-jobs/queue-stats",
@@ -5639,6 +5643,84 @@ async fn both_modes_mount_the_stripe_webhook() {
         );
     }
     assert_eq!(classify("POST", "/api/webhooks/stripe"), RouteRole::FleetOk);
+}
+
+/// The org member's flag read (`oxy-api-admin`'s on the api seam since
+/// 2026-11-21, out of `build_org_routes`), as the shell calls it.
+fn org_feature_flag_routes() -> Vec<(Method, String)> {
+    vec![(Method::GET, format!("/orgs/{ORG}/feature-flags"))]
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_org_feature_flag_read() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(org_feature_flag_routes()).await;
+    use oxy_app::surface::roles::{RouteRole, classify};
+    assert_eq!(
+        classify(
+            "GET",
+            "/api/orgs/00000000-0000-0000-0000-000000000000/feature-flags"
+        ),
+        RouteRole::FleetOk,
+        "the flag cache, loaded from Postgres on every replica: FleetOk"
+    );
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_org_feature_flag_read() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(org_feature_flag_routes()).await;
+}
+
+/// The composition hands the feature-flag routes to the seams `oxy-app`
+/// mounted them from: the staff console's half to `admin` (a section behind
+/// `PlatformOperate`, as `admin::router` merged it), and the org member's
+/// read to `api` (behind `org_middleware`, whose `Path` answers an
+/// unparseable org id 400 before any database), declared FleetOk as
+/// `route_fleet` declared it. No database.
+#[tokio::test]
+async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
+    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+        tree.clone()
+            .with_state(oxy_app::surface::bare_app_state())
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("oneshot")
+            .status()
+    }
+    let seams = surface_seams();
+    let mut console = Vec::new();
+    for section in &seams.admin {
+        if trace(&section.routes, "/feature-flags").await == StatusCode::METHOD_NOT_ALLOWED {
+            console.push(section.capability);
+        }
+    }
+    assert_eq!(
+        console,
+        vec![oxy_app::surface::Action::PlatformOperate],
+        "one section mounts the flag console, behind PlatformOperate"
+    );
+    assert_eq!(
+        trace(&seams.api.routes, "/orgs/not-a-uuid/feature-flags").await,
+        StatusCode::BAD_REQUEST,
+        "the api seam mounts the org flag read behind org_middleware"
+    );
+    assert!(
+        seams.api.decls.iter().any(|d| d.method == "*"
+            && d.path == "/orgs/{org_id}/feature-flags"
+            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+        "the api seam declares /orgs/{{org_id}}/feature-flags FleetOk"
+    );
 }
 
 /// The composition hands billing's three shares to the seams `oxy-app` mounted

@@ -102,7 +102,11 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/webhooks/toast/orders",
     "/api/admin/compiles",
     "/api/admin/internal-jobs",
+    // `oxy-api-admin`'s feature-flag console, a section on the admin seam
+    // since 2026-11-21 (the head of `admin::router`'s `staff_surface` chain
+    // until then), and the org member's read beside it on the api seam.
     "/api/admin/feature-flags",
+    "/api/orgs/{org_id}/feature-flags",
     // `oxy-api-workspace-health`, on the admin seam.
     "/api/admin/workspace-health",
     // The admin split (PR 1): three admin-seam groups that left `oxy-app`'s

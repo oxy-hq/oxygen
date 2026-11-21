@@ -19,6 +19,9 @@ pub mod assume;
 // Billing queue) is `oxy-api-billing`'s since the admin split's PR 9: a
 // section naming `PlatformOwnerOnly`, arriving through `extracted` and gated
 // by the strict owner guard there.
+// The feature-flag console (`/feature-flags*`) is `oxy-api-admin`'s since
+// 2026-11-21 (out of `server::feature_flags::routes`): a section behind
+// `PlatformOperate`, arriving through `extracted`.
 // `compiles` (`/compiles*`, the compile boundary's operator surface) is
 // `oxy-api-previews`' since the admin split's PR 6, and `internal_jobs*`
 // (`/internal-jobs*`, the task fleet's operator console) `oxy-api-admin`'s
@@ -41,7 +44,6 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 use crate::server::api::middlewares::{oxy_owner_guard, platform_cap_guard};
 use crate::server::authz::Action;
-use crate::server::feature_flags;
 use crate::server::router::{AdminSection, AppState};
 
 /// Admin routes are flat under `/api/admin/*` after the 2026-04-28 redesign.
@@ -183,7 +185,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // The staff surface. Everything here is refused while the caller is acting as
     // a tenant: you cannot wield staff powers and wear a customer's identity in
     // the same breath. Ending the session (below) restores all of it.
-    let staff_surface = feature_flags::routes::router()
+    // The feature-flag console (`/feature-flags*`, `PlatformOperate`) moved to
+    // `oxy-api-admin` (2026-11-21) and arrives through `extracted` below,
+    // behind the capability it had here.
+    let staff_surface = routing::router()
         .route_layer(cap(Action::PlatformOperate))
         // The custom-app registry is NOT merged here: it is the `/customer-apps`
         // surface in `router::global`, behind the one `apps::guarded` stack.
@@ -201,7 +206,6 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // The user directory (`/users*`, `PlatformUsers`) moved to
         // `oxy-api-identity` (admin split, PR 5) and arrives through
         // `extracted` below, behind the capability it had here.
-        .merge(routing::router().route_layer(cap(Action::PlatformOperate)))
         // Per-org OLTP (`PlatformOltp`) and a workspace's Airhouse tenant
         // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4)
         // and arrive through `extracted` below, each its own section behind the

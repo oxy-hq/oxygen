@@ -256,6 +256,24 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_admin::assume",
         function: "router",
     },
+    // The feature-flag routes, `oxy-api-admin`'s since 2026-11-21 (out of
+    // `oxy-app`'s `server::feature_flags::routes`): the staff console's half,
+    // a section on `SurfaceSeams::admin` inside `/api/admin`, where the walk of
+    // `admin::router` read it as the head of `staff_surface`'s chain; and the
+    // org member's read, on `SurfaceSeams::api` at the `/api` root (nested at
+    // `/orgs/{org_id}` itself), where the walk of `build_org_routes` read it.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_admin::feature_flags",
+        function: "router",
+    },
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_admin::feature_flags",
+        function: "org_routes",
+    },
     // Workspace previews (`oxy-api-previews`, `SurfaceSeams::previews`), mounted
     // beside the workspace tree, not in it (its own access middleware), so it is
     // not reached by the walk above.
@@ -750,7 +768,6 @@ const DOC_DIRS: &[&str] = &[
 pub const SOURCE_DIRS: &[&str] = &[
     "crates/app/src/server/router",
     "crates/app/src/server/api",
-    "crates/app/src/server/feature_flags",
     "crates/agentic/http/src",
     "crates/cameras/src/routes",
     "crates/airhouse/src/api",
@@ -1562,8 +1579,9 @@ impl Walker {
                 break;
             };
             // The chain this marker hangs off may START with another builder
-            // (`feature_flags::routes::router().merge(..)`), which mounts at
-            // the same prefix. Follow it once per chain.
+            // (`routing::router().route_layer(..).merge(..)`, the console's
+            // `staff_surface`), which mounts at the same prefix. Follow it
+            // once per chain.
             let head = chain_start(expr, at);
             if seen_head != Some(head) {
                 seen_head = Some(head);

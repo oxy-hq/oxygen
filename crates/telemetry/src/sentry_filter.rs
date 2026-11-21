@@ -1034,7 +1034,9 @@ mod tests {
             "oxy_api_admin::assume",
             // The feature-flag runtime's domain half, down from
             // `oxy_app::server::feature_flags` into `oxy-feature-flags`
-            // (2026-11-20): kept, as it was there, and the routes that stayed.
+            // (2026-11-20): kept, as it was there. Its routes followed into
+            // `oxy-api-admin` on 2026-11-21, kept as they were at
+            // `oxy_app::server::feature_flags::routes`.
             "oxy_feature_flags",
             "oxy_feature_flags::cache",
             "oxy_feature_flags::evaluate",
@@ -1043,7 +1045,7 @@ mod tests {
             "oxy_feature_flags::rollout",
             "oxy_feature_flags::store",
             "oxy_feature_flags::targeting",
-            "oxy_app::server::feature_flags::routes",
+            "oxy_api_admin::feature_flags",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1458,7 +1460,9 @@ mod tests {
             // The feature-flag runtime's domain half (2026-11-20, out of
             // `oxy_app::server::feature_flags`): the flag table in Oxy's own
             // Postgres and an in-process cache, no warehouse; not the data
-            // plane, as `oxy_app::server` was not. And the routes that stayed.
+            // plane, as `oxy_app::server` was not. And its routes, in
+            // `oxy-api-admin` since 2026-11-21 (out of
+            // `oxy_app::server::feature_flags::routes`): the same table and cache.
             "oxy_feature_flags",
             "oxy_feature_flags::cache",
             "oxy_feature_flags::evaluate",
@@ -1467,7 +1471,7 @@ mod tests {
             "oxy_feature_flags::rollout",
             "oxy_feature_flags::store",
             "oxy_feature_flags::targeting",
-            "oxy_app::server::feature_flags::routes",
+            "oxy_api_admin::feature_flags",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

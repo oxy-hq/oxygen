@@ -7,7 +7,6 @@
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::get;
 
 use crate::api::admin;
 use crate::api::middlewares::{
@@ -205,12 +204,10 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
 
     // `/billing/*` (`oxy-api-billing`'s since the admin split's PR 9, above) is
     // the only org-scoped tree a paywalled user may reach, so it sits outside
-    // the subscription guard above. So does `/feature-flags`: the shell reads
-    // it on every page, the paywall included. Postgres-backed cache, FleetOk.
-    gated
-        .route_fleet(
-            "/feature-flags",
-            get(crate::server::feature_flags::routes::org_flags),
-        )
-        .map_router(|r| r.layer(middleware::from_fn(org_context::org_middleware)))
+    // the subscription guard above. So does `/feature-flags`, `oxy-api-admin`'s
+    // since 2026-11-21, merged through `SurfaceSeams::api` with `org_middleware`
+    // re-applied and no subscription guard, declared FleetOk there as
+    // `route_fleet` declared it: the shell reads it on every page, the paywall
+    // included.
+    gated.map_router(|r| r.layer(middleware::from_fn(org_context::org_middleware)))
 }

@@ -136,7 +136,10 @@ fn api_seam_routes() -> SeamRouter {
         // Assume-role (`/assume*`), `oxy-api-admin`'s since the admin split
         // (2026-11-20): at this root, NOT behind the staff door, because acting
         // closes `/admin` and the exit cannot live behind the door it locks.
-        // Undeclared (FleetOk), as `oxy-app`'s global tree merged it.
+        // Undeclared (FleetOk), as `oxy-app`'s global tree merged it. With it
+        // since 2026-11-21, the org member's flag read
+        // (`/orgs/{org_id}/feature-flags`): `org_middleware` re-applied and no
+        // subscription guard, as `build_org_routes` mounted it, declared FleetOk.
         .merge(oxy_api_admin::routes())
         // The tenant's billing (`/orgs/{org_id}/billing*`), `oxy-api-billing`'s
         // since the admin split's PR 9: `org_middleware` re-applied and no
@@ -369,6 +372,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_threads::route_roles())
                 .chain(oxy_api_workspaces::route_roles())
                 .chain(oxy_api_billing::route_roles())
+                .chain(oxy_api_admin::route_roles())
                 .copied()
                 .collect(),
         },
@@ -449,7 +453,8 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_custom_apps::admin_sections())
             // The platform audit log (`/admin/audit*`, `PlatformAudit`) and
             // the grant table (`/admin/app-admins*`, `PlatformGrants`),
-            // `oxy-api-admin`'s since 2026-11-20.
+            // `oxy-api-admin`'s since 2026-11-20, and the feature-flag console
+            // (`/admin/feature-flags*`, `PlatformOperate`) since 2026-11-21.
             .chain(oxy_api_admin::admin_sections())
             .collect(),
         // Staff-console trees nested beside `/admin`, each behind the staff

@@ -123,7 +123,9 @@ crates/api-billing/                                @hotay @luong-komorebi
 crates/usage-report/                               @hotay @luong-komorebi
 # The feature-flag runtime's domain half (`oxy-feature-flags`), 2026-11-20:
 # registry, targeting, evaluation, store, cache and rollout gates, out of
-# crates/app/src/server/feature_flags/ (whose routes.rs stays). Luong wrote it.
+# crates/app/src/server/feature_flags/. Luong wrote it. Its routes.rs followed
+# on 2026-11-21 to crates/api-admin/src/feature_flags.rs, which the staff
+# console crate's line above already gives the same owners.
 crates/feature-flags/                              @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay

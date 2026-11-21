@@ -160,6 +160,10 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // `oxy-api-eval` since 2026-11-20 (out of `src/cli`, `src/server/service`,
         // `src/integrations`).
         manifest.join("../api-eval/src"),
+        // The feature-flag routes, `oxy-api-admin`'s since 2026-11-21 (out of
+        // `src/server/feature_flags/routes.rs`), with the rest of the staff
+        // console crate: Postgres and the task queue only.
+        manifest.join("../api-admin/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

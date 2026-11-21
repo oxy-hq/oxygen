@@ -71,7 +71,7 @@ oxy-billing = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
 oxy-preagg = { workspace = true }
-# The feature-flag runtime's domain half; `server::feature_flags` keeps its HTTP half.
+# The feature-flag runtime's domain half; its HTTP half is `oxy-api-admin`'s.
 oxy-feature-flags = { workspace = true }
 oxy-project = { workspace = true }
 oxy-semantic = { workspace = true }
@@ -185,7 +185,6 @@ tabled = { workspace = true }
 terminal-light = { workspace = true }
 terminal_size = { workspace = true }
 secrecy = { workspace = true }
-serde_with = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 rustls = { workspace = true, features = ["aws_lc_rs"] }

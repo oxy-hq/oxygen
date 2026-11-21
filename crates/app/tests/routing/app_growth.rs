@@ -54,7 +54,6 @@ const SERVER: &[&str] = &[
     "compile_worker",
     "compile_worker_tests",
     "factory_access",
-    "feature_flags",
     "http_cache",
     "ide_proxy",
     "metrics_server",

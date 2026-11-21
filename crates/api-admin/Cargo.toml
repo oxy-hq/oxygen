@@ -27,6 +27,9 @@ tracing = { workspace = true }
 oxy-auth = { workspace = true }         # the authenticated-user extractor
 oxy-server-authz = { workspace = true } # staff::{scope, delegation, stored_grant}, the grant fences; globals' grant cache; assume_liveness, the platform facts
 oxy-authz = { workspace = true }        # PlatformRole, Scope, may_delegate (the grant table's bound)
+oxy-feature-flags = { workspace = true } # the flag runtime the feature-flag routes read and write (registry, store, cache, evaluate)
+oxy-shared = { workspace = true }       # fleet_role: the org flag read's FleetOk row
+serde_with = { workspace = true }       # double_option: a PATCH's absent vs null targeting
 agentic-runtime = { workspace = true }  # RetentionConfig, DurableTransport (reaper, retention)
 axum = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }

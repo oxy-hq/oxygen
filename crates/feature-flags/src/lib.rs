@@ -3,9 +3,8 @@
 //! The runtime's domain half, below `oxy-app` and every `api-*` surface: no
 //! routes, no `AppState`. Every reader imports it directly: `oxy-app`, the
 //! `api-*` surfaces and the `oxy` binary. The HTTP half
-//! (`oxy_app::server::feature_flags::routes`: the staff console's list, patch
-//! and evaluate, and the org member's read) stays in `oxy-app` until it moves
-//! to its owning surface (`internal-docs/domain-boundaries.md`, Pending).
+//! (`oxy_api_admin::feature_flags`: the staff console's list, patch and
+//! evaluate, and the org member's read) is `oxy-api-admin`'s since 2026-11-21.
 //!
 //! - `registry` — code-declared list of flags, their variants and defaults.
 //! - `targeting` — an admin's rules (overrides, split) and their validation.

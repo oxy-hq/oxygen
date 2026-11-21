@@ -126,11 +126,15 @@ fn server_files() -> Vec<(String, String)> {
     walk(&manifest.join("../api-semantic/src"), &mut out);
     // Three files `oxy-api-tenancy` took from `src/server/api` on 2026-11-16
     // (the org subdomain's status, the logo, the consent switch), by name: the
-    // rest of that crate provisions and clones working copies on purpose.
+    // rest of that crate provisions and clones working copies on purpose. And
+    // one `oxy-api-admin` took from `src/server` on 2026-11-21, by name too.
     for rel in [
         "../api-tenancy/src/org_subdomain.rs",
         "../api-tenancy/src/workspace_logo.rs",
         "../api-tenancy/src/partner_publish_consent.rs",
+        // The feature-flag routes, `oxy-api-admin`'s since 2026-11-21 (out of
+        // `src/server/feature_flags/routes.rs`).
+        "../api-admin/src/feature_flags.rs",
     ] {
         let body = std::fs::read_to_string(manifest.join(rel))
             .unwrap_or_else(|e| panic!("{rel} moved, and this guard lost it: {e}"));

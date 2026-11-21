@@ -313,6 +313,11 @@ fn source_files() -> Vec<(String, String)> {
     // above before the move.
     let eval = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-eval/src");
     walk(&eval, &eval, "../api-eval/src/", &mut out);
+    // `oxy-api-admin` (2026-11-21): the feature-flag routes, out of
+    // `src/server/feature_flags/routes.rs`, walked above before the move,
+    // with the rest of the staff console crate.
+    let admin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-admin/src");
+    walk(&admin, &admin, "../api-admin/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
     walk(
         &api_health,
