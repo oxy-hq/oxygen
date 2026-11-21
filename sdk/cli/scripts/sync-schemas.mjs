@@ -3,7 +3,7 @@
  * Copy `json-schemas/` from the repo root into this package.
  *
  * COPIED, NOT COMMITTED. The schemas are generated from the Rust config types
- * by `oxy gen-config-schema`, and `crates/app`'s `json_schemas_are_current`
+ * by `just gen-schemas`, and `crates/app`'s `json_schemas_are_current`
  * test asserts the committed copies still match those types. A second
  * committed copy in here would be a second thing to keep in step, and the one
  * that silently rots — so it is gitignored and rebuilt.

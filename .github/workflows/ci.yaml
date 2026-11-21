@@ -1148,10 +1148,9 @@ jobs:
           touch examples/bigquery-sample.key
           echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
 
+          # The JSON Schemas' freshness is gated by oxy-app's
+          # `json_schemas_are_current` unit test, not here.
           cargo build
-          if [[ "$AGENTIC_ONLY" != "true" ]]; then
-            ./target/debug/oxy gen-config-schema --check
-          fi
           {
             echo "### oxy binary (debug, stripped)"
             echo

@@ -201,6 +201,12 @@ test-crate crate="oxy-app":
 test-filter expr:
     {{lease}} cargo nextest run -E '{{expr}}'
 
+# Regenerate the committed json-schemas/*.json from the Rust config types: the
+# `json_schemas_are_current` test in bless mode (it replaced `oxy gen-config-schema`).
+# Run it after changing a config type, then commit the files it rewrites.
+gen-schemas:
+    OXY_BLESS=1 {{lease}} cargo nextest run -p oxy-app --lib -E 'test(=cli::commands::json_schema_freshness::json_schemas_are_current)'
+
 # Compile every test target without running any — catches breakage cheaply.
 test-build:
     {{lease}} cargo nextest list --workspace >/dev/null

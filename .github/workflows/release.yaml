@@ -110,10 +110,9 @@ jobs:
   #         mv target/${{ matrix.job.target }}/release/oxy artifacts/oxy-${{ matrix.job.target }}
 
   #     #-- Build json schema
-  #     - name: Generate config schema (once)
+  #     - name: Copy config schema (once)
   #       if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
   #       run: |
-  #         cargo run --release --target ${{ matrix.job.target }} -- gen-config-schema
   #         cp -a json-schemas/. artifacts/
   #         cp Cargo.lock artifacts/
 

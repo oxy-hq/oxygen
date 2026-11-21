@@ -89,7 +89,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> &'a str {
 
 /// The docker-module entry points that remove containers BY NAME, whoever
 /// created them. Neither belongs on a shutdown path. `clean_all` is matched
-/// module-qualified because `cli::commands::clean` has an unrelated `clean_all`.
+/// module-qualified so an unrelated `clean_all` elsewhere cannot trip it.
 const REMOVES_BY_NAME: [&str; 2] = ["cleanup_containers(", "docker::clean_all("];
 
 #[test]
