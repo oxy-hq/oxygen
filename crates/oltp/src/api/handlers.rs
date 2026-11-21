@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument};
 use uuid::Uuid;
 
+use crate::config::DEFAULT_PG_VERSION;
 use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles};
 use crate::entity::tenants::{self as oltp_tenants, Entity as OltpTenants, TenantStatus};
 use crate::platform::PLATFORM_SCHEMA_VERSION;
@@ -72,11 +73,49 @@ pub struct ConnectionInfoResponse {
     pub analyst_ready: bool,
     pub platform_schema_version: i32,
     pub expected_platform_schema_version: i32,
+    /// The tenant's Postgres major, as `oltp_tenants.pg_version` records it
+    /// (provisioning, then every reconcile writes the provider's live answer).
+    /// `null` when the org has no database. Read from the stored row: no
+    /// provider call, so a scale-to-zero database stays asleep.
+    pub pg_version: Option<i16>,
+    /// The major this deployment provisions a new database on:
+    /// `OXY_OLTP_PG_VERSION` when set, else `DEFAULT_PG_VERSION`.
+    pub default_pg_version: u8,
+    /// True when a MANAGED tenant's major differs from `default_pg_version`.
+    /// See [`pg_version_drift`].
+    pub pg_version_drift: bool,
     pub schemas: Vec<SchemaInfo>,
 }
 
+/// Whether a tenant's Postgres major is a real gap an operator can act on.
+///
+/// Restored from the deleted Rust `oxy oltp status`: `oltp_tenants.pg_version`
+/// was written by provisioning and read by nothing, so a tenant left on an
+/// older major than the one Oxy now provisions was invisible everywhere.
+///
+/// - **Managed providers only.** There the default is what Oxy requests, so a
+///   row below it names a real action. On `local` the row holds the cluster's
+///   OWN major and the requested version is not honoured at all, so a developer
+///   on 17 would get a permanent note pointing at something they cannot do.
+/// - **`!=`, not `<`.** It is also true for a tenant AHEAD of the default; the
+///   name claims a difference, not a direction.
+pub fn pg_version_drift(provider: &str, pg_version: i16, default: u8) -> bool {
+    provider != "local" && u8::try_from(pg_version).ok() != Some(default)
+}
+
+/// The major provisioning requests: the deployment's runtime config (which
+/// honours `OXY_OLTP_PG_VERSION`), or the constant when OLTP is not configured.
+/// The deleted command compared to the constant because it ran in the
+/// operator's process; the server holds the real config.
+fn provisioning_pg_version() -> u8 {
+    crate::config::OltpConfig::cached()
+        .as_runtime()
+        .map(|c| c.pg_version)
+        .unwrap_or(DEFAULT_PG_VERSION)
+}
+
 impl ConnectionInfoResponse {
-    fn unprovisioned() -> Self {
+    fn unprovisioned(default_pg_version: u8) -> Self {
         Self {
             is_provisioned: false,
             host: String::new(),
@@ -90,6 +129,9 @@ impl ConnectionInfoResponse {
             analyst_ready: false,
             platform_schema_version: 0,
             expected_platform_schema_version: PLATFORM_SCHEMA_VERSION,
+            pg_version: None,
+            default_pg_version,
+            pg_version_drift: false,
             schemas: Vec::new(),
         }
     }
@@ -134,7 +176,9 @@ pub async fn status_for_org(
         .await
         .map_err(internal("query oltp tenant"))?
     else {
-        return Ok(ConnectionInfoResponse::unprovisioned());
+        return Ok(ConnectionInfoResponse::unprovisioned(
+            provisioning_pg_version(),
+        ));
     };
 
     let roles = OltpRoles::find()
@@ -143,6 +187,16 @@ pub async fn status_for_org(
         .await
         .map_err(internal("query oltp roles"))?;
 
+    Ok(response_for(tenant, roles, provisioning_pg_version()))
+}
+
+/// A tenant row and its roles → the document. Pure, so the shape is pinned
+/// without a database.
+fn response_for(
+    tenant: oltp_tenants::Model,
+    roles: Vec<oltp_roles::Model>,
+    default_pg_version: u8,
+) -> ConnectionInfoResponse {
     let schemas = roles
         .into_iter()
         .map(|r| {
@@ -174,7 +228,9 @@ pub async fn status_for_org(
     // Computed before the struct moves the fields out of `tenant`.
     let analyst_role = crate::schema::analyst_role_for(&tenant.provider, &tenant.database_name);
     let console_url = crate::provider::console_url(&tenant.provider, &tenant.project_id);
-    Ok(ConnectionInfoResponse {
+    let pg_version_drift =
+        pg_version_drift(&tenant.provider, tenant.pg_version, default_pg_version);
+    ConnectionInfoResponse {
         is_provisioned: tenant.status == TenantStatus::Active,
         host: tenant.host,
         database: tenant.database_name,
@@ -190,8 +246,11 @@ pub async fn status_for_org(
         analyst_ready: tenant.analyst_password_ciphertext.is_some(),
         platform_schema_version: tenant.platform_schema_version,
         expected_platform_schema_version: PLATFORM_SCHEMA_VERSION,
+        pg_version: Some(tenant.pg_version),
+        default_pg_version,
+        pg_version_drift,
         schemas,
-    })
+    }
 }
 
 /// Workspace → org, plus the membership check.
@@ -237,5 +296,96 @@ fn internal(what: &'static str) -> impl Fn(sea_orm::DbErr) -> StatusCode {
     move |e| {
         error!("failed to {what}: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The local cluster's own major is never drift; any managed difference is.
+    #[test]
+    fn pg_version_drift_is_managed_only_and_either_direction() {
+        let d = i16::from(DEFAULT_PG_VERSION);
+        assert!(!pg_version_drift("neon", d, DEFAULT_PG_VERSION));
+        assert!(pg_version_drift("neon", d - 1, DEFAULT_PG_VERSION));
+        assert!(
+            pg_version_drift("neon", d + 1, DEFAULT_PG_VERSION),
+            "ahead of the default differs too"
+        );
+        assert!(pg_version_drift("mock", d - 1, DEFAULT_PG_VERSION));
+        assert!(
+            !pg_version_drift("local", d - 1, DEFAULT_PG_VERSION),
+            "local reports its cluster's own major"
+        );
+        assert!(
+            pg_version_drift("neon", -1, DEFAULT_PG_VERSION),
+            "an out-of-range row is not the default"
+        );
+    }
+
+    /// A tenant row, as the control plane stores it.
+    fn tenant(provider: &str, pg_version: i16) -> oltp_tenants::Model {
+        serde_json::from_value(serde_json::json!({
+            "id": Uuid::nil(),
+            "org_id": Uuid::nil(),
+            "provider": provider,
+            "project_id": "p",
+            "branch_id": "b",
+            "project_name": "oxy-org-x",
+            "region": "aws-us-east-2",
+            "pg_version": pg_version,
+            "host": "h",
+            "database_name": "d",
+            "owner_role": "o",
+            "owner_password_ciphertext": null,
+            "analyst_password_ciphertext": null,
+            "status": "active",
+            "platform_schema_version": PLATFORM_SCHEMA_VERSION,
+            "created_at": "2026-11-21T00:00:00Z",
+            "updated_at": "2026-11-21T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    /// The stored row's major reaches the document, with drift on a managed
+    /// tenant and never on `local`.
+    #[test]
+    fn provisioned_document_reports_the_stored_major() {
+        let v = serde_json::to_value(response_for(tenant("neon", 17), vec![], 18)).unwrap();
+        assert_eq!(v["pg_version"], serde_json::json!(17));
+        assert_eq!(
+            v["default_pg_version"],
+            serde_json::json!(DEFAULT_PG_VERSION)
+        );
+        assert_eq!(v["pg_version_drift"], serde_json::json!(true));
+
+        let v = serde_json::to_value(response_for(tenant("local", 17), vec![], 18)).unwrap();
+        assert_eq!(v["pg_version"], serde_json::json!(17));
+        assert_eq!(v["pg_version_drift"], serde_json::json!(false));
+    }
+
+    /// `oxyc oltp status --json` parses these keys.
+    #[test]
+    fn unprovisioned_document_carries_the_version_fields() {
+        let v = serde_json::to_value(ConnectionInfoResponse::unprovisioned(DEFAULT_PG_VERSION))
+            .unwrap();
+        assert_eq!(v["pg_version"], serde_json::Value::Null);
+        assert_eq!(
+            v["default_pg_version"],
+            serde_json::json!(DEFAULT_PG_VERSION)
+        );
+        assert_eq!(v["pg_version_drift"], serde_json::json!(false));
+    }
+
+    /// A deployment that sets `OXY_OLTP_PG_VERSION=17` provisions on 17, so a
+    /// managed tenant on 17 is not drift there, and one on 18 is.
+    #[test]
+    fn drift_follows_the_deployment_major_not_the_constant() {
+        let v = serde_json::to_value(response_for(tenant("neon", 17), vec![], 17)).unwrap();
+        assert_eq!(v["default_pg_version"], serde_json::json!(17));
+        assert_eq!(v["pg_version_drift"], serde_json::json!(false));
+        let v = serde_json::to_value(response_for(tenant("neon", 18), vec![], 17)).unwrap();
+        assert_eq!(v["pg_version_drift"], serde_json::json!(true));
     }
 }

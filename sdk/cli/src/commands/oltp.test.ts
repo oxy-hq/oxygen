@@ -40,6 +40,9 @@ function store(schemas: Array<{ schema: string; kind: string; writer: string }>)
     analyst_ready: true,
     platform_schema_version: 3,
     expected_platform_schema_version: 3,
+    pg_version: pgVersion,
+    default_pg_version: 18,
+    pg_version_drift: pgVersion !== 18,
     schemas: schemas.map((s) => ({
       schema: s.schema,
       kind: s.kind,
@@ -63,6 +66,9 @@ const UNPROVISIONED = {
   analyst_ready: false,
   platform_schema_version: 0,
   expected_platform_schema_version: 3,
+  pg_version: null,
+  default_pg_version: 18,
+  pg_version_drift: false,
   schemas: []
 };
 
@@ -105,8 +111,11 @@ let provisionStatus = 200;
 let provisionBody = "";
 /** The staging branch: absent, or present at this age in days. */
 let branchAge: number | undefined;
+/** The provisioned tenant's Postgres major (the default is 18). */
+let pgVersion = 18;
 
 beforeEach(() => {
+  pgVersion = 18;
   requests = [];
   provisioned = true;
   provisionStatus = 200;
@@ -290,9 +299,27 @@ describe("oltp status", () => {
   });
 
   it("emits the server's document with --json", async () => {
+    pgVersion = 17;
     const r = await oxyc("oltp", "status", "--org", ORG_ID, "--json");
     expect(r.status, r.stderr).toBe(0);
-    expect(JSON.parse(r.stdout)).toMatchObject({ is_provisioned: true, database: "oxy_org_acme" });
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      is_provisioned: true,
+      database: "oxy_org_acme",
+      pg_version: 17,
+      default_pg_version: 18,
+      pg_version_drift: true
+    });
+  });
+
+  it("shows the Postgres major, and the default when they differ", async () => {
+    let r = await oxyc("oltp", "status", "--org", "acme");
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^pg\s+18$/m);
+
+    pgVersion = 17;
+    r = await oxyc("oltp", "status", "--org", "acme");
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^pg\s+17 \(provisioning now uses 18\)$/m);
   });
 
   it("says when an org has no database, and how to make one", async () => {

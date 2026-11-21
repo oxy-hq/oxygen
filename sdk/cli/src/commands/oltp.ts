@@ -76,7 +76,29 @@ interface ConnectionInfo {
   analyst_ready: boolean;
   platform_schema_version: number;
   expected_platform_schema_version: number;
+  /**
+   * The tenant's Postgres major, from the stored row; `null` with no database.
+   * Absent from a deployment that predates the field.
+   */
+  pg_version?: number | null;
+  /** The major Oxy provisions a new database on. */
+  default_pg_version?: number;
+  /** A managed tenant's major differs from the default (never on `local`). */
+  pg_version_drift?: boolean;
   schemas: SchemaInfo[];
+}
+
+/**
+ * `17 (provisioning now uses 18)`, or nothing from an older deployment.
+ *
+ * The note follows the server's `pg_version_drift`, not a comparison here: on
+ * `local` the row holds the cluster's own major, which no action can change.
+ */
+function pgLine(info: ConnectionInfo): string | undefined {
+  if (info.pg_version === undefined || info.pg_version === null) return undefined;
+  return info.pg_version_drift && info.default_pg_version !== undefined
+    ? `${info.pg_version} (provisioning now uses ${info.default_pg_version})`
+    : `${info.pg_version}`;
 }
 
 /** A writer as the server takes it, and as it was typed. */
@@ -207,11 +229,13 @@ function printStore(org: string, info: ConnectionInfo): void {
     log.hint(`oxyc oltp provision --org ${org} --writer app:<slug>`);
     return;
   }
+  const pg = pgLine(info);
   const fields: Array<[string, string]> = [
     ["database", info.database],
     ["host", info.host],
     ["provider", [info.provider, info.region].filter(Boolean).join(" / ")],
     ["project", [info.project_name, info.console_url].filter(Boolean).join("  ")],
+    ...(pg === undefined ? [] : [["pg", pg] as [string, string]]),
     ["status", info.status],
     ["platform", `v${info.platform_schema_version}/${info.expected_platform_schema_version}`],
     [

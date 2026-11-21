@@ -697,7 +697,9 @@ oxyc oltp deprovision --org <slug|uuid|url> [--writer app:<slug>|pipeline:<sourc
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
-that org's store and writers. `status`, `provision` and `reset` never print a
+that org's store and writers, and its Postgres major (`pg 17 (provisioning now
+uses 18)` when a managed tenant differs from the default; `--json` carries
+`pg_version`, `default_pg_version` and `pg_version_drift`). `status`, `provision` and `reset` never print a
 credential.
 
 `dsn` prints a connection string, bare on stdout so a script can capture it
