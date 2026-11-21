@@ -15,11 +15,22 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  CLI_KILL_TIMEOUT_MS,
+  CLI_TEST_TIMEOUT_MS,
+  cliRunError,
+  reapChildrenAfterEach
+} from "../testing/cli-child.js";
 import { ExitCode } from "../util/errors.js";
 import type { FeatureFlag } from "./flags-rules.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case here runs the built CLI, and each run is a cold `node` start whose cost is
+// the machine's CPU. See `testing/cli-child.ts` for the budget and the kill timeout.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
+const track = reapChildrenAfterEach();
 const SCRATCH: string[] = [];
 afterAll(() => {
   for (const dir of SCRATCH) rmSync(dir, { recursive: true, force: true });
@@ -156,18 +167,21 @@ function scratch(): string {
 function oxyc(...args: string[]): Promise<{ status: number; stdout: string; stderr: string }> {
   if (!existsSync(BIN)) throw new Error(`${BIN} missing — run \`pnpm build\``);
   const home = scratch();
-  return new Promise((done) => {
+  return new Promise((done, fail) => {
     // stdin is a pipe, not a terminal — which is what an unconfirmed write refuses on.
-    const child = spawn(process.execPath, [BIN, ...args, "--target", base], {
-      env: {
-        ...process.env,
-        HOME: home,
-        OXY_CREDENTIALS_PATH: join(home, "credentials.json"),
-        OXYC_CACHE_DIR: join(home, "cache"),
-        OXY_TOKEN: "test-token",
-        NO_COLOR: "1"
-      }
-    });
+    const child = track(
+      spawn(process.execPath, [BIN, ...args, "--target", base], {
+        env: {
+          ...process.env,
+          HOME: home,
+          OXY_CREDENTIALS_PATH: join(home, "credentials.json"),
+          OXYC_CACHE_DIR: join(home, "cache"),
+          OXY_TOKEN: "test-token",
+          NO_COLOR: "1"
+        },
+        timeout: CLI_KILL_TIMEOUT_MS
+      })
+    );
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => {
@@ -176,7 +190,10 @@ function oxyc(...args: string[]): Promise<{ status: number; stdout: string; stde
     child.stderr.on("data", (d) => {
       stderr += d;
     });
-    child.on("close", (status) => done({ status: status ?? -1, stdout, stderr }));
+    child.on("error", (e) => fail(cliRunError(args, e.message)));
+    child.on("close", (status, signal) =>
+      signal ? fail(cliRunError(args, signal)) : done({ status: status ?? -1, stdout, stderr })
+    );
   });
 }
 

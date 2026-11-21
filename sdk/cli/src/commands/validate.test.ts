@@ -21,10 +21,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { appWriterName, WRITER_NAME_MAX } from "../publish/manifest.js";
 import { checkAppPlacement, type PlacementIssue } from "../publish/placement.js";
 import { scanAirhouseMigration, secretsUsedAsState } from "../publish/placement-scan.js";
+import { CLI_KILL_TIMEOUT_MS, CLI_TEST_TIMEOUT_MS, cliRunError } from "../testing/cli-child.js";
 import { ExitCode } from "../util/errors.js";
 import {
   formatsInSchemaPosition,
@@ -51,6 +52,10 @@ function workspace(files: Record<string, string>): string {
 }
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case here runs the built CLI, and each run is a cold `node` start whose cost is
+// the machine's CPU. See `testing/cli-child.ts` for the budget and the kill timeout.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
 const SCHEMAS = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "json-schemas");
 
 /**
@@ -75,8 +80,11 @@ function oxycValidate(cwd: string, args: string[], schemasDir = SCHEMAS, home?: 
       OXYC_CACHE_DIR: join(BIN, "..", "__no_cache__"),
       OXY_TOKEN: "",
       NO_COLOR: "1"
-    }
+    },
+    timeout: CLI_KILL_TIMEOUT_MS
   });
+  if (r.error || r.signal)
+    throw cliRunError(["validate", ...args], r.error?.message ?? `${r.signal}`);
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 

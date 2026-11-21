@@ -14,10 +14,52 @@ import type { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  CLI_KILL_TIMEOUT_MS,
+  CLI_TEST_TIMEOUT_MS,
+  cliRunError,
+  reapChildrenAfterEach
+} from "../testing/cli-child.js";
 import { ExitCode } from "../util/errors.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// The binary cases each start one or more proxy processes, and each start is a cold `node`
+// start whose cost is the machine's CPU. See `testing/cli-child.ts` for the budget and the
+// kill timeout. Every wait below is on a condition: the proxy is listening, a line is
+// printed, a stream is closed. `until` sets a ceiling on each wait, which is not an
+// expected time.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
+const track = reapChildrenAfterEach();
+
+/** Polls until `check` holds, for at most `CLI_KILL_TIMEOUT_MS`, and returns its last answer. */
+async function until(check: () => boolean | Promise<boolean>): Promise<boolean> {
+  const deadline = Date.now() + CLI_KILL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return check();
+}
+
+/** A ping that answers, or false while nothing listens yet. */
+const answers = (url: string) => () =>
+  fetch(`${url}/api/ping`).then(
+    () => true,
+    () => false
+  );
+
+/** A blocking run that must exit by itself. A run the kill timeout ended fails by name. */
+function exited(args: string[], token: string) {
+  const r = spawnSync(process.execPath, [BIN, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, OXY_TOKEN: token, NO_COLOR: "1" },
+    timeout: CLI_KILL_TIMEOUT_MS
+  });
+  if (r.error || r.signal) throw cliRunError(args, r.error?.message ?? `${r.signal}`);
+  return r;
+}
 
 import {
   buildRequestHeaders,
@@ -318,16 +360,7 @@ describe("the forwarder, end to end", () => {
     });
 
     // Wait for the listener rather than sleeping a fixed amount.
-    let ready = false;
-    for (let i = 0; i < 100; i++) {
-      try {
-        await fetch(`${proxyUrl}/api/ping`);
-        ready = true;
-        break;
-      } catch {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    }
+    const ready = await until(answers(proxyUrl));
     // FAIL HERE, NAMING WHY. Without this every case below fails on its own
     // fetch with a bare connection error, and the actual reason — the proxy
     // exited, or could not bind — is in a stream nobody reads.
@@ -337,7 +370,7 @@ describe("the forwarder, end to end", () => {
           (proxyStderr ? `\n--- its stderr ---\n${proxyStderr}` : " (it printed nothing)")
       );
     }
-  }, 30_000);
+  }, CLI_TEST_TIMEOUT_MS);
 
   afterAll(() => {
     proxy?.kill();
@@ -404,9 +437,7 @@ describe("the forwarder, end to end", () => {
     const sent = ((await res.json()) as { traceparent: string | null }).traceparent;
     const traceId = traceIdOf(sent ?? "");
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
-    for (let i = 0; i < 20 && !proxyStderr.includes(`trace_id=${traceId}`); i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    await until(() => proxyStderr.includes(`trace_id=${traceId}`));
     expect(proxyStderr).toContain(`↳ 200 fn refresh  request_id=req-123  trace_id=${traceId}`);
   });
 
@@ -429,9 +460,7 @@ describe("the forwarder, end to end", () => {
     const res = await fetch(`${proxyUrl}/api/stream`, { signal: browser.signal });
     await res.body?.getReader().read();
     browser.abort();
-    for (let i = 0; i < 30 && !streamClosed; i++) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
+    await until(() => streamClosed);
     expect(streamClosed).toBe(true);
   });
 });
@@ -496,11 +525,7 @@ describe("the production refusal, through the binary", () => {
    * listener is opened, which is the property this pins.
    */
   it("refuses without --yes and names the target", () => {
-    const r = spawnSync(process.execPath, [BIN, "proxy", "--port", "45999"], {
-      encoding: "utf8",
-      env: { ...process.env, OXY_TOKEN: "t", NO_COLOR: "1" },
-      timeout: 15_000
-    });
+    const r = exited(["proxy", "--port", "45999"], "t");
     expect(r.status).toBe(ExitCode.REFUSED);
     expect(r.stderr).toMatch(/production target/);
     expect(r.stderr).toMatch(/--yes/);
@@ -751,22 +776,16 @@ async function startProxy(
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   let stderr = "";
-  const child = spawn(
-    process.execPath,
-    [BIN, "proxy", "--target", target, "--port", String(port), ...args],
-    { env: { ...process.env, NO_COLOR: "1", ...env }, stdio: ["ignore", "ignore", "pipe"] }
+  const child = track(
+    spawn(process.execPath, [BIN, "proxy", "--target", target, "--port", String(port), ...args], {
+      env: { ...process.env, NO_COLOR: "1", ...env },
+      stdio: ["ignore", "ignore", "pipe"]
+    })
   );
   child.stderr?.on("data", (d) => {
     stderr += d;
   });
-  for (let i = 0; i < 100; i++) {
-    try {
-      await fetch(`${url}/api/ping`);
-      return { url, child, stderr: () => stderr };
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
+  if (await until(answers(url))) return { url, child, stderr: () => stderr };
   child.kill();
   throw new Error(`the proxy never came up on ${url}\n--- its stderr ---\n${stderr}`);
 }
@@ -827,7 +846,7 @@ describe("the app-scoped proxy, through the binary", () => {
     expect(p.stderr()).toContain(
       `open ${p.url}/customer-apps/acme/store/ — dev-a1 of acme/store on ${base}`
     );
-  }, 30_000);
+  });
 
   it("forwards a sandbox's own writes by default and still holds the rest", async () => {
     const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
@@ -843,7 +862,7 @@ describe("the app-scoped proxy, through the binary", () => {
     const elsewhere = await fetch(`${p.url}/api/w/apps`, { method: "POST" });
     expect(elsewhere.status).toBe(409);
     expect(seen.length).toBe(before + 1);
-  }, 30_000);
+  });
 
   it("holds a write whose dot segments escape the app base, as the upstream would see it", async () => {
     const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
@@ -866,7 +885,7 @@ describe("the app-scoped proxy, through the binary", () => {
     });
     expect(status).toBe(409);
     expect(seen.length).toBe(before);
-  }, 30_000);
+  });
 
   it("refuses another site's page under the app base before the token is added", async () => {
     const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
@@ -892,7 +911,7 @@ describe("the app-scoped proxy, through the binary", () => {
       headers: { origin: p.url }
     });
     expect(local.status).toBe(200);
-  }, 30_000);
+  });
 
   it("holds staging's writes, and --allow-writes forwards them", async () => {
     const held = await startProxy(base, ["--app", "acme/store", "--app-env", "staging"], {
@@ -913,7 +932,7 @@ describe("the app-scoped proxy, through the binary", () => {
     await fetch(`${open.url}/customer-apps/acme/store/fn/save`, { method: "POST" });
     expect(lastSeen()).toMatchObject({ method: "POST" });
     expect(lastSeen()?.headers["x-oxy-app-env"]).toBe("staging");
-  }, 30_000);
+  });
 
   it("keeps dropping events, in a sandbox too", async () => {
     const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
@@ -924,15 +943,11 @@ describe("the app-scoped proxy, through the binary", () => {
     const res = await fetch(`${p.url}/api/customer-apps/abc/events`, { method: "POST" });
     expect(res.status).toBe(204);
     expect(seen.length).toBe(before);
-  }, 30_000);
+  });
 
   /** Refused before the listener opens; `--yes` is irrelevant to the local target. */
   const refused = (args: string[], token = "t") =>
-    spawnSync(process.execPath, [BIN, "proxy", "--target", base, "--port", "45998", ...args], {
-      encoding: "utf8",
-      env: { ...process.env, OXY_TOKEN: token, NO_COLOR: "1" },
-      timeout: 15_000
-    });
+    exited(["proxy", "--target", base, "--port", "45998", ...args], token);
 
   it("exits 2 on the usage errors", () => {
     for (const args of [
@@ -954,12 +969,8 @@ describe("the app-scoped proxy, through the binary", () => {
     }
   });
 
-  const againstProduction = (args: string[], timeout = 15_000) =>
-    spawnSync(process.execPath, [BIN, "proxy", "--port", "45997", "--app", "acme/store", ...args], {
-      encoding: "utf8",
-      env: { ...process.env, OXY_TOKEN: "t", NO_COLOR: "1" },
-      timeout
-    });
+  const againstProduction = (args: string[]) =>
+    exited(["proxy", "--port", "45997", "--app", "acme/store", ...args], "t");
 
   it("still refuses a production target without --yes for staging, or a sandbox with --allow-writes", () => {
     for (const args of [
@@ -972,10 +983,31 @@ describe("the app-scoped proxy, through the binary", () => {
     }
   });
 
-  it("opens into a sandbox on a production target without --yes: its writes stay in the sandbox", () => {
-    // It listens until killed, so the timeout ends it; the banner proves it got past the refusal.
-    const r = againstProduction(["--app-env", "dev-a1"], 4_000);
-    expect(r.stderr).not.toMatch(/production target/);
-    expect(r.stderr).toMatch(/listening on http:\/\/127\.0\.0\.1:45997/);
+  /**
+   * It listens until it is killed. The case waits for the banner, or for an exit, and then
+   * stops it. The banner proves that it got past the refusal. It used to be a blocking run
+   * with a 4s kill, so a start slower than 4s on a loaded machine never printed the banner.
+   * It also used a fixed port, which a second checkout running the same suite could hold.
+   */
+  it("opens into a sandbox on a production target without --yes: its writes stay in the sandbox", async () => {
+    const port = await freePort();
+    const child = track(
+      spawn(
+        process.execPath,
+        [BIN, "proxy", "--port", String(port), "--app", "acme/store", "--app-env", "dev-a1"],
+        {
+          env: { ...process.env, OXY_TOKEN: "t", NO_COLOR: "1" },
+          stdio: ["ignore", "ignore", "pipe"]
+        }
+      )
+    );
+    let stderr = "";
+    child.stderr?.on("data", (d) => {
+      stderr += d;
+    });
+    const banner = `listening on http://127.0.0.1:${port}`;
+    await until(() => stderr.includes(banner) || child.exitCode !== null);
+    expect(stderr).not.toMatch(/production target/);
+    expect(stderr).toContain(banner);
   });
 });

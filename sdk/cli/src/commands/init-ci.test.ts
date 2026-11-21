@@ -9,8 +9,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import { CLI_KILL_TIMEOUT_MS, CLI_TEST_TIMEOUT_MS, cliRunError } from "../testing/cli-child.js";
 
 import { CliError, ExitCode } from "../util/errors.js";
 import {
@@ -30,6 +31,10 @@ import {
 } from "./init-ci-pnpm.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case here runs the built CLI, and each run is a cold `node` start whose cost is
+// the machine's CPU. See `testing/cli-child.ts` for the budget and the kill timeout.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
 const APP_ID = "0b0e5a10-1111-4222-8333-944455556666";
 
 interface Step {
@@ -491,8 +496,8 @@ describe("oxyc init-ci, through the binary", () => {
 
   // `HOME` is the scratch repo and the credentials path does not exist, so
   // there is no login to register with: these cases never touch the network.
-  const run = (cwd: string, args: string[]) =>
-    spawnSync(process.execPath, [BIN, "init-ci", ...args], {
+  const run = (cwd: string, args: string[]) => {
+    const r = spawnSync(process.execPath, [BIN, "init-ci", ...args], {
       cwd,
       encoding: "utf8",
       env: {
@@ -501,8 +506,13 @@ describe("oxyc init-ci, through the binary", () => {
         NO_COLOR: "1",
         OXY_TOKEN: "",
         OXY_CREDENTIALS_PATH: join(repo, "no-such-credentials.json")
-      }
+      },
+      timeout: CLI_KILL_TIMEOUT_MS
     });
+    if (r.error || r.signal)
+      throw cliRunError(["init-ci", ...args], r.error?.message ?? `${r.signal}`);
+    return r;
+  };
 
   /** GitHub reads workflows from the repo root, wherever the command was run. */
   it("writes the workflow at the repo root from an app directory, and prints the registration", () => {

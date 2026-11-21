@@ -29,9 +29,20 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  CLI_KILL_TIMEOUT_MS,
+  CLI_TEST_TIMEOUT_MS,
+  cliRunError,
+  reapChildrenAfterEach
+} from "../testing/cli-child.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case here runs the built CLI, and each run is a cold `node` start whose cost is
+// the machine's CPU. See `testing/cli-child.ts` for the budget and the kill timeout.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
+const track = reapChildrenAfterEach();
 const SCRATCH: string[] = [];
 
 afterAll(() => {
@@ -62,29 +73,35 @@ function run(
   args: string[],
   pathPrefix?: string
 ): Promise<{ status: number; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [BIN, ...args], {
-      env: {
-        ...process.env,
-        PATH: pathPrefix ? `${pathPrefix}:${process.env.PATH ?? ""}` : process.env.PATH,
-        OXYC_CACHE_DIR: cacheDir,
-        OXY_CREDENTIALS_PATH: join(cacheDir, "__no_creds__.json"),
-        // `repos` otherwise scans the real home directory for checkouts and
-        // runs `git remote get-url` in each one: seconds on a developer's
-        // machine (past the 5s test timeout under load), nothing on CI's empty
-        // home. A root that does not exist makes both the same, and the scan
-        // still writes `repos.json`, whose mode is what is asserted here.
-        OXYC_REPO_ROOTS: join(cacheDir, "__no_repo_roots__"),
-        OXY_TOKEN: "cache-permissions-test",
-        NO_COLOR: "1"
-      }
-    });
+  return new Promise((resolve, fail) => {
+    const child = track(
+      spawn(process.execPath, [BIN, ...args], {
+        env: {
+          ...process.env,
+          PATH: pathPrefix ? `${pathPrefix}:${process.env.PATH ?? ""}` : process.env.PATH,
+          OXYC_CACHE_DIR: cacheDir,
+          OXY_CREDENTIALS_PATH: join(cacheDir, "__no_creds__.json"),
+          // `repos` otherwise scans the real home directory for checkouts and
+          // runs `git remote get-url` in each one: seconds on a developer's
+          // machine (past the 5s test timeout under load), nothing on CI's empty
+          // home. A root that does not exist makes both the same, and the scan
+          // still writes `repos.json`, whose mode is what is asserted here.
+          OXYC_REPO_ROOTS: join(cacheDir, "__no_repo_roots__"),
+          OXY_TOKEN: "cache-permissions-test",
+          NO_COLOR: "1"
+        },
+        timeout: CLI_KILL_TIMEOUT_MS
+      })
+    );
     let stderr = "";
     child.stderr.on("data", (d) => {
       stderr += d;
     });
     child.stdout.resume();
-    child.on("close", (status) => resolve({ status: status ?? -1, stderr }));
+    child.on("error", (e) => fail(cliRunError(args, e.message)));
+    child.on("close", (status, signal) =>
+      signal ? fail(cliRunError(args, signal)) : resolve({ status: status ?? -1, stderr })
+    );
   });
 }
 

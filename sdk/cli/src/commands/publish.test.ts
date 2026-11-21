@@ -13,13 +13,24 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  CLI_KILL_TIMEOUT_MS,
+  CLI_TEST_TIMEOUT_MS,
+  cliRunError,
+  reapChildrenAfterEach
+} from "../testing/cli-child.js";
 import { SERVICE_ACCOUNT_ID } from "../testing/stub-fetch.js";
 
 import { ExitCode } from "../util/errors.js";
 import { inferOrgApp } from "./publish.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case here runs the built CLI, and each run is a cold `node` start whose cost is
+// the machine's CPU. See `testing/cli-child.ts` for the budget and the kill timeout.
+vi.setConfig({ testTimeout: CLI_TEST_TIMEOUT_MS });
+const track = reapChildrenAfterEach();
 
 interface Received {
   path: string;
@@ -241,16 +252,20 @@ async function publish(
   args: string[],
   env: Record<string, string> = {}
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
-  const child = spawn(process.execPath, [BIN, "publish", "--target", target, ...args], {
-    cwd,
-    env: {
-      PATH: process.env.PATH ?? "",
-      HOME: work,
-      OXY_CREDENTIALS_PATH: join(work, "credentials.json"),
-      NO_COLOR: "1",
-      ...env
-    }
-  });
+  const argv = ["publish", "--target", target, ...args];
+  const child = track(
+    spawn(process.execPath, [BIN, ...argv], {
+      cwd,
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: work,
+        OXY_CREDENTIALS_PATH: join(work, "credentials.json"),
+        NO_COLOR: "1",
+        ...env
+      },
+      timeout: CLI_KILL_TIMEOUT_MS
+    })
+  );
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (d) => {
@@ -259,7 +274,10 @@ async function publish(
   child.stderr.on("data", (d) => {
     stderr += d;
   });
-  const status = await new Promise<number | null>((r) => child.on("close", r));
+  const status = await new Promise<number | null>((done, fail) => {
+    child.on("error", (e) => fail(cliRunError(argv, e.message)));
+    child.on("close", (code, signal) => (signal ? fail(cliRunError(argv, signal)) : done(code)));
+  });
   return { status, stdout, stderr };
 }
 
