@@ -38,6 +38,9 @@ pub struct QueryDeps {
     pub catalog: Option<Arc<SemanticCatalog>>,
     /// Used when `query` names no `database` and several are configured.
     pub default_connector: Option<String>,
+    /// Refuse raw `sql`; only `semantic` queries run (the agent's
+    /// `semantic_only`).
+    pub semantic_only: bool,
 }
 
 pub struct QueryTool {
@@ -121,6 +124,16 @@ impl QueryTool {
         let sql = args.get("sql").and_then(Value::as_str);
         let semantic = args.get("semantic").filter(|v| !v.is_null());
         match (sql, semantic) {
+            (Some(_), _) if self.deps.semantic_only => Err(ToolFailure {
+                error: "this agent queries through the semantic model only; raw `sql` is refused"
+                    .into(),
+                hint: Some(
+                    "pass `semantic` naming members as `view.member`; read the views to find \
+                     them"
+                        .into(),
+                ),
+                candidates: Vec::new(),
+            }),
             (Some(sql), None) => Ok(Prepared {
                 sql: sql.to_owned(),
                 source: QuerySource::Llm,
@@ -289,26 +302,32 @@ fn failed_reply(p: Prepared, error: String, duration_ms: u64) -> ToolReply {
 #[async_trait]
 impl Tool for QueryTool {
     fn def(&self) -> ToolDef {
+        let mut properties = json!({
+            "sql": {"type": "string"},
+            "semantic": {
+                "type": "object",
+                "description": "{topic?, measures, dimensions, time_dimensions: \
+                    [{dimension, granularity?}], filters: [{field, op, value}], \
+                    orders: [{field, direction}], limit?}",
+            },
+            "database": {"type": "string", "description": "Required when there are several"},
+            "limit": {"type": "integer", "description": "Rows shown (default 20, max 100)"}
+        });
+        let description = if self.deps.semantic_only {
+            properties.as_object_mut().map(|p| p.remove("sql"));
+            "Run one read-only semantic-model query against a warehouse: `semantic` names \
+             members as `view.member`. Raw SQL is not accepted. The full result is stored as \
+             `r<N>`; you see its first `limit` rows."
+        } else {
+            "Run one read-only query against a warehouse. Give exactly one of `sql` (a single \
+             SELECT or WITH statement) or `semantic` (a semantic-model query naming members as \
+             `view.member`). The full result is stored as `r<N>`; you see its first `limit` \
+             rows. Writes are refused."
+        };
         ToolDef {
             name: "query",
-            description: "Run one read-only query against a warehouse. Give exactly one of \
-                `sql` (a single SELECT or WITH statement) or `semantic` (a semantic-model \
-                query naming members as `view.member`). The full result is stored as `r<N>`; \
-                you see its first `limit` rows. Writes are refused.",
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "sql": {"type": "string"},
-                    "semantic": {
-                        "type": "object",
-                        "description": "{topic?, measures, dimensions, time_dimensions: \
-                            [{dimension, granularity?}], filters: [{field, op, value}], \
-                            orders: [{field, direction}], limit?}",
-                    },
-                    "database": {"type": "string", "description": "Required when there are several"},
-                    "limit": {"type": "integer", "description": "Rows shown (default 20, max 100)"}
-                }
-            }),
+            description,
+            parameters: json!({"type": "object", "properties": properties}),
             strict: false,
         }
     }

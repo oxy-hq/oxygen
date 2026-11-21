@@ -1,0 +1,9 @@
+databases:
+  - bird_debit_card_specializing
+llm:
+  ref: eval-model
+context:
+  - ./debit_card_specializing/*.view.yml
+  - ./debit_card_specializing/*.topic.yml
+runtime: react
+semantic_only: true

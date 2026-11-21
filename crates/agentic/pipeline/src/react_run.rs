@@ -109,6 +109,13 @@ pub(crate) async fn build_react_run(
         ctx.genai.workspace_id = Some(id).filter(|id| !id.is_nil()).map(|id| id.to_string());
     }
     let catalog = load_catalog(config, &ctx, base_dir).map_err(fail)?;
+    if config.semantic_only && catalog.is_none() {
+        return Err(
+            "semantic_only: true needs a semantic model, and this agent has no views; \
+             add views to its context or drop semantic_only"
+                .into(),
+        );
+    }
     let files = WorkspaceFiles::load(base_dir, &config.context, ctx.domain_docs.as_deref())
         .map_err(|e| format!("failed to read the agent's context files: {e}"))?;
     let tz = config.effective_timezone(ctx.timezone).map_err(fail)?;
@@ -133,6 +140,7 @@ pub(crate) async fn build_react_run(
         databases: ctx.extra_connectors,
         catalog,
         files: Arc::new(files),
+        semantic_only: config.semantic_only,
     });
     Ok(ReactRun {
         engine,

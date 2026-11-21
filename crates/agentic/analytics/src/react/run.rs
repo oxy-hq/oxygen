@@ -24,6 +24,8 @@ pub struct ReactInputs {
     /// `database` when there are several.
     pub default_connector: Option<String>,
     pub files: Arc<WorkspaceFiles>,
+    /// The agent's `semantic_only`: `query` refuses raw `sql`.
+    pub semantic_only: bool,
 }
 
 /// What the loop needs to run one analytics question.
@@ -44,6 +46,7 @@ impl ReactAnalytics {
             instructions: &inputs.instructions,
             databases: &dbs,
             files: &inputs.files.paths(),
+            semantic_only: inputs.semantic_only,
         });
         let tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(SearchTool::new(inputs.files.clone())),
@@ -52,6 +55,7 @@ impl ReactAnalytics {
                 connectors: inputs.databases,
                 catalog: inputs.catalog,
                 default_connector: inputs.default_connector,
+                semantic_only: inputs.semantic_only,
             })),
             Arc::new(AskUser),
         ];

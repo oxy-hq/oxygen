@@ -13,19 +13,36 @@ const MAX_FILES_LISTED: usize = 200;
 const CITATION_RULE: &str = "Cite each result you use as {{result:<id>}}. \
     Mark the one result that answers the question as {{result:<id>|primary}}.";
 
-const TOOL_RULES: &str = "How to work:\n\
-    - Look before you query: use search and read to find the views, topics and SQL that cover \
-    the question.\n\
-    - Prefer the semantic model when a view covers the question; write raw SQL only for what \
-    it cannot express.\n\
-    - Answer from query results only. Never state a number no result returned.\n\
+const LOOK_RULE: &str = "- Look before you query: use search and read to find the views, \
+    topics and SQL that cover the question.";
+
+const SOURCE_RULE: &str = "- Prefer the semantic model when a view covers the question; write \
+    raw SQL only for what it cannot express.";
+
+/// For a `semantic_only` agent, whose `query` tool refuses raw `sql`.
+const SEMANTIC_ONLY_RULE: &str = "- Query through the semantic model only: `query` refuses raw \
+    `sql`. When the views cannot express the question, say so and answer what they can.";
+
+const ANSWER_RULES: &str = "- Answer from query results only. Never state a number no result \
+    returned.\n\
     - Ask the user only when the context cannot settle an ambiguity.";
+
+fn tool_rules(semantic_only: bool) -> String {
+    let source = if semantic_only {
+        SEMANTIC_ONLY_RULE
+    } else {
+        SOURCE_RULE
+    };
+    format!("How to work:\n{LOOK_RULE}\n{source}\n{ANSWER_RULES}")
+}
 
 pub struct PromptInput<'a> {
     pub instructions: &'a str,
     /// `(name, dialect)` per database.
     pub databases: &'a [(String, String)],
     pub files: &'a [(&'a str, FileKind)],
+    /// The agent's `semantic_only`: the rules say raw `sql` is refused.
+    pub semantic_only: bool,
 }
 
 fn kind_label(k: FileKind) -> &'static str {
@@ -63,7 +80,7 @@ pub fn system_prompt(p: PromptInput<'_>) -> String {
     }
     parts.push(databases_section(p.databases));
     parts.push(files_section(p.files));
-    parts.push(TOOL_RULES.to_string());
+    parts.push(tool_rules(p.semantic_only));
     parts.push(CITATION_RULE.to_string());
     parts.join("\n\n")
 }
@@ -77,6 +94,7 @@ mod tests {
             instructions: "Be brief.",
             databases: dbs,
             files,
+            semantic_only: false,
         }
     }
 
@@ -103,5 +121,18 @@ mod tests {
         assert!(p.contains("f199.sql"));
         assert!(!p.contains("f200.sql"));
         assert!(p.contains("… 50 more, use search"));
+    }
+
+    #[test]
+    fn semantic_only_prompt_says_sql_is_refused() {
+        let plain = system_prompt(input(&[], &[]));
+        assert!(plain.contains("write raw SQL only for what it cannot express"));
+        assert!(!plain.contains("refuses raw `sql`"));
+        let mut i = input(&[], &[]);
+        i.semantic_only = true;
+        let p = system_prompt(i);
+        assert!(p.contains("`query` refuses raw `sql`"));
+        assert!(!p.contains("write raw SQL"));
+        assert!(p.contains("Never state a number no result returned."));
     }
 }

@@ -50,6 +50,11 @@
         }
       ]
     },
+    "semantic_only": {
+      "description": "React runtime only: the `query` tool accepts semantic-model queries and refuses raw `sql`, so every number comes from SQL the semantic model compiled. A react run of an agent with no semantic model refuses to start. The FSM ignores it.",
+      "default": false,
+      "type": "boolean"
+    },
     "states": {
       "description": "Per-state overrides.",
       "type": "object",

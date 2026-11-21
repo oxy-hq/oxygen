@@ -284,7 +284,32 @@ fn old_record_without_source_fields_deserializes() {
     let obj = v.as_object_mut().unwrap();
     obj.remove("queries_by_source");
     obj.remove("answer_source");
+    obj.remove("tool_errors");
     let t: RunTiming = serde_json::from_value(v).unwrap();
     assert!(t.queries_by_source.is_empty());
     assert_eq!(t.answer_source, None);
+    assert!(t.tool_errors.is_empty());
+}
+
+/// Failed calls keep their output, capped in count and length; successes do not.
+#[test]
+fn tool_errors_keep_capped_outputs() {
+    let fail = |out: String| {
+        core(CoreEvent::ToolResult {
+            name: "query".into(),
+            output: out,
+            duration_ms: 1,
+            is_error: true,
+            sub_spec_index: None,
+        })
+    };
+    let mut events = vec![
+        (0, tool_result("query", 1, false)),
+        (1, fail("x".repeat(400))),
+    ];
+    events.extend((0..30).map(|i| (2, fail(format!("e{i}")))));
+    let t = run(events, 10);
+    assert_eq!(t.tool_errors.len(), 20);
+    assert_eq!(t.tool_errors[0], format!("query: {}", "x".repeat(300)));
+    assert_eq!(t.tool_errors[1], "query: e0");
 }

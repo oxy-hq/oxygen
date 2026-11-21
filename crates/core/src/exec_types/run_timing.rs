@@ -9,6 +9,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Failed tool calls kept in [`RunTiming::tool_errors`].
+pub const MAX_TOOL_ERRORS: usize = 20;
+/// Characters kept of each failed tool call's output.
+pub const MAX_TOOL_ERROR_CHARS: usize = 300;
+
 /// LLM rounds attributed to one pipeline state.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmStateTiming {
@@ -71,6 +76,11 @@ pub struct RunTiming {
     /// the run has no final SQL, and in records written before the field.
     #[serde(default)]
     pub answer_source: Option<String>,
+    /// `<tool>: <output>` of each failed tool call, in order: the first
+    /// [`MAX_TOOL_ERRORS`], each cut to [`MAX_TOOL_ERROR_CHARS`] characters.
+    /// Says why calls failed where `tools_by_name` only counts them.
+    #[serde(default)]
+    pub tool_errors: Vec<String>,
     /// State name → total ms between `StateEnter` and the matching `StateExit`.
     pub states: BTreeMap<String, u64>,
     /// The run fanned out: a `FanOut` event, a `SubSpecStart`/`SubSpecEnd`

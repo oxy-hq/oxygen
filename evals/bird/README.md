@@ -64,6 +64,10 @@ python3 evals/bird/bird.py report --runtime react --dir <dir> --model ... --pric
 python3 evals/bird/bird.py compare --fsm-dir <dir> --react-dir <dir> --model ... --price-in ... --price-out ...
 ```
 
+- The semantic arm: `<db>.semantic.agentic.yml` is the react file plus `semantic_only: true`
+  (a test pins that), so react may run only SQL the semantic model compiles. `gen-cases
+  --runtime semantic` writes `<db>.semantic.test.yml`; `report --runtime semantic`, and
+  `compare --react-arm semantic --react-dir <dir>` against the FSM. Its records say `react`.
 - Every record carries `runtime` (`react` once the run's `RuntimeSelected` event is seen, else
   `fsm`). A record without the field is `fsm`, which is how the archived baseline loads.
   `load_results` raises when a record disagrees with the requested runtime; a run that failed

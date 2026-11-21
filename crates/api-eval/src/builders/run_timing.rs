@@ -13,6 +13,7 @@ use std::time::Instant;
 use agentic_analytics::{AnalyticsEvent, QuerySource};
 use agentic_core::events::{CoreEvent, Event as AgenticEvent};
 use oxy::exec_types::RunTiming;
+use oxy::exec_types::{MAX_TOOL_ERROR_CHARS, MAX_TOOL_ERRORS};
 
 pub(super) struct TimingAccumulator {
     start: Instant,
@@ -84,10 +85,15 @@ impl TimingAccumulator {
             CoreEvent::LlmEnd { .. } => self.observe_llm_end(ev),
             CoreEvent::ToolResult {
                 name,
+                output,
                 duration_ms,
                 is_error,
                 ..
             } => {
+                if *is_error && self.t.tool_errors.len() < MAX_TOOL_ERRORS {
+                    let cut: String = output.chars().take(MAX_TOOL_ERROR_CHARS).collect();
+                    self.t.tool_errors.push(format!("{name}: {cut}"));
+                }
                 self.t.tool_calls += 1;
                 self.t.tool_ms += duration_ms;
                 let tool = self.t.tools_by_name.entry(name.clone()).or_default();

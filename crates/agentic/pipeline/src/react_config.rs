@@ -39,16 +39,17 @@ pub(crate) fn refuse_unsupported(
 /// `_`, with where react reads it) or refused (pushed).
 fn unsupported_agent_keys(config: &AgentConfig, ctx: &BuildContext) -> Vec<String> {
     let AgentConfig {
-        instructions: _, // the system prompt (ReactInputs.instructions)
-        timezone: _,     // the date hint (effective_timezone)
-        databases: _,    // the connectors the host resolves
-        context: _,      // search/read files and the semantic catalog
-        states: _,       // per state, in unsupported_state_keys
-        llm,             // below
-        thinking: _,     // solving_thinking
-        validation,      // refused: react runs no validation rules
-        semantic_engine, // refused: react routes only through airlayer
-        runtime: _,      // what picked react
+        instructions: _,  // the system prompt (ReactInputs.instructions)
+        timezone: _,      // the date hint (effective_timezone)
+        databases: _,     // the connectors the host resolves
+        context: _,       // search/read files and the semantic catalog
+        states: _,        // per state, in unsupported_state_keys
+        llm,              // below
+        thinking: _,      // solving_thinking
+        validation,       // refused: react runs no validation rules
+        semantic_engine,  // refused: react routes only through airlayer
+        runtime: _,       // what picked react
+        semantic_only: _, // the query tool and prompt (ReactInputs.semantic_only)
     } = config;
     let LlmConfigYaml {
         model_ref: _,         // solving_model_info

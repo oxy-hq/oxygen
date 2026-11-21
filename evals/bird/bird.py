@@ -21,13 +21,16 @@ def main(argv: list[str] | None = None) -> int:
     gen = sub.add_parser("gen-cases", help="write <db>.test.yml files from the cached questions")
     gen.add_argument("--runs", type=int, default=1, help="runs per case (default 1)")
     gen.add_argument("--runtime", choices=RUNTIMES, default="fsm",
-                     help="react writes <db>.react.test.yml against <db>.react.agentic.yml")
+                     help="react writes <db>.react.test.yml against <db>.react.agentic.yml; "
+                     "semantic (react with semantic_only) writes <db>.semantic.test.yml")
     rp = sub.add_parser("report", help="render the report from <db>[.react].test.results.json")
     rp.add_argument("--runtime", choices=RUNTIMES, default="fsm")
     rp.add_argument("--dir", default=None, help="results directory (default evals/bird)")
     cp = sub.add_parser("compare", help="FSM vs react tables from two results directories")
     cp.add_argument("--fsm-dir", required=True)
     cp.add_argument("--react-dir", required=True)
+    cp.add_argument("--react-arm", choices=("react", "semantic"), default="react",
+                    help="which react arm's results --react-dir holds")
     for q in (rp, cp):
         q.add_argument("--model", required=True)
         q.add_argument("--price-in", type=float, required=True, help="$ per 1M input tokens")
@@ -65,7 +68,7 @@ def _run(args: argparse.Namespace) -> int:
         from birdlib import compare
         sys.stdout.write(compare.run(args.fsm_dir, args.react_dir, args.model, args.price_in,
                                      args.price_out, args.price_cache_read,
-                                     args.price_cache_write))
+                                     args.price_cache_write, react_arm=args.react_arm))
     elif args.cmd == "evidence":
         from birdlib import evidence
         evidence.print_evidence(args.db)

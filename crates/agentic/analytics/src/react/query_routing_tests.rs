@@ -20,6 +20,7 @@ fn tool_with_default(conns: &[(&str, Arc<Fake>)], default: &str) -> QueryTool {
         connectors,
         catalog: None,
         default_connector: Some(default.to_owned()),
+        semantic_only: false,
     })
 }
 
@@ -172,4 +173,57 @@ async fn query_offers_no_candidates_for_a_name_nothing_resembles() {
         .await
         .unwrap_err();
     assert!(err.candidates.is_empty(), "{:?}", err.candidates);
+}
+
+fn semantic_only_tool(db: Arc<Fake>) -> QueryTool {
+    let connectors: HashMap<String, Arc<dyn DatabaseConnector>> =
+        HashMap::from([("warehouse".to_string(), db as Arc<dyn DatabaseConnector>)]);
+    QueryTool::new(QueryDeps {
+        connectors,
+        catalog: Some(Arc::new(account_catalog())),
+        default_connector: None,
+        semantic_only: true,
+    })
+}
+
+/// A `semantic_only` agent's `query` refuses raw `sql` before any database
+/// is reached, with or without `semantic` beside it, and still runs a
+/// semantic query.
+#[tokio::test]
+async fn semantic_only_refuses_sql_and_runs_semantic() {
+    let db = Fake::new(3);
+    let t = semantic_only_tool(db.clone());
+    for args in [
+        json!({"sql": "select 1"}),
+        json!({"sql": "select 1", "semantic": {"measures": ["account.total_amount"]}}),
+    ] {
+        let err = run(&t, args).await.unwrap_err();
+        assert!(err.error.contains("raw `sql` is refused"), "{}", err.error);
+        assert!(err.hint.as_deref().unwrap_or("").contains("`semantic`"));
+    }
+    assert!(
+        db.seen().is_empty(),
+        "a refused sql never reaches the database"
+    );
+    let reply = run(
+        &t,
+        json!({"semantic": {"measures": ["account.total_amount"]}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reply.artifacts[0].payload["source"], "semantic");
+}
+
+/// The schema a `semantic_only` agent's model sees has no `sql` parameter;
+/// the default tool keeps it.
+#[test]
+fn semantic_only_def_drops_the_sql_parameter() {
+    use agentic_core::react::Tool;
+    let def = semantic_only_tool(Fake::new(1)).def();
+    let props = &def.parameters["properties"];
+    assert!(props.get("sql").is_none(), "{props}");
+    assert!(props.get("semantic").is_some());
+    assert!(!def.description.contains("`sql`"), "{}", def.description);
+    let plain = tool(&[("warehouse", Fake::new(1))], None).def();
+    assert!(plain.parameters["properties"].get("sql").is_some());
 }

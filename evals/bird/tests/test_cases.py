@@ -60,6 +60,20 @@ class CasesTests(unittest.TestCase):
             self.assertEqual([l for l in react if l != "runtime: react"], fsm, db)
             self.assertFalse(any(l.startswith("runtime:") for l in fsm), db)
 
+    def test_semantic_agents_differ_from_react_only_by_semantic_only(self):
+        root = Path(__file__).resolve().parent.parent
+        for db in config.DBS:
+            react = (root / f"{db}.react.agentic.yml").read_text().splitlines()
+            sem = (root / f"{db}.semantic.agentic.yml").read_text().splitlines()
+            self.assertEqual(sem.count("semantic_only: true"), 1, db)
+            self.assertEqual([l for l in sem if l != "semantic_only: true"], react, db)
+
+    def test_gen_cases_semantic_targets_the_semantic_agent(self):
+        sem = cases.render_test_file("financial", ROWS, set(), runtime="semantic")
+        self.assertIn("target: financial.semantic.agentic.yml", sem)
+        self.assertIn('name: "bird-semantic-financial"', sem)
+        self.assertEqual(cases.test_file("financial", "semantic"), "financial.semantic.test.yml")
+
 
 if __name__ == "__main__":
     unittest.main()

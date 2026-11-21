@@ -24,7 +24,7 @@ def check_declared(results: dict, model: str, arm: str) -> None:
     (the archived FSM records) cannot be checked and passes on the fsm arm only: every react
     record is written with its model, so a react record without one is refused."""
     models = recorded_models(results)
-    if arm == "react" and UNRECORDED in models:
+    if arm != "fsm" and UNRECORDED in models:
         raise ValueError(f"{arm}: records report model {UNRECORDED!r}; react records always "
                          "carry a model, so this file is not a react run's")
     bad = [m for m in models if m not in (UNRECORDED, model)]

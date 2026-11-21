@@ -113,7 +113,8 @@ def failure_kind(cot: str) -> str:
     return "other run error"
 
 
-TITLES = {"fsm": "BIRD Mini-Dev FSM baseline", "react": "BIRD Mini-Dev react runtime"}
+TITLES = {"fsm": "BIRD Mini-Dev FSM baseline", "react": "BIRD Mini-Dev react runtime",
+          "semantic": "BIRD Mini-Dev react runtime, semantic model only"}
 
 
 def render(results: dict, model: str, price_in: float, price_out: float,
@@ -361,16 +362,17 @@ def check_runtime(records: list[dict], runtime: str, where: str) -> None:
     """Raise when a record names another runtime. A record without the field is `fsm` (the
     archived baseline). A run that failed before answering never recorded one, so it is exempt."""
     answered = [r for r in records if not run_failed(r)]
+    want = cases.RECORDED_RUNTIME[runtime]
     for r in answered:
         got = r.get("runtime") or "fsm"
-        if got != runtime:
-            raise ValueError(f"{where}: record runtime {got!r} is not the requested {runtime!r}")
-    if runtime == "react" and records and not any(r.get("runtime") == "react" for r in answered):
+        if got != want:
+            raise ValueError(f"{where}: record runtime {got!r} is not the requested {want!r}")
+    if want == "react" and records and not any(r.get("runtime") == "react" for r in answered):
         raise ValueError(f"{where}: no record is labeled react (every run failed?)")
 
 
 def load_results(runtime: str = "fsm", root: Path = ROOT, dbs=config.DBS) -> dict:
-    """Read `<db>.test.results.json` (fsm) or `<db>.react.test.results.json` (react) from `root`
+    """Read `<db>.test.results.json` (fsm) or `<db>.<arm>.test.results.json` (react, semantic) from `root`
     and tag each record with its question id (by prompt)."""
     if runtime not in cases.RUNTIMES:
         raise ValueError(f"unknown runtime {runtime!r}")

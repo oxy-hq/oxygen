@@ -10,15 +10,19 @@ def _q(s: str) -> str:
     return json.dumps(s, ensure_ascii=False)
 
 
-RUNTIMES = ("fsm", "react")
+# Arms. `semantic` is the react runtime with `semantic_only: true`: its records say `react`.
+RUNTIMES = ("fsm", "react", "semantic")
+
+# The `runtime` an arm's records carry.
+RECORDED_RUNTIME = {"fsm": "fsm", "react": "react", "semantic": "react"}
 
 
 def agent_file(db: str, runtime: str = "fsm") -> str:
-    return f"{db}.agentic.yml" if runtime == "fsm" else f"{db}.react.agentic.yml"
+    return f"{db}.agentic.yml" if runtime == "fsm" else f"{db}.{runtime}.agentic.yml"
 
 
 def test_file(db: str, runtime: str = "fsm") -> str:
-    return f"{db}.test.yml" if runtime == "fsm" else f"{db}.react.test.yml"
+    return f"{db}.test.yml" if runtime == "fsm" else f"{db}.{runtime}.test.yml"
 
 
 def render_test_file(db: str, rows: list[dict], disputed: set[int], runs: int = 1,

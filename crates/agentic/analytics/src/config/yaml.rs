@@ -200,6 +200,13 @@ pub struct AgentConfig {
     /// pipeline) or `react` (the tool-calling loop). A typo is a parse error.
     #[serde(default)]
     pub runtime: AgentRuntime,
+
+    /// React runtime only: the `query` tool accepts semantic-model queries
+    /// and refuses raw `sql`, so every number comes from SQL the semantic
+    /// model compiled. A react run of an agent with no semantic model refuses
+    /// to start. The FSM ignores it.
+    #[serde(default)]
+    pub semantic_only: bool,
 }
 
 /// The runtime an `.agentic.yml` opts into.

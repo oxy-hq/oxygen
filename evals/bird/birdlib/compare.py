@@ -100,7 +100,8 @@ def render(fsm_results: dict, react_results: dict, model: str, price_in: float,
     return "\n".join(lines) + "\n"
 
 
-def run(fsm_dir, react_dir, *args) -> str:
+def run(fsm_dir, react_dir, *args, react_arm: str = "react") -> str:
+    """`react_arm` is `react` or `semantic` (react with `semantic_only`)."""
     fsm = report.load_results("fsm", Path(fsm_dir))
-    react = report.load_results("react", Path(react_dir))
+    react = report.load_results(react_arm, Path(react_dir))
     return render(fsm, react, *args)

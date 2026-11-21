@@ -282,3 +282,26 @@ async fn build_refuses_a_database_whose_read_only_path_is_not_ready() {
         "runtime: react cannot use pg (PostgreSQL): connect as a least-privilege role"
     );
 }
+
+/// `semantic_only` with no semantic model refuses the run at its build,
+/// before any model call: the agent could answer nothing.
+#[tokio::test]
+async fn build_refuses_semantic_only_without_a_semantic_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = AgentConfig::from_yaml("runtime: react\nsemantic_only: true\n").unwrap();
+    assert!(config.semantic_only);
+    let ctx = BuildContext {
+        extra_connectors: HashMap::from([(
+            "wh".to_string(),
+            Arc::new(Five) as Arc<dyn DatabaseConnector>,
+        )]),
+        ..BuildContext::default()
+    };
+    let Err(err) = build_react_run(&NoPlatform, &config, ctx, dir.path()).await else {
+        panic!("the build must refuse");
+    };
+    assert!(
+        err.starts_with("semantic_only: true needs a semantic model"),
+        "{err}"
+    );
+}

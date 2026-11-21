@@ -173,6 +173,7 @@ pub(crate) fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRu
         catalog: None,
         default_connector: None,
         files,
+        semantic_only: false,
     });
     ReactRun {
         engine: Box::new(Scripted(Mutex::new(script.into()))),
