@@ -149,7 +149,7 @@ fn salt(def: &FlagDef, salt: Option<&str>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind, Unit};
+    use crate::registry::{BOOLEAN, FlagKind, Unit};
 
     const EXPERIMENT: FlagDef = FlagDef {
         key: "test_experiment",

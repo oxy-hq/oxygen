@@ -1,0 +1,29 @@
+[package]
+name = "oxy-feature-flags"
+version.workspace = true
+authors.workspace = true
+description = "The feature-flag runtime's domain half: the flag registry, targeting rules, evaluation, the flag table's store, the in-process cache and its refresh, exposures and rollout gates. Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# `feature_flag`, the flag table's row.
+entity = { workspace = true }
+# `db::establish_connection`: the cache opens its own connection (`init` takes none).
+oxy-platform = { workspace = true }
+oxy-shared = { workspace = true }
+sea-orm = { workspace = true }
+
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The split's bucket hash (`evaluate`).
+sha2 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

@@ -121,6 +121,10 @@ crates/api-billing/                                @hotay @luong-komorebi
 # PR 8a): the usage report's pure half out of crates/app/src/server/api/admin/,
 # and the usage trio out of crates/app-core/.
 crates/usage-report/                               @hotay @luong-komorebi
+# The feature-flag runtime's domain half (`oxy-feature-flags`), 2026-11-20:
+# registry, targeting, evaluation, store, cache and rollout gates, out of
+# crates/app/src/server/feature_flags/ (whose routes.rs stays). Luong wrote it.
+crates/feature-flags/                              @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay
 

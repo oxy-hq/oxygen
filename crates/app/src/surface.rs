@@ -104,8 +104,9 @@ pub mod session {
 /// override gets it, and `home_v3`. And one read for an org: whether app
 /// events serve `on` to the publishing app's org (`is_enabled_for` with
 /// [`APP_EVENTS`](feature_flags::APP_EVENTS)), which `ctx.events.publish`
-/// asks first. Read-only; the flag runtime stays in `oxy-app` until it leaves
-/// (sideways, the compile / preagg / feature-flag runtime).
+/// asks first. Read-only. The runtime is `oxy-feature-flags` (2026-11-20),
+/// below `oxy-app`, so a surface can import it directly; repointing these
+/// readers there is the follow-up that empties this module.
 pub mod feature_flags {
     pub use crate::server::feature_flags::{
         APP_EVENTS, FlagContext, home_v3, is_enabled, is_enabled_for,

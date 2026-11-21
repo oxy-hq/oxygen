@@ -9,7 +9,7 @@ pub struct Model {
     pub key: String,
     /// The legacy global value. While `targeting` is set it holds the registry
     /// default instead, for a binary that predates targeting; the kill switch is
-    /// then inside `targeting` (see `server::feature_flags::store`).
+    /// then inside `targeting` (see `oxy_feature_flags::store`).
     pub enabled: bool,
     pub updated_at: DateTimeWithTimeZone,
     /// The flag's rules, or `None` for a plain global on/off flag.

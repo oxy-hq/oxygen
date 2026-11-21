@@ -10763,6 +10763,7 @@ dependencies = [
  "oxy-cameras",
  "oxy-compile",
  "oxy-custom-apps",
+ "oxy-feature-flags",
  "oxy-git",
  "oxy-identity",
  "oxy-llm",
@@ -11100,6 +11101,24 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.20",
  "tracing",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-feature-flags"
+version = "0.5.161"
+dependencies = [
+ "chrono",
+ "entity",
+ "oxy-platform",
+ "oxy-shared",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tracing",
+ "uuid",
  "workspace-hack",
 ]
 

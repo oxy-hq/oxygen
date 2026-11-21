@@ -121,6 +121,11 @@ AREAS = [
     # Usage reporting's domain crate, 2026-11-20 (admin split PR 8a): the usage
     # report's pure half, out of crates/app/src/server/api/admin/usage_report.
     ("crates/usage-report",                               "Admin (backend)"),
+    # The feature-flag runtime's domain half, 2026-11-20, out of
+    # crates/app/src/server/feature_flags (whose routes stay); the old path
+    # keeps the history.
+    ("crates/feature-flags",                              "Feature flags"),
+    ("crates/app/src/server/feature_flags",               "Feature flags"),
     # Billing's surface crate, 2026-11-20 (admin split PR 8b): the usage
     # report's routes, delivery and job, out of the same directory. Its
     # `billing/` (PR 9: the tenant's billing routes and the Stripe webhook,

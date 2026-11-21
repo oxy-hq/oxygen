@@ -174,8 +174,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind};
-    use crate::server::feature_flags::targeting::{Fallthrough, Targeting};
+    use crate::registry::{BOOLEAN, FlagKind};
+    use crate::targeting::{Fallthrough, Targeting};
 
     const ON_OFF: FlagDef = FlagDef {
         key: "test_on_off",

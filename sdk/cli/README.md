@@ -742,7 +742,7 @@ closes `/admin`.
 ## Feature flags
 
 Staff-only control of the flags Oxy declares in code
-(`crates/app/src/server/feature_flags/registry.rs`): the kill switch and the
+(`crates/feature-flags/src/registry.rs`): the kill switch and the
 targeting rules — per-org / per-user overrides plus a weighted fallthrough for
 A/B splits. Flags are not created at runtime. **Every write hits the
 deployment `--env` names (production by default) and takes effect for real

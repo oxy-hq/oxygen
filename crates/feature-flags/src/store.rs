@@ -151,7 +151,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::server::feature_flags::targeting::Fallthrough;
+    use crate::targeting::Fallthrough;
 
     fn at(secs: i64) -> DateTime<FixedOffset> {
         DateTime::from_timestamp(1_800_000_000 + secs, 0)

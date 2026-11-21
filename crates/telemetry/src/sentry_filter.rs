@@ -1005,6 +1005,18 @@ mod tests {
             // they were at `oxy_app::server::api::admin::assume` (which keeps
             // the refusal while acting and its log line).
             "oxy_api_admin::assume",
+            // The feature-flag runtime's domain half, down from
+            // `oxy_app::server::feature_flags` into `oxy-feature-flags`
+            // (2026-11-20): kept, as it was there, and the routes that stayed.
+            "oxy_feature_flags",
+            "oxy_feature_flags::cache",
+            "oxy_feature_flags::evaluate",
+            "oxy_feature_flags::exposure",
+            "oxy_feature_flags::registry",
+            "oxy_feature_flags::rollout",
+            "oxy_feature_flags::store",
+            "oxy_feature_flags::targeting",
+            "oxy_app::server::feature_flags::routes",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1416,6 +1428,19 @@ mod tests {
             // The admin split (2026-11-20): assume-role. It opens, ends and
             // lists `admin_assume_sessions`; no warehouse query.
             "oxy_api_admin::assume",
+            // The feature-flag runtime's domain half (2026-11-20, out of
+            // `oxy_app::server::feature_flags`): the flag table in Oxy's own
+            // Postgres and an in-process cache, no warehouse; not the data
+            // plane, as `oxy_app::server` was not. And the routes that stayed.
+            "oxy_feature_flags",
+            "oxy_feature_flags::cache",
+            "oxy_feature_flags::evaluate",
+            "oxy_feature_flags::exposure",
+            "oxy_feature_flags::registry",
+            "oxy_feature_flags::rollout",
+            "oxy_feature_flags::store",
+            "oxy_feature_flags::targeting",
+            "oxy_app::server::feature_flags::routes",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -93,7 +93,7 @@ pub async fn load_once() -> Result<(), OxyError> {
 /// PATCH raced the read, in which case its value already won and this snapshot
 /// is stale.
 async fn load_and_install() -> Result<(), OxyError> {
-    let db = oxy::database::client::establish_connection().await?;
+    let db = oxy_platform::db::establish_connection().await?;
     let gen_before = GENERATION.load(Ordering::Acquire);
     let map = load_map(&db)
         .await

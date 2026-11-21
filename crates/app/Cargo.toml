@@ -71,6 +71,8 @@ oxy-billing = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
 oxy-preagg = { workspace = true }
+# The feature-flag runtime's domain half, re-exported at `server::feature_flags`.
+oxy-feature-flags = { workspace = true }
 oxy-project = { workspace = true }
 oxy-semantic = { workspace = true }
 oxy-world-model = { workspace = true }

@@ -310,12 +310,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_COMPILE_REFUSE_FILE_CREDENTIALS",
-        "crates/app/src/server/feature_flags/rollout.rs",
+        "crates/feature-flags/src/rollout.rs",
         "deprecated env override for one release; delete with the flag's env override (feature-flags.md, section Rollout gates and their sunset)",
     ),
     (
         "OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS",
-        "crates/app/src/server/feature_flags/rollout.rs",
+        "crates/feature-flags/src/rollout.rs",
         "deprecated env override for one release; delete with the flag's env override (feature-flags.md, section Rollout gates and their sunset)",
     ),
     (
@@ -550,7 +550,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_FEATURE_FLAG_REFRESH_MS",
-        "crates/app/src/server/feature_flags/cache.rs",
+        "crates/feature-flags/src/cache.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

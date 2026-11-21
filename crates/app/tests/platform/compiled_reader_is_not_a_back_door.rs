@@ -303,6 +303,10 @@ fn source_files() -> Vec<(String, String)> {
     // walked above before the moves.
     let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
+    // `oxy-feature-flags` (2026-11-20): the feature-flag runtime's domain
+    // half, out of `src/server/feature_flags`, walked above before the move.
+    let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");
+    walk(&flags, &flags, "../feature-flags/src/", &mut out);
     // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler and the
     // reporters, out of `src/cli/commands/test.rs`, `src/server/service/eval.rs`
     // and `src/integrations/eval/reporters`, all walked above before the move.
