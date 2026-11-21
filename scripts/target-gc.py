@@ -26,6 +26,7 @@ incremental dirs. See internal-docs/rust-build-performance.md.
 """
 
 import argparse
+import glob
 import os
 import shutil
 import subprocess
@@ -95,9 +96,27 @@ def nested_roots(target, leaf):
         dirs[:] = [d for d in dirs if d == leaf or d not in ("deps", "build", ".fingerprint", "incremental", "examples")]
 
 
+def unit_fingerprints(build):
+    """Cargo 1.100's per-unit fingerprint dirs: `<profile>/build/<pkg>/<unit-id>/fingerprint`.
+
+    Same shape scripts/seed-target.py's unit_dirs() accepts. A pre-1.100
+    `build/<pkg>-<hash>/` has no fingerprint/ inside, so it never matches.
+    """
+    return glob.glob(os.path.join(glob.escape(build), "*", "*", "fingerprint"))
+
+
 def last_build(target):
-    """Newest fingerprint write under target/, rust-analyzer's included; None if never built."""
+    """Newest fingerprint write under target/, rust-analyzer's included; None if never built.
+
+    Reads both layouts. Since cargo 1.100 the fingerprints live in each unit's
+    `build/<pkg>/<unit-id>/fingerprint/` and `.fingerprint/` is never written
+    again, but cargo does not delete an old one either. Reading only
+    `.fingerprint/` made a slot that built before the bump and every day since
+    look idle as of the bump, so `--apply` reaped an active target/.
+    """
     stamps = [newest_mtime(fp) for fp in nested_roots(target, ".fingerprint")]
+    for build in nested_roots(target, "build"):
+        stamps += [newest_mtime(fp) for fp in unit_fingerprints(build)]
     return max(stamps, default=None)
 
 

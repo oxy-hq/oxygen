@@ -62,26 +62,44 @@ than a cold 418s. That is why this script scores candidate sources by
 third-party lockfile overlap and picks the closest, and why the printed
 "N differ" line is worth a glance before trusting the result.
 
-ONLY deps/ IS HARDLINKED, AND NOT ALL OF IT. The compiler outputs there
-(.rlib/.rmeta/binaries) are write-once -- rustc writes a temp file and renames,
-so a rebuild breaks the link instead of writing through it -- and that is where
-the size is (9.4G against build/'s 1.3G). deps/*.d is the exception and is
-copied: dep-info is a plain create+truncate, so a rebuild in the destination
-rewrites the SOURCE's .d through the shared inode (verified: same inode, link
-count unchanged, contents replaced with the destination's paths). Cargo reads
-.fingerprint/dep-* rather than deps/*.d for freshness, so nothing miscompiles
-either way, but 26M is not worth leaving a write-through into another checkout.
+THE LAYOUT IS CARGO 1.100's (rust-lang/cargo#17354). Every unit -- one crate
+compiled one way, or one build-script run -- is a directory of its own:
 
-.fingerprint/ and build/ are copied outright, because cargo rewrites both in
-place and a shared inode would let a build in one checkout corrupt the other --
-measured for .fingerprint/, the source went from a ~1s no-op to 24s of rework.
-build/ is the same hazard: a build-script rerun truncates output / root-output /
-invoked.timestamp and rewrites out/, and reruns really do happen here. So
-seeding costs ~1.3G per checkout rather than nothing, and takes ~9s rather
-than ~2s.
+    target/<profile>/build/<package>/<16-hex unit id>/
+        fingerprint/   what cargo compares to decide "fresh"   (was .fingerprint/<pkg>-<id>/)
+        out/           rustc output: .rlib/.rmeta/.o/.d/bins   (was deps/)
+                       -- or, for a build-script RUN unit, its OUT_DIR (was build/<pkg>-<id>/out/)
+        run/           a run unit's stdout/stderr/root-output   (was build/<pkg>-<id>/output …)
 
-COPYING build/ IS NOT ENOUGH ON ITS OWN -- build-script stdout bakes in absolute
-paths, and PathRewriter below is what unbakes them. See its docstring.
+The old deps/, .fingerprint/ and build/<pkg>-<id>/ trees are not read at all,
+not even as a fallback: the toolchain is pinned (rust-toolchain.toml) and
+artifacts from another compiler are never reusable, so an old-layout tree is
+reported as not warm rather than seeded. The unit id is still
+workspace-relative, so two checkouts produce the same ids (checked on 1.100:
+every slot at one commit shares oxy-shared's).
+
+ONLY A COMPILE UNIT's out/ IS HARDLINKED, AND NOT ALL OF IT. The compiler
+outputs (.rlib/.rmeta/binaries) are write-once -- rustc writes a temp file and
+renames, so a rebuild breaks the link instead of writing through it -- and that
+is where the size is. out/*.d is the exception and is copied: dep-info is a
+plain create+truncate, so a rebuild in the destination rewrites the SOURCE's .d
+through the shared inode (verified on the old layout: same inode, link count
+unchanged, contents replaced with the destination's paths). Cargo reads
+fingerprint/dep-* rather than out/*.d for freshness, so nothing miscompiles
+either way, but it is not worth leaving a write-through into another checkout.
+
+fingerprint/, and the whole of a run unit (run/ and its out/), are copied
+outright, because cargo rewrites them in place and a shared inode would let a
+build in one checkout corrupt the other -- measured for the fingerprints, the
+source went from a ~1s no-op to 24s of rework. A run unit is the same hazard:
+a build-script rerun truncates run/stdout / root-output / invoked.timestamp
+and rewrites out/, and reruns really do happen here. So seeding costs real
+disk rather than nothing -- 0.2G copied against 3.0G hardlinked from a
+check-warm source, more when the source built native -sys crates (see "What a
+seed costs on disk" in internal-docs/rust-build-performance.md).
+
+COPYING A RUN UNIT IS NOT ENOUGH ON ITS OWN -- build-script stdout bakes in
+absolute paths, and PathRewriter below is what unbakes them. See its docstring.
 """
 
 import argparse
@@ -129,22 +147,54 @@ def third_party_lock(checkout, members):
     return {(n, v) for n, v in entries if n not in members}
 
 
-def crate_name(package):
-    """Package name as it appears in artifact filenames: oxy-app -> oxy_app."""
-    return package.replace("-", "_")
+UNIT_ID = re.compile(r"^[0-9a-f]{16}$")
+
+
+def unit_dirs(checkout, profile, packages=None):
+    """Yield (package, unit dir) for every unit under target/<profile>/build/.
+
+    A unit is `build/<package>/<16 hex>/` with a fingerprint/ inside; see the
+    module docstring. Requiring fingerprint/ is what keeps a leftover
+    pre-1.100 `build/<pkg>-<hash>/` (a build-script dir with out/ and
+    `output` directly inside) from counting: reading those is how a glob over
+    the old layout silently picked up stale files. `packages` limits the walk
+    to those package names.
+    """
+    root = os.path.join(checkout, "target", profile, "build")
+    for pkg in _listdir(root):
+        if packages is not None and pkg not in packages:
+            continue
+        pkg_dir = os.path.join(root, pkg)
+        for uid in _listdir(pkg_dir):
+            unit = os.path.join(pkg_dir, uid)
+            if UNIT_ID.match(uid) and os.path.isdir(os.path.join(unit, "fingerprint")):
+                yield pkg, unit
+
+
+def count_units(checkout, profile):
+    return sum(1 for _ in unit_dirs(checkout, profile))
 
 
 def is_warm(checkout, profile):
-    return os.path.isdir(os.path.join(checkout, "target", profile, "deps"))
+    """True if this checkout holds at least one cargo-1.100 unit."""
+    return next(unit_dirs(checkout, profile), None) is not None
+
+
+def has_old_layout(checkout, profile):
+    """True if this checkout still carries a pre-1.100 deps/ or .fingerprint/.
+
+    Only used to explain a refusal: those artifacts came from another compiler,
+    so cargo 1.100 will never address them and they are not worth seeding.
+    """
+    root = os.path.join(checkout, "target", profile)
+    return os.path.isdir(os.path.join(root, "deps")) or os.path.isdir(
+        os.path.join(root, ".fingerprint")
+    )
 
 
 def has_artifacts(checkout, profile):
     """True if this checkout has already compiled something of its own."""
-    fp = os.path.join(checkout, "target", profile, ".fingerprint")
-    try:
-        return any(os.scandir(fp))
-    except OSError:
-        return False
+    return is_warm(checkout, profile)
 
 
 def has_dynamic(checkout, profile):
@@ -153,9 +203,12 @@ def has_dynamic(checkout, profile):
     via hardlink, so a `cargo build --features dev-dynamic` in the destination
     reuses it instead of paying the ~20 min link. See `just build-backend-dyn`."""
     # `.dylib` on macOS, `.so` on Linux — check both so `--dynamic` works on either.
-    deps = os.path.join(checkout, "target", profile, "deps")
+    # Under cargo 1.100 the dylib sits in its unit's out/. Not yet observed on a
+    # real tree (no checkout here had built dev-dynamic since the bump), so this
+    # path is derived from the layout rather than measured.
     return any(
-        os.path.isfile(os.path.join(deps, f"liboxy_app_dylib{ext}"))
+        os.path.isfile(os.path.join(unit, "out", f"liboxy_app_dylib{ext}"))
+        for _pkg, unit in unit_dirs(checkout, profile, {"oxy-app-dylib"})
         for ext in (".dylib", ".so")
     )
 
@@ -185,7 +238,7 @@ def write_marker(checkout, profile, src):
     which is exactly what a first seed produces -- and re-seeding is the
     recovery the module docstring prescribes for a source that turned out to be
     unsettled. Without a marker the first seed made itself the last: it fills
-    .fingerprint/, so has_artifacts() is true from then on and every later run
+    the unit fingerprints, so has_artifacts() is true from then on and every later run
     was refused, with `cargo clean` (throwing the seed away) the only way out.
 
     Written last, after seed() and normalize_mtimes(), so its timestamp is above
@@ -218,20 +271,12 @@ def built_since_seed(checkout, profile, marker, members):
     if at is None:
         return ["<marker unreadable>"]
     out = []
-    try:
-        units = list(
-            os.scandir(os.path.join(checkout, "target", profile, ".fingerprint"))
-        )
-    except OSError:
-        return out
-    for unit in units:
-        if not unit.is_dir() or not is_workspace_unit(unit.name, members):
-            continue
+    for pkg, unit in unit_dirs(checkout, profile, members):
         try:
             newest = max(
                 (
                     f.stat().st_mtime
-                    for f in os.scandir(unit.path)
+                    for f in os.scandir(os.path.join(unit, "fingerprint"))
                     if f.name != "invoked.timestamp"
                 ),
                 default=0,
@@ -239,7 +284,7 @@ def built_since_seed(checkout, profile, marker, members):
         except OSError:
             continue
         if newest > at:
-            out.append(unit.name)
+            out.append(f"{pkg}/{os.path.basename(unit)}")
     return out
 
 
@@ -281,9 +326,11 @@ def pick_source(dest, members, profile, prefer_dynamic=False):
     tracked = git_tracked(dst_abs) or []
     rust_files = [p for p in tracked if p.endswith(".rs") and p.startswith("crates/")]
     mine_repo = repo_identity(dst_abs)
-    ranked = []
+    ranked, old_layout = [], []
     for cand in candidate_dirs(dst_abs):
         if not is_warm(cand, profile):
+            if has_old_layout(cand, profile):
+                old_layout.append(cand)
             continue
         # Same repo only. A sibling checkout of an unrelated Rust project has a
         # Cargo.lock and a warm target/, so it is otherwise eligible — and with
@@ -297,27 +344,38 @@ def pick_source(dest, members, profile, prefer_dynamic=False):
             continue
         shared = len(mine & theirs)
         differing = first_party_differing(cand, dst_abs, rust_files)
-        # Final tie-break on how recently the source was built: the freshest
-        # target/ is the one most likely to be complete rather than half-populated.
-        built = os.path.getmtime(os.path.join(cand, "target", profile, "deps"))
+        # Tie-breaks on how much the source holds, then how recently it was
+        # built: checkouts at one commit tie on both axes above, and a slot
+        # that only ever built one small crate would otherwise be as good a
+        # pick as one that built the whole graph.
+        units = count_units(cand, profile)
+        built = os.path.getmtime(os.path.join(cand, "target", profile, "build"))
         # With --dynamic, prefer a source that already carries the dev-dynamic
         # dylib — but only as a tie-break BELOW dep/source matching, which stays
         # correctness-critical: the seeded dylib's fingerprint is reusable only
         # when third-party deps AND oxy-app source already match.
         dyn = 1 if (prefer_dynamic and has_dynamic(cand, profile)) else 0
-        ranked.append((shared, -differing, dyn, built, cand))
+        ranked.append((shared, -differing, dyn, units, built, cand))
     if not ranked:
+        why = ""
+        if old_layout:
+            names = ", ".join(os.path.basename(c) for c in old_layout)
+            why = (
+                f"\n{len(old_layout)} checkout(s) only hold the pre-cargo-1.100 layout "
+                f"(target/{profile}/deps/), which this toolchain cannot reuse: {names}"
+            )
         sys.exit(
-            f"no warm checkout of this repo found near {dst_abs} — build one "
-            f"first, or name a source explicitly"
+            f"no warm checkout of this repo found near {dst_abs} — none has a "
+            f"target/{profile}/build/<package>/<unit-id>/fingerprint/ (the cargo 1.100 "
+            f"layout).{why}\nBuild one first, or name a source explicitly."
         )
     ranked.sort(reverse=True)
-    best = ranked[0][4]
-    for shared, neg_differing, _dyn, _built, cand in ranked:
+    best = ranked[0][-1]
+    for shared, neg_differing, _dyn, units, _built, cand in ranked:
         mark = "->" if cand == best else "  "
         print(
             f"  {mark} {os.path.basename(cand)}: {len(mine) - shared} third-party "
-            f"deps differ, {-neg_differing} crate sources differ"
+            f"deps differ, {-neg_differing} crate sources differ, {units} units"
         )
     return best
 
@@ -378,38 +436,6 @@ def _listdir(path):
         return sorted(os.listdir(path))
     except OSError:
         return []
-
-
-FINGERPRINT_UNIT = re.compile(r"^(.+)-[0-9a-f]{16}$")
-
-
-def is_workspace_unit(dirname, members):
-    """.fingerprint/ holds one dir per unit, named `<package>-<16 hex>`.
-
-    Note the HYPHEN, the opposite of is_workspace_artifact below: the two trees
-    use different conventions. deps/ names files after the *target*
-    (`liboxy_app-<hash>.rlib`), .fingerprint/ after the *package*
-    (`oxy-app-<hash>/`, `agentic-airway-<hash>/`). Matching underscored names
-    here missed all 11 `agentic-*` members outright, and skipped the other
-    hyphenated ones only by accident -- bare member `oxy` supplied a prefix that
-    happens to cover `oxy-app-…`, `oxy-shared-…`, which would equally have
-    swallowed any third-party `oxy-*` crate. Hence a full name match against the
-    hash-anchored prefix rather than startswith().
-    """
-    m = FINGERPRINT_UNIT.match(dirname)
-    return m is not None and m.group(1) in members
-
-
-def is_workspace_artifact(filename, members):
-    """deps/ entries look like `liboxy_app-<hash>.rlib` or `oxy_app-<hash>.d`.
-
-    Note the underscore: `cargo metadata` says `oxy-app`, the artifact says
-    `oxy_app`. Comparing the two directly matched only the 5 of 44 members with
-    no hyphen, which made --no-workspace-crates a near no-op and would have made
-    any A/B run with it measure the shared-workspace behaviour instead.
-    """
-    stem = filename[3:] if filename.startswith("lib") else filename
-    return stem.split("-")[0] in {crate_name(m) for m in members}
 
 
 def checkout_root(path):
@@ -491,7 +517,7 @@ def normalize_mtimes(src, dst):
     )
 
 
-# Files under build/ larger than this are native artifacts (.a/.o/.so) and are
+# Run-unit files larger than this are native artifacts (.a/.o/.so) and are
 # copied verbatim. Anything a build script emits for cargo or for an include! is
 # far below it — the largest carrying a path here is openssl-sys's 1.2M output,
 # and nothing over 4M carries one at all.
@@ -499,13 +525,13 @@ REWRITE_MAX_BYTES = 4 << 20
 
 
 class PathRewriter:
-    """Repoints absolute paths in copied build/ files at the destination.
+    """Repoints absolute paths in a copied build-script run unit at the destination.
 
-    Copying build/ verbatim does NOT decouple the checkouts. `output` and
-    `root-output` are build-script stdout, and for every -sys crate that stdout
-    carries absolute paths — measured here, 115 root-output and 14 output files
-    naming the checkout they were seeded from, including
-    `cargo:rustc-link-search=native=<src>/target/debug/build/libduckdb-sys-*/out`
+    Copying a run unit verbatim does NOT decouple the checkouts. run/stdout and
+    run/root-output are build-script output, and for every -sys crate they
+    carry absolute paths — measured on the old layout, 115 root-output and 14
+    output files naming the checkout they were seeded from, including
+    `cargo:rustc-link-search=native=<src>/target/debug/build/libduckdb-sys/<id>/out`
     and the DEP_OPENSSL_* include/lib dirs. Cargo replays those directives for
     every dependent whenever the build script is fresh, so an unrewritten
     destination links against the source's out/ even though an identical copy
@@ -525,8 +551,8 @@ class PathRewriter:
       heard of. Matching on the shape rather than on a known prefix collapses
       the whole chain in one go.
 
-    Applied to every small text file under build/, not just `output` and
-    `root-output`: build scripts also emit generated sources and pkg-config
+    Applied to every small text file in a run unit, not just stdout and
+    root-output: build scripts also emit generated sources and pkg-config
     files carrying the same paths (embed.rs, openssl.pc here). Binaries are left
     alone — a path inside an archive's debug info is inert, and lengths differ.
     """
@@ -613,7 +639,7 @@ class PathRewriter:
         return True
 
 
-SUBTREES = ("deps", "build", ".fingerprint")
+SUBTREES = ("build",)
 
 
 def abort_partial(dst, profile, preexisting, path, err):
@@ -622,11 +648,11 @@ def abort_partial(dst, profile, preexisting, path, err):
     A seed that died mid-walk used to leave a tree that was both unusable and
     un-re-seedable: normalize_mtimes() runs only after seed() RETURNS, so every
     source file kept its fresh checkout mtime and not one copied artifact was
-    addressable -- while the now-populated .fingerprint/ made the
+    addressable -- while the now-populated fingerprints made the
     warm-destination guard refuse the retry. `cargo clean` was the only way out.
     Real triggers: the source being built concurrently (rustc renames a temp
-    over a deps/ entry, giving ENOENT on os.link), or running out of room part
-    way through the 1.3G build/ copy.
+    over an out/ entry, giving ENOENT on os.link), or running out of room part
+    way through the copy.
 
     Only the trees this run created from nothing are removed -- that restores
     the checkout exactly, so re-running the seed is the retry. A tree that was
@@ -644,7 +670,7 @@ def abort_partial(dst, profile, preexisting, path, err):
     hint = {
         errno.ENOENT: "the source looks like it is building right now, and seeding needs it "
         "settled — let its build finish first",
-        errno.ENOSPC: "no room left for the copy — build/ alone is ~1.3G per checkout",
+        errno.ENOSPC: "no room left for the copy — fingerprints and build-script output are copied, not linked",
         errno.EXDEV: "source and destination are on different filesystems — hardlinks are "
         "impossible",
     }.get(err.errno)
@@ -662,7 +688,9 @@ def abort_partial(dst, profile, preexisting, path, err):
 
 
 def seed(src, dst, profile, members, share_workspace, replace=False):
-    src_root = os.path.join(src, "target", profile)
+    """Seed every unit of src into dst. Returns how many units were seeded."""
+    src_build = os.path.join(src, "target", profile, "build")
+    dst_build = os.path.join(dst, "target", profile, "build")
     # Which trees the destination already had, so abort_partial() knows which of
     # them it may remove to undo a failure.
     preexisting = {
@@ -671,52 +699,38 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
         if os.path.exists(os.path.join(dst, "target", profile, sub))
     }
     rewriter = PathRewriter(src, dst, profile)
-    linked = copied = rewritten = skipped = 0
+    units = linked = copied = rewritten = skipped = 0
     started = time.time()
 
-    # deps/ is write-once apart from *.d (see the module docstring). build/ is
-    # NOT: a build-script rerun rewrites output / root-output /
-    # invoked.timestamp and anything the script put in out/, all via
-    # create+truncate, which goes straight through a shared inode into the
-    # source checkout — the same hazard .fingerprint/ is copied for. Reruns
+    # A compile unit's out/ is write-once apart from *.d (see the module
+    # docstring). A build-script RUN unit is NOT: a rerun rewrites run/stdout /
+    # root-output / invoked.timestamp and anything the script put in out/, all
+    # via create+truncate, which goes straight through a shared inode into the
+    # source checkout — the same hazard fingerprint/ is copied for. Reruns
     # demonstrably happen here (a 61ns mtime drift caused one), and the source
     # would keep its own fingerprint saying "fresh" while its recorded
-    # rustc-cfg / link paths had been replaced by another checkout's. build/ is
-    # 1.2G against deps/'s 9.7G, so copying it is the cheap side of the trade.
-    for sub in SUBTREES:
-        src_dir = os.path.join(src_root, sub)
-        if not os.path.isdir(src_dir):
+    # rustc-cfg / link paths had been replaced by another checkout's.
+    for pkg, unit in unit_dirs(src, profile):
+        if not share_workspace and pkg in members:
+            skipped += 1
             continue
-        for cur, dirs, files in os.walk(src_dir):
-            # .fingerprint holds one directory per unit; drop workspace units wholesale
-            if (
-                sub == ".fingerprint"
-                and not share_workspace
-                and is_workspace_unit(os.path.basename(cur), members)
-            ):
-                dirs[:] = []
-                skipped += 1
-                continue
-            dst_dir = os.path.join(
-                dst, "target", profile, sub, os.path.relpath(cur, src_dir)
-            )
+        units += 1
+        is_run = os.path.isdir(os.path.join(unit, "run"))
+        for cur, _dirs, files in os.walk(unit):
+            rel = os.path.relpath(cur, src_build)
+            parts = rel.split(os.sep)  # <package>/<unit id>/<fingerprint|out|run>/…
+            kind = parts[2] if len(parts) > 2 else None
+            dst_dir = os.path.join(dst_build, rel)
             try:
                 os.makedirs(dst_dir, exist_ok=True)
             except OSError as err:
                 abort_partial(dst, profile, preexisting, dst_dir, err)
             for name in files:
-                if (
-                    sub == "deps"
-                    and not share_workspace
-                    and is_workspace_artifact(name, members)
-                ):
-                    skipped += 1
-                    continue
                 s, d = os.path.join(cur, name), os.path.join(dst_dir, name)
                 if os.path.lexists(d):
                     if not replace:
                         continue
-                    # Unlink rather than write through: a deps/ entry is a
+                    # Unlink rather than write through: an out/ entry is a
                     # hardlink INTO the source checkout, so truncating it in
                     # place would rewrite the source's artifact. The copy below
                     # then creates a fresh inode.
@@ -725,10 +739,10 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
                     except OSError as err:
                         abort_partial(dst, profile, preexisting, d, err)
                 try:
-                    if sub == "deps" and not name.endswith(".d"):
+                    if kind == "out" and not is_run and not name.endswith(".d"):
                         os.link(s, d)
                         linked += 1
-                    elif sub == "build" and rewriter.copy(s, d):
+                    elif is_run and kind in ("out", "run") and rewriter.copy(s, d):
                         rewritten += 1
                     else:
                         shutil.copy2(
@@ -739,10 +753,11 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
                     abort_partial(dst, profile, preexisting, s, err)
 
     print(
-        f"seeded in {time.time() - started:.2f}s: {linked} hardlinked, "
+        f"seeded {units} units in {time.time() - started:.2f}s: {linked} hardlinked, "
         f"{copied} copied, {rewritten} repointed at this checkout, "
-        f"{skipped} workspace artifacts skipped"
+        f"{skipped} workspace units skipped"
     )
+    return units
 
 
 def dst_target_device_path(dst, profile):
@@ -845,7 +860,16 @@ def main():
     if args.source:
         src = checkout_root(args.source)
         if not is_warm(src, args.profile):
-            sys.exit(f"{src} has no warm target/{args.profile}/deps — build it first")
+            old = (
+                f" (it only holds the pre-cargo-1.100 target/{args.profile}/deps/, which "
+                f"this toolchain cannot reuse)"
+                if has_old_layout(src, args.profile)
+                else ""
+            )
+            sys.exit(
+                f"{src} has no target/{args.profile}/build/<package>/<unit-id>/fingerprint/"
+                f"{old} — build it first"
+            )
     else:
         print("scanning for a warm checkout to seed from:")
         src = pick_source(dst, members, args.profile, prefer_dynamic=args.dynamic)
@@ -853,7 +877,7 @@ def main():
     if args.dynamic and not has_dynamic(src, args.profile):
         print(
             f"WARNING: --dynamic requested but {os.path.basename(src)} has no dev-dynamic dylib "
-            f"(target/{args.profile}/deps/liboxy_app_dylib.dylib). Seeding static artifacts only — "
+            f"(target/{args.profile}/build/oxy-app-dylib/<unit-id>/out/liboxy_app_dylib.dylib). Seeding static artifacts only — "
             f"a `--features dev-dynamic` build here will still pay the ~20 min dylib link. Build one "
             f"first with `just build-backend-dyn` in a warm worktree, then re-seed.",
             file=sys.stderr,
@@ -874,7 +898,14 @@ def main():
 
     share_workspace = not args.no_workspace_crates
     print(f"seeding {dst}\n   from {src}")
-    seed(src, dst, args.profile, members, share_workspace, replace)
+    if not seed(src, dst, args.profile, members, share_workspace, replace):
+        # Loud on purpose: a seed that found nothing used to print "0 hardlinked,
+        # 0 copied", stamp .seeded-from and exit 0, so the next cargo run was a
+        # cold build nobody had been warned about.
+        sys.exit(
+            f"seeded nothing: {src} lists no units under target/{args.profile}/build/ "
+            f"that this run could copy — no marker written, {dst} is unchanged"
+        )
     if share_workspace:
         normalize_mtimes(src, dst)
     write_marker(dst, args.profile, src)

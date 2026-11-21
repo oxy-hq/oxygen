@@ -40,7 +40,10 @@ case "${OXY_SEED_TARGET:-}" in
   1) ;;
   *) case "$root" in */.worktrees/*) exit 0 ;; esac ;;
 esac
-[ -d "$root/target/debug/deps" ] && exit 0   # already warm; nothing to do
+# Already warm; nothing to do. A unit dir is the cargo 1.100 layout
+# (target/debug/build/<pkg>/<unit-id>/fingerprint); the old target/debug/deps
+# no longer exists, so testing for it made a warm tree look cold.
+compgen -G "$root/target/debug/build/*/*/fingerprint" >/dev/null && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 # seed-target.py runs `cargo metadata` before anything else. A git invoked from
 # an IDE may not have the rustup shims on PATH, and without this the checkout
