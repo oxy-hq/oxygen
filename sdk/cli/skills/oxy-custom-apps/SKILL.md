@@ -407,12 +407,12 @@ own header. Link to another app with a plain `<a href>`, never `target="_blank"`
 moving between apps is meant to feel like one product.
 
 **Look.** The design standard for every custom app is the oxygen reference app
-(`oxy-hq/reference-app`). Import `@oxy-hq/sdk/theme.css` (SDK ≥ 2.29) above your own
-CSS to get it: its palette, square corners, frame and control lines, the system face
-and 44px touch targets, which the shell and the phone kit read too. Its selectors
-weigh nothing, so your own token declarations still win; adopting it means deleting
-them, and deleting any `--oxy-shell-*` or `!important` rules aimed at the shell or
-kit. Without the import, nothing about the app's look changes.
+(`oxy-hq/reference-app`; on SDK 2.31.0 from `reference-app@35c2bf5`, oxy-hq/reference-app#20).
+Import `@oxy-hq/sdk/theme.css` (SDK ≥ 2.29) above your own CSS to get it: its palette, square
+corners, frame and control lines, the system face and 44px touch targets, which the shell and
+the phone kit read too. Its selectors weigh nothing, so your own token declarations still win;
+adopting it means deleting them, and deleting any `--oxy-shell-*` or `!important` rules aimed
+at the shell or kit. Without the import, nothing about the app's look changes.
 
 **The desk UI comes from the SDK, never copied** (SDK ≥ 2.30). The reference app's
 components, patterns and recipes ship in `@oxy-hq/sdk/ui` with `@oxy-hq/sdk/ui.css`, imported
@@ -421,8 +421,37 @@ after `theme.css` and `shell.css`: `import { SidePanel, LoadError, DefaultTabs, 
 `@import "tailwindcss"` so its utilities read the theme. Money, percent, dates and CSV come from
 `@oxy-hq/sdk/format`, which runs in a Function too. Run `checkThemeCss()` from
 `@oxy-hq/sdk/testing` in the app's tests: it fails on CSS that restates an SDK token or keys its
-own mode. A piece the SDK lacks is built in the app from the `ui` recipes; a defect in a shared
-piece is fixed in the SDK, so every app gets it.
+own mode. Run `expect(formatSdkUiCopies(checkSdkUiCopies("src"))).toBe("")` there too (SDK ≥
+2.31): it reports each component in `src/` named like an SDK piece, with the import to use. A
+variant kept on purpose says why in the file that defines it, `// oxy-ui-local: <Name> -- <why>`
+(the reason is required); a local alias under a piece's name (`const Glyph = app.glyph`) is
+reported too, so rename it. A piece the SDK lacks is built in the app from the `ui` recipes; a
+defect in a shared piece is fixed in the SDK, so every app gets it.
+
+SDK 2.31 adds, each opt-in: `Panel`'s fold (`foldable`, `open`, `defaultOpen`), `header`,
+optional `title`, landmark (`as`, `label`, `headingLevel`) and `density="compact"`;
+`Sparkline`'s one series (`sparkPoints`), `width` / `height`, `fluid`, `area`, `color`, `x` and
+`readout`; `StatusDot wordHidden`; `DefaultTabs`' `disabled`, `stretch` and per-tab `hint`;
+`HoverHint focusable`; `Stat`'s `tipMark` and `valueAt`; `MetricCell`'s `quiet` step;
+`TryAgainButton`; `useModalFocus(ref, open, { auto: true })`; `topBarFrom` `sm` / `lg` / `2xl`;
+`useOxyMode()` in `@oxy-hq/sdk/shell`. An app that kept its own panel fold, KPI tile, dot-only
+status or Try again for want of one imports the SDK's and deletes its copy.
+
+What the pieces settle, so an app doesn't override them (decisions 81–93):
+
+- `SidePanel` keeps its overlay shadow; drop any `shadow-none` (81).
+- One type scale, the reference's: take the closest step; no hand-set sizes, and no redefining
+  the size names (82).
+- Hint bubbles open leftward, where `HoverHint` puts them (84).
+- A failed read's message is 13px at either `LoadError` size; drop overrides of it (85).
+- A `Stat` with a `tip` shows its ⓘ on the desk, a Tab stop; `tipMark={false}` only where the
+  tip restates what the screen already says (89).
+- A KPI tile is `Stat boxed` in a `StatGrid`; a critical one keeps its error edge (90).
+- Waiting is counted: `LoadingBar` with the read count, `Loading` for a single read; never a
+  sweeping bar (91).
+- `TrendChart` labels hold 12px on screen at any width (92).
+- Two warning tiers are `MetricCell`'s `quiet` (the warning tint at 400) and `warning` (600),
+  `error` above them (93).
 
 Six rules of the design system go beyond the reference:
 
@@ -453,7 +482,8 @@ Six rules of the design system go beyond the reference:
 - **Square corners are for controls and surfaces, not for marks drawn on a map or a
   chart.** A map marker or cell, a pin, and a chart's points and lines keep their own
   shape. Everything else follows the design system, status dots (round, always with a
-  word) and count badges (square) included.
+  word) and count badges (square) included. Where the words beside a dot already say the
+  state, `StatusDot wordHidden` shows the dot alone and keeps the word for assistive tech.
 
 **Light and dark.** With the theme, the app has both modes and shows the signed-in
 person's, the one Oxygen home shows: `OxyShell` applies it and puts one Light / Dark /
