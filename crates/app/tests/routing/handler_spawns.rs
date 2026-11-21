@@ -63,15 +63,17 @@ const NEEDLES: &[&str] = &["tokio::spawn(", "tokio::task::spawn("];
 /// **Shrinking this list is the migration.** Before adding to it, check you are not
 /// taking the shortcut this test exists to object to.
 const ALLOWED: &[(&str, &str)] = &[
-    // ---- oxy-app: integrations (Slack, evals) — request paths outside src/server ----
+    // ---- integrations (Slack, evals) — request paths outside src/server ----
+    // The eval engine, `oxy-api-eval`'s since 2026-11-20 (was
+    // `app/src/integrations/eval/builders/`).
     (
-        "app/src/integrations/eval/builders/mod.rs",
+        "api-eval/src/builders/mod.rs",
         "the CLI eval runner (`oxy test`): runs the eval and drains its event \
          buffer to the terminal handler, both awaited before it returns. No HTTP \
          request and no fleet; the work ends with the command",
     ),
     (
-        "app/src/integrations/eval/builders/target_agentic.rs",
+        "api-eval/src/builders/target_agentic.rs",
         "only pumps this run's own event channel: tallies token usage off the \
          agent's events and is awaited before the target returns",
     ),

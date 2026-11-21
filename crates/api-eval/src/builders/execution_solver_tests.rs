@@ -5,7 +5,7 @@ use agentic_core::result::{ColumnSpec, TypedDataType, TypedRowStream, TypedValue
 use async_trait::async_trait;
 
 use super::*;
-use crate::integrations::eval::builders::{
+use crate::builders::{
     answer_judge::tests::{FakeJudge, Step},
     types::{VERDICT_CORRECT, VERDICT_JUDGE_ERROR},
 };

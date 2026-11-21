@@ -127,9 +127,6 @@ utoipa-axum = { workspace = true }
 # reverse-proxy (forwards IdeOnly request bodies without buffering).
 reqwest = { workspace = true, features = ["stream", "form", "query", "json"] }
 
-# Code utilities
-enum_dispatch = { workspace = true }
-
 # CLI
 clap = { workspace = true, features = ["derive", "env"] }
 colored = { workspace = true }

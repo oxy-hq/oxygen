@@ -54,7 +54,7 @@ pub(super) async fn run_target(
             ))
         })?;
 
-    let project_ctx = Arc::new(crate::agentic_wiring::OxyProjectContext::new(
+    let project_ctx = Arc::new(oxy_app::surface::workspace_runtime::OxyProjectContext::new(
         workspace.clone(),
     ));
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx;

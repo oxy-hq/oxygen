@@ -2,7 +2,7 @@
 //! question's time went — startup, LLM rounds, tools, warehouse queries.
 //!
 //! Pure data. The accumulator that fills it from the agentic event stream lives
-//! in `oxy-app` (`integrations/eval/builders/run_timing.rs`), because this crate
+//! in `oxy-api-eval` (`builders/run_timing.rs`), because this crate
 //! must not depend on any `agentic-*` crate. All durations are milliseconds.
 
 use std::collections::BTreeMap;

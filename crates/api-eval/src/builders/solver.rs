@@ -57,8 +57,9 @@ pub(super) async fn run_solver(
     // model (explicit `model_ref`, else the project default) ONCE up front — so
     // a missing model/key fails fast before any judging, and the client is built
     // once and reused across pairs instead of per pair.
-    let project_ctx =
-        crate::agentic_wiring::OxyProjectContext::new(execution_context.workspace.clone());
+    let project_ctx = oxy_app::surface::workspace_runtime::OxyProjectContext::new(
+        execution_context.workspace.clone(),
+    );
     let judge = agentic_pipeline::prepare_one_shot(
         &project_ctx,
         correctness_solver.model_ref.as_deref(),

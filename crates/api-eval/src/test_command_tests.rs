@@ -7,8 +7,8 @@
 //! validation, and the threshold gate.
 
 use super::*;
+use crate::builders::types::{Correctness, Execution, RunStats, Similarity};
 use clap::Parser;
-use oxy_app::surface::eval::{Correctness, Execution, RunStats, Similarity};
 
 /// Builds a `TestArgs` from a CLI-style argv, mirroring how clap parses it in
 /// `main`. The leading "oxy" stands in for argv[0].

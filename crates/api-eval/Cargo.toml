@@ -8,20 +8,29 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The only oxy-app dependency, through `oxy_app::surface` only: the eval engine
-# (`surface::eval`, until `integrations::eval::builders` moves here too). oxy-app
-# never depends back on this crate. default-features off so a
+# The only oxy-app dependency, through `oxy_app::surface` only: the engine builds
+# its runs on `surface::workspace_runtime::OxyProjectContext`. oxy-app never
+# depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy = { workspace = true }
 oxy-shared = { workspace = true }
+agentic-analytics = { workspace = true }
+agentic-connector = { workspace = true }
+agentic-core = { workspace = true }
+agentic-pipeline = { workspace = true }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+enum_dispatch = { workspace = true }
+futures = { workspace = true }
 indexmap = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
+minijinja = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 tokio = { workspace = true }

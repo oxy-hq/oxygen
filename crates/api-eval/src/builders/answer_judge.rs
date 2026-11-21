@@ -185,14 +185,14 @@ pub(super) mod tests {
     use super::*;
 
     /// One scripted judge response.
-    pub(in crate::integrations::eval::builders) enum Step {
+    pub(in crate::builders) enum Step {
         Reply(&'static str),
         Fail(&'static str),
         Hang,
     }
 
     /// Counts calls; plays `script` in order, then returns `reply` forever.
-    pub(in crate::integrations::eval::builders) struct FakeJudge {
+    pub(in crate::builders) struct FakeJudge {
         pub calls: AtomicUsize,
         pub reply: String,
         script: Mutex<VecDeque<Step>>,

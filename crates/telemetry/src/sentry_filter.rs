@@ -650,6 +650,33 @@ mod tests {
         }
     }
 
+    /// The eval context left `oxy-app` on 2026-11-20 (`oxy test`, then its
+    /// engine, out of `oxy_app::integrations::eval`), into `oxy_api_eval`. It
+    /// was platform code there, kept and not the data plane (no rule named it),
+    /// and is pinned so here: the judge and solver failures are real signal.
+    #[test]
+    fn the_eval_engine_keeps_its_sentry_lines_after_the_move() {
+        for module in [
+            "oxy_api_eval::service",
+            "oxy_api_eval::test_command",
+            "oxy_api_eval::builders",
+            "oxy_api_eval::builders::answer_judge",
+            "oxy_api_eval::builders::correctness_solver",
+            "oxy_api_eval::builders::execution_solver",
+            "oxy_api_eval::builders::generator",
+            "oxy_api_eval::builders::solver",
+            "oxy_api_eval::builders::target_agentic",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]

@@ -156,8 +156,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The feature-flag runtime's domain half, `oxy-feature-flags` since
         // 2026-11-20 (out of `src/server/feature_flags`).
         manifest.join("../feature-flags/src"),
-        // `oxy test`, its event handler and the reporters, `oxy-api-eval` since
-        // 2026-11-20 (out of `src/cli`, `src/server/service`, `src/integrations`).
+        // `oxy test`, its event handler, the reporters and the engine,
+        // `oxy-api-eval` since 2026-11-20 (out of `src/cli`, `src/server/service`,
+        // `src/integrations`).
         manifest.join("../api-eval/src"),
     ];
     while let Some(dir) = walk.pop() {

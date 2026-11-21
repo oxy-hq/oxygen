@@ -319,7 +319,7 @@ web-app/src/pages/quickbooks/                      @hotay @nresh
 # than owns), the pipeline listing, the admission-policy staff section that
 # was carved out of admin/ for Tay, and the `oxy airway` command.
 crates/api-airway/                          @hotay @luong-komorebi
-# The eval context: `oxy test`, its event handler and reporters, out of
+# The eval context: `oxy test`, its event handler, reporters and engine, out of
 # crates/app (S10, 2026-11-20). Tay drove the eval harness, Luong backs up.
 crates/api-eval/                                   @hotay @luong-komorebi
 

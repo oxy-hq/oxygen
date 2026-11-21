@@ -7,19 +7,23 @@
 //! the engine builds its runs on `OxyProjectContext`, which only `oxy-app` can
 //! name, so this crate sits above it and `oxy-app` can never call back:
 //!
-//! - **This crate today:** the command (`test_command`), its event handler,
+//! - **First (PR 1):** the command (`test_command`), its event handler,
 //!   progress bars and launch helpers (`service`, was
 //!   `oxy-app`'s `server::service::eval`), and the reporters (`reporters`, was
 //!   `integrations::eval::reporters`).
-//! - **Still in `oxy-app`:** the engine (`integrations::eval::builders`: the
-//!   launcher, the target, the solvers and judges, the result types), reached
-//!   through `oxy_app::surface::eval` until it follows.
+//! - **Then (PR 2):** the engine (`builders`, was `oxy-app`'s
+//!   `integrations::eval::builders`: the launcher, the target, the solvers and
+//!   judges, the result types). It builds its runs on
+//!   `oxy_app::surface::workspace_runtime::OxyProjectContext`.
 //!
 //! It mounts no route. It is named `api-*` because that is the layer it sits
 //! in (above `oxy-app`, reaching it through `oxy_app::surface` only, held by
 //! `surface_contract`), the same place the airway context's `oxy airway` lives.
 #![recursion_limit = "256"]
 
+// The engine. `pub` as its types were when `oxy-app` re-exported them
+// (`surface::eval`), so none of its constructors reads as dead here.
+pub mod builders;
 mod reporters;
 mod service;
 mod test_command;

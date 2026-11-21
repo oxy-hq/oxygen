@@ -307,9 +307,10 @@ fn source_files() -> Vec<(String, String)> {
     // half, out of `src/server/feature_flags`, walked above before the move.
     let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");
     walk(&flags, &flags, "../feature-flags/src/", &mut out);
-    // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler and the
-    // reporters, out of `src/cli/commands/test.rs`, `src/server/service/eval.rs`
-    // and `src/integrations/eval/reporters`, all walked above before the move.
+    // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler, the
+    // reporters and the engine, out of `src/cli/commands/test.rs`,
+    // `src/server/service/eval.rs` and `src/integrations/eval/`, all walked
+    // above before the move.
     let eval = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-eval/src");
     walk(&eval, &eval, "../api-eval/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");

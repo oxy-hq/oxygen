@@ -109,8 +109,8 @@ fn server_files() -> Vec<(String, String)> {
     // The feature-flag runtime's domain half (2026-11-20), out of
     // `src/server/feature_flags`; every process here loads and reads it.
     walk(&manifest.join("../feature-flags/src"), &mut out);
-    // `oxy test`'s event handler and reporters (2026-11-20), out of
-    // `src/server/service/eval.rs` and `src/integrations/eval/reporters`.
+    // `oxy test`'s event handler, reporters and engine (2026-11-20), out of
+    // `src/server/service/eval.rs` and `src/integrations/eval/`.
     walk(&manifest.join("../api-eval/src"), &mut out);
     // The health probes and route discovery (2026-11-16), served by the
     // binary from `oxy-server`'s `core_routes`.
