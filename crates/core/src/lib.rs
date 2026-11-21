@@ -18,7 +18,9 @@ pub mod semantic;
 pub mod sentry_config;
 pub mod service;
 pub mod state_dir;
-pub mod theme;
+/// `StyledText`, the CLI output styling, lives in `oxy-shared` so a crate can
+/// style output without depending on `oxy`; re-exported here for its callers.
+pub use oxy_shared::theme;
 pub mod types;
 pub mod utils;
 pub mod workspace_fs_probe;

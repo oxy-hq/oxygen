@@ -21,7 +21,8 @@ other domain crates     ┘
 - Cross-cutting utilities and error types live in `oxy-shared` (re-exported here as
   `oxy::shared`). Prefer extending `oxy-shared` over adding another leaf crate.
 - Use `OxyError` (`oxy_shared::errors`) + `thiserror`; `tracing` (`info!`/`warn!`/`debug!`),
-  never `println!`; CLI-facing strings via the `StyledText` trait from `oxy::theme`.
+  never `println!`; CLI-facing strings via the `StyledText` trait from `oxy_shared::theme`
+  (re-exported as `oxy::theme`).
 
 ## Module map (`src/`, declared in `lib.rs`)
 
@@ -36,7 +37,7 @@ other domain crates     ┘
 | `metrics` (~1.3k) | Metrics plumbing. |
 | `github` (~0.9k) | GitHub API helpers. |
 | `observability` (~0.9k) | Core observability hooks (distinct from the `oxy-observability` crate). |
-| `tools`, `types`, `execution_analytics`, `database`, `render`, `theme`, `state_dir` | Tool defs, shared types, exec analytics, DB helpers, client renderer (`render_stream`), `StyledText` theme, state-dir resolution. |
+| `tools`, `types`, `execution_analytics`, `database`, `render`, `state_dir` | Tool defs, shared types, exec analytics, DB helpers, client renderer (`render_stream`), state-dir resolution. `theme` (`StyledText`) is `oxy-shared`'s since 2026-11-21, re-exported here. |
 
 ## Key entry points
 

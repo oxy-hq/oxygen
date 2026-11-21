@@ -218,7 +218,7 @@ moved** (`git log -1 --oneline`) rather than trusting the command's exit.
 
 **Rust** — errors via `thiserror`/`OxyError` (`oxy_shared::errors`); logging via `tracing`,
 **never `println!` in library crates**; CLI output via the `StyledText` trait from
-`oxy::theme`.
+`oxy_shared::theme` (re-exported at `oxy::theme`).
 
 **Frontend** — **pnpm only**, and `pnpm exec <tool>` never `npx`; format with Biome
 (`pnpm exec biome check --write <file>`), not Prettier. Full conventions in

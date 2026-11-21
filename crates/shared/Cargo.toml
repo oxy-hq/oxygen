@@ -32,6 +32,9 @@ uuid = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
 once_cell = { workspace = true }
+# `theme`: the `StyledText` CLI output styling (`oxy` already took both).
+colored = { workspace = true }
+terminal-light = { workspace = true }
 home = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }

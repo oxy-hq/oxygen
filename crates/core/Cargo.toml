@@ -56,7 +56,6 @@ chrono = { workspace = true }
 chrono-english = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clickhouse = { workspace = true, features = ["rustls-tls"] }
-colored = { workspace = true }
 connectorx = { workspace = true, features = [
   "dst_arrow",
   "src_bigquery",
@@ -111,7 +110,6 @@ serde_urlencoded = { workspace = true }
 slugify = { workspace = true }
 syntect = { workspace = true }
 tabled = { workspace = true }
-terminal-light = { workspace = true }
 terminal_size = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

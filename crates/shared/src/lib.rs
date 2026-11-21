@@ -24,6 +24,7 @@ pub mod redact;
 pub mod semantic_error;
 pub mod sql_literal;
 pub mod state_dir;
+pub mod theme;
 pub mod utils;
 
 // Re-export commonly used items
