@@ -20,18 +20,34 @@
 // colour, so the caller keeps the judgement and hands over the result (a theme token is the
 // usual answer: `var(--status-error)`).
 //
-// **The tip.** Where a figure's source needs saying: a hover hint over the whole tile on a desk;
-// on a phone, an ⓘ after the label (a hover would leave the source out of reach by touch).
+// **The tip.** Where a figure's source needs saying: a hover hint over the whole tile on a desk,
+// with a focusable ⓘ on the figure's line so a keyboard reaches it too; on a phone, an ⓘ after
+// the label (a hover would leave the source out of reach by touch).
 //
 // **Plain `<div>`/`<span>`, not `<dt>`/`<dd>`**: the tipped tile sits inside the hint's anchor,
 // and an element between a `<dl>` and its `<dt>` is invalid.
+//
+// 2.31.0 (the gap round):
+//   - `tipMark`: a focusable ⓘ on the figure's line on a desk, so a keyboard reaches the tip the
+//     hover shows (pokehouse-oxy Command Center's and Site Scout's `HintMark`, polish audit CC2:
+//     8px after the figure, not at the tile's far edge). Named "About <label>"; the bubble it
+//     opens describes it, as the HoverHint ⓘ form does. ON by default for every tile with a
+//     `tip` (decision 89: a source only a pointer can reach is out of reach for a keyboard);
+//     `tipMark={false}` leaves the hover alone. A tile without a tip, and the phone, unchanged.
+//   The rest opt-in:
+//   - `valueAt`: `foot` takes the figure down with its caption (Command Center's 400px rail,
+//     whose caps labels wrap differently), `top` keeps it under the label (Quadrogen's phone,
+//     whose two-to-a-row tiles are of unequal height).
+//   - the tile takes the div's own props (`title`, `aria-*`, `id`): Supplier Ordering's tiles
+//     carry a hint on the whole tile. `StatGrid` the same (Amazon P&L names its grid).
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ComponentPropsWithRef, CSSProperties, ReactNode } from "react";
 import { HoverHint, useTapHint } from "../containers";
 import { cx } from "../cx";
+import { InfoIcon } from "../icons";
 import { ui } from "../recipes";
 
-export interface StatProps {
+export interface StatProps extends Omit<ComponentPropsWithRef<"div">, "children"> {
   label: string;
   value: ReactNode;
   /** The line under the figure: "14/36 slots", "2 stores over". */
@@ -46,6 +62,12 @@ export interface StatProps {
   tip?: string;
   /** Draw the tile's box: a figure in a grid of them. Unboxed is a figure in running layout. */
   boxed?: boolean;
+  /** On a desk, a focusable ⓘ on the figure's line opens the tip, so a keyboard reaches it.
+   *  Default true wherever there is a `tip` (decision 89); `false` leaves the hover alone. */
+  tipMark?: boolean;
+  /** Where the figure sits in a tile taller than it: `foot` (with its caption) or `top` (under
+   *  the label). Default: at the foot when there is no caption, else under the label. */
+  valueAt?: "foot" | "top";
   /** Grid placement, where a tile is not one cell wide. */
   className?: string;
 }
@@ -59,18 +81,35 @@ export function Stat({
   subColor,
   tip,
   boxed = false,
-  className
+  tipMark = true,
+  valueAt,
+  className,
+  ...rest
 }: StatProps) {
   // On a phone layout the tip is an ⓘ after the label, and the tile is not wrapped: the source
   // is the load-bearing part of a tipped tile, and a hover would leave it out of reach by touch.
   const tapHint = useTapHint();
   const tapTip = tip && tapHint ? tapHint(`About ${label}`, tip) : null;
   const hovered = Boolean(tip) && tapTip === null;
+  const atFoot = valueAt === "foot" || (valueAt === undefined && sub == null);
+  const figure = (
+    <span
+      className={cx(
+        ui.figure,
+        "oxy-ui-stat__value",
+        atFoot && !(hovered && tipMark) && "oxy-ui-stat__value--end"
+      )}
+      style={valueColor ? { color: valueColor } : undefined}
+    >
+      {value}
+    </span>
+  );
   const body = (
     // Every tile in a row is as tall as the tallest (the grid stretches it), which is what lets
     // the figure's auto margin line the figures up. Under a desk hint the grid item is the
     // hint's anchor, so there the tile fills it (`--fill`); the reference's Safari 17 note.
     <div
+      {...rest}
       className={cx(
         "oxy-ui-stat",
         hovered && "oxy-ui-stat--fill",
@@ -87,12 +126,21 @@ export function Stat({
       </span>
       {/* The figure sits at the bottom of a tile with no caption, so a row whose labels wrap
           differently still lines its figures up; with a caption the caption holds the bottom. */}
-      <span
-        className={cx(ui.figure, "oxy-ui-stat__value", sub == null && "oxy-ui-stat__value--end")}
-        style={valueColor ? { color: valueColor } : undefined}
-      >
-        {value}
-      </span>
+      {hovered && tipMark ? (
+        <span className={cx("oxy-ui-stat__value-row", atFoot && "oxy-ui-stat__value--end")}>
+          {figure}
+          {/* Inside the hint's anchor, so focusing it opens the bubble, which describes it. */}
+          <button
+            type='button'
+            aria-label={`About ${label}`}
+            className={cx("oxy-ui-hover-hint__mark", ui.focusRing, "oxy-ui-stat__mark")}
+          >
+            <InfoIcon className={ui.iconInline} />
+          </button>
+        </span>
+      ) : (
+        figure
+      )}
       {sub != null && (
         <span className={ui.note} style={subColor ? { color: subColor } : undefined}>
           {sub}
@@ -103,7 +151,7 @@ export function Stat({
   return hovered && tip ? <HoverHint text={tip}>{body}</HoverHint> : body;
 }
 
-export interface StatGridProps {
+export interface StatGridProps extends Omit<ComponentPropsWithRef<"div">, "children"> {
   children: ReactNode;
   /** The narrowest a tile may get before the row wraps. Default 9rem. */
   min?: string;
@@ -116,9 +164,10 @@ export interface StatGridProps {
  * as many columns as fit at `min` each, so one grid gives six across a full page, three across a
  * side panel and two on a phone, with no breakpoints chosen per caller.
  */
-export function StatGrid({ children, min = "9rem", className, style }: StatGridProps) {
+export function StatGrid({ children, min = "9rem", className, style, ...rest }: StatGridProps) {
   return (
     <div
+      {...rest}
       className={cx("oxy-ui-stat-grid", className)}
       style={{ ...style, gridTemplateColumns: `repeat(auto-fit, minmax(${min}, 1fr))` }}
     >

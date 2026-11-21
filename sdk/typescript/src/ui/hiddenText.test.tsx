@@ -11,6 +11,7 @@
 
 import type { ReactNode } from "react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { HoverHint } from "./containers";
 import { CountBadge, StatusDot } from "./figures";
 import { AttachmentsField } from "./forms";
 import { DefaultTabs } from "./navigation";
@@ -52,6 +53,14 @@ const CASES: Record<string, () => ReactNode> = {
     />
   ),
   "oxy-ui-count-badge__label": () => <CountBadge count={3} label='3 overdue' />,
+  "oxy-ui-status-dot__word--hidden": () => (
+    <StatusDot status='success' label='Reconciled' wordHidden />
+  ),
+  "oxy-ui-hover-hint__words": () => (
+    <HoverHint text='QuickBooks refused the bill' focusable>
+      <span>failed</span>
+    </HoverHint>
+  ),
   "oxy-ui-status-dot__word": () => (
     <DefaultTabs
       group='measure'

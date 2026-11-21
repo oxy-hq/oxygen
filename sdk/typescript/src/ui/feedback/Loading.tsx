@@ -30,12 +30,17 @@ export interface LoadingProgress {
 export interface LoadingBarProps {
   /** What is being waited for: "Comparing stores…". */
   label: string;
-  progress: LoadingProgress;
+  /** Parts resolved out of parts issued. Default one read, not back yet (`{ ready: 0, total: 1 }`),
+   *  for a screen that waits on a single read (2.31.0; Warehouse's ten bars). */
+  progress?: LoadingProgress;
 }
+
+/** One read, not back yet. */
+const ONE_READ: LoadingProgress = { ready: 0, total: 1 };
 
 /** A determinate bar and the sentence that says what is being read. It never draws empty: a bar
  *  at zero reads as broken, so it starts at a visible sliver. */
-export function LoadingBar({ label, progress }: LoadingBarProps) {
+export function LoadingBar({ label, progress = ONE_READ }: LoadingBarProps) {
   const pct = progress.total > 0 ? (progress.ready / progress.total) * 100 : 0;
   const root = useRef<HTMLDivElement>(null);
   useHoldFocusDuringRetry(root);

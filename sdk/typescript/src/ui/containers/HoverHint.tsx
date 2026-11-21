@@ -10,6 +10,11 @@
 // panel around it stays), and `label` draws the ⓘ form Locations and Warehouse use: the children
 // inside a real button with that name.
 //
+// 2.31.0 (the gap round): `focusable`, from pokehouse-oxy Bookkeeping's `components/HoverHint.tsx`
+// (21 hints on words that are not a control: why a post failed, a drift figure, a warning mark),
+// and the portal host is found only while a bubble shows, so the hint renders without a DOM
+// (Inventory Management, Supply Chain and Warehouse render screens to markup in node tests).
+//
 // A hover tooltip that cannot be overflow-clipped: the bubble portals out with `position: fixed`
 // and picks its direction from the anchor's place in the window. Inside an open <dialog> it
 // portals into the dialog, which paints in the top layer: a bubble on <body> would sit behind it.
@@ -129,6 +134,15 @@ export interface HoverHintProps {
   side?: boolean;
   /** The ⓘ form: `children` (an icon) inside a real button with this name. */
   label?: string;
+  /**
+   * The words say something the screen does not otherwise say (why a post failed, what a mark
+   * warns of), so the keyboard has to reach them: the anchor becomes a Tab stop that opens the
+   * bubble on focus, and the words ride in its accessible text. Leave it off where the child is
+   * already focusable, or the hint only restates what is visible: a Tab stop on every row's hint
+   * would bury the row's own controls. The words are `text`'s; a `content` layout describes the
+   * anchor instead.
+   */
+  focusable?: boolean;
   children: ReactNode;
 }
 
@@ -142,6 +156,7 @@ export function HoverHint({
   panel,
   side,
   label,
+  focusable = false,
   children
 }: HoverHintProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -188,6 +203,8 @@ export function HoverHint({
   }, [tapped]);
 
   const words = content ?? text;
+  // A focusable anchor says a sentence hint in its own text; a layout (`content`) describes it.
+  const carriesWords = focusable && label === undefined && content == null && Boolean(text);
   // Nothing to say, nothing to wrap: an anchor with no bubble is a `cursor: help` that lies.
   if (words === undefined || words === null || words === "") return <>{children}</>;
 
@@ -253,7 +270,9 @@ export function HoverHint({
       // An engine without :focus-visible: any focus shows it.
     }
     if (!keyboard) return;
-    describe(described, el, bubbleId);
+    // A focusable anchor carries the words itself: described by the bubble too, they would be
+    // read twice.
+    if (!(carriesWords && el === anchorRef.current)) describe(described, el, bubbleId);
     show();
   };
 
@@ -282,7 +301,9 @@ export function HoverHint({
   };
 
   const onControl = (className ?? "").split(/\s+/).includes("on-control");
-  const host = anchorRef.current?.closest("dialog") ?? document.body;
+  // Found only while a bubble shows (after a hover, a focus or a tap), so rendering the hint
+  // never reads the document: a screen renders to markup on a server, or in a test without one.
+  const host = () => anchorRef.current?.closest("dialog") ?? document.body;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a wrapper that listens to its children (hover, focus, a tap); it is no control itself.
@@ -291,8 +312,10 @@ export function HoverHint({
       className={cx(
         "oxy-ui-hover-hint",
         (onControl || label !== undefined) && "oxy-ui-hover-hint--on-control",
+        focusable && cx("oxy-ui-hover-hint--focusable", "oxy-ui-focus"),
         className
       )}
+      tabIndex={focusable && label === undefined ? 0 : undefined}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDown}
@@ -302,7 +325,10 @@ export function HoverHint({
       onClick={label === undefined ? onClick : undefined}
     >
       {label === undefined ? (
-        children
+        <>
+          {children}
+          {carriesWords && <span className='oxy-ui-hover-hint__words'>{` ${text}`}</span>}
+        </>
       ) : (
         <button type='button' aria-label={label} className='oxy-ui-hover-hint__mark oxy-ui-focus'>
           {children}
@@ -333,7 +359,7 @@ export function HoverHint({
           >
             {words}
           </div>,
-          host
+          host()
         )}
     </span>
   );

@@ -8,7 +8,8 @@
 // it, the safe-area padding. New: the look is the reference's panel (card fill, subtle edge) plus
 // the overlay shadow, in containers.css; `width` is a CSS length, not a Tailwind class; Tab wraps
 // inside (focus/modalFocus.ts); an Escape a layer inside it has taken (a confirm, a hint) is left
-// to that layer; and on a phone it is full screen with no scrim.
+// to that layer; and on a phone it is full screen with no scrim. 2.31.0: `id` on the dialog, for
+// the `aria-controls` of the rows that open it (pokehouse-oxy Bookkeeping's copy took one).
 //
 // A right-hand detail panel that slides in and out (decision 41: "panel" is a sheet from the
 // right, "modal" a dialog in the centre).
@@ -63,6 +64,8 @@ function closeDialog(d: HTMLDialogElement | null): void {
 
 export interface SidePanelProps {
   open: boolean;
+  /** On the dialog, for the `aria-controls` of the rows that open it. */
+  id?: string;
   /** The panel's accessible name. */
   label: string;
   /** The panel's widest, a CSS length (`"560px"`, `"34rem"`); never wider than the window. Panels
@@ -78,6 +81,7 @@ export interface SidePanelProps {
 
 export function SidePanel({
   open,
+  id,
   label,
   width,
   className,
@@ -127,8 +131,9 @@ export function SidePanel({
       // jsdom (the tests) has no showModal; a browser always does.
       if (typeof d.showModal === "function") d.showModal();
       else d.setAttribute("open", "");
-      // showModal() focuses the first control inside; a panel whose content is still loading has
-      // none yet, and focus would be left on nothing.
+      // showModal() runs the dialog's focusing steps: the panel itself (`tabIndex=-1`, the first
+      // focusable area inside) takes focus, and Tab reaches the first control next. Where it did
+      // not (jsdom, an engine with no showModal), focus is moved to the panel here.
       if (!d.contains(document.activeElement)) focus.enter(panel.current);
     }
     if (!shown) {
@@ -145,6 +150,7 @@ export function SidePanel({
   return (
     <dialog
       ref={dialog}
+      id={id}
       aria-label={label}
       data-testid='side-panel'
       className={cx(

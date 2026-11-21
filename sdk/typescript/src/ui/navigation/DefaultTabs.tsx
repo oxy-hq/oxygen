@@ -26,8 +26,21 @@
 // warning (the tone rule, decision 31): success and info are not news a count needs to shout, so
 // they draw neutral, as `strongestTone` already reads them. Tabs hold only tabs
 // (decision 48): a page action or its freshness stamp sits outside the strip.
+//
+// 2.31.0 (the gap round), each opt-in:
+//   - `disabled` on an option: Site Scout's market strip, inert while a scoring run is in flight.
+//     Skipped by the arrows, takes no click, drawn at half strength, and `aria-disabled` rather
+//     than `disabled`, so a tab that has focus keeps it (CONVENTIONS section 3).
+//   - `stretch`, `hint` and a node `label` (+ `text` for the select): Bookkeeping's copy
+//     (`components/ui/DefaultTabs.tsx`): segments sharing the row's width (the store detail's and
+//     the payroll entry's strips), a hover hint on a tab that its focus opens too (Sales Tax's
+//     Month / Quarter / Return).
+//   - A count prints with en-US grouping ("12,345"), in the strip and in the select: BMG's Ads
+//     Bidding and Supplier Ordering printed it so, and the bare digits were hard to read.
 
 import { type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect } from "react";
+import { formatNumber } from "../../format";
+import { HoverHint } from "../containers/HoverHint";
 import { cx } from "../cx";
 import { ui } from "../recipes";
 import { chipTone, type StatusTone } from "../tone";
@@ -35,8 +48,15 @@ import { optionText, useStripFits } from "./stripFit";
 
 export interface TabOption<T extends string> {
   value: T;
-  /** Words: the select that replaces a strip too wide for its room shows them. */
-  label: string;
+  /** The tab's words. A node (a label with its own markup) gives `text` for the select. */
+  label: ReactNode;
+  /** The words the select that replaces a strip too wide for its room shows, where `label` is not
+   *  a string. Default: `label` when it is one, else the value. */
+  text?: string;
+  /** Inert for now (a run in flight): skipped by the arrow keys, takes no click. */
+  disabled?: boolean;
+  /** A hover hint on the tab, shown on keyboard focus too. */
+  hint?: string;
   /** The slot in front of the label. Decorative and `aria-hidden` unless it is the tab's state
    *  the label does not say; the call site decides. */
   icon?: ReactNode;
@@ -77,7 +97,31 @@ export interface DefaultTabsProps<T extends string> {
    * stays a strip, scrolls sideways under an end fade, and keeps the selected tab in view.
    */
   overflow?: "select" | "scroll";
+  /** The segments share the row's full width, each an equal part. */
+  stretch?: boolean;
   className?: string;
+}
+
+/** An option's words as plain text: the select's, and the strip's fit key. */
+function textOf<T extends string>(o: TabOption<T>): string {
+  return o.text ?? (typeof o.label === "string" ? o.label : String(o.value));
+}
+
+/** The next enabled option from `index` by `move`, or `index` itself when none is. */
+function nextEnabled<T extends string>(
+  options: readonly TabOption<T>[],
+  index: number,
+  key: string
+): number {
+  const enabled = options.map((o, i) => (o.disabled ? -1 : i)).filter((i) => i >= 0);
+  if (enabled.length === 0) return index;
+  const last = enabled.length - 1;
+  if (key === "Home") return enabled[0];
+  if (key === "End") return enabled[last];
+  const after = enabled.findIndex((i) => i > index);
+  const before = [...enabled].reverse().find((i) => i < index);
+  if (key === "ArrowRight") return after >= 0 ? enabled[after] : enabled[0];
+  return before ?? enabled[last];
 }
 
 /** A value as an id fragment: an id holds no whitespace, and `aria-labelledby` splits on it. */
@@ -124,12 +168,7 @@ function useSelectedInView(strip: RefObject<HTMLElement | null>, index: number, 
   }, [strip, index, on]);
 }
 
-const KEYS: Record<string, (index: number, last: number) => number> = {
-  ArrowRight: (i, last) => (i === last ? 0 : i + 1),
-  ArrowLeft: (i, last) => (i === 0 ? last : i - 1),
-  Home: () => 0,
-  End: (_i, last) => last
-};
+const KEYS = new Set(["ArrowRight", "ArrowLeft", "Home", "End"]);
 
 export function DefaultTabs<T extends string>({
   group,
@@ -143,28 +182,35 @@ export function DefaultTabs<T extends string>({
   activation = "auto",
   size = "compact",
   overflow = "select",
+  stretch = false,
   className
 }: DefaultTabsProps<T>) {
   const scrolls = overflow === "scroll";
   const { strip, select, fits } = useStripFits<HTMLDivElement>(
-    options.map((o) => `${o.value}:${o.label}:${o.count ?? ""}`).join("|"),
+    options.map((o) => `${o.value}:${textOf(o)}:${o.count ?? ""}`).join("|"),
     !scrolls
   );
   const touch = size === "touch";
-  // A value matching no option leaves the first tab the Tab stop, so the strip is never
-  // unreachable from the keyboard.
-  const selectedIndex = Math.max(
-    options.findIndex((o) => o.value === value),
-    0
-  );
+  // A value matching no option leaves the first tab the Tab stop (the first enabled one), so the
+  // strip is never unreachable from the keyboard. A selected tab that is disabled keeps the stop:
+  // it still says which slice is shown.
+  const found = options.findIndex((o) => o.value === value);
+  const selectedIndex =
+    found >= 0
+      ? found
+      : Math.max(
+          options.findIndex((o) => !o.disabled),
+          0
+        );
   useSelectedInView(strip, selectedIndex, scrolls);
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const move = KEYS[e.key];
-    if (!move) return;
+    if (!KEYS.has(e.key)) return;
     e.preventDefault();
-    const next = move(index, options.length - 1);
-    if (activation === "auto") onChange(options[next].value);
+    // A disabled tab is passed over, as if it were not in the strip.
+    const next = nextEnabled(options, index, e.key);
+    if (next === index && options[index].disabled) return;
+    if (activation === "auto" && next !== index) onChange(options[next].value);
     // Found within THIS strip, not by id across the document: a group name is only unique per
     // strip, and one page may draw a group twice.
     strip.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
@@ -182,8 +228,8 @@ export function DefaultTabs<T extends string>({
       className={cx(touch ? ui.selectTouch : ui.select, "oxy-ui-default-tabs__select", className)}
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {optionText(o.label, o.trailing === undefined ? o.count : undefined)}
+        <option key={o.value} value={o.value} disabled={o.disabled}>
+          {optionText(textOf(o), o.trailing === undefined ? o.count : undefined)}
         </option>
       ))}
     </select>
@@ -197,12 +243,13 @@ export function DefaultTabs<T extends string>({
         "oxy-ui-default-tabs",
         touch && "oxy-ui-default-tabs--touch",
         scrolls && "oxy-ui-default-tabs--scroll",
+        stretch && "oxy-ui-default-tabs--stretch",
         className
       )}
     >
       {options.map((option, index) => {
         const on = option.value === value;
-        return (
+        const tab = (
           <button
             key={option.value}
             id={tabId(group, option.value)}
@@ -210,9 +257,12 @@ export function DefaultTabs<T extends string>({
             role='tab'
             aria-selected={on}
             aria-controls={hasPanel ? panelId(group) : undefined}
+            aria-disabled={option.disabled || undefined}
             tabIndex={index === selectedIndex ? 0 : -1}
             title={option.title}
-            onClick={() => onChange(option.value)}
+            onClick={() => {
+              if (!option.disabled) onChange(option.value);
+            }}
             onKeyDown={(e) => onKeyDown(e, index)}
             className={cx(
               ui.segment,
@@ -225,6 +275,17 @@ export function DefaultTabs<T extends string>({
             {option.label}
             {option.trailing ?? <TabCount option={option} on={on} />}
           </button>
+        );
+        if (!option.hint) return tab;
+        // The hint wraps the tab: the strip's keys and its fit find tabs by role, not by place.
+        return (
+          <HoverHint
+            key={option.value}
+            text={option.hint}
+            className='on-control oxy-ui-default-tabs__hint'
+          >
+            {tab}
+          </HoverHint>
         );
       })}
     </div>
@@ -251,7 +312,9 @@ function TabCount<T extends string>({ option, on }: { option: TabOption<T>; on: 
         ? ui.tabCountNeutralOn
         : ui.tabCountNeutral;
   return (
-    <span className={cx(ui.tabCount, "oxy-ui-default-tabs__count", tone)}>{option.count}</span>
+    <span className={cx(ui.tabCount, "oxy-ui-default-tabs__count", tone)}>
+      {formatNumber(option.count)}
+    </span>
   );
 }
 

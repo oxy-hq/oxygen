@@ -2,9 +2,9 @@
 // src/ui/index.ts re-exports this file whole.
 export { axisTickLabels, labelledIndices } from "./axis";
 export type { PointShape } from "./marks";
-export type { SparklineProps } from "./Sparkline";
+export type { SparklineProps, SparkReadout } from "./Sparkline";
 export { Sparkline } from "./Sparkline";
-export type { SeriesShape, TrendPoint } from "./series";
-export { seriesColour } from "./series";
+export type { SeriesShape, SparkPoint, TrendPoint } from "./series";
+export { seriesColour, sparkPoints } from "./series";
 export type { TrendChartProps } from "./TrendChart";
 export { TrendChart } from "./TrendChart";

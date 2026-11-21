@@ -66,6 +66,12 @@ export const contrastCases: UiContrastCase[] = [
       on,
       "--status-error-bg"
     ),
+    text(
+      `MetricCell quiet: figure on the warning tint at weight 400, ${where}`,
+      "--status-warning",
+      on,
+      "--status-warning-bg"
+    ),
     text(`MetricCell notable: figure, ${where}`, "--foreground", on),
     text(`MetricCell provisional: figure and asterisk, ${where}`, "--subtle-foreground", on),
     text(`MetricCell: comparison, label and as-of, ${where}`, "--subtle-foreground", on)

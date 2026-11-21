@@ -75,5 +75,38 @@ export const contrastCases: UiContrastCase[] = [
     on: ["--card"],
     min: 3,
     kind: "non-text"
+  },
+  // ── Sparkline `readout` (2.31.0): its tooltip on the hint bubble's muted surface, the crosshair
+  text(
+    "Sparkline readout: the value, on its bubble over a card",
+    "--foreground",
+    ["--card"],
+    "--muted"
+  ),
+  text(
+    "Sparkline readout: the period, on its bubble over a card",
+    "--muted-foreground",
+    ["--card"],
+    "--muted"
+  ),
+  text(
+    "Sparkline readout: the value, on its bubble in a selected row",
+    "--foreground",
+    ["--row-selected", "--card"],
+    "--muted"
+  ),
+  {
+    name: "Sparkline readout: the crosshair, on a card",
+    fg: "--border-strong",
+    on: ["--card"],
+    min: 3,
+    kind: "non-text"
+  },
+  {
+    name: "Sparkline readout: the focus ring round the line, on a card",
+    fg: "--focus-ring-color",
+    on: ["--card"],
+    min: 3,
+    kind: "focus"
   }
 ];

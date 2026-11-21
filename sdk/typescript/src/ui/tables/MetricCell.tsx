@@ -5,14 +5,18 @@
 // state. New: what the reference worked out from its own roll-up (`cellText(cell, metric,
 // periodId, thresholds)`, `lib/storeRollup.ts`, `lib/severity.ts`) comes in as props, so no
 // measure, store or threshold of any app lives here: the figures arrive formatted, and the step is
-// given or judged from `value` against `thresholds`.
+// given or judged from `value` against `thresholds`. 2.31.0: the `quiet` step.
 //
-// One record's one measure, in a table cell. Five looks, ordered by how much attention each asks:
+// One record's one measure, in a table cell. Six looks, ordered by how much attention each asks:
 //
-//   tint + status ink   `warning` / `error`: flagged. The only background in the table, so the
-//                       only thing that interrupts a scan.
-//   semibold, full ink  `notable`: worth a glance. Weight, not fill (decision 7's quieter tier).
-//   regular, dim ink    `clear`: checked and fine, the quiet default most figures wear.
+//   tint + status ink   `warning` / `error`: flagged, semibold. The only background in the
+//                       table, so the only thing that interrupts a scan.
+//   tint, regular       `quiet`: the quieter warning step, the warning tint and ink at weight 400
+//                       (decision 93, decision 7 reread): an app with two warning tiers draws the
+//                       lower one so (Watchlist: notable -> `quiet`, elevated -> `warning`, severe
+//                       -> `error`). Weight is its only difference from `warning`.
+//   semibold, full ink  `notable`: worth a glance. Weight, not fill.
+//   regular, dim ink    `clear`: checked and fine, the plain default most figures wear.
 //   subtle + asterisk   `provisional`: shown but not judged (too few to compare against).
 //   subtle words        `label` alone: nothing to judge.
 //
@@ -29,7 +33,7 @@ import { cx } from "../cx";
 import { ui } from "../recipes";
 
 /** How loudly a figure is marked. */
-export type MetricStep = "clear" | "notable" | "warning" | "error";
+export type MetricStep = "clear" | "notable" | "quiet" | "warning" | "error";
 
 /**
  * Where a figure's steps begin, on the app's own scale (a percentage, a multiple of a bar, a
@@ -38,6 +42,8 @@ export type MetricStep = "clear" | "notable" | "warning" | "error";
 export interface MetricThresholds {
   /** Worth a glance: semibold, no fill. Omit for a measure with two flagged steps. */
   notable?: number;
+  /** The quieter warning step: the warning tint at weight 400. Omit for one warning step. */
+  quiet?: number;
   warning: number;
   /** Omit when nothing on this measure is ever an error. */
   error?: number;
@@ -51,11 +57,12 @@ export function metricStep(
   thresholds: MetricThresholds
 ): MetricStep | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  const { notable, warning, error, direction = "above" } = thresholds;
+  const { notable, quiet, warning, error, direction = "above" } = thresholds;
   const reached = (bar: number | undefined) =>
     bar !== undefined && (direction === "above" ? value >= bar : value <= bar);
   if (reached(error)) return "error";
   if (reached(warning)) return "warning";
+  if (reached(quiet)) return "quiet";
   if (reached(notable)) return "notable";
   return "clear";
 }
@@ -87,7 +94,7 @@ export interface MetricCellProps {
   className?: string;
 }
 
-const FLAGGED: ReadonlySet<MetricStep> = new Set(["notable", "warning", "error"]);
+const FLAGGED: ReadonlySet<MetricStep> = new Set(["notable", "quiet", "warning", "error"]);
 
 export function MetricCell({
   observed,
@@ -110,7 +117,8 @@ export function MetricCell({
   const figure = has(observed);
   const compare =
     has(comparison) && (showComparison ?? ((step !== null && FLAGGED.has(step)) || provisional));
-  const tone = step === "warning" || step === "error" ? step : null;
+  // The quiet step wears the warning tone: the same tint and ink, at weight 400.
+  const tone = step === "quiet" ? "warning" : step === "warning" || step === "error" ? step : null;
   const body = (
     <span
       className={cx("oxy-ui-metric-cell", className)}
@@ -126,6 +134,7 @@ export function MetricCell({
               tone && ui.chipTone[tone],
               tone && "oxy-ui-metric-cell__figure--tinted",
               step === "notable" && "oxy-ui-metric-cell__figure--notable",
+              step === "quiet" && "oxy-ui-metric-cell__figure--quiet",
               provisional && "oxy-ui-metric-cell__figure--provisional"
             )}
           >

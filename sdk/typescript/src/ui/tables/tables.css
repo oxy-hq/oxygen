@@ -124,6 +124,12 @@
   font-weight: 600;
 }
 
+/* `quiet`: the warning tint and ink at weight 400, the quieter of two warning
+   steps (decision 93). After `--tinted`, so the weight is this one's. */
+.oxy-ui-metric-cell__figure--quiet {
+  font-weight: 400;
+}
+
 .oxy-ui-metric-cell__figure--notable {
   font-weight: 600;
   color: var(--foreground);

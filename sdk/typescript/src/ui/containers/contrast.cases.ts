@@ -132,5 +132,41 @@ export const contrastCases: UiContrastCase[] = [
     on: ["--card", "--scrim", "--background"],
     min: 4.5,
     kind: "text"
+  },
+  // ── Panel, 2.31.0 ─────────────────────────────────────────────────────────────────────────
+  {
+    name: "Panel fold: the title in the eyebrow ink, on a card",
+    fg: "--subtle-foreground",
+    on: ["--card"],
+    min: 4.5,
+    kind: "text"
+  },
+  {
+    name: "Panel fold: the title on hover, on a card",
+    fg: "--foreground",
+    on: ["--card"],
+    min: 4.5,
+    kind: "text"
+  },
+  {
+    name: "Panel fold: its caret (the fold's state), on a card",
+    fg: "--subtle-foreground",
+    on: ["--card"],
+    min: 3,
+    kind: "non-text"
+  },
+  {
+    name: "Panel compact: the body in the secondary ink, on a card",
+    fg: "--dim-foreground",
+    on: ["--card"],
+    min: 4.5,
+    kind: "text"
+  },
+  {
+    name: "HoverHint focusable: its words in the page's ink, on a card",
+    fg: "--foreground",
+    on: ["--card"],
+    min: 4.5,
+    kind: "text"
   }
 ];

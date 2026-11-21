@@ -81,6 +81,16 @@ describe("SidePanel", () => {
     expect(panel?.style.getPropertyValue("--oxy-ui-side-panel-width")).toBe("34rem");
   });
 
+  it("puts the caller's id on the dialog, for the aria-controls of the rows that open it", async () => {
+    await render(
+      <SidePanel open id='store-detail' label='Store' onClose={() => {}}>
+        <button type='button'>Close</button>
+      </SidePanel>
+    );
+    expect(dialog()?.id).toBe("store-detail");
+    expect(document.getElementById("store-detail")).toBe(dialog());
+  });
+
   it("keeps Tab inside: the last control wraps to the first and back", async () => {
     await render(<Page />);
     await click(named("Open Downtown"));

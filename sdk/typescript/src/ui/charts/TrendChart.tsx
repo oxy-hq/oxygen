@@ -7,9 +7,13 @@
 // under the chart), and the reference's hover toast over the point, portalled into an open
 // <dialog> or the body. The geometry is the reference's, not Watchlist's (reference-app@81ee8aa
 // `src/components/TrendChart.tsx:24-48`; SDK-GAPS entry 7): 560 x 178, the y labels 10 off their
-// gridlines, and the month labels in a band of their own under the plot; its labels are the type
-// scale's xs step in viewBox units, so they scale with the chart as the reference's do (Watchlist
-// held them at 12px on the glass; no numbered decision asks for that).
+// gridlines, and the month labels in a band of their own under the plot. Its labels are NOT the
+// reference's: they hold the type scale's xs step (12px) on the glass at every width, as
+// Watchlist's did (decision 92: one type scale, and a label scaled to 14.9px on a 694px desk is
+// no step on it). The chart measures the width it is drawn at (`--oxy-ui-trend-chart-units-per-px`
+// turns the step into viewBox units) and thins the month labels by that width. Narrower than the
+// reference's 560, a desk chart draws 1:1 as `fluid` does, since a 12px label no longer fits the
+// reference's room scaled down; at 560 and wider its geometry is the reference's.
 // New: the status is a `tone` (`seriesColour`); the readout's arithmetic (Watchlist's "$X more
 // that month") arrives as `delta`, its words as `storeLabel` / `lineLabel` / `peerLabel` /
 // `caption`, its numbers through `format`; the marks are props (`shape`, `point`; decision 38b);
@@ -22,6 +26,7 @@
 // a second axis would let the subject's line sit above the comparison while its value is below.
 
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -59,6 +64,8 @@ const X_LABEL_DROP = 18;
 const LABEL_MIN_GAP = 14;
 /** Before the first measurement in a phone sheet. */
 const FLUID_FALLBACK_W = 320;
+/** The narrowest drawing, in units, however narrow the box. */
+const MIN_W = 240;
 const FLUID_PAD_R = 80;
 
 export interface TrendChartProps<P extends TrendPoint = TrendPoint> {
@@ -95,13 +102,14 @@ export interface TrendChartProps<P extends TrendPoint = TrendPoint> {
   className?: string;
 }
 
-/** The element's content width, kept current; null until measured or when off. */
-function useMeasuredWidth(ref: RefObject<HTMLElement | null>, on: boolean): number | null {
+/** The width the element is drawn at, in CSS px, kept current; null until measured, when off, and
+ *  wherever there is no layout (a server render, jsdom), where the chart takes its viewBox's own. */
+function useDrawnWidth(ref: RefObject<Element | null>, on: boolean): number | null {
   const [width, setWidth] = useState<number | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!on || !el) return;
-    const read = () => setWidth(Math.round(el.getBoundingClientRect().width) || null);
+    const read = () => setWidth(el.getBoundingClientRect().width || null);
     read();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(read);
@@ -110,6 +118,9 @@ function useMeasuredWidth(ref: RefObject<HTMLElement | null>, on: boolean): numb
   }, [ref, on]);
   return width;
 }
+
+/** The labels' font size reads this (charts.css): the xs step times units per px. */
+const UNITS_PER_PX = "--oxy-ui-trend-chart-units-per-px";
 
 const STEP_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End", "Escape"]);
 
@@ -135,11 +146,16 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
   const titleId = useId();
   const areaId = `oxy-trend-${useId()}`;
   const [active, setActive] = useState<number | null>(null);
-  const figureRef = useRef<HTMLElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const enough = points.length >= 2;
-  const measured = useMeasuredWidth(figureRef, enough && fluid);
-  const W = fluid ? Math.max(measured ?? FLUID_FALLBACK_W, 240) : FIXED_W;
+  const drawn = useDrawnWidth(svgRef, enough);
+  // Phone: the drawn width, 1:1. Desk: the reference's 560 scaled to the width, or 1:1 below it.
+  const W = Math.max(
+    Math.round(fluid ? (drawn ?? FLUID_FALLBACK_W) : Math.min(FIXED_W, drawn ?? FIXED_W)),
+    MIN_W
+  );
+  // SVG units per CSS px: what holds a label at its px size on the glass. 1 unmeasured.
+  const unitsPerPx = drawn ? W / drawn : 1;
   const padR = fluid ? FLUID_PAD_R : FIXED_PAD_R;
   const plotW = W - PAD_L - padR;
   const plotH = H - PAD_Y - PAD_B;
@@ -163,7 +179,8 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
   const yAt = (v: number) => PAD_Y + g.y(v);
   const ticks = [g.min, (g.min + g.max) / 2, g.max];
   const periods = points.map((p) => p.period);
-  const shown = labelledIndices(periods, plotW);
+  // Thinned by the drawn width (Watchlist's): labels sit as close as their 12px widths allow.
+  const shown = labelledIndices(periods, plotW, unitsPerPx);
   const tickText = axisTickLabels(periods, shown, formatPeriod);
   const last = points[n - 1];
   const on = active === null ? null : points[active];
@@ -202,7 +219,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
   const bar = (plotW / n) * 0.6;
 
   return (
-    <figure ref={figureRef} className={cx("oxy-ui-trend-chart", className)}>
+    <figure className={cx("oxy-ui-trend-chart", className)}>
       <figcaption id={titleId} className={ui.eyebrow}>
         {caption ??
           `${unit === "stars" ? "Average rating" : `Share of ${shareOf}`}, month by month`}
@@ -230,6 +247,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
           viewBox={`0 0 ${W} ${H}`}
           aria-hidden='true'
           className='oxy-ui-trend-chart__svg'
+          style={{ [UNITS_PER_PX]: String(Number(unitsPerPx.toFixed(4))) } as CSSProperties}
         >
           {ticks.map((t, i) => (
             <g key={i}>

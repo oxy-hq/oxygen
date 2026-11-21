@@ -24,6 +24,7 @@ export {
   CircleNotchIcon,
   Glyph,
   type IconProps,
+  InfoIcon,
   PlusIcon,
   XIcon
 } from "./icons";

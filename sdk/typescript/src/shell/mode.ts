@@ -125,6 +125,37 @@ export function useOxyModePin(mode: OxyMode | null | undefined): void {
   }, [mode]);
 }
 
+// ── The mode in force ──────────────────────────────────────────────────────────────────────────
+// 2.31.0: what Site Scout's and Supply Chain's maps and Command Center's tiles read for the part a
+// stylesheet cannot restyle (raster tiles chosen by URL, a canvas). Read from <html> as the
+// stylesheets see it, so the person's choice, a pin, the device under "system" and an app's own
+// `.dark` all land the same way. It only reads: the shell applies the mode (decision 19).
+
+/** The mode the page shows right now: dark when <html> carries `.dark` or `data-oxy-mode="dark"`,
+ *  light otherwise (and with no document, as in a Function). */
+export function readOxyMode(): OxyMode {
+  if (typeof document === "undefined") return "light";
+  const html = document.documentElement;
+  return html.classList.contains("dark") || html.getAttribute("data-oxy-mode") === "dark"
+    ? "dark"
+    : "light";
+}
+
+function subscribeMode(listener: () => void): () => void {
+  if (typeof document === "undefined" || typeof MutationObserver === "undefined") return () => {};
+  const observer = new MutationObserver(listener);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class", "data-oxy-mode"]
+  });
+  return () => observer.disconnect();
+}
+
+/** The mode in force, kept current as it changes (here or anywhere in Oxygen). */
+export function useOxyMode(): OxyMode {
+  return useSyncExternalStore(subscribeMode, readOxyMode, () => "light");
+}
+
 // ── The person's mode ───────────────────────────────────────────────────────────────────────────
 
 /** What `useShellMode` gives `OxyShell`. */

@@ -17,18 +17,44 @@
 // **The return.** Focus goes back to the control that opened the modal when it closes or is
 // unmounted, if focus is still inside it or has fallen to <body>. A caller that moved focus
 // somewhere on purpose (a refusal line, the next row) keeps it there.
+//
+// 2.31.0 (the gap round):
+//   - A closed `<details>` hides everything in it but its own summary, so none of it is a Tab
+//     stop: Platform Pulse's area panel ended on a link in a folded "How it is answered", Tab from
+//     the real last control left the dialog, and the trap never wrapped (measured, Tab 21 of 40
+//     on <body>).
+//   - `useModalFocus(ref, open, { auto: true })` for a dialog an app draws itself (BMG Inventory
+//     Management's seven `.review-backdrop` sheets): it remembers the opener, moves focus in,
+//     traps Tab and gives focus back, with no calls of its own. A dialog that mounts open and
+//     focuses a field itself (`autoFocus`) has moved focus in before any effect runs, so the
+//     opener is the last thing focused outside it, which this module now keeps.
 
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 
 /** What can take focus by Tab inside a modal. */
 export const MODAL_FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
-/** The Tab stops inside `root`, in document order: none inside a hidden or inert part, and none
- *  inside a nested dialog that is not open. */
+/** Whether a closed `<details>` hides `el`: everything in one is hidden but its own summary (and
+ *  what is in that summary), and that details must itself be shown. */
+function inClosedDetails(el: HTMLElement): boolean {
+  for (let node: Element = el; ; ) {
+    const details = node.parentElement?.closest("details");
+    if (!details) return false;
+    if (!details.open) {
+      const summary = details.querySelector(":scope > summary");
+      if (!summary?.contains(el)) return true;
+    }
+    node = details;
+  }
+}
+
+/** The Tab stops inside `root`, in document order: none inside a hidden or inert part, none
+ *  inside a nested dialog that is not open, and none a closed `<details>` hides. */
 export function focusableIn(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE)].filter((el) => {
     if (el.closest("[hidden], [inert]")) return false;
+    if (inClosedDetails(el)) return false;
     const dialog = el.closest("dialog");
     return !dialog || dialog === root || dialog.hasAttribute("open");
   });
@@ -59,14 +85,38 @@ export function trapTab(event: KeyboardEvent, root: HTMLElement | null): void {
 // The last element a pointer pressed. A row opened by a click on its cells (not on its button)
 // leaves focus on <body>; the row's own control is where focus goes back to.
 let pressed: Element | null = null;
+let pressedAt = 0;
+// The last few elements focused, newest last: a dialog that mounts and focuses a field of its own
+// has taken focus before it can ask what had it.
+const focused: { el: HTMLElement; at: number }[] = [];
+let tick = 0;
 if (typeof document !== "undefined") {
   document.addEventListener(
     "pointerdown",
     (e) => {
       pressed = e.target instanceof Element ? e.target : null;
+      pressedAt = ++tick;
     },
     true
   );
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      focused.push({ el: e.target, at: ++tick });
+      if (focused.length > 8) focused.shift();
+    },
+    true
+  );
+}
+
+/** The last element focused outside `root`, and when, if it is still on the page. */
+function focusedBefore(root: HTMLElement): { el: HTMLElement; at: number } | null {
+  for (let i = focused.length - 1; i >= 0; i--) {
+    const f = focused[i];
+    if (f.el.isConnected && !root.contains(f.el) && f.el !== document.body) return f;
+  }
+  return null;
 }
 
 /** The control a pointer press opened the modal from: the pressed link or button, else the
@@ -109,7 +159,8 @@ export function isTopModal(el: HTMLElement | null): boolean {
 }
 
 export interface ModalFocus {
-  /** Call as the modal opens, before `showModal()` moves focus: remembers what opened it. */
+  /** Call as the modal opens: remembers what opened it. Focus already inside the modal (a field
+   *  it focused itself) is passed over for what had focus before it, or the press that opened it. */
   remember(): void;
   /** Moves focus in: to the first of `targets` that takes it. False when none did. */
   enter(...targets: (HTMLElement | null | undefined)[]): boolean;
@@ -120,19 +171,44 @@ export interface ModalFocus {
   restore(close?: () => void): void;
 }
 
+export interface ModalFocusOptions {
+  /**
+   * For a dialog drawn by hand (not a SidePanel, Modal or ConfirmDialog): the hook does the whole
+   * job. As `isOpen` turns true (or the dialog mounts open) it remembers the opener and, if
+   * nothing inside has focus, moves focus to the first control (or the dialog itself); while open
+   * Tab stays inside; as `isOpen` turns false, or the dialog unmounts, focus goes back.
+   */
+  auto?: boolean;
+}
+
 /**
  * Focus for a modal whose element is `root`: while `open`, Tab stays inside it (when it is the
  * top-most); `remember` / `enter` / `restore` move focus in and give it back; and an unmount
- * while open gives it back too (a dialog removed from the document hands focus to no one).
+ * while open gives it back too (a dialog removed from the document hands focus to no one). With
+ * `{ auto: true }` it calls them itself (`ModalFocusOptions`).
  */
-export function useModalFocus(root: RefObject<HTMLElement | null>, isOpen: boolean): ModalFocus {
+export function useModalFocus(
+  root: RefObject<HTMLElement | null>,
+  isOpen: boolean,
+  options: ModalFocusOptions = {}
+): ModalFocus {
   const opener = useRef<HTMLElement | null>(null);
   const api = useRef<ModalFocus>(null as unknown as ModalFocus);
   if (!api.current) {
     api.current = {
       remember() {
         const active = document.activeElement;
-        if (root.current && active instanceof Node && root.current.contains(active)) return;
+        const box = root.current;
+        if (box && active instanceof Node && box.contains(active)) {
+          // Focus is already inside: the dialog took it on mount. The opener is what had it just
+          // before, unless a press came after that (Safari focuses no button on a click).
+          const before = focusedBefore(box);
+          opener.current =
+            before && before.at > pressedAt
+              ? openerFor(before.el)
+              : (openerFor(null) ?? before?.el ?? null);
+          return;
+        }
         opener.current = openerFor(active);
       },
       enter(...targets) {
@@ -178,6 +254,18 @@ export function useModalFocus(root: RefObject<HTMLElement | null>, isOpen: boole
     const focus = api.current;
     return () => focus.restore();
   }, []);
+
+  // `auto`: in a layout effect, before the browser paints the open dialog; its cleanup runs as
+  // the dialog closes or unmounts, while focus is still inside it.
+  const auto = options.auto === true;
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!auto || !isOpen || !el) return;
+    const focus = api.current;
+    focus.remember();
+    if (!el.contains(document.activeElement)) focus.enter(focusableIn(el)[0], el);
+    return () => focus.restore();
+  }, [auto, isOpen, root]);
 
   return api.current;
 }

@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-11-20
+
+### Added
+
+- **The desk UI gaps the apps met moving onto 2.30.0**, so their local copies can go. Each is
+  opt-in unless Changed below says otherwise: a piece that passes none of it is drawn as before.
+  - `Panel`: `header`, an optional `title`, `headingLevel`, `as` (`section` / `aside`) with
+    `label`, a fold (`foldable`, `defaultOpen`, `open`, `onOpenChange`, `right` as a function of
+    the fold), `density="compact"` and `bodyClassName`.
+  - `Sparkline`: `width` / `height`, `fluid`, one series (`peerPct` optional, `SparkPoint`,
+    `sparkPoints`), `area`, `color`, `x` (points placed by a key), and `readout` (a Tab stop whose
+    readings, by the arrow keys, Home / End or the pointer, show in a tooltip).
+  - `StatusDot` `wordHidden`: the dot alone where the words beside it say the state; the word
+    stays for assistive tech and as the hover title.
+  - `DefaultTabs`: `disabled` options (passed over by the arrows, no click, focus kept),
+    `stretch`, a `hint` per tab, node labels with `text` for the select.
+  - `topBarFrom` `sm` (640px), `lg` (1024px) and `2xl` (1440px) for `ParentTabs` and
+    `TopBarTabs`.
+  - `HoverHint` `focusable`; `Stat` `tipMark` (a keyboard-reachable ⓘ on a desk, on by default
+    for a tile with a `tip`: see Changed) and `valueAt`; `Stat` and `StatGrid` take the div's
+    own props; `SidePanel` `id`.
+  - `MetricCell` `quiet` step (decision 93): the warning tint and ink at weight 400, a quieter
+    warning beside `warning` (600), `error`, `notable` and `clear`, with a `quiet` threshold
+    between `notable` and `warning`. Two warning tiers map onto it: Watchlist's notable ->
+    `quiet`, elevated -> `warning`, severe -> `error`.
+  - `useModalFocus(ref, open, { auto: true })` for a dialog an app draws itself.
+  - `TryAgainButton`; Try again carries `data-oxy-try-again`. `LoadingBar`'s `progress` defaults
+    to one read. `Button` keeps a caller's `aria-busy`. `InfoIcon`.
+  - `useOxyMode()` and `readOxyMode()` in `@oxy-hq/sdk/shell`: the light/dark mode in force.
+  - tailwind.css: `--color-sidebar`, `--color-sidebar-border`, `--color-card-foreground`,
+    `--color-status-neutral-series`, `--color-status-info-series`.
+- **`checkSdkUiCopies(srcDir)` in `@oxy-hq/sdk/testing`.** The no-copy guard for an app's
+  tests: it reports every component in `src/` named like an `@oxy-hq/sdk/ui` piece, with its
+  `file:line`, the SDK import to use and the allow-list line
+  (`// oxy-ui-local: <Name> -- <why>`; a line without a reason is a finding too). Its names
+  (`SDK_UI_PIECES`) are the ui entry's own components.
+
+### Changed
+
+- **Visible for every app that passes a `Stat` a `tip`: the desk shows its ⓘ by default**
+  (decision 89). The focusable mark sits 8px after the figure, named "About <label>", and
+  focusing it opens the tip, so a keyboard reaches every source; before, the tip was a hover over
+  the tile only. `tipMark={false}` keeps the hover alone. A tile without a tip, and the phone's
+  ⓘ after the label, are unchanged.
+- **Visible for every app with a `TrendChart`: its labels hold 12px on screen at every width**
+  (decision 92, the type scale's xs step). They were xs in viewBox units, so they grew with the
+  drawn width (about 14.9px in a 694px dialog). The chart now measures its drawn width (a
+  `ResizeObserver`; with no layout, a server render or jsdom, it takes its viewBox's size), and
+  thins the month labels by it, so a wide chart may label different months. The 560 x 178
+  geometry holds at 560px and wider; a desk chart drawn narrower now draws 1:1 (its viewBox the
+  drawn width, 178px tall), as `fluid` does, since the scaled 560 left no room there for a 12px
+  "Comparable" or y label.
+- **The failed-read message is 13px at either size** (decision 85). `LoadError`'s default
+  message was 12px and only `size="lg"` drew 13px: every app on the default size sees its
+  failed-read callouts a step larger; drop any override of the message's size.
+- **A `Chip` with neither `tone` nor `color` is `neutral`** (the muted tint and dim ink) where it
+  was the bare tag. A chip given a `color` keeps no tone.
+- **Tab counts print grouped**: `12,345`, in the strip and in the select it becomes.
+- **A focus trap skips what a closed `<details>` hides**, its summary kept, so Tab wraps from the
+  real last control.
+- **The inset ring's forced-colours outline is drawn inside** (inset ring, segments, top-bar
+  tabs), where a clipping container no longer cuts it; the outside ring's is unchanged.
+- **`Field` wires only a labelable control** (`input`, `select`, `textarea`, `button`, `meter`,
+  `output`, `progress`); a wrapper around one is left as it is.
+- **A `ConfirmDialog` body's own children lose their margins**, so its gap is the only space
+  between them in an app with no reset.
+- A segment that says `aria-disabled` no longer changes on hover, as a disabled button already
+  did (decision 66).
+
 ## [2.30.0] - 2026-11-20
 
 ### Added

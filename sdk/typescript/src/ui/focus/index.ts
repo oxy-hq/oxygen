@@ -1,6 +1,6 @@
 // @oxy-hq/sdk/ui, the focus group. Each piece exports itself here (CONVENTIONS.md);
 // src/ui/index.ts re-exports this file whole.
-export type { ModalFocus } from "./modalFocus";
+export type { ModalFocus, ModalFocusOptions } from "./modalFocus";
 export {
   focusableIn,
   isTopModal,

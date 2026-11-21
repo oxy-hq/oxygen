@@ -5,8 +5,8 @@ export { EmptyState } from "./EmptyState";
 export type { ErrorBoundaryProps } from "./ErrorBoundary";
 export { ErrorBoundary } from "./ErrorBoundary";
 export { ArrowClockwiseIcon } from "./icons";
-export type { LoadErrorProps } from "./LoadError";
-export { KitRetryText, LoadError } from "./LoadError";
+export type { LoadErrorProps, TryAgainButtonProps } from "./LoadError";
+export { KitRetryText, LoadError, TryAgainButton } from "./LoadError";
 export type {
   LoadingBarProps,
   LoadingLineProps,

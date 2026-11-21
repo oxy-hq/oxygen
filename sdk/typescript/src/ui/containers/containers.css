@@ -225,6 +225,14 @@
   padding-top: var(--space-xs);
 }
 
+/* The gap is the only space between the caller's paragraphs and lists: a
+   non-Tailwind app has no preflight, and a browser's 1em margins would add to
+   it without collapsing (Bookkeeping, 2.31.0). */
+.oxy-ui-confirm__body > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 /* ── ConfirmInline (decision 43) ───────────────────────────────────────── */
 .oxy-ui-confirm-inline {
   display: inline-flex;
@@ -289,12 +297,104 @@
   line-height: var(--type-scale-sm-line);
 }
 
+/* A title that is a heading: the header's type, not the browser's h2. */
+.oxy-ui-panel__title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+}
+
+/* The fold: the title as a text button (decision 47), the control height for
+   its reach, pulled back by its margins so the header keeps the eyebrow's
+   line. A button takes no text-transform from its parent, so it says to. */
+.oxy-ui-panel__fold {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  margin: calc(var(--space-sm) * -1) calc(var(--space-xs) * -1);
+  border: 0;
+  padding: 0 var(--space-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+  transition-property: color;
+  transition-duration: var(--oxy-duration-fast);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (hover: hover) {
+  .oxy-ui-panel__fold:hover {
+    color: var(--foreground);
+  }
+}
+
+/* Folded: the header alone, with no rule under it, and the panel gives its
+   height back to a column it shares. */
+.oxy-ui-panel--folded {
+  flex: none;
+}
+
+.oxy-ui-panel--folded > .oxy-ui-panel-header {
+  border-bottom-width: 0;
+  padding-bottom: 0;
+}
+
+/* Compact (the staging demo apps' panel): 12px in, 6px between the header's
+   words and its rule, a 12px body, the secondary ink; the eyebrow is on the
+   title alone, so the header row keeps the body's line. */
+.oxy-ui-panel--compact {
+  padding: var(--padding-sm-x);
+  color: var(--dim-foreground);
+}
+
+.oxy-ui-panel--compact > .oxy-ui-panel-header {
+  padding-bottom: 6px;
+}
+
+.oxy-ui-panel--compact > .oxy-ui-panel__body {
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+}
+
 /* ── HoverHint ───────────────────────────────────────────────────────────
    The bubble is the muted surface on the control line in both modes: on the
    dark canvas --muted is a step up; on the light one a step down, over a white
    card, and the shadow carries the elevation. */
 .oxy-ui-hover-hint {
   cursor: help;
+}
+
+/* Words the screen does not otherwise say (`focusable`): the anchor is a Tab
+   stop, and the words ride in it for assistive tech, anchored to it so they
+   can never widen a scroller. */
+.oxy-ui-hover-hint--focusable {
+  position: relative;
+}
+
+.oxy-ui-hover-hint__words {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* On something a press uses (a sortable header, a row action, the ⓘ button),
@@ -400,5 +500,12 @@
     content: "";
     position: absolute;
     inset: min(0px, calc((100% - var(--control-h-lg)) / 2));
+  }
+
+  /* A panel's fold keeps the header's line and grows a 44px reach. */
+  :root:not([data-oxy-touch-targets="off"]) .oxy-ui-panel__fold::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--control-h-lg)) / 2)) 0;
   }
 }

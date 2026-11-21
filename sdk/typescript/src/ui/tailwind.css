@@ -120,6 +120,13 @@
   --color-status-neutral: var(--status-neutral);
   --color-status-neutral-bg: var(--status-neutral-bg);
   --color-status-neutral-line: var(--status-neutral-line);
+  /* 2.31.0: names the apps paint that the reference's block left out
+     (pokehouse-oxy Command Center: `bg-sidebar`, the neutral dot). */
+  --color-status-neutral-series: var(--status-neutral-series);
+  --color-status-info-series: var(--status-info-series);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-card-foreground: var(--card-foreground);
 
   /* Data visualisation (index.css:1264-1271). */
   --color-chart-1: var(--chart-1);

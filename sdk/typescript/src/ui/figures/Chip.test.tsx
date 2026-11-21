@@ -30,11 +30,15 @@ describe("Chip", () => {
     }
   });
 
-  it("without a tone is the bare tag, and with a colour fills from that colour", async () => {
+  it("without a tone or a colour is neutral (2.31.0), and with a colour fills from it", async () => {
     const page = await render(<Chip>Zone</Chip>);
-    expect(chip().className).not.toMatch(/oxy-ui-tone-/);
+    expect(chip().classList).toContain(ui.chipTone.neutral);
+    expect(chip().dataset.tone).toBe("neutral");
     expect(chip().getAttribute("style")).toBeNull();
     await page.rerender(<Chip color='rgb(10, 120, 200)'>Frozen</Chip>);
+    // A colour is not a status: no tone class to fight it.
+    expect(chip().className).not.toMatch(/oxy-ui-tone-/);
+    expect(chip().hasAttribute("data-tone")).toBe(false);
     expect(chip().style.color).toBe("rgb(10, 120, 200)");
     expect(chip().getAttribute("style")).toMatch(
       /background: color-mix\(in srgb, rgb\(10, 120, 200\) 15%, transparent\)/

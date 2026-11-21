@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 //
 // One measure in a cell: the step a value reaches against the app's thresholds (either way up),
-// and the look each step wears: the status tint only for warning and error, weight for notable,
-// the quiet ink for clear, an asterisk for provisional, words alone for nothing to judge. The
-// comparison shows only where the cell asserts something, and every state carries its sentence.
+// and the look each step wears: the status tint only for quiet, warning and error (quiet the
+// warning tint at weight 400, decision 93), weight for notable, the dim ink for clear, an asterisk
+// for provisional, words alone for nothing to judge. The comparison shows only where the cell
+// asserts something, and every state carries its sentence.
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { type PaintMode, paintUi, rgb, themeValue, unpaintUi } from "../paint.harness";
@@ -17,6 +18,8 @@ afterEach(() => {
 
 const COST: MetricThresholds = { notable: 1, warning: 1.5, error: 4 };
 const RATING: MetricThresholds = { warning: 4.3, error: 4.0, direction: "below" };
+/** Two warning steps under the error (Watchlist's notable, elevated, severe). */
+const TIERED: MetricThresholds = { quiet: 1, warning: 1.5, error: 4 };
 
 const cell = () => $(".oxy-ui-metric-cell") as HTMLElement;
 const figure = () => $(".oxy-ui-metric-cell__figure") as HTMLElement;
@@ -36,6 +39,21 @@ describe("metricStep", () => {
     expect(metricStep(4.3, RATING)).toBe("warning");
     expect(metricStep(4.0, RATING)).toBe("error");
     expect(metricStep(3.2, RATING)).toBe("error");
+  });
+
+  it("puts the quiet step under warning, over notable, either way up", () => {
+    expect(metricStep(0.9, TIERED)).toBe("clear");
+    expect(metricStep(1, TIERED)).toBe("quiet");
+    expect(metricStep(1.49, TIERED)).toBe("quiet");
+    expect(metricStep(1.5, TIERED)).toBe("warning");
+    expect(metricStep(4, TIERED)).toBe("error");
+    const all: MetricThresholds = { notable: 0.5, ...TIERED };
+    expect(metricStep(0.5, all)).toBe("notable");
+    expect(metricStep(1, all)).toBe("quiet");
+    const rating: MetricThresholds = { quiet: 4.5, ...RATING };
+    expect(metricStep(4.6, rating)).toBe("clear");
+    expect(metricStep(4.5, rating)).toBe("quiet");
+    expect(metricStep(4.3, rating)).toBe("warning");
   });
 
   it("has no step without a value, and none it was not given", () => {
@@ -61,6 +79,16 @@ describe("MetricCell tones", () => {
     expect(cell().dataset.step).toBe("error");
     expect(figure().className).toContain(ui.chipTone.error);
     expect(figure().className).not.toContain(ui.chipTone.warning);
+  });
+
+  it("tints a quiet figure with the warning tone, a step under warning, with its comparison", async () => {
+    await render(<MetricCell observed='19%' comparison='17%' value={1.2} thresholds={TIERED} />);
+    expect(cell().dataset.step).toBe("quiet");
+    expect(figure().className).toContain(ui.chipTone.warning);
+    expect(figure().className).toContain("oxy-ui-metric-cell__figure--tinted");
+    expect(figure().className).toContain("oxy-ui-metric-cell__figure--quiet");
+    expect(figure().className).not.toContain("oxy-ui-metric-cell__figure--notable");
+    expect($(".oxy-ui-metric-cell__comparison")?.textContent).toBe("vs 17%");
   });
 
   it("marks a notable figure by weight alone, still with its comparison", async () => {
@@ -174,6 +202,41 @@ describe("MetricCell ink, painted", () => {
       await render(<MetricCell observed='51%' comparison='12%' step='error' />);
       expect(ink()).toBe(rgb(themeValue("--status-error", mode)));
       expect(fill()).toBe(rgb(themeValue("--status-error-bg", mode)));
+    });
+
+    it(`prints a quiet figure in the warning ink on the warning tint, at weight 400 (${mode})`, async () => {
+      paintUi({ mode });
+      await render(<MetricCell observed='27.4%' comparison='24%' step='quiet' />);
+      expect(ink()).toBe(rgb(themeValue("--status-warning", mode)));
+      expect(fill()).toBe(rgb(themeValue("--status-warning-bg", mode)));
+      expect(getComputedStyle(figure()).fontWeight).toBe("400");
+    });
+
+    it(`draws Watchlist's three tiers as three looks: quiet, warning, error (${mode})`, async () => {
+      paintUi({ mode });
+      // The app's own mapping, expressible in steps: notable -> quiet, elevated -> warning,
+      // severe -> error.
+      const STEP = { notable: "quiet", elevated: "warning", severe: "error" } as const;
+      const looks: string[][] = [];
+      for (const tier of ["notable", "elevated", "severe"] as const) {
+        const page = await render(<MetricCell observed='30%' step={STEP[tier]} />);
+        const style = getComputedStyle(figure());
+        looks.push([tier, style.color, style.backgroundColor, style.fontWeight]);
+        await page.unmount();
+      }
+      const warn = [
+        rgb(themeValue("--status-warning", mode)),
+        rgb(themeValue("--status-warning-bg", mode))
+      ];
+      const err = [
+        rgb(themeValue("--status-error", mode)),
+        rgb(themeValue("--status-error-bg", mode))
+      ];
+      expect(looks).toEqual([
+        ["notable", ...warn, "400"],
+        ["elevated", ...warn, "600"],
+        ["severe", ...err, "600"]
+      ]);
     });
 
     it(`keeps the clear, notable and provisional inks (${mode})`, async () => {

@@ -22,6 +22,13 @@
 //
 // **Focus is handed on, never dropped** (focus/useRetryFocus.ts): from Try again to the loading
 // line, then to the start of what the re-read drew, or to the next callout's Try again.
+//
+// 2.31.0 (the gap round): the message is 13px at either size (decision 85: "13px everywhere, as
+// the SDK's LoadError draws it"; 2.30.0 drew 12px unless `size="lg"`). `TryAgainButton` is the
+// Try again on its own, for a read that worked and found nothing (Warehouse's empty item list,
+// Supplier Ordering's side read), with the same focus hand-on; and Try again carries
+// `data-oxy-try-again`, so an app can aim at it (Locations shows one Try again for stacked
+// failures that each re-read the whole screen).
 
 import { type ReactNode, useRef } from "react";
 import { Button } from "../actions/Button";
@@ -45,7 +52,7 @@ export interface LoadErrorProps {
   retrying?: boolean;
   /** `error` (the default), or `warning` for a read the screen goes on without. */
   tone?: "error" | "warning";
-  /** `lg` on a touch screen: the 44px button and the message a step larger. */
+  /** `lg` on a touch screen: the 44px button. The message is 13px at either size. */
   size?: "sm" | "lg";
   /** The detail: what failed, in plain words. */
   children?: ReactNode;
@@ -80,25 +87,43 @@ export function LoadError({
         {title && <p className='oxy-ui-load-error__title'>{title}</p>}
         {title && children ? <div>{children}</div> : children}
       </div>
-      {retry && <TryAgain size={size} label={retryLabel} retrying={retrying} onRetry={retry} />}
+      {retry && (
+        <TryAgainButton size={size} label={retryLabel} retrying={retrying} onRetry={retry} />
+      )}
     </div>
   );
 }
 
-/** Try again: reads again, and passes keyboard focus on to what the re-read draws. */
-function TryAgain({
-  size,
-  label,
-  retrying,
-  onRetry
-}: {
-  size: "sm" | "lg";
-  label: string;
-  retrying: boolean;
-  onRetry: () => void;
-}) {
+export interface TryAgainButtonProps {
+  /** Reads again. Default: the nearest `RereadBoundary`'s re-read; with neither, nothing is drawn
+   *  (a Try again that cannot read again is a promise the screen cannot keep). */
+  onRetry?: () => void;
+  /** The word. Default "Try again". */
+  label?: string;
+  /** A read again is in flight: the button says so, keeps focus and does not ask twice. */
+  retrying?: boolean;
+  /** `lg` on a touch screen: the 44px button. */
+  size?: "sm" | "lg";
+  className?: string;
+}
+
+/**
+ * Try again on its own: reads again, and passes keyboard focus on to what the re-read draws
+ * (decisions 14 and 28), as LoadError's does. For a read that worked and found nothing, where
+ * there is no failure to state.
+ */
+export function TryAgainButton({
+  onRetry,
+  label = "Try again",
+  retrying = false,
+  size = "sm",
+  className
+}: TryAgainButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   useRetryButtonFocus(button);
+  const reread = useRereadAction();
+  const retry = onRetry ?? reread;
+  if (!retry) return null;
   return (
     <Button
       ref={button}
@@ -106,9 +131,11 @@ function TryAgain({
       icon={<ArrowClockwiseIcon />}
       busy={retrying}
       busyLabel='Trying again…'
+      className={className}
+      data-oxy-try-again=''
       onClick={(e) => {
         markRetry(e.currentTarget);
-        onRetry();
+        retry();
       }}
     >
       {label}

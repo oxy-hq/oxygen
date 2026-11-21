@@ -96,7 +96,9 @@ export function Button({
       {...rest}
       type={type}
       className={cls}
-      aria-busy={busy || undefined}
+      // A caller's own `aria-busy` stands while `busy` is unset (Site Scout: the one button of a
+      // running set that says so); `busy` adds the spinner and refuses presses on top.
+      aria-busy={busy || rest["aria-busy"] || undefined}
       aria-disabled={busy || rest["aria-disabled"] || undefined}
       data-busy={busy ? "" : undefined}
       onClick={press}

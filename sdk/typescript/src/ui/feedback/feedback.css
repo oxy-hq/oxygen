@@ -103,14 +103,19 @@
   gap: var(--space-sm);
 }
 
+/* The message is 13px at either size (decision 85), over the callout's 12px;
+   the callout keeps its padding, edge and 1.45 line. */
 .oxy-ui-load-error__message {
   overflow-wrap: anywhere;
+  font-size: var(--type-scale-sm-size);
 }
 
 .oxy-ui-load-error__message > :where(p, div) {
   margin: 0;
 }
 
+/* `size="lg"`: since 2.31.0 the same 13px as the default (decision 85); the
+   class stays for an app that aims at it. */
 .oxy-ui-load-error__message--lg {
   font-size: var(--type-scale-sm-size);
 }

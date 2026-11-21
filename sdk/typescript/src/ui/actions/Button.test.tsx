@@ -132,6 +132,23 @@ describe("Button", () => {
     expect(span.hasAttribute("role")).toBe(false);
   });
 
+  it("keeps a caller's aria-busy while busy is unset, and still answers presses (2.31.0)", async () => {
+    const onClick = vi.fn();
+    const page = await render(
+      <Button aria-busy onClick={onClick}>
+        Scoring San Diego
+      </Button>
+    );
+    const b = $("button") as HTMLButtonElement;
+    expect(b.getAttribute("aria-busy")).toBe("true");
+    // Only `busy` draws the spinner and refuses presses.
+    expect(b.querySelector(".oxy-ui-btn__spinner")).toBeNull();
+    await click(b);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    await page.rerender(<Button onClick={onClick}>Score</Button>);
+    expect(b.hasAttribute("aria-busy")).toBe(false);
+  });
+
   it("passes its ref to the <button> (React 19 ref as a prop)", async () => {
     const ref = createRef<HTMLButtonElement>();
     await render(<Button ref={ref}>Open</Button>);

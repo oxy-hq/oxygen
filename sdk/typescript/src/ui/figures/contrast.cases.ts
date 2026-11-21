@@ -243,5 +243,35 @@ export const contrastCases: UiContrastCase[] = [
       min: 3,
       kind: "non-text" as const
     }
-  ])
+  ]),
+  // ── Stat `tipMark` (2.31.0, on by default for a tipped tile, decision 89): the ⓘ on a boxed
+  //    tile's field surface and on a card unboxed, and its hover ────────────────────────────
+  {
+    name: "Stat tipMark: the ⓘ (muted ink) unboxed, on a card",
+    fg: "--muted-foreground",
+    on: ["--card"],
+    min: 3,
+    kind: "non-text"
+  },
+  {
+    name: "Stat tipMark: the ⓘ (muted ink) on a boxed tile, on a card",
+    fg: "--muted-foreground",
+    on: ["--field", "--card"],
+    min: 3,
+    kind: "non-text"
+  },
+  {
+    name: "Stat tipMark: the ⓘ on hover, on a boxed tile, on a card",
+    fg: "--foreground",
+    on: ["--field", "--card"],
+    min: 3,
+    kind: "non-text"
+  },
+  {
+    name: "Stat tipMark: the focus ring on a boxed tile, on a card",
+    fg: "--focus-ring-color",
+    on: ["--field", "--card"],
+    min: 3,
+    kind: "focus"
+  }
 ];

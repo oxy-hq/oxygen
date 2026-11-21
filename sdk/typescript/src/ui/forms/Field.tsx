@@ -61,9 +61,15 @@ function joinIds(...lists: (string | undefined)[]): string | undefined {
 
 type NativeControl = ReactElement<FieldControlProps & { id?: string }>;
 
+/** The elements a <label> can name (HTML's labelable elements). Anything else, a wrapper around
+ *  an input and its unit, is left as it is: wiring it would give two elements one id and point
+ *  the label at the wrapper (Quadrogen Command Center, 2.31.0). */
+const LABELABLE = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
+
 function wire(children: FieldProps["children"], control: FieldControlProps): ReactNode {
   if (typeof children === "function") return children(control);
   if (!isValidElement(children) || typeof children.type !== "string") return children;
+  if (!LABELABLE.has(children.type)) return children;
   const el = children as NativeControl;
   return cloneElement(el, {
     id: el.props.id ?? control.id,

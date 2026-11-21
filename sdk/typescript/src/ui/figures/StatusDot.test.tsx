@@ -2,7 +2,8 @@
 //
 // The status dot, decision 38b: round, and always with its word. The word is printed on screen
 // (not only for a screen reader), the dot is decoration in its tone's `--dot-*` fill, the quiet
-// step is a ring, and the word can describe a control by id.
+// step is a ring, and the word can describe a control by id. 2.31.0: `wordHidden`, the dot alone
+// where the words beside it already say the state, the word kept for assistive tech and the hover.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -41,10 +42,32 @@ describe("StatusDot", () => {
     }
   });
 
-  it("never hides the word: no rule makes it screen-reader-only", () => {
+  it("never hides the word unless asked: no other rule makes it screen-reader-only", () => {
     const word = rule(".oxy-ui-status-dot__word");
     expect(word).not.toMatch(/position: absolute|clip|width: 1px|display: none|visibility/);
-    expect(css).not.toMatch(/\.oxy-ui-status-dot__word[^{]*\{[^}]*(clip|display: none)/);
+    // The one rule that hides it is the opt-in `wordHidden` modifier's.
+    expect(css).not.toMatch(
+      /\.oxy-ui-status-dot__word(?!--hidden)[^{]*\{[^}]*(clip|display: none)/
+    );
+  });
+
+  it("wordHidden: the dot alone, the word for assistive tech and as the hover title", async () => {
+    const page = await render(<StatusDot status='warning' label='Still settling' wordHidden />);
+    const root = $(".oxy-ui-status-dot") as HTMLElement;
+    const word = $(".oxy-ui-status-dot__word") as HTMLElement;
+    expect(word.textContent).toBe("Still settling");
+    expect(word.classList).toContain("oxy-ui-status-dot__word--hidden");
+    expect(root.classList).toContain("oxy-ui-status-dot--word-hidden");
+    expect(root.title).toBe("Still settling");
+    expect(rule(".oxy-ui-status-dot__word--hidden")).toMatch(/clip-path: inset\(50%\)/);
+    // A caller's own title wins; without wordHidden there is no title and no hiding.
+    await page.rerender(
+      <StatusDot status='warning' label='Still settling' wordHidden title='Settles by 6 AM' />
+    );
+    expect(root.title).toBe("Settles by 6 AM");
+    await page.rerender(<StatusDot status='warning' label='Still settling' />);
+    expect(root.hasAttribute("title")).toBe(false);
+    expect(word.classList.contains("oxy-ui-status-dot__word--hidden")).toBe(false);
   });
 
   it("is round, 7px, where every container is square", () => {

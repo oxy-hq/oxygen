@@ -31,7 +31,7 @@ export type { ModeSwitchProps } from "./ModeSwitch";
 export { ModeSwitch } from "./ModeSwitch";
 export { OXY_MARK_PATH, OxygenFactoryMark, OxyMark } from "./marks";
 export type { ShellMode } from "./mode";
-export { useOxyModePin } from "./mode";
+export { readOxyMode, useOxyMode, useOxyModePin } from "./mode";
 export { NavSheet } from "./NavSheet";
 export type { OxyShellProps } from "./OxyShell";
 export { OxyShell } from "./OxyShell";

@@ -5,12 +5,13 @@
 // name from the caption, the paths for given data on one scale, a flat series on a scale its line
 // sits on, the empty and one-point sentence, the end labels kept apart, the month read by hover,
 // by keyboard and by tap, the readout's arithmetic from props, the subject's tone, the app's marks,
-// and only theme tokens painted.
+// and only theme tokens painted. 2.31.0 (decision 92): the labels hold 12px on the glass at every
+// drawn width, the month labels thinned by it, and a desk narrower than 560 draws 1:1.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { $, $$, fire, press, render } from "../ui.harness";
 import { axisTickLabels, labelledIndices } from "./axis";
 import { paints } from "./paint.harness";
@@ -19,6 +20,7 @@ import { TrendChart } from "./TrendChart";
 
 afterEach(() => {
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 /**
@@ -129,6 +131,18 @@ const now = () => plot().getAttribute("aria-valuenow");
 const hover = (i: number) =>
   fire($(`[data-hit='${i}']`), new MouseEvent("mouseover", { bubbles: true }));
 
+/** Lay the chart out `width` CSS px wide, as a browser would (jsdom draws nothing: 0). */
+const drawnAt = (width: number) =>
+  vi
+    .spyOn(SVGElement.prototype, "getBoundingClientRect")
+    .mockReturnValue({ width, height: 0, top: 0, left: 0, right: width, bottom: 0 } as DOMRect);
+/** The viewBox's width, in units. */
+const unitsW = () => Number(svg().getAttribute("viewBox")?.split(" ")[2]);
+/** The SVG units per CSS px the chart set for its labels' font size. */
+const unitsPerPx = () => Number(svg().style.getPropertyValue("--oxy-ui-trend-chart-units-per-px"));
+/** What a label at the xs step (12px) is on the glass: the step in units, drawn at `width`. */
+const labelPx = (width: number) => 12 * unitsPerPx() * (width / unitsW());
+
 describe("TrendChart", () => {
   it("is named by its caption, a default one that says what the axis is", async () => {
     const page = await render(<TrendChart points={TWO} storeLabel='North' />);
@@ -194,7 +208,7 @@ describe("TrendChart", () => {
     );
   });
 
-  it("sizes its labels in viewBox units, so they scale with the chart as the reference's", async () => {
+  it("sizes its labels by one rule: the xs step times the drawing's units per px", async () => {
     await render(<TrendChart points={TWO} storeLabel='North' />);
     const labels = $$("svg text");
     expect(labels.length).toBe(7);
@@ -203,13 +217,85 @@ describe("TrendChart", () => {
       join(dirname(fileURLToPath(import.meta.url)), "charts.css"),
       "utf8"
     ).replace(/\/\*[\s\S]*?\*\//g, "");
-    for (const cls of ["__tick", "__end"]) {
-      const at = css.indexOf(`.oxy-ui-trend-chart${cls} {`);
-      expect(at, cls).toBeGreaterThanOrEqual(0);
-      expect(css.slice(at, css.indexOf("}", at)), cls).toMatch(
-        /font-size: var\(--type-scale-xs-size\);/
+    const body = (selector: string) => {
+      const at = css.indexOf(`${selector} {`);
+      expect(at, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(at, css.indexOf("}", at));
+    };
+    for (const cls of ["__tick", "__end"])
+      expect(body(`.oxy-ui-trend-chart${cls}`), cls).toMatch(
+        /font-size: calc\(var\(--type-scale-xs-size\) \* var\(--oxy-ui-trend-chart-units-per-px\)\);/
       );
+    // Unmeasured (jsdom, a server render) the drawing is its viewBox's own size: 1 unit per px.
+    expect(body(".oxy-ui-trend-chart__svg")).toMatch(/--oxy-ui-trend-chart-units-per-px: 1;/);
+    expect(unitsPerPx()).toBe(1);
+  });
+
+  it("holds its labels at 12px on the glass at every width, desk and phone (decision 92)", async () => {
+    // A desk at 560 and wider keeps the reference's 560-unit drawing; narrower draws 1:1.
+    for (const [width, viewW] of [
+      [1000, 560],
+      [694, 560],
+      [660, 560],
+      [566, 560],
+      [560, 560],
+      [480, 480],
+      [400, 400]
+    ]) {
+      drawnAt(width);
+      const page = await render(<TrendChart points={YEAR} storeLabel='North' />);
+      expect(unitsW(), `${width}px`).toBe(viewW);
+      expect(labelPx(width), `${width}px`).toBeCloseTo(12, 2);
+      await page.unmount();
+      vi.restoreAllMocks();
     }
+    // A phone sheet draws 1:1 at its width; under 240 it keeps 240 units and scales them.
+    for (const [width, viewW] of [
+      [324, 324],
+      [200, 240]
+    ]) {
+      drawnAt(width);
+      const page = await render(<TrendChart points={YEAR} storeLabel='North' fluid />);
+      expect(unitsW(), `fluid ${width}px`).toBe(viewW);
+      expect(labelPx(width), `fluid ${width}px`).toBeCloseTo(12, 2);
+      await page.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("keeps the reference's room for its labels on a desk under 560, drawing it 1:1", async () => {
+    drawnAt(400);
+    await render(<TrendChart points={TWO} storeLabel='North' />);
+    expect(svg().getAttribute("viewBox")).toBe("0 0 400 178");
+    // The y labels' 40 and the end labels' 88 are px here, as on a phone: "Comparable" (68.5px
+    // at 12px) has 80px after its 8px offset, where the 560 drawing scaled to 400 left it 57.
+    expect($("path[data-series='observed']")?.getAttribute("transform")).toBe("translate(40,14)");
+    const ends = $$(".oxy-ui-trend-chart__end");
+    const room = (unitsW() - Number(ends[1].getAttribute("x"))) * (400 / unitsW());
+    expect(room).toBeGreaterThanOrEqual(68.5);
+    expect($("[data-axis='month']")?.getAttribute("y")).toBe("172");
+  });
+
+  it("thins its month labels by the width it is drawn at, as Watchlist's chart does", async () => {
+    const span = months("2025-07", 24).map((period, i) => ({
+      period,
+      observedPct: 20 + i,
+      peerPct: 18
+    }));
+    const shownAt = async (width: number) => {
+      drawnAt(width);
+      const page = await render(<TrendChart points={span} storeLabel='North' />);
+      const words = $$("[data-axis='month']").map((t) => t.textContent);
+      await page.unmount();
+      vi.restoreAllMocks();
+      return words;
+    };
+    // At 694px a 12px label is 9.7 units, so labels set by their own width sit closer than the
+    // reference's xs-in-units ones did ("Nov" where those had "Dec").
+    expect(await shownAt(694)).toEqual(["Jul 2025", "Nov", "Mar 2026", "Jul", "Nov", "Jun 2027"]);
+    expect(await shownAt(566)).toEqual(["Jul 2025", "Dec", "Apr 2026", "Aug", "Dec", "Jun 2027"]);
+    // Drawn 1:1 under 560 the plot is narrower: fewer labels, none into another.
+    expect(await shownAt(400)).toEqual(["Jul 2025", "Apr 2026", "Oct", "Jun 2027"]);
   });
 
   it("gives a flat series a scale its line sits on, its value in the middle", async () => {
@@ -304,6 +390,13 @@ describe("TrendChart", () => {
     await press("Escape");
     expect($("[data-crosshair]")).toBeNull();
     expect($(".oxy-ui-trend-chart__toast")).toBeNull();
+  });
+
+  it("on a phone draws at the width it is laid out at", async () => {
+    drawnAt(324);
+    await render(<TrendChart points={TWO} storeLabel='North' fluid />);
+    expect(svg().getAttribute("viewBox")).toBe("0 0 324 178");
+    expect(unitsPerPx()).toBe(1);
   });
 
   it("on a phone reads a month by tap, in a line under the chart", async () => {

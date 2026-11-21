@@ -83,6 +83,16 @@ export {
   threadKey
 } from "./inbox";
 export { isolateAtob, isolateBtoa, runWithoutIsolateGlobals } from "./run";
+// The no-copy guard for an app's src/: no component named like an @oxy-hq/sdk/ui piece, unless a
+// `// oxy-ui-local: <Name> -- <why>` line keeps it (sdkUiCopies.ts).
+export {
+  type CheckSdkUiCopiesOptions,
+  checkSdkUiCopies,
+  formatSdkUiCopies,
+  SDK_UI_PIECES,
+  type SdkUiCopyFinding,
+  type SdkUiCopyKind
+} from "./sdkUiCopies";
 export { ZOO_SHA256 } from "./shape-zoo-sha256";
 export {
   type FetchAnswer,

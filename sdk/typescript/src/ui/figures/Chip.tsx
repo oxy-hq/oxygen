@@ -5,6 +5,8 @@
 // warehouse's copy (`apps/warehouse/src/components/Chip.tsx`, a form that locks while it
 // submits), and the ×'s 44px reach on a touch screen (decision 16), drawn as a reach around the
 // 16px square so the chip keeps its size. `Pill` in other apps is this piece (BEYOND-GALLERY 17).
+// 2.31.0: a chip given neither `tone` nor `color` is `neutral`, as the app copies defaulted (Site
+// Scout's rank and score chips lost their fill on 2.30.0's bare tag).
 //
 // A chip is the small filled tag beside the thing it qualifies: a status, a name, a zone.
 //
@@ -30,7 +32,8 @@ import type { StatusTone } from "../tone";
 const FILL = 15;
 
 export interface ChipProps extends Omit<ComponentPropsWithRef<"span">, "children" | "color"> {
-  /** What the chip means. One definition, every screen: see `chipTone`. */
+  /** What the chip means. One definition, every screen: see `chipTone`. Default `neutral` (a
+   *  chip that only labels), unless `color` is given. */
   tone?: StatusTone;
   /** A raw colour for a chip whose colour is not a status. Pass this OR `tone`. */
   color?: string;
@@ -57,6 +60,7 @@ export function Chip({
   children,
   ...rest
 }: ChipProps) {
+  const shown = tone ?? (color ? undefined : "neutral");
   const accent: CSSProperties | undefined = color
     ? { background: `color-mix(in srgb, ${color} ${FILL}%, transparent)`, color }
     : undefined;
@@ -66,13 +70,13 @@ export function Chip({
       className={cx(
         ui.tag,
         "oxy-ui-chip",
-        tone && ui.chipTone[tone],
+        shown && ui.chipTone[shown],
         (icon != null || onRemove !== undefined) && "oxy-ui-chip--gap",
         onRemove && "oxy-ui-chip--removable",
         className
       )}
       style={accent ? { ...style, ...accent } : style}
-      data-tone={tone}
+      data-tone={shown}
     >
       {icon}
       {children}

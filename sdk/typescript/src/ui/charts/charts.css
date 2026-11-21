@@ -29,6 +29,52 @@
   color: var(--muted-foreground);
 }
 
+/* `fluid`: the container's width (the component measures it and draws 1:1). */
+.oxy-ui-sparkline--fluid {
+  width: 100%;
+}
+
+/* `readout`: the line and its tooltip, which sits over the reading. The
+   tooltip is the hint bubble's surface (one bubble look), centred on the
+   crosshair, and never takes the pointer from the line under it. */
+.oxy-ui-sparkline__frame {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.oxy-ui-sparkline__frame--fluid {
+  display: block;
+  width: 100%;
+}
+
+.oxy-ui-sparkline__readout {
+  position: absolute;
+  bottom: 100%;
+  z-index: 1;
+  margin-bottom: var(--space-xs);
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-overlay);
+  padding: 2px 8px;
+  background-color: var(--muted);
+  color: var(--foreground);
+  box-shadow: var(--shadow-elevated);
+  font-size: var(--type-scale-xs-size);
+  line-height: var(--type-scale-xs-line);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.oxy-ui-sparkline__readout-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-sparkline__readout-period {
+  color: var(--muted-foreground);
+}
+
 /* ── TrendChart ────────────────────────────────────────────────────────────── */
 .oxy-ui-trend-chart {
   margin: 0;
@@ -38,23 +84,26 @@
   margin-top: var(--space-sm);
 }
 
+/* Every label holds the type scale's xs step, 12px, on the glass at every
+   width (decision 92). The component sets the drawing's SVG units per CSS px
+   on the svg from the width it is drawn at (560/694 on a 694px desk, 1 on a
+   phone or a desk under 560, which draw 1:1); 1 before it is measured, which
+   is also a server render's and jsdom's. */
 .oxy-ui-trend-chart__svg {
+  --oxy-ui-trend-chart-units-per-px: 1;
   display: block;
   width: 100%;
   overflow: visible;
 }
 
-/* Every label is the type scale's xs step in viewBox units, so it scales with
-   the chart as the reference's do (14px on a dialog's 656px, 7px on a 324px
-   phone sheet; `fluid` draws 1:1, so 12px there). */
 .oxy-ui-trend-chart__tick {
-  font-size: var(--type-scale-xs-size);
+  font-size: calc(var(--type-scale-xs-size) * var(--oxy-ui-trend-chart-units-per-px));
   fill: var(--subtle-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .oxy-ui-trend-chart__end {
-  font-size: var(--type-scale-xs-size);
+  font-size: calc(var(--type-scale-xs-size) * var(--oxy-ui-trend-chart-units-per-px));
   fill: var(--muted-foreground);
 }
 

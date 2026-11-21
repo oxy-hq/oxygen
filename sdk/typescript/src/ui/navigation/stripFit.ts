@@ -13,6 +13,7 @@
 // back.
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { formatNumber } from "../../format";
 
 /** The width inside an element's padding. */
 function innerWidth(el: HTMLElement): number {
@@ -78,5 +79,5 @@ export function useStripFits<T extends HTMLElement>(watch: unknown, enabled = tr
 /** An option's label as plain words for a select, with its count when it has one (a 0 too: the
  *  strip draws it, so the select says it). */
 export function optionText(label: string, count?: number | null): string {
-  return typeof count === "number" ? `${label} (${count})` : label;
+  return typeof count === "number" ? `${label} (${formatNumber(count)})` : label;
 }

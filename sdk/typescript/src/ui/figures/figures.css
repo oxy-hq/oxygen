@@ -111,6 +111,25 @@
   min-width: 0;
 }
 
+/* The dot-only form (`wordHidden`), where the words beside it already say the
+   state: the word stays for assistive tech, anchored to the dot's own box, so
+   it can never widen a scroller. */
+.oxy-ui-status-dot--word-hidden {
+  position: relative;
+}
+
+.oxy-ui-status-dot__word--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── CountBadge ───────────────────────────────────────────────────────────────
    The `tabCount` recipe. Positioned, so the words a screen reader hears stay
    inside the badge's own box (in a row that scrolls sideways, an absolute
@@ -311,6 +330,23 @@
 
 .oxy-ui-stat__value--end {
   margin-top: auto;
+}
+
+/* The figure's line with its ⓘ (`tipMark`), 8px after the figure: the
+   figure's top space moves to the line. */
+.oxy-ui-stat__value-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-top: var(--space-2xs);
+}
+
+.oxy-ui-stat__value-row > .oxy-ui-stat__value {
+  padding-top: 0;
+}
+
+.oxy-ui-stat__mark {
+  flex-shrink: 0;
 }
 
 .oxy-ui-stat-grid {

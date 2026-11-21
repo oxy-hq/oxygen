@@ -648,9 +648,62 @@ it before Tailwind, so its first line fixes the layer order:
 @import "tailwindcss";
 ```
 
-It maps the reference's 51 `--color-*`, 26 `--text-*` (13 steps and their line
-heights) and 8 radius steps onto theme tokens, all `var()`, inside `@theme inline`.
-Hand-written CSS still reads `var(--card)`, never `var(--color-card)`.
+It maps 56 `--color-*` (the reference's 51, plus `sidebar`, `sidebar-border`,
+`card-foreground`, `status-neutral-series` and `status-info-series`), 26 `--text-*`
+(13 steps and their line heights) and 8 radius steps onto theme tokens, all `var()`,
+inside `@theme inline`. Hand-written CSS still reads `var(--card)`, never
+`var(--color-card)`.
+
+The `--text-*` names are the reference's one type scale (decision 82), not
+Tailwind's defaults: `text-sm` is 13px, `text-lg` 20px, and the steps above `3xl`
+are display sizes (`text-4xl` is 64px, where Tailwind's is 36px). Where a figure would
+grow, pick the step closest to its old size; never restate a size name in the app.
+
+**A plain-CSS app layers its own element rules.** Every ui.css rule is in
+`@layer oxy-ui`, and an unlayered rule outranks any layered one whatever its
+specificity: a reset's `button, input { font: inherit; color: inherit }`, a
+`:where(button):focus-visible` ring or a bare `h2 { text-transform: uppercase }`
+would win over the pieces (their colours, rings and titles). Put them in
+`@layer base` and declare the order first:
+`@layer theme, base, oxy-ui, components, utilities;`. The same layering means a
+utility class (or any unlayered app rule) always beats a recipe class on the same
+element, whatever order the class list gives.
+
+**New in 2.31.0** (each opt-in, except the changes listed after the table: a piece
+that passes none of it is drawn as before):
+
+| Piece | What it takes now |
+| --- | --- |
+| `Panel` | `header` (a whole header node), `title` optional, `headingLevel` (an `<h2>`...), `as="section"` / `"aside"` + `label` (a landmark, named by its heading without one), `foldable` with `defaultOpen` / `open` / `onOpenChange` (a caret text button on the title), `right` as a function of the fold, `density="compact"` (12px in, a 12px body, the eyebrow on the title alone), `bodyClassName` |
+| `Sparkline` | `width` / `height`, `fluid` (the container's width, drawn 1:1), one series (`peerPct` optional; `sparkPoints(values)`), `area={false}`, `color`, `x` (points placed by a key such as a timestamp), `readout={{ format, periodLabel }}` (a Tab stop: arrows, Home / End and the pointer show a reading's value and period in a tooltip) |
+| `StatusDot` | `wordHidden`: the dot alone where the words beside it say the state; the word stays for assistive tech and as the hover title |
+| `DefaultTabs` | `disabled` on an option (passed over by the arrows, no click, focus kept), `stretch` (equal parts of the row), `hint` per tab (opened by keyboard focus too), a node `label` with `text` for the select; counts print grouped (`12,345`) |
+| `ParentTabs`, `TopBarTabs` | `topBarFrom` `sm` (640), `lg` (1024) and `2xl` (1440) beside `md` and `xl` |
+| `HoverHint` | `focusable`: the anchor is a Tab stop and carries the words. Renders without a DOM (server render, a node test) |
+| `Stat`, `StatGrid` | `tipMark` (a focusable ⓘ on the figure's line on a desk; on by default for a tile with a `tip`, `tipMark={false}` opts out), `valueAt="foot"` / `"top"`, and the div's own props (`title`, `aria-label`, ...) |
+| `MetricCell` | the `quiet` step (and a `quiet` threshold): the warning tint and ink at weight 400, a quieter warning under `warning` (600). Two warning tiers: notable -> `quiet`, elevated -> `warning`, severe -> `error` |
+| `SidePanel` | `id` on the dialog |
+| `useModalFocus` | `{ auto: true }` for a dialog drawn by hand: remembers the opener (even when the dialog autofocuses a field), moves focus in, traps Tab, gives focus back on close or unmount |
+| `TryAgainButton` | Try again on its own, with the focus hand-on; Try again carries `data-oxy-try-again` |
+| `LoadingBar` | `progress` defaults to one read |
+| `Button` | keeps a caller's `aria-busy` while `busy` is unset |
+| `InfoIcon` | the ⓘ glyph |
+| `useOxyMode()` (`@oxy-hq/sdk/shell`) | the mode in force (`"light"` / `"dark"`), read from `<html>` and kept current, for what a stylesheet cannot restyle (map tiles) |
+
+Drawn differently for every app: a `Chip` with neither `tone` nor `color` is
+`neutral`; the failed-read message is 13px at either size (decision 85); a trap
+skips what a closed `<details>` hides; the inset ring's forced-colours outline is
+drawn inside; `Field` wires only a labelable control; a `ConfirmDialog` body's
+paragraphs lose the browser's margins.
+
+Drawn differently for apps that use them:
+
+- **A `Stat` with a `tip` shows its ⓘ on a desk** (decision 89), so a keyboard reaches
+  the source; `tipMark={false}` keeps the hover alone. No tip, or a phone: unchanged.
+- **`TrendChart` labels hold 12px on screen at every width** (decision 92): they no
+  longer grow with the chart (about 15px in a 694px dialog before). The chart measures
+  the width it is drawn at and thins its month labels by it. At 560px and wider it is
+  the reference's 560 x 178 drawing; narrower, a desk chart draws 1:1 as `fluid` does.
 
 ### Format (`@oxy-hq/sdk/format`)
 
@@ -687,6 +740,37 @@ or `html`; `:root:not(.dark)` and Tailwind's `@custom-variant dark` are fine),
 `prefers-color-scheme`: the SDK owns light and dark). HTML files are read for their
 `<style>` blocks. It reads structurally, so `.btn--primary:focus-visible` is never
 taken for a declaration of `--primary`.
+
+Give it file names and let it read them. Vitest hands a test an empty string for a
+CSS import, `?raw` included, so `checkThemeCss` fed from
+`import.meta.glob("…", { query: "?raw" })` checks nothing; pass the glob's keys (the
+paths) instead.
+
+### The no-copy guard (`checkSdkUiCopies`, `@oxy-hq/sdk/testing`)
+
+An app's test that it keeps no copy of a piece `@oxy-hq/sdk/ui` ships:
+
+```ts
+import { checkSdkUiCopies, formatSdkUiCopies } from "@oxy-hq/sdk/testing";
+
+test("src/ keeps no copy of an @oxy-hq/sdk/ui piece", () => {
+  expect(formatSdkUiCopies(checkSdkUiCopies("src"))).toBe("");
+});
+```
+
+It reads `src/` (tests, `.d.ts` and `node_modules` left out) and reports every place a
+file defines or exports a component under an SDK piece's name (`function SidePanel`,
+`const Panel =`, `export { Mine as LoadError }`), with its `file:line`, the import to
+use (`use`) and the line that keeps a deliberate variant (`allow`). Importing or
+re-exporting the SDK's own is fine. A variant kept on purpose says why, in the file
+that defines it; the reason after `--` is required:
+
+```ts
+// oxy-ui-local: SidePanel -- docks left as well as right, which the SDK's does not
+```
+
+The names (`SDK_UI_PIECES`) are the ui entry's own components, icons and patterns
+included, held to its exports by the SDK's own tests.
 
 ## Who is using the app
 

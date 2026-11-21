@@ -128,12 +128,17 @@ describe("src/ui stylesheets", () => {
 
   it("set every font size from the type scale or a type role", () => {
     const literal: string[] = [];
+    // A label inside an SVG drawn at another size than its viewBox: the step times the drawing's
+    // units per CSS px, which lands it on the glass at the step (TrendChart, decision 92).
+    const inUnits =
+      /^calc\(var\(--type-[a-z0-9-]+-size\) \* var\(--oxy-ui-[a-z0-9-]+-units-per-px\)\)$/;
     for (const [file, text] of css)
       for (const r of rules(text))
         for (const m of r.body.matchAll(/font-size:\s*([^;]+)/g)) {
           const touch = r.within.some((w) => w.includes("pointer: coarse"));
           const ok =
             /^var\(--type-[a-z0-9-]+-size\)$/.test(m[1].trim()) ||
+            inUnits.test(m[1].trim()) ||
             (touch && m[1].trim() === "16px");
           if (!ok) literal.push(`${file}:${lineOf(text, r.at)} ${r.selector} ${m[1]}`);
         }
@@ -238,14 +243,16 @@ describe("tailwind.css", () => {
     expect(tw.trim().startsWith(LAYER_ORDER)).toBe(true);
   });
 
-  it("maps the reference's 51 --color-*, 26 --text-* and 8 radius names, each once", () => {
+  it("maps 56 --color-* (the reference's 51 and five apps paint), 26 --text-* and 8 radius names, each once", () => {
     expect(new Set(names).size).toBe(names.length);
-    expect(names.filter((n) => n.startsWith("--color-"))).toHaveLength(51);
+    expect(names.filter((n) => n.startsWith("--color-"))).toHaveLength(56);
+    for (const n of ["sidebar", "sidebar-border", "card-foreground", "status-neutral-series"])
+      expect(names, n).toContain(`--color-${n}`);
     expect(names.filter((n) => n.startsWith("--text-"))).toHaveLength(26);
     expect(names.filter((n) => n.startsWith("--radius-")).sort()).toEqual(
       ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl"].map((s) => `--radius-${s}`).sort()
     );
-    expect(names).toHaveLength(51 + 26 + 8);
+    expect(names).toHaveLength(56 + 26 + 8);
   });
 
   it("holds no literal value: every name is a var() of a theme token", () => {

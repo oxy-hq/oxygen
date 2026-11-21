@@ -76,6 +76,14 @@
   box-shadow: inset 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
 }
 
+/* The inset ring's forced-colours outline is inset too (2.31.0): its container
+   clips anything drawn outside, so an outline 2px out was cut to one edge in a
+   scrolling list (Warehouse, Command Center). Decision 18's outline is kept;
+   it is drawn where the ring is. */
+:is(.oxy-ui-focus-inset, .oxy-ui-top-bar-tab, .oxy-ui-segment):focus {
+  outline-offset: -2px;
+}
+
 /* ── Space and layout ──────────────────────────────────────────────────────
    Four gap steps, one per job, each about double the last (ui.ts:213-216);
    two paddings (ui.ts:224-225). paddingMd is the same 16px as spacingMd, so
@@ -882,13 +890,13 @@
 @media (hover: hover) {
   .oxy-ui-top-bar-tab--off:hover,
   .oxy-ui-tab--off:hover,
-  .oxy-ui-segment--off:hover:not(:disabled),
+  .oxy-ui-segment--off:hover:not(:disabled, [aria-disabled="true"]),
   .oxy-ui-section-link--off:hover {
     color: var(--foreground);
   }
 
   .oxy-ui-tab--off:hover,
-  .oxy-ui-segment--off:hover:not(:disabled),
+  .oxy-ui-segment--off:hover:not(:disabled, [aria-disabled="true"]),
   .oxy-ui-section-link--off:hover {
     background-color: var(--row-hover);
   }

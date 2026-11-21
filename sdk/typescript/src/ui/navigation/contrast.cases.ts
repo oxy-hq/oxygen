@@ -197,5 +197,23 @@ export const contrastCases: UiContrastCase[] = [
     on: ["--topbar-bg"],
     min: 4.5,
     kind: "text"
+  },
+  // ── DefaultTabs, 2.31.0: a disabled option (half strength; 1.4.3 exempts it, held to 2:1) ────
+  {
+    name: "DefaultTabs disabled: an unselected tab's label on the track",
+    fg: "--dim-foreground",
+    on: ["--segment-track", "--card"],
+    opacity: 0.5,
+    min: 2,
+    kind: "inactive"
+  },
+  {
+    name: "DefaultTabs disabled: the selected tab's label on its fill",
+    fg: "--foreground",
+    fill: "--segment-selected",
+    on: ["--segment-track", "--card"],
+    opacity: 0.5,
+    min: 2,
+    kind: "inactive"
   }
 ];

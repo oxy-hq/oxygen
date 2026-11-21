@@ -50,6 +50,40 @@
   line-height: var(--type-scale-lg-line);
 }
 
+/* `stretch`: the segments share the row's width, each an equal part (a hint's
+   anchor is the part, its tab filling it). */
+.oxy-ui-default-tabs--stretch {
+  display: flex;
+  width: 100%;
+}
+
+.oxy-ui-default-tabs--stretch > * {
+  flex: 1 1 0%;
+}
+
+.oxy-ui-default-tabs--stretch .oxy-ui-default-tabs__tab {
+  justify-content: center;
+}
+
+/* A tab with a hint: the hint's anchor sits in the strip in the tab's place,
+   and the tab fills it. */
+.oxy-ui-default-tabs__hint {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+}
+
+.oxy-ui-default-tabs__hint > .oxy-ui-default-tabs__tab {
+  flex: 1 1 auto;
+}
+
+/* A disabled option (a run in flight): half strength, no hover (decision 66),
+   still focusable, so focus is never dropped from under the reader. */
+.oxy-ui-default-tabs__tab[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .oxy-ui-default-tabs--touch .oxy-ui-default-tabs__count {
   font-size: var(--type-scale-base-size);
   line-height: var(--type-scale-base-line);
@@ -115,11 +149,24 @@
    (a 0 basis, so it never pushes either). The component measures this box and
    fills it, the rest going behind More. Hidden below its width (the base
    recipe's `display: none`). */
+.oxy-ui-parent-tabs--topbar-sm,
 .oxy-ui-parent-tabs--topbar-md,
-.oxy-ui-parent-tabs--topbar-xl {
+.oxy-ui-parent-tabs--topbar-lg,
+.oxy-ui-parent-tabs--topbar-xl,
+.oxy-ui-parent-tabs--topbar-2xl {
   position: relative;
   min-width: 0;
   flex: 1 1 0;
+}
+
+@media (min-width: 640px) {
+  .oxy-ui-parent-tabs--page-sm {
+    display: none;
+  }
+
+  .oxy-ui-parent-tabs--topbar-sm {
+    display: flex;
+  }
 }
 
 @media (min-width: 768px) {
@@ -132,12 +179,32 @@
   }
 }
 
+@media (min-width: 1024px) {
+  .oxy-ui-parent-tabs--page-lg {
+    display: none;
+  }
+
+  .oxy-ui-parent-tabs--topbar-lg {
+    display: flex;
+  }
+}
+
 @media (min-width: 1280px) {
   .oxy-ui-parent-tabs--page-xl {
     display: none;
   }
 
   .oxy-ui-parent-tabs--topbar-xl {
+    display: flex;
+  }
+}
+
+@media (min-width: 1440px) {
+  .oxy-ui-parent-tabs--page-2xl {
+    display: none;
+  }
+
+  .oxy-ui-parent-tabs--topbar-2xl {
     display: flex;
   }
 }

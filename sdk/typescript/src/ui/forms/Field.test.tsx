@@ -93,6 +93,23 @@ describe("Field", () => {
     expect(input().hasAttribute("aria-invalid")).toBe(false);
   });
 
+  it("wires only a labelable control: a wrapper round an input and its unit is left alone (2.31.0)", async () => {
+    await render(
+      <Field id='in-cap' label='Weekly cap' hint='Most a store may order in a week.'>
+        <div className='with-unit'>
+          <input id='in-cap' aria-describedby={describedBy("in-cap")} />
+          <span>cases</span>
+        </div>
+      </Field>
+    );
+    const wrap = $(".with-unit") as HTMLElement;
+    expect(wrap.hasAttribute("id")).toBe(false);
+    expect(wrap.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.querySelectorAll("#in-cap")).toHaveLength(1);
+    // The label names the input the caller wired by hand.
+    expect(($("label") as HTMLLabelElement).control).toBe(input());
+  });
+
   it("labels a composite control with a span and leaves it unwired", async () => {
     await render(
       <Field label='People' hint='Everyone on the dock'>

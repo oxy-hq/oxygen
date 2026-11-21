@@ -29,9 +29,12 @@ export interface ParentTab<K extends string> {
  *  shell). */
 export type ParentTabsPlacement = "topbar" | "page" | "inline";
 
-/** The width from which the strip rides in the top bar: 768px (`md`, where OxyShell swaps its
- *  menu button for the rail) or 1280px (`xl`, a top bar already carrying something else). */
-export type TopBarFrom = "md" | "xl";
+/** The width from which the strip rides in the top bar: 640px (`sm`, where a phone layout that
+ *  starts below 640 hands over to the desk: Bookkeeping), 768px (`md`, where OxyShell swaps its
+ *  menu button for the rail), 1024px (`lg`: Supply Chain's five tabs beside the breadcrumb and
+ *  the clock), 1280px (`xl`, a top bar already carrying something else) or 1440px (`2xl`: an
+ *  eight-tab strip beside Ask, decision 29). Below it the strip is the page's first row. */
+export type TopBarFrom = "sm" | "md" | "lg" | "xl" | "2xl";
 
 export interface ParentTabsProps<K extends string> {
   /** Names the CHOICE, not the section: the h1 below already says which screen this is. */

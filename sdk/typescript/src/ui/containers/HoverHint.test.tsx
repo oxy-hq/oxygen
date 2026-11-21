@@ -190,4 +190,38 @@ describe("HoverHint", () => {
     await focusOn(mark);
     expect(mark?.getAttribute("aria-describedby")).toBe(bubble()?.id);
   });
+
+  it("focusable: the words become a Tab stop that opens the bubble and says them once", async () => {
+    await render(
+      <p>
+        Posted{" "}
+        <HoverHint text='QuickBooks refused the bill: the vendor is inactive.' focusable>
+          <span id='why'>failed</span>
+        </HoverHint>
+      </p>
+    );
+    const anchor = $(".oxy-ui-hover-hint") as HTMLElement;
+    expect(anchor.tabIndex).toBe(0);
+    expect(anchor.classList).toContain("oxy-ui-focus");
+    // The words ride in the anchor's own text, for assistive tech, hidden from the eye.
+    const words = $(".oxy-ui-hover-hint__words") as HTMLElement;
+    expect(words.textContent).toBe(" QuickBooks refused the bill: the vendor is inactive.");
+    expect(anchor.textContent).toBe("failed QuickBooks refused the bill: the vendor is inactive.");
+    await focusOn(anchor);
+    expect(bubble()?.textContent).toBe("QuickBooks refused the bill: the vendor is inactive.");
+    // Not described by the bubble too: the words would be read twice.
+    expect(anchor.hasAttribute("aria-describedby")).toBe(false);
+    await press("Escape");
+    expect(bubble()).toBeNull();
+  });
+
+  it("without focusable, words stay out of the Tab order and carry no hidden copy", async () => {
+    await render(
+      <HoverHint text='Posted 3 Nov'>
+        <span>Posted</span>
+      </HoverHint>
+    );
+    expect($(".oxy-ui-hover-hint")?.hasAttribute("tabindex")).toBe(false);
+    expect($(".oxy-ui-hover-hint__words")).toBeNull();
+  });
 });
