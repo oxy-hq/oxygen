@@ -19,11 +19,9 @@ use crate::postgres_tests::{Dsn, test_dsn};
 /// The server, or `None` (skip) when there is none and CI did not ask for
 /// one.
 pub(super) async fn dsn() -> Option<Dsn> {
+    // `test_dsn` panics when `OXY_TEST_REQUIRE_POSTGRES=1` and there is none.
     let dsn = test_dsn().await;
     if dsn.is_none() {
-        if std::env::var("OXY_TEST_REQUIRE_POSTGRES").as_deref() == Ok("1") {
-            panic!("OXY_TEST_REQUIRE_POSTGRES=1 but no Postgres is reachable");
-        }
         eprintln!("skipping: Docker not available and OXY_TEST_POSTGRES_URL not set");
     }
     dsn

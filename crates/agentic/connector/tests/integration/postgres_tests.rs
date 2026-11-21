@@ -52,8 +52,14 @@ impl Dsn {
     }
 }
 
+/// The shared server, or `None` (skip) when there is none.
+///
+/// Every Postgres test in this binary gets its database here, so this is the
+/// one place that honours `OXY_TEST_REQUIRE_POSTGRES=1` (CI sets it): with it
+/// set, "no Postgres" panics with the reason instead of letting the caller
+/// skip and report a pass.
 pub(crate) async fn test_dsn() -> Option<Dsn> {
-    TEST_DSN
+    let dsn = TEST_DSN
         .get_or_try_init(|| async {
             if let Some(dsn) = Dsn::from_env() {
                 return Ok::<_, String>(dsn);
@@ -77,9 +83,20 @@ pub(crate) async fn test_dsn() -> Option<Dsn> {
                 database: "postgres".to_string(),
             })
         })
-        .await
-        .ok()
-        .cloned()
+        .await;
+    match dsn {
+        Ok(dsn) => Some(dsn.clone()),
+        Err(reason) => {
+            if std::env::var("OXY_TEST_REQUIRE_POSTGRES").as_deref() == Ok("1") {
+                panic!(
+                    "OXY_TEST_REQUIRE_POSTGRES=1 but no Postgres is available \
+                     (OXY_TEST_POSTGRES_URL unset or unusable, and the testcontainer \
+                     failed: {reason})"
+                );
+            }
+            None
+        }
+    }
 }
 
 async fn skip_without_docker() -> Option<PostgresConnector> {
