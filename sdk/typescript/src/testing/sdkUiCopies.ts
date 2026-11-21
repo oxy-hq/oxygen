@@ -7,9 +7,12 @@
 //
 // It reads the source files under `srcDir` (tests, `.d.ts` and `node_modules` left out) and finds
 // every place a file DEFINES or EXPORTS a component under the name of an SDK piece:
-// `function SidePanel`, `const Panel =`, `class Modal`, `export { Mine as LoadError }`. Importing
-// the SDK's own, or re-exporting it from `@oxy-hq/sdk/...`, is fine. A deliberate local variant,
-// kept on purpose, says why in the file that defines it:
+// `function SidePanel`, `class Modal`, `const Panel = () => ...` (or a function or class
+// expression, `forwardRef(...)`, `memo(...)`), `export { Mine as LoadError }`. Importing the
+// SDK's own, or re-exporting it from `@oxy-hq/sdk/...`, is fine, and so is a local that only
+// holds a component (`const Glyph = app.glyph`, `const Icon = Icons[kind]`): it defines nothing,
+// so it cannot drift (2.31.1). A deliberate local variant, kept on purpose, says why in the file
+// that defines it:
 //
 //   // oxy-ui-local: SidePanel -- docks left as well as right, which the SDK's does not
 //
@@ -100,15 +103,117 @@ function blankComments(text: string): string {
   return out;
 }
 
-/** Every `{ name, at }` the code declares, or exports under, an SDK piece's name. */
+const skipSpace = (code: string, i: number) => {
+  let at = i;
+  while (at < code.length && /\s/.test(code[at])) at += 1;
+  return at;
+};
+
+/** The index just past the bracket that closes the one at `open` (`(` or `<`), or -1. An arrow's
+ *  `=>` inside a type is not a closing `>`. */
+function closing(code: string, open: number): number {
+  const [o, c] = code[open] === "<" ? ["<", ">"] : ["(", ")"];
+  let depth = 0;
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === "=" && code[i + 1] === ">") {
+      i += 1;
+      continue;
+    }
+    if (code[i] === o) depth += 1;
+    else if (code[i] === c) {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/** From `i`, inside a type annotation, to the `=` that assigns (or, with `arrow`, the `=>` that
+ *  ends a return type): its index, or -1 where the declaration ends first. */
+function pastType(code: string, i: number, arrow: boolean): number {
+  let depth = 0;
+  for (let at = i; at < code.length; at++) {
+    const c = code[at];
+    if (c === "=" && code[at + 1] === ">") {
+      if (arrow && depth === 0) return at;
+      at += 1;
+    } else if ("([{<".includes(c)) depth += 1;
+    else if (")]}>".includes(c)) {
+      depth -= 1;
+      if (depth < 0) return -1;
+    } else if (depth === 0 && (c === ";" || c === ",")) return -1;
+    else if (depth === 0 && c === "=" && !arrow) return code[at + 1] === "=" ? -1 : at;
+  }
+  return -1;
+}
+
+/** Where the initializer of the binding whose name ends at `i` starts, or -1 if it has none
+ *  (`let Chip;`, `let Chip: FC;`). */
+function initializerAt(code: string, i: number): number {
+  let at = skipSpace(code, i);
+  if (code[at] === ":") at = pastType(code, at + 1, false);
+  if (at < 0 || code[at] !== "=" || code[at + 1] === "=" || code[at + 1] === ">") return -1;
+  return at + 1;
+}
+
+/**
+ * Whether the expression at `i` defines a component: a function or class expression, an arrow,
+ * or a `forwardRef(...)` / `memo(...)` (bare or as `React.memo`). Anything else is not: a member
+ * chain or an identifier that only holds one (`app.glyph`, `Icons[kind]`), a call, a value.
+ */
+function definesComponent(code: string, i: number): boolean {
+  let at = skipSpace(code, i);
+  const head = code.slice(at, at + 64);
+  if (/^(?:async\s+)?function\b/.test(head) || /^class\b/.test(head)) return true;
+  if (/^(?:[A-Za-z_$][\w$]*\s*\.\s*)?(?:forwardRef|memo)\s*[<(]/.test(head)) return true;
+  const async = /^async\s+(?=[(<A-Za-z_$])/.exec(head);
+  if (async) at = skipSpace(code, at + async[0].length);
+  if (code[at] === "<") {
+    // An arrow's type parameters: `<T,>(props: P<T>) => ...`.
+    const end = closing(code, at);
+    if (end < 0) return false;
+    at = skipSpace(code, end);
+  }
+  if (code[at] === "(") {
+    const end = closing(code, at);
+    if (end < 0) return false;
+    let next = skipSpace(code, end);
+    if (code[next] === ":") next = pastType(code, next + 1, true);
+    if (next >= 0 && code.startsWith("=>", next)) return true;
+    // Not an arrow's parameters: a parenthesised expression, `(() => null)` or `(Panel)`.
+    return !async && definesComponent(code, at + 1);
+  }
+  const param = /^[A-Za-z_$][\w$]*/.exec(code.slice(at, at + 64));
+  return param !== null && code.startsWith("=>", skipSpace(code, at + param[0].length));
+}
+
+/** Every `const` / `let` / `var` binding in the code: its name, where it is, and whether its
+ *  value defines a component. */
+function bindings(code: string) {
+  const out: { name: string; at: number; defines: boolean }[] = [];
+  for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) {
+    const init = initializerAt(code, (m.index ?? 0) + m[0].length);
+    out.push({ name: m[1], at: m.index ?? 0, defines: init >= 0 && definesComponent(code, init) });
+  }
+  return out;
+}
+
+/**
+ * Every `{ name, at }` the code DEFINES, or exports under, an SDK piece's name: a function or
+ * class declaration; a `const` / `let` / `var` whose value is a function or class expression, an
+ * arrow, or `forwardRef(...)` / `memo(...)`; and `export { Mine as Panel }` from the app's own
+ * code. A binding that only holds a component (`const Glyph = app.glyph`) defines nothing, and
+ * neither does exporting it under a piece's name.
+ */
 function definitions(code: string, original: string, pieces: ReadonlySet<string>) {
   const found: { name: string; at: number }[] = [];
-  const declared =
-    /\b(?:function\s*\*?|class)\s+([A-Z][A-Za-z0-9_$]*)|\b(?:const|let|var)\s+([A-Z][A-Za-z0-9_$]*)\s*[:=]/g;
-  for (const m of code.matchAll(declared)) {
-    const name = m[1] ?? m[2];
-    if (name && pieces.has(name)) found.push({ name, at: m.index ?? 0 });
+  for (const m of code.matchAll(/\b(?:function\s*\*?|class)\s+([A-Z][A-Za-z0-9_$]*)/g)) {
+    if (pieces.has(m[1])) found.push({ name: m[1], at: m.index ?? 0 });
   }
+  const bound = bindings(code);
+  for (const b of bound) if (b.defines && pieces.has(b.name)) found.push(b);
+  // A local that only holds a component: exported under a piece's name, it is still no copy.
+  const holders = new Set(bound.filter((b) => !b.defines).map((b) => b.name));
   // The module a re-export names is a string, blanked in `code`: read it from the original.
   const exported = /\bexport\s+(?:type\s+)?\{([^}]*)\}(\s*from\s*)?/g;
   for (const m of code.matchAll(exported)) {
@@ -118,9 +223,11 @@ function definitions(code: string, original: string, pieces: ReadonlySet<string>
       : undefined;
     if (from?.startsWith("@oxy-hq/sdk")) continue;
     for (const spec of m[1].split(",")) {
-      const alias = /\bas\s+([A-Za-z0-9_$]+)\s*$/.exec(spec.trim());
-      // `export { Panel }` names a local the declaration pattern already reported.
-      if (alias && pieces.has(alias[1])) found.push({ name: alias[1], at });
+      const alias = /^(?:type\s+)?([A-Za-z0-9_$]+)\s+as\s+([A-Za-z0-9_$]+)$/.exec(spec.trim());
+      // `export { Panel }` names a local the declaration patterns already read.
+      if (!alias || !pieces.has(alias[2])) continue;
+      if (!m[2] && holders.has(alias[1])) continue;
+      found.push({ name: alias[2], at });
     }
   }
   return found;
@@ -194,9 +301,13 @@ export function checkSdkUiCopies(
         message: `allow-lists ${name} without a reason: say why after "--"`
       });
     }
+    // One finding per name and line: `const Panel = memo(function Panel() {})` is one copy.
+    const seen = new Set<string>();
     for (const d of definitions(blankComments(text), text, pieces)) {
       if (allowed.has(d.name)) continue;
       const line = lineAt(text, d.at);
+      if (seen.has(`${line} ${d.name}`)) continue;
+      seen.add(`${line} ${d.name}`);
       out.push({
         file,
         line,

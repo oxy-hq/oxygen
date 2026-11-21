@@ -20,6 +20,10 @@
 // a flat series gets a scale around its value instead of one its line does not sit on; and the
 // keyboard reads it too, where the reference's was mouse-only: the plot is a slider over the
 // months (arrows step them, Home and End, Escape clears), its value the month's readout.
+// 2.31.1: no two y labels print the same (`valueAxis`): a scale under two label steps tall took
+// one label twice ("25%", "25%"); its labels now take the readout's decimal (a percent chart's
+// plot starting 12 further in for them, `PAD_L_FINE`), and one too narrow even for that is
+// widened around its middle. A chart whose labels differed draws as before.
 //
 // The expanded trend: the same two series as the Sparkline, now readable. No legend box: the two
 // lines are direct-labelled, the more dependable identity channel. One y-scale for both series:
@@ -40,7 +44,7 @@ import { createPortal } from "react-dom";
 import { cx } from "../cx";
 import { ui } from "../recipes";
 import type { StatusTone } from "../tone";
-import { axisTickLabels, labelledIndices, monthLabel } from "./axis";
+import { axisTickLabels, labelledIndices, monthLabel, valueAxis } from "./axis";
 import { PointMark, type PointShape } from "./marks";
 import { type SeriesShape, seriesColour, seriesGeometry, type TrendPoint } from "./series";
 
@@ -49,6 +53,9 @@ const H = 178;
 /** Room for the y labels: one ending 6 from its gridline reads as part of the line, 10 apart it
  *  reads as its value, and the widest ("100%") still starts inside the frame. */
 const PAD_L = 40;
+/** A percent label with the readout's decimal ("25.4%", "100.0%") is up to 12 wider at 12px than
+ *  a whole one: its room, where the axis takes that step (2.31.1). */
+const PAD_L_FINE = 52;
 /** The air between a y label and the gridline it names. */
 const Y_LABEL_GAP = 10;
 /** Room for the end labels: "Comparable" at the xs step is 68.5 wide. */
@@ -156,18 +163,24 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
   );
   // SVG units per CSS px: what holds a label at its px size on the glass. 1 unmeasured.
   const unitsPerPx = drawn ? W / drawn : 1;
+  // One scale for both series; a flat one still gets a scale its line sits on (its value in the
+  // middle), and no two gridlines print the same label (2.31.1).
+  const axis = useMemo(
+    () =>
+      valueAxis(
+        points.flatMap((p) => [p.observedPct, p.peerPct]),
+        unit
+      ),
+    [points, unit]
+  );
+  const padL = axis.fine && unit === "percent" ? PAD_L_FINE : PAD_L;
   const padR = fluid ? FLUID_PAD_R : FIXED_PAD_R;
-  const plotW = W - PAD_L - padR;
+  const plotW = W - padL - padR;
   const plotH = H - PAD_Y - PAD_B;
-  const g = useMemo(() => {
-    const values = points.flatMap((p) => [p.observedPct, p.peerPct]);
-    const lo = values.length ? Math.min(...values) : 0;
-    const hi = values.length ? Math.max(...values) : 0;
-    // A flat series still gets a scale its line sits on: its value in the middle.
-    const spread = unit === "stars" ? 0.1 : 1;
-    const domain: [number, number] = hi > lo ? [lo, hi] : [lo - spread, hi + spread];
-    return seriesGeometry(points, plotW, plotH, 0, domain);
-  }, [points, plotW, plotH, unit]);
+  const g = useMemo(
+    () => seriesGeometry(points, plotW, plotH, 0, axis.domain),
+    [points, plotW, plotH, axis]
+  );
   const fmt = format ?? ((v: number) => (unit === "stars" ? v.toFixed(2) : `${v.toFixed(1)}%`));
 
   if (!enough) {
@@ -175,9 +188,8 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
   }
 
   const n = points.length;
-  const xAt = (i: number) => PAD_L + (g.observed[i]?.x ?? 0);
+  const xAt = (i: number) => padL + (g.observed[i]?.x ?? 0);
   const yAt = (v: number) => PAD_Y + g.y(v);
-  const ticks = [g.min, (g.min + g.max) / 2, g.max];
   const periods = points.map((p) => p.period);
   // Thinned by the drawn width (Watchlist's): labels sit as close as their 12px widths allow.
   const shown = labelledIndices(periods, plotW, unitsPerPx);
@@ -249,24 +261,24 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
           className='oxy-ui-trend-chart__svg'
           style={{ [UNITS_PER_PX]: String(Number(unitsPerPx.toFixed(4))) } as CSSProperties}
         >
-          {ticks.map((t, i) => (
+          {axis.ticks.map((t, i) => (
             <g key={i}>
               <line
-                x1={PAD_L}
-                x2={PAD_L + plotW}
+                x1={padL}
+                x2={padL + plotW}
                 y1={yAt(t)}
                 y2={yAt(t)}
                 stroke='var(--border-subtle)'
                 strokeWidth={1}
               />
               <text
-                x={PAD_L - Y_LABEL_GAP}
+                x={padL - Y_LABEL_GAP}
                 y={yAt(t) + 3}
                 textAnchor='end'
                 className='oxy-ui-trend-chart__tick'
                 data-axis='value'
               >
-                {unit === "stars" ? t.toFixed(1) : `${Math.round(t)}%`}
+                {axis.labels[i]}
               </text>
             </g>
           ))}
@@ -276,7 +288,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
             shown.has(i) ? (
               <text
                 key={p.period}
-                x={i === 0 ? PAD_L : i === n - 1 ? PAD_L + plotW : xAt(i)}
+                x={i === 0 ? padL : i === n - 1 ? padL + plotW : xAt(i)}
                 y={PAD_Y + plotH + X_LABEL_DROP}
                 textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
                 className='oxy-ui-trend-chart__tick'
@@ -297,7 +309,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
               </defs>
               <path
                 d={g.observedArea}
-                transform={`translate(${PAD_L},${PAD_Y})`}
+                transform={`translate(${padL},${PAD_Y})`}
                 fill={`url(#${areaId})`}
                 stroke='none'
               />
@@ -317,7 +329,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
             ))}
           <path
             d={g.peerPath}
-            transform={`translate(${PAD_L},${PAD_Y})`}
+            transform={`translate(${padL},${PAD_Y})`}
             fill='none'
             stroke='var(--trend-peer)'
             strokeWidth={2}
@@ -328,7 +340,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
           {shape === "line" && (
             <path
               d={g.observedPath}
-              transform={`translate(${PAD_L},${PAD_Y})`}
+              transform={`translate(${padL},${PAD_Y})`}
               fill='none'
               stroke={colour}
               strokeWidth={2}
@@ -339,13 +351,13 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
           )}
 
           <text
-            x={PAD_L + plotW + 8}
+            x={padL + plotW + 8}
             y={ownY + 3}
             className='oxy-ui-trend-chart__end oxy-ui-trend-chart__end--own'
           >
             {lineLabel}
           </text>
-          <text x={PAD_L + plotW + 8} y={peerY + 3} className='oxy-ui-trend-chart__end'>
+          <text x={padL + plotW + 8} y={peerY + 3} className='oxy-ui-trend-chart__end'>
             {peerLabel}
           </text>
 
@@ -396,7 +408,7 @@ export function TrendChart<P extends TrendPoint = TrendPoint>({
           {!on && g.lastPoint && (
             <PointMark
               shape={point}
-              x={PAD_L + g.lastPoint.x}
+              x={padL + g.lastPoint.x}
               y={PAD_Y + g.lastPoint.y}
               r={4}
               colour={colour}

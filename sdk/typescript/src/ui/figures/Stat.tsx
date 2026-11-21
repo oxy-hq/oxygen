@@ -5,8 +5,7 @@
 // a phone layout that provides `TapHintFrame` (containers' HoverHint, drawing the kit's
 // `PhoneHint`) gets an ⓘ after the label. Not `usePhoneLayout()` (CONVENTIONS section 3): the
 // frame is what the reference app's phone layout already provides, so its move is an import
-// swap, and where no layout provides one the desk HoverHint answers a tap itself. `KpiTile` in
-// other apps is this piece (BEYOND-GALLERY row 17).
+// swap. `KpiTile` in other apps is this piece (BEYOND-GALLERY row 17).
 //
 // A labelled figure: the one for every tile that is a number with a name over it.
 //
@@ -40,6 +39,12 @@
 //     whose two-to-a-row tiles are of unequal height).
 //   - the tile takes the div's own props (`title`, `aria-*`, `id`): Supplier Ordering's tiles
 //     carry a hint on the whole tile. `StatGrid` the same (Amazon P&L names its grid).
+//
+// 2.31.1: `OxyShell` provides the frame on a phone layout (shell `PhoneTapHintFrame`, which says
+// why there and not a coarse-pointer test here). Before, an app whose phone layout did not provide
+// it (every one but Poke House Bookkeeping) drew the desk ⓘ on a phone, and a tap on that ⓘ is a
+// press on a control, which the desk HoverHint answers by closing: the source was out of reach by
+// touch. An app's own frame still wins; the desk is unchanged.
 
 import type { ComponentPropsWithRef, CSSProperties, ReactNode } from "react";
 import { HoverHint, useTapHint } from "../containers";

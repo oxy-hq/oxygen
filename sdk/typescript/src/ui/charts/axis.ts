@@ -5,6 +5,67 @@
 // the position-aware thinning (first and last always, a label between only where it clears its
 // predecessor AND the last), the widths measured at 12px in the system face, the year on the first
 // tick and on each new year's. New: the month words are an argument (`format`), English by default.
+//
+// 2.31.1: `valueAxis`, the y scale and its three labels, which never print the same label twice.
+
+/** What the y-axis measures: a percentage (whole-percent labels) or a rating (one decimal). */
+export type ValueUnit = "percent" | "stars";
+
+/** The labels' decimals: as drawn since 2.30.0, and the finer step (the readout's own, "24.6%",
+ *  "4.46") they take where two would otherwise print the same. */
+const TICK_DECIMALS: Record<ValueUnit, readonly [coarse: number, fine: number]> = {
+  percent: [0, 1],
+  stars: [1, 2]
+};
+/** A flat series: a scale this far either side of its value. */
+const FLAT_SPREAD: Record<ValueUnit, number> = { percent: 1, stars: 0.1 };
+/** The narrowest scale: two fine steps between neighbouring gridlines, so their labels always
+ *  differ at the fine step. */
+const MIN_SPAN: Record<ValueUnit, number> = { percent: 0.4, stars: 0.04 };
+
+export interface ValueAxis {
+  /** The scale, low to high: the values' own extent, unless flat or too narrow to label. */
+  domain: [number, number];
+  /** The three gridlines' values: the low end, the middle, the high end. */
+  ticks: [number, number, number];
+  /** Their labels, low to high, no two the same. */
+  labels: [string, string, string];
+  /** Whether the labels took the finer step (wider: "25.4%" where "25%" was). */
+  fine: boolean;
+}
+
+function tickLabel(value: number, unit: ValueUnit, decimals: number): string {
+  if (unit === "percent" && decimals === 0) return `${Math.round(value)}%`;
+  // A value that rounds to nothing reads "0.0", not "-0.0".
+  const text = value.toFixed(decimals).replace(/^-(?=0(?:\.0*)?$)/, "");
+  return unit === "percent" ? `${text}%` : text;
+}
+
+/**
+ * The y scale for `values` and its three gridlines' labels. The scale is the values' own extent;
+ * a flat series gets one around its value; one narrower than `MIN_SPAN` is widened to it around
+ * its middle (from zero, for data that is not below it), so the labels can always differ. They are
+ * whole percents, or a rating's one decimal, as before; where two of those would print the same,
+ * all three take one more decimal. Wherever the coarse labels already differed, the scale and the
+ * labels are what they were.
+ */
+export function valueAxis(values: readonly number[], unit: ValueUnit): ValueAxis {
+  const lo = values.length ? Math.min(...values) : 0;
+  const hi = values.length ? Math.max(...values) : 0;
+  let domain: [number, number];
+  if (!(hi > lo)) domain = [lo - FLAT_SPREAD[unit], hi + FLAT_SPREAD[unit]];
+  else if (hi - lo < MIN_SPAN[unit]) {
+    const from = Math.max((lo + hi) / 2 - MIN_SPAN[unit] / 2, lo >= 0 ? 0 : -Infinity);
+    domain = [from, from + MIN_SPAN[unit]];
+  } else domain = [lo, hi];
+  const ticks: [number, number, number] = [domain[0], (domain[0] + domain[1]) / 2, domain[1]];
+  const [coarse, fine] = TICK_DECIMALS[unit];
+  const at = (decimals: number) =>
+    ticks.map((t) => tickLabel(t, unit, decimals)) as [string, string, string];
+  const labels = at(coarse);
+  if (new Set(labels).size === labels.length) return { domain, ticks, labels, fine: false };
+  return { domain, ticks, labels: at(fine), fine: true };
+}
 
 /** The month labels' rhythm: two labels' centres at least this far apart, in SVG units. */
 const X_LABEL_W = 64;

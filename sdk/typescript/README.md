@@ -705,6 +705,21 @@ Drawn differently for apps that use them:
   the width it is drawn at and thins its month labels by it. At 560px and wider it is
   the reference's 560 x 178 drawing; narrower, a desk chart draws 1:1 as `fluid` does.
 
+**Fixed in 2.31.1**, each drawn differently only where it bit:
+
+- **A `Stat`'s `tip` taps on a phone with no frame from the app.** Inside `OxyShell`, on
+  a phone layout (`usePhoneLayout()`), the tip is the kit's tap ⓘ after the label, as
+  it already was where the app provided `TapHintFrame`; before, the desk ⓘ showed and a
+  finger could not open it. An app's own frame, inside the shell or around it, wins; the
+  desk, a touch tablet's included, is unchanged.
+- **A `TrendChart` y-axis never prints one label twice.** Where two gridlines' whole
+  percents (a rating: tenths) would match, all three labels take the readout's decimal
+  (`24.2%`, `24.8%`, `25.4%`), with 12 units more room on a percent chart's left; a
+  scale under 0.4 points (0.04 stars) is widened around its middle, from zero for data
+  that is not below it. A chart whose labels differed draws as before.
+- **`checkSdkUiCopies` passes a local that only holds a component** (`const Glyph =
+  app.glyph`); it reports definitions only.
+
 ### Format (`@oxy-hq/sdk/format`)
 
 Figures, dates and lists for a reader: `formatMoney`, `formatNumber`,
@@ -760,9 +775,11 @@ test("src/ keeps no copy of an @oxy-hq/sdk/ui piece", () => {
 
 It reads `src/` (tests, `.d.ts` and `node_modules` left out) and reports every place a
 file defines or exports a component under an SDK piece's name (`function SidePanel`,
-`const Panel =`, `export { Mine as LoadError }`), with its `file:line`, the import to
+`class Modal`, `const Panel = () => …`, a function or class expression, `forwardRef(…)`
+or `memo(…)`, `export { Mine as LoadError }`), with its `file:line`, the import to
 use (`use`) and the line that keeps a deliberate variant (`allow`). Importing or
-re-exporting the SDK's own is fine. A variant kept on purpose says why, in the file
+re-exporting the SDK's own is fine, and so is a local that only holds a component
+(`const Glyph = app.glyph`, `const Icon = Icons[kind]`): it defines nothing. A variant kept on purpose says why, in the file
 that defines it; the reason after `--` is required:
 
 ```ts

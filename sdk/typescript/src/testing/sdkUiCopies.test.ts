@@ -34,7 +34,7 @@ describe("checkSdkUiCopies", () => {
       "src/chrome/Panel.tsx":
         "import type { ReactNode } from 'react';\n\nexport function Panel() {\n  return null;\n}\n",
       "src/chrome/bits.tsx":
-        "export const Stat = () => null;\nlet Chip: unknown;\nclass Modal {}\n",
+        "export const Stat = () => null;\nlet Chip = function () {};\nclass Modal {}\n",
       "src/chrome/index.ts": "import { Mine } from './Mine';\nexport { Mine as LoadError };\n"
     });
     expect(found(root)).toEqual([
@@ -44,6 +44,80 @@ describe("checkSdkUiCopies", () => {
       "src/chrome/bits.tsx:3 copy Modal",
       "src/chrome/index.ts:2 copy LoadError"
     ]);
+  });
+
+  it("2.31.1: finds every way a const defines a component, typed, generic, wrapped or exported", () => {
+    const root = app({
+      "src/forms.tsx": [
+        "const Stat = (props) => null;",
+        "const Chip = props => null;",
+        "const Panel = function () {};",
+        "const Modal = class {};",
+        "const Field = forwardRef((props, ref) => null);",
+        "const SearchField = React.forwardRef<HTMLInputElement, P>((props, ref) => null);",
+        "const Segmented = memo(function Segmented() {});",
+        "const Button = React.memo(Inner);",
+        "const StatGrid: FC<Props> = ({ children }) => null;",
+        "const Sparkline: (p: { a: string }) => null = (p) => null;",
+        "const TrendChart = <T,>(props: { rows: T[] }) => null;",
+        "const StatusDot = ({ tone }: Props): ReactNode => null;",
+        "const LoadError = (() => null);",
+        "export const Loading = async () => null;",
+        "export const EmptyState = (",
+        "  props: Props",
+        ") => null;",
+        "function Mine() {}",
+        "export { Mine as AlertStrip };"
+      ].join("\n")
+    });
+    expect(found(root)).toEqual([
+      "src/forms.tsx:1 copy Stat",
+      "src/forms.tsx:2 copy Chip",
+      "src/forms.tsx:3 copy Panel",
+      "src/forms.tsx:4 copy Modal",
+      "src/forms.tsx:5 copy Field",
+      "src/forms.tsx:6 copy SearchField",
+      "src/forms.tsx:7 copy Segmented",
+      "src/forms.tsx:8 copy Button",
+      "src/forms.tsx:9 copy StatGrid",
+      "src/forms.tsx:10 copy Sparkline",
+      "src/forms.tsx:11 copy TrendChart",
+      "src/forms.tsx:12 copy StatusDot",
+      "src/forms.tsx:13 copy LoadError",
+      "src/forms.tsx:14 copy Loading",
+      "src/forms.tsx:15 copy EmptyState",
+      "src/forms.tsx:19 copy AlertStrip"
+    ]);
+  });
+
+  it("2.31.1: leaves a local that only holds a component alone, exported or not", () => {
+    // The reference app had to rename two of these (`const Glyph = app.glyph`) under 2.31.0.
+    const root = app({
+      "src/aliases.tsx": [
+        "export function Tile({ app }) {",
+        "  const Glyph = app.glyph;",
+        "  const Icon = Icons[kind];",
+        "  let Panel = props.as;",
+        "  const Modal = (app.modal);",
+        "  const Chip: ComponentType<P> = theme.chip;",
+        "  var Stat = StatusTile;",
+        "  return null;",
+        "}",
+        "export const LoadError = registry.loadError;",
+        "const held = app.glyph;",
+        "export { held as SearchField, Tile as Segmented };"
+      ].join("\n")
+    });
+    // `Tile` is a function: exported under a piece's name, it is a copy all the same.
+    expect(found(root)).toEqual(["src/aliases.tsx:12 copy Segmented"]);
+  });
+
+  it("2.31.1: does not read a value that is no component as a copy", () => {
+    const root = app({
+      "src/values.ts":
+        "export const Chip = 1;\nlet Stat: unknown;\nconst Panel = useMemo(() => 1, []);\nconst Modal = open ? A : B;\n"
+    });
+    expect(found(root)).toEqual([]);
   });
 
   it("says which import replaces a copy, and the line that keeps a deliberate one", () => {
@@ -81,7 +155,7 @@ describe("checkSdkUiCopies", () => {
       "src/kept.tsx":
         "// oxy-ui-local: SidePanel, Modal -- docks left as well as right, which the SDK's does not\nexport function SidePanel() {}\nexport function Modal() {}\n",
       "src/bare.tsx": "// oxy-ui-local: Stat\nexport function Stat() {}\n",
-      "src/dashes.tsx": "// oxy-ui-local: Chip --\nexport const Chip = 1;\n"
+      "src/dashes.tsx": "// oxy-ui-local: Chip --\nexport const Chip = () => null;\n"
     });
     expect(found(root)).toEqual([
       "src/bare.tsx:1 unexplained Stat",

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.1] - 2026-11-21
+
+### Fixed
+
+- **A `Stat`'s `tip` taps on a phone with no frame from the app.** The tip took the phone kit's
+  tap ⓘ after the label only where the app wrapped its phone layout in `TapHintFrame` (Poke
+  House Bookkeeping alone); every other app's phone drew the desk ⓘ, and a tap on it closed the
+  hint rather than opening it. `OxyShell` now provides the frame on a phone layout
+  (`usePhoneLayout()`), so every app inside the shell gets the tap form. An app's own frame,
+  inside the shell or around it, still wins; the desk is unchanged, a touch tablet's or a
+  kiosk's desk layout included; a server render draws the desk. On a phone, `useTippedMin`
+  now widens a tipped tile's `min` by the ⓘ in these apps too.
+- **A `TrendChart` y-axis never prints the same label twice.** Its three gridlines are labelled
+  in whole percents (a rating: tenths), so a scale under two of those steps printed one label
+  twice ("24%", "25%", "25%"). Where two would match, all three take the readout's decimal
+  ("24.2%", "24.8%", "25.4%"), and a percent chart's plot starts 12 units further in to make
+  room for them; a scale under 0.4 points (0.04 stars) is widened to that around its middle,
+  from zero for data that is not below it. A chart whose labels already differed draws exactly
+  as before.
+- **`checkSdkUiCopies` no longer reports a local that only holds a component**
+  (`const Glyph = app.glyph`, `const Icon = Icons[kind]`), exported or not. It reports
+  definitions only: function and class declarations, a binding whose value is a function or
+  class expression, an arrow, `forwardRef(...)` or `memo(...)`, and exports of those. A binding
+  of a value that is no component (`const Chip = 1`) is no longer reported either.
+
 ## [2.31.0] - 2026-11-20
 
 ### Added

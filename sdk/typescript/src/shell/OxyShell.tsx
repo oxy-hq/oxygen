@@ -22,6 +22,7 @@ import { ModeSwitch } from "./ModeSwitch";
 import { OxyMark } from "./marks";
 import { useOxyModePin, useShellMode } from "./mode";
 import { NavSheetPanel, NavSheetTrigger, useNavSheet } from "./NavSheet";
+import { PhoneTapHintFrame } from "./phone/PhoneTapHintFrame";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
 import { type RailItem, ShellRail } from "./ShellRail";
 import { type ShellContextData, useShellContext } from "./shellContext";
@@ -298,91 +299,99 @@ export function OxyShell({
 
   return (
     <ShellPortalContext.Provider value={container}>
-      <div
-        ref={setContainer}
-        className={cx(
-          "oxy-shell-scope oxy-shell",
-          degraded && "oxy-shell--degraded",
-          navSheet && "oxy-shell--navsheet",
-          className
-        )}
-        style={chromeStyle}
-      >
-        {!degraded && <ShellRail top={workspaceTile} groups={groups} bottom={bottom} />}
-        <div className='oxy-shell__content-col'>
-          {/* The top bar renders in degraded mode too when the host passed
+      {/* On a phone layout, a hint with no tap form from the app (a `Stat`'s tip) gets the kit's
+          tap ⓘ, which a finger can open; the desk is unchanged (2.31.1, PhoneTapHintFrame). */}
+      <PhoneTapHintFrame>
+        <div
+          ref={setContainer}
+          className={cx(
+            "oxy-shell-scope oxy-shell",
+            degraded && "oxy-shell--degraded",
+            navSheet && "oxy-shell--navsheet",
+            className
+          )}
+          style={chromeStyle}
+        >
+          {!degraded && <ShellRail top={workspaceTile} groups={groups} bottom={bottom} />}
+          <div className='oxy-shell__content-col'>
+            {/* The top bar renders in degraded mode too when the host passed
               its own slot content — an app that moved its header into the
               shell must never lose it to a failed bootstrap. Only the
               data-driven pieces (breadcrumb, Ask) hide. */}
-          {!hideTopBar && (!degraded || topBarLeft || topBarExtra) && (
-            <TopBar
-              left={
-                <>
-                  {navSheet && <NavSheetTrigger sheet={sheet} />}
-                  {topBarLeft ??
-                    (data ? (
-                      <Breadcrumb
-                        workspaceLabel={workspaceLabel}
-                        pageLabel={page}
-                        homeHref={abs(data.links.home) ?? data.links.home}
+            {!hideTopBar && (!degraded || topBarLeft || topBarExtra) && (
+              <TopBar
+                left={
+                  <>
+                    {navSheet && <NavSheetTrigger sheet={sheet} />}
+                    {topBarLeft ??
+                      (data ? (
+                        <Breadcrumb
+                          workspaceLabel={workspaceLabel}
+                          pageLabel={page}
+                          homeHref={abs(data.links.home) ?? data.links.home}
+                        />
+                      ) : undefined)}
+                  </>
+                }
+                right={
+                  <>
+                    <UpdatePill />
+                    <SystemIndicator />
+                    {data?.org?.slug && !plainClock ? (
+                      // The clock opens Today: this person's widgets from every app.
+                      <TodayClock
+                        orgSlug={data.org.slug}
+                        homeHref={data.links.home}
+                        resolve={abs}
                       />
-                    ) : undefined)}
-                </>
-              }
-              right={
-                <>
-                  <UpdatePill />
-                  <SystemIndicator />
-                  {data?.org?.slug && !plainClock ? (
-                    // The clock opens Today: this person's widgets from every app.
-                    <TodayClock orgSlug={data.org.slug} homeHref={data.links.home} resolve={abs} />
-                  ) : (
-                    <WorkspaceClock />
-                  )}
-                  {topBarExtra}
-                  {askAgent && !degraded && (
-                    <button
-                      type='button'
-                      data-testid='ask-oxygen-button'
-                      onClick={() => setAskOpen((o) => !o)}
-                      className={cx("oxy-askbtn", askOpen && "oxy-askbtn--open")}
-                    >
-                      <OxyMark className='oxy-askbtn__mark' />
-                      <span className='oxy-askbtn__label'>Ask Oxygen</span>
-                      <kbd className='oxy-askbtn__kbd'>⌘K</kbd>
-                    </button>
-                  )}
-                </>
-              }
-            />
-          )}
-          {/* A div, not <main>: the app's own content very likely carries
+                    ) : (
+                      <WorkspaceClock />
+                    )}
+                    {topBarExtra}
+                    {askAgent && !degraded && (
+                      <button
+                        type='button'
+                        data-testid='ask-oxygen-button'
+                        onClick={() => setAskOpen((o) => !o)}
+                        className={cx("oxy-askbtn", askOpen && "oxy-askbtn--open")}
+                      >
+                        <OxyMark className='oxy-askbtn__mark' />
+                        <span className='oxy-askbtn__label'>Ask Oxygen</span>
+                        <kbd className='oxy-askbtn__kbd'>⌘K</kbd>
+                      </button>
+                    )}
+                  </>
+                }
+              />
+            )}
+            {/* A div, not <main>: the app's own content very likely carries
               its own main landmark (the scaffolded template does). */}
-          <div className='oxy-shell__main'>{children}</div>
-        </div>
-        {/* Flex sibling of the content column — opening the dock compacts
+            <div className='oxy-shell__main'>{children}</div>
+          </div>
+          {/* Flex sibling of the content column — opening the dock compacts
             the app (Cursor-style) rather than floating over it, matching
             the web-app AskDock. */}
-        {askAgent && !degraded && (
-          <AskDock
-            agentId={askAgent}
-            open={askOpen}
-            onClose={() => setAskOpen(false)}
-            workspaceName={data?.workspace.name}
-            suggestions={askSuggestions}
-            threadsHref={abs(data?.links.threads)}
-          />
-        )}
-        {navSheet && (
-          <NavSheetPanel
-            sheet={sheet}
-            title={workspaceLabel}
-            top={workspaceTile}
-            groups={groups}
-            bottom={modeSwitch("sheet")}
-          />
-        )}
-      </div>
+          {askAgent && !degraded && (
+            <AskDock
+              agentId={askAgent}
+              open={askOpen}
+              onClose={() => setAskOpen(false)}
+              workspaceName={data?.workspace.name}
+              suggestions={askSuggestions}
+              threadsHref={abs(data?.links.threads)}
+            />
+          )}
+          {navSheet && (
+            <NavSheetPanel
+              sheet={sheet}
+              title={workspaceLabel}
+              top={workspaceTile}
+              groups={groups}
+              bottom={modeSwitch("sheet")}
+            />
+          )}
+        </div>
+      </PhoneTapHintFrame>
     </ShellPortalContext.Provider>
   );
 }

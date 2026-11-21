@@ -26,16 +26,15 @@
 // opens a hint only for a pointer that can hover; focus opens one only from the keyboard; using
 // the control a hint is on closes it; and a tap on a hint that is NOT a control (a number, a
 // status, a header word) opens it until the next tap anywhere. A layout can also give a hint a
-// tap form of its own (`TapHintFrame`, the phone kit's `PhoneHint`).
+// tap form of its own (`TapHintFrame`, the phone kit's `PhoneHint`), which `OxyShell` does on a
+// phone layout (2.31.1).
 
 import {
-  createContext,
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
-  useContext,
   useEffect,
   useId,
   useRef,
@@ -44,19 +43,10 @@ import {
 import { createPortal } from "react-dom";
 import { cx } from "../cx";
 
-/**
- * The tap form of a hint, where the layout has one (the reference's): an ⓘ whose tap opens the
- * words, which a phone layout provides (drawing the kit's `PhoneHint`). `label` is the ⓘ's name
- * ("About Income"), `text` the hint. Nothing on the desk provides it.
- */
-export const TapHintFrame = createContext<((label: string, text: string) => ReactNode) | null>(
-  null
-);
-
-/** The layout's tap form for a hint, or null on the desk. See `TapHintFrame`. */
-export function useTapHint() {
-  return useContext(TapHintFrame);
-}
+// The tap form of a hint, where the layout has one (the reference's): an ⓘ whose tap opens the
+// words (the kit's `PhoneHint`). It lives in the shell since 2.31.1, so `OxyShell` can provide it on
+// a phone layout; this entry exports the same context.
+export { TapHintFrame, useTapHint } from "../../shell/phone/tapHintFrame";
 
 /** The bubble's widest, by kind: a sentence, multi-line reference text, a grid. */
 const MAX_W = 300;

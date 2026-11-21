@@ -424,8 +424,8 @@ after `theme.css` and `shell.css`: `import { SidePanel, LoadError, DefaultTabs, 
 own mode. Run `expect(formatSdkUiCopies(checkSdkUiCopies("src"))).toBe("")` there too (SDK ≥
 2.31): it reports each component in `src/` named like an SDK piece, with the import to use. A
 variant kept on purpose says why in the file that defines it, `// oxy-ui-local: <Name> -- <why>`
-(the reason is required); a local alias under a piece's name (`const Glyph = app.glyph`) is
-reported too, so rename it. A piece the SDK lacks is built in the app from the `ui` recipes; a
+(the reason is required). A local that only holds a component (`const Glyph = app.glyph`)
+defines nothing and passes from SDK 2.31.1; 2.31.0 reported it, so rename it there. A piece the SDK lacks is built in the app from the `ui` recipes; a
 defect in a shared piece is fixed in the SDK, so every app gets it.
 
 SDK 2.31 adds, each opt-in: `Panel`'s fold (`foldable`, `open`, `defaultOpen`), `header`,
@@ -445,7 +445,8 @@ What the pieces settle, so an app doesn't override them (decisions 81–93):
 - Hint bubbles open leftward, where `HoverHint` puts them (84).
 - A failed read's message is 13px at either `LoadError` size; drop overrides of it (85).
 - A `Stat` with a `tip` shows its ⓘ on the desk, a Tab stop; `tipMark={false}` only where the
-  tip restates what the screen already says (89).
+  tip restates what the screen already says (89). On a phone inside `OxyShell` it is the kit's
+  tap ⓘ after the label with no `TapHintFrame` from the app (SDK ≥ 2.31.1).
 - A KPI tile is `Stat boxed` in a `StatGrid`; a critical one keeps its error edge (90).
 - Waiting is counted: `LoadingBar` with the read count, `Loading` for a single read; never a
   sweeping bar (91).
