@@ -64,3 +64,20 @@ fn the_health_eval_kind_comes_only_from_the_seam() {
         "`oxy-app` must not register the health eval itself"
     );
 }
+
+/// Insights delivery is `oxy-api-metric-monitoring`'s since 2026-11-21: absent
+/// without the seam, present once it is handed in. Registering it in-tree as
+/// well would let a composition that forgot the seam pass every check here
+/// while `require_task_kinds` guards only the seam's list.
+#[test]
+fn the_anomaly_notify_kind_comes_only_from_the_seam() {
+    assert!(
+        registry(&[]).get("anomaly_notify").is_none(),
+        "`oxy-app` must not register the insights delivery itself"
+    );
+    assert!(
+        registry(&[seam("anomaly_notify")])
+            .get("anomaly_notify")
+            .is_some()
+    );
+}

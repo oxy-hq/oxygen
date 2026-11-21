@@ -947,6 +947,13 @@ mod tests {
             // `oxy_app::server::preagg_workspace`), classified as it was there.
             "oxy_preagg::manifest_lock",
             "oxy_app::server::preagg_executor",
+            // Insights delivery, out of `oxy_app::server::anomaly_notify`
+            // (2026-11-21): platform code that posts to the tenant's own
+            // Slack, not custom-app code, so it keeps its lines as there.
+            "oxy_metric_monitoring::notify::enqueue",
+            "oxy_api_metric_monitoring::anomaly_notify",
+            "oxy_api_metric_monitoring::anomaly_notify::executor",
+            "oxy_api_metric_monitoring::anomaly_notify::people",
             // The compile boundary's runtime leaves, down from `oxy-app`'s
             // `server::compile_{git,config_gate,oltp,maintenance}` into
             // `oxy-compile-runtime` (2026-11-21): kept and not the data
@@ -1317,6 +1324,14 @@ mod tests {
             // 2026-11-15: workspace-scoped too, so not the data plane.
             "oxy_api_metric_monitoring::metric_tree",
             "oxy_api_metric_monitoring::metric_anomalies",
+            // Insights delivery, out of `oxy_app::server::anomaly_notify`
+            // (2026-11-21): the enqueue down into the domain, the executor and
+            // its destinations into the surface. Postgres and the tenant's own
+            // Slack, never a warehouse, as it was there.
+            "oxy_metric_monitoring::notify::enqueue",
+            "oxy_api_metric_monitoring::anomaly_notify",
+            "oxy_api_metric_monitoring::anomaly_notify::executor",
+            "oxy_api_metric_monitoring::anomaly_notify::people",
             // The observability console, out of `oxy-app` on 2026-11-15:
             // it reads Oxy's own product store, not a tenant warehouse.
             "oxy_api_observability::traces",

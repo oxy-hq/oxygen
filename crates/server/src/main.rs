@@ -489,6 +489,9 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_experiment::tasks())
             .chain(oxy_api_notifications::tasks())
             .chain(oxy_api_workspace_health::tasks())
+            // Insights delivery, queued by a monitor scan's `notify:` block
+            // (in-tree in `oxy-app` until 2026-11-21).
+            .chain(oxy_api_metric_monitoring::tasks())
             .chain(oxy_api_previews::tasks())
             .collect(),
         // Chat's delivery listener first: `new_agentic_state` started it

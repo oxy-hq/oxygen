@@ -147,6 +147,13 @@ const ALLOWED: &[(&str, &str)] = &[
          scheduled monitor-scan TaskSpec enqueued with trigger=manual",
     ),
     (
+        // Out of `oxy-app`'s `server/anomaly_notify/` (not scanned there) on
+        // 2026-11-21.
+        "api-metric-monitoring/src/anomaly_notify/executor.rs",
+        "a queue executor's own task: `AnomalyNotifyExecutor::execute` runs the \
+         insights delivery under a spawn and reports through the task's channels",
+    ),
+    (
         "app/src/server/api/modeling.rs",
         "only pumps this request's own SSE stream (an Airform run/compile/test's \
          progress events). The whole modeling surface is being deleted by a sibling \

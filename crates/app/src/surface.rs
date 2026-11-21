@@ -189,14 +189,6 @@ pub mod metric_tree_exec {
     pub use oxy_app_core::write_hold::active as request_holds_writes;
 }
 
-/// The insights delivery a monitor scan asks for once its anomalies are
-/// persisted: due-ness, the ledger and the queued delivery task. The scheduled
-/// scan on a worker calls it from here; `oxy-api-metric-monitoring`'s manual
-/// scan calls the same function, so the two cannot announce differently.
-pub mod anomaly_notify {
-    pub use crate::server::anomaly_notify::enqueue_if_due;
-}
-
 /// The connector the platform builds for every Dev Portal query (the same
 /// builder, subject, role and preview hold), and the two ways a query runs on
 /// it. `oxy-api-world-model`'s `WorkspaceWarehouse` — the warehouse the World
@@ -345,8 +337,8 @@ pub mod seed {
 /// `oxy-app` requires of it.
 pub mod seams {
     pub use crate::server::router::{
-        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, FleetJobDeps, FleetJobSeam,
-        GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS,
+        ANOMALY_TASK_KINDS, BackgroundDeps, BackgroundSeam, ExampleAppsSeam, FleetJobDeps,
+        FleetJobSeam, GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS,
         NotificationsSeam, TaskDeps, TaskSeam, TickPass,
     };
 }

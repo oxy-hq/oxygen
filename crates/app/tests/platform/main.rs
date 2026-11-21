@@ -23,7 +23,7 @@
 //!   `worker_ctx_follows_promote`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`,
 //!   `connector_vars_from_workspace_secrets`,
-//!   `anomaly_notify`, `encryption_key_check` and `master_key_kms` are database-backed
+//!   `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `local_mode_router` calls `api_router(..)`, which
@@ -62,7 +62,8 @@ mod admin_staff_scope;
 mod airway_compile_boundary;
 mod airway_fleet_control;
 mod analytics_run_thread_access;
-mod anomaly_notify;
+// `anomaly_notify` moved to `oxy-api-metric-monitoring`'s integration group
+// with the insights delivery's executor (2026-11-21).
 mod artifact_naming_agrees;
 // `chat_org_standing` moved to `oxy-api-threads`' integration group with the
 // chat handlers (2026-11-16).

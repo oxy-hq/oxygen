@@ -5,7 +5,7 @@ use chrono::Utc;
 use entity::org_members::{self, OrgRole};
 use entity::workspaces::WorkspaceStatus;
 use entity::{notifications, organizations, users, workspaces};
-use oxy_app::server::anomaly_notify::people::PeopleInbox;
+use oxy_api_metric_monitoring::anomaly_notify::people::PeopleInbox;
 use oxy_metric_monitoring::notify::{OrgRoleTarget, PersonTarget, announce, ledger};
 use oxy_metric_monitoring::{NotifyConfig, Severity};
 use sea_orm::ActiveValue::Set;

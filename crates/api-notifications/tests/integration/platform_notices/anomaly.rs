@@ -1,7 +1,7 @@
 //! `oxy.anomaly` as the inbox reads it: the words and the link are built from
 //! the event's worst bucket when the inbox is read.
 //!
-//! The half of `oxy-app`'s `anomaly_notify::people` test that reads the inbox
+//! The half of `oxy-api-metric-monitoring`'s `anomaly_notify::people` test that reads the inbox
 //! (`inbox_view`), which is this surface's. Who the anomaly delivery tells, and
 //! that it tells them once, stays there with the delivery.
 

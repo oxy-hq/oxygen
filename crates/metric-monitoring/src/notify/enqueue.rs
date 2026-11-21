@@ -1,13 +1,14 @@
-//! Insights delivery: after a monitor scan, announce the events it newly found
-//! to the Slack channel and the people the workspace's `.monitor.yml` names
-//! under `notify:`.
+//! Insights delivery's enqueue half: after a monitor scan, queue the task that
+//! announces the events it newly found to the Slack channel and the people the
+//! workspace's `.monitor.yml` names under `notify:`.
 //!
 //! The scan decides nothing about delivery. Having persisted, it calls
 //! [`enqueue_if_due`], which queues one `anomaly_notify` task when the file has
-//! a `notify:` block and the ledger has an unannounced event. The task
-//! ([`executor`]) finds the org's Slack, then runs
-//! `oxy_metric_monitoring::notify::announce` — which claims, composes, posts
-//! and records. A queued task rather than a call at the end of the scan
+//! a `notify:` block and the ledger has an unannounced event. The task (its
+//! executor is `oxy-api-metric-monitoring`'s `anomaly_notify::executor`,
+//! handed to the global-run driver through `SurfaceSeams::tasks`) finds the
+//! org's Slack, then runs [`announce()`](super::announce()) — which claims,
+//! composes, posts and records. A queued task rather than a call at the end of the scan
 //! because it leaves the process and can be refused: it should have its own
 //! run to read, and outlive the pod that scanned.
 //!
@@ -16,23 +17,23 @@
 //! taken out of workspace health (`internal-docs/admin-surfaces.md`,
 //! "anomalies do not vote"); none of this touches `OXY_OPS_SLACK_*`.
 //!
-//! What is due, and why "once", is `oxy_metric_monitoring::notify::ledger`.
+//! What is due, and why "once", is [`ledger`]. Moved here from `oxy-app`'s
+//! `server::anomaly_notify` (2026-11-21), so the scheduled scan and the manual
+//! one both call the domain directly.
 //! The whole feature, including rollout order: `internal-docs/anomaly-monitoring.md`
 //! ("Insights delivery").
 
+use super::{Due, NotifyConfig, ledger};
 use agentic_core::delegation::TaskSpec;
 use agentic_runtime::crud::{TaskScope, enqueue_task, insert_run};
 use chrono::Utc;
-use oxy_metric_monitoring::NotifyConfig;
-use oxy_metric_monitoring::notify::{Due, ledger};
 use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub mod executor;
-pub mod people;
-
-/// The `kind` of the delivery task, and the `source_type` of its run.
+/// The `kind` of the delivery task, and the `source_type` of its run. The
+/// persisted task-queue contract: `oxy-app` requires an executor for it by
+/// string (`ANOMALY_TASK_KINDS`).
 pub const ANOMALY_NOTIFY_KIND: &str = "anomaly_notify";
 
 /// What the run is called in the Orchestrator Dashboard.

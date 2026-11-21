@@ -113,6 +113,10 @@ fn server_files() -> Vec<(String, String)> {
     // The feature-flag runtime's domain half (2026-11-20), out of
     // `src/server/feature_flags`; every process here loads and reads it.
     walk(&manifest.join("../feature-flags/src"), &mut out);
+    // Insights delivery's enqueue (2026-11-21), out of
+    // `src/server/anomaly_notify`; both monitor scans call it in this binary.
+    // (Its executor went to `../api-metric-monitoring/src`, walked above.)
+    walk(&manifest.join("../metric-monitoring/src"), &mut out);
     // `oxy test`'s event handler, reporters and engine (2026-11-20), out of
     // `src/server/service/eval.rs` and `src/integrations/eval/`.
     walk(&manifest.join("../api-eval/src"), &mut out);

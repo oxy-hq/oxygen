@@ -577,6 +577,16 @@ pub const NOTIFICATION_TASK_KINDS: [&str; 2] =
 /// to this string.
 pub const HEALTH_TASK_KINDS: [&str; 1] = ["health_eval_workspace"];
 
+/// The `TaskSpec::Custom` kind a monitor scan queues when its `.monitor.yml`
+/// has a `notify:` block (`oxy_metric_monitoring::notify::enqueue_if_due`,
+/// called by the scheduled scan in `agentic_wiring` and the manual one in
+/// `oxy-api-metric-monitoring`): one insights delivery. Its executor is
+/// `oxy-api-metric-monitoring`'s since 2026-11-21 (in-tree before), handed in
+/// through [`SurfaceSeams::tasks`]; a test there holds its constant to this
+/// string. Without it a scan would queue deliveries that fail as unknown, and
+/// nobody would be told.
+pub const ANOMALY_TASK_KINDS: [&str; 1] = ["anomaly_notify"];
+
 /// The `TaskSpec::Custom` kinds workspace previews queue: the change check
 /// (queued by the compile worker through `previews::queue`), the TTL schema
 /// drop, the transform compare and the Airway sample (queued by the run
@@ -627,6 +637,7 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
         .iter()
         .chain(NOTIFICATION_TASK_KINDS.iter())
         .chain(HEALTH_TASK_KINDS.iter())
+        .chain(ANOMALY_TASK_KINDS.iter())
         .chain(PREVIEW_TASK_KINDS.iter())
         .copied()
         .filter(|k| !seen.contains(k))
@@ -718,6 +729,7 @@ mod tests {
                 .iter()
                 .chain(NOTIFICATION_TASK_KINDS.iter())
                 .chain(HEALTH_TASK_KINDS.iter())
+                .chain(ANOMALY_TASK_KINDS.iter())
                 .chain(PREVIEW_TASK_KINDS.iter())
                 .map(|k| task(k))
                 .collect(),
@@ -862,6 +874,25 @@ mod tests {
         seams.tasks.retain(|t| t.kind != "health_eval_workspace");
         let err = require_task_kinds(&seams.tasks).unwrap_err();
         assert!(err.contains("health_eval_workspace"), "{err}");
+    }
+
+    /// Insights delivery is `oxy-api-metric-monitoring`'s since 2026-11-21. A
+    /// node without it would drain the queued deliveries and fail them as
+    /// unknown: the scan succeeds, and nobody is told. So it is a startup error.
+    #[test]
+    fn a_missing_anomaly_kind_is_a_startup_error_that_names_it() {
+        let mut seams = complete();
+        assert_eq!(require_task_kinds(&seams.tasks), Ok(()));
+        seams.tasks.retain(|t| t.kind != "anomaly_notify");
+        let err = require_task_kinds(&seams.tasks).unwrap_err();
+        assert!(err.contains("anomaly_notify"), "{err}");
+        assert!(seams.require_custom_apps().is_err());
+    }
+
+    /// The persisted task-queue contract for the insights delivery.
+    #[test]
+    fn the_anomaly_task_kind_is_the_one_the_queue_holds() {
+        assert_eq!(ANOMALY_TASK_KINDS, ["anomaly_notify"]);
     }
 
     /// Workspace previews' kinds are `oxy-api-previews`' since 2026-11-14; a

@@ -39,7 +39,6 @@ const SRC: &[&str] = &[
 
 const SERVER: &[&str] = &[
     "admission",
-    "anomaly_notify",
     "api",
     "audit_anchor",
     "auth_provider_check",

@@ -212,7 +212,7 @@ pub async fn run_scan(
             // A scan pinned to a past date is a demo or a backfill; it says
             // nothing new about today, so it announces nothing.
             if !backdated {
-                oxy_app::surface::anomaly_notify::enqueue_if_due(
+                oxy_metric_monitoring::notify::enqueue_if_due(
                     &db_bg,
                     workspace_id,
                     result.notify.as_ref(),

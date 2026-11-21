@@ -9975,13 +9975,16 @@ name = "oxy-api-metric-monitoring"
 version = "0.5.161"
 dependencies = [
  "agentic-analytics",
+ "agentic-core",
  "agentic-http",
  "agentic-pipeline",
  "agentic-runtime",
  "airhouse",
+ "async-trait",
  "axum",
  "chrono",
  "entity",
+ "futures",
  "migration",
  "oxy",
  "oxy-airlayer-compat",
@@ -9993,6 +9996,8 @@ dependencies = [
  "oxy-oltp",
  "oxy-semantic",
  "oxy-shared",
+ "oxy-slack",
+ "oxy-slack-client",
  "oxy-test-utils",
  "oxy-world-model",
  "sea-orm",
@@ -10000,10 +10005,12 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tower 0.5.3",
  "tracing",
  "url",
  "uuid",
+ "wiremock",
  "workspace-hack",
 ]
 
@@ -10590,8 +10597,6 @@ dependencies = [
  "oxy-semantic",
  "oxy-server-authz",
  "oxy-shared",
- "oxy-slack",
- "oxy-slack-client",
  "oxy-telemetry",
  "oxy-tenancy",
  "oxy-test-utils",
@@ -11033,6 +11038,8 @@ name = "oxy-metric-monitoring"
 version = "0.5.161"
 dependencies = [
  "agentic-analytics",
+ "agentic-core",
+ "agentic-runtime",
  "async-trait",
  "augurs-core",
  "augurs-ets",

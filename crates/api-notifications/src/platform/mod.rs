@@ -16,7 +16,7 @@
 //!   per failing streak, then daily, by [`run_streak`]),
 //!   [`workspace_ready`] (called by onboarding's clone), billing's
 //!   `billing/notify.rs`, the anomaly delivery task's people
-//!   (`anomaly_notify/people.rs`), [`cli_approval`] (a CLI naming who must
+//!   (`oxy-api-metric-monitoring`'s `anomaly_notify::people`), [`cli_approval`] (a CLI naming who must
 //!   approve its device-code request), [`self_test`] (a person testing their
 //!   own push, `POST /api/notifications/test`), [`ask_finished`] (an Ask
 //!   answer someone asked to hear about; installed into `agentic-runtime` as a

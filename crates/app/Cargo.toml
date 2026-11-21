@@ -195,8 +195,6 @@ semver = { workspace = true }
 backoff = { workspace = true, features = ["tokio"] }
 sentry = { workspace = true }
 omni = { workspace = true }
-oxy-slack-client = { workspace = true }
-oxy-slack = { workspace = true }
 
 # Database migration
 migration = { workspace = true }

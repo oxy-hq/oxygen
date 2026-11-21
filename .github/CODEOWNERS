@@ -267,6 +267,12 @@ crates/app/src/agentic_wiring/metric_tree_exec.rs  @haitrr @NTtanh
 # metric_tree.rs's domain half, lowered into the domain crate: same owners.
 crates/metric-monitoring/src/metric_tree_scenario.rs  @haitrr @NTtanh
 crates/api-metric-monitoring/src/metric_anomalies/  @haitrr @luong-komorebi
+# Insights delivery's executor and its tests, out of oxy-app's
+# `server/anomaly_notify/` on 2026-11-21 (the enqueue went to
+# crates/metric-monitoring/src/notify/, already theirs): the anomaly owners.
+crates/api-metric-monitoring/src/anomaly_notify/   @haitrr @luong-komorebi
+crates/api-metric-monitoring/tests/integration/anomaly_notify.rs  @haitrr @luong-komorebi
+crates/api-metric-monitoring/tests/integration/anomaly_notify/  @haitrr @luong-komorebi
 crates/api-observability/src/metrics.rs            @haitrr @NTtanh
 web-app/src/pages/ide/MetricTree/                  @haitrr @NTtanh
 web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/  @haitrr @luong-komorebi

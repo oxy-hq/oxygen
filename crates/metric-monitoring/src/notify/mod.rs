@@ -24,21 +24,24 @@
 //! - [`ledger`] — which events are due, and the once-per-event claim on them,
 //!   per channel (Postgres);
 //! - [`message`] — the Slack message for a set of claimed events (pure);
-//! - [`announce`] — the three in order, against a [`Destination`].
+//! - [`announce`] — the three in order, against a [`Destination`];
+//! - [`enqueue`] — the queued delivery task a scan asks for ([`enqueue_if_due`]).
 //!
-//! Posting needs the org's Slack installation, its people and a queue, none of
-//! which this crate has: the host (`oxy-app`) supplies each [`Destination`] and
-//! runs [`announce()`] as a queued task after a scan.
+//! Posting needs the org's Slack installation and its people, which this crate
+//! does not have: the surface (`oxy-api-metric-monitoring`'s `anomaly_notify`)
+//! supplies each [`Destination`] and runs [`announce()`] as the queued task.
 
 use serde::{Deserialize, Serialize};
 
 use crate::detect::Severity;
 
 pub mod announce;
+pub mod enqueue;
 pub mod ledger;
 pub mod message;
 
 pub use announce::{AnnounceError, Destination, Heading, announce};
+pub use enqueue::{ANOMALY_NOTIFY_KIND, AnomalyNotifyPayload, enqueue_if_due};
 pub use ledger::Due;
 pub use message::{Bucket, SlackMessage};
 

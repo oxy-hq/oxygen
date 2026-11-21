@@ -317,6 +317,16 @@ fn source_files() -> Vec<(String, String)> {
     // half, out of `src/server/feature_flags`, walked above before the move.
     let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");
     walk(&flags, &flags, "../feature-flags/src/", &mut out);
+    // `oxy-metric-monitoring` (2026-11-21): insights delivery's enqueue, out
+    // of `src/server/anomaly_notify`, walked above before the move. (Its
+    // executor went to `../api-metric-monitoring/src`, walked above too.)
+    let monitoring = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../metric-monitoring/src");
+    walk(
+        &monitoring,
+        &monitoring,
+        "../metric-monitoring/src/",
+        &mut out,
+    );
     // `oxy-api-eval` (2026-11-20): `oxy test`, its event handler, the
     // reporters and the engine, out of `src/cli/commands/test.rs`,
     // `src/server/service/eval.rs` and `src/integrations/eval/`, all walked

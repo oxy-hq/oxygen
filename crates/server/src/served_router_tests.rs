@@ -298,6 +298,22 @@ fn the_composition_carries_the_health_eval() {
     }
 }
 
+/// `serve` and `worker` both drain the insights delivery a monitor scan
+/// queues. Without it every `notify:` block would enqueue and nothing would
+/// ever deliver, so `require_task_kinds` holds it too (`ANOMALY_TASK_KINDS`).
+#[test]
+fn the_composition_carries_the_insights_delivery() {
+    let seams = surface_seams();
+    let kinds: Vec<&str> = seams.tasks.iter().map(|t| t.kind).collect();
+    for kind in oxy_app::server::router::ANOMALY_TASK_KINDS {
+        assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
+    }
+    assert_eq!(
+        oxy_app::server::router::require_task_kinds(&seams.tasks),
+        Ok(())
+    );
+}
+
 /// One request with an optional API key and JSON body, for the world-model
 /// routes, whose handlers reject an empty body before they answer.
 async fn status_with(

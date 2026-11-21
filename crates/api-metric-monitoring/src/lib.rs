@@ -31,14 +31,19 @@
 //! What stays below, in `oxy-app`: the executor (`agentic_wiring::
 //! metric_tree_runner`), the executor-facing core the customer-app twins share
 //! (`agentic_wiring::metric_tree_exec`, reached through
-//! `oxy_app::surface::metric_tree_exec`) and the insights delivery
-//! (`server::anomaly_notify`, reached through `oxy_app::surface::anomaly_notify`).
+//! `oxy_app::surface::metric_tree_exec`).
+//!
+//! Insights delivery is split by layer: the enqueue a scan calls is
+//! `oxy_metric_monitoring::notify::enqueue_if_due`, and its task's executor is
+//! [`anomaly_notify`], handed to the global-run driver through [`tasks`]
+//! (`SurfaceSeams::tasks`).
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
 // exceed rustc's default query depth in the `--release` image build only.
 #![recursion_limit = "256"]
 
+pub mod anomaly_notify;
 pub mod metric_anomalies;
 pub mod metric_tree;
 pub mod metric_tree_probe;
@@ -48,6 +53,8 @@ use axum::Router;
 use axum::routing::{get, post};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+pub use anomaly_notify::tasks;
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`.
 pub fn workspace_routes() -> Router<AppState> {

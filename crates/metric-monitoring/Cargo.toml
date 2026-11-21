@@ -9,6 +9,8 @@ authors.workspace = true
 
 [dependencies]
 agentic-analytics = { workspace = true }
+agentic-core = { workspace = true }      # `TaskSpec`: the delivery task's spec
+agentic-runtime = { workspace = true }   # the delivery task's run row and queue row (`notify::enqueue`)
 async-trait = { workspace = true }
 augurs-core = { workspace = true }
 augurs-ets = { workspace = true, features = ["mstl"] }

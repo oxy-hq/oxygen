@@ -1,6 +1,6 @@
 //! `AnomalyNotifyExecutor`: runs one `anomaly_notify` `TaskSpec::Custom` on the
-//! global-run fleet. Registered by `build_custom_task_registry`
-//! (`server::router::recovery`). The mechanism is
+//! global-run fleet. Handed to `oxy-app`'s `build_custom_task_registry`
+//! through `SurfaceSeams::tasks` ([`super::tasks`]). The mechanism is
 //! `internal-docs/agentic-runtime-integration.md` ("One-shot queue work").
 //!
 //! All this file decides is *where* a workspace's message goes — its org's
@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::people::PeopleInbox;
-use super::{ANOMALY_NOTIFY_KIND, AnomalyNotifyPayload};
+use oxy_metric_monitoring::notify::{ANOMALY_NOTIFY_KIND, AnomalyNotifyPayload};
 use oxy_slack::config::SlackConfig;
 use oxy_slack::installations::InstallationsService;
 

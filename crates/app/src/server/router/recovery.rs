@@ -1373,18 +1373,10 @@ pub(super) fn build_custom_task_registry(
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
     use crate::server::preagg_executor::PreaggTaskExecutor;
     let mut reg = agentic_runtime::worker::CustomTaskRegistry::new();
-    // Insights delivery, queued after a monitor scan whose `.monitor.yml` has a
-    // `notify:` block. Nothing can queue one before every pod parses that
-    // block — an older pod refuses the file outright — so the kind and its
-    // enqueue ship together; a pod without it fails the task (unknown kind) and
-    // the events stay due for the next scan.
-    {
-        use crate::server::anomaly_notify::{ANOMALY_NOTIFY_KIND, executor::AnomalyNotifyExecutor};
-        reg.register(
-            ANOMALY_NOTIFY_KIND,
-            Arc::new(AnomalyNotifyExecutor { db: db.clone() }),
-        );
-    }
+    // Insights delivery (`anomaly_notify`, queued after a monitor scan whose
+    // `.monitor.yml` has a `notify:` block) is `oxy-api-metric-monitoring`'s
+    // since 2026-11-21 and arrives through `tasks` below; a process whose seams
+    // lack it refuses to start (`require_task_kinds`, `ANOMALY_TASK_KINDS`).
     // A custom app's procedure run (`custom_app_procedure_run`) is
     // `oxy-api-custom-apps`' and arrives through `tasks` below; a process whose
     // seams lack it refuses to start (`require_task_kinds`).
@@ -1418,9 +1410,11 @@ pub(super) fn build_custom_task_registry(
     // (`oxy-api-notifications`: a send's push, email and Slack delivery —
     // `ctx.notify`'s and every platform notice's, queued in the send's own
     // transaction — and the summary of the pushes quiet hours held), and the
-    // per-workspace health eval (`oxy-api-workspace-health`). A kind absent here
+    // per-workspace health eval (`oxy-api-workspace-health`), and insights
+    // delivery (`oxy-api-metric-monitoring`). A kind absent here
     // fails its tasks as unknown, so `require_task_kinds` refuses to start a
-    // process without the custom-app, notification and health ones, and
+    // process without the custom-app, notification, health, anomaly and
+    // preview ones, and
     // `oxy-server`'s own test holds the experiment ones to the composition.
     let deps = crate::server::router::TaskDeps {
         db,

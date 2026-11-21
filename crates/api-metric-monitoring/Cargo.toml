@@ -13,8 +13,8 @@ edition.workspace = true
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the
 # workspace extractors, the metric-tree executor and the core the customer-app
-# twins share (`metric_tree_exec`), the insights delivery a manual scan asks for
-# (`anomaly_notify`). oxy-app never depends back on this crate. default-features
+# twins share (`metric_tree_exec`), and the task seam the insights delivery's
+# executor rides (`seams::TaskSeam`). oxy-app never depends back on this crate. default-features
 # off so a `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }            # AppState, write_hold, preagg_context
@@ -28,7 +28,13 @@ oxy = { workspace = true }
 entity = { workspace = true }
 agentic-analytics = { workspace = true }       # the `MetricTreeRunner` trait, anomaly periods
 agentic-http = { workspace = true }            # `AgenticState`, the anomaly handlers' database handle
-agentic-runtime = { workspace = true }         # the manual scan's run row
+agentic-runtime = { workspace = true }         # the manual scan's run row; `TaskExecutor`
+agentic-core = { workspace = true }            # the delivery task's spec and outcome
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio-util = { workspace = true }
+oxy-slack = { workspace = true }               # the org's Slack installation (insights delivery)
+oxy-slack-client = { workspace = true }        # the channel post
 axum = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 sea-orm = { workspace = true }
@@ -53,6 +59,7 @@ url = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
+wiremock = { workspace = true }          # the insights delivery's Slack, mocked
 
 [lints]
 workspace = true
