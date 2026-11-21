@@ -171,6 +171,7 @@ def render(results: dict, model: str, price_in: float, price_out: float,
               f"{len(failed)} runs ended without an answer: "
               + (", ".join(f"{n} {k}" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1]))
                  or "none") + ". They count against answer accuracy and carry no timing or usage."]
+    lines += render_sources([r for _, r in recs])
     lines += render_timing({db: _execution(results[db])["records"] for db in results},
                            [r for _, r in recs], runtime)
     lines += ["", f"Judge-call tokens are not in the agent token counts or the $ column. "
@@ -180,6 +181,51 @@ def render(results: dict, model: str, price_in: float, price_out: float,
 
 
 COMPONENTS = ("llm", "tool", "query", "startup", "other")
+
+NOT_RECORDED = "not recorded"
+
+
+def source_summary(records: list[dict]) -> dict:
+    """Graded answers by the source of the SQL they cite (`timing.answer_source`), with judge
+    accuracy each, and executions by source (`timing.queries_by_source`)."""
+    answers: dict = {}
+    executions: dict = {}
+    for r in records:
+        if r["choice"] == "SKIP":
+            continue
+        t = r.get("timing") or {}
+        a = answers.setdefault(t.get("answer_source") or NOT_RECORDED,
+                               {"answers": 0, "judged": 0, "correct": 0})
+        a["answers"] += 1
+        a["judged"] += r.get("judge_verdict") != "JUDGE_ERROR"
+        a["correct"] += r.get("judge_verdict") == "CORRECT"
+        for src, n in (t.get("queries_by_source") or {}).items():
+            executions[src] = executions.get(src, 0) + n
+    return {"answers": answers, "executions": executions}
+
+
+def render_sources(records: list[dict]) -> list[str]:
+    s = source_summary(records)
+    if set(s["answers"]) <= {NOT_RECORDED}:
+        return ["", "## Query source", "",
+                "Not recorded: these results predate `answer_source` / `queries_by_source`."]
+    div = lambda a, b: a / b if b else 0.0
+    order = sorted(s["answers"], key=lambda k: (k == NOT_RECORDED, -s["answers"][k]["answers"]))
+    lines = ["", "## Query source", "",
+             "Answers by the source of the SQL they cite: `semantic` is SQL the semantic model "
+             "compiled, `llm` is SQL the model wrote. `not recorded` covers runs with no final "
+             "SQL (run failures, answers citing no result) and, for react, an answer whose cited "
+             "SQL matched no execution.", "",
+             "| source | answers | correct / judged | answer acc |", "|---|---|---|---|"]
+    for k in order:
+        a = s["answers"][k]
+        lines.append(f"| {k} | {a['answers']} | {a['correct']}/{a['judged']} | "
+                     f"{_pct(div(a['correct'], a['judged']))} |")
+    ex = s["executions"]
+    lines += ["", "Executions by source (every query run, failures included): "
+              + (", ".join(f"{k} {n}" for k, n in sorted(ex.items(), key=lambda kv: -kv[1]))
+                 or "none") + "."]
+    return lines
 
 
 def _pctile(xs: list[float], q: float) -> float:

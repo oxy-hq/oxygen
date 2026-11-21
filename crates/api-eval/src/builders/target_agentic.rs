@@ -16,6 +16,7 @@
 //! `TargetOutput` is still imported from `oxy::exec_types`; relocating that
 //! data type out of the old executor is a later (Tier-C) step.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -26,7 +27,7 @@ use oxy::exec_types::TargetOutput;
 use oxy_shared::errors::OxyError;
 use tokio::sync::mpsc;
 
-use super::run_timing::TimingAccumulator;
+use super::run_timing::{TimingAccumulator, source_name};
 use super::types::AgenticInput;
 
 /// Run one eval target agent and produce its [`TargetOutput`], on the agentic
@@ -90,7 +91,9 @@ pub(super) async fn run_target(
     out.llm_rounds = usage.llm_rounds;
     out.runtime = usage.runtime;
     out.model = usage.model;
-    out.timing = Some(timing.finish(run_end));
+    let mut timing = timing.finish(run_end);
+    timing.answer_source = usage.answer_source;
+    out.timing = Some(timing);
     Ok(vec![out])
 }
 
@@ -122,6 +125,11 @@ struct RunUsage {
     model: Option<String>,
     /// An `AnswerResult` fixed `final_sql`; later queries no longer replace it.
     sql_pinned: bool,
+    /// The source of the execution whose SQL is `final_sql`.
+    answer_source: Option<String>,
+    /// Source of each successful execution's SQL, so a react `AnswerResult`
+    /// (which carries only the SQL) finds the source of the result it cites.
+    sql_sources: HashMap<String, &'static str>,
 }
 
 impl Default for RunUsage {
@@ -134,6 +142,8 @@ impl Default for RunUsage {
             runtime: Some("fsm".to_string()),
             model: None,
             sql_pinned: false,
+            answer_source: None,
+            sql_sources: HashMap::new(),
         }
     }
 }
@@ -151,6 +161,7 @@ impl RunUsage {
         self.input_tokens = self.input_tokens.saturating_add(di);
         self.output_tokens = self.output_tokens.saturating_add(dobj);
         self.observe_runtime_and_answer(ev);
+        self.observe_query_source(ev);
         if !self.sql_pinned {
             last_successful_sql(ev, &mut self.final_sql);
         }
@@ -167,8 +178,27 @@ impl RunUsage {
             AgenticEvent::Domain(AnalyticsEvent::AnswerResult { sql, .. }) => {
                 self.final_sql = Some(sql.clone());
                 self.sql_pinned = true;
+                self.answer_source = self.sql_sources.get(sql).map(|s| s.to_string());
             }
             _ => {}
+        }
+    }
+
+    /// A successful execution records its SQL's source; until an `AnswerResult`
+    /// pins `final_sql`, the latest one is the answer's source (as for `final_sql`).
+    fn observe_query_source(&mut self, ev: &AgenticEvent<AnalyticsEvent>) {
+        if let AgenticEvent::Domain(AnalyticsEvent::QueryExecuted {
+            query,
+            success: true,
+            source,
+            ..
+        }) = ev
+        {
+            let name = source_name(*source);
+            self.sql_sources.insert(query.clone(), name);
+            if !self.sql_pinned {
+                self.answer_source = Some(name.to_string());
+            }
         }
     }
 }
@@ -322,6 +352,54 @@ mod tests {
         let mut usage = RunUsage::default();
         events.iter().for_each(|e| usage.observe(e));
         usage
+    }
+
+    fn executed_from(
+        query: &str,
+        success: bool,
+        source: agentic_analytics::QuerySource,
+    ) -> AgenticEvent<AnalyticsEvent> {
+        let mut ev = executed(query, success);
+        if let AgenticEvent::Domain(AnalyticsEvent::QueryExecuted { source: s, .. }) = &mut ev {
+            *s = source;
+        }
+        ev
+    }
+
+    /// The answer's source is the source of the result it cites, not of the
+    /// last execution: here the semantic `a` is cited after a raw `b` ran.
+    #[test]
+    fn answer_source_follows_the_cited_result() {
+        use agentic_analytics::QuerySource::{Llm, Semantic};
+        let usage = observe_all(&[
+            selected(),
+            executed_from("a", true, Semantic),
+            executed_from("b", true, Llm),
+            answer("a"),
+            executed_from("c", true, Llm),
+        ]);
+        assert_eq!(usage.answer_source.as_deref(), Some("semantic"));
+
+        let usage = observe_all(&[selected(), executed_from("a", true, Semantic), answer("z")]);
+        assert_eq!(
+            usage.answer_source, None,
+            "an uncited SQL has no known source"
+        );
+    }
+
+    /// Without an `AnswerResult` (the FSM), the last successful execution decides;
+    /// a failed one does not.
+    #[test]
+    fn answer_source_without_answer_result_is_last_success() {
+        use agentic_analytics::QuerySource::{Llm, Semantic};
+        let usage = observe_all(&[
+            executed_from("a", true, Llm),
+            executed_from("b", true, Semantic),
+            executed_from("c", false, Llm),
+        ]);
+        assert_eq!(usage.final_sql.as_deref(), Some("b"));
+        assert_eq!(usage.answer_source.as_deref(), Some("semantic"));
+        assert_eq!(RunUsage::default().answer_source, None);
     }
 
     #[test]

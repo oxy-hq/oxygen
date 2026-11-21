@@ -90,6 +90,10 @@ def render(fsm_results: dict, react_results: dict, model: str, price_in: float,
     if untagged:
         lines += [f"{untagged} graded records carry no question id (prompt not unique) and are "
                   "left out of the verdict list.", ""]
+    for arm, res in (("fsm", fsm_results), ("react", react_results)):
+        recs = [r for db in res for r in report._execution(res[db])["records"]]
+        src = report.render_sources(recs)
+        lines += [src[1].replace("## Query source", f"## Query source: {arm}")] + src[2:] + [""]
     lines += [f"## Questions with differing verdicts ({len(diff)})", ""]
     lines += [f"- {db} {q}: fsm {'/'.join(f) or 'none'}, react {'/'.join(r) or 'none'}"
               for db, q, f, r in diff] or ["(none)"]

@@ -332,6 +332,40 @@ class CliTests(unittest.TestCase):
         self.assertEqual(err.getvalue(), "error: arms differ\n")
 
 
+class QuerySourceTests(unittest.TestCase):
+    def _rec(self, qid, verdict, source, execs=None):
+        r = rec(qid=qid, verdict=verdict)
+        r["timing"] = timing()
+        if source:
+            r["timing"]["answer_source"] = source
+        r["timing"]["queries_by_source"] = execs or {}
+        return r
+
+    def test_accuracy_by_answer_source(self):
+        recs = [self._rec(1, "CORRECT", "semantic", {"semantic": 2, "llm": 1}),
+                self._rec(2, "INCORRECT", "semantic", {"semantic": 1}),
+                self._rec(3, "CORRECT", "llm", {"llm": 3}),
+                self._rec(4, "JUDGE_ERROR", "llm"),
+                self._rec(5, "INCORRECT", None),
+                rec(qid=6, choice="SKIP", verdict=None)]
+        s = report.source_summary(recs)
+        self.assertEqual(s["answers"]["semantic"], {"answers": 2, "judged": 2, "correct": 1})
+        self.assertEqual(s["answers"]["llm"], {"answers": 2, "judged": 1, "correct": 1})
+        self.assertEqual(s["answers"][report.NOT_RECORDED]["answers"], 1)
+        self.assertEqual(s["executions"], {"semantic": 3, "llm": 4})
+        out = "\n".join(report.render_sources(recs))
+        self.assertIn("| semantic | 2 | 1/2 | 50.0% |", out)
+        self.assertIn("| llm | 2 | 1/1 | 100.0% |", out)
+        self.assertLess(out.index("| llm |"), out.index("| not recorded |"))
+        self.assertIn("Executions by source (every query run, failures included): llm 4, "
+                      "semantic 3.", out)
+
+    def test_old_results_say_not_recorded(self):
+        old = rec(qid=1)
+        old["timing"] = timing()
+        out = report.render_sources([old, rec(qid=2)])
+        self.assertIn("Not recorded: these results predate", "\n".join(out))
+
+
 if __name__ == "__main__":
     unittest.main()
-

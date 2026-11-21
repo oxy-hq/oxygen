@@ -122,6 +122,8 @@ fn timing_sums_llm_tool_query() {
     assert_eq!(t.cache_creation_input_tokens, 4);
     let solving = &t.llm_by_state["solving"];
     assert_eq!((solving.calls, solving.ms), (1, 1000));
+    assert_eq!(t.queries_by_source.get("llm"), Some(&2));
+    assert_eq!(t.queries_by_source.len(), 1);
     let lookup = &t.tools_by_name["lookup"];
     assert_eq!((lookup.calls, lookup.ms, lookup.errors), (2, 201, 1));
     assert_eq!((t.wall_ms, t.startup_ms), (100, 10));
@@ -251,4 +253,38 @@ fn sub_spec_events_imply_fanout() {
     let t = run(vec![(10, tagged)], 1000);
     assert!(t.fanout);
     assert_eq!(t.other_ms, None);
+}
+
+/// Each execution counts under its source, failures included.
+#[test]
+fn queries_counted_by_source() {
+    let semantic = |success| {
+        let mut ev = query(1, success);
+        if let AgenticEvent::Domain(AnalyticsEvent::QueryExecuted { source, .. }) = &mut ev {
+            *source = agentic_analytics::QuerySource::Semantic;
+        }
+        ev
+    };
+    let t = run(
+        vec![
+            (0, semantic(true)),
+            (1, semantic(false)),
+            (2, query(1, true)),
+        ],
+        10,
+    );
+    assert_eq!(t.queries_by_source.get("semantic"), Some(&2));
+    assert_eq!(t.queries_by_source.get("llm"), Some(&1));
+}
+
+/// Records written before the fields still deserialize, with the fields empty.
+#[test]
+fn old_record_without_source_fields_deserializes() {
+    let mut v = serde_json::to_value(RunTiming::default()).unwrap();
+    let obj = v.as_object_mut().unwrap();
+    obj.remove("queries_by_source");
+    obj.remove("answer_source");
+    let t: RunTiming = serde_json::from_value(v).unwrap();
+    assert!(t.queries_by_source.is_empty());
+    assert_eq!(t.answer_source, None);
 }

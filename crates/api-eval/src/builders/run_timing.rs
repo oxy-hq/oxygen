@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use agentic_analytics::AnalyticsEvent;
+use agentic_analytics::{AnalyticsEvent, QuerySource};
 use agentic_core::events::{CoreEvent, Event as AgenticEvent};
 use oxy::exec_types::RunTiming;
 
@@ -53,11 +53,14 @@ impl TimingAccumulator {
             AgenticEvent::Domain(AnalyticsEvent::QueryExecuted {
                 duration_ms,
                 success,
+                source,
                 ..
             }) => {
                 self.t.query_count += 1;
                 self.t.query_ms += duration_ms;
                 self.t.query_failures += u64::from(!success);
+                let key = source_name(*source).to_string();
+                *self.t.queries_by_source.entry(key).or_default() += 1;
             }
             _ => {}
         }
@@ -163,6 +166,16 @@ impl TimingAccumulator {
         t.startup_ms = ms(self.start, self.first_event.unwrap_or(end).min(end));
         t.other_ms = other_ms(&t);
         t
+    }
+}
+
+/// The wire name of a query's provenance, as `QuerySource` serializes it.
+pub(super) fn source_name(source: QuerySource) -> &'static str {
+    match source {
+        QuerySource::Semantic => "semantic",
+        QuerySource::Llm => "llm",
+        QuerySource::Vendor => "vendor",
+        QuerySource::VerifiedSql => "verified_sql",
     }
 }
 

@@ -61,6 +61,16 @@ pub struct RunTiming {
     /// Σ `QueryExecuted.duration_ms`.
     pub query_ms: u64,
     pub query_failures: u64,
+    /// `QueryExecuted` events by `source` (`semantic`, `llm`, `vendor`,
+    /// `verified_sql`): whether each execution ran SQL the semantic model
+    /// compiled or SQL the model wrote. Empty in records written before the field.
+    #[serde(default)]
+    pub queries_by_source: BTreeMap<String, u64>,
+    /// `source` of the execution whose SQL is the run's `final_sql` (the SQL a
+    /// react answer cites, else the FSM's last successful query). `None` when
+    /// the run has no final SQL, and in records written before the field.
+    #[serde(default)]
+    pub answer_source: Option<String>,
     /// State name → total ms between `StateEnter` and the matching `StateExit`.
     pub states: BTreeMap<String, u64>,
     /// The run fanned out: a `FanOut` event, a `SubSpecStart`/`SubSpecEnd`
