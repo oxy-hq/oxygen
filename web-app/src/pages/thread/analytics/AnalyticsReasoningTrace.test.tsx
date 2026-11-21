@@ -327,3 +327,59 @@ describe("AnalyticsReasoningTrace — incremental event stream", () => {
     expect(screen.queryByText("Solving for Q2")).not.toBeInTheDocument();
   });
 });
+
+describe("AnalyticsReasoningTrace — react runs", () => {
+  it("shows the question a react ask_user row asks", () => {
+    render(
+      <AnalyticsReasoningTrace
+        events={[
+          ev("runtime_selected", { runtime: "react" }),
+          ev("tool_call", { name: "ask_user", input: { question: "Which region?" } })
+        ]}
+        isRunning
+        onSelectArtifact={noop}
+      />
+    );
+    expect(screen.getByText("Which region?")).toBeInTheDocument();
+  });
+
+  it("previews a semantic react query by its measures", () => {
+    render(
+      <AnalyticsReasoningTrace
+        events={[
+          ev("runtime_selected", { runtime: "react" }),
+          ev("tool_call", {
+            name: "query",
+            input: JSON.stringify({
+              semantic: {
+                measures: ["orders.total_sales", "orders.count"],
+                dimensions: ["orders.store"]
+              }
+            })
+          })
+        ]}
+        isRunning
+        onSelectArtifact={noop}
+      />
+    );
+    expect(screen.getByText("semantic: orders.total_sales, orders.count")).toBeInTheDocument();
+  });
+
+  it("does not say 0 steps for a finished run with no steps or tool calls", () => {
+    render(
+      <AnalyticsReasoningTrace
+        events={[
+          ev("runtime_selected", { runtime: "react" }),
+          ev("thinking_start", {}),
+          ev("thinking_token", { token: "hm" }),
+          ev("thinking_end", {}),
+          ev("done", {})
+        ]}
+        isRunning={false}
+        onSelectArtifact={noop}
+      />
+    );
+    expect(screen.getByText("Reasoning trace")).toBeInTheDocument();
+    expect(screen.queryByText(/0 steps/)).toBeNull();
+  });
+});

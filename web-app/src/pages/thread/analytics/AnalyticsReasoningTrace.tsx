@@ -2,7 +2,6 @@ import { ChevronDown, ChevronLeft, ChevronRight, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import {
-  type AnalyticsStep,
   buildAnalyticsSteps,
   type FanOutGroup,
   type SelectableItem,
@@ -10,7 +9,7 @@ import {
 } from "@/hooks/analyticsSteps";
 import { cn } from "@/libs/shadcn/utils";
 import type { UiBlock } from "@/services/api/analytics";
-import AnalyticsStepRow from "./AnalyticsStepRow";
+import AnalyticsStepRow, { TraceItemRow } from "./AnalyticsStepRow";
 import useAutoCollapse from "./useAutoCollapse";
 
 // ── Fan-out group row ─────────────────────────────────────────────────────────
@@ -109,20 +108,21 @@ const FanOutGroupRow = ({ group, onSelectArtifact, isSelected }: FanOutGroupRowP
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-function countSteps(items: StepOrGroup[]): { total: number; done: number } {
+function countSteps(items: StepOrGroup[]): { total: number; done: number; toolCalls: number } {
   let total = 0;
   let done = 0;
+  let toolCalls = 0;
   for (const item of items) {
-    if (item.kind === "step") {
-      total++;
-      if (!item.isStreaming) done++;
-    } else {
+    if (item.kind === "step" || item.kind === "fan_out") {
       // fan_out counts as one logical unit
       total++;
       if (!item.isStreaming) done++;
+    } else if (item.kind === "artifact") {
+      // A react run has no steps: its tool rows sit at the top level.
+      toolCalls++;
     }
   }
-  return { total, done };
+  return { total, done, toolCalls };
 }
 
 function aggregateLlmStats(events: UiBlock[]): { calls: number; totalMs: number } {
@@ -159,7 +159,7 @@ const TraceHeader = ({
   llmCalls,
   llmTotalMs
 }: HeaderProps) => {
-  const { total } = countSteps(items);
+  const { total, toolCalls } = countSteps(items);
   const isComplete = !isStreaming;
 
   return (
@@ -186,7 +186,11 @@ const TraceHeader = ({
           </>
         )}
         <span className='truncate'>
-          {isComplete ? `${total} steps` : total > 0 ? `${total} steps` : ""}
+          {total === 0 && toolCalls > 0
+            ? `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`
+            : total > 0
+              ? `${total} steps`
+              : ""}
         </span>
       </span>
     </button>
@@ -263,24 +267,36 @@ const AnalyticsReasoningTrace = ({
         )}
       >
         <div className='space-y-1.5'>
-          {items.map((item) =>
-            item.kind === "fan_out" ? (
-              <FanOutGroupRow
+          {items.map((item) => {
+            if (item.kind === "fan_out")
+              return (
+                <FanOutGroupRow
+                  key={item.id}
+                  group={item}
+                  onSelectArtifact={onSelectArtifact}
+                  isSelected={isSelected}
+                />
+              );
+            if (item.kind === "step")
+              return (
+                <AnalyticsStepRow
+                  key={item.id}
+                  step={item}
+                  onSelectArtifact={onSelectArtifact}
+                  isSelected={isSelected}
+                  flat={flat}
+                />
+              );
+            return (
+              <TraceItemRow
                 key={item.id}
-                group={item}
-                onSelectArtifact={onSelectArtifact}
+                item={item}
+                onSelect={onSelectArtifact}
                 isSelected={isSelected}
+                border='border-border'
               />
-            ) : (
-              <AnalyticsStepRow
-                key={item.id}
-                step={item as AnalyticsStep}
-                onSelectArtifact={onSelectArtifact}
-                isSelected={isSelected}
-                flat={flat}
-              />
-            )
-          )}
+            );
+          })}
         </div>
         <div ref={bottomRef} />
       </div>

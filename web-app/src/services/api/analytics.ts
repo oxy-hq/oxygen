@@ -480,9 +480,41 @@ type DelegationCompletedBlock = {
   };
 };
 
+/** First row of an analytics run on the tool-calling ("react") loop. */
+type RuntimeSelectedBlock = {
+  seq: number;
+  event_type: "runtime_selected";
+  payload: { runtime: string };
+};
+
+/** Written before `done` in a react run: the result the answer cites. */
+type AnswerResultBlock = {
+  seq: number;
+  event_type: "answer_result";
+  payload: { result_id: string; sql?: string };
+};
+
+/** Internal react-loop rows. They can reach the browser and are rendered as nothing. */
+type ReactTurnBlock = { seq: number; event_type: "react_turn"; payload: Record<string, unknown> };
+type ReactToolResultBlock = {
+  seq: number;
+  event_type: "react_tool_result";
+  payload: Record<string, unknown>;
+};
+type ReactSuspendedBlock = {
+  seq: number;
+  event_type: "react_suspended";
+  payload: Record<string, unknown>;
+};
+
 /** Strict discriminated union of all UI blocks emitted by the agentic pipeline.
  *  Mirrors the Rust `UiBlock<AnalyticsEvent>` enum. */
 export type UiBlock =
+  | RuntimeSelectedBlock
+  | AnswerResultBlock
+  | ReactTurnBlock
+  | ReactToolResultBlock
+  | ReactSuspendedBlock
   | StepStartBlock
   | StepEndBlock
   | StepSummaryUpdateBlock

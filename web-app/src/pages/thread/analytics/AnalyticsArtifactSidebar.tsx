@@ -83,6 +83,19 @@ const AnalyticsArtifactSidebar = ({
   isRunning = false,
   onClose
 }: Props) => {
+  // ── a react run's `query` call → the SQL panel of its query_executed row ──
+  if (item.kind === "artifact" && item.toolName === "query" && item.queryExecuted) {
+    return (
+      <AnalyticsArtifactSidebar
+        item={item.queryExecuted}
+        displayBlocks={displayBlocks}
+        runEvents={runEvents}
+        isRunning={isRunning}
+        onClose={onClose}
+      />
+    );
+  }
+
   // ── kind === "automation" → full DAG panel ─────────────────────────────────
   if (item.kind === "automation") {
     return (

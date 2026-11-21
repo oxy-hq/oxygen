@@ -23,6 +23,8 @@ export type ArtifactItem = {
   durationMs?: number;
   /** LLM inference time for the round that produced this tool call (ms). */
   llmDurationMs?: number;
+  /** A react run's `query` call: the `query_executed` row that followed its result. */
+  queryExecuted?: SqlItem;
   isStreaming: boolean;
 };
 
@@ -131,7 +133,28 @@ export type FanOutGroup = {
   isStreaming: boolean;
 };
 
-export type StepOrGroup = AnalyticsStep | FanOutGroup;
+/**
+ * A react run has no steps: its items sit at the top level, in order. An FSM run
+ * never yields one.
+ */
+export type StepOrGroup = AnalyticsStep | FanOutGroup | TraceItem;
+
+// ── Citation markers ──────────────────────────────────────────────────────────
+
+const RESULT_REF = /\{\{result:[\w-]+(?:\|primary)?\}\}/g;
+// Any prefix of a marker, at the very end of the text: a token boundary fell inside it.
+const PARTIAL_RESULT_REF =
+  /\{(?:\{(?:r(?:e(?:s(?:u(?:l(?:t(?::[\w-]*(?:\|p?r?i?m?a?r?y?)?\}?)?)?)?)?)?)?)?)?$/;
+
+/**
+ * Remove the `{{result:<id>}}` / `{{result:<id>|primary}}` citation markers a react run's
+ * answer carries. Run it on the whole concatenated text, never per token: a marker can
+ * be split across tokens. `streaming` also hides an unfinished marker at the end.
+ */
+export function stripResultRefs(text: string, streaming = false): string {
+  const stripped = text.replace(RESULT_REF, "");
+  return streaming ? stripped.replace(PARTIAL_RESULT_REF, "") : stripped;
+}
 
 // ── Scope ─────────────────────────────────────────────────────────────────────
 //
@@ -143,6 +166,8 @@ export type StepOrGroup = AnalyticsStep | FanOutGroup;
 
 function createScope() {
   const result: StepOrGroup[] = [];
+  // A react run has no steps, so its items go to `result` itself.
+  let reactRun = false;
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${counter++}`;
 
@@ -183,20 +208,47 @@ function createScope() {
         return;
       }
     }
+    if (reactRun) {
+      // A new row ends the narration before it.
+      if (item.kind !== "text") closeTrailingText();
+      result.push(item);
+    }
+  };
+
+  /** The top-level items a react run's rows land on; a step's items otherwise. */
+  const itemsOf = (subSpecIndex?: number | null): StepOrGroup[] | TraceItem[] | undefined =>
+    currentStep(subSpecIndex)?.items ?? (reactRun ? result : undefined);
+
+  const closeTrailingText = () => {
+    const last = result.at(-1);
+    if (last?.kind === "text") last.isStreaming = false;
   };
 
   const findLastStreaming = <T extends TraceItem>(
     kind: T["kind"],
     subSpecIndex?: number | null
   ): T | undefined => {
-    const items = currentStep(subSpecIndex)?.items;
+    const items = itemsOf(subSpecIndex);
     if (!items) return undefined;
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
-      if (item.kind === kind && item.isStreaming) return item as T;
+      if (item.kind === kind && "isStreaming" in item && item.isStreaming) return item as T;
     }
     return undefined;
   };
+
+  /**
+   * A react run's `tool_result` carries no call id, so same-name parallel calls pair in
+   * the order they were made: the oldest call still waiting for that name.
+   */
+  const findOldestStreamingArtifactByName = (
+    name: string,
+    subSpecIndex?: number | null
+  ): ArtifactItem | undefined =>
+    (itemsOf(subSpecIndex) ?? []).find(
+      (item): item is ArtifactItem =>
+        item.kind === "artifact" && item.isStreaming && item.toolName === name
+    );
 
   /** Find the last streaming artifact item whose toolName matches `name`. */
   const findLastStreamingArtifactByName = (
@@ -308,6 +360,16 @@ function createScope() {
     findLastStreaming,
     findLastStreamingArtifactByName,
     findAllStreamingArtifactsByName,
+    findOldestStreamingArtifactByName,
+    closeTrailingText,
+    /** The run is over: the text after its last tool call is the answer, shown below. */
+    dropTrailingAnswer() {
+      while (result.at(-1)?.kind === "text") result.pop();
+    },
+    isReactRun: () => reactRun,
+    markReactRun: () => {
+      reactRun = true;
+    },
     updateAskUserAnswer,
     updateCompletedArtifactOutput,
 
@@ -358,7 +420,7 @@ function createScope() {
 
     // ── Text streaming ───────────────────────────────────────────────────────
     appendTextDelta(token: string, subSpecIndex?: number | null) {
-      const last = currentStep(subSpecIndex)?.items.at(-1);
+      const last = itemsOf(subSpecIndex)?.at(-1);
       if (last?.kind === "text" && last.isStreaming) {
         last.text += token;
       } else {
@@ -637,12 +699,15 @@ export function buildAnalyticsSteps(events: UiBlock[]): StepOrGroup[] {
   // NOT close the step — automation events need an open step to attach to.
   let lastAwaitingIsDelegation = false;
   let delegationStepOpen = false;
+  // The row the latest tool_result completed: its artifacts (query_executed) follow it.
+  let lastResultRow: ArtifactItem | undefined;
 
   for (const ev of events) {
     // Extract sub_spec_index for routing events to the correct card.
+    const payload: unknown = ev.payload;
     const ssi =
-      "sub_spec_index" in ev.payload
-        ? (ev.payload as { sub_spec_index?: number | null }).sub_spec_index
+      payload && typeof payload === "object" && "sub_spec_index" in payload
+        ? (payload as { sub_spec_index?: number | null }).sub_spec_index
         : undefined;
 
     switch (ev.event_type) {
@@ -698,6 +763,18 @@ export function buildAnalyticsSteps(events: UiBlock[]): StepOrGroup[] {
         break;
       }
 
+      // ── React runs ─────────────────────────────────────────────────────────
+      case "runtime_selected":
+        if (ev.payload.runtime === "react") scope.markReactRun();
+        break;
+      case "done":
+      case "error":
+        if (scope.isReactRun()) {
+          scope.closeTrailingText();
+          if (ev.event_type === "done") scope.dropTrailingAnswer();
+        }
+        break;
+
       // ── Tool calls ─────────────────────────────────────────────────────────
       case "tool_call":
         scope.pushItem(
@@ -714,7 +791,11 @@ export function buildAnalyticsSteps(events: UiBlock[]): StepOrGroup[] {
         );
         break;
       case "tool_result": {
-        const a = scope.findLastStreaming<ArtifactItem>("artifact", ssi);
+        const a = scope.isReactRun()
+          ? (scope.findOldestStreamingArtifactByName(ev.payload.name, ssi) ??
+            scope.findLastStreaming<ArtifactItem>("artifact", ssi))
+          : scope.findLastStreaming<ArtifactItem>("artifact", ssi);
+        lastResultRow = a;
         if (a) {
           a.toolOutput = JSON.stringify(ev.payload.output ?? "");
           a.isError = ev.payload.is_error === true;
@@ -725,8 +806,22 @@ export function buildAnalyticsSteps(events: UiBlock[]): StepOrGroup[] {
         break;
       }
 
+      // A react run's `query` result is followed by its rows: they open its SQL panel.
+      case "query_executed": {
+        // The row sits right after its own tool_result, even when parallel calls ran.
+        const call =
+          scope.isReactRun() && lastResultRow?.toolName === "query" && !lastResultRow.queryExecuted
+            ? lastResultRow
+            : undefined;
+        const item = buildDomainItem(ev, scope.nextId);
+        if (call && item?.kind === "sql") call.queryExecuted = item;
+        else if (item) scope.pushItem(item, ssi);
+        break;
+      }
+
       // ── Human-in-the-loop ──────────────────────────────────────────────────
       case "awaiting_input": {
+        if (scope.isReactRun()) scope.closeTrailingText();
         // Detect delegation suspensions: prompts starting with "Executing step:"
         // or "Execute automation" indicate automation delegation, not human input.
         const questions: Array<{ prompt: string }> = ev.payload.questions ?? [];

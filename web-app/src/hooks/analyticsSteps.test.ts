@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from "vitest";
 import type { UiBlock } from "@/services/api/analytics";
 import type { AnalyticsStep, FanOutGroup } from "./analyticsSteps";
-import { buildAnalyticsSteps } from "./analyticsSteps";
+import { buildAnalyticsSteps, stripResultRefs } from "./analyticsSteps";
+import { extractAnswer, uiBlockToSseEvent } from "./useAnalyticsRun";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1299,5 +1302,145 @@ describe("builder delegation", () => {
     }
     const delegation = step.items.find((c: { kind: string }) => c.kind === "builder_delegation");
     expect(delegation).toBeUndefined();
+  });
+});
+
+// ── react runs (tool-calling loop, no step_start / step_end) ──────────────────
+
+const textDelta = (token: string) => ev("text_delta", { token });
+const toolCall = (name: string, input: unknown) =>
+  ev("tool_call", { name, input, llm_duration_ms: 5 });
+const toolResult = (name: string, output: unknown, is_error = false) =>
+  ev("tool_result", { name, output, duration_ms: 7, is_error });
+const reactQuery = (sql: string) =>
+  ev("query_executed", {
+    query: sql,
+    row_count: 1,
+    duration_ms: 10,
+    success: true,
+    columns: ["total"],
+    rows: [["5"]],
+    source: "llm"
+  });
+
+/** The rows a react run writes, in order, internal rows included. */
+const reactRunEvents = (): UiBlock[] => [
+  ev("runtime_selected", { runtime: "react" }),
+  textDelta("Let me look"),
+  toolCall("search", { pattern: "revenue" }),
+  ev("react_turn", { turn: 1 }),
+  toolResult("search", { matches: 2 }),
+  ev("react_tool_result", { name: "search" }),
+  toolCall("read", { path: "views/orders.view.yml" }),
+  toolResult("read", { path: "views/orders.view.yml", lines: 40 }),
+  toolCall("query", { sql: "select sum(total)\nfrom orders" }),
+  toolResult("query", { result_id: "r1", sql: "select sum(total) from orders" }),
+  reactQuery("select sum(total) from orders"),
+  ev("react_suspended", {}),
+  textDelta("Total is 5 {{result:r1|primary}}"),
+  ev("answer_result", { result_id: "r1", sql: "select 1" }),
+  ev("done", { duration_ms: 100 })
+];
+
+const artifacts = (steps: ReturnType<typeof buildAnalyticsSteps>) =>
+  steps.filter((s) => s.kind === "artifact") as Array<
+    Extract<(typeof steps)[number], { kind: "artifact" }>
+  >;
+
+describe("buildAnalyticsSteps — react runs", () => {
+  it("react run renders tool rows without a step", () => {
+    const steps = buildAnalyticsSteps(reactRunEvents());
+    expect(steps.some((s) => s.kind === "step")).toBe(false);
+    expect(artifacts(steps).map((a) => a.toolName)).toEqual(["search", "read", "query"]);
+    expect(artifacts(steps).every((a) => !a.isStreaming)).toBe(true);
+  });
+
+  it("attaches the query_executed row to its query tool row instead of adding a second row", () => {
+    const steps = buildAnalyticsSteps(reactRunEvents());
+    expect(steps.some((s) => s.kind === "sql")).toBe(false);
+    const query = artifacts(steps).find((a) => a.toolName === "query");
+    expect(query?.queryExecuted?.sql).toBe("select sum(total) from orders");
+    expect(query?.queryExecuted?.result).toEqual([["total"], ["5"]]);
+  });
+
+  it("parallel same-name calls pair in order", () => {
+    const steps = buildAnalyticsSteps([
+      ev("runtime_selected", { runtime: "react" }),
+      toolCall("query", { sql: "select 1" }),
+      toolCall("query", { sql: "select 2" }),
+      toolResult("query", "first"),
+      toolResult("query", "second")
+    ]);
+    const queries = artifacts(steps);
+    expect(queries.map((q) => q.toolOutput)).toEqual(['"first"', '"second"']);
+    expect(queries.every((q) => !q.isStreaming)).toBe(true);
+  });
+
+  it("pairs each parallel query's rows with its own call", () => {
+    const steps = buildAnalyticsSteps([
+      ev("runtime_selected", { runtime: "react" }),
+      toolCall("query", { sql: "select 'A'" }),
+      toolCall("query", { sql: "select 'B'" }),
+      toolResult("query", "a"),
+      reactQuery("select 'A'"),
+      toolResult("query", "b"),
+      reactQuery("select 'B'")
+    ]);
+    expect(artifacts(steps).map((q) => q.queryExecuted?.sql)).toEqual(["select 'A'", "select 'B'"]);
+    expect(steps.some((s) => s.kind === "sql")).toBe(false);
+  });
+
+  it("ignores the internal react rows", () => {
+    const steps = buildAnalyticsSteps([
+      ev("runtime_selected", { runtime: "react" }),
+      ev("react_turn", {}),
+      ev("react_tool_result", {}),
+      ev("react_suspended", {})
+    ]);
+    expect(steps).toEqual([]);
+  });
+
+  it("keeps narration as a text row and drops the trailing answer once done", () => {
+    const steps = buildAnalyticsSteps(reactRunEvents());
+    const texts = steps.filter((s) => s.kind === "text") as Array<{ text: string }>;
+    expect(texts.map((t) => t.text)).toEqual(["Let me look"]);
+  });
+});
+
+describe("extractAnswer — react runs", () => {
+  const answerOf = (events: UiBlock[]) => extractAnswer(events.map(uiBlockToSseEvent));
+
+  it("narration before a tool call is not the answer", () => {
+    expect(answerOf(reactRunEvents())).toBe("Total is 5");
+  });
+
+  it("strips a marker split across two text_delta tokens", () => {
+    const answer = answerOf([
+      ev("runtime_selected", { runtime: "react" }),
+      toolCall("query", { sql: "select 1" }),
+      toolResult("query", "ok"),
+      textDelta("Total is 5 {{res"),
+      textDelta("ult:r1}}"),
+      ev("done", {})
+    ]);
+    expect(answer).toBe("Total is 5");
+  });
+});
+
+describe("stripResultRefs", () => {
+  it("removes both marker forms", () => {
+    expect(stripResultRefs("A {{result:r1}} B {{result:r2|primary}}.")).toBe("A  B .");
+  });
+
+  it("leaves other braces alone", () => {
+    expect(stripResultRefs("use {{ name }} here")).toBe("use {{ name }} here");
+  });
+
+  it("hides an unfinished trailing marker only while streaming", () => {
+    expect(stripResultRefs("Total {{result:r", true)).toBe("Total ");
+    expect(stripResultRefs("Total {{", true)).toBe("Total ");
+    expect(stripResultRefs("Total {", true)).toBe("Total ");
+    expect(stripResultRefs("Total {{result:r1|prim", true)).toBe("Total ");
+    expect(stripResultRefs("Total {{result:r")).toBe("Total {{result:r");
   });
 });

@@ -21,6 +21,7 @@ import type {
   SelectableItem,
   SqlItem
 } from "@/hooks/analyticsSteps";
+import { stripResultRefs } from "@/hooks/analyticsSteps";
 import queryKeys from "@/hooks/api/queryKey";
 import type { AnalyticsDisplayBlock, SseEvent } from "@/hooks/useAnalyticsRun";
 import {
@@ -254,7 +255,7 @@ const PastRunEntry = ({
             })}
           {runAnswer && (
             <div>
-              <Markdown>{runAnswer}</Markdown>
+              <Markdown>{stripResultRefs(runAnswer)}</Markdown>
             </div>
           )}
         </div>
@@ -653,7 +654,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                         })}
                         {state.answer && (
                           <div>
-                            <Markdown>{state.answer}</Markdown>
+                            <Markdown>{stripResultRefs(state.answer)}</Markdown>
                           </div>
                         )}
                       </div>

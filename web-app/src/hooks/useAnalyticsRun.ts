@@ -1,5 +1,6 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { stripResultRefs } from "@/hooks/analyticsSteps";
 import { isIdeUnavailableError } from "@/libs/utils/ideHealth";
 import { previewRequestHeaders } from "@/libs/utils/preview";
 import type {
@@ -177,12 +178,28 @@ function buildStreamSegments(events: SseEvent[]): StreamSegment[] {
   return segments;
 }
 
+/**
+ * A react run has no step boundaries, so its narration and its answer are one token
+ * stream: the answer is what follows the last tool call.
+ */
+function extractReactAnswer(events: SseEvent[]): string {
+  let text = "";
+  for (const ev of events) {
+    if (ev.type === "tool_call") text = "";
+    else if (ev.type === "text_delta") text += ev.data.token ?? "";
+  }
+  return text;
+}
+
 export function extractAnswer(events: SseEvent[]): string {
-  return buildStreamSegments(events)
-    .filter((s) => s.kind === "output")
-    .map((s) => s.text)
-    .join("")
-    .trim();
+  const isReact = events.some((e) => e.type === "runtime_selected" && e.data.runtime === "react");
+  const text = isReact
+    ? extractReactAnswer(events)
+    : buildStreamSegments(events)
+        .filter((s) => s.kind === "output")
+        .map((s) => s.text)
+        .join("");
+  return stripResultRefs(text).trim();
 }
 
 /** Extract all chart_rendered payloads from an event list, in emission order. */

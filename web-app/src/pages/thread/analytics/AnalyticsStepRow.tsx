@@ -45,6 +45,7 @@ import type {
   ThinkingItem,
   TraceItem
 } from "@/hooks/analyticsSteps";
+import { stripResultRefs } from "@/hooks/analyticsSteps";
 import { cn } from "@/libs/shadcn/utils";
 import { VERIFIED_SQL_FILE_TOOLTIP, VERIFIED_TOOLTIP } from "../constants";
 import AutomationDelegationCard from "./AutomationDelegationCard";
@@ -266,6 +267,22 @@ function trunc(s: string, max = 60): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+/**
+ * A react `query` call's one-line preview. The call carries either raw `sql`
+ * (its first line) or a `semantic` query (its measures, else its dimensions).
+ */
+function queryPreview(input: Record<string, unknown> | null | undefined): string {
+  if (typeof input?.sql === "string") return input.sql.trim().split("\n")[0] ?? "";
+  const semantic = input?.semantic as Record<string, unknown> | undefined;
+  if (!semantic || typeof semantic !== "object") return "…";
+  const names = (key: string): string[] => {
+    const list = semantic[key];
+    return Array.isArray(list) ? list.filter((m): m is string => typeof m === "string") : [];
+  };
+  const members = names("measures").length > 0 ? names("measures") : names("dimensions");
+  return members.length > 0 ? `semantic: ${members.join(", ")}` : "semantic query";
+}
+
 type ToolDisplay = {
   Icon: React.ElementType;
   label: string;
@@ -277,9 +294,23 @@ function getToolDisplay(item: ArtifactItem): ToolDisplay {
   const input = tryParseJson(item.toolInput);
 
   switch (item.toolName) {
+    // ── React runs ────────────────────────────────────────────────────────────
+    case "search": {
+      const pattern = typeof input?.pattern === "string" ? input.pattern : "…";
+      return { Icon: Search, label: "Search", preview: trunc(pattern) };
+    }
+    case "read": {
+      const path = typeof input?.path === "string" ? input.path : "…";
+      return { Icon: FileText, label: "Read", preview: trunc(path) };
+    }
+    case "query":
+      return { Icon: Database, label: "Query", preview: trunc(queryPreview(input)) };
+
     // ── Ask user ──────────────────────────────────────────────────────────────
     case "ask_user": {
-      const prompt = typeof input?.prompt === "string" ? input.prompt : "Asking user…";
+      // The react tool's argument is `question`; the FSM's is `prompt`.
+      const asked = input?.question ?? input?.prompt;
+      const prompt = typeof asked === "string" ? asked : "Asking user…";
       const output = tryParseJson(item.toolOutput ?? "");
       const answer = typeof output?.answer === "string" ? output.answer : null;
       const preview = answer ? `${trunc(prompt, 30)} → ${trunc(answer, 30)}` : trunc(prompt);
@@ -839,12 +870,40 @@ const AutomationChild = ({ item, onSelect, pressed }: ChildRowProps<AutomationIt
 
 const TextChild = ({ item }: { item: TextItem }) => (
   <p className='whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed'>
-    {item.text}
+    {stripResultRefs(item.text, item.isStreaming)}
     {item.isStreaming && (
       <span className='ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-foreground' />
     )}
   </p>
 );
+
+/** One trace item as a row: a step's child, or a react run's top-level item. */
+export const TraceItemRow = ({
+  item,
+  onSelect,
+  isSelected,
+  border
+}: {
+  item: TraceItem;
+  onSelect: (item: SelectableItem) => void;
+  isSelected?: (item: SelectableItem) => boolean;
+  border: string;
+}) => {
+  if (item.kind === "thinking") return <ThinkingChild item={item} border={border} />;
+  if (item.kind === "artifact")
+    return <ArtifactChild item={item} onSelect={onSelect} pressed={isSelected?.(item)} />;
+  if (item.kind === "sql")
+    return <SqlChild item={item} onSelect={onSelect} pressed={isSelected?.(item)} />;
+  if (item.kind === "automation")
+    return item.isStreaming ? (
+      <AutomationDelegationCard item={item} onSelect={onSelect} pressed={isSelected?.(item)} />
+    ) : (
+      <AutomationChild item={item} onSelect={onSelect} pressed={isSelected?.(item)} />
+    );
+  if (item.kind === "builder_delegation")
+    return <BuilderDelegationCard item={item} onSelect={onSelect} pressed={isSelected?.(item)} />;
+  return <TextChild item={item} />;
+};
 
 // ── Step row ──────────────────────────────────────────────────────────────────
 
@@ -1013,54 +1072,15 @@ const AnalyticsStepRow = ({
       >
         {step.items.length > 0 && (
           <div className={cn("mt-1 mb-2 ml-8 space-y-1.5 border-l-2 pl-3", colors.border)}>
-            {step.items.map((item) => {
-              if (item.kind === "thinking")
-                return <ThinkingChild key={item.id} item={item} border={colors.border} />;
-              if (item.kind === "artifact")
-                return (
-                  <ArtifactChild
-                    key={item.id}
-                    item={item}
-                    onSelect={onSelectArtifact}
-                    pressed={isSelected?.(item)}
-                  />
-                );
-              if (item.kind === "sql")
-                return (
-                  <SqlChild
-                    key={item.id}
-                    item={item}
-                    onSelect={onSelectArtifact}
-                    pressed={isSelected?.(item)}
-                  />
-                );
-              if (item.kind === "automation")
-                return item.isStreaming ? (
-                  <AutomationDelegationCard
-                    key={item.id}
-                    item={item}
-                    onSelect={onSelectArtifact}
-                    pressed={isSelected?.(item)}
-                  />
-                ) : (
-                  <AutomationChild
-                    key={item.id}
-                    item={item}
-                    onSelect={onSelectArtifact}
-                    pressed={isSelected?.(item)}
-                  />
-                );
-              if (item.kind === "builder_delegation")
-                return (
-                  <BuilderDelegationCard
-                    key={item.id}
-                    item={item}
-                    onSelect={onSelectArtifact}
-                    pressed={isSelected?.(item)}
-                  />
-                );
-              return <TextChild key={item.id} item={item} />;
-            })}
+            {step.items.map((item) => (
+              <TraceItemRow
+                key={item.id}
+                item={item}
+                onSelect={onSelectArtifact}
+                isSelected={isSelected}
+                border={colors.border}
+              />
+            ))}
           </div>
         )}
         {step.error && <p className='mt-1 ml-8 text-destructive text-xs'>{step.error}</p>}

@@ -885,3 +885,58 @@ describe("AnalyticsThread — chart panel", () => {
     expect(panel("Render Chart").getByTestId("display-block").textContent).toBe("Revenue");
   });
 });
+
+// ── React runs ────────────────────────────────────────────────────────────────
+
+describe("AnalyticsThread — react run", () => {
+  const reactEvents = (): SseEvent[] => [
+    sseEv("runtime_selected", { runtime: "react" }),
+    sseEv("tool_call", { name: "query", input: { sql: "select sum(total)\nfrom orders" } }),
+    sseEv("tool_result", { name: "query", output: { result_id: "r1" }, duration_ms: 3 }),
+    sseEv("query_executed", {
+      query: "select sum(total)\nfrom orders",
+      row_count: 1,
+      duration_ms: 12,
+      success: true,
+      columns: ["grand_total"],
+      rows: [["5"]],
+      source: "llm"
+    }),
+    sseEv("react_turn", {}),
+    sseEv("react_suspended", {})
+  ];
+
+  it("query row opens the SQL panel", () => {
+    mockUseAnalyticsRun.mockReturnValue(runningWith(reactEvents()));
+    renderThread();
+
+    // The row is the tool call's first SQL line, not a second row for query_executed.
+    const row = screen.getByText("select sum(total)").closest("button");
+    if (!row) throw new Error("query row is not a button");
+    fireEvent.click(row);
+
+    // The SQL is syntax-highlighted into one span per token, so read the panel's text.
+    const text = screen
+      .getByRole("heading", { name: "SQL Query" })
+      .closest("[data-slot='panel']")?.textContent;
+    expect(text).toContain("orders");
+    expect(text).toContain("grand_total");
+  });
+
+  it("shows the answer without citation markers", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      makeResult({
+        state: {
+          tag: "done",
+          runId: "run-1",
+          answer: "Total is 5 {{result:r1|primary}}",
+          displayBlocks: [],
+          durationMs: 0,
+          events: reactEvents()
+        }
+      })
+    );
+    renderThread();
+    expect(screen.getByText("Total is 5")).toBeInTheDocument();
+  });
+});
