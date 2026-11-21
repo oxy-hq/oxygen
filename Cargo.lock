@@ -705,7 +705,7 @@ dependencies = [
 [[package]]
 name = "airlayer"
 version = "0.4.0"
-source = "git+https://github.com/oxy-hq/airlayer?rev=9b7f7bf1cbfaa27a2aee55586d1079dcbc5a3b2b#9b7f7bf1cbfaa27a2aee55586d1079dcbc5a3b2b"
+source = "git+https://github.com/oxy-hq/airlayer?rev=b066f5461d1b29541cc5fd2d89dea4c304534ed0#b066f5461d1b29541cc5fd2d89dea4c304534ed0"
 dependencies = [
  "anyhow",
  "chrono",

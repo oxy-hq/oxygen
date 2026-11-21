@@ -776,7 +776,19 @@ aho-corasick = "1.1"
 # Only `engine::experiment` changes, so **no rollup hash moves** and
 # `PREAGG_BUILDER_GENERATION` stays put.
 #
-# NOW AT 9b7f7bf — airlayer main, the merge of PR #140
+# NOW AT b066f54 — airlayer main, the squash merge of PR #142
+# (`fix/fanout-measure-filters`, https://github.com/oxy-hq/airlayer/pull/142),
+# on top of 9b7f7bf (same tree as the PR head 58b19b9). The additive fan-out
+# path applies a measure view's own filters, date ranges, segments, dims and
+# time buckets inside its `__measures_<view>` CTE (they used to reach only the
+# spine, so every bucket carried the key's all-time total), rolls each CTE up
+# over its own spine slice when the CTEs' keys differ (a district's
+# inhabitants were summed once per account), and honours measure filters it
+# used to drop. Only query compilation changes, not the rollup build SQL or
+# `compute_rollup_hash`'s inputs, so **no rollup hash moves** and
+# `PREAGG_BUILDER_GENERATION` stays put.
+#
+# Before that, 9b7f7bf — airlayer main, the merge of PR #140
 # (`fix/duckdb-manifest-no-primary-key`, https://github.com/oxy-hq/airlayer/pull/140),
 # on top of 5dc3444 plus dependabot lockfile bumps. The DuckDB `__manifest`
 # DDL no longer declares `PRIMARY KEY (view_name, rollup_name)`: DuckLake
@@ -784,7 +796,7 @@ aho-corasick = "1.1"
 # prelude every cycle (the DuckDB upsert is DELETE + INSERT and never needed
 # the key). Only the manifest DDL changes, not the build SQL, so **no rollup
 # hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
-airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "9b7f7bf1cbfaa27a2aee55586d1079dcbc5a3b2b" }
+airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "b066f5461d1b29541cc5fd2d89dea4c304534ed0" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.

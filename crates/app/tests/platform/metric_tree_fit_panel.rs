@@ -213,16 +213,19 @@ fn within_panel(
 }
 
 /// Pairing a check-grain sum with a store-grain sum in one request joins the
-/// coarse view in on `location_id` alone and fans BOTH measures out. This is
-/// the shape an additivity-only split used to send, and it is why the fit
-/// reported "the driver does not vary within any panel" against data that
-/// varies in every one of them.
+/// coarse view in on `location_id` alone. airlayer up to 9b7f7bf fanned BOTH
+/// measures out there: its fan-out CTE summed each check's server over its
+/// whole history, ignoring the day bucket, and repeated it on every spine row.
+/// That is the shape an additivity-only split used to send, and it is why the
+/// fit reported "the driver does not vary within any panel" against data that
+/// varies in every one of them. airlayer#142 applies the bucket inside the
+/// measure CTE, so the shared request now answers exactly as the lone one.
 ///
 /// Asserted against real SQL because no fake executor can produce a join
 /// fan-out — which is exactly why this reached the UI instead of a test.
 #[test]
 #[serial_test::serial]
-fn a_check_grain_sum_is_corrupted_by_sharing_a_request_with_a_store_grain_one() {
+fn a_check_grain_sum_is_not_corrupted_by_sharing_a_request_with_a_store_grain_one() {
     enter_fixture_dir();
     let layer = layer();
     let dialects = DatasourceDialectMap::with_default(oxy_airlayer_compat::Dialect::DuckDB);
@@ -254,19 +257,18 @@ fn a_check_grain_sum_is_corrupted_by_sharing_a_request_with_a_store_grain_one() 
     assert_eq!(flat, 0, "guests must vary within every panel");
     assert!((mean - 3.886).abs() < 0.01, "guests per server-day: {mean}");
 
-    // Shared with a store-grain sum, the same measure is inflated and pinned
-    // flat. Pinned as a known engine behaviour, not as something desirable:
-    // the split's job is never to send this.
+    // Shared with a store-grain sum, the same measure must come back
+    // unchanged: still moving within every panel, same per-server-day mean.
     let (panels, flat, mean) = within_panel(
         &ask(&["checks.total_guests", "store_days.net_sales"]),
         "checks__total_guests",
     );
     assert_eq!(panels, 360);
-    assert_eq!(
-        flat, 360,
-        "the cross-grain join flattens guests in every panel"
+    assert_eq!(flat, 0, "a store-grain sum must not flatten guests");
+    assert!(
+        (mean - 3.886).abs() < 0.01,
+        "nor inflate them: guests per server-day {mean}"
     );
-    assert!(mean > 1000.0, "and inflates them: {mean}");
 }
 
 /// Wrap an executor so it refuses a request that mixes additive and
