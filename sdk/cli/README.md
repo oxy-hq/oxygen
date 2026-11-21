@@ -837,6 +837,27 @@ shows the holder and asks first; with no terminal it refuses (exit `8`) unless
 is released and it exits `6` naming who holds it now. Both need a workspace
 admin; staff act inside a tenant through `oxyc assume`.
 
+## Looker integrations
+
+Check a Looker integration's credentials on a deployment. This replaced the
+Rust `oxy looker test` (a one-release stub since 2026-11-21), which read
+`config.yml` from a checkout and the credentials from your shell.
+
+```bash
+oxyc looker test <name> --workspace <id> [--json]
+```
+
+The server checks what it serves: the integration from the workspace's
+compiled `config.yml`, the client ID and secret from the workspace's secrets.
+It signs in to Looker and lists the LookML models, and prints the first five.
+One integration per call. A check that ran answers `200` with its verdict, and
+a failed one exits `9`, naming the stage: `resolve` (a secret is missing),
+`client`, `auth` (Looker refused the credentials), `connect` or `timeout`
+(`base_url` did not answer). `--json` prints
+`{ ok, stage, error, integration, base_url, models: [{ name, explores }], elapsed_ms }`,
+on a failure too. `5` is no Looker integration by that name; `4` is a caller
+who is not a workspace admin (staff act inside a tenant through `oxyc assume`).
+
 ## Feature flags
 
 Staff-only control of the flags Oxy declares in its server code (the
@@ -1998,7 +2019,7 @@ written in `skills/` here; see `internal-docs/platform-skills.md`.
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and failed or timed out (`oxyc checks run`)
+9  a check ran and failed or timed out (`oxyc checks run`, `oxyc looker test`)
 ```
 
 `4` almost always means the wrong `--env`. A person logs in again. An agent on

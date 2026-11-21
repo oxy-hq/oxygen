@@ -80,6 +80,7 @@ import { runLaunch } from "./commands/launch.js";
 import { runLoginLink } from "./commands/login-link.js";
 import { runLogs } from "./commands/logs.js";
 import { followTimeout, runLogsFollow } from "./commands/logs-follow.js";
+import { registerLooker } from "./commands/looker.js";
 import { runMigrateAutomations } from "./commands/migrate-automations.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import {
@@ -1649,6 +1650,7 @@ function buildProgram(): Command {
   registerHome(program, { withGlobals, globals, collect });
   registerWorkspace(program, { withGlobals, globals, collect });
   registerAirway(program, { withGlobals, globals, collect });
+  registerLooker(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")
@@ -2272,7 +2274,7 @@ const EXIT_CODE_HELP = `0  success
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`)
+9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`, \`oxyc looker test\`)
 `;
 
 /**

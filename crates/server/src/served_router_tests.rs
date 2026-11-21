@@ -1534,7 +1534,9 @@ async fn the_tenancy_leaves_are_mounted_where_oxy_app_had_them() {
 /// `build_integration_routes`) is merged into `/{workspace_id}/integrations`
 /// beside the OAuth connects `oxy-app` still nests there, so both halves of
 /// the prefix must answer. A real GET reaches the handler and answers from the
-/// empty workspace's config: no Looker integration, `[]`.
+/// empty workspace's config: no Looker integration, `[]`. The credentials check
+/// beside it (`/integrations/looker/{name}/test`, 2026-11-21) rides the same
+/// seam.
 #[tokio::test]
 async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects() {
     let decls = surface_seams().workspace.decls;
@@ -1544,6 +1546,12 @@ async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects(
             && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
         "the workspace seam must carry `* /integrations/looker` as FleetOk"
     );
+    assert!(
+        decls.iter().any(|d| d.method == "*"
+            && d.path == "/integrations/looker/{name}/test"
+            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+        "the workspace seam must carry the Looker credentials check as FleetOk"
+    );
     if db_unavailable() {
         return;
     }
@@ -1552,6 +1560,7 @@ async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects(
         &router,
         &[
             "/integrations/looker",
+            "/integrations/looker/my_looker/test",
             // `oxy-app`'s half of the same prefix, which must survive the merge.
             "/integrations/quickbooks/authorize",
             "/integrations/oauth/google/authorize",

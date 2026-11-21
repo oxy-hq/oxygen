@@ -11,8 +11,10 @@
 //!   production app secret's write is audited (`oxy_custom_apps::secret_audit`).
 //! - [`integration`] (2026-11-16): the Looker integrations `config.yml`
 //!   declares, with the explores each names, read from the served revision's
-//!   compiled config (`/integrations/looker`). The other `/integrations/*`
-//!   routes (the OAuth connects) are still `oxy-app`'s.
+//!   compiled config (`/integrations/looker`), and (2026-11-21) the credentials
+//!   check for one (`/integrations/looker/{name}/test`, `WorkspaceAdmin`), which
+//!   replaced the Rust `oxy looker test`. The other `/integrations/*` routes
+//!   (the OAuth connects) are still `oxy-app`'s.
 //!
 //! [`workspace_routes`] rides the workspace seam, merged INSIDE the
 //! `/api/{workspace_id}` nest, so it inherits the session auth stack and
@@ -45,7 +47,8 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 /// did (the list is its `/`). `/integrations/looker` is a single route, not a
 /// nest: `oxy-app` still nests the rest of `/integrations` (the OAuth
 /// connects), and the two merge as siblings under that prefix. It lists the
-/// Looker integrations named in the served revision's config.
+/// Looker integrations named in the served revision's config; `/{name}/test`
+/// beside it checks one integration's credentials (`oxyc looker test`).
 pub fn workspace_routes() -> Router<AppState> {
     Router::new()
         .nest("/databases", database_routes())
@@ -53,6 +56,10 @@ pub fn workspace_routes() -> Router<AppState> {
         .route(
             "/integrations/looker",
             get(integration::list_looker_integrations),
+        )
+        .route(
+            "/integrations/looker/{name}/test",
+            post(integration::test_looker_integration),
         )
 }
 
@@ -96,7 +103,8 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree:
-/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk.
+/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk, and
+/// the Looker credentials check added here (2026-11-21).
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     WORKSPACE_ROUTE_ROLES
 }
@@ -116,6 +124,9 @@ const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] = &[
     // Reads the served revision's compiled config, never a working copy or
     // Looker itself (2026-11-16, out of `build_integration_routes`).
     fleet("/integrations/looker"),
+    // Reads the compiled config and the secrets store, then calls Looker; no
+    // working copy (2026-11-21, `oxyc looker test`).
+    fleet("/integrations/looker/{name}/test"),
 ];
 
 #[cfg(test)]
@@ -137,6 +148,7 @@ mod tests {
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7",
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7/value",
         "/integrations/looker",
+        "/integrations/looker/my_looker/test",
     ];
 
     async fn trace(router: &Router, uri: &str) -> StatusCode {
@@ -163,8 +175,8 @@ mod tests {
         let declared = workspace_route_roles();
         assert_eq!(
             declared.len(),
-            10,
-            "five database paths, four secret paths, one integration path"
+            11,
+            "five database paths, four secret paths, two integration paths"
         );
         for decl in declared {
             let same = declared
@@ -211,6 +223,8 @@ mod tests {
             // every_integration_sub_route_is_classified`, whose ack list named
             // it: the listing reads the served revision's config.
             ("GET", "/integrations/looker"),
+            // The credentials check: compiled config + secrets store + Looker.
+            ("POST", "/integrations/looker/my_looker/test"),
         ] {
             let uri = format!("/api/{ws}{path}");
             assert_eq!(
@@ -240,5 +254,45 @@ mod tests {
             StatusCode::NOT_FOUND,
             "control"
         );
+    }
+
+    /// The Looker credentials check takes `WorkspaceAdmin` FIRST, as the OAuth
+    /// connects beside it do: a member or viewer is refused before the handler
+    /// reads the config, so a 404 can never confirm an integration's name to
+    /// them. No workspace manager is installed here, so reaching any later
+    /// extractor would answer something other than 403.
+    #[tokio::test]
+    async fn the_looker_check_refuses_a_non_admin_before_anything_else() {
+        use axum::extract::Request;
+        use axum::middleware::{self, Next};
+        use entity::workspace_members::WorkspaceRole;
+        use oxy_app::surface::EffectiveWorkspaceRole;
+
+        for role in [WorkspaceRole::Member, WorkspaceRole::Viewer] {
+            let injected = role.clone();
+            let inject = move |mut req: Request, next: Next| {
+                let role = injected.clone();
+                async move {
+                    req.extensions_mut().insert(EffectiveWorkspaceRole(role));
+                    next.run(req).await
+                }
+            };
+            let router = Router::new()
+                .nest("/{workspace_id}", workspace_routes())
+                .layer(middleware::from_fn(inject))
+                .with_state(oxy_app::surface::bare_app_state());
+            let status = router
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/7c9e6679-7425-40de-944b-e07fc1f90ae7/integrations/looker/my_looker/test")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status();
+            assert_eq!(status, StatusCode::FORBIDDEN, "{role:?}");
+        }
     }
 }

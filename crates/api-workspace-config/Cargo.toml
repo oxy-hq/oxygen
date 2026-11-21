@@ -23,6 +23,7 @@ oxy = { workspace = true }               # SecretManagerService, the database in
 oxy-auth = { workspace = true }          # AuthenticatedUserExtractor
 oxy-custom-apps = { workspace = true }   # an app secret's scope and its audit
 oxy-identity = { workspace = true }      # the created-by email lookup
+oxy-looker = { workspace = true }        # the Looker client the credentials check signs in with
 axum = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 garde = { workspace = true, features = ["full"] }

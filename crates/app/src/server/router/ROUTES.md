@@ -185,7 +185,7 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /files/              tree, diff-summary, get, from-git, revert, save,
 │                        delete(-file|-folder), rename-(file|folder), new-(file|folder)
 ├── /databases/          list, create, test-connection, sync, build, clean
-├── /integrations/       looker: list
+├── /integrations/       looker: list, {name}/test  (oxy-api-workspace-config; test is admin-gated)
 ├── /secrets/            list, create, bulk, get, update, delete, reveal  (admin-gated)
 ├── /traces/             traces_routes()
 ├── /metrics/            metrics_routes()

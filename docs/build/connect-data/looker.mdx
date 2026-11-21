@@ -49,7 +49,7 @@ integrations:
 
 ## Authentication
 
-Oxygen authenticates with Looker using OAuth 2.0 client credentials. Store your credentials as environment variables:
+Oxygen authenticates with Looker using OAuth 2.0 client credentials. On a deployment, add them to the workspace's secrets (**Settings → Secrets**) under the names `client_id_var` and `client_secret_var` give; that is where `oxyc looker test` reads them. For a local run, store them as environment variables:
 
 ```bash
 export LOOKER_CLIENT_ID="your_client_id"
@@ -124,8 +124,25 @@ tasks:
 ### Test Connection
 
 ```bash
-oxy looker test --integration my_looker
+oxyc looker test my_looker --workspace <workspace-id>
 ```
+
+`oxyc` is the Oxy CLI (`npm i -g @oxy-hq/cli`, then `oxyc login`). The check
+runs on your deployment, against what it serves: the integration from the
+workspace's deployed `config.yml`, and the client ID and secret from the
+workspace's secrets (**Settings → Secrets**, under the names `client_id_var`
+and `client_secret_var` give), not your shell's environment. It signs in to
+Looker and lists the LookML models. You need to be a workspace admin.
+
+It exits `0` when the connection works and `9` when the check fails, naming
+the stage: `resolve` (a secret is missing), `auth` (Looker refused the
+credentials), or `connect` / `timeout` (`base_url` did not answer). An unknown
+integration name exits `5`. `--json` prints the result as JSON.
+
+<Note>
+`oxy looker test --integration <name>` moved to `oxyc looker test`. For one
+release the old command prints the `oxyc` command to run and exits `2`.
+</Note>
 
 <Note>
 `oxy looker sync` and `oxy looker list` were removed. They wrote a metadata
@@ -135,7 +152,7 @@ Name fields in full, as `view.field_name`, in the task.
 
 ## Troubleshooting
 
-- **Authentication errors** - Verify your client ID and secret are correct and that the environment variables are exported. API credentials may expire if rotated in the Looker admin panel.
+- **Authentication errors** - Verify your client ID and secret are correct and that they are stored in the workspace's secrets under the names `config.yml` gives (`oxyc looker test` reports stage `resolve` when one is missing). API credentials may expire if rotated in the Looker admin panel.
 - **Connection refused** - Ensure the `base_url` includes the correct port (Looker API typically runs on port `19999`).
 - **Unknown field errors** - Check that the explores listed in your configuration exist in Looker, that the field names are written `view.field_name`, and that your API credentials have permission to access them.
 - **Query errors with filters** - Looker uses its own filter syntax, not SQL. Use expressions like `"last 30 days"` instead of SQL date functions.

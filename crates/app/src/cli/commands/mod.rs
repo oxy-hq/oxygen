@@ -100,9 +100,12 @@ pub enum SubCommand {
     /// Database seeding commands for development and testing
     #[clap(hide = true)]
     Seed(SeedArgs),
-    /// Test Looker integrations
+    /// Moved to `oxyc looker test` (prints the command and exits 2)
     ///
-    /// Check that the Looker integrations configured in your project can connect.
+    /// Checking a Looker integration's credentials is
+    /// `oxyc looker test <name> --workspace <id>` now (`npm i -g @oxy-hq/cli`).
+    /// This stub stays for one release so an old invocation is told what to
+    /// type instead.
     Looker(looker::LookerArgs),
     /// Run and debug agentic analytics pipelines
     ///
@@ -556,7 +559,8 @@ pub async fn run(
         }
 
         SubCommand::Looker(looker_args) => {
-            looker::handle_looker_command(looker_args).await?;
+            eprintln!("{}", looker::moved_message(&looker_args).warning());
+            exit(looker::MOVED_EXIT_CODE);
         }
         SubCommand::Agentic(agentic_args) => {
             agentic_cli::handle_agentic_command(agentic_args).await?;

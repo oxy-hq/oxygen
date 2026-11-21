@@ -100,6 +100,9 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/databases/inspect"),
     ("POST", "/databases/inspect-schemas"),
     ("POST", "/databases/inspect-schema-tables"),
+    // A Looker integration's credentials check (`oxyc looker test`): signs in
+    // and lists the models, nothing is written.
+    ("POST", "/integrations/looker/{name}/test"),
 ];
 
 const SECRETS: &str = "Changing secrets";

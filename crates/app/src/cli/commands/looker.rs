@@ -1,14 +1,16 @@
-//! Looker CLI commands for checking a Looker integration
+//! `oxy looker test` — a one-release stub. The check is
+//! `oxyc looker test <name> --workspace <id>` now (`@oxy-hq/cli`, `sdk/cli`),
+//! over `POST /api/{workspace_id}/integrations/looker/{name}/test`
+//! (`oxy-api-workspace-config`), which reads the deployed workspace's compiled
+//! config and its secrets instead of a local checkout and the shell.
+//!
+//! Customers run this (`docs/build/connect-data/looker.mdx`), so it is not
+//! deleted outright: the args still parse, so an old invocation lands here and
+//! is told the `oxyc` command to type, and the process exits `2` (a usage
+//! error). Delete this file and its `SubCommand` arm one release after the
+//! `oxyc` verb ships (`internal-docs/oxy-cli-to-oxyc.md`, step 12).
 
 use clap::Parser;
-use oxy::adapters::workspace::builder::WorkspaceBuilder;
-use oxy::config::WorkingCopy;
-use oxy::config::model::IntegrationType;
-use oxy::config::resolve_local_workspace_path;
-use oxy::theme::StyledText;
-use oxy_looker::{LookerApiClient, LookerAuthConfig};
-use oxy_shared::errors::OxyError;
-use uuid::Uuid;
 
 /// Looker integration commands
 #[derive(Parser, Debug)]
@@ -19,9 +21,12 @@ pub struct LookerArgs {
 
 #[derive(Parser, Debug)]
 pub enum LookerCommand {
-    /// Test Looker integration connection
+    /// Moved to `oxyc looker test` (prints the command and exits 2)
     ///
-    /// Verify that the Looker API credentials are valid and the connection works.
+    /// Checking a Looker integration's credentials is
+    /// `oxyc looker test <name> --workspace <id>` now (`npm i -g @oxy-hq/cli`).
+    /// This stub stays for one release so an old invocation is told what to
+    /// type instead.
     Test(LookerTestArgs),
 }
 
@@ -32,146 +37,75 @@ pub struct LookerTestArgs {
     pub integration: Option<String>,
 }
 
-/// Handle the `oxy looker` subcommand
-pub async fn handle_looker_command(args: LookerArgs) -> Result<(), OxyError> {
-    match args.command {
-        LookerCommand::Test(test_args) => handle_looker_test(test_args).await,
+/// The exit code the stub ends with: a usage error, as for an unknown command.
+pub const MOVED_EXIT_CODE: i32 = 2;
+
+/// What the stub prints: the `oxyc` invocation equivalent to `args`. The new
+/// verb checks one integration per call, so a bare `oxy looker test` (which
+/// checked every one) gets a `<name>` placeholder.
+pub fn moved_message(args: &LookerArgs) -> String {
+    let LookerCommand::Test(test) = &args.command;
+    let name = test
+        .integration
+        .as_deref()
+        .map(shell_quote)
+        .unwrap_or_else(|| "<name>".to_string());
+    format!(
+        "`oxy looker test` has moved to oxyc. Run:\n\n    \
+         oxyc looker test {name} --workspace <workspace-id>\n\n\
+         It checks the integration on the deployment, with the credentials in the \
+         workspace's secrets.\n\
+         Install it with `npm i -g @oxy-hq/cli` (or run `npx @oxy-hq/cli looker test`)."
+    )
+}
+
+/// Single-quote `s` for a POSIX shell when it holds anything but safe characters.
+fn shell_quote(s: &str) -> String {
+    let safe = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:@+=,".contains(c));
+    if safe {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
     }
 }
 
-/// Handle the `oxy looker test` command
-async fn handle_looker_test(args: LookerTestArgs) -> Result<(), OxyError> {
-    let workspace_path = resolve_local_workspace_path()?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let project = WorkspaceBuilder::<WorkingCopy>::new(Uuid::nil())
-        .with_working_copy(&workspace_path, None, oxy::config::OnMissing::Fail)
-        .await?
-        .build()
-        .await
-        .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;
-
-    let config = project.config_manager.clone();
-
-    let looker_integrations: Vec<_> = config
-        .get_config()
-        .integrations
-        .iter()
-        .filter_map(|integration| match &integration.integration_type {
-            IntegrationType::Looker(looker_integration) => {
-                if let Some(ref filter_name) = args.integration
-                    && &integration.name != filter_name
-                {
-                    return None;
-                }
-                Some((integration.name.clone(), looker_integration.clone()))
-            }
-            _ => None,
-        })
-        .collect();
-
-    if looker_integrations.is_empty() {
-        if args.integration.is_some() {
-            return Err(OxyError::ConfigurationError(format!(
-                "Looker integration '{}' not found",
-                args.integration.unwrap()
-            )));
-        }
-        println!("{}", "No Looker integrations configured.".warning());
-        return Ok(());
+    fn parse(argv: &[&str]) -> LookerArgs {
+        LookerArgs::try_parse_from(std::iter::once("looker").chain(argv.iter().copied()))
+            .expect("an old invocation must still parse")
     }
 
-    println!("{}", "🔍 Testing Looker connections...".info());
+    #[test]
+    fn old_invocations_still_parse() {
+        let LookerCommand::Test(a) = parse(&["test"]).command;
+        assert_eq!(a.integration, None);
+        let LookerCommand::Test(a) = parse(&["test", "--integration", "my_looker"]).command;
+        assert_eq!(a.integration.as_deref(), Some("my_looker"));
+    }
 
-    for (integration_name, looker_integration) in looker_integrations {
-        println!("\n📦 Testing integration: {}", integration_name.primary());
-
-        // Resolve API credentials from environment variables
-        let client_id = match project
-            .secrets_manager
-            .resolve_secret(&looker_integration.client_id_var)
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                println!(
-                    "   {} Client ID not found (env var: {})",
-                    "❌".error(),
-                    looker_integration.client_id_var
-                );
-                continue;
-            }
-        };
-
-        let client_secret = match project
-            .secrets_manager
-            .resolve_secret(&looker_integration.client_secret_var)
-            .await?
-        {
-            Some(secret) => secret,
-            None => {
-                println!(
-                    "   {} Client secret not found (env var: {})",
-                    "❌".error(),
-                    looker_integration.client_secret_var
-                );
-                continue;
-            }
-        };
-
-        println!("   ✅ Credentials found");
-        println!(
-            "   🌐 Connecting to {}...",
-            looker_integration.base_url.secondary()
+    #[test]
+    fn prints_the_equivalent_oxyc_command() {
+        assert!(
+            moved_message(&parse(&["test", "--integration", "my_looker"]))
+                .contains("\n    oxyc looker test my_looker --workspace <workspace-id>\n")
         );
-
-        // Create API client and test connection
-        let auth_config = LookerAuthConfig {
-            base_url: looker_integration.base_url.clone(),
-            client_id,
-            client_secret,
-        };
-
-        let mut api_client: LookerApiClient = match LookerApiClient::new(auth_config) {
-            Ok(client) => client,
-            Err(e) => {
-                let error_msg = e.to_string();
-                println!(
-                    "   {} Failed to create client: {}",
-                    "❌".error(),
-                    error_msg.error()
-                );
-                continue;
-            }
-        };
-
-        // Test by listing models (this will trigger authentication)
-        match api_client.list_models().await {
-            Ok(models) => {
-                println!("   {} Connection successful!", "✅".success());
-                let model_count = models.len();
-                println!("   📋 Available models: {}", model_count);
-                for model in models.iter().take(5) {
-                    let explore_count = model.explores.len();
-                    println!(
-                        "      - {} ({} explores)",
-                        model.name.secondary(),
-                        explore_count
-                    );
-                }
-                if model_count > 5 {
-                    println!("      ... and {} more", model_count - 5);
-                }
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                println!(
-                    "   {} Connection failed: {}",
-                    "❌".error(),
-                    error_msg.error()
-                );
-            }
-        }
+        assert!(
+            moved_message(&parse(&["test"]))
+                .contains("\n    oxyc looker test <name> --workspace <workspace-id>\n")
+        );
+        assert!(
+            moved_message(&parse(&["test", "--integration", "my looker"]))
+                .contains("\n    oxyc looker test 'my looker' --workspace")
+        );
     }
 
-    Ok(())
+    #[test]
+    fn exits_as_a_usage_error() {
+        assert_eq!(MOVED_EXIT_CODE, 2);
+    }
 }
