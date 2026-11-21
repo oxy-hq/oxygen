@@ -540,7 +540,7 @@ function workspaceReading(facts: Facts, repoWorkspace: WorkspaceDetail | undefin
       : {
           next: compiled
             ? `oxyc api /api/admin/workspaces/${facts.workspaceId}/detail   — read \`error\` for why it is not Ready`
-            : "nothing is compiled: push a commit to the workspace repository, or compile it from the Factory"
+            : "nothing is compiled: push a commit to the workspace repository, or compile it from Oxygen Nexus"
         })
   };
 }

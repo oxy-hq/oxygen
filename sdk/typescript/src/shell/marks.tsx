@@ -28,11 +28,11 @@ const FACTORY_PATHS = [
   "M39.2805 32.7689C39.2947 33.8426 38.8352 34.8657 38.0314 35.5777C28.4104 44.1006 18.5237 51.9152 13.0125 56.3133C11.7919 57.2874 10.0954 56.4483 10.3571 54.9087C12.5527 41.9933 25.758 17.8554 35.9571 12.7314C36.9805 12.2172 38.0789 12.9771 38.1857 14.1175C38.5311 17.8049 39.186 25.6228 39.2805 32.7689Z"
 ];
 
-/** The Oxygen Factory mark (three-shard glyph) as an inline SVG in
+/** The Oxygen Nexus mark (three-shard glyph) as an inline SVG in
  *  `currentColor`, so it follows the shell foreground in either theme.
  *  (The web-app's asset files are fixed-color; this inline variant frees
  *  external bundles from carrying those assets.) Decorative — the rail
- *  button supplies the "Oxygen Factory" aria-label. */
+ *  button supplies the "Oxygen Nexus" aria-label. */
 export function OxygenFactoryMark({ className }: { className?: string }) {
   return (
     <svg

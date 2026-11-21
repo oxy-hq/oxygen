@@ -21,7 +21,7 @@
 # A NEW chat question is pinned to the ide: `POST /analytics/runs` answers 502
 # with `x-oxy-required-role: ide`, which `useAnalyticsRun.ts` classifies and the
 # thread page renders as the same `IdeUnavailablePanel` ("Your question needs
-# Oxygen Factory, which is restarting") rather than the generic `ErrorAlert`.
+# Oxygen Nexus, which is restarting") rather than the generic `ErrorAlert`.
 # Browsing PAST conversations is unaffected: `GET /threads` is FleetOk.
 #
 # COST: `ide-down` is one rail click + one chat submit (no model call: the run
@@ -91,7 +91,7 @@ cases:
       - assert: "selector [data-testid=ide-unavailable-banner] is visible"
       # Chat-specific copy (pages/thread/analytics/index.tsx:786): confirms it is
       # the ANALYTICS-run failure branch that rendered.
-      - assert: "text \"Your question needs Oxygen Factory\" is visible"
+      - assert: "text \"Your question needs Oxygen Nexus\" is visible"
       # Proves the CALM path was taken, not the sibling `ErrorAlert` /
       # "Run failed" branch two lines below it in the same component
       # (index.tsx:792-809) — the two are mutually exclusive renders of the
@@ -103,7 +103,7 @@ cases:
       - judge: |
           The page is a thread detail page (/threads/<id>). In place of an
           analytics answer it shows a calm panel with wording to the effect
-          of "needs Oxygen Factory, which is restarting" and a Retry
+          of "needs Oxygen Nexus, which is restarting" and a Retry
           button — NOT a raw error message, NOT a stack trace, and NOT an
           indefinite loading spinner with no explanation. Separately, the
           bottom-right corner still shows the global outage banner ("Oxygen
@@ -141,7 +141,7 @@ cases:
           anywhere on screen and no "restarting" notice.
 
           Fail if ANY of the following is true:
-          (a) a banner or panel says the Oxygen Factory is unavailable or
+          (a) a banner or panel says Oxygen Nexus is unavailable or
               restarting;
           (b) a loading spinner is still on screen with no explanation;
           (c) any visible text contains "No such file or directory", "os

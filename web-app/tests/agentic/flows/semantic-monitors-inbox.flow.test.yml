@@ -97,7 +97,7 @@ cases:
       - wait_for: "selector:[data-testid=rail-core]"
 
       - act: |
-          browser_click [data-testid=rail-core] — the Oxygen Factory tile in the
+          browser_click [data-testid=rail-core] — the Oxygen Nexus tile in the
           left icon rail. The IDE opens.
 
       # data-testid='ide-nav-semantic' — web-app/src/pages/ide/Sidebar/index.tsx:225
@@ -168,7 +168,7 @@ cases:
       - wait_for: "selector:[data-testid=rail-core]"
 
       - act: |
-          browser_click [data-testid=rail-core] — the Oxygen Factory tile in the
+          browser_click [data-testid=rail-core] — the Oxygen Nexus tile in the
           left icon rail. The IDE opens.
 
       - wait_for: "selector:[data-testid=ide-nav-semantic];timeout_ms=60000"

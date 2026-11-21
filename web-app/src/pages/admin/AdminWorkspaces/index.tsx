@@ -118,7 +118,7 @@ export default function AdminWorkspaces() {
               data-testid='admin-workspaces-open-factory'
             >
               <OxygenFactoryMark className='size-4' />
-              Open Factory…
+              Open Nexus…
             </Button>
             <Button variant='outline' size='sm' onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`size-4 ${isFetching ? "animate-spin" : ""}`} />
@@ -218,7 +218,7 @@ export default function AdminWorkspaces() {
                             data-testid={`admin-workspaces-open-factory-${w.id}`}
                           >
                             <OxygenFactoryMark className='size-4' />
-                            Open Factory
+                            Open Nexus
                           </Button>
                         )}
                       </TableCell>

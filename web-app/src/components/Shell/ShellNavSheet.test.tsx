@@ -26,14 +26,14 @@ describe("ShellNavSheet", () => {
       <ShellNavSheet
         title='Poke House'
         groups={[[{ key: "hq", label: "HQ", testId: "rail-hq", letter: "H" }], [appItem]]}
-        footerItems={[{ key: "core", label: "Oxygen Factory", testId: "rail-core", letter: "O" }]}
+        footerItems={[{ key: "core", label: "Oxygen Nexus", testId: "rail-core", letter: "O" }]}
       />
     );
     expect(screen.queryByTestId("nav-sheet")).toBeNull();
     open();
     expect(screen.getByTestId("nav-sheet-rail-hq")).toHaveTextContent("HQ");
     expect(screen.getByTestId("nav-sheet-rail-app-bookkeeping")).toHaveTextContent("Bookkeeping");
-    expect(screen.getByTestId("nav-sheet-rail-core")).toHaveTextContent("Oxygen Factory");
+    expect(screen.getByTestId("nav-sheet-rail-core")).toHaveTextContent("Oxygen Nexus");
   });
 
   /// Picking a destination must close the drawer, or it stays over the page

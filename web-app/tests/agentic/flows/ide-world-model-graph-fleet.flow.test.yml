@@ -104,7 +104,7 @@ cases:
       - wait_for: "selector:[data-testid=rail-core]"
 
       - act: |
-          browser_click [data-testid=rail-core] — the Oxygen Factory tile in the
+          browser_click [data-testid=rail-core] — the Oxygen Nexus tile in the
           left icon rail. The IDE opens.
 
       # data-testid='ide-nav-world-model'

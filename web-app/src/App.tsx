@@ -336,7 +336,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: Wor
   // Copy rule: describe what the USER sees, never why. "Pod", "volume",
   // "deploy", "replica" are our vocabulary, not theirs — they name causes a
   // user can neither verify nor act on. Matches `IdeUnavailablePanel`, which
-  // says "Oxygen Factory is restarting. It will resume shortly."
+  // says "Oxygen Nexus is restarting. It will resume shortly."
   if (materializingTimedOut) {
     return (
       <div className='flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center'>

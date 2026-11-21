@@ -36,7 +36,7 @@ export function useHqAlerts(): HqSignal[] {
 
   return seeds.flatMap(({ target, ...rest }): HqSignal[] => {
     if ("core" in target) {
-      return [{ ...rest, destLabel: "Oxygen Factory", route: coreRoute }];
+      return [{ ...rest, destLabel: "Oxygen Nexus", route: coreRoute }];
     }
     const app = apps.find((a) => a.slug === target.app);
     return app

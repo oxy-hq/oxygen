@@ -209,7 +209,7 @@ export function WorkspacePicker({
       {acting && (
         <p className='border-t px-4 py-3 text-muted-foreground text-xs'>
           You're acting as {groups[0]?.orgName ?? "an organization"}. Stop that session to open
-          another organization's Factory.
+          another organization's Nexus.
         </p>
       )}
     </Command>

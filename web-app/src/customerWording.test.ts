@@ -153,11 +153,6 @@ const FACTORY_OR_STAFF_TEXT: readonly { file: string; text: string; why: string 
     why: "Fallback when there is neither an org name nor a workspace name: local mode only."
   },
   {
-    file: "components/Shell/WorkspaceShell.tsx",
-    text: "Open any organization's Factory",
-    why: "Tooltip of the Open Factory rail entry, which only operators (isOperator) get."
-  },
-  {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/CatalogIndexes.tsx",
     text: "this workspace",
     why: "Rendered only where canProvision: a Factory user."

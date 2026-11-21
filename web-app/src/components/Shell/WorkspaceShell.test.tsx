@@ -201,13 +201,13 @@ describe("the staff Factory button in the rail", () => {
     operator = true;
     memberOf = ["org-acme"];
     renderAt("/acme/threads");
-    expect(screen.getByTestId("rail-open-factory")).toHaveAccessibleName(/Oxygen Factory/);
+    expect(screen.getByTestId("rail-open-factory")).toHaveAccessibleName(/Oxygen Nexus/);
     fireEvent.click(screen.getByTestId("rail-open-factory"));
     expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/ide$/);
   });
 
-  it("shows the Oxygen Factory mark, not a terminal icon", () => {
+  it("shows the Oxygen Nexus mark, not a terminal icon", () => {
     operator = true;
     renderAt("/acme/home");
     const mark = screen.getByTestId("rail-open-factory").querySelector("img");

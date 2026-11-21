@@ -178,7 +178,7 @@ const WorkspaceAccessRow = ({ row, dim }: { row: OxyAccessRow; dim?: boolean }) 
             for staff — so the app-facing actions are disabled, not hidden. */}
         <RowAction
           icon={Factory}
-          label={row.locked ? "Locked out by the org" : "Open in Oxy Factory (IDE)"}
+          label={row.locked ? "Locked out by the org" : "Open in Oxygen Nexus (IDE)"}
           disabled={row.locked}
           onClick={() =>
             window.open(

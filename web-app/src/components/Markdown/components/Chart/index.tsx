@@ -37,7 +37,7 @@ const Chart = (props: ChartProps) => {
     if (isIdeUnavailableError(error)) {
       return (
         <IdeUnavailablePanel
-          description='This chart needs Oxygen Factory, which is restarting. It will resume shortly.'
+          description='This chart needs Oxygen Nexus, which is restarting. It will resume shortly.'
           onRetry={() => void refetch()}
           retrying={isFetching}
         />

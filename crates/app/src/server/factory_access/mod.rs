@@ -56,7 +56,7 @@ fn refused(workspace_id: uuid::Uuid) -> Response {
         axum::Json(serde_json::json!({
             "error": REFUSAL_CODE,
             "code": REFUSAL_CODE,
-            "message": "The Oxygen Factory is not available to you here. It is for Oxy \
+            "message": "Oxygen Nexus is not available to you here. It is for Oxy \
                         engineers, your company's owners and admins, and the people Oxy has \
                         named; ask Oxy if you need access.",
             "workspace_id": workspace_id,
@@ -73,7 +73,7 @@ fn unavailable() -> Response {
         axum::Json(serde_json::json!({
             "error": "factory_access_unavailable",
             "code": "factory_access_unavailable",
-            "message": "Could not check access to the Oxygen Factory. Try again in a moment.",
+            "message": "Could not check access to Oxygen Nexus. Try again in a moment.",
         })),
     )
         .into_response()

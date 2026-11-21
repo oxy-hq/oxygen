@@ -17,7 +17,7 @@ const refuse: AxiosAdapter = async (config) => {
     config,
     data: {
       code: "factory_access_required",
-      message: "The Oxygen Factory is not available to you here."
+      message: "Oxygen Nexus is not available to you here."
     }
   });
 };
@@ -38,7 +38,7 @@ describe("a refusal from the Oxygen Factory", () => {
   it("is toasted once, in the server's words, when a person's action is refused", async () => {
     await expect(apiClient.post("/ws-1/files/abc")).rejects.toThrow();
     await expect(apiClient.put("/ws-1/files/abc")).rejects.toThrow();
-    expect(toast.error).toHaveBeenCalledWith("The Oxygen Factory is not available to you here.", {
+    expect(toast.error).toHaveBeenCalledWith("Oxygen Nexus is not available to you here.", {
       id: "factory-access-required"
     });
     expect(toast.error).not.toHaveBeenCalledWith("You don't have permission to do this.");

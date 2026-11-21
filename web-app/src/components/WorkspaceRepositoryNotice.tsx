@@ -15,7 +15,7 @@ export default function WorkspaceRepositoryNotice({ className }: { className?: s
       data-testid='workspace-repository-notice'
     >
       {hasRemote
-        ? "Changed in the workspace's repository now: clone it (Files, in the Factory sidebar, shows how) and push to the default branch; it compiles and deploys."
+        ? "Changed in the workspace's repository now: clone it (Files, in the Nexus sidebar, shows how) and push to the default branch; it compiles and deploys."
         : "Changed in the workspace's repository now, and this workspace has none: connect one in Settings first."}
     </p>
   );

@@ -116,7 +116,7 @@ describe("Open Factory from inside an org (the rail)", () => {
       { id: "ws-nw2", name: "Northwind Sandbox", org_id: "org-nw", org_slug: "northwind" }
     ];
     renderFromRail();
-    expect(screen.getByText("Open Northwind Analytics in the Factory")).toBeInTheDocument();
+    expect(screen.getByText("Open Northwind Analytics in Nexus")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("open-factory-item-ws-nw2")).toBeInTheDocument();
     expect(screen.queryByText("Poke House")).toBeNull();

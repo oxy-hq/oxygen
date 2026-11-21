@@ -6,7 +6,7 @@
 # /onboarding:
 #   - rail-hq returns to the org home ([data-testid=customer-home]),
 #   - rail-chat opens the Chat page (/threads),
-#   - rail-core opens Oxygen Factory (the IDE).
+#   - rail-core opens Oxygen Nexus (the IDE).
 # The top bar's breadcrumb shows the current page name ("Home" on the home,
 # "Chat" on /threads). "Ask Oxygen" ([data-testid=ask-oxygen-button]) opens the
 # right-side Ask dock ([data-testid=ask-dock]); ⌘K toggles it too.

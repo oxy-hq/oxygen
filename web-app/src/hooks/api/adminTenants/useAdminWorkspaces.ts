@@ -100,8 +100,8 @@ export const useSetAdminFactoryAccess = (workspaceId: string) => {
       AdminWorkspacesService.setFactoryAccess(workspaceId, userId, granted),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: queryKeys.adminWorkspaces.factoryAccess(workspaceId) });
-      toast.success(vars.granted ? "Factory access granted" : "Factory access revoked");
+      toast.success(vars.granted ? "Nexus access granted" : "Nexus access revoked");
     },
-    onError: (err) => toast.error(errMessage(err, "Failed to change Factory access"))
+    onError: (err) => toast.error(errMessage(err, "Failed to change Nexus access"))
   });
 };

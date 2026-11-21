@@ -182,10 +182,9 @@ const makeResponseErrorHandler = () => {
         // asked for must not put a toast on their screen. One toast, in the
         // server's words, whichever Factory route a person's action called.
         if (error.config?.method?.toLowerCase() !== "get") {
-          toast.error(
-            error.response.data.message ?? "The Oxygen Factory is not available to you here.",
-            { id: "factory-access-required" }
-          );
+          toast.error(error.response.data.message ?? "Oxygen Nexus is not available to you here.", {
+            id: "factory-access-required"
+          });
         }
       } else if (
         !isTokenErrorCode(error.response?.data?.code) &&

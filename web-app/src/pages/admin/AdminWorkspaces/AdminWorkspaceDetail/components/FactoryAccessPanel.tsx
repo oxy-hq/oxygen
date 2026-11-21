@@ -44,14 +44,14 @@ export default function FactoryAccessPanel({
               data-testid='factory-access-open-factory'
             >
               <ExternalLink className='size-3.5' />
-              Open Factory
+              Open Nexus
             </Link>
           </Button>
         </div>
       ) : null}
       <AdminAsync
         query={access}
-        noun='Factory access'
+        noun='Nexus access'
         rows={4}
         isEmpty={(d) => d.members.length === 0}
         empty={
@@ -59,7 +59,7 @@ export default function FactoryAccessPanel({
             size='inline'
             icon={Wrench}
             title='No members'
-            description="Nobody in this workspace's organization can be let into its Factory yet."
+            description="Nobody in this workspace's organization can be let into its Nexus yet."
           />
         }
       >
@@ -72,13 +72,13 @@ export default function FactoryAccessPanel({
                 </span>
               }
             >
-              Factory access
+              Nexus access
             </AdminSectionLabel>
             <p className='flex items-center gap-1.5 text-muted-foreground text-xs'>
               Owners and admins already have access by role.
               <AdminInfo>
                 Oxy staff, the organization&rsquo;s owners and admins, and the members granted here
-                can use this workspace&rsquo;s Factory.
+                can use this workspace&rsquo;s Nexus.
               </AdminInfo>
             </p>
             <ul className='divide-y divide-border/60 rounded-lg border border-border/60 bg-card'>
@@ -135,7 +135,7 @@ function MemberRow({
           checked={member.granted}
           disabled={pending || (left && !member.granted)}
           onCheckedChange={onChange}
-          aria-label={`Factory access for ${member.email}`}
+          aria-label={`Nexus access for ${member.email}`}
           data-testid={`factory-access-switch-${member.user_id}`}
         />
       </div>

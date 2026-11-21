@@ -87,7 +87,7 @@
 #   [data-testid=ide-unavailable-banner] — components/IdeUnavailableBanner/
 #     index.tsx:39. Mounted app-wide, driven by the Axios interceptor
 #     watching ide-proxied calls; this is the exact banner a real user sees
-#     when the serve→ide hop this flow exercises fails ("Oxygen Factory is
+#     when the serve→ide hop this flow exercises fails ("Oxygen Nexus is
 #     temporarily unavailable ... Chat and your saved data keep working").
 #     Its absence is the assertion that the hop genuinely succeeded, the
 #     same "absence of the degraded state" pattern `apps-data-app-charts.
@@ -212,7 +212,7 @@ cases:
           Fail if ANY of the following is true:
           (a) an error banner or message is visible (e.g. "failed", "error
               running query", a red/destructive alert);
-          (b) the "Oxygen Factory is temporarily unavailable" banner is
+          (b) the "Oxygen Nexus is temporarily unavailable" banner is
               visible, or any text mentions "ide backend unreachable";
           (c) the agentic run is suspended awaiting a clarifying question
               instead of answering (a prompt back to the user, not an

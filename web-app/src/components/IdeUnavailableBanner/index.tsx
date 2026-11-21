@@ -55,7 +55,7 @@ export default function IdeUnavailableBanner() {
 
         <div className='min-w-0 flex-1'>
           <p className='font-medium text-foreground text-sm'>
-            {plain ? "Some live data is paused" : "Oxygen Factory is temporarily unavailable"}
+            {plain ? "Some live data is paused" : "Oxygen Nexus is temporarily unavailable"}
           </p>
           <p className='mt-0.5 text-muted-foreground text-xs'>
             {plain

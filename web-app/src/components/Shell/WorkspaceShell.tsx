@@ -112,9 +112,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   // bottom of the nav, distinct from the operator apps above.
   const core: RailItem = {
     key: "core",
-    label: "Oxygen Factory",
+    label: "Oxygen Nexus",
     tooltip:
-      "Oxygen Factory — the intelligence system behind your HQ: data sources, business model, agents, automations, and deployments",
+      "Oxygen Nexus — the intelligence system behind your HQ: data sources, business model, agents, automations, and deployments",
     testId: "rail-core",
     icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),
@@ -146,8 +146,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   // anything is drawn: a dialog that opened only to close again read as a glitch.
   const openFactory: RailItem = {
     key: "open-factory",
-    label: "Oxygen Factory",
-    tooltip: currentOrg ? `Open ${currentOrg.name}'s Factory` : "Open the Factory",
+    label: "Oxygen Nexus",
+    tooltip: currentOrg ? `Open ${currentOrg.name}'s Nexus` : "Open Nexus",
     testId: "rail-open-factory",
     icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),

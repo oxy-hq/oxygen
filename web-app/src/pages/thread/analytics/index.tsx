@@ -663,7 +663,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     {state.tag === "failed" &&
                       (state.ideUnavailable ? (
                         <IdeUnavailablePanel
-                          description='Your question needs Oxygen Factory, which is restarting. It will run once it is back.'
+                          description='Your question needs Oxygen Nexus, which is restarting. It will run once it is back.'
                           onRetry={() => {
                             reset();
                             handleStart(currentQuestion);

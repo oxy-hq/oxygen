@@ -22,8 +22,8 @@ interface IdeUnavailablePanelProps {
  * `isIdeUnavailableError` from `libs/utils/ideHealth`.
  */
 export default function IdeUnavailablePanel({
-  title = "Oxygen Factory is temporarily unavailable",
-  description = "This view needs Oxygen Factory, which is restarting. It will resume shortly.",
+  title = "Oxygen Nexus is temporarily unavailable",
+  description = "This view needs Oxygen Nexus, which is restarting. It will resume shortly.",
   onRetry,
   retrying = false,
   className

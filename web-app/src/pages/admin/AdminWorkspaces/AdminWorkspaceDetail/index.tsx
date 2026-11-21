@@ -233,7 +233,7 @@ export default function AdminWorkspaceDetail({
           { id: "overview", label: "Overview" },
           { id: "health", label: "Health" },
           { id: "members", label: "Members", count: detail.member_count },
-          { id: "factory", label: "Factory" },
+          { id: "factory", label: "Nexus" },
           { id: "settings", label: "Settings" }
         ]}
       />

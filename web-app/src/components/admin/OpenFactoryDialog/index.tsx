@@ -108,12 +108,12 @@ export function OpenFactoryDialog({
       <DialogContent className='overflow-hidden p-0 sm:max-w-lg' data-testid='open-factory-dialog'>
         <DialogHeader className={target ? "px-6 pt-6" : "sr-only"}>
           <DialogTitle>
-            {target ? `Open ${target.workspaceName} in the Factory` : "Open Factory"}
+            {target ? `Open ${target.workspaceName} in Nexus` : "Open Nexus"}
           </DialogTitle>
           <DialogDescription>
             {target
               ? target.orgName
-              : "Search organizations and their workspaces, then open one in the Factory."}
+              : "Search organizations and their workspaces, then open one in Nexus."}
           </DialogDescription>
         </DialogHeader>
         {target ? (
