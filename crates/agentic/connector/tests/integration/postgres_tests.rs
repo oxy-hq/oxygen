@@ -352,3 +352,41 @@ fn typname_mapping_sentinel_precision() {
     // must also update.
     assert_eq!(sentinel.clone(), sentinel);
 }
+
+/// Every session's materialisation table is named `_agentic_tmp`, and
+/// `pg_class` is shared by all sessions. A column lookup keyed on the bare
+/// name returned another session's columns whenever two queries ran at once.
+/// Here a second session holds its own `_agentic_tmp` with different columns;
+/// the connector's result must still carry only its own query's columns.
+#[tokio::test]
+async fn execute_query_ignores_other_sessions_agentic_tmp() {
+    let Some(dsn) = test_dsn().await else {
+        eprintln!("skipping: Docker not available and OXY_TEST_POSTGRES_URL not set");
+        return;
+    };
+    let conn_str = format!(
+        "host={} port={} user={} password={} dbname={}",
+        dsn.host, dsn.port, dsn.user, dsn.password, dsn.database
+    );
+    let (other, driver) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+        .await
+        .expect("connect second session");
+    tokio::spawn(driver);
+    other
+        .batch_execute(
+            "CREATE TEMP TABLE _agentic_tmp AS SELECT 1 AS other_col, 2 AS city, 3 AS id",
+        )
+        .await
+        .expect("second session temp table");
+
+    let connector =
+        PostgresConnector::new(&dsn.host, dsn.port, &dsn.user, &dsn.password, &dsn.database);
+    let result = connector
+        .execute_query("SELECT 7 AS id, 'x' AS name", 10)
+        .await
+        .expect("query must not see the other session's columns");
+
+    assert_eq!(result.result.columns, vec!["id", "name"]);
+    assert_eq!(result.summary.columns.len(), 2);
+    assert_eq!(result.result.rows.len(), 1);
+}

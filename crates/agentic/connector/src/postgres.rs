@@ -625,23 +625,25 @@ impl DatabaseConnector for PostgresConnector {
             .await
             .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?;
 
-        // 3. Column names and types via pg_attribute.
-        let attr_sql = "\
-            SELECT a.attname, t.typname \
-            FROM pg_attribute a \
-            JOIN pg_class c ON c.oid = a.attrelid \
-            JOIN pg_type  t ON t.oid = a.atttypid \
-            WHERE c.relname = '_agentic_tmp' \
-              AND a.attnum > 0 \
-              AND NOT a.attisdropped \
-            ORDER BY a.attnum";
-
-        let attr_rows = client.query(attr_sql, &[]).await.map_err(|e| {
-            ConnectorError::query_failed(attr_sql.to_string(), pg_error_message(&e))
+        // 3. Column names and types from the temp table's own statement
+        // description. Never from `pg_class` by name: every session's temp
+        // table is called `_agentic_tmp` and the catalog is shared, so a
+        // name lookup returns other sessions' columns under concurrency.
+        let described_sql = format!("SELECT * FROM {tmp}");
+        let described = client.prepare(&described_sql).await.map_err(|e| {
+            ConnectorError::query_failed(described_sql.clone(), pg_error_message(&e))
         })?;
-
-        let column_names: Vec<String> = attr_rows.iter().map(|r| r.get::<_, String>(0)).collect();
-        let column_types: Vec<String> = attr_rows.iter().map(|r| r.get::<_, String>(1)).collect();
+        let column_names: Vec<String> = described
+            .columns()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect();
+        let column_types: Vec<String> = described
+            .columns()
+            .iter()
+            .map(|c| c.type_().name().to_string())
+            .collect();
+        drop(described);
 
         // 4. Total row count.
         let count_sql = format!("SELECT COUNT(*) FROM {tmp}");
