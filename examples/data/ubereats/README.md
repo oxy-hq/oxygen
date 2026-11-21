@@ -65,8 +65,9 @@ export AWS_ALLOW_HTTP=true          # extract only; without it the run fails
 upload whose pipeline reads anywhere else, and names both values when they
 differ, so a wrong guess here tells you the right answer. The `<pipeline>`
 segment is this file's relative path with `/` → `__`, hence
-`pipelines__ubereats`. Under `oxy serve --local` the workspace id is the
-all-zeros UUID, which is what the example ships with.
+`pipelines__ubereats`. The example ships the all-zeros UUID, which was the
+legacy `--local` workspace; under `just up` put the seeded workspace's id there
+instead (it is in the web app's URL), then let `just up` compile it.
 
 **4. A destination.** The example ships `database: local-acme`, which is
 `airhouse_managed` — the realistic target, and it needs an airhouse tenant,
@@ -86,10 +87,22 @@ export POSTGRES_PASSWORD=admin        # config.yml reads it via password_var
 **5. Run it.**
 
 ```bash
-cargo run -p oxy-server -- serve --local        # then use the UI
-# …or drive the pipeline directly, once a report is in the zone:
-cargo run -p oxy-server -- airway run pipelines/ubereats.airway.yml
+just up                       # backend (oxy serve --enterprise), seed, compile, Vite
+cat .oxy-dev/state.json       # this checkout's frontend_url (:5173 only on slot 0)
+oxyc login --target <frontend_url>
+# then use the UI — or drive the pipeline directly, once a report is in the zone:
+oxyc airway run pipelines/ubereats.airway.yml --target <frontend_url> --workspace <id>
 ```
+
+`--target` and not `--env local`: `--env local` means `http://localhost:5173`,
+which is only the first checkout's Vite, and `oxyc login` signs in through the
+Vite app (`/cli-auth`), not oxy's own port. The workspace id is in the web app's
+URL, or `oxyc api {org}/workspaces --org <org> --target <frontend_url>`.
+
+`oxyc airway run` runs the pipeline the server has **compiled**, not the file on
+disk, so the `database:` edit above reaches it only after a compile (`just up`
+compiles the workspace again). `oxy airway run`, which ran the local file, was
+deleted on 2026-11-21.
 
 Drop `2026.08 UberEats Payment Details.csv` on the pipeline page's
 **Reports** tab. The name carries its own period, so leave the period field

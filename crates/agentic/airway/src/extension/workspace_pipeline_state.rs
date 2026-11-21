@@ -17,7 +17,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "airway_workspace_pipeline_state")]
 pub struct Model {
     /// The workspace the run belongs to (`Uuid::nil()` in local mode and for
-    /// `oxy airway run`, matching what the run row and the lease carry).
+    /// the deleted `oxy airway run`, matching what the run row and the lease carry).
     #[sea_orm(primary_key, auto_increment = false)]
     pub workspace_id: Uuid,
     /// Pipeline name (`AirwayPipelineSpec.name`).

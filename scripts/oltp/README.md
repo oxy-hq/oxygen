@@ -99,8 +99,10 @@ Dates are relative so "last week" means something whenever you run it, and they
 straddle both readings of it (previous calendar week *and* trailing seven days),
 because the agent picks one per run and does not pick the same one twice.
 
-Then: `oxy airway run pipelines/oltp_toast.airway.yml --workspace-id <ws>` from
-`examples/`, and ask the agent `what were net sales by location last week?`.
+Then: `oxyc airway run pipelines/oltp_toast.airway.yml --workspace <ws> --target http://localhost:3000`
+(the server runs the pipeline it has compiled from `examples/`; `oxy airway run`
+was deleted for it on 2026-11-21), and ask the agent `what were net sales by
+location last week?`.
 
 ## If startup fails on a missing migration
 

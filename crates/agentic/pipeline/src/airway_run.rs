@@ -446,7 +446,7 @@ pub async fn release_airway_lease_scoped(
 /// that lease and deliberately no longer does, because the two are
 /// indistinguishable from here and releasing the wrong one admits a concurrent
 /// run. The recourse for a dead-lettered run is
-/// `oxy airway release-lease <pipeline> --workspace-id <id>`, or waiting out
+/// `oxyc airway release-lease <pipeline> --workspace <id>`, or waiting out
 /// the TTL — not this handler.
 pub async fn release_airway_lease_if_unclaimed(db: &DatabaseConnection, run_id: &str) {
     match agentic_runtime::crud::get_queue_entry(db, run_id).await {

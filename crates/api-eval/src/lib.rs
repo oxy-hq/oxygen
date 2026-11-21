@@ -18,7 +18,8 @@
 //!
 //! It mounts no route. It is named `api-*` because that is the layer it sits
 //! in (above `oxy-app`, reaching it through `oxy_app::surface` only, held by
-//! `surface_contract`), the same place the airway context's `oxy airway` lives.
+//! `surface_contract`), where the airway context's `oxy airway` lived until
+//! it became `oxyc airway` (2026-11-21).
 #![recursion_limit = "256"]
 
 // The engine. `pub` as its types were when `oxy-app` re-exported them

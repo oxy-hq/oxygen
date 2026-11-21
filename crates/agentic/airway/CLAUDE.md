@@ -12,7 +12,8 @@ Shipped. The `TaskSpec::Airway` variant, `AirwayEvent` taxonomy, source
 and destination factories, the `airway_*` state store/aggregates, and
 the real `AirwayWorker` (engine end-to-end, event bridging, load-audit
 finalisation) are all in place and exercised by both the HTTP run path
-and `oxy airway run`.
+and the queued worker path (`oxy airway run`, which drove it in-process,
+was deleted for `oxyc airway run` on 2026-11-21).
 
 ## Pipeline
 

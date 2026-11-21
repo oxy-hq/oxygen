@@ -165,9 +165,9 @@ pub async fn create_airway_run(
 /// `54355b198` — nothing claimed the task and every run hung. It is safe now
 /// only because the worker actually drives (Phase 1, #3014).
 ///
-/// The `oxy airway run` CLI deliberately keeps its direct-drive: it is a
-/// one-shot with no fleet behind it, so its own spawn *is* its worker and
-/// going `Global` there would hang exactly as the revert describes.
+/// `oxy airway run` was the one direct-drive left: a one-shot with no fleet
+/// behind it, whose own spawn was its worker. It was deleted on 2026-11-21;
+/// `oxyc airway run` is a client of this route, so every run is queued.
 async fn start_and_drive(
     state: Arc<AgenticState>,
     platform: Arc<dyn PlatformContext>,

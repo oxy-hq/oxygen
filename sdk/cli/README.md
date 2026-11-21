@@ -773,6 +773,52 @@ a tenant with no service account (provision first); a 502 may have revoked the
 old account without binding a new one, so run it again (the revoke is
 idempotent). It replaced the Rust `oxy admin airhouse rotate-sa`.
 
+## Airway pipelines
+
+Run, backfill and inspect a workspace's airway ELT pipelines on a deployment,
+and recover a pipeline whose single-flight lease is stuck. These replaced the
+Rust `oxy airway` (deleted 2026-11-21), which ran pipelines from a local file
+with the database URL.
+
+```bash
+oxyc airway run <pipeline_ref> --workspace <id> [--resources a,b] [--variables <json|@file|->] [--detach] [--json]
+oxyc airway backfill <pipeline_ref> --workspace <id> --from <rfc3339> --to <rfc3339> [--granularity month|week|day] [--resources a,b] [--wait <s>] [--json]
+oxyc airway backfill --resume <range_id> --workspace <id> [--wait <s>] [--json]
+oxyc airway coverage <pipeline_ref> --workspace <id> [--json]
+oxyc airway coverage --range <range_id> --workspace <id> [--json]
+oxyc airway leases --workspace <id> [--json]
+oxyc airway release-lease <pipeline_name> --workspace <id> [--yes | --force] [--json]
+```
+
+`run` starts the pipeline the deployment has **compiled** for the workspace's
+served revision — queued for the worker fleet, never a `.airway.yml` on your
+machine — then streams its events until a terminal one, and exits with the run
+row's outcome: `0` done (a partial failure included), `1` failed, cancelled or
+timed out. `--json` prints one `{seq, event_type, payload}` object per event
+(the server adds `attempt` to each payload). Nothing from your shell's
+environment is sent: a pipeline's `{{ VAR }}` templates render from
+`--variables` only, which is stored with the run — credentials go through
+`*_var` keys and the workspace's secrets. A backfill takes no variables.
+Ctrl-C stops watching, not the run. To
+try an unmerged edit, push a branch and use `oxyc preview run <branch>
+airway_sample <ref>`. A pipeline already running answers `409` (exit `6`); a
+ref the served revision does not have yet answers `503` (exit `7`).
+
+`backfill` records a range of `[from, to)` split into chunks and queues its
+drive, then returns; `--wait` polls the range until it settles and exits `1`
+if chunks were left not done. Each call is a new range; `--resume <range_id>`
+re-drives a range's not-done chunks (an unfinished range for the same window
+is named before a new one is started). `coverage <ref>` lists the pipeline's
+ranges; `--range` shows one range's missing periods.
+
+`leases` lists what holds each pipeline, flagging lapsed rows (which block
+nothing). `release-lease` takes the pipeline's NAME as `leases` prints it,
+shows the holder and asks first; with no terminal it refuses (exit `8`) unless
+`--yes` (release the holder it just listed, and only that run) or `--force`
+(release whatever holds it). If the holder changed before the delete, nothing
+is released and it exits `6` naming who holds it now. Both need a workspace
+admin; staff act inside a tenant through `oxyc assume`.
+
 ## Feature flags
 
 Staff-only control of the flags Oxy declares in code

@@ -33,3 +33,33 @@ fn the_upload_is_fleet_ok() {
         "an S3 write with no working-copy access must not need the ide"
     );
 }
+
+/// The lease routes sit beside `agentic-http`'s `/agentic-airway` nest and are
+/// declared here, by the crate that owns them. Asserted against the declared
+/// table itself, so a dropped or flipped declaration fails even though
+/// `classify` would default an undeclared route to FleetOk.
+#[test]
+fn the_lease_routes_are_declared_fleet_ok() {
+    for (method, path) in [
+        ("GET", "/agentic-airway/leases"),
+        ("DELETE", "/agentic-airway/leases/{pipeline_name_b64}"),
+    ] {
+        let declared = route_roles()
+            .iter()
+            .find(|d| d.method == method && d.path == path)
+            .map(|d| d.role);
+        assert_eq!(
+            declared,
+            Some(RouteRole::FleetOk),
+            "{method} {path}: one SELECT or DELETE on airway_pipeline_leases, nothing on disk"
+        );
+    }
+    install();
+    assert_eq!(
+        classify(
+            "DELETE",
+            &format!("/api/{WORKSPACE}/agentic-airway/leases/dG9hc3Q")
+        ),
+        RouteRole::FleetOk
+    );
+}

@@ -29,6 +29,7 @@ import {
   runAirhouseRotateSa,
   runAirhouseStatus
 } from "./commands/airhouse.js";
+import { registerAirway } from "./commands/airway-cli.js";
 import { runApi } from "./commands/api.js";
 import {
   runAppsBuilds,
@@ -1616,6 +1617,7 @@ function buildProgram(): Command {
   registerFlags(program, { withGlobals, globals, collect });
   registerHome(program, { withGlobals, globals, collect });
   registerWorkspace(program, { withGlobals, globals, collect });
+  registerAirway(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")

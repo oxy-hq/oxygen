@@ -1877,14 +1877,14 @@ pub async fn backfill_schedule(
     // Rejected up front rather than seeded-then-collapsed. Previously
     // occurrence #1 took the lease, #2 returned `AlreadyRunning`, the loop
     // stopped at the first error, and the caller got one run plus a success
-    // response claiming N planned — the worst of the options. `oxy airway
-    // backfill` is the tool for this: it splits a window into checkpointed
+    // response claiming N planned — the worst of the options. `oxyc airway
+    // backfill` (the chunked backfill route) is the tool for this: it splits a window into checkpointed
     // chunks and runs them serially, resuming where it left off.
     if s.target_kind == "airway" {
         return Err(ScheduleError::Invalid(
             "cron-replay backfill is not supported for airway schedules: it would \
              start several runs of one pipeline at once, which corrupts the shared \
-             staging buffer. Use `oxy airway backfill --from … --to …` (or the \
+             staging buffer. Use `oxyc airway backfill --from … --to …` (or the \
              Backfill dialog), which runs checkpointed chunks one at a time and \
              resumes on failure. To re-fire a SINGLE missed slot, use Run now — \
              that seeds one run, which single-flight admits."

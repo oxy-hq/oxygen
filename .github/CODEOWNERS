@@ -317,7 +317,8 @@ web-app/src/pages/quickbooks/                      @hotay @nresh
 # Airway's HTTP surface — uploadable sources (Tay's feature, #2942, #2992,
 # #2998; Luong extracted it into a sibling crate, #3397, so he backs up rather
 # than owns), the pipeline listing, the admission-policy staff section that
-# was carved out of admin/ for Tay, and the `oxy airway` command.
+# was carved out of admin/ for Tay, and the single-flight lease routes behind
+# `oxyc airway leases | release-lease` (the `oxy airway` command until 2026-11-21).
 crates/api-airway/                          @hotay @luong-komorebi
 # The eval context: `oxy test`, its event handler, reporters and engine, out of
 # crates/app (S10, 2026-11-20). Tay drove the eval harness, Luong backs up.

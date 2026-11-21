@@ -68,7 +68,7 @@ pub struct RunArgs {
     ///
     /// Needed for anything that resolves per tenant — a `postgres_managed`
     /// database maps workspace → org → `oltp_tenants`, and the nil workspace
-    /// belongs to no org. Matches `oxy airway run --workspace-id`.
+    /// belongs to no org. Matched `oxy airway run --workspace-id` (deleted).
     #[clap(long)]
     pub workspace_id: Option<Uuid>,
 }

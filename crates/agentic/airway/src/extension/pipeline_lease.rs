@@ -346,7 +346,7 @@ pub async fn list_for_workspace<C: ConnectionTrait>(
 /// Deliberately NOT guarded on `run_id`, unlike [`release_counted`] — the whole point
 /// is to recover from a holder that will never release itself: a dead-lettered
 /// run (the reaper cannot free it; see the TTL note above), or a `Ctrl-C`'d
-/// `oxy airway run`, which otherwise leaves the pipeline unrunnable for the
+/// `oxy airway run` (deleted 2026-11-21), which left the pipeline unrunnable for the
 /// rest of the TTL.
 ///
 /// Returns rows removed, so a caller can tell "cleared it" from "there was

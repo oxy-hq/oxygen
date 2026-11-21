@@ -51,7 +51,7 @@
 //! [`install_once`] runs at **process boot**, from `oxy-app`'s
 //! `oxy_api_airway::boot::install_deployment_tier`, wired into each of the three entry
 //! points that can build a source connector (`oxy serve` — and so `oxy start`
-//! — under every `OXY_ROLE`; `oxy worker`; `oxy airway`). That is what makes
+//! — under every `OXY_ROLE`; `oxy worker`). That is what makes
 //! the roster below reach everything: the tier is a *process-wide* `OnceLock`,
 //! so one install covers every connector the process builds, with no
 //! signature to thread and nothing to remember at a new call site.
@@ -63,7 +63,7 @@
 //!
 //! | site | reached | consumes the cursor floor |
 //! |---|---|---|
-//! | `worker::run_pipeline` — every airway load: HTTP, schedule, `oxy airway run`, automation step, backfill | yes. It also still **calls** [`install_once`] itself — see below | yes — this is the only site that extracts |
+//! | `worker::run_pipeline` — every airway load: HTTP, schedule, automation step, backfill | yes. It also still **calls** [`install_once`] itself — see below | yes — this is the only site that extracts |
 //! | `oxy-app`'s admin policy preview (`airway_config::preview`) | yes, via the boot install — though it needs nothing: it builds a connector only to read `contracts()` and makes no request at all | no, for the same reason it needs nothing else |
 //! | any connector site added later inside an oxy-app process | yes, by construction | only if it extracts |
 //! | a process with no database (`oxy run`, which falls back to no-op storage) | no, and correctly: there is no row to read, so airway's own compiled-in settings stay in force | n/a |

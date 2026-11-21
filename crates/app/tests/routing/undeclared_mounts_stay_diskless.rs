@@ -71,11 +71,6 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // route at all, so no pod placement applies.
     ("api-custom-apps/src/seed_apps.rs", "workspace_path"),
     ("api-custom-apps/src/seed.rs", "workspace_path"),
-    // `oxy airway run` / `backfill` / `coverage` resolve the local workspace
-    // (`resolve_local_workspace_path`) and run the pipeline in-process. A CLI
-    // command, moved here from `oxy-app` with the airway context, mounted on no
-    // route, so no pod placement applies.
-    ("api-airway/src/cli.rs", "workspace_path"),
     // The compile console's "By workspace" rows (`GET /admin/compiles/
     // workspaces`, out of `oxy-app` in the admin split's PR 6, nested FleetOk
     // as an `AdminNest`) REPORT each workspace's configured path: the field is

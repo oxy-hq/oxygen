@@ -129,8 +129,8 @@ pub fn enumerate_chunks(
 // chunk runs as a bounded airway backfill and its outcome is recorded in a
 // `backfill_checkpoints` row, so a crashed/cancelled backfill resumes by
 // skipping `done` chunks and the same rows answer "what period is missing?".
-// Shared by the `oxy airway backfill` CLI and the HTTP
-// `POST /agentic-airway/chunked-backfill` handler.
+// Driven from the HTTP `POST /agentic-airway/chunked-backfill` handler (and
+// `oxyc airway backfill`, its client) through `backfill_task`.
 
 /// Hard ceiling on how long one chunk may run before we give up waiting and
 /// mark it `failed`, so a wedged worker / lost driver lease can't hang the
@@ -1124,8 +1124,9 @@ pub async fn create_backfill_range(
 }
 
 /// Find an existing range that exactly matches this window (same workspace,
-/// pipeline, `[from, to)`, granularity) or create one. Used by the CLI so that
-/// re-running `oxy airway backfill` with the same window RESUMES that range
+/// pipeline, `[from, to)`, granularity) or create one. Its caller was `oxy
+/// airway backfill` (deleted 2026-11-21), so that re-running with the same
+/// window RESUMED that range
 /// (drives only its not-`done` chunks) instead of spawning a duplicate range
 /// that re-runs everything. The HTTP path deliberately creates a fresh range per
 /// request — each user-initiated backfill is its own entry in the ranges gantt,
@@ -1142,8 +1143,8 @@ pub async fn find_or_create_backfill_range(
     created_by: Option<Uuid>,
     resources: &[String],
 ) -> Result<Uuid, DbErr> {
-    // The SCOPE is part of the identity, not just the window: re-running
-    // `oxy airway backfill` for the same dates under a different `--resources`
+    // The SCOPE is part of the identity, not just the window: re-running a
+    // backfill for the same dates under a different `--resources`
     // is a different backfill, and resuming the old range would drive the old
     // scope's chunks while reporting the new one.
     //

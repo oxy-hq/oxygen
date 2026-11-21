@@ -1,15 +1,18 @@
 //! Airway's HTTP surface (Pending 5 in `internal-docs/domain-boundaries.md`).
 //!
-//! Three routes, all merged INSIDE the `/{workspace_id}` nest by `oxy-server`
+//! Five routes, all merged INSIDE the `/{workspace_id}` nest by `oxy-server`
 //! through the workspace seam, so they inherit `workspace_middleware` exactly
-//! as they did when they lived in oxy-app's `build_workspace_routes`:
+//! as the first three did when they lived in oxy-app's `build_workspace_routes`:
 //!
 //! - `POST /source-uploads/reports` — report uploads for file-based sources,
 //!   into the shared landing zone ([`source_upload`]);
 //! - `GET /airway-pipelines` — the workspace's pipelines, from the compile
 //!   boundary ([`pipelines`]);
 //! - `GET /airway-pipelines/sp-api/marketplaces` — the `sp_api` connector's
-//!   marketplaces, for the New Pipeline wizard ([`pipelines`]).
+//!   marketplaces, for the New Pipeline wizard ([`pipelines`]);
+//! - `GET /agentic-airway/leases` and `DELETE /agentic-airway/leases/{pipeline_name_b64}`
+//!   — the single-flight leases and their force-release, behind `WorkspaceAdmin`
+//!   ([`leases`]; `oxy airway leases | release-lease` until 2026-11-21).
 //!
 //! Beside them, the rest of the airway context that used to live in `oxy-app`:
 //!
@@ -17,11 +20,12 @@
 //!   per-source-kind admission policy and the deployment-wide operational
 //!   tier), mounted through the admin seam behind `PlatformOperate`;
 //! - [`boot`] — installing airway's deployment tier at process start, which
-//!   `oxy serve`, `oxy worker` and every `oxy airway` command do first;
-//! - [`Command`] — the `oxy airway` subcommands, registered with
-//!   `oxy-cli-shim` as their own owner.
+//!   `oxy serve` and `oxy worker` do first.
 //!
-//! The run surface (`/agentic-airway`) stays in `agentic-http`.
+//! The run surface (`/agentic-airway`) stays in `agentic-http`; the two lease
+//! routes sit beside its nest because they need a role guard `agentic-http`
+//! cannot reach. `oxy airway` was deleted on 2026-11-21: its verbs are `oxyc
+//! airway` over these routes and `agentic-http`'s (`internal-docs/oxy-cli-to-oxyc.md`).
 
 // Laying out `upload_report`'s future exceeds rustc's default query depth of
 // 128 in the `--release` build that produces the image — and only there: a
@@ -31,7 +35,7 @@
 mod admin;
 pub mod app_ops;
 pub mod boot;
-mod cli;
+pub mod leases;
 mod pipelines;
 mod source_upload;
 
@@ -41,7 +45,7 @@ pub use source_upload::{ReportFields, UploadedReport, store_report, store_report
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -56,13 +60,17 @@ pub use source_upload::ZONE_VAR;
 ///
 /// FleetOk, declared rather than defaulted: the upload writes to S3 and reads
 /// nothing node-local, so pinning it to the singleton would cost HA for no
-/// reason. It is deliberately NOT under `/agentic-airway`, which is an
-/// `IdeOnly` `{*rest}` wildcard so a live run stays on the instance holding
-/// the working copy — the carve-out is the upload, not the surface.
+/// reason.
 ///
 /// The two pipeline reads are FleetOk for the reason they always were: the
 /// listing reads the compile boundary (`WorkspaceManagerReadOnly`, so the
 /// compiler refuses a working-copy read), and the marketplace list is static.
+///
+/// The two lease routes are FleetOk like the rest of `/agentic-airway`
+/// (`agentic_http::airway_router_roles`, every route FleetOk since #3451): a
+/// SELECT and a DELETE on `airway_pipeline_leases`, nothing on disk and nothing
+/// left running. They are declared here, beside their routes, because this crate
+/// owns them; `nest_declared` only prefixes `agentic-http`'s own table.
 pub fn route_roles() -> &'static [RouteRoleDecl] {
     &[
         RouteRoleDecl {
@@ -80,6 +88,16 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
             path: "/airway-pipelines/sp-api/marketplaces",
             role: RouteRole::FleetOk,
         },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/agentic-airway/leases",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "DELETE",
+            path: "/agentic-airway/leases/{pipeline_name_b64}",
+            role: RouteRole::FleetOk,
+        },
     ]
 }
 
@@ -92,6 +110,13 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/airway-pipelines/sp-api/marketplaces",
             get(pipelines::list_sp_api_marketplaces),
+        )
+        // The single-flight leases, beside `agentic-http`'s `/agentic-airway`
+        // nest (whose routes axum flattens, so distinct paths do not collide).
+        .route("/agentic-airway/leases", get(leases::list_leases))
+        .route(
+            "/agentic-airway/leases/{pipeline_name_b64}",
+            delete(leases::release_lease),
         )
         .merge(upload_routes())
 }
@@ -187,29 +212,6 @@ pub fn admin_routes() -> Router<AppState> {
     )
 }
 
-// `oxy airway`: its own owner in `oxy-cli-shim`, registered by `oxy-server`.
-// The variant's doc is the command's `--help` text, carried over verbatim. A
-// plain comment, not a doc comment: clap's derive turns a doc on this enum into
-// the `about` of the whole `oxy` command, as `oxy-server`'s `ServerCommand`
-// notes too.
-#[derive(clap::Subcommand, Debug)]
-pub enum Command {
-    /// Run airway ELT pipelines.
-    ///
-    /// Execute a `.airway.yml` pipeline (extract → normalize → load)
-    /// and stream progress events. Requires OXY_DATABASE_URL to be set.
-    Airway(cli::AirwayArgs),
-}
-
-/// Run `oxy airway …`. The error propagates to the shim, as it did from
-/// `oxy-app`'s dispatcher.
-pub async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
-    match command {
-        Command::Airway(args) => cli::handle_airway_command(args).await?,
-    }
-    Ok(())
-}
-
 /// `oxy-app`'s in-source DB harness, shared by path (see `oxy-workspace-health`):
 /// the admin section's and the boot's tests write the same singleton
 /// `airway_deployment_config` row and contend on its one lock key.
@@ -227,15 +229,30 @@ mod tests {
 
     /// axum 0.8 checks for route conflicts eagerly, so reproduce the seam's
     /// merge point against a stand-in of the `/{workspace_id}` tree — a
-    /// collision then fails here instead of as a boot panic in prod.
+    /// collision then fails here instead of as a boot panic in prod. The
+    /// `/agentic-airway` stand-in is the real airway router nested the way
+    /// `oxy-app` nests it, so the lease routes beside it are checked against
+    /// every path it mounts.
     #[test]
     fn merges_into_the_workspace_tree_without_conflict() {
         use axum::routing::get;
         async fn h() {}
 
+        let airway: Router<AppState> = Router::new()
+            .route("/runs", get(h).post(h))
+            .route("/runs/{id}/events", get(h))
+            .route("/runs/{id}/cancel", post(h))
+            .route("/backfill", post(h))
+            .route("/chunked-backfill", post(h))
+            .route("/resume-backfill", post(h))
+            .route("/backfill-ranges", get(h))
+            .route("/coverage", get(h))
+            .route("/reset-schema", post(h))
+            .route("/reset-cursors", post(h))
+            .route("/resource-cursors", get(h));
         let _: Router<AppState> = Router::new()
             .route("/details", get(h))
-            .route("/agentic-airway/{*rest}", get(h))
+            .nest("/agentic-airway", airway)
             .merge(routes());
     }
 }

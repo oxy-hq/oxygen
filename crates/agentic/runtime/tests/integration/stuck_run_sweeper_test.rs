@@ -593,7 +593,7 @@ async fn clear_run_error_nulls_error_but_preserves_answer_and_driver_lease() {
 // (`crates/app/src/server/router/recovery.rs`), which makes it a second driver
 // alongside the request-time direct-drive. Phase 2 removed that direct-drive
 // from the *airway submit* path (it enqueues `Global` now), but NOT from
-// analytics, builder, or the `oxy airway run` CLI — so a live run with no
+// analytics, builder, or the deleted `oxy airway run` CLI — so a live run with no
 // driver lease is still a shape that occurs, and the asymmetry below still
 // holds. That is only safe because the two loops the worker runs carry a QUEUE
 // predicate on top of the driver lease:

@@ -12,9 +12,8 @@ edition.workspace = true
 
 [dependencies]
 # The only oxy-app dependency, through `oxy_app::surface` only: the guards and
-# workspace extractors, the staff console's admin_db / admin_scope / roles, the
-# AdminSection seam type, and the workspace runtime `oxy airway` builds its
-# project context from. oxy-app never depends back on this crate.
+# workspace extractors, the staff console's admin_db / admin_scope / roles, and
+# the AdminSection seam type. oxy-app never depends back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
@@ -24,12 +23,10 @@ oxy-shared = { workspace = true }
 # Report validation runs the real airway source over the bytes, and the upload
 # zone is derived by the same function the pipeline run uses.
 agentic-airway = { workspace = true }
-# `oxy airway run` / `backfill` / `coverage` drive the pipeline facade and the
-# runtime's run tables directly, as the command did in oxy-app.
+# The single-flight lease reads and releases (`leases`), through the pipeline
+# facade.
 agentic-pipeline = { workspace = true }
-agentic-runtime = { workspace = true }
 entity = { workspace = true }
-migration = { workspace = true }
 oxy-auth = { workspace = true }
 sea-orm = { workspace = true }
 
@@ -37,8 +34,6 @@ axum = { workspace = true, features = ["multipart"] }
 base64 = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-clap = { workspace = true, features = ["derive", "env"] }
-minijinja = { workspace = true, features = ["loader"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 aws-config = { workspace = true, features = ["behavior-version-latest"] }
@@ -50,6 +45,19 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# oxy-app's in-source DB harness (`server/test_support.rs`, included by path)
+# migrates with these; nothing in `src/` needs them since `oxy airway` left.
+migration = { workspace = true }
+agentic-runtime = { workspace = true }
+# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# as `oxy-api-automations`' does, so it needs that harness's dependencies too.
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+oxy-cameras = { workspace = true }
+url = { workspace = true }
+tempfile = { workspace = true }
+oxy-test-utils = { workspace = true }
 serde_yaml = { workspace = true }
 oxy-authz = { workspace = true }   # the platform-scope cases build a bounded grant
 tower = { workspace = true, features = ["util"] }   # `oneshot` in the admin mount test

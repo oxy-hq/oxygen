@@ -160,7 +160,7 @@ impl AirwayWorker {
     /// `workspace_id` keys the cursor row the state store reads and writes. It
     /// must be the same id the caller used to take the single-flight lease —
     /// otherwise a run holds one workspace's lease while advancing another's
-    /// cursor. `Uuid::nil()` in local mode and for `oxy airway run`, matching
+    /// cursor. `Uuid::nil()` in local mode and for the deleted `oxy airway run`, matching
     /// what the lease and the run row carry there.
     pub fn execute(
         &self,

@@ -241,9 +241,10 @@ fn external_seam_routes() -> SeamRouter {
 /// reconcile — ride `notifications`, without which `serve` and `worker` refuse
 /// to start.
 ///
-/// `oxy-api-airway` rides the workspace seam and declares its three routes
-/// FleetOk: the report upload (an S3 write that must not need the ide) and the
-/// two `/airway-pipelines` reads (the compile boundary and a static list).
+/// `oxy-api-airway` rides the workspace seam and declares its five routes
+/// FleetOk: the report upload (an S3 write that must not need the ide), the
+/// two `/airway-pipelines` reads (the compile boundary and a static list), and
+/// the two single-flight lease routes (one SELECT, one DELETE in Postgres).
 ///
 /// `oxy-api-slack` fills two seams, as frontline does: Slack's webhooks, the
 /// OAuth callback and the account-link page ride `public` (no user credential:
@@ -634,8 +635,9 @@ fn main() {
         // The parser is `oxy-cli-shim`'s and knows no command. This binary
         // owns the long-lived ones (`start`, `serve`, `worker`), listed first;
         // oxy-app owns most of the one-shot rest, and a context that has left
-        // oxy-app brings its own (`oxy airway`, from `oxy-api-airway`; `oxy
-        // test`, from `oxy-api-eval`). `test` was second among oxy-app's
+        // oxy-app brings its own (`oxy test`, from `oxy-api-eval`; `oxy airway`
+        // was `oxy-api-airway`'s until it moved to `oxyc airway` on
+        // 2026-11-21). `test` was second among oxy-app's
         // commands, after `run`; registered ahead of them, it lists just before
         // `run`, the nearest `--help` can keep it to where it was.
         let owners = vec![
@@ -647,9 +649,6 @@ fn main() {
             }),
             oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(|command, seams| {
                 Box::pin(oxy_app::cli::run(command, seams))
-            }),
-            oxy_cli_shim::Owner::of::<oxy_api_airway::Command>(|command, _seams| {
-                Box::pin(oxy_api_airway::run(command))
             }),
         ];
         let exit_code =
