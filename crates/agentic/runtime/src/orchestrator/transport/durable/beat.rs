@@ -41,6 +41,12 @@ impl BeatCtx {
                 self.on_lost_claim();
                 true
             }
+            // This claim's own terminal write landed before its outcome
+            // retired the ticker: the work is done, so stop without a cancel.
+            Ok(Ok(crud::HeartbeatOutcome::Settled)) => {
+                tracing::debug!(%task_id, claim = self.claim, "heartbeat: claim settled by its own terminal write; stopping ticker");
+                true
+            }
             // A failed beat is not a lost claim. Keep ticking: the next one
             // may land inside the visibility window, and a dead ticker
             // guarantees it won't. Expected once the co-located DB goes down

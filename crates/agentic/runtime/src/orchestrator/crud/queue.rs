@@ -291,8 +291,17 @@ pub enum HeartbeatOutcome {
     /// No queue row exists for this task. Normal for externally-driven roots.
     NoRow,
     /// A row exists but this worker does not hold the claim (reaped, released,
-    /// or taken by a peer).
+    /// taken by a peer, or stopped by a requester).
     Lost,
+    /// The claim ended through its own terminal write: the row is `completed`
+    /// or `failed` and still names this worker and claim. An
+    /// `AutomationDecision` stamps its row inside `execute` (`commit_decision`),
+    /// so a beat can land after the work is done and before the outcome
+    /// retires the ticker. Nothing is lost and nothing may be cancelled: a
+    /// cancel there turned a finished run into `cancelled`. A `cancelled` row is
+    /// never this: a requester's Stop leaves the owner in place, and it must
+    /// still reach the task as [`Self::Lost`].
+    Settled,
 }
 
 /// [`update_queue_heartbeat`], classifying a miss with one follow-up lookup.
@@ -309,15 +318,26 @@ pub async fn heartbeat_queue_task(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT 1 FROM agentic_task_queue WHERE task_id = $1",
+            "SELECT queue_status, worker_id, claim_epoch FROM agentic_task_queue \
+             WHERE task_id = $1",
             [task_id.into()],
         ))
         .await?;
-    Ok(if row.is_some() {
-        HeartbeatOutcome::Lost
-    } else {
-        HeartbeatOutcome::NoRow
-    })
+    let Some(row) = row else {
+        return Ok(HeartbeatOutcome::NoRow);
+    };
+    let status: String = row.try_get("", "queue_status")?;
+    let owner: Option<String> = row.try_get("", "worker_id")?;
+    let epoch: i64 = row.try_get("", "claim_epoch")?;
+    let this_claim =
+        owner.as_deref() == Some(worker_id) && claim_epoch.is_none_or(|claim| claim == epoch);
+    Ok(
+        if this_claim && matches!(status.as_str(), "completed" | "failed") {
+            HeartbeatOutcome::Settled
+        } else {
+            HeartbeatOutcome::Lost
+        },
+    )
 }
 
 /// What an ownership-scoped terminal write actually did.

@@ -229,6 +229,81 @@ async fn heartbeat_with_no_queue_row_does_not_cancel_the_task() {
     );
 }
 
+/// An `AutomationDecision` that completes or fails its run stamps its own queue
+/// row inside `execute` (`commit_decision`), before its outcome retires the
+/// ticker, and a claim's first beat is immediate. A beat that lands after that
+/// stamp found a row that is no longer `claimed` and read it as a lost claim:
+/// it cancelled the execution still inside `start_task`, which reported
+/// `Cancelled`, and the coordinator turned the finished run `cancelled`. The
+/// row still names this claim, so the ticker must stop without a cancel.
+#[tokio::test]
+async fn a_claims_own_terminal_stamp_stops_its_ticker_without_cancelling_the_task() {
+    for status in ["completed", "failed"] {
+        let (transport, db, task_id) = seeded().await;
+        let c1 = claim(&transport).await;
+        // What the decision's commit writes: the status, owner and claim kept.
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agentic_task_queue SET queue_status = $2 WHERE task_id = $1",
+            [task_id.clone().into(), status.into()],
+        ))
+        .await
+        .unwrap();
+
+        let task_token = transport.cancellation_token(&task_id, c1);
+        let ticker = transport.spawn_heartbeat(&task_id, c1, DB_TICK);
+
+        tokio::time::timeout(Duration::from_secs(5), ticker.cancelled())
+            .await
+            .unwrap_or_else(|_| panic!("the ticker should stop on a `{status}` row"));
+        assert!(
+            !task_token.is_cancelled(),
+            "a `{status}` row this claim stamped must not cancel the task"
+        );
+        assert_eq!(queue_status(&db, &task_id).await, status);
+    }
+}
+
+/// The control for the case above: a requester's Stop also leaves the owner and
+/// claim in place, as `cancelled`, and it must still reach the task.
+#[tokio::test]
+async fn a_requesters_stop_on_the_row_still_cancels_the_task() {
+    let (transport, db, task_id) = seeded().await;
+    let c1 = claim(&transport).await;
+    crud::cancel_queued_task(&db, &task_id).await.unwrap();
+
+    let task_token = transport.cancellation_token(&task_id, c1);
+    let ticker = transport.spawn_heartbeat(&task_id, c1, DB_TICK);
+
+    cancelled_within(
+        &task_token,
+        "a Stop seen through the queue must cancel the task",
+    )
+    .await;
+    assert!(ticker.is_cancelled(), "and the ticker must stop");
+}
+
+/// A terminal row that names a newer claim of this same process is not this
+/// claim's own stamp: the older execution is stale and is still stopped.
+#[tokio::test]
+async fn a_terminal_row_of_a_newer_claim_still_cancels_the_older_execution() {
+    let (transport, db, task_id) = seeded().await;
+    let c1 = claim(&transport).await;
+    let c2 = lose_then_reclaim(&transport, &db, &task_id).await;
+    assert!(c2 > c1);
+    exec(
+        &db,
+        "UPDATE agentic_task_queue SET queue_status = 'completed' WHERE task_id = $1",
+        &task_id,
+    )
+    .await;
+
+    let old_token = transport.cancellation_token(&task_id, c1);
+    let _old_ticker = transport.spawn_heartbeat(&task_id, c1, DB_TICK);
+
+    cancelled_within(&old_token, "a stale claim must still be stopped").await;
+}
+
 /// The reaper requeues a row whose claim was lost, and this same transport
 /// re-claims it. The lost claim's cancel must stop *that* execution only: the
 /// next claim of the same task_id has its own token and starts live.
