@@ -444,7 +444,7 @@ fn superseded_candidates<'a>(
 /// `(view_name, rollup_name)` and what survives it. The reach is one
 /// workspace's directory — `cache_dir` is
 /// `<state>/airlayer/cache/<workspace_id>/`, and the lock guarding it is keyed
-/// by the same id (`manifest_write_lock_for`) — so no other tenant's cache,
+/// by the same id (`manifest_lock::manifest_write_lock_for`) — so no other tenant's cache,
 /// and no other view's or rollup's artifact, is visible from here.
 async fn commit_manifest_and_cache(
     entry: &oxy_airlayer_compat::preagg::ManifestEntry,

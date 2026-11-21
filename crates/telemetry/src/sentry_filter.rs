@@ -943,6 +943,9 @@ mod tests {
             // `oxy_app::server::preagg_executor`, which keeps the executor
             // shell), classified as it was there.
             "oxy_preagg::cycle",
+            // The manifest write lock followed it (out of
+            // `oxy_app::server::preagg_workspace`), classified as it was there.
+            "oxy_preagg::manifest_lock",
             "oxy_app::server::preagg_executor",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP

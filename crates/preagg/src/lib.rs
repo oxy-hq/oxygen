@@ -11,6 +11,8 @@
 //! - [`generation`] is the builder-generation lever: the sweep that retracts
 //!   what an older builder stored wrongly.
 //! - [`worker_config`] is the per-task bag the cycle threads through them.
+//! - [`manifest_lock`] is the per-workspace manifest write lock a cycle holds
+//!   to publish. `oxy-app` re-exports it at `server::preagg_workspace`.
 //! - [`promote`] is the compile worker's post-promote nudge: it enqueues a
 //!   cycle when a promote declared a rollup hash the previous revision did
 //!   not. `oxy-app` re-exports it at `server::preagg_promote`.
@@ -32,6 +34,7 @@
 pub mod cycle;
 pub mod freshness;
 pub mod generation;
+pub mod manifest_lock;
 pub mod promote;
 pub mod rebuild;
 pub mod retract;
