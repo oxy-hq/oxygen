@@ -124,6 +124,8 @@ use crate::server::router::{AdminSection, AppState};
 ///   - DELETE /admin/orgs/{org_id}/oltp
 ///   - GET    /admin/orgs/{org_id}/oltp/branches/{branch}
 ///   - POST   /admin/orgs/{org_id}/oltp/branches/{branch}/reset
+///   - POST   /admin/orgs/{org_id}/oltp/audit
+///   - POST   /admin/orgs/{org_id}/oltp/roles/{role}/rotate
 ///
 /// Admin routes. The outer nest layer in `router::global` is the **door**
 /// (`oxy_owner_or_app_admin_guard`): it answers "are you Oxy staff at all". Each

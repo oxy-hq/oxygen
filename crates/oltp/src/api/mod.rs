@@ -10,6 +10,7 @@
 
 pub mod admin;
 pub mod branches;
+pub mod confinement;
 pub mod erd;
 pub mod handlers;
 pub mod probe;

@@ -15,7 +15,7 @@ import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 export type RefusalReason = (status: number) => string | undefined;
 
 /** The OLTP console's refusals — the default for `call`. */
-function refusalReason(status: number): string | undefined {
+export function refusalReason(status: number): string | undefined {
   switch (status) {
     case 400:
       return "the server rejected the request as malformed";

@@ -1288,6 +1288,14 @@ fn tenant_data_plane_routes_are_fleet_ok() {
             "POST",
             format!("/api/admin/orgs/{org}/oltp/deprovision-writer"),
         ),
+        // The confinement audit and a writer's rotation (2026-11-21, were
+        // `oxy oltp audit | rotate`): Postgres sessions to the tenant plus
+        // the provider, no node-local state.
+        ("POST", format!("/api/admin/orgs/{org}/oltp/audit")),
+        (
+            "POST",
+            format!("/api/admin/orgs/{org}/oltp/roles/app:probe/rotate"),
+        ),
         // Airhouse's admin surface, same shape: Postgres plus an HTTP
         // client, no node-local state. Pinning, not a fix — the default is
         // already right, and this is what keeps a future broad `IdeOnly`

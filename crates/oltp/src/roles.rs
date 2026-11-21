@@ -219,7 +219,7 @@ pub fn grant_schema_creation_sql(role: &str) -> Result<String, SchemaError> {
 /// The authority a confined role must not hold: display name, `pg_roles` column.
 ///
 /// **One list, two readers.** [`assert_confined_sql`] refuses a credential
-/// carrying any of these, and `oxy oltp audit` reports on them — and for a
+/// carrying any of these, and `oxyc oltp audit` reports on them — and for a
 /// while they were different lists, so the command built to vouch for
 /// containment printed `risk: none` and exited 0 for a role provisioning would
 /// have refused outright. Anything added here reaches both.
@@ -229,7 +229,7 @@ pub fn grant_schema_creation_sql(role: &str) -> Result<String, SchemaError> {
 /// `CREATE ROLE x INHERIT CREATEROLE CREATEDB BYPASSRLS REPLICATION IN ROLE
 /// neon_superuser` — four attributes plus a membership.
 ///
-/// **Every column here must be `boolean`.** `oxy oltp audit` reads them
+/// **Every column here must be `boolean`.** `oxyc oltp audit` reads them
 /// positionally as `row.get::<_, bool>(..)`, so a non-boolean addition
 /// (`rolconnlimit`, say) compiles and then panics at runtime in the audit,
 /// while `assert_confined_sql` would fail with a SQL type error. The tuple
@@ -328,7 +328,7 @@ pub struct RoleDropPlan {
     /// keeps membership in the writer role indefinitely (harmless in privilege
     /// terms, since the owner already dominates it, but `assert_confined_sql`
     /// checks what the role is a member OF, not what is a member of it, so
-    /// `oxy oltp audit` won't surface it). Same trade `strip_role_dependencies`
+    /// `oxyc oltp audit` won't surface it). Same trade `strip_role_dependencies`
     /// makes.
     pub admin_pre: Vec<String>,
     /// Run on the TENANT database as the owner: reassign what the role owns to

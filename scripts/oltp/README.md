@@ -58,7 +58,7 @@ oxyc oltp expose --target http://localhost:3000 --org <org-slug> --writer app:bo
 
 # 4. look around
 oxyc oltp status  --target http://localhost:3000 --org <org-slug>
-oxy oltp audit    --org you@oxy.tech    # every role's real authority, read from pg_roles
+oxyc oltp audit   --target http://localhost:3000 --org <org-slug>   # every role's real authority, read from pg_roles; exit 9 on a finding
 oxyc oltp connect --target http://localhost:3000 --org <org-slug>   # psql as the read-only analyst
 ```
 

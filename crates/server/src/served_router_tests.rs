@@ -2818,6 +2818,12 @@ const ADMIN_SPLIT_PR4_ROUTES: &[(&str, &str, Option<u16>)] = &[
         "/admin/orgs/{o}/oltp/branches/staging/reset",
         Some(404),
     ),
+    // Joined the OLTP section after the split (2026-11-21), when `oxy oltp
+    // audit | rotate` became routes. The owner's random org has no database,
+    // so the audit is a 404; a rotation reaches the provisioner, which needs
+    // a provider wherever one is configured, so it is never sent as the owner.
+    ("POST", "/admin/orgs/{o}/oltp/audit", Some(404)),
+    ("POST", "/admin/orgs/{o}/oltp/roles/app:probe/rotate", None),
     ("GET", "/admin/airhouse", Some(200)),
     (
         "POST",
@@ -2842,7 +2848,7 @@ const ADMIN_SPLIT_PR4_ROUTES: &[(&str, &str, Option<u16>)] = &[
 /// writer or role answer the JSON extractor's 422, which runs before the
 /// handler's fence — as on `main`.
 const ADMIN_SPLIT_PR4_OUT_OF_SCOPE: &[u16] = &[
-    200, 404, 404, 404, 422, 422, 422, 404, 404, 404, 200, 404, 404,
+    200, 404, 404, 404, 422, 422, 422, 404, 404, 404, 404, 404, 200, 404, 404,
 ];
 
 fn admin_split_pr4_routes(o: &str, w: &str) -> Vec<(Method, String)> {

@@ -520,7 +520,7 @@ pub async fn deprovision_writer(
         .map_err(|s| (s, "could not read back status".to_string()))
 }
 
-fn parse_writer(spec: &str) -> Result<crate::schema::WriterRef, String> {
+pub(crate) fn parse_writer(spec: &str) -> Result<crate::schema::WriterRef, String> {
     let (kind, name) = spec.split_once(':').ok_or_else(|| {
         format!("writer {spec:?} must look like `app:<slug>` or `pipeline:<src>`")
     })?;

@@ -69,6 +69,13 @@ where
             "/orgs/{org_id}/oltp/branches/{branch}/reset",
             post(reset_branch),
         )
+        // The confinement audit and one writer's password rotation. Both were
+        // `oxy oltp audit | rotate`. The audit is a POST although it changes
+        // nothing in the tenant, for `test-connection`'s reason: it opens a
+        // session as the owner, which wakes a suspended compute, and it writes
+        // an audit row — an act, never a read a prefetch may make.
+        .route("/orgs/{org_id}/oltp/audit", post(audit))
+        .route("/orgs/{org_id}/oltp/roles/{role}/rotate", post(rotate_role))
 }
 
 /// A connection, or a 500 that says which surface failed.
@@ -359,6 +366,65 @@ pub async fn reset_branch(
         )
         .await;
     }
+    out
+}
+
+/// The confinement audit (`oxy_oltp::confinement_audit`). Audited although it
+/// changes nothing: it unseals the tenant's OWNER credential to open its
+/// session, and `/admin/audit` is where an operator finds out who looked. The
+/// row records the verdict's counts; a violation is a successful audit.
+pub async fn audit(
+    user: oxy_app_core::audit::RequestActor,
+    Path(org_id): Path<Uuid>,
+) -> Result<Json<oxy_oltp::confinement_audit::ConfinementAudit>, (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    scope::deny_out_of_scope(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+    let out = oxy_oltp::api::confinement::audit(
+        AuthenticatedUserExtractor(user.user.clone()),
+        Path(org_id),
+    )
+    .await;
+    let metadata = match &out {
+        Ok(Json(a)) => serde_json::json!({
+            "clean": a.clean, "unconfined": a.unconfined, "drifted": a.drifted,
+        }),
+        Err(_) => serde_json::Value::Null,
+    };
+    audit_oltp(&db, &user, org_id, "oltp.audited", metadata, out.is_ok()).await;
+    out
+}
+
+/// Rotate one writer's password and reseal it. The audit row names the writer
+/// and the Postgres role — never the password, which the handler does not
+/// return and this shim never sees.
+pub async fn rotate_role(
+    user: oxy_app_core::audit::RequestActor,
+    Path((org_id, role)): Path<(Uuid, String)>,
+) -> Result<Json<oxy_oltp::api::confinement::RotatedRole>, (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    scope::deny_out_of_scope(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+    let out = oxy_oltp::api::confinement::rotate(
+        AuthenticatedUserExtractor(user.user.clone()),
+        Path((org_id, role.clone())),
+    )
+    .await;
+    let metadata = match &out {
+        Ok(Json(r)) => serde_json::json!({ "writer": r.writer, "role": r.role }),
+        Err(_) => serde_json::json!({ "writer": role }),
+    };
+    audit_oltp(
+        &db,
+        &user,
+        org_id,
+        "oltp.role.rotated",
+        metadata,
+        out.is_ok(),
+    )
+    .await;
     out
 }
 

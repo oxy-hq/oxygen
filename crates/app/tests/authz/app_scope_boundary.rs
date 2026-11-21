@@ -670,6 +670,10 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
                 // the branch's endpoint.
                 "get_branch",
                 "reset_branch",
+                // The confinement audit opens a session as the tenant's
+                // OWNER; a rotation re-mints one writer's password.
+                "audit",
+                "rotate_role",
             ],
         ),
         (

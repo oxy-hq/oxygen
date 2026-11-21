@@ -53,6 +53,7 @@
 pub mod api;
 pub mod branches;
 pub mod config;
+pub mod confinement_audit;
 pub mod connect;
 pub mod entity;
 pub mod env_branches;

@@ -62,6 +62,12 @@ async fn oltp_admin_routes_are_mounted_on_the_real_router() {
             "POST",
             format!("/admin/orgs/{org}/oltp/branches/staging/reset"),
         ),
+        // The confinement audit and a writer's rotation.
+        ("POST", format!("/admin/orgs/{org}/oltp/audit")),
+        (
+            "POST",
+            format!("/admin/orgs/{org}/oltp/roles/app:probe/rotate"),
+        ),
         // Airhouse rides the same mount and would 404 the same way.
         ("GET", "/admin/airhouse".to_string()),
         (

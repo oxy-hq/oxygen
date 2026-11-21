@@ -13,7 +13,7 @@ import type { OltpConnectionInfo } from "@/services/api/oltp";
  * **The strip replaced a four-column table.** Schema / Kind / Role / Analytics
  * spent a full-width table on two rows, and its widest column held a role name
  * (`app_bookings_rw_b4473a69`) an operator never needs to read here — the
- * Connect panel beside it hands out the credential, and `oxy oltp audit` is
+ * Connect panel beside it hands out the credential, and `oxyc oltp audit` is
  * where you go to check role authority. What is left is what the strip already
  * shows: which schemas exist, and whether analytics can read each one. Clicking
  * a chip toggles the thing it displays, so the control and its state are the

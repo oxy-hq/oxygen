@@ -694,6 +694,8 @@ oxyc oltp dsn --org <slug|uuid|url> [--role analyst|app:<slug>|pipeline:<source>
 oxyc oltp connect --org <slug|uuid|url> [--role analyst|app:<slug>|pipeline:<source>]
 oxyc oltp expose --org <slug|uuid|url> --writer app:<slug>|pipeline:<source> [--revoke] [--json]
 oxyc oltp deprovision --org <slug|uuid|url> [--writer app:<slug>|pipeline:<source>] --yes [--json]
+oxyc oltp audit --org <slug|uuid|url> [--json]
+oxyc oltp rotate --org <slug|uuid|url> --role app:<slug>|pipeline:<source> --yes [--json]
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
@@ -718,6 +720,20 @@ rest of the database; without `--writer` it destroys the org's whole database
 at the provider. Both are irreversible, so both print what they would destroy
 and exit `8` unless `--yes` is given; there is no prompt. An org with no
 database is a no-op that exits `0`.
+
+`audit` reads every role in the org's database from `pg_roles` — whether it
+is still confined (no `superuser`, `createdb`, `createrole`, `bypassrls`,
+`replication`, and no membership) and what it can reach outside its own schema
+— and exits `9` when it finds any violation, `--json` included (the report is
+the server's, its verdict in `clean`). It opens a session as the owner, so it
+wakes a suspended compute; a database that would not open one exits `7`.
+
+`rotate` re-mints one writer's password, reseals it and re-asserts its
+confinement. The old password stops working at once and the new one is never
+shown (`--json` gives `{writer, role, schema}`), so it exits `8` without
+`--yes`. Only writers rotate; the analyst and the owner are re-minted by
+`provision`. Both are audited on the server, and both replaced the Rust `oxy
+oltp audit | rotate`, whose blanket exit `1` is now `9` / `8` / the table's.
 
 `provision` prints what it will create and asks first, because it calls a paid
 provider; without a terminal it refuses unless `--yes`. It is idempotent — an

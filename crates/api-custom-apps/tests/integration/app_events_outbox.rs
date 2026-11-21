@@ -116,7 +116,7 @@ async fn publish(
     Ok(row.get(0))
 }
 
-/// `oxy oltp audit`'s report for the tenant: every recorded writer, the
+/// The confinement audit's grant half (`oxyc oltp audit`) for the tenant: every recorded writer, the
 /// analyst and `PUBLIC`.
 async fn audit(fx: &Fx, owner: &tokio_postgres::Client) -> Vec<RoleFindings> {
     let tenant = fx.tenant_row().await.expect("tenant row");

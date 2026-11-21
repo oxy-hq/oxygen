@@ -14,7 +14,7 @@
 //! role holds outside the schemas it may use. Provisioning wraps it in
 //! [`assert_role_grants_sql`] and refuses a writer that holds any (`OXY03`),
 //! as [`crate::roles::assert_confined_sql`] refuses an over-privileged role;
-//! `oxy oltp audit` runs it for every writer and the analyst, and
+//! `oxyc oltp audit` runs it for every writer and the analyst, and
 //! [`public_findings_sql`] for `PUBLIC`.
 //!
 //! **Effective privileges, not ACL entries.** It asks `has_*_privilege`, so a
@@ -220,7 +220,7 @@ pub fn assert_role_grants_sql(scope: &GrantScope) -> Result<String, SchemaError>
              RAISE EXCEPTION 'role % holds privileges outside its own schema: %', {role}, bad \
                USING ERRCODE = '{GRANT_DRIFT_SQLSTATE}', \
                      HINT = 'a grant was made by hand or a migration left an object with the \
-                             wrong owner; revoke it (oxy oltp audit lists every finding) and \
+                             wrong owner; revoke it (oxyc oltp audit lists every finding) and \
                              provision again'; \
            END IF; \
          END $$"
@@ -239,7 +239,7 @@ pub fn public_findings_sql() -> String {
 /// The part of [`public_findings_sql`] that reaches a writer's data or Oxy's
 /// own: privileges `PUBLIC` holds in an `app_*` or `raw_*` schema, or in
 /// `oxy_meta` / `oxy_inbox` / `oxy_events`. Provisioning refuses on these. The
-/// rest (a provider's own schema left readable, say) is for `oxy oltp audit` to
+/// rest (a provider's own schema left readable, say) is for `oxyc oltp audit` to
 /// report rather than a reason to stop every provision on that provider.
 fn public_reach_sql() -> String {
     let filter = format!(
@@ -295,9 +295,10 @@ fn public_sql(filter: &str, database: bool) -> String {
     )
 }
 
-/// One role's findings, for `oxy oltp audit`. `PUBLIC` is reported as the role
-/// `PUBLIC`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One role's findings, for the confinement audit
+/// ([`crate::confinement_audit`], `oxyc oltp audit`). `PUBLIC` is reported as
+/// the role `PUBLIC`. Serialized as is on that route's response.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct RoleFindings {
     pub role: String,
     pub findings: Vec<String>,
