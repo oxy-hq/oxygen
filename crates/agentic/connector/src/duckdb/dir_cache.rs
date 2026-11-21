@@ -143,6 +143,10 @@ impl SharedDb {
         &self.dir
     }
 
+    pub(super) fn strategy(&self) -> LoadStrategy {
+        self.strategy
+    }
+
     /// A connector over a fresh clone of this database.
     fn connector(self: &Arc<Self>) -> Result<DuckDbConnector, ConnectorError> {
         let conn = self

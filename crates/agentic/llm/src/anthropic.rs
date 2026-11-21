@@ -906,6 +906,23 @@ mod tests {
     }
 
     #[test]
+    fn max_tokens_reaches_the_request() {
+        let body = |cap| {
+            AnthropicProvider::new("key", "claude-sonnet-4-6").build_request_body(
+                "sys",
+                "",
+                &[],
+                &[],
+                &ThinkingConfig::Disabled,
+                None,
+                cap,
+            )
+        };
+        assert_eq!(body(Some(1234))["max_tokens"], 1234);
+        assert_eq!(body(None)["max_tokens"], DEFAULT_MAX_TOKENS);
+    }
+
+    #[test]
     fn budget_tokens_classification_tracks_the_version_not_a_model_list() {
         // Still accepted.
         for m in [

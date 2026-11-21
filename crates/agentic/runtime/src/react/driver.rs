@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use agentic_core::events::CoreEvent;
 use agentic_core::react::{
-    Decision, Engine, Entry, EventSink, ResultHandle, Toolset, Transcript, Turn,
+    Decision, DoneHook, Engine, Entry, EventSink, ResultHandle, Toolset, Transcript, Turn,
 };
 use agentic_core::tools::ToolDef;
 use tokio_util::sync::CancellationToken;
@@ -36,6 +36,8 @@ pub struct LoopConfig {
     pub run_id: String,
     /// Handed to every tool through [`ToolCx`].
     pub results: Arc<dyn ResultHandle>,
+    /// Called on every `Done`, before the `done` row. `None`: no hook.
+    pub on_done: Option<Arc<dyn DoneHook>>,
 }
 
 #[derive(Debug)]
@@ -154,10 +156,20 @@ pub(super) fn suspended(transcript: &mut Transcript, d: Dispatched) -> Option<Lo
 }
 
 /// Emits the terminal row for `Done` / `Failed`; other outcomes pass through.
-pub(super) async fn finish(ev: &EventSink, cfg: &LoopConfig, outcome: LoopOutcome) -> LoopOutcome {
+/// A `Done` runs the config's hook first, so its rows precede `done`.
+pub(super) async fn finish(
+    ev: &EventSink,
+    cfg: &LoopConfig,
+    mut outcome: LoopOutcome,
+) -> LoopOutcome {
     let trace_id = cfg.run_id.clone();
-    match &outcome {
-        LoopOutcome::Done { .. } => emit_core(ev, CoreEvent::Done { trace_id }).await,
+    match &mut outcome {
+        LoopOutcome::Done { answer } => {
+            if let Some(hook) = &cfg.on_done {
+                hook.on_done(answer, ev).await;
+            }
+            emit_core(ev, CoreEvent::Done { trace_id }).await
+        }
         LoopOutcome::Failed { message } => {
             let message = message.clone();
             emit_core(ev, CoreEvent::Error { message, trace_id }).await

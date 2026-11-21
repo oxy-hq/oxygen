@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use agentic_connector::DatabaseConnector;
 use agentic_core::events::Event;
-use agentic_core::react::{EventSink, ResultHandle, Tool, Toolset};
-use agentic_runtime::react::{AskUser, Budgets, LoopOutcome};
+use agentic_core::react::{DoneHook, EventSink, ResultHandle, Tool, Toolset, Turn};
+use agentic_runtime::react::{AskUser, Budgets};
+use async_trait::async_trait;
 
 use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
@@ -19,6 +20,9 @@ pub struct ReactInputs {
     pub instructions: String,
     pub databases: HashMap<String, Arc<dyn DatabaseConnector>>,
     pub catalog: Option<Arc<SemanticCatalog>>,
+    /// The agent's `extra_default_connector`: where `query` goes with no
+    /// `database` when there are several.
+    pub default_connector: Option<String>,
     pub files: Arc<WorkspaceFiles>,
 }
 
@@ -47,6 +51,7 @@ impl ReactAnalytics {
             Arc::new(QueryTool::new(QueryDeps {
                 connectors: inputs.databases,
                 catalog: inputs.catalog,
+                default_connector: inputs.default_connector,
             })),
             Arc::new(AskUser),
         ];
@@ -81,53 +86,49 @@ pub async fn emit_runtime_selected(ev: &EventSink) {
     .await;
 }
 
-/// On `Done`, emits `AnswerResult` for the result the answer cites (when its
-/// SQL is known) and returns the answer text without its markers. Any other
-/// outcome emits nothing and returns `None`.
-pub async fn finish(
-    outcome: &LoopOutcome,
-    results: &dyn ResultHandle,
-    ev: &EventSink,
-) -> Option<String> {
-    let LoopOutcome::Done { answer } = outcome else {
-        return None;
-    };
-    let citations = parse_citations(&answer.text);
-    if let Some(id) = answer_result_id(&citations)
-        && let Some(sql) = results.sql_for(id)
-    {
-        emit(
-            ev,
-            AnalyticsEvent::AnswerResult {
-                result_id: id.to_string(),
-                sql,
-            },
-        )
-        .await;
+/// The loop's done hook: emits `AnswerResult` for the result the answer cites
+/// (when its SQL is known) and rewrites the answer text without its markers.
+pub struct AnswerFinisher {
+    pub results: Arc<dyn ResultHandle>,
+}
+
+#[async_trait]
+impl DoneHook for AnswerFinisher {
+    async fn on_done(&self, answer: &mut Turn, ev: &EventSink) {
+        let citations = parse_citations(&answer.text);
+        if let Some(id) = answer_result_id(&citations)
+            && let Some(sql) = self.results.sql_for(id)
+        {
+            let result_id = id.to_string();
+            emit(ev, AnalyticsEvent::AnswerResult { result_id, sql }).await;
+        }
+        answer.text = strip_citations(&answer.text);
     }
-    Some(strip_citations(&answer.text))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use agentic_core::react::{Turn, TurnUsage};
-    use agentic_runtime::react::{LoopOutcome, ResultStore};
+    use agentic_runtime::react::ResultStore;
 
     #[tokio::test]
-    async fn finish_emits_answer_result_for_the_primary_sql() {
+    async fn finisher_emits_answer_result_for_the_primary_sql() {
         let store = ResultStore::new();
         let id = store.put("select 1".into(), vec!["a".into()], vec![]);
         assert_eq!(id, "r1");
         let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-        let answer = Turn {
+        let mut answer = Turn {
             text: "It is 1 {{result:r1|primary}}.".into(),
             tool_calls: vec![],
             native: serde_json::Value::Null,
             usage: TurnUsage::default(),
         };
-        let text = finish(&LoopOutcome::Done { answer }, &store, &tx).await;
-        assert_eq!(text.as_deref(), Some("It is 1."));
+        let finisher = AnswerFinisher {
+            results: Arc::new(store),
+        };
+        finisher.on_done(&mut answer, &tx).await;
+        assert_eq!(answer.text, "It is 1.");
         drop(tx);
         let (ty, payload) = rx.recv().await.unwrap();
         assert_eq!(ty, "answer_result");

@@ -60,10 +60,13 @@ read-only gate, the system prompt, answer citations and table rendering. The loo
 - **Layering.** Analytics knowledge stays here. `agentic-runtime` must not learn
   anything about analytics: a tool talks to the loop only through `ToolReply` and opaque
   `Artifact { event_type, payload }` rows, and never through an analytics type.
-- **The read-only gate fails closed.** `query` runs nothing that
-  `read_only::gate` has not accepted as one read statement. A parse error is a refusal,
-  never a fallback. A gate relaxation needs a test that the fake connector never
-  received the write.
+- **The read-only gate fails closed; it is not the guarantee.** `query` runs nothing
+  that `read_only::gate` has not accepted as one read statement. A parse error is a
+  refusal, never a fallback. The gate is the fast refusal with a hint. The guarantee is
+  the connector's `execute_query_read_only` (a read-only Postgres transaction with a
+  role check, a locked DuckDB), which `query` calls and nothing else; it must hold with
+  the gate deleted. Never route `query` through `execute_query`. A gate relaxation
+  still needs a test that the fake connector never received the write.
 
 ## Rules
 

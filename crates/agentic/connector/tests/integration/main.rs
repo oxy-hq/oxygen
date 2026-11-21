@@ -14,3 +14,4 @@ mod duckdb_tests;
 mod mysql_tests;
 mod postgres_tests;
 mod postgres_tx_tests;
+mod read_only_backstop;

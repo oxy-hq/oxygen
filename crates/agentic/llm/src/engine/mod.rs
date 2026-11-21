@@ -57,6 +57,10 @@ pub struct EngineConfig {
     /// (`Today is YYYY-MM-DD.`); the same value `run_with_tools` takes as
     /// `ToolLoopConfig::system_date_hint`.
     pub system_date_hint: Option<String>,
+    /// The agent's `llm.max_tokens`: the output cap of every request, in place
+    /// of the provider's default. `None` keeps the default. The one retry on a
+    /// truncated turn doubles whatever is in force.
+    pub max_tokens: Option<u32>,
 }
 
 impl Default for EngineConfig {
@@ -67,6 +71,7 @@ impl Default for EngineConfig {
             max_rate_limit_retries: retry::MAX_RATE_LIMIT_RETRIES,
             max_transient_retries: retry::MAX_TRANSIENT_RETRIES,
             system_date_hint: None,
+            max_tokens: None,
         }
     }
 }
@@ -241,7 +246,7 @@ impl Engine for LlmEngine {
         fold::emit(events, start).await;
         let mut run = TurnRun {
             messages,
-            max_tokens: None,
+            max_tokens: self.cfg.max_tokens,
             usage: Usage::default(),
             round: 0,
             continuations: 0,

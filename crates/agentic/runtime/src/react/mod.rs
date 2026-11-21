@@ -24,5 +24,6 @@ pub use driver::{Budgets, LoopConfig, LoopOutcome, run_loop};
 pub use events::ReactEvent;
 pub use results::{DEFAULT_PREVIEW_ROWS, Preview, ResultStore, StoredResult};
 pub use resume::{ResumeInput, SuspensionInput, resume_loop, suspension_data};
+pub use resume_guard::already_terminal;
 pub use store::{InMemoryStore, Rebuilt, StoreError, TranscriptStore, rebuild};
 pub use store_db::DbTranscriptStore;

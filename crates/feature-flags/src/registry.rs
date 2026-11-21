@@ -125,6 +125,19 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
+        key: super::REACT_RUNTIME,
+        description: "Run opted-in analytics agents (runtime: react) on the react runtime. \
+                      Internal and benchmark orgs only.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // Read by the served chat start with the workspace's org (`is_enabled_for`).
+        per_org: true,
+        client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
         key: super::rollout::COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
         description: "Fail, instead of warn on, a compile whose config.yml reads a key file \
                       from the repository (BigQuery key_path, Snowflake private-key path) on \
@@ -252,6 +265,18 @@ mod tests {
                 flag.key
             );
         }
+    }
+
+    #[test]
+    fn react_runtime_flag_is_registered_per_org_and_off() {
+        let flag = get(super::super::REACT_RUNTIME).expect("react_runtime is declared");
+        assert_eq!(flag.key, "react_runtime");
+        assert!(flag.per_org, "read with the workspace's org");
+        assert!(
+            !flag.default_enabled,
+            "the pilot is off until an org is opted in"
+        );
+        assert!(!flag.client, "server-only");
     }
 
     #[test]

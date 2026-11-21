@@ -658,10 +658,36 @@ pub async fn get_thread_history(
     thread_id: Uuid,
     limit: u64,
 ) -> Result<Vec<ThreadHistoryTurn>, DbErr> {
+    thread_history(db, thread_id, None, limit).await
+}
+
+/// [`get_thread_history`] over the runs created before `before` only (a
+/// run's own `created_at`): the turns that run had when it started, so one
+/// that finished while it was parked never becomes its prior turn. Filtered
+/// before the limit.
+pub async fn get_thread_history_before(
+    db: &DatabaseConnection,
+    thread_id: Uuid,
+    before: sea_orm::prelude::DateTimeWithTimeZone,
+    limit: u64,
+) -> Result<Vec<ThreadHistoryTurn>, DbErr> {
+    thread_history(db, thread_id, Some(before), limit).await
+}
+
+async fn thread_history(
+    db: &DatabaseConnection,
+    thread_id: Uuid,
+    before: Option<sea_orm::prelude::DateTimeWithTimeZone>,
+    limit: u64,
+) -> Result<Vec<ThreadHistoryTurn>, DbErr> {
     use sea_orm::QuerySelect;
-    let models = run::Entity::find()
+    let mut query = run::Entity::find()
         .filter(run::Column::ThreadId.eq(thread_id))
-        .filter(run::Column::TaskStatus.is_in(["done", "failed", "cancelled", "timed_out"]))
+        .filter(run::Column::TaskStatus.is_in(["done", "failed", "cancelled", "timed_out"]));
+    if let Some(before) = before {
+        query = query.filter(run::Column::CreatedAt.lt(before));
+    }
+    let models = query
         .order_by_asc(run::Column::CreatedAt)
         .limit(limit)
         .all(db)

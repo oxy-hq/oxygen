@@ -125,6 +125,24 @@ impl AgentConfig {
         select_thinking(extended, state, global.as_ref(), ThinkingConfig::Adaptive)
     }
 
+    /// The `(thinking_override, model_override)` a run with the UI's
+    /// extended-thinking toggle on applies: the agent's
+    /// `llm.extended_thinking.{thinking, model}`. Both `None` when the toggle
+    /// is off or the agent declares no `extended_thinking`. The FSM's
+    /// `start_pipeline` and the served react build both read it.
+    pub fn extended_thinking_overrides(
+        &self,
+        extended: bool,
+    ) -> (Option<ThinkingConfig>, Option<String>) {
+        let ext = self.llm.extended_thinking.as_ref().filter(|_| extended);
+        ext.map_or((None, None), |ext| {
+            (
+                ext.thinking.as_ref().map(|t| t.to_thinking_config()),
+                ext.model.clone(),
+            )
+        })
+    }
+
     /// `llm.thinking`, else the top-level `thinking`.
     pub(crate) fn global_thinking(&self) -> Option<ThinkingConfig> {
         let yaml = self.llm.thinking.as_ref().or(self.thinking.as_ref());
@@ -144,6 +162,23 @@ mod tests {
 
     fn agent(yaml: &str) -> AgentConfig {
         AgentConfig::from_yaml(yaml).unwrap()
+    }
+
+    #[test]
+    fn extended_thinking_overrides_apply_only_when_the_run_asks() {
+        let cfg = agent(
+            "llm:\n  model: base\n  extended_thinking:\n    model: deep\n    thinking: disabled\n",
+        );
+        let (thinking, model) = cfg.extended_thinking_overrides(true);
+        assert!(matches!(thinking, Some(ThinkingConfig::Disabled)));
+        assert_eq!(model.as_deref(), Some("deep"));
+        let (thinking, model) = cfg.extended_thinking_overrides(false);
+        assert!(thinking.is_none() && model.is_none());
+        let (thinking, model) = agent("").extended_thinking_overrides(true);
+        assert!(
+            thinking.is_none() && model.is_none(),
+            "no extended_thinking block"
+        );
     }
 
     #[test]

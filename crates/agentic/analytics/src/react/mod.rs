@@ -22,6 +22,8 @@ pub fn date_hint(tz: Option<chrono_tz::Tz>) -> String {
 }
 
 #[cfg(test)]
+mod query_routing_tests;
+#[cfg(test)]
 mod query_tests;
 #[cfg(test)]
 mod tests;

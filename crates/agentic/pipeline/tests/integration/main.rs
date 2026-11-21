@@ -29,6 +29,7 @@ mod orphaned_chat_recovery_test;
 mod preview_airway_sample_test;
 mod preview_run_recovery_test;
 mod queued_analytics_park_test;
+mod react_resume;
 mod run_platform_resolver_test;
 mod scheduler_test;
 mod starting_run_recovery_test;

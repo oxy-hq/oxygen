@@ -37,6 +37,7 @@ async fn drive(
         budgets,
         run_id: "run1".into(),
         results: Arc::new(NoResults),
+        on_done: None,
     };
     let t = Transcript {
         system: "sys".into(),

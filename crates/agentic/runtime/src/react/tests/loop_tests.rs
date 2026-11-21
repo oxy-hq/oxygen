@@ -23,6 +23,7 @@ fn cfg() -> LoopConfig {
         budgets: Budgets::default(),
         run_id: "run1".into(),
         results: Arc::new(NoResults),
+        on_done: None,
     }
 }
 

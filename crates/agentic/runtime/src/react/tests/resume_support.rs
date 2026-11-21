@@ -42,6 +42,7 @@ pub(super) fn cfg(max_turns: u32) -> LoopConfig {
         },
         run_id: "run1".into(),
         results: Arc::new(NoResults),
+        on_done: None,
     }
 }
 

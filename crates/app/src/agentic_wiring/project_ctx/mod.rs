@@ -37,6 +37,7 @@ mod function_context;
 mod monitor_scan;
 mod preview_hold;
 mod project_context;
+mod react_flag;
 pub(crate) mod revision_rebuild;
 mod workspace_context;
 

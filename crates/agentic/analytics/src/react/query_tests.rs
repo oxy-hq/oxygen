@@ -16,40 +16,35 @@ use super::tools::{QueryDeps, QueryTool};
 use crate::SemanticCatalog;
 
 /// Table `t(id, name)` of `rows` rows; refuses nothing, records everything.
-struct Fake {
+pub(super) struct Fake {
     rows: usize,
     /// Report the shown row count as the total, as a connector that cannot
     /// count the full result does.
     unknown_total: bool,
     fail: Option<String>,
     seen: Mutex<Vec<String>>,
+    /// Which connector method ran, in order.
+    methods: Mutex<Vec<&'static str>>,
 }
 
 impl Fake {
-    fn new(rows: usize) -> Arc<Self> {
+    pub(super) fn new(rows: usize) -> Arc<Self> {
         Arc::new(Self {
             rows,
             unknown_total: false,
             fail: None,
             seen: Mutex::new(Vec::new()),
+            methods: Mutex::new(Vec::new()),
         })
     }
-    fn seen(&self) -> Vec<String> {
+    pub(super) fn seen(&self) -> Vec<String> {
         self.seen.lock().unwrap().clone()
     }
-}
-
-#[async_trait::async_trait]
-impl DatabaseConnector for Fake {
-    fn dialect(&self) -> SqlDialect {
-        SqlDialect::Postgres
+    fn methods(&self) -> Vec<&'static str> {
+        self.methods.lock().unwrap().clone()
     }
 
-    async fn execute_query(
-        &self,
-        sql: &str,
-        limit: u64,
-    ) -> Result<ExecutionResult, ConnectorError> {
+    fn answer(&self, sql: &str, limit: u64) -> Result<ExecutionResult, ConnectorError> {
         self.seen.lock().unwrap().push(sql.to_owned());
         if let Some(m) = &self.fail {
             return Err(ConnectorError::query_failed(sql, m.clone()));
@@ -85,7 +80,36 @@ impl DatabaseConnector for Fake {
     }
 }
 
-fn cx() -> ToolCx {
+#[async_trait::async_trait]
+impl DatabaseConnector for Fake {
+    fn dialect(&self) -> SqlDialect {
+        SqlDialect::Postgres
+    }
+
+    async fn execute_query(
+        &self,
+        sql: &str,
+        limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        self.methods.lock().unwrap().push("execute_query");
+        self.answer(sql, limit)
+    }
+
+    fn supports_read_only(&self) -> bool {
+        true
+    }
+
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        self.methods.lock().unwrap().push("execute_query_read_only");
+        self.answer(sql, limit)
+    }
+}
+
+pub(super) fn cx() -> ToolCx {
     ToolCx {
         run_id: "r".into(),
         call_id: "c".into(),
@@ -94,7 +118,7 @@ fn cx() -> ToolCx {
     }
 }
 
-fn tool(conns: &[(&str, Arc<Fake>)], catalog: Option<SemanticCatalog>) -> QueryTool {
+pub(super) fn tool(conns: &[(&str, Arc<Fake>)], catalog: Option<SemanticCatalog>) -> QueryTool {
     let connectors: HashMap<String, Arc<dyn DatabaseConnector>> = conns
         .iter()
         .map(|(n, c)| (n.to_string(), c.clone() as Arc<dyn DatabaseConnector>))
@@ -102,14 +126,15 @@ fn tool(conns: &[(&str, Arc<Fake>)], catalog: Option<SemanticCatalog>) -> QueryT
     QueryTool::new(QueryDeps {
         connectors,
         catalog: catalog.map(Arc::new),
+        default_connector: None,
     })
 }
 
-async fn run(t: &QueryTool, args: Value) -> Result<ToolReply, ToolFailure> {
+pub(super) async fn run(t: &QueryTool, args: Value) -> Result<ToolReply, ToolFailure> {
     t.call(args, &cx()).await
 }
 
-fn account_catalog() -> SemanticCatalog {
+pub(super) fn account_catalog() -> SemanticCatalog {
     let view = crate::airlayer_compat::parse_view_yaml(
         r#"
 name: account
@@ -182,6 +207,16 @@ async fn query_runs_sql_and_stores_the_result() {
     );
 }
 
+/// The tool's only path to the warehouse is the connector's read-only one,
+/// where the database itself refuses a write; never `execute_query`.
+#[tokio::test]
+async fn query_runs_on_the_read_only_path() {
+    let db = Fake::new(3);
+    let t = tool(&[("warehouse", db.clone())], None);
+    run(&t, json!({"sql": "select * from t"})).await.unwrap();
+    assert_eq!(db.methods(), vec!["execute_query_read_only"]);
+}
+
 #[tokio::test]
 async fn query_preview_artifact_is_capped_at_100() {
     let t = tool(&[("warehouse", Fake::new(150))], None);
@@ -230,41 +265,13 @@ async fn query_needs_exactly_one_of_sql_and_semantic() {
 }
 
 #[tokio::test]
-async fn query_needs_a_database_when_there_are_several() {
-    let t = tool(
-        &[("warehouse", Fake::new(1)), ("sales", Fake::new(1))],
-        None,
-    );
-    let err = run(&t, json!({"sql": "select 1"})).await.unwrap_err();
-    assert_eq!(err.error, "database is required");
-    assert_eq!(err.candidates, vec!["sales", "warehouse"]);
-}
-
-#[tokio::test]
-async fn query_names_an_unknown_database_with_candidates() {
-    let sales = Fake::new(1);
-    let t = tool(
-        &[("warehouse", Fake::new(1)), ("sales", sales.clone())],
-        None,
-    );
-    let err = run(&t, json!({"sql": "select 1", "database": "warehose"}))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        err.candidates.first().map(String::as_str),
-        Some("warehouse")
-    );
-    let ok = run(&t, json!({"sql": "select 1", "database": "sales"})).await;
-    assert!(ok.is_ok() && sales.seen() == vec!["select 1"]);
-}
-
-#[tokio::test]
 async fn query_failure_is_an_ok_reply_with_a_failed_artifact() {
     let db = Arc::new(Fake {
         rows: 0,
         unknown_total: false,
         fail: Some("column \"x\" does not exist".into()),
         seen: Mutex::new(Vec::new()),
+        methods: Mutex::new(Vec::new()),
     });
     let t = tool(&[("warehouse", db)], None);
     let reply = run(&t, json!({"sql": "select x from t"})).await.unwrap();
@@ -282,43 +289,6 @@ async fn query_failure_is_an_ok_reply_with_a_failed_artifact() {
 }
 
 #[tokio::test]
-async fn semantic_query_reports_unknown_members_with_candidates() {
-    let db = Fake::new(3);
-    let t = tool(&[("warehouse", db.clone())], Some(account_catalog()));
-    let err = run(
-        &t,
-        json!({"semantic": {"measures": ["account.totl_amount"]}}),
-    )
-    .await
-    .unwrap_err();
-    assert!(err.error.contains("account.totl_amount"), "{}", err.error);
-    assert!(
-        err.candidates.iter().any(|c| c == "account.total_amount"),
-        "{:?}",
-        err.candidates
-    );
-    assert!(db.seen().is_empty());
-}
-
-#[tokio::test]
-async fn semantic_query_runs_the_compiled_sql() {
-    let db = Fake::new(3);
-    let t = tool(&[("warehouse", db.clone())], Some(account_catalog()));
-    let reply = run(
-        &t,
-        json!({"semantic": {"measures": ["account.total_amount"], "dimensions": ["account.district_id"]}}),
-    )
-    .await
-    .unwrap();
-    let seen = db.seen();
-    assert_eq!(seen.len(), 1);
-    assert!(seen[0].to_lowercase().contains("sum("), "{}", seen[0]);
-    assert!(reply.text.contains(&seen[0]), "{}", reply.text);
-    assert_eq!(reply.value["sql"], seen[0].as_str());
-    assert_eq!(reply.artifacts[0].payload["source"], "semantic");
-}
-
-#[tokio::test]
 async fn query_validates_arguments_before_resolving_the_database() {
     // Two connectors and no `database`: the argument error still wins.
     let t = tool(
@@ -333,18 +303,6 @@ async fn query_validates_arguments_before_resolving_the_database() {
             .unwrap_err();
         assert!(err.error.contains("limit"), "{}", err.error);
     }
-}
-
-#[tokio::test]
-async fn query_offers_no_candidates_for_a_name_nothing_resembles() {
-    let t = tool(
-        &[("warehouse", Fake::new(1)), ("sales", Fake::new(1))],
-        None,
-    );
-    let err = run(&t, json!({"sql": "select 1", "database": "qqqqqq"}))
-        .await
-        .unwrap_err();
-    assert!(err.candidates.is_empty(), "{:?}", err.candidates);
 }
 
 #[tokio::test]
@@ -413,6 +371,7 @@ async fn query_truncated_result_names_the_total_when_the_connector_knows_it() {
         unknown_total: true,
         fail: None,
         seen: Mutex::new(Vec::new()),
+        methods: Mutex::new(Vec::new()),
     });
     let t = tool(&[("warehouse", db)], None);
     let reply = run(&t, json!({"sql": "select * from t"})).await.unwrap();

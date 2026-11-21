@@ -290,6 +290,25 @@ impl DatabaseConnector for HoldingConnector {
         self.inner.execute_query(sql, sample_limit).await
     }
 
+    fn supports_read_only(&self) -> bool {
+        self.inner.supports_read_only()
+    }
+
+    async fn read_only_ready(&self) -> Result<(), ConnectorError> {
+        self.inner.read_only_ready().await
+    }
+
+    /// Admitted like every read, then the inner connector's own read-only
+    /// path, which needs no temp table.
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        sample_limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        let _turn = self.admit(sql).await?;
+        self.inner.execute_query_read_only(sql, sample_limit).await
+    }
+
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let _turn = self.admit(sql).await?;
         self.inner.execute_query_full(sql).await

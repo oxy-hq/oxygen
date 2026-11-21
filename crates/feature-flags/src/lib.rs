@@ -69,6 +69,13 @@ pub const HOME_V3: &str = "home_v3";
 /// publishing app's org; everywhere else a publish is refused `EventsNotEnabled`.
 pub const APP_EVENTS: &str = "app_events";
 
+/// The react analytics pilot, per org: a served chat of an agent that opts in
+/// (`runtime: react`) runs on the react runtime only where this serves `on`.
+/// Read with [`is_enabled_for`] and the workspace's org
+/// (`OxyProjectContext::react_runtime_enabled`); off, every such agent answers
+/// on the FSM.
+pub const REACT_RUNTIME: &str = "react_runtime";
+
 /// Whether [`HOME_V3`] is on.
 pub fn home_v3() -> bool {
     is_enabled(HOME_V3)

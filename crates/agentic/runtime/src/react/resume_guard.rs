@@ -14,7 +14,7 @@ use super::resume::ResumeInput;
 /// `error` row. The LAST such row wins, as in
 /// `update_run_terminal_from_events`. `Done` carries the last recorded turn
 /// (an empty turn if none parses); `Failed` carries the row's message.
-pub(super) fn already_terminal(rows: &[(String, Value)]) -> Option<LoopOutcome> {
+pub fn already_terminal(rows: &[(String, Value)]) -> Option<LoopOutcome> {
     let (t, payload) = rows
         .iter()
         .rev()

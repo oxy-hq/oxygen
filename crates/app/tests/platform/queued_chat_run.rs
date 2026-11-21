@@ -510,6 +510,7 @@ async fn a_queued_chat_start_is_driven_by_whichever_driver_claims_it() {
         question: "how did the stores do?".into(),
         thread_id: None,
         thinking_mode: Default::default(),
+        recorded_runtime: None,
     };
 
     let refused =

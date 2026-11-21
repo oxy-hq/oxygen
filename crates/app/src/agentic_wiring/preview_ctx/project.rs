@@ -159,6 +159,18 @@ impl ProjectContext for PreviewPlatformContext {
         None
     }
 
+    /// `false`: a preview answers on the FSM, whatever the org's
+    /// `react_runtime` flag says, so a staff dry run never trials the pilot.
+    async fn react_runtime_enabled(&self) -> bool {
+        false
+    }
+
+    /// `None`: a preview runs the agent's configured model; the scripted
+    /// engine seam is for tests only.
+    fn react_engine(&self) -> Option<Box<dyn agentic_core::react::Engine>> {
+        None
+    }
+
     /// `None`: a preview is pinned to ITS revision on purpose. Re-resolving it
     /// to the workspace's promoted revision would run main's content under the
     /// preview's name.

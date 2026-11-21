@@ -35,6 +35,13 @@ pub enum ConfigError {
     MissingLlmConfig,
     /// The `timezone:` value is not a valid IANA timezone name.
     InvalidTimezone(String),
+    /// An `.agentic.yml` key the react runtime does not honor yet. Refused at
+    /// build time rather than silently ignored, so a config that relied on it
+    /// never runs with it missing.
+    ReactUnsupported {
+        /// The key, as written in the YAML (`states.solving.instructions`).
+        key: String,
+    },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -73,6 +80,10 @@ impl std::fmt::Display for ConfigError {
                 f,
                 "invalid timezone '{tz}': expected an IANA timezone name such as \
                  'America/Los_Angeles' or 'UTC'"
+            ),
+            ConfigError::ReactUnsupported { key } => write!(
+                f,
+                "runtime: react does not support `{key}` yet; remove it or use runtime: fsm"
             ),
         }
     }

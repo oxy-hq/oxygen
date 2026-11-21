@@ -279,6 +279,24 @@ pub async fn update_run_done(
     transition_run(db, run_id, "done", metadata_patch, Some(answer), None).await
 }
 
+/// Merges the keys of `patch` (an object) into the run's `metadata`, keeping
+/// the others; a run with no metadata gets `patch`. One statement, so it
+/// cannot write back a stale copy of keys another writer changed.
+pub async fn merge_run_metadata(
+    db: &DatabaseConnection,
+    run_id: &str,
+    patch: Value,
+) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agentic_runs SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb \
+         WHERE id = $2",
+        [patch.into(), run_id.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 pub async fn update_run_failed(
     db: &DatabaseConnection,
     run_id: &str,

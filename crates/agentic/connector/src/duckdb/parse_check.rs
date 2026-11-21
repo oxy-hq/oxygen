@@ -88,22 +88,59 @@ impl Shadow {
     /// search path is the real directory), so callers on a runtime run this
     /// on the blocking pool.
     pub(super) fn only_selects(&self, sql: &str) -> bool {
+        self.selects(sql, false)
+    }
+
+    /// `Ok` when `sql` is exactly one statement, a `SELECT`, by DuckDB's
+    /// parser, else why not: what the read-only path (`super::locked`)
+    /// admits. Binding there must touch nothing, so that path calls it only
+    /// on a shadow it has [locked](Self::lock_down). Blocking, as
+    /// [`Self::only_selects`].
+    pub(super) fn one_select(&self, sql: &str) -> Result<(), String> {
+        self.verdict(sql, true)
+    }
+
+    fn selects(&self, sql: &str, exactly_one: bool) -> bool {
+        self.verdict(sql, exactly_one).is_ok()
+    }
+
+    fn verdict(&self, sql: &str, exactly_one: bool) -> Result<(), String> {
         #[cfg(test)]
         self.checked_on
             .lock()
             .unwrap()
             .push(std::thread::current().id());
-        let Ok(text) = CString::new(sql) else {
-            return false;
-        };
+        let text = CString::new(sql).map_err(|_| "the SQL contains a NUL byte".to_string())?;
+        let conn = self
+            .connect()
+            .ok_or_else(|| "could not connect to the parse check".to_string())?;
+        conn.run(&self.search_path);
+        let extracted = Extracted::of(&conn, &text).ok_or_else(|| "does not parse".to_string())?;
+        if exactly_one && extracted.count != 1 {
+            return Err(format!("{} statements, not one", extracted.count));
+        }
+        (0..extracted.count).try_for_each(|i| extracted.check(&conn, i))
+    }
+
+    /// Close this shadow the way `super::locked::lock` closes its database:
+    /// no extension autoload or install, no external access (its tables are
+    /// empty tables, so it needs none), configuration locked. Binding a query
+    /// that names a file or a URL is then refused instead of reading it.
+    /// `false` when a setting did not take.
+    pub(super) fn lock_down(&self) -> bool {
         let Some(conn) = self.connect() else {
             return false;
         };
-        conn.run(&self.search_path);
-        let Some(extracted) = Extracted::of(&conn, &text) else {
-            return false;
-        };
-        (0..extracted.count).all(|i| extracted.is_select(&conn, i))
+        let search_path = self.search_path.replacen("SET ", "SET GLOBAL ", 1);
+        [
+            search_path.as_str(),
+            "SET autoload_known_extensions = false",
+            "SET autoinstall_known_extensions = false",
+            "SET enable_external_access = false",
+            "SET lock_configuration = true",
+        ]
+        .iter()
+        .all(|stmt| conn.run(stmt))
     }
 
     #[cfg(test)]
@@ -227,20 +264,32 @@ impl Extracted {
         (!parse_error).then_some(extracted)
     }
 
-    /// Whether statement `index` binds, and is a `SELECT`.
-    fn is_select(&self, conn: &RawConnection, index: ffi::idx_t) -> bool {
+    /// `Ok` when statement `index` binds and is a `SELECT`, else why not.
+    fn check(&self, conn: &RawConnection, index: ffi::idx_t) -> Result<(), String> {
         let mut prepared: ffi::duckdb_prepared_statement = ptr::null_mut();
-        // SAFETY: `index < self.count`; the prepared statement is destroyed
-        // whether or not it prepared, as the C API requires.
+        // SAFETY: `index < self.count`; the prepare error is read (and copied)
+        // before the prepared statement is destroyed, which happens whether
+        // or not it prepared, as the C API requires.
         unsafe {
             let bound =
                 ffi::duckdb_prepare_extracted_statement(conn.0, self.handle, index, &mut prepared)
                     == ffi::DuckDBSuccess;
-            let select = bound
-                && ffi::duckdb_prepared_statement_type(prepared)
-                    == ffi::duckdb_statement_type_DUCKDB_STATEMENT_TYPE_SELECT;
+            let verdict = if !bound {
+                let why = ffi::duckdb_prepare_error(prepared);
+                Err(if why.is_null() {
+                    "does not bind".to_string()
+                } else {
+                    CStr::from_ptr(why).to_string_lossy().into_owned()
+                })
+            } else if ffi::duckdb_prepared_statement_type(prepared)
+                != ffi::duckdb_statement_type_DUCKDB_STATEMENT_TYPE_SELECT
+            {
+                Err("not a SELECT".to_string())
+            } else {
+                Ok(())
+            };
             ffi::duckdb_destroy_prepare(&mut prepared);
-            select
+            verdict
         }
     }
 }

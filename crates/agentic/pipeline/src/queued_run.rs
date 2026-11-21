@@ -261,6 +261,19 @@ pub struct ChatStart {
     pub question: String,
     pub thread_id: Option<Uuid>,
     pub thinking_mode: ThinkingMode,
+    /// The `runtime` the run row records ([`recorded_runtime`]); `None` for a
+    /// chat a request is about to insert.
+    pub recorded_runtime: Option<String>,
+}
+
+/// The `runtime` key a run row's metadata records: `react` when the run's
+/// latest attempt ran react (stamped before any react row is written),
+/// `fsm` when an opted-in agent's attempt ran the FSM, else absent. A driver
+/// that read the row hands it to [`crate::PipelineBuilder::recorded_runtime`],
+/// so a start on a run that never ran react reads nothing more.
+pub fn recorded_runtime(metadata: Option<&serde_json::Value>) -> Option<String> {
+    let runtime = metadata?.get("runtime")?.as_str()?;
+    Some(runtime.to_string())
 }
 
 impl ChatStart {
@@ -285,6 +298,7 @@ impl ChatStart {
             question: run.question.clone(),
             thread_id: run.thread_id,
             thinking_mode,
+            recorded_runtime: recorded_runtime(metadata),
         })
     }
 
@@ -301,7 +315,8 @@ impl ChatStart {
         let mut builder = crate::PipelineBuilder::new(platform)
             .workspace_id(self.workspace_id)
             .question(&self.question)
-            .thinking_mode(self.thinking_mode);
+            .thinking_mode(self.thinking_mode)
+            .recorded_runtime(self.recorded_runtime.clone());
         if let Some(cache) = schema_cache {
             builder = builder.schema_cache(cache);
         }
@@ -426,6 +441,7 @@ mod tests {
                     question: row.question.clone(),
                     thread_id: row.thread_id,
                     thinking_mode: mode,
+                    recorded_runtime: None,
                 }
             );
         }

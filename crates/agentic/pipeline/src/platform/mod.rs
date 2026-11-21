@@ -315,6 +315,28 @@ pub trait ProjectContext: Send + Sync {
         None
     }
 
+    /// Whether the per-org `react_runtime` flag is on for this workspace's
+    /// org. With it on, a served chat of an agent that opts in
+    /// (`runtime: react`) runs on the react runtime. `false`, the default and
+    /// the answer of any host that cannot tell, keeps it on the FSM.
+    async fn react_runtime_enabled(&self) -> bool {
+        false
+    }
+
+    /// The engine a react run decides with in place of the agent's model.
+    /// `None`, the default and every production host's answer, builds the
+    /// agent's own `LlmEngine`. A test host returns a scripted engine here,
+    /// since no model is reachable from a test; asked once per build, so a
+    /// resumed run gets a fresh one.
+    ///
+    /// A test seam only: a production host must not override it. An engine
+    /// returned here replaces the agent's model, key and thinking settings,
+    /// so the run no longer answers on what the agent configured.
+    #[doc(hidden)]
+    fn react_engine(&self) -> Option<Box<dyn agentic_core::react::Engine>> {
+        None
+    }
+
     /// A context rebuilt at the workspace's CURRENT promoted revision, when
     /// that differs from the one this context is pinned to. `None` =
     /// unchanged, not pinned, or this host cannot rebuild.

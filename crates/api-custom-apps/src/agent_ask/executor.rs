@@ -105,7 +105,8 @@ impl AgentAskExecutor {
             self.schema_cache.clone(),
             &ask.agent_id,
         )
-        .existing_run(ask.run_id.clone());
+        .existing_run(ask.run_id.clone())
+        .recorded_runtime(ask.recorded_runtime.clone());
         // Boxed: the start's future is a large one, and this runs on a driver
         // task's stack beside the claim loop's.
         match Box::pin(builder.start(&self.db)).await {

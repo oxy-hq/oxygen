@@ -66,6 +66,9 @@ pub struct QueuedAsk {
     /// Who asked. The run's context is built with this caller as its subject,
     /// at this pin — never with a driver's own subject-less context.
     pub caller: RunCaller,
+    /// The `runtime` the run row records, handed to the pipeline so a start
+    /// on a run that never ran react reads nothing more.
+    pub recorded_runtime: Option<String>,
 }
 
 impl QueuedAsk {
@@ -95,6 +98,7 @@ impl QueuedAsk {
             question: run.question.clone(),
             thread_id: run.thread_id,
             caller,
+            recorded_runtime: agentic_pipeline::queued_run::recorded_runtime(run.metadata.as_ref()),
         })
     }
 }

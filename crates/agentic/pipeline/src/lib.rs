@@ -27,7 +27,10 @@ pub mod pipeline_ref;
 pub mod platform;
 pub mod queued_answer;
 pub mod queued_run;
+mod react_config;
+mod react_resume;
 mod react_run;
+mod react_served;
 pub mod recovery;
 pub mod retry;
 pub mod run_execution;
@@ -133,6 +136,9 @@ pub struct PipelineBuilder {
     /// Used for delegation children where the coordinator already created
     /// the run via `insert_run_with_parent`.
     existing_run_id: Option<String>,
+    /// What the existing run's row records as its `runtime`, when the driver
+    /// already read the row ([`PipelineBuilder::recorded_runtime`]).
+    recorded_runtime: react_resume::RecordedRuntime,
     /// Override the default human input provider for the run's solver.
     human_input: Option<agentic_core::human_input::HumanInputHandle>,
     /// Analytics SQL-generation mode. When `true`, the analytics FSM
@@ -264,6 +270,7 @@ impl PipelineBuilder {
             thinking_mode: ThinkingMode::Auto,
             schema_cache: None,
             existing_run_id: None,
+            recorded_runtime: react_resume::RecordedRuntime::Unread,
             starting_driver: None,
             human_input: None,
             analytics_sql_mode: false,
@@ -327,6 +334,15 @@ impl PipelineBuilder {
     /// created the run row.  Used for delegation children.
     pub fn existing_run(mut self, run_id: String) -> Self {
         self.existing_run_id = Some(run_id);
+        self
+    }
+
+    /// The `runtime` the existing run's row records
+    /// ([`queued_run::recorded_runtime`]), for a driver that already read the
+    /// row. Unset, a start on an existing run that can ask a person reads it
+    /// with one lookup. Only a run recorded `react` has its log read.
+    pub fn recorded_runtime(mut self, runtime: Option<String>) -> Self {
+        self.recorded_runtime = react_resume::RecordedRuntime::Read(runtime);
         self
     }
 
@@ -499,6 +515,19 @@ impl PipelineBuilder {
         let (config, domain_docs) =
             load_analytics_agent(self.platform.as_ref(), agent_id, base_dir).await?;
 
+        // Decided before the insert (`react_served::decide`).
+        let pick = react_served::decide(react_served::PickInput {
+            platform: self.platform.as_ref(),
+            db,
+            config: &config,
+            agent_id,
+            run_id,
+            can_ask: self.human_input.is_none(),
+            existing_run: skip_db_insert,
+            recorded: &self.recorded_runtime,
+        })
+        .await?;
+
         // Insert run + extension (skipped for delegation children — the
         // coordinator already created the run via insert_run_with_parent).
         let source_type = "analytics";
@@ -507,6 +536,9 @@ impl PipelineBuilder {
                 "agent_id": agent_id,
                 "thinking_mode": self.thinking_mode.to_db(),
             });
+            if let Some(patch) = &pick.runtime_patch {
+                react_served::stamp_runtime(&mut metadata, patch);
+            }
             // A run started in a workspace preview is never picked up outside
             // one: recovery and a cold resume retire it instead.
             platform::preview_stamp::stamp(self.platform.as_ref(), &mut metadata);
@@ -553,6 +585,27 @@ impl PipelineBuilder {
         let resolved = platform::resolve_connectors(&effective_databases, &*self.platform).await;
         let mut connectors = agentic_connector::build_named_connectors(resolved.configs).await;
         connectors.extend(resolved.pre_built);
+
+        if pick.react {
+            let inputs = react_served::ServedInputs {
+                agent_id: agent_id.to_string(),
+                workspace_id: self.workspace_id,
+                connectors,
+                databases: effective_databases,
+                project_model,
+                domain_docs,
+                thinking_mode: self.thinking_mode,
+            };
+            let run = react_served::ServedRun {
+                run_id,
+                thread_id: self.thread_id,
+                question: self.question,
+            };
+            let platform = self.platform.as_ref();
+            let log = pick.log.unwrap_or_else(|| Ok(Vec::new()));
+            let started = react_served::start(platform, db, &config, inputs, base_dir, run, log);
+            return Ok(started.await);
+        }
 
         // Automation runner.
         //
@@ -703,6 +756,29 @@ impl PipelineBuilder {
         let resolved = platform::resolve_connectors(&effective_databases, &*self.platform).await;
         let mut connectors = agentic_connector::build_named_connectors(resolved.configs).await;
         connectors.extend(resolved.pre_built);
+
+        // A react run resumes on react, decided by what the run persisted
+        // (`react_resume`), never by the agent's `runtime:` key or the flag.
+        if react_resume::is_react(&resume_data) {
+            let input = react_resume::resume_input(run_id, &resume_data, &answer);
+            let inputs = react_served::ServedInputs {
+                agent_id: agent_id.to_string(),
+                workspace_id: self.workspace_id,
+                connectors,
+                databases: effective_databases,
+                project_model,
+                domain_docs,
+                thinking_mode: react_resume::started_thinking_mode(db, run_id).await,
+            };
+            let run = react_served::ServedRun {
+                run_id,
+                thread_id: self.thread_id,
+                question: self.question,
+            };
+            let platform = self.platform.as_ref();
+            let resumed = react_resume::resume(platform, db, &config, inputs, base_dir, run, input);
+            return Ok(resumed.await);
+        }
 
         // Automation runner.
         //
@@ -876,6 +952,8 @@ pub struct StartedPipeline {
 
 enum ErasedHandle {
     Analytics(agentic_runtime::handle::PipelineHandle<agentic_analytics::AnalyticsEvent>),
+    /// A served react run ([`react_served`]): rows already serialized.
+    React(react_served::RowHandle),
 }
 
 impl StartedPipeline {
@@ -909,6 +987,9 @@ impl StartedPipeline {
             ErasedHandle::Analytics(handle) => {
                 spawn_bridge_tasks(handle, event_tx, outcome_tx, cancel.clone())
             }
+            ErasedHandle::React(handle) => {
+                react_served::spawn_forwarders(handle, event_tx, outcome_tx, cancel.clone())
+            }
         };
 
         (
@@ -937,11 +1018,9 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
     outcome_tx: mpsc::Sender<agentic_core::delegation::TaskOutcome>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    use agentic_core::delegation::TaskOutcome;
-
     let pipeline_cancel = handle.cancel.clone();
     let mut events = handle.events;
-    let mut outcomes = handle.outcomes;
+    let outcomes = handle.outcomes;
 
     // Forward cancellation.
     spawn_with_hub({
@@ -964,64 +1043,72 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
 
     // Map PipelineOutcome → TaskOutcome. Forward ALL outcomes (pipeline
     // may produce Suspended then Done after resume).
-    let outcomes_task = spawn_with_hub(async move {
-        // Track whether the pipeline produced any resolving outcome (a terminal
-        // Done/Failed/Cancelled, or a Suspended). A `Suspended` is a legitimate
-        // non-hang stopping point after which the driver normally drops the
-        // sender, so that close must NOT be treated as a failure. Only a channel
-        // close with no outcome at all means the driver task died (panic or
-        // early drop) before reporting anything.
-        let mut saw_any_outcome = false;
-        while let Some(outcome) = outcomes.recv().await {
-            saw_any_outcome = true;
-            let is_terminal = matches!(
-                outcome,
-                PipelineOutcome::Done { .. }
-                    | PipelineOutcome::Failed(_)
-                    | PipelineOutcome::Cancelled
-            );
-            let task_outcome = match outcome {
-                PipelineOutcome::Done { answer, metadata } => {
-                    TaskOutcome::Done { answer, metadata }
-                }
-                PipelineOutcome::Suspended {
-                    reason,
-                    resume_data,
-                    trace_id,
-                } => TaskOutcome::Suspended {
-                    reason,
-                    resume_data,
-                    trace_id,
-                },
-                PipelineOutcome::Failed(msg) => TaskOutcome::Failed(msg),
-                PipelineOutcome::Cancelled => TaskOutcome::Cancelled,
-            };
-            if outcome_tx.send(task_outcome).await.is_err() {
-                break;
-            }
-            if is_terminal {
-                break;
-            }
-        }
-
-        // The outcome channel closed without the driver ever reporting an
-        // outcome — it died (panic or early drop). Synthesize a Failed so the
-        // run transitions to failed and the SSE emits a terminal event instead
-        // of hanging forever. If the receiver is already gone this send is a
-        // harmless no-op.
-        if !saw_any_outcome {
-            tracing::error!("pipeline driver terminated without an outcome; synthesizing Failed");
-            let _ = outcome_tx
-                .send(TaskOutcome::Failed(
-                    "driver terminated without an outcome (panic or early drop)".to_string(),
-                ))
-                .await;
-        }
-    });
+    let outcomes_task = spawn_with_hub(forward_outcomes(outcomes, outcome_tx));
 
     spawn_with_hub(async move {
         let _ = tokio::join!(events_task, outcomes_task);
     })
+}
+
+/// Maps each [`PipelineOutcome`] to a [`TaskOutcome`] until a terminal one,
+/// synthesizing `Failed` when the driver dies before reporting anything.
+/// Shared by the FSM's bridge and the react forwarder.
+///
+/// [`TaskOutcome`]: agentic_core::delegation::TaskOutcome
+async fn forward_outcomes(
+    mut outcomes: mpsc::Receiver<PipelineOutcome>,
+    outcome_tx: mpsc::Sender<agentic_core::delegation::TaskOutcome>,
+) {
+    use agentic_core::delegation::TaskOutcome;
+
+    // Track whether the pipeline produced any resolving outcome (a terminal
+    // Done/Failed/Cancelled, or a Suspended). A `Suspended` is a legitimate
+    // non-hang stopping point after which the driver normally drops the
+    // sender, so that close must NOT be treated as a failure. Only a channel
+    // close with no outcome at all means the driver task died (panic or
+    // early drop) before reporting anything.
+    let mut saw_any_outcome = false;
+    while let Some(outcome) = outcomes.recv().await {
+        saw_any_outcome = true;
+        let is_terminal = matches!(
+            outcome,
+            PipelineOutcome::Done { .. } | PipelineOutcome::Failed(_) | PipelineOutcome::Cancelled
+        );
+        let task_outcome = match outcome {
+            PipelineOutcome::Done { answer, metadata } => TaskOutcome::Done { answer, metadata },
+            PipelineOutcome::Suspended {
+                reason,
+                resume_data,
+                trace_id,
+            } => TaskOutcome::Suspended {
+                reason,
+                resume_data,
+                trace_id,
+            },
+            PipelineOutcome::Failed(msg) => TaskOutcome::Failed(msg),
+            PipelineOutcome::Cancelled => TaskOutcome::Cancelled,
+        };
+        if outcome_tx.send(task_outcome).await.is_err() {
+            break;
+        }
+        if is_terminal {
+            break;
+        }
+    }
+
+    // The outcome channel closed without the driver ever reporting an
+    // outcome — it died (panic or early drop). Synthesize a Failed so the
+    // run transitions to failed and the SSE emits a terminal event instead
+    // of hanging forever. If the receiver is already gone this send is a
+    // harmless no-op.
+    if !saw_any_outcome {
+        tracing::error!("pipeline driver terminated without an outcome; synthesizing Failed");
+        let _ = outcome_tx
+            .send(TaskOutcome::Failed(
+                "driver terminated without an outcome (panic or early drop)".to_string(),
+            ))
+            .await;
+    }
 }
 
 // ── Coordinator-based drive ─────────────────────────────────────────────────

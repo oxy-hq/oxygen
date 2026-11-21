@@ -79,6 +79,8 @@ pub use metric_tree_runner::{MetricTreeRunner, MetricTreeRunnerError, load_tree}
 // ── Solver (needed by pipeline's run_agentic_eval) ──────────────────────────
 
 pub use solver::build_analytics_handlers;
+/// The ambient data-coverage line both runtimes append beside the date hint.
+pub use solver::freshness_hint::compute_freshness_hint;
 
 // ── Domain types (only externally needed subset) ────────────────────────────
 

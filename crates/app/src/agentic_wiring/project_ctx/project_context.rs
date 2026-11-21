@@ -391,6 +391,12 @@ impl ProjectContext for OxyProjectContext {
         self.hold_scope()?.app_id()
     }
 
+    /// The `react_runtime` flag for the workspace's org; `false` when the
+    /// org cannot be read.
+    async fn react_runtime_enabled(&self) -> bool {
+        self.react_runtime_flag().await
+    }
+
     /// The sandbox whose ask this context holds for; `None` for staging's.
     fn sandbox_environment(&self) -> Option<String> {
         let scope = self.hold_scope()?;

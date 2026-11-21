@@ -24,6 +24,7 @@ mod root_task_id_migration_test;
 mod router_test;
 mod run_done_hook_test;
 mod run_feed_test;
+mod run_metadata_merge_test;
 mod stale_run_cleanup_test;
 mod stop_and_heartbeat_test;
 mod stuck_run_sweeper_test;

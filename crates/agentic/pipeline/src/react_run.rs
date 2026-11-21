@@ -14,19 +14,21 @@ use agentic_analytics::AnalyticsEvent;
 use agentic_analytics::SemanticCatalog;
 use agentic_analytics::airlayer_compat::build_dialect_map;
 use agentic_analytics::config::{AgentConfig, AgentRuntime, BuildContext, ConfigError};
-use agentic_analytics::react::run::{ReactAnalytics, ReactInputs, emit_runtime_selected, finish};
+use agentic_analytics::react::run::{
+    AnswerFinisher, ReactAnalytics, ReactInputs, emit_runtime_selected,
+};
 use agentic_analytics::react::{WorkspaceFiles, date_hint};
 use agentic_core::events::{CoreEvent, Event};
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::react::{Engine, EventSink, PriorTurn, Transcript};
 use agentic_llm::LlmEngine;
-use agentic_llm::engine::EngineConfig;
 use agentic_runtime::react::{LoopConfig, LoopOutcome, ResultStore, run_loop};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::headless::{EventDestination, HeadlessError};
 use crate::platform::PlatformContext;
+use crate::react_config::{default_connector, dynamic_hint, engine_config, refuse_unsupported};
 
 /// Everything one react analytics question runs on.
 pub(crate) struct ReactRun {
@@ -46,8 +48,9 @@ fn runs_react(config: &AgentConfig) -> bool {
 
 /// Whether a headless entry point may honor an agent's `runtime: react`.
 /// Each entry states its own; there is no default, so a new caller has to
-/// choose. The pilot is internal and benchmark only: until PR B's per-org
-/// `react_runtime` flag exists, only the eval harness entry allows it.
+/// choose. The pilot is internal and benchmark only: of the headless entries
+/// only the eval harness allows it. A served chat honors it where the org's
+/// `react_runtime` flag is on (`react_served::decide`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReactPolicy {
     /// Honor the `.agentic.yml` opt-in (the eval harness, `oxy test`).
@@ -57,7 +60,7 @@ pub(crate) enum ReactPolicy {
 }
 
 /// [`crate::run_agentic_eval`]'s policy: the Workspace Health probe answers on
-/// the FSM until the pilot flag lands.
+/// the FSM.
 pub(crate) const EVAL_ENTRY_REACT: ReactPolicy = ReactPolicy::Never;
 /// [`crate::run_agentic_streaming`]'s policy: Slack answers on the FSM.
 pub(crate) const STREAMING_ENTRY_REACT: ReactPolicy = ReactPolicy::Never;
@@ -78,7 +81,7 @@ pub(crate) fn picks_react(config: &AgentConfig, policy: ReactPolicy, agent_ref: 
             tracing::info!(
                 agent_ref,
                 "agent opts into runtime: react; ignored on this entry point, which runs \
-                 the fsm until the react_runtime flag lands"
+                 the fsm"
             );
             false
         }
@@ -95,9 +98,12 @@ pub(crate) async fn build_react_run(
     base_dir: &Path,
 ) -> Result<ReactRun, String> {
     let fail = |e: ConfigError| format!("failed to build agentic solver: {e}");
+    refuse_unsupported(config, &ctx).map_err(fail)?;
     if ctx.extra_connectors.is_empty() {
         return Err(fail(ConfigError::NoDatabases));
     }
+    require_read_only(&ctx)?;
+    require_read_only_ready(&ctx).await?;
     if ctx.genai.workspace_id.is_none() {
         let id = platform.workspace_id();
         ctx.genai.workspace_id = Some(id).filter(|id| !id.is_nil()).map(|id| id.to_string());
@@ -106,32 +112,80 @@ pub(crate) async fn build_react_run(
     let files = WorkspaceFiles::load(base_dir, &config.context, ctx.domain_docs.as_deref())
         .map_err(|e| format!("failed to read the agent's context files: {e}"))?;
     let tz = config.effective_timezone(ctx.timezone).map_err(fail)?;
-    let engine = LlmEngine::new(
-        config.solving_llm_client(&ctx),
-        EngineConfig {
-            thinking: config.solving_thinking(&ctx),
-            system_date_hint: Some(date_hint(tz)),
-            ..EngineConfig::default()
-        },
-    );
+    let default = default_connector(&ctx);
+    let hint = dynamic_hint(
+        date_hint(tz),
+        &base_dir.display().to_string(),
+        catalog.as_deref(),
+        &ctx.extra_connectors,
+        &default,
+    )
+    .await;
+    let engine = platform.react_engine().unwrap_or_else(|| {
+        Box::new(LlmEngine::new(
+            config.solving_llm_client(&ctx),
+            engine_config(config, &ctx, hint),
+        ))
+    });
     let analytics = ReactAnalytics::new(ReactInputs {
         instructions: config.instructions.clone().unwrap_or_default(),
+        default_connector: ctx.extra_default_connector.clone(),
         databases: ctx.extra_connectors,
         catalog,
         files: Arc::new(files),
     });
     Ok(ReactRun {
-        engine: Box::new(engine),
+        engine,
         system: analytics.toolset.system_prompt.clone(),
         analytics,
         results: Arc::new(ResultStore::new()),
     })
 }
 
+/// Every database the agent reaches must run its queries behind a
+/// database-level read-only guarantee
+/// (`DatabaseConnector::supports_read_only`): the `query` tool's gate is the
+/// fast refusal, not the guarantee. Names are checked in order, so the
+/// refusal names the same database every time.
+fn require_read_only(ctx: &BuildContext) -> Result<(), String> {
+    let mut names: Vec<&String> = ctx.extra_connectors.keys().collect();
+    names.sort_unstable();
+    match names
+        .into_iter()
+        .find(|n| !ctx.extra_connectors[*n].supports_read_only())
+    {
+        Some(name) => Err(format!(
+            "runtime: react needs a read-only connection; {name} ({}) has none yet",
+            ctx.extra_connectors[name].dialect()
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Each database's read-only path must also accept this connection
+/// (`DatabaseConnector::read_only_ready`): a Postgres login role that can
+/// reach server files would have every query refused, so the run refuses at
+/// its start with the reason, before any model call. Checked in name order
+/// after [`require_read_only`].
+async fn require_read_only_ready(ctx: &BuildContext) -> Result<(), String> {
+    let mut names: Vec<&String> = ctx.extra_connectors.keys().collect();
+    names.sort_unstable();
+    for name in names {
+        let connector = &ctx.extra_connectors[name];
+        if let Err(e) = connector.read_only_ready().await {
+            return Err(format!(
+                "runtime: react cannot use {name} ({}): {e}",
+                connector.dialect()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The semantic catalog over the agent's `context:` semantic files, compiled
 /// with the dialects of the injected connectors (the FSM's default-connector
 /// rule). `None` when the globs reach no semantic file.
-fn load_catalog(
+pub(crate) fn load_catalog(
     config: &AgentConfig,
     ctx: &BuildContext,
     base_dir: &Path,
@@ -140,21 +194,15 @@ fn load_catalog(
     if resolved.semantic_files.is_empty() {
         return Ok(None);
     }
-    let connectors = &ctx.extra_connectors;
-    let default = ctx
-        .extra_default_connector
-        .clone()
-        .or_else(|| connectors.keys().min().cloned())
-        .unwrap_or_default();
-    let dialects = build_dialect_map(connectors, &default);
+    let dialects = build_dialect_map(&ctx.extra_connectors, &default_connector(ctx));
     let catalog = SemanticCatalog::load_files(&resolved.semantic_files, dialects)
         .map_err(ConfigError::SemanticError)?;
     Ok(Some(Arc::new(catalog)))
 }
 
-/// Runs one question: `RuntimeSelected` first, then the loop, then
-/// [`finish`]. On `Done` the answer text comes back with its citation
-/// markers stripped.
+/// Runs one question: `RuntimeSelected` first, then the loop, whose
+/// done hook ([`AnswerFinisher`]) emits `AnswerResult` before `done`. On
+/// `Done` the answer text comes back with its citation markers stripped.
 pub(crate) async fn run_react(
     run: ReactRun,
     run_id: String,
@@ -164,20 +212,24 @@ pub(crate) async fn run_react(
     cancel: CancellationToken,
 ) -> LoopOutcome {
     emit_runtime_selected(&ev).await;
-    let transcript = Transcript::seeded(run.system, &prior, question);
-    let cfg = LoopConfig {
+    let transcript = Transcript::seeded(run.system.clone(), &prior, question);
+    let cfg = loop_config(&run, run_id);
+    let toolset = &run.analytics.toolset;
+    run_loop(&*run.engine, toolset, transcript, &cfg, &ev, &cancel).await
+}
+
+/// The loop's config for `run`: its budgets and result store, with the
+/// [`AnswerFinisher`] done hook. Shared by a start and a resume, so a resumed
+/// run finishes its answer the same way.
+pub(crate) fn loop_config(run: &ReactRun, run_id: String) -> LoopConfig {
+    LoopConfig {
         budgets: run.analytics.budgets.clone(),
         run_id,
         results: run.results.clone(),
-    };
-    let toolset = &run.analytics.toolset;
-    let mut outcome = run_loop(&*run.engine, toolset, transcript, &cfg, &ev, &cancel).await;
-    if let Some(text) = finish(&outcome, &*run.results, &ev).await
-        && let LoopOutcome::Done { answer } = &mut outcome
-    {
-        answer.text = text;
+        on_done: Some(Arc::new(AnswerFinisher {
+            results: run.results.clone(),
+        })),
     }
-    outcome
 }
 
 /// A runtime row as the event the FSM's consumers read: the payload re-tagged
@@ -277,4 +329,4 @@ async fn pump_rows(
 
 #[cfg(test)]
 #[path = "react_run_tests.rs"]
-mod tests;
+pub(crate) mod tests;

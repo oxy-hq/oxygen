@@ -142,21 +142,9 @@ pub async fn start_pipeline(
     // worker claimed — so the trace view can step from one to the other.
     run_span.follows_from(tracing::Span::current());
     // Derive thinking/model overrides from config when extended thinking is requested.
-    let (thinking_override, model_override) = if params.use_extended_thinking {
-        params
-            .config
-            .llm
-            .extended_thinking
-            .as_ref()
-            .map_or((None, None), |ext| {
-                (
-                    ext.thinking.as_ref().map(|t| t.to_thinking_config()),
-                    ext.model.clone(),
-                )
-            })
-    } else {
-        (None, None)
-    };
+    let (thinking_override, model_override) = params
+        .config
+        .extended_thinking_overrides(params.use_extended_thinking);
 
     let build_ctx = BuildContext {
         extra_connectors: params.connectors,
@@ -328,21 +316,9 @@ pub async fn resume_pipeline(
     // worker claimed — so the trace view can step from one to the other.
     run_span.follows_from(tracing::Span::current());
     // Derive thinking/model overrides from config when extended thinking is requested.
-    let (thinking_override, model_override) = if params.use_extended_thinking {
-        params
-            .config
-            .llm
-            .extended_thinking
-            .as_ref()
-            .map_or((None, None), |ext| {
-                (
-                    ext.thinking.as_ref().map(|t| t.to_thinking_config()),
-                    ext.model.clone(),
-                )
-            })
-    } else {
-        (None, None)
-    };
+    let (thinking_override, model_override) = params
+        .config
+        .extended_thinking_overrides(params.use_extended_thinking);
 
     let build_ctx = BuildContext {
         extra_connectors: params.connectors,

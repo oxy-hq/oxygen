@@ -1,7 +1,8 @@
 //! `query`: the agent's only path to a customer warehouse.
 //!
 //! Runs one read statement (raw `sql`, or a `semantic` query compiled by the
-//! semantic model) behind the read-only [`gate`], stores the rows as `r<N>`, and
+//! semantic model) behind the read-only [`gate`] and then the connector's
+//! database-level read-only path (`execute_query_read_only`), stores the rows as `r<N>`, and
 //! leaves the same `query_executed` row the FSM writes for each execution.
 
 use std::collections::HashMap;
@@ -18,9 +19,10 @@ use agentic_semantic::config::SemanticQueryConfig;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::semantic::compile_semantic;
+use super::semantic::{compile_semantic, semantic_datasource};
 use crate::react::read_only::{gate, sqlparser_dialect};
 use crate::react::render::render_table;
+use crate::solver::lookup_connector;
 use crate::{AnalyticsEvent, QuerySource, SemanticCatalog};
 
 /// Rows fetched per query, as the FSM's executing stage fetches.
@@ -34,6 +36,8 @@ const MIN_SIMILARITY: f64 = 0.7;
 pub struct QueryDeps {
     pub connectors: HashMap<String, Arc<dyn DatabaseConnector>>,
     pub catalog: Option<Arc<SemanticCatalog>>,
+    /// Used when `query` names no `database` and several are configured.
+    pub default_connector: Option<String>,
 }
 
 pub struct QueryTool {
@@ -44,6 +48,9 @@ pub struct QueryTool {
 struct Prepared {
     sql: String,
     source: QuerySource,
+    /// For a semantic query, the connector its views name; `None` for raw
+    /// `sql` and for views that name none.
+    datasource: Option<String>,
 }
 
 impl Prepared {
@@ -58,7 +65,30 @@ impl QueryTool {
         Self { deps }
     }
 
-    /// The named connector, else the only one.
+    /// The connector a statement runs on. A semantic query's views' datasource
+    /// decides (the FSM's routing); the model's `database` may only agree with
+    /// it. Otherwise the named connector, else the only one, else the agent's
+    /// default.
+    fn pick_connector(
+        &self,
+        p: &Prepared,
+        requested: Option<&str>,
+    ) -> Result<&Arc<dyn DatabaseConnector>, ToolFailure> {
+        let Some(ds) = p.datasource.as_deref() else {
+            return self.connector(requested);
+        };
+        let (registered, connector) = lookup_connector(&self.deps.connectors, ds)
+            .ok_or_else(|| failure(&format!("no database {ds}, named by the views' datasource")))?;
+        match requested {
+            Some(r) if !r.eq_ignore_ascii_case(registered) => Err(failure(&format!(
+                "this semantic query runs on {registered}, the datasource of its views; \
+                 `database` {r} disagrees"
+            ))),
+            _ => Ok(connector),
+        }
+    }
+
+    /// The named connector, else the only one, else the default.
     fn connector(&self, name: Option<&str>) -> Result<&Arc<dyn DatabaseConnector>, ToolFailure> {
         let mut names: Vec<&str> = self.deps.connectors.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -71,6 +101,7 @@ impl QueryTool {
             None => match names.as_slice() {
                 [only] => Ok(&self.deps.connectors[*only]),
                 [] => Err(failure("no database is configured for this agent")),
+                _ if self.default().is_some() => Ok(self.default().unwrap()),
                 _ => Err(ToolFailure {
                     error: "database is required".into(),
                     hint: Some("pass `database`, one of the candidates".into()),
@@ -78,6 +109,11 @@ impl QueryTool {
                 }),
             },
         }
+    }
+
+    fn default(&self) -> Option<&Arc<dyn DatabaseConnector>> {
+        let name = self.deps.default_connector.as_deref()?;
+        lookup_connector(&self.deps.connectors, name).map(|(_, c)| c)
     }
 
     /// Exactly one of `sql` and `semantic`; a semantic query compiles here.
@@ -88,6 +124,7 @@ impl QueryTool {
             (Some(sql), None) => Ok(Prepared {
                 sql: sql.to_owned(),
                 source: QuerySource::Llm,
+                datasource: None,
             }),
             (None, Some(v)) => {
                 let catalog = self
@@ -97,10 +134,13 @@ impl QueryTool {
                     .ok_or_else(|| failure("this agent has no semantic model; use `sql`"))?;
                 let config: SemanticQueryConfig = serde_json::from_value(v.clone())
                     .map_err(|e| failure(&format!("invalid semantic query: {e}")))?;
+                // Before compiling: views on two datasources have no one SQL.
+                let datasource = semantic_datasource(catalog, &config)?;
                 let sql = compile_semantic(catalog, &config)?;
                 Ok(Prepared {
                     sql,
                     source: QuerySource::Semantic,
+                    datasource,
                 })
             }
             _ => Err(failure("give exactly one of `sql` and `semantic`")),
@@ -280,7 +320,8 @@ impl Tool for QueryTool {
     async fn call(&self, args: Value, cx: &ToolCx) -> Result<ToolReply, ToolFailure> {
         let prepared = self.prepare(&args)?;
         let limit = shown_limit(&args)?;
-        let connector = self.connector(args.get("database").and_then(Value::as_str))?;
+        let connector =
+            self.pick_connector(&prepared, args.get("database").and_then(Value::as_str))?;
         // A temporary: `dyn Dialect` is not `Send`, so it must not live across
         // the await below.
         gate(
@@ -293,7 +334,12 @@ impl Tool for QueryTool {
             candidates: Vec::new(),
         })?;
         let start = Instant::now();
-        let result = connector.execute_query(&prepared.sql, SAMPLE_LIMIT).await;
+        // The database-level backstop: the gate above is the fast refusal
+        // with a hint, this is the guarantee (a connector without one never
+        // reaches here; `build_react_run` refuses it).
+        let result = connector
+            .execute_query_read_only(&prepared.sql, SAMPLE_LIMIT)
+            .await;
         let duration_ms = start.elapsed().as_millis() as u64;
         Ok(match result {
             Ok(exec) => success_reply(prepared, exec, duration_ms, limit, cx),

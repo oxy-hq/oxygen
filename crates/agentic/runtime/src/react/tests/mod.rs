@@ -1,5 +1,6 @@
 mod ask_user_tests;
 mod dispatch_tests;
+mod done_hook_tests;
 mod loop_tests;
 mod results_tests;
 mod resume_guard_tests;

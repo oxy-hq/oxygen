@@ -59,3 +59,41 @@ fn requested(config: &SemanticQueryConfig) -> impl Iterator<Item = &str> {
         .map(String::as_str)
         .chain(config.time_dimensions.iter().map(|t| t.dimension.as_str()))
 }
+
+/// The datasource every view of `config` names: `None` when none names one.
+/// Two views on different datasources cannot run as one statement, so the
+/// failure names both.
+pub(super) fn semantic_datasource(
+    catalog: &SemanticCatalog,
+    config: &SemanticQueryConfig,
+) -> Result<Option<String>, ToolFailure> {
+    let mut found: Option<(String, String)> = None;
+    let fields = requested(config)
+        .chain(config.filters.iter().map(|f| f.field.as_str()))
+        .chain(config.orders.iter().map(|o| o.field.as_str()));
+    for field in fields {
+        let view = field.split('.').next().unwrap_or(field);
+        let ds = catalog
+            .engine()
+            .views()
+            .iter()
+            .find(|v| v.name == view)
+            .and_then(|v| v.datasource.clone());
+        let Some(ds) = ds else { continue };
+        match &found {
+            None => found = Some((view.to_owned(), ds)),
+            Some((first, first_ds)) if !first_ds.eq_ignore_ascii_case(&ds) => {
+                return Err(ToolFailure {
+                    error: format!(
+                        "this query spans two datasources: {first} is on {first_ds}, \
+                         {view} is on {ds}"
+                    ),
+                    hint: Some("query one datasource at a time".into()),
+                    candidates: Vec::new(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(found.map(|(_, ds)| ds))
+}

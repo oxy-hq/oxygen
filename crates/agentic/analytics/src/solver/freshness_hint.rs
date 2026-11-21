@@ -40,7 +40,7 @@ fn cache() -> &'static Mutex<HashMap<String, (Instant, Option<String>)>> {
 /// Compute the freshness hint for this catalog/connector set, or reuse a
 /// recent cached value. Returns `None` when no view has a resolvable
 /// freshness target or every probe fails.
-pub(crate) async fn compute_freshness_hint(
+pub async fn compute_freshness_hint(
     workspace_key: &str,
     catalog: &dyn Catalog,
     connectors: &HashMap<String, Arc<dyn DatabaseConnector>>,

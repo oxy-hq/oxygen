@@ -1635,6 +1635,10 @@ jobs:
           OXY_OLTP_REQUIRE_DB: "1"
           OXY_TEST_REQUIRE_CLICKHOUSE: "1"
           OXY_REQUIRE_OBJECT_STORE: "1"
+          # agentic-connector's read-only backstop tests (a security
+          # guarantee) start their own Postgres testcontainer; this makes a
+          # failure to start one red instead of a silent skip.
+          OXY_TEST_REQUIRE_POSTGRES: "1"
           OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET: oxy-documents
           AWS_ENDPOINT_URL: http://127.0.0.1:9000
           AWS_REGION: us-east-1

@@ -43,6 +43,13 @@ pub struct Turn {
     pub usage: TurnUsage,
 }
 
+/// Runs when the loop reaches `Done`, before the `done` row is written, so
+/// rows it emits precede `done`. It may rewrite the answer turn (its text).
+#[async_trait::async_trait]
+pub trait DoneHook: Send + Sync {
+    async fn on_done(&self, answer: &mut Turn, ev: &EventSink);
+}
+
 /// What the model decided: answer, or call tools and continue.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {

@@ -524,8 +524,11 @@ impl TaskExecutor for PipelineTaskExecutor {
                 }
             }
             _ => {
-                // Analytics: resume from checkpoint if available.
-                if let Some(data) = suspend_data {
+                // Analytics: resume from checkpoint if available. A react
+                // run needs none: its event log is the checkpoint, so one
+                // whose latest attempt ran react recovers from it.
+                if let Some(data) = suspend_data.or_else(|| crate::react_resume::recovery_data(run))
+                {
                     self.execute_resume(&run.id, data, String::new()).await
                 } else {
                     // No checkpoint — run hadn't reached a suspension point.

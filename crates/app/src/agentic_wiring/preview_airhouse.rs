@@ -59,7 +59,7 @@ use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, SchemaInfo, SqlDialect,
-    SqlTransaction, StringLiteral,
+    SqlTransaction, StringLiteral, read_only_unsupported,
 };
 use agentic_core::result::{TypedRowStream, TypedValue};
 use airhouse::preview_sql::{PreviewNamespace, Refused, RewriteOptions, ShadowMap};
@@ -180,6 +180,27 @@ impl DatabaseConnector for PreviewAirhouseConnector {
         let plan = self.plan(sql)?;
         let result = self.run(plan, Call::Query(sample_limit)).await?;
         Ok(result.unwrap_or_else(ExecutionResult::empty))
+    }
+
+    /// No database-level read-only path: a preview reads through leased
+    /// Airhouse sessions, which this connector does not lock.
+    fn supports_read_only(&self) -> bool {
+        false
+    }
+
+    /// Verified like every call, then refused (see `supports_read_only`).
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        sample_limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        let _ = (self.plan(sql)?, sample_limit);
+        Err(read_only_unsupported(self.dialect()))
+    }
+
+    /// Refused for the same reason (see `supports_read_only`).
+    async fn read_only_ready(&self) -> Result<(), ConnectorError> {
+        Err(read_only_unsupported(self.dialect()))
     }
 
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {

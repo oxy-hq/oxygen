@@ -40,6 +40,10 @@ use crate::postgres_typed::{decode_row, pg_typname_to_typed, select_expr_for_pg_
 use crate::pg_error::{pg_error_message, pg_query_failed};
 use crate::string_literal::StringLiteral;
 
+/// `execute_query_read_only`: a read-only transaction on the one client.
+#[path = "postgres_read_only.rs"]
+mod read_only;
+
 // ── Value helpers ─────────────────────────────────────────────────────────────
 
 fn pg_text_to_cell(opt: Option<String>) -> CellValue {
@@ -82,6 +86,11 @@ pub struct PostgresConnector {
     /// How the server reads a `'…'` literal. Postgres's own rule unless the
     /// server is one that shares the wire but not the grammar.
     string_literal: StringLiteral,
+    /// `statement_timeout` / `lock_timeout` for `execute_query_read_only`.
+    read_only_timeouts: read_only::Timeouts,
+    /// Whether the server is Amazon Redshift ([`Self::redshift`]), which has
+    /// no read-only path here.
+    redshift: bool,
 }
 
 impl PostgresConnector {
@@ -230,6 +239,8 @@ impl PostgresConnector {
             schema_error: std::sync::RwLock::new(None),
             result_cap: ResultCap::default(),
             string_literal: StringLiteral::Standard,
+            read_only_timeouts: read_only::Timeouts::default(),
+            redshift: false,
         }
     }
 
@@ -270,6 +281,8 @@ impl PostgresConnector {
             schema_error: std::sync::RwLock::new(None),
             result_cap: ResultCap::default(),
             string_literal: StringLiteral::Standard,
+            read_only_timeouts: read_only::Timeouts::default(),
+            redshift: false,
         })
     }
 
@@ -279,8 +292,13 @@ impl PostgresConnector {
     /// inside a `'…'` literal as an escape (its `LIKE` default escape is
     /// documented as `'\\\\'`), which Postgres has not done by default since
     /// 9.1. A value written with Postgres's rule could end its literal early.
+    ///
+    /// It also has no read-only path ([`DatabaseConnector::supports_read_only`]
+    /// is false): the backstop's role check reads Postgres catalogs and
+    /// functions Redshift does not have, and it has not been tested there.
     pub fn redshift(mut self) -> Self {
         self.string_literal = StringLiteral::Backslash;
+        self.redshift = true;
         self
     }
 
@@ -288,6 +306,18 @@ impl PostgresConnector {
     /// to trip the guard on a small result.
     pub fn with_result_cap(mut self, cap: ResultCap) -> Self {
         self.result_cap = cap;
+        self
+    }
+
+    /// Override the `statement_timeout` and `lock_timeout` each
+    /// `execute_query_read_only` sets for its transaction (defaults: 60 s and
+    /// 10 s). Primarily for tests that need to trip one quickly.
+    pub fn with_read_only_timeouts(
+        mut self,
+        statement: std::time::Duration,
+        lock: std::time::Duration,
+    ) -> Self {
+        self.read_only_timeouts = read_only::Timeouts { statement, lock };
         self
     }
 }
@@ -460,6 +490,48 @@ impl DatabaseConnector for PostgresConnector {
 
     fn string_literal(&self) -> StringLiteral {
         self.string_literal
+    }
+
+    /// Postgres only: Redshift shares the connector but not the backstop.
+    fn supports_read_only(&self) -> bool {
+        !self.redshift
+    }
+
+    /// Runs the backstop's transaction and role check once, with no
+    /// statement: a login role that would refuse every query (a superuser,
+    /// or one that can reach a file-writing role) refuses here.
+    async fn read_only_ready(&self) -> Result<(), ConnectorError> {
+        if self.redshift {
+            return Err(read_only::redshift_unsupported());
+        }
+        self.read_only_probe().await
+    }
+
+    /// See `postgres_read_only.rs`.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "postgresql"),
+            otel.kind = "client",
+            db.system.name = "postgresql",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_read_only",
+            oxy.db.sample_limit = sample_limit,
+        )
+    )]
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        sample_limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        if self.redshift {
+            return Err(read_only::redshift_unsupported());
+        }
+        self.read_only_query(sql, sample_limit).await
     }
 
     /// Opens its **own** connection rather than borrowing `self.client` — see
@@ -951,6 +1023,45 @@ mod tests {
                 "`{mode}` asks for the certificate to be checked"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod redshift_tests {
+    use crate::config::{ConnectorConfig, PostgresConfig};
+    use crate::connector::DatabaseConnector;
+
+    fn config() -> PostgresConfig {
+        PostgresConfig {
+            host: "unreachable.invalid".into(),
+            port: 5439,
+            user: "u".into(),
+            password: "p".into(),
+            database: "d".into(),
+            sslmode: None,
+        }
+    }
+
+    /// A Redshift-configured connector has no read-only path: react refuses
+    /// it at build, and neither the readiness probe nor a query reaches the
+    /// server (the host does not resolve, so a connection attempt would fail
+    /// with a different error).
+    #[tokio::test]
+    async fn a_redshift_connector_has_no_read_only_path() {
+        let c = crate::build_connector_async(ConnectorConfig::Redshift(config()))
+            .await
+            .unwrap();
+        assert!(!c.supports_read_only());
+        let refused = "read-only execution is not supported by Redshift";
+        let ready = c.read_only_ready().await.unwrap_err();
+        assert_eq!(ready.to_string(), refused);
+        let query = c.execute_query_read_only("SELECT 1", 1).await.unwrap_err();
+        assert_eq!(query.to_string(), refused);
+
+        let pg = crate::build_connector_async(ConnectorConfig::Postgres(config()))
+            .await
+            .unwrap();
+        assert!(pg.supports_read_only(), "Postgres keeps its read-only path");
     }
 }
 

@@ -24,7 +24,7 @@ use super::*;
 use crate::headless::{EventDestination, HeadlessError};
 
 /// Answers with its script, in order.
-struct Scripted(Mutex<VecDeque<Decision>>);
+pub(crate) struct Scripted(Mutex<VecDeque<Decision>>);
 
 #[async_trait::async_trait]
 impl Engine for Scripted {
@@ -40,7 +40,7 @@ impl Engine for Scripted {
 }
 
 /// One table, one row: `n = 5`.
-struct Five;
+pub(crate) struct Five;
 
 #[async_trait::async_trait]
 impl DatabaseConnector for Five {
@@ -49,6 +49,20 @@ impl DatabaseConnector for Five {
     }
 
     async fn execute_query(&self, _: &str, _: u64) -> Result<ExecutionResult, ConnectorError> {
+        Err(ConnectorError::Other(
+            "react queries take the read-only path".into(),
+        ))
+    }
+
+    fn supports_read_only(&self) -> bool {
+        true
+    }
+
+    async fn execute_query_read_only(
+        &self,
+        _: &str,
+        _: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
         Ok(ExecutionResult {
             result: QueryResult {
                 columns: vec!["n".into()],
@@ -64,7 +78,72 @@ impl DatabaseConnector for Five {
     }
 }
 
-fn turn(text: &str, calls: Vec<ToolCallReq>) -> Turn {
+/// A connector with no read-only path, as BigQuery is today.
+pub(crate) struct NoBackstop;
+
+#[async_trait::async_trait]
+impl DatabaseConnector for NoBackstop {
+    fn dialect(&self) -> SqlDialect {
+        SqlDialect::BigQuery
+    }
+
+    async fn execute_query(&self, _: &str, _: u64) -> Result<ExecutionResult, ConnectorError> {
+        Ok(ExecutionResult::empty())
+    }
+}
+
+/// A platform the build never reaches past its first checks.
+pub(crate) struct NoPlatform;
+
+#[async_trait::async_trait]
+impl crate::platform::ProjectContext for NoPlatform {
+    async fn resolve_agent(
+        &self,
+        _: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        Ok(None)
+    }
+    async fn resolve_connector(&self, _: &str) -> Option<agentic_connector::ConnectorConfig> {
+        None
+    }
+    async fn resolve_model(
+        &self,
+        _: Option<&str>,
+        _: bool,
+    ) -> Option<agentic_analytics::config::ResolvedModelInfo> {
+        None
+    }
+    async fn resolve_secret(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl agentic_automation::WorkspaceContext for NoPlatform {
+    fn workspace_path(&self) -> Option<&std::path::Path> {
+        None
+    }
+    fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
+        vec![]
+    }
+    async fn get_connector(&self, name: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
+        Err(format!("no connector {name}"))
+    }
+    async fn get_integration(
+        &self,
+        name: &str,
+    ) -> Result<agentic_automation::workspace::IntegrationConfig, String> {
+        Err(format!("no integration {name}"))
+    }
+    async fn list_automation_files(&self) -> Result<Vec<std::path::PathBuf>, String> {
+        Ok(vec![])
+    }
+    async fn resolve_automation_yaml(&self, _: &str) -> Result<String, crate::WorkspaceReadError> {
+        Err("unused".into())
+    }
+}
+
+pub(crate) fn turn(text: &str, calls: Vec<ToolCallReq>) -> Turn {
     Turn {
         text: text.into(),
         tool_calls: calls,
@@ -73,7 +152,7 @@ fn turn(text: &str, calls: Vec<ToolCallReq>) -> Turn {
     }
 }
 
-fn call(name: &str, input: Value) -> Decision {
+pub(crate) fn call(name: &str, input: Value) -> Decision {
     let req = ToolCallReq {
         id: "c1".into(),
         name: name.into(),
@@ -82,7 +161,7 @@ fn call(name: &str, input: Value) -> Decision {
     Decision::CallTools(turn("", vec![req]))
 }
 
-fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRun {
+pub(crate) fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRun {
     let files = Arc::new(WorkspaceFiles::load(dir, &[], None).unwrap());
     let databases: HashMap<String, Arc<dyn DatabaseConnector>> = HashMap::from([(
         "wh".to_string(),
@@ -92,6 +171,7 @@ fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRun {
         instructions: String::new(),
         databases,
         catalog: None,
+        default_connector: None,
         files,
     });
     ReactRun {
@@ -164,6 +244,13 @@ async fn headless_react_run_returns_the_stripped_answer() {
         d,
         AnalyticsEvent::AnswerResult { result_id, .. } if result_id == "r1"
     )));
+    let at = |f: &dyn Fn(&Event<AnalyticsEvent>) -> bool| events.iter().position(|e| f(e));
+    let answer_at = at(&|e| matches!(e, Event::Domain(AnalyticsEvent::AnswerResult { .. })));
+    let done_at = at(&|e| matches!(e, Event::Core(CoreEvent::Done { .. })));
+    assert!(
+        answer_at.unwrap() < done_at.unwrap(),
+        "answer_result precedes done"
+    );
     let dones = events
         .iter()
         .filter(|e| matches!(e, Event::Core(CoreEvent::Done { .. })))

@@ -99,6 +99,23 @@ impl DatabaseConnector for Batches {
         self.inner.execute_query(sql, sample_limit).await
     }
 
+    fn supports_read_only(&self) -> bool {
+        self.inner.supports_read_only()
+    }
+
+    async fn read_only_ready(&self) -> Result<(), ConnectorError> {
+        self.inner.read_only_ready().await
+    }
+
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        sample_limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        let _settle = self.settling(sql);
+        self.inner.execute_query_read_only(sql, sample_limit).await
+    }
+
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let _settle = self.settling(sql);
         self.inner.execute_query_full(sql).await

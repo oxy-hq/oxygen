@@ -294,6 +294,25 @@ async fn an_auth_error_is_fatal_without_retry() {
 }
 
 #[tokio::test]
+async fn max_tokens_reaches_the_request() {
+    let cfg = EngineConfig {
+        max_tokens: Some(1000),
+        ..EngineConfig::default()
+    };
+    let (e, seen) = engine(
+        vec![
+            Round::Chunks(vec![text("cut"), done(StopReason::MaxTokens)]),
+            Round::Chunks(vec![text("whole"), done(StopReason::EndTurn)]),
+        ],
+        cfg,
+    );
+    let out = decide(&e, &question("q")).await.0;
+    assert!(out.is_ok(), "{out:?}");
+    // The configured cap on the first request; the one retry doubles it.
+    assert_eq!(seen.lock().unwrap().max_tokens, [Some(1000), Some(2000)]);
+}
+
+#[tokio::test]
 async fn truncated_text_retries_once_doubled_then_is_max_tokens() {
     let (e, seen) = engine(
         vec![

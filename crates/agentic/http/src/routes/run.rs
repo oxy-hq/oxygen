@@ -236,6 +236,7 @@ async fn create_run_on(
             question: question.clone(),
             thread_id: thread_id_uuid,
             thinking_mode: body.thinking_mode,
+            recorded_runtime: None,
         };
         return match agentic_pipeline::queued_run::queue_chat(&db, &platform, chat, requester).await
         {

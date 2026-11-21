@@ -1075,6 +1075,15 @@ mod tests {
     }
 }
 
+/// The refusal of a connector with no read-only path
+/// ([`DatabaseConnector::execute_query_read_only`]).
+pub fn read_only_unsupported(dialect: SqlDialect) -> ConnectorError {
+    ConnectorError::Other(format!(
+        "read-only execution is not supported by {}",
+        dialect.as_str()
+    ))
+}
+
 /// Abstraction over database/warehouse query execution.
 ///
 /// A single `execute_query` call returns bounded rows AND summary stats.
@@ -1119,6 +1128,54 @@ pub trait DatabaseConnector: Send + Sync {
         sql: &str,
         sample_limit: u64,
     ) -> Result<ExecutionResult, ConnectorError>;
+
+    /// Whether [`execute_query_read_only`] runs SQL behind a database-level
+    /// guarantee that it cannot write. `false` unless a connector overrides
+    /// both methods; the react runtime refuses an agent with any database
+    /// that answers `false`.
+    ///
+    /// [`execute_query_read_only`]: DatabaseConnector::execute_query_read_only
+    fn supports_read_only(&self) -> bool {
+        false
+    }
+
+    /// [`execute_query`]'s contract for model-written SQL, run where the
+    /// database itself refuses a write: a read-only transaction (Postgres),
+    /// a rolled-back transaction on a database that cannot reach files
+    /// (DuckDB). Every write must fail with the caller's own checks deleted.
+    ///
+    /// Default: refused, naming the dialect. It never delegates to
+    /// [`execute_query`], which would run the SQL with no guarantee at all.
+    ///
+    /// [`execute_query`]: DatabaseConnector::execute_query
+    async fn execute_query_read_only(
+        &self,
+        sql: &str,
+        sample_limit: u64,
+    ) -> Result<ExecutionResult, ConnectorError> {
+        let _ = (sql, sample_limit);
+        Err(read_only_unsupported(self.dialect()))
+    }
+
+    /// Whether [`execute_query_read_only`] will run on this connection,
+    /// asked once before a react run starts, so a connection that would
+    /// refuse every query refuses the run instead of each of its queries.
+    ///
+    /// Default: `Ok` where [`supports_read_only`] is true, else the refusal
+    /// [`execute_query_read_only`] gives. A connector whose refusal depends on
+    /// the server checks it here (Postgres: the login role), and a wrapper
+    /// forwards its inner connector's. Passing it is not the guarantee: each
+    /// query is checked again, since a grant can change mid-run.
+    ///
+    /// [`execute_query_read_only`]: DatabaseConnector::execute_query_read_only
+    /// [`supports_read_only`]: DatabaseConnector::supports_read_only
+    async fn read_only_ready(&self) -> Result<(), ConnectorError> {
+        if self.supports_read_only() {
+            Ok(())
+        } else {
+            Err(read_only_unsupported(self.dialect()))
+        }
+    }
 
     /// Execute `sql` and return the full result as a row-oriented stream
     /// with native column types preserved — no truncation, no stat
