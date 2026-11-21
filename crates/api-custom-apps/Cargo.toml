@@ -135,9 +135,7 @@ tower = { workspace = true, features = ["util"] }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 serial_test = { workspace = true }
-# oxy-app's in-source DB harness (`server/test_support.rs`), included by path:
-# its lock-retry jitter.
-rand = { workspace = true }
+# The in-source DB tests' harness (`oxy_test_utils::db`).
 oxy-test-utils = { workspace = true }
 oxy-compile = { workspace = true }
 # `sentry::test::with_captured_events` for the custom-app surface tag tests.

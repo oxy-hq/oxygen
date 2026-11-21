@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 pub mod containers;
+pub mod db;
 pub mod fixtures;
 pub mod migration;
 pub mod mocks;

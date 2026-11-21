@@ -480,7 +480,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DATABASE_URL",
-        "crates/app/src/server/test_support.rs",
+        "crates/test-utils/src/db.rs",
         "test-only helper: the shared database of in-source `#[cfg(test)]` tests",
     ),
     (

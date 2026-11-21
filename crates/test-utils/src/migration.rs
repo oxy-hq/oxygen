@@ -92,7 +92,7 @@
 //! ([`SHARED_TEST_DB_MIGRATION_LOCK_KEY`]), which serializes across processes
 //! however many there are: the first binary migrates, the rest block, and each
 //! then finds everything applied. This is the same mechanism, for the same
-//! reason, as `oxy-app`'s `server::test_support` and `oxy serve`'s boot
+//! reason, as [`crate::db`] (`oxy-app`'s in-source harness) and `oxy serve`'s boot
 //! migration (`crates/app/src/cli/commands/migrate.rs`) — concurrent `Migrator::up` against one
 //! database is never safe, in tests or in the fleet.
 //!
@@ -122,7 +122,7 @@
 //!   fixture that opts out of it** — if you add a fixture on the shared
 //!   database, migrate through here.
 //!
-//! One gap this does not close: `oxy-app`'s `server::test_support` bootstrap
+//! One gap this does not close: the [`crate::db`] bootstrap
 //! migrates the same database under a *different* key, and its `kind(lib)`
 //! tests are not in the `serial-db` group, so a whole-workspace run against a
 //! fresh database can still overlap the two families. That is the one race the
@@ -145,8 +145,8 @@ use std::time::{Duration, Instant};
 ///
 /// | Key | Owner |
 /// | --- | ----- |
-/// | `0x0787_5EED` | `oxy-app` `server::test_support::MIGRATION_LOCK_KEY` |
-/// | `0x4149_5257_4450` | `oxy-app` `test_support::AIRWAY_DEPLOYMENT_LOCK_KEY` |
+/// | `0x0787_5EED` | `db::MIGRATION_LOCK_KEY` (the in-source tests' harness) |
+/// | `0x4149_5257_4450` | `db::AIRWAY_DEPLOYMENT_LOCK_KEY` |
 /// | `0x4149_5257_4159` | `oxy-api-airway` `admin::handlers_tests::LOCK_KEY` |
 /// | `0x0041_4952_5741_5950` | `oxy-api-airway` `admin::preview_scan_tests::LOCK_KEY` |
 /// | `0x0078_795F_6D69_6772` | `oxy serve` boot migration (`MIGRATION_ADVISORY_LOCK_KEY`) |
@@ -244,10 +244,10 @@ impl<'a> DomainMigrations<'a> {
 /// Advisory locks are per **session**, so a shared or pooled connection risks
 /// the acquire and the release landing on different sessions — or the locked
 /// session being handed to unrelated work in between. This always opens a
-/// dedicated pool of exactly one connection for that reason. Deliberately a
-/// copy of `oxy-app`'s `server::test_support::AdvisoryLock` rather than a
-/// dependency: that one is `pub(crate)` inside the binary crate, and a
-/// platform test crate cannot reach into it.
+/// dedicated pool of exactly one connection for that reason. A sibling of
+/// [`crate::db::AdvisoryLock`], not a reuse of it: that one panics on failure
+/// (a lib test's bootstrap), this one returns a `DbErr` to the fixture. They
+/// came from two crates and met here when `db` moved down out of `oxy-app`.
 ///
 /// # Why `acquire` polls instead of blocking
 ///

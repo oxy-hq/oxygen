@@ -36,7 +36,8 @@ serial_test = { workspace = true }
 migration = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
-# Jitter for the advisory-lock poll backoff in `migration::AdvisoryLock`.
+# Jitter for the advisory-lock poll backoff in `migration::AdvisoryLock` and
+# `db::AdvisoryLock`.
 rand = { workspace = true }
 # `containers`: the shared local test containers and self-cleaning test
 # databases. See src/containers/mod.rs.
@@ -45,6 +46,11 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 url = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# `db::tests`: raw sessions for the advisory-lock-vs-`CREATE INDEX CONCURRENTLY`
+# repro, which needs a statement left blocking on purpose.
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 
 [lints]
 workspace = true

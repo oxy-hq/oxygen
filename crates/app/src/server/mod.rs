@@ -43,11 +43,6 @@ pub mod shared_state_check;
 pub mod task_router_listener;
 #[cfg(test)]
 pub(crate) mod test_support;
-// The harness's own tests sit beside it rather than inside it, so the surface
-// crates that `#[path]`-include `test_support.rs` get the harness alone.
-#[cfg(test)]
-#[path = "test_support_tests.rs"]
-mod test_support_tests;
 mod token_usage_flush;
 pub mod worker_health;
 pub mod worker_metrics;

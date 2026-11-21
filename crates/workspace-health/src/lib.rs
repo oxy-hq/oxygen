@@ -36,9 +36,14 @@ pub mod smoke;
 
 pub use rollup::{SignalsRow, WorkspaceHealthResponse, WorkspaceHealthRow, health_rollup};
 
-/// `oxy-app`'s in-source DB harness, shared by path so these tests migrate and
-/// lock the shared test database exactly the way `oxy-app`'s own do.
+/// The shared in-source DB harness (`oxy_test_utils::db`), so these tests migrate
+/// and lock the shared test database exactly the way `oxy-app`'s own do.
 #[cfg(test)]
-#[path = "../../app/src/server/test_support.rs"]
-#[allow(dead_code)]
-mod test_support;
+mod test_support {
+    pub(crate) use oxy_test_utils::db::SKIP_MSG;
+
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator.
+    pub(crate) async fn test_db() -> Option<sea_orm::DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
+}

@@ -893,10 +893,13 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
 #[cfg(test)]
 pub(crate) use oxy_app_core::agent_fixture as custom_apps_agent_fixture;
 
-/// `oxy-app`'s in-source DB harness, included by path for the automation run's
+/// The shared in-source DB harness (`oxy_test_utils::db`), for the automation run's
 /// executor and heartbeat tests (`test_db`: the central and runtime migrators
 /// against `OXY_DATABASE_URL`, one lock key per shared row).
 #[cfg(test)]
-#[path = "../../app/src/server/test_support.rs"]
-#[allow(dead_code)]
-mod test_support;
+mod test_support {
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator.
+    pub(crate) async fn test_db() -> Option<sea_orm::DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
+}

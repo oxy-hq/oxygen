@@ -219,9 +219,16 @@ pub fn admin_routes() -> Router<AppState> {
 /// Kept below every builder: `oxy-route-catalog`'s walker stops reading a file
 /// at its first `#[cfg(test)]` module, so one placed above `routes()` hides it.
 #[cfg(test)]
-#[path = "../../app/src/server/test_support.rs"]
-#[allow(dead_code)]
-mod test_support;
+mod test_support {
+    pub(crate) use oxy_test_utils::db::{
+        AIRWAY_DEPLOYMENT_LOCK_KEY, AdvisoryLock, SKIP_MSG, database_url,
+    };
+
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator.
+    pub(crate) async fn test_db() -> Option<sea_orm::DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
+}
 
 #[cfg(test)]
 mod tests {

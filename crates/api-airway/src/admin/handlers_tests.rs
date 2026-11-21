@@ -19,7 +19,7 @@
 //! `serial_test`'s `file_locks`/`fslock` feature), and nextest runs every
 //! `kind(lib)` test in its own OS process, so two `#[serial]` tests never
 //! actually contend. `AdvisoryLock` uses `pg_advisory_lock`, which serializes
-//! across processes for real — see `test_support.rs`'s "Serializing a test's
+//! across processes for real — see `oxy_test_utils::db`'s "Serializing a test's
 //! own critical section". Each test also resets the four known kinds first,
 //! independent of the lock, so a leftover row from a previous run against a
 //! persistent (non-CI) local Postgres can't poison the next run either.
@@ -39,7 +39,7 @@ use super::{
 };
 use crate::test_support::{self, AdvisoryLock, SKIP_MSG, test_db};
 
-/// Arbitrary but fixed, and distinct from `test_support::MIGRATION_LOCK_KEY`
+/// Arbitrary but fixed, and distinct from `oxy_test_utils::db::MIGRATION_LOCK_KEY`
 /// and every other advisory-lock caller — keys share one namespace per
 /// database. Spells `AIRWAY` in ASCII hex: `41 49 52 57 41 59` = `A I R W A Y`.
 const LOCK_KEY: i64 = 0x4149_5257_4159;

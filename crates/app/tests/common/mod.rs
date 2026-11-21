@@ -52,7 +52,7 @@ pub mod source_scan;
 static STATE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
 
 /// Advisory-lock key guarding template build and clone on the admin database.
-/// Distinct from `server::test_support`'s key, which is taken on the *app*
+/// Distinct from `oxy_test_utils::db`'s key (`server::test_support`'s, before), which is taken on the *app*
 /// database; keys share one namespace per database, so these never meet.
 const TEMPLATE_LOCK_KEY: i64 = 0x0787_5EED_7E51;
 

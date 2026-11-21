@@ -1,5 +1,5 @@
 //! Repro for the deadlock-shaped bug `AdvisoryLock::acquire` (in
-//! `test_support.rs`) exists to prevent, and proof the fix holds.
+//! `db.rs`) exists to prevent, and proof the fix holds.
 //!
 //! # The bug
 //!
@@ -36,7 +36,8 @@
 //! 1. Connection A takes and holds an advisory lock.
 //! 2. Connection B tries to take the SAME lock while A holds it — either
 //!    the OLD way (a raw blocking `pg_advisory_lock`, standing in for the
-//!    code this module no longer has — see `test_support.rs` history) or
+//!    code this module no longer has — see `db.rs` history, and before it
+//!    `crates/app/src/server/test_support.rs`'s) or
 //!    the NEW way ([`AdvisoryLock::acquire`], the actual code under test).
 //! 3. Connection C runs `CREATE INDEX CONCURRENTLY` on an unrelated table,
 //!    under a short `statement_timeout` so a failure here costs seconds,
@@ -47,13 +48,13 @@
 //! concurrent index build elsewhere.
 //!
 //! Skips (doesn't fail) when `OXY_DATABASE_URL` is unset, same as every
-//! other DB-backed test in this crate.
+//! other DB-backed test on this harness.
 
 use sqlx::Connection;
 use sqlx::postgres::PgConnection;
 use std::time::Duration;
 
-use super::test_support::{AdvisoryLock, SKIP_MSG, database_url};
+use super::{AdvisoryLock, SKIP_MSG, database_url};
 
 /// Gives a just-started waiter time to actually reach its first blocking (or
 /// first polling) statement before connection C starts, so the comparison

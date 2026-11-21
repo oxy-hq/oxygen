@@ -37,10 +37,10 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The in-source DB tests share oxy-app's harness (`#[path]`-included), which
-# runs the central and runtime migrators against `OXY_DATABASE_URL`.
-migration = { workspace = true }
-rand = { workspace = true }             # the harness's lock-retry jitter
+# The in-source DB tests share the harness in `oxy_test_utils::db`, which runs
+# the central and runtime migrators against `OXY_DATABASE_URL`; the runtime
+# migrator comes from here.
+oxy-test-utils = { workspace = true }
 agentic-runtime = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

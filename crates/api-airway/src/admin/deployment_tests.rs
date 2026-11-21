@@ -6,7 +6,7 @@
 //! `test_support::test_db` — grep a run for `skipping:` before believing a
 //! PASS. They serialize on a keyed [`AdvisoryLock`] rather than
 //! `#[serial_test::serial]`, which is process-local and therefore inert under
-//! nextest's one-process-per-test execution; see `test_support.rs`.
+//! nextest's one-process-per-test execution; see `oxy_test_utils::db`.
 //!
 //! The lock matters more here than for the policy tier: this table has exactly
 //! **one row**, so every test in this file writes the same row. Two of them in

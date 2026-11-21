@@ -45,8 +45,9 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# oxy-app's in-source DB harness (`server/test_support.rs`, included by path)
-# migrates with these; nothing in `src/` needs them since `oxy airway` left.
+# The in-source DB tests' harness (`oxy_test_utils::db`) takes the runtime
+# migrator from here; nothing in `src/` needs it since `oxy airway` left.
+# `migration` is for the integration group's per-test harness below.
 migration = { workspace = true }
 agentic-runtime = { workspace = true }
 # The integration group (`tests/integration/`) reuses oxy-app's per-test
@@ -62,9 +63,6 @@ serde_yaml = { workspace = true }
 oxy-authz = { workspace = true }   # the platform-scope cases build a bounded grant
 tower = { workspace = true, features = ["util"] }   # `oneshot` in the admin mount test
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
-# oxy-app's in-source DB harness (`server/test_support.rs`), included by path:
-# its lock-retry jitter.
-rand = { workspace = true }
 
 [lints]
 workspace = true

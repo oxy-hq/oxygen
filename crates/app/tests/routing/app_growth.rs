@@ -77,7 +77,6 @@ const SERVER: &[&str] = &[
     "shared_state_check",
     "task_router_listener",
     "test_support",
-    "test_support_tests",
     "token_usage_flush",
     "worker_health",
     "worker_metrics",
