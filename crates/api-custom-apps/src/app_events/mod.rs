@@ -33,7 +33,7 @@ use crate::custom_apps_function_schema::MAX_SCHEMA_BYTES;
 /// still reconcile — platform metadata only — so turning the flag on works at
 /// once.
 pub fn enabled_for(org_id: Uuid) -> bool {
-    use oxy_app::surface::feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
+    use oxy_feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
     is_enabled_for(APP_EVENTS, &FlagContext::org(org_id))
 }
 

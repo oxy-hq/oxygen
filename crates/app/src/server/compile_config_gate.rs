@@ -22,7 +22,7 @@ use oxy_app_core::process_role::current_process_role;
 use oxy_compile::{CompiledConfig, ConfigGate, merge_compiled_config};
 use oxy_shared::fleet_role::Role;
 
-use crate::server::feature_flags::{cache, rollout};
+use oxy_feature_flags::{cache, rollout};
 
 /// The production config gate: merge the split columns and assert the result
 /// deserialises into the runtime [`oxy::config::model::Config`], and that it

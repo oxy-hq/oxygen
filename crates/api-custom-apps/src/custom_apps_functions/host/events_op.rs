@@ -181,7 +181,7 @@ impl ProjectFunctionHost {
     /// The checks of the module docs, in that order, on the payload's
     /// named fields; anything else in it is ignored.
     async fn check_publish(&self, op: HostOp, payload: &Value) -> Result<Checked, String> {
-        use oxy_app::surface::feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
+        use oxy_feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
         if !is_enabled_for(APP_EVENTS, &FlagContext::org(self.org_id)) {
             return Err(NOT_ENABLED.to_string());
         }

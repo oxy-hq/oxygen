@@ -13,13 +13,13 @@ edition.workspace = true
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the
 # role guards, the org middlewares, the session plumbing every sign-in path
-# shares (the token, the cookie, the login response), the feature-flag reads
-# `/auth/config` reports, the staff-scope fence, the admin audit row's wire
+# shares (the token, the cookie, the login response), the staff-scope fence, the admin audit row's wire
 # shape and the seam types. The lifecycle audit is oxy-identity's. oxy-app
 # never depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState, the audit writer, the emails
+oxy-feature-flags = { workspace = true }  # the reads `/auth/config` reports
 oxy-identity = { workspace = true }  # the token lifecycle audit
 oxy-custom-apps = { workspace = true }  # GitHub's OIDC signing keys
 oxy = { workspace = true }           # database client

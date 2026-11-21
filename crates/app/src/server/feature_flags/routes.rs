@@ -22,12 +22,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::evaluate::{Evaluation, FlagContext};
-use super::registry::{self, FlagDef, Unit};
-use super::targeting::Targeting;
-use super::{cache, store};
 use crate::server::api::middlewares::org_context::OrgContextExtractor;
 use crate::server::router::AppState;
+use oxy_feature_flags::evaluate::{Evaluation, FlagContext};
+use oxy_feature_flags::registry::{self, FlagDef, Unit};
+use oxy_feature_flags::targeting::Targeting;
+use oxy_feature_flags::{cache, store};
 
 /// The audit action of a PATCH.
 pub const UPDATED: &str = "admin.feature_flag.updated";
@@ -247,7 +247,7 @@ pub async fn org_flags(OrgContextExtractor(ctx): OrgContextExtractor) -> Json<Or
         .iter()
         .filter(|def| def.client)
         .map(|def| {
-            let eval = super::evaluate_for(def.key, &context);
+            let eval = oxy_feature_flags::evaluate_for(def.key, &context);
             let flag = ClientFlag {
                 variant: eval.variant,
                 enabled: eval.variant != def.off(),
@@ -261,7 +261,7 @@ pub async fn org_flags(OrgContextExtractor(ctx): OrgContextExtractor) -> Json<Or
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind};
+    use oxy_feature_flags::registry::{BOOLEAN, FlagKind};
 
     const GLOBAL: FlagDef = FlagDef {
         key: "test_global",

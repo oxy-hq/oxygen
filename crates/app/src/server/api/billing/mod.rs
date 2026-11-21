@@ -53,6 +53,6 @@ pub async fn billing_service() -> Result<Arc<BillingService>, StatusCode> {
 /// to refuse construction so handlers can't drift out of sync with the
 /// guard.
 pub fn billing_disabled() -> bool {
-    !crate::server::feature_flags::is_enabled("billing")
+    !oxy_feature_flags::is_enabled("billing")
         || oxy_billing::StripeConfig::maybe_from_env().is_none()
 }

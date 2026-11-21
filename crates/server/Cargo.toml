@@ -42,6 +42,8 @@ oxy-api-operating-graph = { path = "../api-operating-graph" }
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-custom-apps = { workspace = true }
 oxy-app-core = { workspace = true }
+# The feature-flag cache `serve` and `worker` load at boot.
+oxy-feature-flags = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
 oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }

@@ -134,8 +134,8 @@ pub async fn get_config(
     let github_client_id = std::env::var("GITHUB_CLIENT_ID").ok();
 
     let observability_enabled = app_state.observability().is_some();
-    let billing_enabled = oxy_app::surface::feature_flags::is_enabled("billing");
-    let home_v3 = oxy_app::surface::feature_flags::home_v3();
+    let billing_enabled = oxy_feature_flags::is_enabled("billing");
+    let home_v3 = oxy_feature_flags::home_v3();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See
     // `dev_login::dev_login_reachable_by`.

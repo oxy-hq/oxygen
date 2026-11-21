@@ -8,8 +8,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use oxy_app::surface::billing::billing_service;
-use oxy_app::surface::feature_flags::is_enabled;
 use oxy_app::surface::role_guards::{OrgAdminStrict, OrgMemberStrict};
+use oxy_feature_flags::is_enabled;
 
 #[derive(Serialize)]
 pub struct BillingSummary {

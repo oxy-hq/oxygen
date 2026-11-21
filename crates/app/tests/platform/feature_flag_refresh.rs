@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use oxy_app::server::feature_flags::{cache, is_enabled, store};
+use oxy_feature_flags::{cache, is_enabled, store};
 
 use crate::common;
 
@@ -134,8 +134,8 @@ async fn an_unloaded_cache_reads_billing_off_so_the_paywall_would_skip() {
 /// untouched, never as on for every org. This build reads the rules back.
 #[tokio::test]
 async fn a_targeted_flag_reads_as_its_default_to_a_binary_without_targeting() {
-    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
-    use oxy_app::server::feature_flags::{FlagContext, is_enabled_for, registry};
+    use oxy_feature_flags::targeting::{Fallthrough, Targeting};
+    use oxy_feature_flags::{FlagContext, is_enabled_for, registry};
 
     let db = common::test_db().await;
     let def = registry::get("billing").expect("billing is registered");
@@ -176,8 +176,8 @@ async fn a_targeted_flag_reads_as_its_default_to_a_binary_without_targeting() {
 /// document records the `updated_at` it was written with and the old write is later.
 #[tokio::test]
 async fn a_switch_an_older_binary_wrote_wins_on_roll_forward() {
-    use oxy_app::server::feature_flags::registry;
-    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
+    use oxy_feature_flags::registry;
+    use oxy_feature_flags::targeting::{Fallthrough, Targeting};
     use sea_orm::ConnectionTrait;
 
     let db = common::test_db().await;

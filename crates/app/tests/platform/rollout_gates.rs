@@ -10,11 +10,11 @@
 //! said it was on. `oxy compile` had the same gap.
 
 use oxy_app::server::compile_config_gate::runtime_config_gate;
-use oxy_app::server::feature_flags::rollout::{
+use oxy_feature_flags::rollout::{
     COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, COMPILE_REFUSE_FILE_CREDENTIALS,
     COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS, is_on,
 };
-use oxy_app::server::feature_flags::{cache, store};
+use oxy_feature_flags::{cache, store};
 
 use crate::common::test_db;
 

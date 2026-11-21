@@ -438,7 +438,7 @@ pub(crate) async fn enable_app_events(t: &Tenant, orgs: &[Uuid]) {
         .map(|org| (org.to_string(), json!("on")))
         .collect();
     entity::feature_flag::ActiveModel {
-        key: Set(oxy_app::surface::feature_flags::APP_EVENTS.to_string()),
+        key: Set(oxy_feature_flags::APP_EVENTS.to_string()),
         // The registry default; the kill switch is in the document.
         enabled: Set(false),
         updated_at: Set(Utc::now().fixed_offset()),
@@ -451,7 +451,7 @@ pub(crate) async fn enable_app_events(t: &Tenant, orgs: &[Uuid]) {
     .insert(&t.db)
     .await
     .expect("write the app_events override");
-    oxy_app::surface::testing::load_feature_flags()
+    oxy_feature_flags::cache::load_once()
         .await
         .expect("load the flag cache");
 }

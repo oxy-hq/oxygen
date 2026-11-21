@@ -38,12 +38,6 @@ pub mod auth_provider_check {
     pub use crate::server::auth_provider_check::{check, provider_configured};
 }
 
-/// The feature-flag cache. `serve` and `worker` load it before any request or
-/// task reads a flag.
-pub mod feature_flags {
-    pub use crate::server::feature_flags::cache::init;
-}
-
 /// Which build this process is: the image tag and the build information
 /// `oxy-app`'s build script stamps (`GIT_HASH`, `BUILD_TIMESTAMP`, the
 /// `GITHUB_*` run). The health probes (`/api/version`, `/api/health`) and

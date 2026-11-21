@@ -353,7 +353,7 @@ pub(super) async fn init_feature_flags() -> Result<(), OxyError> {
     // first load. FAIL-FAST here (`?`): an unloaded cache reads the registry
     // default for `billing` (OFF = paywall skipped for every org), so serve must
     // not accept requests with an unknown billing state.
-    oxy_app::host::feature_flags::init().await
+    oxy_feature_flags::cache::init().await
 }
 
 /// One-shot bootstrap: if `OXY_GLOBAL_ADMINS` is set, ensure each email is

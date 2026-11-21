@@ -13,15 +13,15 @@ edition.workspace = true
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
 # types (`AdminSection`, `seams::{GlobalTickSeam, TickPass}`), the capability
-# they name (`Action`), `org_middleware`, the org role guards, the feature-flag
-# read, and billing's base (`billing::{billing_service, notify}`, which oxy-app
-# reads too). oxy-app never depends back on this crate.
+# they name (`Action`), `org_middleware`, the org role guards, and billing's
+# base (`billing::{billing_service, notify}`, which oxy-app reads too). oxy-app never depends back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }     # AppState, admin_db, audit, emails::usage_report, the console's base url
 oxy-usage-report = { workspace = true } # the report's domain half: period, collect, store, model, email, view
 oxy-auth = { workspace = true }         # the authenticated-user extractor
+oxy-feature-flags = { workspace = true } # the `billing` switch
 oxy-authz = { workspace = true }        # `Cap` (the audience), `Scope` (a reader's reach)
 oxy-server-authz = { workspace = true } # staff::scope (the reader's reach), globals (who holds the audience)
 oxy-billing = { workspace = true }      # the Billing queue's and the tenant routes' Stripe service and DTOs

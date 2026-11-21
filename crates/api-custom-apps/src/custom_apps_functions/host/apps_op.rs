@@ -235,7 +235,7 @@ impl ProjectFunctionHost {
 
     /// The checks of the module docs that every op shares.
     pub(super) fn check_target(&self, payload: &Value) -> Result<Target, String> {
-        use oxy_app::surface::feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
+        use oxy_feature_flags::{APP_EVENTS, FlagContext, is_enabled_for};
         if !is_enabled_for(APP_EVENTS, &FlagContext::org(self.org_id)) {
             return Err(NOT_ENABLED.to_string());
         }
