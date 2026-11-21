@@ -47,7 +47,7 @@ import { inferOrgApp } from "./publish.js";
  * the legacy spelling of `.automation.yml` that the platform still accepts, so
  * it is accepted here. `.workflow.yml` is not a recognised kind at all — the
  * platform neither lists nor compiles one — so it is not validated either:
- * reporting it clean would suggest it runs. `oxy migrate-automations` renames it.
+ * reporting it clean would suggest it runs. `oxyc migrate-automations` renames it.
  */
 const SCHEMA_KINDS: ReadonlyArray<readonly [stem: string, schema: string]> = [
   [".automation", "workflow.json"],
@@ -76,7 +76,7 @@ const SCHEMA_FOR: ReadonlyArray<readonly [suffix: string, schema: string]> = SCH
 /**
  * Directories never walked.
  *
- * A superset of the canonical list in `migrate_automations.rs` rather than a
+ * A superset of `SKIP_DIRS` in `./migrate-automations.ts` rather than a
  * copy of it — `build` is the one that matters and was missing, because a
  * stray rendered copy of a workspace file actually lands there. The extras
  * (`.github`, `out`, `__pycache__`) cost nothing: nothing validatable is

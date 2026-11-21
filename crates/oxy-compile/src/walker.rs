@@ -447,7 +447,7 @@ mod tests {
         // A Data App is no longer a compiled kind: it must be left alone.
         write(root, "apps/dash.app.yml", "name: dash");
         // Nor is `.workflow.yml` (product-context.md: "no longer recognized");
-        // only `oxy migrate-automations` reads one, to rename it.
+        // only `oxyc migrate-automations` reads one, to rename it.
         write(root, "workflows/ancient.workflow.yml", "name: ancient");
         write(root, "workflows/x.procedure.yml", "name: x");
         write(root, "workflows/cron.automation.yml", "name: cron");

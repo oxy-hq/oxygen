@@ -21,7 +21,9 @@ mod seed_threads;
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
-use crate::cli::commands::migrate_automations::{MigrateAutomationsArgs, migrate_automations};
+use crate::cli::commands::migrate_automations::{
+    MOVED_EXIT_CODE, MigrateAutomationsArgs, moved_message,
+};
 use crate::cli::commands::run::{RunArgs, handle_run_command};
 use crate::server::service::sync::{SyncFilter, sync_databases};
 use ::oxy::adapters::secrets::SecretsManager;
@@ -73,12 +75,12 @@ pub enum SubCommand {
     Validate(ValidateArgs),
     /// Migrate the database schema to the latest version
     Migrate,
-    /// Migrate a customer project to the Automations naming
+    /// Moved to `oxyc migrate-automations` (prints the command and exits 2)
     ///
-    /// Renames legacy `.procedure.yml` / `.workflow.yml` files to the canonical
-    /// `.automation.yml` extension and rewrites references to them
-    /// (`src:`, `workflow_ref:`, glob includes) across the project's
-    /// `.yml` / `.yaml` / `.sql` files. Use `--dry-run` to preview.
+    /// Renaming legacy `.procedure.yml` / `.workflow.yml` files to
+    /// `.automation.yml` is `oxyc migrate-automations [path] [--dry-run]` now
+    /// (`npm i -g @oxy-hq/cli`). This stub stays for one release so an old
+    /// invocation is told what to type instead.
     MigrateAutomations(MigrateAutomationsArgs),
     /// Translate classic `.agent.yml` agents to `.agentic.yml`
     ///
@@ -544,10 +546,8 @@ pub async fn run(
             }
         }
         SubCommand::MigrateAutomations(args) => {
-            if let Err(e) = migrate_automations(args) {
-                eprintln!("{}", format!("Automation migration failed: {e}").error());
-                exit(1);
-            }
+            eprintln!("{}", moved_message(&args).warning());
+            exit(MOVED_EXIT_CODE);
         }
         SubCommand::MigrateAgents(args) => {
             if let Err(e) = migrate_agents(args) {

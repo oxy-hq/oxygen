@@ -75,6 +75,7 @@ import { runLaunch } from "./commands/launch.js";
 import { runLoginLink } from "./commands/login-link.js";
 import { runLogs } from "./commands/logs.js";
 import { followTimeout, runLogsFollow } from "./commands/logs-follow.js";
+import { runMigrateAutomations } from "./commands/migrate-automations.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
 import {
@@ -2029,6 +2030,27 @@ function buildProgram(): Command {
         file: opts.file as string | undefined,
         json: opts.json as boolean | undefined
       });
+    });
+
+  program
+    .command("migrate-automations")
+    .description(
+      "rename .procedure.yml / .workflow.yml files to .automation.yml and rewrite references"
+    )
+    .argument("[path]", "workspace directory to migrate", ".")
+    .option("--dry-run", "preview the renames without modifying any files")
+    .addHelpText(
+      "after",
+      "\nRenames every *.procedure.yml / *.workflow.yml under <path> to *.automation.yml,\n" +
+        "then rewrites references to the old extensions (src:, workflow_ref:, glob\n" +
+        "includes) in every .yml / .yaml / .sql file. Local only: no network, no token.\n" +
+        "\nNever overwrites. A file whose target already exists, or two files that map to\n" +
+        "one name (x.procedure.yml beside x.workflow.yml), is reported and skipped — resolve\n" +
+        "those by hand. Skips .git, node_modules, target, dist, build and dot-directories.\n" +
+        "Replaces `oxy migrate-automations`.\n"
+    )
+    .action((path: string, opts: Record<string, unknown>) => {
+      runMigrateAutomations({ path, dryRun: opts.dryRun as boolean | undefined });
     });
 
   withGlobals(

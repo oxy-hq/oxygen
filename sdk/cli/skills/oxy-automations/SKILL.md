@@ -29,9 +29,14 @@ The canonical extension is **`.automation.yml`**.
   is still `.procedure.yml`.
 - `.workflow.yml` is **no longer a recognised file kind at all**. A file with
   that name is silently not an automation, and `oxy run` refuses it.
-- `oxy migrate-automations` renames legacy files (and rewrites references to
-  them); `--dry-run` previews. It is the only thing that reads `.workflow.yml`
-  files for that purpose.
+- `oxyc migrate-automations [path]` renames legacy files (and rewrites
+  references to them in every `.yml` / `.yaml` / `.sql` file); `--dry-run`
+  previews. It is local only, needs no login, and is the only thing that reads
+  `.workflow.yml` files for that purpose. It never overwrites: a file whose
+  `.automation.yml` target already exists, or a `.procedure.yml` beside a
+  `.workflow.yml` of the same name, is reported and skipped (still exit 0), so
+  read its warnings and resolve those by hand. The Rust
+  `oxy migrate-automations` only prints this command now.
 
 **Write new files as `.automation.yml`.** Do not copy the extension from a
 neighbouring file in the workspace you are editing — that is how the legacy name

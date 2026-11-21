@@ -111,7 +111,7 @@ impl Config {
 
     pub fn list_workflows(&self, dir: &PathBuf) -> Vec<PathBuf> {
         // `.workflow.yml` is not a recognised kind (product-context.md); only
-        // `oxy migrate-automations` reads it, to rename it.
+        // `oxyc migrate-automations` reads it, to rename it.
         let mut automations = self.list_by_sub_extension(dir, "procedure");
         automations.extend(self.list_by_sub_extension(dir, "automation"));
         automations

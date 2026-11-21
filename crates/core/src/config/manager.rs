@@ -746,7 +746,7 @@ impl<S: DiskSlot> ConfigManager<S> {
     /// it first, and the working copy used to keep listing it, so the same
     /// workspace showed one more automation read from disk than read from the
     /// boundary. `automations_agree_that_workflow_yml_is_not_a_kind` pins the
-    /// agreement; `oxy migrate-automations` is the one reader left, to rename.
+    /// agreement; `oxyc migrate-automations` is the one reader left, to rename.
     pub async fn list_automations(&self) -> Result<Vec<AutomationEntry>, ArtifactError> {
         match self.origin {
             Origin::Compiled { revision_id, .. } => {

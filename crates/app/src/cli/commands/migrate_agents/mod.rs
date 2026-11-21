@@ -2,7 +2,8 @@
 //! `*.agentic.yml` agents, and point every reference at the new files.
 //!
 //! Phase 1b of `internal-docs/2026-11-09-classic-agent-retirement.md`. Modelled
-//! on `oxy migrate-automations`: rooted at a project directory, `--dry-run`
+//! on the former `oxy migrate-automations` (now `oxyc migrate-automations`):
+//! rooted at a project directory, `--dry-run`
 //! writes nothing, a file is never overwritten, and collisions are reported and
 //! skipped. Unlike it, this translates content ([`translate`]), so a file with a
 //! field nothing in the agentic runtime does is left in place and reported per

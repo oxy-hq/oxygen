@@ -1719,6 +1719,7 @@ Full contract: `internal-docs/workspace-previews.md`.
 
 ```bash
 oxyc validate [-f <file>] [--json]
+oxyc migrate-automations [path] [--dry-run]
 oxyc mcp
 oxyc guide
 oxyc skills install | list
@@ -1732,7 +1733,7 @@ generated from the Rust config types. No network, no token.
 | File | Schema |
 | --- | --- |
 | `config.yml` / `config.yaml` | `config.json` |
-| `*.automation.yml`, `*.procedure.yml` (`*.workflow.yml` is not a recognised kind; `oxy migrate-automations` renames it) | `workflow.json` |
+| `*.automation.yml`, `*.procedure.yml` (`*.workflow.yml` is not a recognised kind; `oxyc migrate-automations` renames it) | `workflow.json` |
 | `*.agentic.yml` | `agentic.json` |
 | `*.agent.test.yml` | `agent-test.json` |
 
@@ -1820,6 +1821,25 @@ A **sandbox agent token** must pass `--app <org>/<app> --app-env dev-<handle>`
 ```bash
 oxyc proxy --app acme/store --app-env dev-a1    # then open the printed URL
 ```
+
+**`migrate-automations`** renames every `*.procedure.yml` / `*.workflow.yml`
+under `path` (default `.`) to `*.automation.yml`, then rewrites references to
+the old extensions — `src:`, `workflow_ref:`, glob includes — in every `.yml` /
+`.yaml` / `.sql` file. Local only: no network, no token. `--dry-run` prints the
+rename plan and writes nothing. It replaces the Rust `oxy migrate-automations`,
+which for one release only prints this command and exits `2`.
+
+- **It never overwrites.** A file whose `.automation.yml` target already exists,
+  or two files that map to one name (`x.procedure.yml` beside `x.workflow.yml`),
+  is a collision: listed on stderr, skipped, and left for you. Collisions alone
+  still exit `0`.
+- **The rewrite is a plain substring replace**, so a reference to a collided
+  file is rewritten too, and points at a name that exists only once you resolve
+  the collision. References are rewritten only on a run that renamed something.
+- It skips `.git`, `.worktrees`, `.oxy_state`, `target`, `node_modules`, `dist`,
+  `build`, `.venv` and every other dot-directory, and leaves a file that is not
+  UTF-8 alone. Only the `.yml` spellings are renamed.
+- A path that does not exist exits `5`; a path that is a file exits `2`.
 
 **`mcp`** serves the API over stdio as four generic tools — `oxy_routes`,
 `oxy_schema`, `oxy_request`, `oxy_whoami` — rather than one per endpoint, so

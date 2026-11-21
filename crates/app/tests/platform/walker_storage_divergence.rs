@@ -232,7 +232,7 @@ async fn agents_agree_on_every_test_mirror_spelling() {
 /// copy kept unioning three extensions, so a workspace read from disk listed
 /// one more automation than the same workspace read from the boundary — and
 /// that one could never be compiled or run. product-context.md says the
-/// extension is no longer recognised; `oxy migrate-automations` is the one
+/// extension is no longer recognised; `oxyc migrate-automations` is the one
 /// reader left, and it only renames. The fixture still writes
 /// `ancient.workflow.yml` so this proves it is ignored, not merely absent.
 #[tokio::test]
