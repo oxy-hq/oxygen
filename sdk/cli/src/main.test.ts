@@ -17,10 +17,24 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ExitCode } from "./util/errors.js";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "dist", "main.mjs");
+
+// Every case here is a run of cold `node dist/main.mjs` starts, back to back —
+// up to nineteen in one case — and each start costs ~0.2s on an idle machine
+// and ~0.9s at a load of 35. Vitest's 5s default is a wall-clock budget, so the
+// heaviest cases (4.2s idle) failed on a busy machine with nothing wrong.
+// No assertion here measures time, only exit codes and streams; the budget is
+// sized for the CPU, not for the CLI.
+//
+// It is also not what catches a hang: `spawnSync` blocks the event loop, so the
+// test timeout can only notice once the child has already exited. The child's
+// own kill timeout below (`SPAWN_TIMEOUT_MS`) is what bounds a CLI that waits
+// for something — a browser, a request — and it fails the case by name.
+vi.setConfig({ testTimeout: 120_000 });
+const SPAWN_TIMEOUT_MS = 20_000;
 
 interface Run {
   status: number;
@@ -62,8 +76,14 @@ function oxycEnv(extra: Record<string, string>, ...args: string[]): Run {
       // developer's real `~/.oxyc`.
       OXYC_DOSSIER_ROOT: join(BIN, "..", "__no_such_dossiers__"),
       ...extra
-    }
+    },
+    timeout: SPAWN_TIMEOUT_MS
   });
+  if (r.error || r.signal) {
+    throw new Error(
+      `oxyc ${args.join(" ")} did not exit on its own within ${SPAWN_TIMEOUT_MS}ms (${r.error?.message ?? r.signal})`
+    );
+  }
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
@@ -547,7 +567,8 @@ describe("cache clear", () => {
     const absent = join(mkdtempSync(join(tmpdir(), "oxyc-nocache-")), "never-created");
     const r = spawnSync(process.execPath, [BIN, "cache", "clear"], {
       encoding: "utf8",
-      env: { ...process.env, OXYC_CACHE_DIR: absent, NO_COLOR: "1" }
+      env: { ...process.env, OXYC_CACHE_DIR: absent, NO_COLOR: "1" },
+      timeout: SPAWN_TIMEOUT_MS
     });
     expect(r.status).toBe(ExitCode.OK);
     expect(r.stderr).toMatch(/nothing cached/);
