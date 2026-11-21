@@ -83,7 +83,7 @@ fn print_built(b: &Built) {
     }
     println!("  /admin/apps/local/{APP_SLUG}?section=builds");
     println!(
-        "  no OLTP: `oxy oltp provision --org local --writer app:pulse_demo` would give it a \
+        "  no OLTP: `oxyc oltp provision --org local --writer app:pulse_demo` would give it a \
          store; this fixture does not use one"
     );
     if b.rebuilt {

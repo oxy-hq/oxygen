@@ -167,7 +167,7 @@ impl LocalProvider {
     /// `create_project`'s result is the only thing that ever writes
     /// `oltp_tenants.pg_version` (`apply_remote`), and a fallback to
     /// `DEFAULT_PG_VERSION` would stamp the one number that reads as "no
-    /// drift" into the row permanently — after which `oxy oltp status` renders
+    /// drift" into the row permanently — after which the CLI status view renders
     /// it as fact. A `warn!` in the provisioning process is no help next to a
     /// wrong row a year later. The connection this needs is taken moments
     /// after `CREATE DATABASE` on a cluster that just answered three
@@ -393,8 +393,8 @@ impl OltpProvider for LocalProvider {
             // at whatever major it runs, so the requested version is not
             // honoured; echoing it made one project answer two different
             // numbers depending on which call you made. This is the result that
-            // reaches `oltp_tenants.pg_version`, so it is what `oxy oltp
-            // status` reports. Read above, before anything was created.
+            // reaches `oltp_tenants.pg_version`, so it is what the old `oxy oltp
+            // status` reported. Read above, before anything was created.
             pg_version,
             branch: Branch {
                 id: LOCAL_BRANCH.to_string(),

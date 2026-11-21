@@ -6,7 +6,7 @@
 //!
 //! **Opt-in, and not just by credential presence.** Running these creates and
 //! destroys real projects in a real Neon org. `NEON_API_KEY` may legitimately be
-//! set in a dev `.env` for `oxy oltp provision`, so keying off it alone would
+//! set in a dev `.env` for `oxy oltp provision` (now `oxyc oltp provision`), so keying off it alone would
 //! make an ordinary `cargo nextest run` start spending money:
 //!
 //! ```bash

@@ -92,7 +92,9 @@ pub enum SubCommand {
     /// overwrites; collisions are reported. Run `--dry-run --json` first.
     MigrateAgents(MigrateAgentsArgs),
 
-    /// Per-org OLTP Postgres: provision, apply schema, inspect.
+    /// Per-org OLTP Postgres: apply schema, audit roles, rotate a writer.
+    ///
+    /// Status, provisioning, credentials and deprovisioning are `oxyc oltp`.
     Oltp(crate::cli::commands::oltp::OltpArgs),
 
     /// Database seeding commands for development and testing

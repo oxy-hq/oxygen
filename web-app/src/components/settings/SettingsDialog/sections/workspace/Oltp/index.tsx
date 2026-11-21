@@ -72,7 +72,7 @@ const Oltp: React.FC = () => {
           <div className='rounded-md border bg-muted/40 p-3'>
             <p className='text-muted-foreground text-xs'>
               An operator can provision one from the admin console (Orgs → this org → OLTP), or with{" "}
-              <code className='font-mono text-xs'>oxy oltp provision</code>.
+              <code className='font-mono text-xs'>oxyc oltp provision</code>.
             </p>
           </div>
         </div>

@@ -207,7 +207,7 @@ impl WriterRef {
 /// → schema `app_oltp_bookings`. Returns `None` if the slug cannot normalise to
 /// a valid identifier (fail closed — `ctx.oltp` then reads as unavailable rather
 /// than resolving something unintended). Provisioning must use the same name:
-/// `oxy oltp provision --writer app:<this>`.
+/// `oxyc oltp provision --writer app:<this>`.
 ///
 /// **`-` → `_` is injective ONLY over a hyphen-free-of-underscores slug**, which
 /// is what `is_valid_slug` (lowercase alphanumerics + hyphens) guarantees. A

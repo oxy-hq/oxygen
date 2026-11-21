@@ -1,13 +1,16 @@
-//! `oxy oltp` — provision an org's OLTP database and apply its schema.
-//!
-//! The operator surface for the per-org OLTP plane. Two verbs, both
-//! idempotent, both safe to re-run:
+//! `oxy oltp` — the OLTP operator verbs that still need the server's own
+//! database and secrets.
 //!
 //! ```bash
-//! oxy oltp provision --org <uuid|email>   # create the database + writers
-//! oxy oltp apply     --org <uuid|email>   # run schemas/*.sql not yet applied
-//! oxy oltp status    --org <uuid|email>   # what exists and what is pending
+//! oxy oltp apply  --org <uuid|email>              # run schemas/*.sql not yet applied
+//! oxy oltp audit  --org <uuid|email>              # every role's real authority
+//! oxy oltp rotate --org <uuid|email> --role <w>   # rotate a writer's password
 //! ```
+//!
+//! `status`, `provision`, `dsn`, `connect`, `expose` and `deprovision` moved to
+//! `oxyc oltp` (`sdk/cli/src/commands/oltp*.ts`) over the admin routes, and were
+//! deleted here. These three wait on routes of their own
+//! (`internal-docs/oxy-cli-to-oxyc.md`, steps 12 and open question 5).
 //!
 //! `--org` takes a user's email as well as an org id, because during a demo
 //! nobody remembers a UUID.
@@ -29,16 +32,8 @@ pub struct OltpArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum OltpCommand {
-    /// Create the org's Postgres, its writers, and the analyst credential.
-    Provision(ProvisionArgs),
     /// Apply any `schemas/*.sql` the org's database has not run yet.
     Apply(TargetArgs),
-    /// Show what is provisioned and what is pending.
-    Status(OrgArgs),
-    /// Print a connection string for a role, read from the sealed credentials.
-    Dsn(DsnArgs),
-    /// Open `psql` against the org's database. Debugging, not routine access.
-    Connect(DsnArgs),
     /// Audit every role: what it is, whether it is still confined, and what it
     /// can reach outside its own schema (writers, the analyst and PUBLIC). Note
     /// confinement checks what each role is a member OF, not what is a member
@@ -48,11 +43,6 @@ pub enum OltpCommand {
     Audit(OrgArgs),
     /// Rotate a role's password and reseal it.
     Rotate(DsnArgs),
-    /// Let analytics read a writer's schema, or withdraw it.
-    Expose(ExposeArgs),
-    /// Deprovision one writer (`--writer app:<slug>`, drops that schema only) or,
-    /// without it, destroy the org's whole database at the provider. Irreversible.
-    Deprovision(DeprovisionArgs),
 }
 
 /// Just the org — for the verbs that read per-org state and nothing else.
@@ -83,17 +73,6 @@ pub struct TargetArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct ProvisionArgs {
-    #[command(flatten)]
-    pub target: TargetArgs,
-
-    /// Writers to ensure exist, as `app:<slug>` or `pipeline:<source>`.
-    /// Repeatable.
-    #[arg(long = "writer")]
-    pub writers: Vec<String>,
-}
-
-#[derive(Debug, Args)]
 pub struct DsnArgs {
     /// Org UUID, or the email of a member of it.
     #[arg(long)]
@@ -104,49 +83,12 @@ pub struct DsnArgs {
     pub role: String,
 }
 
-#[derive(Debug, Args)]
-pub struct ExposeArgs {
-    /// Org UUID, or the email of a member of it.
-    #[arg(long)]
-    pub org: String,
-    /// The writer, as `app:<slug>` or `pipeline:<source>`.
-    #[arg(long)]
-    pub writer: String,
-    /// Withdraw analytics access instead of granting it.
-    #[arg(long)]
-    pub revoke: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct DeprovisionArgs {
-    /// Org UUID, or the email of a member of it.
-    #[arg(long)]
-    pub org: String,
-    /// Deprovision a SINGLE writer (`app:<slug>` or `pipeline:<source>`), dropping
-    /// its schema + role and leaving the rest of the tenant intact. This is what
-    /// an app-delete/rename asks for when it refuses. Omit to destroy the whole
-    /// tenant database instead.
-    #[arg(long)]
-    pub writer: Option<String>,
-    /// Required — this is destructive. With `--writer`, it drops that one
-    /// schema and its data. Without it, it destroys the whole provider project,
-    /// which on Neon cannot be undone from here.
-    #[arg(long)]
-    pub yes: bool,
-}
-
 pub async fn oltp(args: OltpArgs) -> Result<(), OxyError> {
     let db = establish_connection().await?;
     match args.command {
-        OltpCommand::Provision(t) => provision(&db, t).await,
         OltpCommand::Apply(t) => apply(&db, t).await,
-        OltpCommand::Status(t) => status(&db, t).await,
-        OltpCommand::Dsn(a) => dsn(&db, a).await,
-        OltpCommand::Connect(a) => connect(&db, a).await,
         OltpCommand::Audit(t) => audit(&db, t).await,
         OltpCommand::Rotate(a) => rotate(&db, a).await,
-        OltpCommand::Expose(a) => expose(&db, a).await,
-        OltpCommand::Deprovision(a) => deprovision(&db, a).await,
     }
 }
 
@@ -264,39 +206,6 @@ async fn resolve_workspace(
     }
 }
 
-async fn provision(db: &DatabaseConnection, args: ProvisionArgs) -> Result<(), OxyError> {
-    let ProvisionArgs { target: t, writers } = args;
-    let org_id = resolve_org(db, &t.org).await?;
-    let p = provisioner(db.clone())?;
-
-    let tenant = p
-        .provision(org_id)
-        .await
-        .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-    println!("✓ database {} on {}", tenant.database_name, tenant.host);
-
-    // The workspace that claims each schema namespace. One database serves an
-    // org; schema definitions compile per workspace, so somebody has to own
-    // each namespace.
-    let workspace = resolve_workspace(db, org_id, t.workspace).await?;
-
-    for spec in &writers {
-        let writer = parse_writer(spec)?;
-        let creds = p
-            .ensure_writer(org_id, &writer, GrantLevel::ReadWrite, Some(workspace.id))
-            .await
-            .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-        println!("✓ writer {writer} → schema {}", creds.schema_name);
-    }
-
-    p.ensure_analyst(org_id)
-        .await
-        .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-    println!("✓ analyst credential");
-    println!("\nNext: oxy compile … && oxy oltp apply --org {}", t.org);
-    Ok(())
-}
-
 async fn apply(db: &DatabaseConnection, t: TargetArgs) -> Result<(), OxyError> {
     let org_id = resolve_org(db, &t.org).await?;
     let tenant = migrator::tenant_for_org(db, org_id)
@@ -321,147 +230,6 @@ async fn apply(db: &DatabaseConnection, t: TargetArgs) -> Result<(), OxyError> {
         }
     }
     Ok(())
-}
-
-/// Print a usable DSN, decrypting the sealed password.
-///
-/// The demo tooling used to build these by hand from `LocalProvider`'s
-/// deterministic passwords, which meant nothing could be verified against a
-/// managed provider — every script silently assumed `pw_<role>` and
-/// `sslmode=disable`. Reading the real credential makes the boundary tests and
-/// `oltp-psql` provider-agnostic, and gives an engineer the connection string
-/// the admin console shows without needing a running server.
-async fn dsn(db: &DatabaseConnection, a: DsnArgs) -> Result<(), OxyError> {
-    let out = resolve_dsn(db, a).await?;
-    // Bare stdout, no decoration: this is meant to be captured into a variable.
-    println!("{out}");
-    Ok(())
-}
-
-async fn resolve_dsn(db: &DatabaseConnection, a: DsnArgs) -> Result<String, OxyError> {
-    let org_id = resolve_org(db, &a.org).await?;
-    let out = if a.role == "owner" {
-        // The owner credential is what runs migrations; useful for verifying a
-        // boundary from the one role that is allowed to cross it.
-        let tenant = migrator::tenant_for_org(db, org_id)
-            .await
-            .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-        migrator::owner_dsn(&tenant).map_err(|e| OxyError::RuntimeError(e.to_string()))?
-    } else if a.role == "analyst" {
-        oxy_oltp::resolver::resolve_analyst_connection_for_org(db, org_id)
-            .await
-            .map_err(|e| OxyError::RuntimeError(e.to_string()))?
-            .dsn()
-    } else {
-        let writer = parse_writer(&a.role)?;
-        oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer)
-            .await
-            .map_err(|e| OxyError::RuntimeError(e.to_string()))?
-            .dsn
-    };
-    Ok(out)
-}
-
-/// `psql` straight into the org's database as `--role`.
-///
-/// Defaults to the analyst, so the reflex action is the read-only one — you
-/// have to ask for a credential that can write. On a managed provider the DSN
-/// carries `sslmode=require`, so this also proves TLS end to end.
-async fn connect(db: &DatabaseConnection, a: DsnArgs) -> Result<(), OxyError> {
-    let role = a.role.clone();
-    let target = resolve_dsn(db, a).await?;
-
-    if which_psql().is_none() {
-        return Err(OxyError::ConfigurationError(
-            "psql is not on PATH — install libpq, or use: oxy oltp dsn --org <org>".into(),
-        ));
-    }
-    eprintln!("connecting as {role} (^D to exit)");
-    // The password goes in the ENVIRONMENT, not argv. A DSN passed as an
-    // argument is world-readable for the life of the session — `ps auxww` shows
-    // every user on the box a working credential for a tenant's database, and
-    // shells log it besides. `PGPASSWORD` is libpq's own answer and is readable
-    // only by the same user (and root) through /proc.
-    let (sanitised, password) = split_password(&target);
-    // exec-style handoff: psql owns the terminal, and its exit code is ours.
-    let mut cmd = std::process::Command::new("psql");
-    cmd.arg(&sanitised);
-    if let Some(pw) = password {
-        cmd.env("PGPASSWORD", pw);
-    }
-    let status = cmd
-        .status()
-        .map_err(|e| OxyError::RuntimeError(format!("could not start psql: {e}")))?;
-    if !status.success() {
-        return Err(OxyError::RuntimeError(format!("psql exited with {status}")));
-    }
-    Ok(())
-}
-
-/// A DSN with its password removed, and the password.
-///
-/// Only the `userinfo` half of a URI is touched: everything else — host, port,
-/// database, and every query parameter, `sslmode` included — is passed through
-/// unchanged, because dropping one of those would silently change how the
-/// connection is made rather than merely how it is spelled.
-///
-/// Returns the DSN untouched and `None` when there is no password to move,
-/// which is the local-cluster case.
-fn split_password(dsn: &str) -> (String, Option<String>) {
-    let Some((scheme, rest)) = dsn.split_once("://") else {
-        return (dsn.to_string(), None);
-    };
-    // The LAST `@` before the path: a password may legally contain one, and
-    // splitting on the first would cut the credential in half and hand psql a
-    // hostname made of the rest of it.
-    let host_start = rest.find('/').unwrap_or(rest.len());
-    let Some(at) = rest[..host_start].rfind('@') else {
-        return (dsn.to_string(), None);
-    };
-    let (userinfo, tail) = rest.split_at(at);
-    let Some((user, password)) = userinfo.split_once(':') else {
-        return (dsn.to_string(), None);
-    };
-    (
-        format!("{scheme}://{user}{tail}"),
-        Some(decode_userinfo(password)),
-    )
-}
-
-/// Percent-decoding for a userinfo field.
-///
-/// The DSN carries the password percent-encoded (`encode_userinfo` puts it
-/// there); `PGPASSWORD` takes the raw bytes, so handing over the encoded form
-/// would authenticate with the wrong string for any password containing a
-/// reserved character — and fail as "password authentication failed", which
-/// reads as a wrong credential rather than a mangled one.
-fn decode_userinfo(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn which_psql() -> Option<()> {
-    std::process::Command::new("psql")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()
-        .filter(|s| s.success())
-        .map(|_| ())
 }
 
 /// What every role in this tenant can actually do, read from the database.
@@ -562,7 +330,7 @@ async fn audit(db: &DatabaseConnection, t: OrgArgs) -> Result<(), OxyError> {
 
     if findings > 0 {
         println!(
-            "\n{findings} role(s) hold authority they should not. Re-run `oxy oltp provision` \
+            "\n{findings} role(s) hold authority they should not. Re-run `oxyc oltp provision` \
              to re-mint them, or `oxy oltp rotate --role <r>` for one."
         );
     } else {
@@ -608,7 +376,7 @@ fn print_grant_findings(report: &[oxy_oltp::grant_audit::RoleFindings]) -> usize
     if drifted > 0 {
         println!(
             "\n{drifted} role(s) hold privileges outside their scope. Revoke each one above \
-             as the owner; `oxy oltp provision` refuses a writer that still holds any (OXY03)."
+             as the owner; `oxyc oltp provision` refuses a writer that still holds any (OXY03)."
         );
     } else {
         println!("\nno role holds privileges outside its scope");
@@ -626,164 +394,6 @@ async fn rotate(db: &DatabaseConnection, a: DsnArgs) -> Result<(), OxyError> {
         .await
         .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
     println!("✓ rotated {} ({})", creds.role_name, creds.schema_name);
-    Ok(())
-}
-
-/// Opt a writer's schema into (or out of) analytics.
-///
-/// `raw_*` is readable by the analyst on creation because ETL data exists to be
-/// analysed; `app_*` is not, because live application state may be bookings or
-/// patient records. This is the only way to change that, and it is deliberately
-/// a separate verb rather than a flag on `provision` — widening who can read a
-/// tenant's application data should be its own decision with its own audit line.
-async fn expose(db: &DatabaseConnection, a: ExposeArgs) -> Result<(), OxyError> {
-    let org_id = resolve_org(db, &a.org).await?;
-    let writer = parse_writer(&a.writer)?;
-    let p = provisioner(db.clone())?;
-    p.set_analytics_visibility(org_id, &writer, !a.revoke)
-        .await
-        .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-    println!(
-        "✓ {} is {} the read-only analyst",
-        writer.schema_name(),
-        if a.revoke {
-            "hidden from"
-        } else {
-            "readable by"
-        }
-    );
-    Ok(())
-}
-
-/// Destroy the org's database at the provider and forget it locally.
-///
-/// Deleting an org already does this (`org_handlers`), so this is for the case
-/// the org survives and its database should not — a demo tenant, a mis-created
-/// one, or an orphan whose local row was lost and re-created.
-///
-/// Requires `--yes`: every other verb here is idempotent and safe to re-run,
-/// and this one is neither.
-async fn deprovision(db: &DatabaseConnection, a: DeprovisionArgs) -> Result<(), OxyError> {
-    let org_id = resolve_org(db, &a.org).await?;
-    let tenant = migrator::tenant_for_org(db, org_id).await.ok();
-
-    let Some(tenant) = tenant else {
-        println!("no OLTP database for org {org_id} — nothing to do");
-        return Ok(());
-    };
-
-    // Per-writer: drop ONE app/pipeline's schema + role, leaving the tenant. This
-    // is the verb the app-delete/rename guard points an operator at.
-    if let Some(spec) = &a.writer {
-        let writer = parse_writer(spec)?;
-        if !a.yes {
-            // Host, not just database — on a fleet with more than one cluster
-            // reachable it is the line that says you are pointed at the right one.
-            println!(
-                "This DROPS schema {} and all its data in {} on {} ({})",
-                writer.schema_name(),
-                tenant.database_name,
-                tenant.host,
-                tenant.provider
-            );
-            println!("\nRe-run with --yes to proceed.");
-            return Err(OxyError::ConfigurationError("refused without --yes".into()));
-        }
-        let p = provisioner(db.clone())?;
-        p.deprovision_writer(org_id, &writer)
-            .await
-            .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-        println!(
-            "✓ deprovisioned writer {writer} (schema {})",
-            writer.schema_name()
-        );
-        return Ok(());
-    }
-
-    if !a.yes {
-        println!("This DESTROYS {} on {}", tenant.database_name, tenant.host);
-        println!("  provider: {}", tenant.provider);
-        if tenant.provider != "local" {
-            println!("  the provider project is deleted and cannot be recovered from here");
-        }
-        println!("\nRe-run with --yes to proceed.");
-        return Err(OxyError::ConfigurationError("refused without --yes".into()));
-    }
-
-    let p = provisioner(db.clone())?;
-    p.deprovision(org_id)
-        .await
-        .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
-    println!(
-        "✓ deprovisioned {} ({})",
-        tenant.database_name, tenant.provider
-    );
-    Ok(())
-}
-
-async fn status(db: &DatabaseConnection, t: OrgArgs) -> Result<(), OxyError> {
-    let org_id = resolve_org(db, &t.org).await?;
-    match migrator::tenant_for_org(db, org_id).await {
-        Err(_) => {
-            println!("no OLTP database for org {org_id}");
-            println!("  run: oxy oltp provision --org {}", t.org);
-        }
-        Ok(tenant) => {
-            println!("database  {}", tenant.database_name);
-            println!("host      {}", tenant.host);
-            println!("provider  {}", tenant.provider);
-            // `oltp_tenants.pg_version` was written by provisioning and read by
-            // nothing, so a tenant left on an older major than the one Oxy now
-            // provisions was invisible everywhere — the record existed and no
-            // surface showed it.
-            // The drift note is for MANAGED providers only. There the default
-            // is what Oxy requests, so a row below it names a real action. On
-            // `local` the row holds the cluster's OWN major and the requested
-            // version is not honoured at all, so a developer on 17 would get a
-            // permanent note pointing at something they cannot do.
-            // `differs`, not `behind`: this is `!=`, so it is also true for a
-            // tenant AHEAD of the default. The rendered text survives that; the
-            // name should not claim a comparison it does not make.
-            let differs =
-                u8::try_from(tenant.pg_version).ok() != Some(oxy_oltp::config::DEFAULT_PG_VERSION);
-            println!(
-                "pg        {}{}",
-                tenant.pg_version,
-                if differs && tenant.provider != "local" {
-                    format!(
-                        " (provisioning now uses {})",
-                        oxy_oltp::config::DEFAULT_PG_VERSION
-                    )
-                } else {
-                    String::new()
-                }
-            );
-            println!("status    {}", tenant.status.as_str());
-            println!(
-                "platform  v{}/{}",
-                tenant.platform_schema_version,
-                oxy_oltp::platform::PLATFORM_SCHEMA_VERSION
-            );
-            println!(
-                "analyst   {}",
-                if tenant.analyst_password_ciphertext.is_some() {
-                    "ready"
-                } else {
-                    "NOT MINTED — postgres_managed cannot resolve"
-                }
-            );
-
-            let roles = oxy_oltp::entity::roles::Entity::find()
-                .filter(oxy_oltp::entity::roles::Column::TenantRowId.eq(tenant.id))
-                .all(db)
-                .await
-                .map_err(|e| OxyError::DBError(e.to_string()))?;
-            println!("\nschemas");
-            for r in roles {
-                println!("  {:<24} {}", r.schema_name, r.role_name);
-            }
-        }
-    }
     Ok(())
 }
 
@@ -809,81 +419,4 @@ async fn latest_ready_revision(
                 "workspace has no successful compile — run `oxy compile` first".into(),
             )
         })
-}
-
-#[cfg(test)]
-mod connect_tests {
-    use super::{decode_userinfo, split_password};
-
-    /// The password must not survive into the argument vector: `ps auxww` is
-    /// world-readable, so a DSN passed as an argument hands every user on the
-    /// box a working credential for a tenant's database.
-    #[test]
-    fn the_password_leaves_the_dsn() {
-        let (dsn, pw) =
-            split_password("postgresql://app_bookings_rw:s3cret@db.neon.tech/oxy_org_x");
-        assert_eq!(dsn, "postgresql://app_bookings_rw@db.neon.tech/oxy_org_x");
-        assert_eq!(pw.as_deref(), Some("s3cret"));
-        assert!(!dsn.contains("s3cret"));
-    }
-
-    /// Everything that decides HOW the connection is made has to survive, or
-    /// sanitising the DSN would quietly change the connection rather than its
-    /// spelling. `sslmode` is the one that matters most.
-    #[test]
-    fn every_other_part_of_the_dsn_survives() {
-        let (dsn, _) = split_password(
-            "postgresql://u:p@db.neon.tech:5433/oxy_org_x?sslmode=require&options=-csearch_path%3Dapp_x",
-        );
-        assert_eq!(
-            dsn,
-            "postgresql://u@db.neon.tech:5433/oxy_org_x?sslmode=require&options=-csearch_path%3Dapp_x"
-        );
-    }
-
-    /// A **literal** `@` in the password must not split the host.
-    ///
-    /// Oxy's own DSNs percent-encode the userinfo, so this shape only arrives
-    /// from a hand-written `--dsn`. That is exactly why it is tested with a raw
-    /// `@`: the encoded form `pa%40ss` contains no literal `@` at all, so it
-    /// passes whether the split takes the first separator or the last, and an
-    /// earlier version of this test used it — proving nothing about the
-    /// behaviour its name describes.
-    #[test]
-    fn a_literal_at_sign_in_the_password_does_not_split_the_host() {
-        let (dsn, pw) = split_password("postgresql://u:pa@ss@host/db");
-        assert_eq!(dsn, "postgresql://u@host/db");
-        assert_eq!(pw.as_deref(), Some("pa@ss"));
-    }
-
-    /// The encoded form is the one Oxy actually produces, and it must decode.
-    #[test]
-    fn an_encoded_at_sign_round_trips() {
-        let (dsn, pw) = split_password("postgresql://u:pa%40ss@host/db");
-        assert_eq!(dsn, "postgresql://u@host/db");
-        assert_eq!(pw.as_deref(), Some("pa@ss"));
-    }
-
-    /// The DSN carries the password percent-encoded; `PGPASSWORD` takes raw
-    /// bytes. Handing over the encoded form fails as "password authentication
-    /// failed", which reads as a wrong credential rather than a mangled one.
-    #[test]
-    fn the_password_is_decoded_on_the_way_out() {
-        assert_eq!(decode_userinfo("a%2Fb%3Ac%40d"), "a/b:c@d");
-        assert_eq!(decode_userinfo("plain"), "plain");
-        // A stray `%` is not an escape; it must survive rather than eat bytes.
-        assert_eq!(decode_userinfo("100%"), "100%");
-    }
-
-    /// A local cluster DSN has no password to move.
-    #[test]
-    fn a_dsn_without_a_password_is_passed_through() {
-        for dsn in [
-            "postgresql://postgres@localhost:5432/oxy_org_x",
-            "postgresql://localhost/oxy_org_x",
-            "not-a-url",
-        ] {
-            assert_eq!(split_password(dsn), (dsn.to_string(), None), "{dsn}");
-        }
-    }
 }

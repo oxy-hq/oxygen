@@ -461,12 +461,13 @@ pub struct DeprovisionWriterRequest {
 /// [`OltpProvisioner::deprovision_writer`] has always been the escape hatch the
 /// app-delete and app-rename guards point at — its own doc says it is "what
 /// makes the app-delete and rename guards actionable". But its only caller was
-/// `oxy oltp deprovision --writer`, and that subcommand has no `--env`: it
-/// reads `OXY_DATABASE_URL` and talks to the LOCAL control plane. So on every
+/// `oxy oltp deprovision --writer`, and that subcommand had no `--env`: it
+/// read `OXY_DATABASE_URL` and talked to the LOCAL control plane. So on every
 /// cloud environment the guard refused an app delete, named a remedy, and the
 /// remedy could not reach the environment that refused. The only route that
 /// could was `DELETE /oltp`, which destroys the whole tenant database and every
-/// other app's data with it.
+/// other app's data with it. (That subcommand is deleted; `oxyc oltp
+/// deprovision --writer` is a client of this route.)
 ///
 /// That is the shape of a guard that reads as correct and functions as a dead
 /// end. This is the door.

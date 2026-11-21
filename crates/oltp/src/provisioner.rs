@@ -436,7 +436,7 @@ impl OltpProvisioner {
             // `pg_version` is the provider's live answer, and until now it was
             // discarded — the row was stamped once at creation and never
             // re-read, so a cluster upgraded under an existing tenant could
-            // never show up. That is the one drift `oxy oltp status`'s pg line
+            // never show up. That is the one drift the old `oxy oltp status` pg line
             // exists for, and on the local provider it was the only kind
             // possible.
             return self.mark_active(local, &remote).await;

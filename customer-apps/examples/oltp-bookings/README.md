@@ -40,7 +40,7 @@ and every `ctx.oltp` call is rejected before any connection is opened.
    hyphens as underscores):
 
    ```sh
-   oxy oltp provision --org <org> --writer app:oltp_bookings
+   oxyc oltp provision --org <org> --writer app:oltp_bookings
    ```
 
 2. **Publish the app:**
@@ -98,7 +98,7 @@ capability declares the kind, which is what a person can mute:
 ```
 
 The notification's content is kept in the org's OLTP store, so the same
-`oxy oltp provision` step above covers it. A role nobody holds comes back in the
+`oxyc oltp provision` step above covers it. A role nobody holds comes back in the
 response's `skipped` instead of failing the booking. Full reference:
 `internal-docs/customer-apps-functions.md` (`ctx.notify`).
 

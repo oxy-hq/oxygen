@@ -28,8 +28,12 @@ denial against a real Postgres.
 
 ## Set it up by hand
 
-Everything is `oxy oltp <verb>`; there is no demo script. Start the stack the
-normal way (`oxy start --enterprise`) and point at the local provider:
+There is no demo script: the verbs are `oxyc oltp` (over the running server's
+admin routes, so they need `oxyc login` or `OXY_TOKEN` and `--env`/`--target`)
+plus the Rust `oxy oltp apply | audit | rotate`, which still read
+`OXY_DATABASE_URL` directly. `--org` takes a slug or UUID for `oxyc`, and a UUID
+or a member's email for `oxy`. Start the stack the normal way
+(`oxy start --enterprise`) and point at the local provider:
 
 ```bash
 export OXY_OLTP_PROVIDER=local
@@ -38,24 +42,24 @@ export OXY_OLTP_ADMIN_URL="$OXY_DATABASE_URL"   # neon: OXY_OLTP_NEON_API_KEY + 
 
 The provider vars are all of it. Per-org OLTP is always on — there is no
 runtime flag — so once a provider is configured the server side (the console
-Provision button, `postgres_managed` queries) and the `oxy oltp` CLI verbs below
-both work.
+Provision button, `postgres_managed` queries) and the CLI verbs below both
+work.
 
 ```bash
 # 1. a database, its writers and the analyst credential (idempotent)
-oxy oltp provision --org you@oxy.tech --writer app:bookings --writer pipeline:toast
+oxyc oltp provision --target http://localhost:3000 --org <org-slug> --writer app:bookings --writer pipeline:toast
 
 # 2. compile the workspace, then apply the schemas it carries
 oxy compile --workspace-path "$PWD/examples" --workspace-id <ws> --skip-migrations
 oxy oltp apply --org you@oxy.tech
 
 # 3. `raw_*` is analyst-readable on creation; `app_*` is opt-in
-oxy oltp expose --org you@oxy.tech --writer app:bookings
+oxyc oltp expose --target http://localhost:3000 --org <org-slug> --writer app:bookings
 
 # 4. look around
-oxy oltp status  --org you@oxy.tech
-oxy oltp audit   --org you@oxy.tech     # every role's real authority, read from pg_roles
-oxy oltp connect --org you@oxy.tech     # psql as the read-only analyst
+oxyc oltp status  --target http://localhost:3000 --org <org-slug>
+oxy oltp audit    --org you@oxy.tech    # every role's real authority, read from pg_roles
+oxyc oltp connect --target http://localhost:3000 --org <org-slug>   # psql as the read-only analyst
 ```
 
 Or from the admin console: **Admin → OLTP databases** provisions, exposes and

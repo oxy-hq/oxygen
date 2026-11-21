@@ -798,21 +798,29 @@ release-checks-setup *FLAGS:
 # Docs: scripts/oltp/README.md · Design + ops:
 # internal-docs/per-org-oltp-postgres.md
 
-# ROLE is one of: analyst (read-only) | app | pipeline | owner.
-# Open psql against the demo database as one of the provisioned roles.
+# ROLE is one of: analyst (read-only) | app | pipeline. Goes through
+# `oxyc oltp connect` (the admin credentials route, audited), so it needs the
+# server up at OXY_TARGET (default http://localhost:3000), `oxyc login` for it
+# or OXY_TOKEN, and OLTP_ORG set to the org's slug or UUID. There is no owner
+# role: no route hands out the migration owner's credential.
+# Open psql against the org's OLTP database as one of the provisioned roles.
 oltp-psql ROLE="analyst":
     #!/usr/bin/env bash
     set -euo pipefail
-    ctl="postgresql://postgres:postgres@localhost:15432/oxy"
-    db="$(psql "$ctl" -tAc "SELECT database_name FROM oltp_tenants LIMIT 1")"
+    TARGET="${OXY_TARGET:-http://localhost:3000}"
+    if [ ! -f "sdk/cli/dist/main.mjs" ]; then
+      echo "sdk/cli/dist/main.mjs missing — run 'pnpm --dir sdk/cli build' first" >&2
+      exit 1
+    fi
+    org="${OLTP_ORG:?set OLTP_ORG to the org slug or UUID}"
     case "{{ ROLE }}" in
-      analyst)  dsn="$(./target/debug/oxy oltp dsn --org ${OLTP_ORG:-luong@oxy.tech} --role analyst)" ;;
-      app)      dsn="$(./target/debug/oxy oltp dsn --org ${OLTP_ORG:-luong@oxy.tech} --role app:bookings)" ;;
-      pipeline) dsn="$(./target/debug/oxy oltp dsn --org ${OLTP_ORG:-luong@oxy.tech} --role pipeline:toast)" ;;
-      owner)    dsn="$(./target/debug/oxy oltp dsn --org ${OLTP_ORG:-luong@oxy.tech} --role owner)" ;;
-      *) echo "unknown role '{{ ROLE }}' — try: analyst | app | pipeline | owner" >&2; exit 1 ;;
+      analyst)  role="analyst" ;;
+      app)      role="app:bookings" ;;
+      pipeline) role="pipeline:toast" ;;
+      owner) echo "no route hands out the owner credential — try: analyst | app | pipeline" >&2; exit 1 ;;
+      *) echo "unknown role '{{ ROLE }}' — try: analyst | app | pipeline" >&2; exit 1 ;;
     esac
-    psql "$dsn"
+    exec node sdk/cli/dist/main.mjs oltp connect --target "$TARGET" --org "$org" --role "$role"
 
 # Deliberately NOT `oxy start`'s :15432: that cluster holds the control plane
 # and, since `oxy start` defaults per-org OLTP to local, tenant databases too —

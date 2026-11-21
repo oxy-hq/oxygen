@@ -6,7 +6,7 @@
 #
 # Provision the writer before running this:
 #
-#   oxy oltp provision --org you@oxy.tech --writer pipeline:toast
+#   oxyc oltp provision --org <org-slug> --writer pipeline:toast
 #
 # `dataset_name` is NOT free-form here. It names the writer, so the credential
 # this pipeline is handed is `raw_toast_rw` and the schema it can write is

@@ -43,7 +43,7 @@ pub enum ResolveError {
     // wording was wrong for the pipeline half of the same error.
     #[error(
         "org {org_id} has no provisioned writer for {writer}. \
-         Run: oxy oltp provision --org {org_id} --writer {writer}"
+         Run: oxyc oltp provision --org {org_id} --writer {writer}"
     )]
     WriterNotProvisioned { org_id: Uuid, writer: String },
     #[error("database error: {0}")]
@@ -188,8 +188,8 @@ pub struct AnalystConnection {
     pub password: String,
     /// `disable` locally, `require` on a managed provider.
     ///
-    /// Carried rather than derived by the caller: this DSN is what `oxy oltp
-    /// connect`, `oxy oltp dsn --role analyst` and the console's connection
+    /// Carried rather than derived by the caller: this DSN is what `oxyc oltp
+    /// connect`, `oxyc oltp dsn --role analyst` and the console's connection
     /// panel hand an operator, and it omitted `sslmode` entirely — libpq
     /// defaults to `prefer`, which downgrades to plaintext without saying so.
     /// Against Neon that is a credential crossing the public internet in the
@@ -550,7 +550,7 @@ mod tests {
         assert!(e.to_string().contains("app:bookings"), "got {e}");
         assert!(
             e.to_string()
-                .contains("oxy oltp provision --org 00000000-0000-0000-0000-000000000000 --writer app:bookings"),
+                .contains("oxyc oltp provision --org 00000000-0000-0000-0000-000000000000 --writer app:bookings"),
             "got {e}"
         );
     }
@@ -591,7 +591,7 @@ mod tests {
             "a resolve must never yield a writer"
         );
     }
-    /// The analyst DSN is what `oxy oltp connect`, `oxy oltp dsn` and the admin
+    /// The analyst DSN is what `oxyc oltp connect`, `oxyc oltp dsn` and the admin
     /// console hand an operator. It carried no `sslmode` at all, so libpq used
     /// `prefer` — which downgrades to plaintext without saying so, i.e. a
     /// credential in the clear against a managed provider.

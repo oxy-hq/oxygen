@@ -758,8 +758,8 @@ async fn a_database_left_without_its_row_is_adopted_not_collided_with() {
 /// The row is written once at creation, and `mark_active`'s early return used
 /// to cover status alone — so an Active tenant never had the column re-read and
 /// a cluster upgraded underneath it could not be noticed. On the local provider
-/// that is the only kind of drift possible, and `oxy oltp status` deliberately
-/// suppresses its drift note there (the requested version is not honoured), so
+/// that is the only kind of drift possible, and the old `oxy oltp status` deliberately
+/// suppressed its drift note there (the requested version is not honoured), so
 /// nothing else could ever have said so.
 ///
 /// Fails against the version where the status check came first, which is the

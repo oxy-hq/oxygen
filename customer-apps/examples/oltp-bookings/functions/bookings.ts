@@ -16,7 +16,7 @@
 //
 // PREREQUISITE — the org operator provisions the store once, before publishing.
 // The writer name matches the app slug with hyphens as underscores:
-//   oxy oltp provision --org <org> --writer app:oltp_bookings
+//   oxyc oltp provision --org <org> --writer app:oltp_bookings
 // That mints the `app_oltp_bookings_rw` role and its schema. `ctx.oltp` then
 // resolves it on each call (no provider round-trip — the sealed credential is
 // read from Oxy's control plane).

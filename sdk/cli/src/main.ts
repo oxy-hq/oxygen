@@ -77,6 +77,12 @@ import { runLogs } from "./commands/logs.js";
 import { followTimeout, runLogsFollow } from "./commands/logs-follow.js";
 import { runMigrateAutomations } from "./commands/migrate-automations.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
+import {
+  runOltpConnect,
+  runOltpDeprovision,
+  runOltpDsn,
+  runOltpExpose
+} from "./commands/oltp-access.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
 import {
   runPreviewChecks,
@@ -452,7 +458,7 @@ function buildProgram(): Command {
   const oltp = program
     .command("oltp")
     .description(
-      "an org's OLTP database (ctx.oltp) — status, provisioning and its staging branch, for staff"
+      "an org's OLTP database (ctx.oltp) — status, provisioning, credentials, analytics exposure, deprovisioning and its staging branch, for staff"
     );
 
   withGlobals(
@@ -505,6 +511,71 @@ function buildProgram(): Command {
   ).action(async (opts: Record<string, unknown>) => {
     await runOltpReset(createContext(globals(opts)), opts.org as string | undefined, {
       branch: opts.branch as string | undefined,
+      yes: opts.yes as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    oltp
+      .command("dsn")
+      .description("print a connection string for a role — a disclosure, audited on the server")
+      .option(
+        "--role <analyst|app:slug|pipeline:source>",
+        "analyst (read-only, the default) or a writer (a live WRITE credential)"
+      )
+      .option("--json", "emit the server's response: {role, dsn, writable}")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpDsn(createContext(globals(opts)), opts.org as string | undefined, {
+      role: opts.role as string | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    oltp
+      .command("connect")
+      .description("open the local psql against the org's database — debugging, not routine access")
+      .option(
+        "--role <analyst|app:slug|pipeline:source>",
+        "analyst (read-only, the default) or a writer (a live WRITE credential)"
+      )
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpConnect(createContext(globals(opts)), opts.org as string | undefined, {
+      role: opts.role as string | undefined
+    });
+  });
+
+  withGlobals(
+    oltp
+      .command("expose")
+      .description("let the read-only analyst read a writer's schema, or withdraw it with --revoke")
+      .option("--writer <app:slug|pipeline:source>", "the writer whose schema to expose (required)")
+      .option("--revoke", "withdraw analytics access instead of granting it")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpExpose(createContext(globals(opts)), opts.org as string | undefined, {
+      writer: opts.writer as string | undefined,
+      revoke: opts.revoke as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    oltp
+      .command("deprovision")
+      .description(
+        "drop one writer's schema (--writer), or destroy the org's whole database — irreversible"
+      )
+      .option(
+        "--writer <app:slug|pipeline:source>",
+        "drop only this writer's schema and role; omit to destroy the whole database"
+      )
+      .option("--yes", "required: without it the plan is printed and the command exits 8")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpDeprovision(createContext(globals(opts)), opts.org as string | undefined, {
+      writer: opts.writer as string | undefined,
       yes: opts.yes as boolean | undefined,
       json: opts.json as boolean | undefined
     });

@@ -418,14 +418,14 @@ impl From<PromoteError> for AppOpError {
 /// a route that answers 403 — a narrower recurrence of the same defect this
 /// message exists to fix.
 ///
-/// It names the HTTP route FIRST and the CLI second, and that order is the
-/// point. `oxy oltp deprovision --writer` has no `--env`: it reads
-/// `OXY_DATABASE_URL` and talks to the local control plane. So for every
-/// operator who hits this guard on a cloud environment — which is every
-/// operator who hits it in production — the CLI command cannot reach the
-/// environment that refused them, and the only route that could was the
-/// whole-tenant `DELETE /oltp`. Naming a remedy that cannot be performed is
-/// worse than naming none: it costs the reader the time to find out.
+/// It names the HTTP route FIRST and the CLI second. The CLI used to be the
+/// Rust `oxy oltp deprovision --writer`, which had no `--env`: it read
+/// `OXY_DATABASE_URL` and talked to the local control plane, so for every
+/// operator who hit this guard on a cloud environment the named command could
+/// not reach the environment that refused them. It is now
+/// `oxyc oltp deprovision --writer`, a client of this same route that takes
+/// `--env`, so the message names it as the terminal form of the route rather
+/// than as a dead end.
 pub(super) fn oltp_store_blocks_message(
     action: &str,
     org_id: Uuid,
@@ -441,9 +441,8 @@ pub(super) fn oltp_store_blocks_message(
          \n\
          That route needs platform-OLTP standing, which this console does not imply: an App \
          Operator can delete apps and cannot deprovision a store, so ask someone holding it. \
-         Against a remote environment that route is still the ONLY way — \
-         `oxy oltp deprovision --org {org_id} --writer {writer} --yes` has no `--env` and acts \
-         on the local control plane."
+         From a terminal the same route is \
+         `oxyc oltp deprovision --env <env> --org {org_id} --writer {writer} --yes`."
     )
 }
 
@@ -958,11 +957,12 @@ mod oltp_guard_message_tests {
 
     /// The guard must name a remedy the reader can actually perform.
     ///
-    /// This started as a CLI-only message, and `oxy oltp deprovision --writer`
-    /// has no `--env`: it reads `OXY_DATABASE_URL` and acts on the local control
-    /// plane. So every operator who hit this guard against a cloud environment
-    /// was handed a command that could not reach the environment that refused
-    /// them, and the only route that could was the whole-tenant `DELETE /oltp`.
+    /// This started as a CLI-only message, and the Rust `oxy oltp deprovision
+    /// --writer` it named had no `--env`: it read `OXY_DATABASE_URL` and acted on
+    /// the local control plane. So every operator who hit this guard against a
+    /// cloud environment was handed a command that could not reach the
+    /// environment that refused them. That command is deleted; its replacement,
+    /// `oxyc oltp deprovision`, is a client of the route and takes `--env`.
     ///
     /// Asserted rather than reviewed because the failure is invisible: the
     /// message still reads as helpful, and you only discover it is not by
@@ -981,18 +981,22 @@ mod oltp_guard_message_tests {
             "must name the DERIVED writer, not the raw slug: {msg}"
         );
 
-        // Order matters, not just presence. The CLI is mentioned to say it is
-        // local-only; leading with it is what sent people down the dead end.
+        // Order matters, not just presence: the route is the remedy, the CLI
+        // is its terminal spelling.
         let cli = msg
-            .find("oxy oltp deprovision")
-            .expect("should still mention the CLI");
+            .find("oxyc oltp deprovision")
+            .expect("should name the oxyc client of the route");
         assert!(
             route < cli,
             "the route must come before the CLI mention: {msg}"
         );
         assert!(
-            msg.contains("no `--env`"),
-            "must say WHY the CLI is not the answer remotely: {msg}"
+            msg.contains("--env <env>") && msg.contains("--writer app:store_ops --yes"),
+            "the CLI line must reach a remote environment and drop only this writer: {msg}"
+        );
+        assert!(
+            !msg.contains("`oxy oltp deprovision"),
+            "must not name the deleted Rust command, which cannot reach a remote environment: {msg}"
         );
         // The two doors differ: this console is `Action::PlatformApps`, the
         // route is `Action::PlatformOltp`, and an App Operator holds the first

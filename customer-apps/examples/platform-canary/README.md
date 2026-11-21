@@ -472,8 +472,8 @@ oxyc5 checks run oxy-canary/platform-canary --env $ENV
 ```
 
 The route is what `oxyc oltp provision` (0.5.0) and the admin console call.
-The Rust `oxy oltp provision` works too, but only from a shell on a server:
-it reads that machine's `OXY_DATABASE_URL`.
+(The Rust `oxy oltp provision`, which read a server's `OXY_DATABASE_URL`, is
+deleted.)
 
 **5. `shape_zoo`, then unset.** Staging first again: it runs 25.3.6, the
 oldest server the zoo's `JSON` columns accept. Prod runs 25.8. One zoo run
@@ -647,9 +647,8 @@ checkpoint 1 runs the canary on pull requests.
     --input - <<<'{"writers":["app:platform_canary"]}'
   ```
 
-  From a shell on a server, `oxy oltp provision --org <org-uuid> --writer
-  app:platform_canary` does the same. `--org` takes the org's UUID, or the
-  email of a user in exactly one org, but never a slug. Either one mints the
+  `oxyc oltp provision --env <env> --org <slug|uuid> --writer
+  app:platform_canary` does the same through that route. Either one mints the
   `app_platform_canary_rw` role and its schema. Nothing else gates it: per-org
   OLTP is always on.
 - [ ] **A place.** Add one location under Settings → Organization. `org_read`

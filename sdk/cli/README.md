@@ -690,10 +690,32 @@ oxyc oltp status [--org <slug|uuid|url>] [--json]
 oxyc oltp provision --org <slug|uuid|url> --writer app:<slug> [--writer pipeline:<source> …] [--yes] [--json]
 oxyc oltp provision --org <slug|uuid|url> --branch staging [--yes] [--json]
 oxyc oltp reset --org <slug|uuid|url> --branch staging [--yes] [--json]
+oxyc oltp dsn --org <slug|uuid|url> [--role analyst|app:<slug>|pipeline:<source>] [--json]
+oxyc oltp connect --org <slug|uuid|url> [--role analyst|app:<slug>|pipeline:<source>]
+oxyc oltp expose --org <slug|uuid|url> --writer app:<slug>|pipeline:<source> [--revoke] [--json]
+oxyc oltp deprovision --org <slug|uuid|url> [--writer app:<slug>|pipeline:<source>] --yes [--json]
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
-that org's store and writers. No credential is ever printed.
+that org's store and writers. `status`, `provision` and `reset` never print a
+credential.
+
+`dsn` prints a connection string, bare on stdout so a script can capture it
+(`--json` gives `{role, dsn, writable}`). `connect` runs the local `psql` with
+it, passing the password in `PGPASSWORD` rather than on the command line, and
+exits `1` if `psql` fails (`7` if `psql` is not installed). Both default to the
+read-only `analyst`; a writer role is a live write credential to one schema.
+Each disclosure is audited on the server. There is no `--role owner`: the
+migration owner's credential is not handed out.
+
+`expose` lets the read-only analyst read a writer's schema (`app_*` is hidden
+by default, `raw_*` visible); `--revoke` withdraws it.
+
+`deprovision --writer` drops one writer's schema, role and data and leaves the
+rest of the database; without `--writer` it destroys the org's whole database
+at the provider. Both are irreversible, so both print what they would destroy
+and exit `8` unless `--yes` is given; there is no prompt. An org with no
+database is a no-op that exits `0`.
 
 `provision` prints what it will create and asks first, because it calls a paid
 provider; without a terminal it refuses unless `--yes`. It is idempotent — an

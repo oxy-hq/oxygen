@@ -2,9 +2,9 @@
  * `oxyc oltp status | provision | reset` — an org's OLTP database, from a laptop.
  *
  * A thin client over the admin console's routes, so staff can see and request
- * provisioning without a shell on the server. The Rust `oxy oltp` reads
- * `OXY_DATABASE_URL` and has no `--env`: it only reaches the control plane of
- * the machine it runs on.
+ * provisioning without a shell on the server. It replaced the Rust
+ * `oxy oltp status | provision`, which read `OXY_DATABASE_URL` and had no
+ * `--env`. Credentials, exposure and deprovisioning are `oltp-access.ts`.
  *
  *   GET  /api/admin/oltp                                  every org, with a database or without
  *   GET  /api/admin/orgs/{org_id}/oltp                    one org's store and writers

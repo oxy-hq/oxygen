@@ -134,7 +134,7 @@ impl ProjectContext for OxyProjectContext {
                                 db_name,
                                 dataset_name,
                                 "airway: no OLTP writer for this source — provision it with \
-                         `oxy oltp provision --org <org> --writer pipeline:{dataset_name}`: {e}"
+                         `oxyc oltp provision --org <org> --writer pipeline:{dataset_name}`: {e}"
                             );
                         })
                         .ok()?;
