@@ -378,7 +378,7 @@ if ! wet; then
   printf '  [dry-run] bash scripts/seed-observability.sh\n'
   printf '  [dry-run] OXY_BASE_URL=%s bash scripts/seed-fixtures.sh native\n' "$OBS_URL"
   printf '  as %-14s ' flow@oxy.local
-  flow_run observability-clusters observability-execution-analytics \
+  flow_run observability-execution-analytics \
     observability-metrics observability-traces --no-auto-backend
 elif bash scripts/seed-observability.sh > "$LOG_DIR/obs-seed.log" 2>&1; then
   ok "ClickHouse up and seeded"
@@ -396,7 +396,7 @@ elif bash scripts/seed-observability.sh > "$LOG_DIR/obs-seed.log" 2>&1; then
   if OXY_BASE_URL="$OBS_URL" OXY_HEALTH_URL="$OBS_URL/api/health" \
      OXY_SESSION_TOKEN="$OTOK" OXY_SESSION_USER="$OUSR" \
      OXY_FIXTURE_WORKSPACE="$WS" OXY_PATH_PREFIX="/local/workspaces/$WS" \
-     flow_run observability-clusters observability-execution-analytics \
+     flow_run observability-execution-analytics \
        observability-metrics observability-traces --no-auto-backend \
        > "$LOG_DIR/b-obs.log" 2>&1; then
     record "B: observability flows" PASS "$(cases_line "$LOG_DIR/b-obs.log")"

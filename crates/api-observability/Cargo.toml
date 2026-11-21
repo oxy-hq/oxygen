@@ -46,11 +46,6 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 uuid = { workspace = true }
-# The cluster map's 2-D projection (PCA over intent embeddings). Moved here from
-# oxy-app with `traces.rs`, their only user.
-linfa = { workspace = true }
-linfa-reduction = { workspace = true }
-ndarray = { workspace = true, features = ["rayon"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]

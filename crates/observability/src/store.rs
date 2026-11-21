@@ -16,12 +16,11 @@ use oxy_shared::errors::OxyError;
 
 use crate::scope::WorkspaceScope;
 use crate::types::{
-    AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
-    ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
-    ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
-    LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData, MetricDetailData,
-    MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals, OrgAppTraffic, SpanRecord,
-    TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, CustomAppClientErrorRecord,
+    CustomAppEventRecord, CustomAppLogRecord, ExecutionListData, ExecutionSummaryData,
+    ExecutionTimeBucketData, FunctionLogRow, LatencyHistogramData, LatencyPercentilesData,
+    MetricAnalyticsData, MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData,
+    OrgAppTotals, OrgAppTraffic, SpanRecord, TraceDetailRow, TraceRow,
 };
 
 /// Abstraction over an observability storage backend.
@@ -78,26 +77,6 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         scope: &WorkspaceScope,
         trace_id: &str,
     ) -> Result<Vec<TraceDetailRow>, OxyError>;
-
-    /// Get embeddings with classification data for cluster map visualization,
-    /// for questions asked in `scope`.
-    async fn get_cluster_map_data(
-        &self,
-        scope: &WorkspaceScope,
-        days: u32,
-        limit: usize,
-        source: Option<&str>,
-    ) -> Result<Vec<ClusterMapDataRow>, OxyError>;
-
-    async fn get_cluster_infos(&self) -> Result<Vec<ClusterInfoRow>, OxyError>;
-
-    /// Get trace enrichment data (status, duration) for those of `trace_ids`
-    /// that are `scope`'s.
-    async fn get_trace_enrichments(
-        &self,
-        scope: &WorkspaceScope,
-        trace_ids: &[String],
-    ) -> Result<Vec<TraceEnrichmentRow>, OxyError>;
 
     // ── Metrics ───────────────────────────────────────────────────────────
 

@@ -5,8 +5,8 @@
 # THE "Recent Executions" ASSERTION IS EXPECTED TO FAIL against the
 # current build — read before weakening it back to green.
 # -----------------------------------------------------------------------
-# Third instance of the same root cause documented in
-# `observability-clusters.flow.test.yml` and
+# Third instance of the same root cause documented in the cluster map's
+# flow (deleted 2026-11-21 with the page) and
 # `observability-metrics.flow.test.yml` (case 2): a query builds its
 # WHERE clause against a bare, unqualified timestamp column, then aliases
 # `iso_utc(col) AS col` in the SELECT list, and ClickHouse's alias
@@ -104,7 +104,7 @@ cases:
       # settles false — up to ~7-8s of exponential backoff, with the
       # network genuinely idle in the gaps between attempts. Wait on the
       # card's own terminal empty-state text rather than `network_idle`,
-      # same rationale as observability-clusters.flow.test.yml.
+      # which reads idle in those gaps.
       - wait_for: "selector:text=No executions found matching the current filters;timeout_ms=20000"
 
     expect:

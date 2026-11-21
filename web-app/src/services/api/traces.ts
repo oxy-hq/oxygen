@@ -67,35 +67,6 @@ export interface TraceDetail {
   end_time: string;
 }
 
-export interface ClusterMapPoint {
-  traceId: string;
-  question: string;
-  x: number;
-  y: number;
-  clusterId: number;
-  intentName: string;
-  confidence: number;
-  timestamp: string;
-  durationMs?: number;
-  status?: "ok" | "error" | "unset";
-}
-
-export interface ClusterSummary {
-  clusterId: number;
-  intentName: string;
-  description: string;
-  count: number;
-  color: string;
-  sampleQuestions: string[];
-}
-
-export interface ClusterMapResponse {
-  points: ClusterMapPoint[];
-  clusters: ClusterSummary[];
-  totalPoints: number;
-  outlierCount: number;
-}
-
 // Trace detail span from API (raw ClickHouse data)
 // Note: spanAttributes and eventsAttributes come as arrays of [key, value] tuples from ClickHouse Map type
 export interface TraceDetailSpan {
@@ -188,26 +159,6 @@ export class TracesService {
 
   static async getTraceDetail(projectId: string, traceId: string): Promise<TraceDetailSpan[]> {
     const response = await apiClient.get(`/${projectId}/traces/${traceId}`);
-    return response.data;
-  }
-
-  static async getClusterMap(
-    projectId: string,
-    limit?: number,
-    days?: number,
-    source?: string
-  ): Promise<ClusterMapResponse> {
-    const params = new URLSearchParams();
-    if (limit !== undefined) params.append("limit", limit.toString());
-    if (days !== undefined) params.append("days", days.toString());
-    if (source) params.append("source", source);
-
-    let url = `/${projectId}/traces/clusters/map`;
-    const paramsStr = params.toString();
-    if (paramsStr) {
-      url += `?${paramsStr}`;
-    }
-    const response = await apiClient.get(url);
     return response.data;
   }
 }

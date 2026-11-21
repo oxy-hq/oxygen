@@ -75,25 +75,6 @@ impl ObservabilityStore for FakeStore {
     ) -> Result<Vec<TraceDetailRow>, OxyError> {
         unimplemented!()
     }
-    async fn get_cluster_map_data(
-        &self,
-        _: &WorkspaceScope,
-        _: u32,
-        _: usize,
-        _: Option<&str>,
-    ) -> Result<Vec<ClusterMapDataRow>, OxyError> {
-        unimplemented!()
-    }
-    async fn get_cluster_infos(&self) -> Result<Vec<ClusterInfoRow>, OxyError> {
-        unimplemented!()
-    }
-    async fn get_trace_enrichments(
-        &self,
-        _: &WorkspaceScope,
-        _: &[String],
-    ) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
-        unimplemented!()
-    }
     async fn store_metric_usages(&self, _: Vec<MetricUsageRecord>) -> Result<(), OxyError> {
         unimplemented!()
     }

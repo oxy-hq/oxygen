@@ -222,13 +222,6 @@
   cold_usd: 0.30
   warm_usd: 0.008
 
-- flow: observability-clusters
-  # ZERO act steps, one case, one judge call. Currently expected to fail
-  # (see the flow header) — failing faster than a passing run, if
-  # anything, since there is no retry/backoff on the assertion path.
-  cold_usd: 0.10
-  warm_usd: 0.005
-
 - flow: observability-metrics
   # ZERO act steps, two cases (list + detail), one judge call each.
   cold_usd: 0.20

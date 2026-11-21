@@ -150,25 +150,6 @@ async fn live_a_workspace_reads_its_own_traces_and_nobody_elses() {
     // A run whose root never said whose it was.
     spans.extend(run("unclaimed-1", ""));
     storage.insert_spans(spans).await.expect("insert");
-    for (trace, question) in [
-        ("acme-1", "acme question"),
-        ("globex-1", "globex question"),
-        ("unclaimed-1", "unclaimed question"),
-    ] {
-        super::intents::store_classification(
-            &storage,
-            trace,
-            question,
-            1,
-            "revenue",
-            0.9,
-            &[0.1, 0.2],
-            "agent",
-            "a",
-        )
-        .await
-        .expect("classification");
-    }
 
     let acme = scope(ACME);
     let globex = scope(GLOBEX);
@@ -186,45 +167,13 @@ async fn live_a_workspace_reads_its_own_traces_and_nobody_elses() {
     };
     assert_eq!(detail(acme.clone(), "acme-1").await, 2);
     assert_eq!(detail(acme.clone(), "globex-1").await, 0);
-    assert_eq!(detail(globex.clone(), "acme-1").await, 0);
+    assert_eq!(detail(globex, "acme-1").await, 0);
     // Unclaimed is nobody's — not even the nil workspace's.
-    assert_eq!(detail(acme.clone(), "unclaimed-1").await, 0);
+    assert_eq!(detail(acme, "unclaimed-1").await, 0);
     assert_eq!(
         detail(WorkspaceScope::of(Uuid::nil()), "unclaimed-1").await,
         0
     );
-
-    // Enrichments drop the ids that are not the caller's.
-    let asked: Vec<String> = ["acme-1", "globex-1", "unclaimed-1"]
-        .map(String::from)
-        .to_vec();
-    let enriched: Vec<String> = storage
-        .get_trace_enrichments(&acme, &asked)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|e| e.trace_id)
-        .collect();
-    assert_eq!(enriched, ["acme-1"]);
-
-    // The cluster map shows a workspace its own questions only.
-    let questions = |scope: WorkspaceScope| {
-        let storage = &storage;
-        async move {
-            let mut questions: Vec<String> = storage
-                .get_cluster_map_data(&scope, 30, 100, None)
-                .await
-                .unwrap()
-                .into_iter()
-                .map(|p| p.question)
-                .collect();
-            questions.sort();
-            questions
-        }
-    };
-    assert_eq!(questions(acme).await, ["acme question"]);
-    assert_eq!(questions(globex).await, ["globex question"]);
-    assert!(questions(stranger).await.is_empty());
 
     drop_database(&storage, &database).await;
 }

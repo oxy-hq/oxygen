@@ -1,4 +1,4 @@
-import { BarChart3, ChevronsRight, LucideActivity, Server, Zap } from "lucide-react";
+import { BarChart3, ChevronsRight, LucideActivity, Zap } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -41,19 +41,6 @@ const ObservabilitySidebar: React.FC<{
                 <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.TRACES}>
                   <Zap className='h-4 w-4' />
                   <span>Traces</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={
-                  location.pathname === ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.CLUSTERS
-                }
-              >
-                <Link to={ROUTES.ORG(orgSlug).WORKSPACE().IDE.OBSERVABILITY.CLUSTERS}>
-                  <Server className='h-4 w-4' />
-                  <span>Clusters</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

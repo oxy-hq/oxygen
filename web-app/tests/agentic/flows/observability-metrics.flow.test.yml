@@ -5,7 +5,8 @@
 # Case 2 (detail page, "Recent Usage") IS EXPECTED TO FAIL against the
 # current build — read before weakening it back to green.
 # -----------------------------------------------------------------------
-# Same root cause as `observability-clusters.flow.test.yml`, a different
+# Same root cause as the cluster map's (that page and its flow were deleted
+# 2026-11-21, with nothing left to write its data), a different
 # blast radius. `crates/observability/src/backends/clickhouse/metrics.rs`,
 # inside `get_metric_detail`'s `recent_sql` (L468-482):
 #
@@ -48,9 +49,9 @@
 # header describes: "a human reading one would blame a restart [or,
 # here, 'no usage yet'], not a routing bug" — except here there is not
 # even a degraded-but-honest banner, just silence. See
-# `observability-clusters.flow.test.yml` and
+# the deleted cluster map and
 # `observability-execution-analytics.flow.test.yml` for the other two
-# call sites sharing this exact anti-pattern (WHERE on a bare column +
+# call sites that shared this exact anti-pattern (WHERE on a bare column +
 # `iso_utc(col) AS col` in the same query); this is the only one of the
 # three where the failure is swallowed rather than surfaced.
 #

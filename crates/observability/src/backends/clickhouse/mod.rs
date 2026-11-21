@@ -6,8 +6,6 @@
 mod build_sessions;
 mod custom_apps;
 mod execution_analytics;
-#[cfg(test)]
-mod intents;
 mod latency_cost;
 mod metrics;
 mod org_apps;
@@ -245,12 +243,11 @@ mod retention_ttl_tests {
 use crate::scope::WorkspaceScope;
 use crate::store::ObservabilityStore;
 use crate::types::{
-    AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
-    ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
-    ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
-    LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData, MetricDetailData,
-    MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals, OrgAppTraffic, SpanRecord,
-    TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, CustomAppClientErrorRecord,
+    CustomAppEventRecord, CustomAppLogRecord, ExecutionListData, ExecutionSummaryData,
+    ExecutionTimeBucketData, FunctionLogRow, LatencyHistogramData, LatencyPercentilesData,
+    MetricAnalyticsData, MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData,
+    OrgAppTotals, OrgAppTraffic, SpanRecord, TraceDetailRow, TraceRow,
 };
 
 pub struct ClickHouseObservabilityStorage {
@@ -655,36 +652,6 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         trace_id: &str,
     ) -> Result<Vec<TraceDetailRow>, OxyError> {
         traces::get_trace_detail(self, scope, trace_id).await
-    }
-
-    async fn get_cluster_map_data(
-        &self,
-        scope: &WorkspaceScope,
-        days: u32,
-        limit: usize,
-        source: Option<&str>,
-    ) -> Result<Vec<ClusterMapDataRow>, OxyError> {
-        with_query_timeout(
-            "get_cluster_map_data",
-            traces::get_cluster_map_data(self, scope, days, limit, source),
-        )
-        .await
-    }
-
-    async fn get_cluster_infos(&self) -> Result<Vec<ClusterInfoRow>, OxyError> {
-        with_query_timeout("get_cluster_infos", traces::get_cluster_infos(self)).await
-    }
-
-    async fn get_trace_enrichments(
-        &self,
-        scope: &WorkspaceScope,
-        trace_ids: &[String],
-    ) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
-        with_query_timeout(
-            "get_trace_enrichments",
-            traces::get_trace_enrichments(self, scope, trace_ids),
-        )
-        .await
     }
 
     async fn store_metric_usages(&self, metrics: Vec<MetricUsageRecord>) -> Result<(), OxyError> {

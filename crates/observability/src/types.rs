@@ -40,29 +40,6 @@ pub struct MetricUsageRecord {
     pub trace_id: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct ClassificationRecord {
-    pub trace_id: String,
-    pub question: String,
-    pub cluster_id: i32,
-    pub intent_name: String,
-    pub confidence: f32,
-    pub embedding: Vec<f32>,
-    pub source_type: String,
-    pub source: String,
-}
-
-/// An intent cluster record (upserted via `INSERT OR REPLACE`).
-#[derive(Debug, Clone)]
-pub struct ClusterRecord {
-    pub cluster_id: i32,
-    pub intent_name: String,
-    pub intent_description: String,
-    pub centroid: Vec<f32>,
-    pub sample_questions: String,
-    pub question_count: i64,
-}
-
 // ── Trace query rows ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -95,33 +72,6 @@ pub struct TraceDetailRow {
     pub status_code: String,
     pub status_message: String,
     pub event_data: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClusterMapDataRow {
-    pub trace_id: String,
-    pub question: String,
-    pub embedding: Vec<f32>,
-    pub cluster_id: i32,
-    pub intent_name: String,
-    pub confidence: f32,
-    pub classified_at: String,
-    pub source: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClusterInfoRow {
-    pub cluster_id: i32,
-    pub intent_name: String,
-    pub intent_description: String,
-    pub sample_questions: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct TraceEnrichmentRow {
-    pub trace_id: String,
-    pub status_code: String,
-    pub duration_ns: i64,
 }
 
 // ── Metric analytics result types ──────────────────────────────────────────

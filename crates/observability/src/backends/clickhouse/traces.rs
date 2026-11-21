@@ -6,9 +6,7 @@ use serde::Deserialize;
 
 use super::ClickHouseObservabilityStorage;
 use crate::scope::WorkspaceScope;
-use crate::types::{
-    ClusterInfoRow, ClusterMapDataRow, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
-};
+use crate::types::{SpanRecord, TraceDetailRow, TraceRow};
 
 #[derive(Debug, Deserialize, Row)]
 struct TraceQueryRow {
@@ -40,40 +38,6 @@ struct TraceDetailQueryRow {
     status_code: String,
     status_message: String,
     event_data: String,
-}
-
-#[derive(Debug, Deserialize, Row)]
-struct ClusterMapQueryRow {
-    trace_id: String,
-    question: String,
-    embedding: Vec<f32>,
-    cluster_id: i32,
-    intent_name: String,
-    confidence: f32,
-    // Deliberately NOT named `classified_at`: ClickHouse resolves a `WHERE
-    // classified_at …` reference against a SELECT-list alias of the same name
-    // instead of the source column, even though the alias's expression
-    // (`formatDateTime(...)`, a String) shares no type with the DateTime the
-    // WHERE clause compares it against — `NO_COMMON_TYPE`. Keeping this name
-    // distinct from the raw `classified_at` column used in `WHERE`/`ORDER BY`
-    // below is the fix; see `get_cluster_map_data`.
-    classified_at_iso: String,
-    source: String,
-}
-
-#[derive(Debug, Deserialize, Row)]
-struct ClusterInfoQueryRow {
-    cluster_id: i32,
-    intent_name: String,
-    intent_description: String,
-    sample_questions: String,
-}
-
-#[derive(Debug, Deserialize, Row)]
-struct TraceEnrichmentQueryRow {
-    trace_id: String,
-    status_code: String,
-    duration_ns: i64,
 }
 
 #[derive(Debug, Deserialize, Row)]
@@ -414,157 +378,6 @@ pub(super) async fn get_trace_detail(
         .collect())
 }
 
-/// Builds the `get_cluster_map_data` query text. Pulled out of the `async fn`
-/// so `cluster_map_sql_alias_does_not_shadow_the_where_column` can assert on
-/// its shape without a live ClickHouse.
-///
-/// The output alias must NOT be named `classified_at` — see the doc comment on
-/// `ClusterMapQueryRow::classified_at_iso`. `WHERE`/`ORDER BY` stay on the
-/// bare, unaliased `classified_at`, which now unambiguously means the real
-/// DateTime column.
-fn cluster_map_sql(where_clause: &str, limit: usize) -> String {
-    let ca = super::iso_utc("classified_at");
-    format!(
-        "SELECT
-            trace_id,
-            question,
-            embedding,
-            cluster_id,
-            intent_name,
-            confidence,
-            {ca} AS classified_at_iso,
-            source
-        FROM observability_intent_classifications FINAL
-        WHERE {where_clause}
-        ORDER BY classified_at DESC
-        LIMIT {limit}"
-    )
-}
-
-/// The `WHERE` of the cluster map: classifications of questions asked in
-/// `scope`. The classification table has a `trace_id` and no tenant column, so
-/// the workspace comes from the spans that trace is made of — windowed like
-/// the map itself, or every page load would walk the whole retention of the
-/// largest table to find them. A question classified more than a day after
-/// the window its run started in is left out: hidden, never leaked, the same
-/// rule the rollup reads follow.
-fn cluster_map_where(scope: &WorkspaceScope, days: u32, source: Option<&str>) -> String {
-    let mut conditions = vec![
-        scope.rollup_predicate(days),
-        format!("classified_at >= now() - INTERVAL {days} DAY"),
-    ];
-    if let Some(src) = source {
-        conditions.push(format!("source = '{}'", escape_sql_literal(src)));
-    }
-    conditions.join(" AND ")
-}
-
-pub(super) async fn get_cluster_map_data(
-    storage: &ClickHouseObservabilityStorage,
-    scope: &WorkspaceScope,
-    days: u32,
-    limit: usize,
-    source: Option<&str>,
-) -> Result<Vec<ClusterMapDataRow>, OxyError> {
-    storage.require_scoped_spans()?;
-    let where_clause = cluster_map_where(scope, days, source);
-    let sql = cluster_map_sql(&where_clause, limit);
-
-    let rows: Vec<ClusterMapQueryRow> = storage
-        .read_client()
-        .query(&sql)
-        .fetch_all()
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("Cluster map query failed: {e}")))?;
-
-    Ok(rows
-        .into_iter()
-        .map(|r| ClusterMapDataRow {
-            trace_id: r.trace_id,
-            question: r.question,
-            embedding: r.embedding,
-            cluster_id: r.cluster_id,
-            intent_name: r.intent_name,
-            confidence: r.confidence,
-            classified_at: r.classified_at_iso,
-            source: r.source,
-        })
-        .collect())
-}
-
-pub(super) async fn get_cluster_infos(
-    storage: &ClickHouseObservabilityStorage,
-) -> Result<Vec<ClusterInfoRow>, OxyError> {
-    let sql = "SELECT cluster_id, intent_name, intent_description, sample_questions
-        FROM observability_intent_clusters FINAL
-        ORDER BY cluster_id";
-
-    let rows: Vec<ClusterInfoQueryRow> = storage
-        .read_client()
-        .query(sql)
-        .fetch_all()
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("Cluster info query failed: {e}")))?;
-
-    Ok(rows
-        .into_iter()
-        .map(|r| ClusterInfoRow {
-            cluster_id: r.cluster_id,
-            intent_name: r.intent_name,
-            intent_description: r.intent_description,
-            sample_questions: r.sample_questions,
-        })
-        .collect())
-}
-
-/// Status and duration of those of `trace_ids` that are `scope`'s. An id from
-/// another workspace is simply not enriched.
-fn trace_enrichments_sql(scope: &WorkspaceScope, trace_ids: &[String]) -> String {
-    let list = trace_ids
-        .iter()
-        .map(|id| format!("'{}'", escape_sql_literal(id)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let in_scope = scope.spans_predicate("");
-
-    format!(
-        "SELECT trace_id, status_code, duration_ns
-        FROM observability_spans
-        WHERE parent_span_id = ''
-          AND {in_scope}
-          AND trace_id IN ({list})"
-    )
-}
-
-pub(super) async fn get_trace_enrichments(
-    storage: &ClickHouseObservabilityStorage,
-    scope: &WorkspaceScope,
-    trace_ids: &[String],
-) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
-    if trace_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    storage.require_scoped_spans()?;
-
-    let sql = trace_enrichments_sql(scope, trace_ids);
-
-    let rows: Vec<TraceEnrichmentQueryRow> = storage
-        .read_client()
-        .query(&sql)
-        .fetch_all()
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("Trace enrichment query failed: {e}")))?;
-
-    Ok(rows
-        .into_iter()
-        .map(|r| TraceEnrichmentRow {
-            trace_id: r.trace_id,
-            status_code: r.status_code,
-            duration_ns: r.duration_ns,
-        })
-        .collect())
-}
-
 /// Write `rows` to `observability_spans` in one insert.
 async fn write_span_rows<T>(
     storage: &ClickHouseObservabilityStorage,
@@ -641,8 +454,8 @@ fn parse_timestamp_ns(ts: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClickHouseObservabilityStorage, cluster_map_sql, cluster_map_where, escape_like_pattern,
-        escape_sql_literal, trace_detail_sql, trace_enrichments_sql, trace_list_where,
+        ClickHouseObservabilityStorage, escape_like_pattern, escape_sql_literal, trace_detail_sql,
+        trace_list_where,
     };
     use crate::scope::WorkspaceScope;
 
@@ -677,14 +490,6 @@ mod tests {
                 ),
             ),
             ("detail", trace_detail_sql(&scope(), "abc123")),
-            (
-                "enrichments",
-                trace_enrichments_sql(&scope(), &["abc123".to_string()]),
-            ),
-            (
-                "cluster map",
-                cluster_map_where(&scope(), 30, Some("agent")),
-            ),
         ];
         for (read, sql) in reads {
             assert!(sql.contains(&on_spans), "{read} is not scoped:\n{sql}");
@@ -726,29 +531,6 @@ mod tests {
             )),
             "{sql}"
         );
-        let enrich = trace_enrichments_sql(&scope(), &[hostile.to_string()]);
-        assert!(
-            enrich.contains(&format!("trace_id IN ('{}')", escape_sql_literal(hostile))),
-            "{enrich}"
-        );
-    }
-
-    /// The classification table has no tenant column, so the cluster map is
-    /// confined through the spans its traces are made of — and by nothing
-    /// looser than this workspace's own roots.
-    #[test]
-    fn the_cluster_map_is_confined_through_this_workspaces_traces() {
-        let sql = cluster_map_where(&scope(), 30, None);
-        assert!(
-            sql.starts_with(&format!("trace_id IN ({}", scope().trace_ids())),
-            "{sql}"
-        );
-        // …and through no more of the spans table than the window it shows: an
-        // unbounded subquery reads all 90 days of it on every page load.
-        assert!(
-            sql.starts_with(&scope().rollup_predicate(30)),
-            "the scope subquery is not windowed:\n{sql}"
-        );
     }
 
     /// The probe's answer is latched for the life of the process. "The server
@@ -780,29 +562,6 @@ mod tests {
         assert!(!storage.spans_are_scoped());
         let refused = storage.require_scoped_spans().unwrap_err().to_string();
         assert!(refused.contains("workspace_id"), "{refused}");
-    }
-
-    /// Regression for the cluster map's `NO_COMMON_TYPE` (ClickHouse error
-    /// code 386): the query filters `WHERE classified_at >= now() - INTERVAL
-    /// n DAY` on the bare column, so a SELECT-list alias of the same name
-    /// gets resolved by ClickHouse's analyzer in place of the column even
-    /// inside WHERE — comparing the alias's `formatDateTime(...)` String
-    /// against a DateTime. Reverting `cluster_map_sql` to alias the formatted
-    /// column back to `classified_at` reproduces the collision this asserts
-    /// against (verified with `git stash` — see the branch's test commit).
-    #[test]
-    fn cluster_map_sql_alias_does_not_shadow_the_where_column() {
-        let sql = cluster_map_sql("classified_at >= now() - INTERVAL 7 DAY", 50);
-        assert!(
-            sql.contains("AS classified_at_iso"),
-            "expected the formatted column aliased to a name distinct from \
-             the raw `classified_at` column:\n{sql}"
-        );
-        assert!(
-            !sql.contains("AS classified_at,") && !sql.contains("AS classified_at\n"),
-            "the SELECT list re-introduced `classified_at` as an alias, which \
-             shadows the bare `classified_at` filtered in WHERE:\n{sql}"
-        );
     }
 
     #[test]

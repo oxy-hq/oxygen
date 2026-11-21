@@ -120,7 +120,6 @@
     - "src/hooks/api/useExecutionAnalytics.ts"
   flows:
     - observability-traces
-    - observability-clusters
     - observability-metrics
     - observability-execution-analytics
 

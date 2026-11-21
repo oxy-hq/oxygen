@@ -55,8 +55,6 @@ function workspaceRoutes(wsBase: string, root: string) {
         ROOT: `${wsBase}/ide/observability`,
         TRACES: `${wsBase}/ide/observability/traces`,
         TRACE: (traceId: string) => `${wsBase}/ide/observability/traces/${traceId}`,
-        CLUSTERS: `${wsBase}/ide/observability/clusters`,
-        CLUSTERS_V2: `${wsBase}/ide/observability/clusters-v2`,
         METRICS: `${wsBase}/ide/observability/metrics`,
         METRIC: (metricName: string) =>
           `${wsBase}/ide/observability/metrics/${encodeURIComponent(metricName)}`,

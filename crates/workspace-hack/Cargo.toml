@@ -118,7 +118,6 @@ liblzma = { version = "0.4", features = ["static"] }
 liblzma-sys = { version = "0.4", default-features = false, features = ["bindgen", "static"] }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false, features = ["kv_unstable", "std"] }
-matrixmultiply = { version = "0.3", features = ["cgemm"] }
 md-5-93f6ce9d446188ac = { package = "md-5", version = "0.10" }
 md-5-a6292c17cd707f01 = { package = "md-5", version = "0.11" }
 memchr = { version = "2" }
@@ -129,7 +128,7 @@ native-tls = { version = "0.2", features = ["alpn"] }
 nom = { version = "7" }
 num = { version = "0.4" }
 num-bigint = { version = "0.4" }
-num-complex = { version = "0.4" }
+num-complex = { version = "0.4", default-features = false, features = ["std"] }
 num-integer = { version = "0.1", features = ["i128"] }
 num-iter = { version = "0.1", default-features = false, features = ["i128", "std"] }
 num-rational = { version = "0.4", default-features = false, features = ["num-bigint-std", "std"] }

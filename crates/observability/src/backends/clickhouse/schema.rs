@@ -79,6 +79,11 @@ pub const SPANS_WORKSPACE_ALTERS: &[&str] = &[
 pub const SPANS_WORKSPACE_PROBE: &str = "SELECT count() AS c FROM system.columns \
      WHERE database = currentDatabase() AND table = 'observability_spans' AND name = 'workspace_id'";
 
+/// The two intent tables below have had no writer since `oxy intent` was
+/// deleted, and no reader since the console's Clusters page and its
+/// `/traces/clusters/map` route were (both 2026-11-21). The DDL stays so a
+/// fresh store has the same shape as a deployed one; nothing drops them, and
+/// the classifications expire under the retention TTL.
 pub const CREATE_INTENT_CLUSTERS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS observability_intent_clusters (
     cluster_id Int32,

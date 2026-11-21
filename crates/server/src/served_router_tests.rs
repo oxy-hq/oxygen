@@ -566,7 +566,6 @@ fn observability_routes() -> Vec<&'static str> {
     vec![
         "/traces",
         "/traces/0af7651916cd43dd8448eb211c80319c",
-        "/traces/clusters/map",
         "/metrics/analytics",
         "/metrics/list",
         "/metrics/revenue",

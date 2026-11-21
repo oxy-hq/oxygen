@@ -1,8 +1,7 @@
 //! Process-global singleton for the active [`ObservabilityStore`].
 //!
-//! Certain subsystems (metric context finalization, intent classification,
-//! telemetry) need access to the store without explicit plumbing. This module
-//! holds a `OnceLock<Arc<dyn ObservabilityStore>>` that the application
+//! Certain subsystems (metric context finalization, telemetry) need access to
+//! the store without explicit plumbing. This module holds a `OnceLock<Arc<dyn ObservabilityStore>>` that the application
 //! entrypoint sets during startup.
 
 use std::sync::{Arc, OnceLock};

@@ -1,5 +1,5 @@
 //! The tenant-facing observability console's HTTP surface, out of `oxy-app`:
-//! the IDE's Traces, Clusters, Metrics and Execution Analytics pages. The
+//! the IDE's Traces, Metrics and Execution Analytics pages. The
 //! store and its queries are `oxy-observability`'s (the ClickHouse product
 //! store, `OXY_OBSERVABILITY_BACKEND` / `OXY_CLICKHOUSE_*`); this crate is the
 //! handlers that scope a read to the workspace and shape the answer.
@@ -9,7 +9,7 @@
 //! `workspace_middleware`, as the three `nest_all` mounts in `oxy-app`'s
 //! `build_workspace_routes` did:
 //!
-//! - `/traces` ([`traces`]): the trace list, one trace's spans, the cluster map.
+//! - `/traces` ([`traces`]): the trace list and one trace's spans.
 //! - `/metrics` ([`metrics`]): metric usage analytics, the list, one metric.
 //! - `/execution-analytics` ([`execution_analytics`]): verified vs generated
 //!   executions, latency, cost.
@@ -112,7 +112,6 @@ mod tests {
     const MOUNTED: &[&str] = &[
         "/traces",
         "/traces/0af7651916cd43dd8448eb211c80319c",
-        "/traces/clusters/map",
         "/metrics/analytics",
         "/metrics/list",
         "/metrics/revenue",

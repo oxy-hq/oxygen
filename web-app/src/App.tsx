@@ -115,7 +115,6 @@ const ObservabilityLayout = React.lazy(() => import("./pages/ide/observability")
 const ExecutionAnalytics = React.lazy(
   () => import("./pages/ide/observability/execution-analytics")
 );
-const ClusterMapPage = React.lazy(() => import("./pages/ide/observability/clusters"));
 const MetricDetailPage = React.lazy(
   () => import("./pages/ide/observability/metrics/MetricsDetailPage")
 );
@@ -479,7 +478,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: Wor
               <Route path='observability' element={<ObservabilityLayout />}>
                 <Route path='traces' element={<TracesPage />} />
                 <Route path='traces/:traceId' element={<TraceDetailPage />} />
-                <Route path='clusters' element={<ClusterMapPage />} />
                 <Route path='metrics' element={<MetricsPage />} />
                 <Route path='metrics/:metricName' element={<MetricDetailPage />} />
                 <Route path='execution-analytics' element={<ExecutionAnalytics />} />
