@@ -3,15 +3,19 @@
 //!
 //! Rates are **input-per-million / output-per-million** USD as published
 //! by the providers. Cache writes are billed at a markup above input;
-//! cache reads at a steep discount. The table is intentionally small —
-//! unknown models surface as `cost = None` on the run detail rather than
-//! a fabricated number, so a model addition is visible (cost vanishes
-//! from the UI) until someone updates this file.
+//! cache reads at a steep discount.
 //!
-//! Sources: Anthropic & OpenAI public pricing pages, as of the run that
-//! `cost_for_model` is called against. If pricing changes after a run
-//! completes, the historical cost we display will be slightly off — an
-//! acceptable trade for not persisting per-call cost at write time.
+//! Rates come from the `llm-prices` crate first: the providers' list prices,
+//! each row citing the pricing page it was read from and the date it was
+//! checked, with the provider's own cache-write (5-minute) and cache-read
+//! rates. Dated ids (`claude-sonnet-4-5-20250929`) resolve to their base row.
+//! Ids it does not know fall back to the prefix table below, and anything
+//! neither knows surfaces as `cost = None` on the run detail rather than a
+//! fabricated number.
+//!
+//! If pricing changes after a run completes, the historical cost we display
+//! will be slightly off — an acceptable trade for not persisting per-call
+//! cost at write time.
 
 /// Per-million-token rates for one model.
 #[derive(Debug, Clone, Copy)]
@@ -47,6 +51,27 @@ impl ModelPricing {
 /// hit the same rate as the canonical id. Returns `None` for any model
 /// not in the table — the caller surfaces this as "cost unavailable".
 pub fn rates_for(model: &str) -> Option<ModelPricing> {
+    if let Some(p) = list_rates(model) {
+        return Some(p);
+    }
+    prefix_rates(model)
+}
+
+/// The provider's list price from `llm-prices`, when it has both an input and
+/// an output price for `model`. Cache rates stay `None` when the provider
+/// lists none, so `cost_for_call`'s fallbacks apply as before.
+fn list_rates(model: &str) -> Option<ModelPricing> {
+    let p = llm_prices::lookup(model)?;
+    Some(ModelPricing {
+        input_per_million: p.input?,
+        output_per_million: p.output?,
+        cache_creation_per_million: p.cache_write("5m"),
+        cache_read_per_million: p.cache_read,
+    })
+}
+
+/// Hand-kept prefix rates for ids `llm-prices` does not know.
+fn prefix_rates(model: &str) -> Option<ModelPricing> {
     // Anthropic — Claude 5 family. Priced at the same published tiers as the
     // Claude 4 generation (opus/sonnet/haiku). Checked before the `-4`
     // prefixes below so a `claude-*-5` id never accidentally matches a shorter
@@ -166,11 +191,9 @@ mod tests {
         assert!(rates_for("claude-opus-5").is_some());
         assert!(rates_for("claude-sonnet-5").is_some());
         assert!(rates_for("claude-sonnet-5-20260101").is_some());
-        // Sonnet 5 shares the Sonnet 4 rate card.
-        assert_eq!(
-            cost_for_call("claude-sonnet-5", 1_000_000, 1_000_000, 0, 0),
-            cost_for_call("claude-sonnet-4-6", 1_000_000, 1_000_000, 0, 0),
-        );
+        // Sonnet 5 lists at $2 / $10, below the Sonnet 4 rate card.
+        let sonnet_5 = cost_for_call("claude-sonnet-5", 1_000_000, 1_000_000, 0, 0).unwrap();
+        assert!((sonnet_5 - 12.0).abs() < 1e-9, "got {sonnet_5}");
     }
 
     #[test]
@@ -197,13 +220,43 @@ mod tests {
     }
 
     #[test]
-    fn haiku_4_5_matches_claude_4_family() {
-        // `claude-haiku-4-5` is a Claude 4.5 haiku id — must resolve to the
-        // haiku-4 rate card, not fall through to None.
-        assert_eq!(
-            rates_for("claude-haiku-4-5").map(|p| p.input_per_million),
-            rates_for("claude-haiku-4").map(|p| p.input_per_million),
+    fn haiku_4_5_is_priced_at_its_own_rate() {
+        // `claude-haiku-4-5` lists at $1 / $5, not Haiku 3.5's $0.80 / $4.
+        let p = rates_for("claude-haiku-4-5").unwrap();
+        assert!((p.input_per_million - 1.0).abs() < 1e-9);
+        assert!((p.output_per_million - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn default_model_bills_at_list_price() {
+        // The platform default, claude-opus-4-8, lists at $5 / $25 with $6.25
+        // cache writes and $0.50 cache reads — not the Opus 4.0 $15 / $75.
+        let cost = cost_for_call(
+            crate::DEFAULT_MODEL,
+            1_000_000,
+            1_000_000,
+            1_000_000,
+            1_000_000,
+        )
+        .unwrap();
+        assert!(
+            (cost - (5.0 + 25.0 + 6.25 + 0.50)).abs() < 1e-9,
+            "got {cost}"
         );
+    }
+
+    #[test]
+    fn openai_cache_reads_use_the_listed_rate() {
+        // gpt-4o cache reads list at $1.25/M (half of input), not input / 10.
+        let cost = cost_for_call("gpt-4o", 0, 0, 0, 1_000_000).unwrap();
+        assert!((cost - 1.25).abs() < 1e-9, "got {cost}");
+    }
+
+    #[test]
+    fn ids_missing_from_list_prices_use_the_prefix_table() {
+        // A future dated Sonnet 5 id is not in llm-prices; the prefix arm
+        // still prices it rather than returning None.
+        assert!(rates_for("claude-sonnet-5-20991231-preview").is_some());
     }
 
     #[test]
