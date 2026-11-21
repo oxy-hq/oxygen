@@ -32,7 +32,7 @@ export type FunctionSpec = OxyAppFunctionManifest;
 
 /**
  * Longest writer name: Postgres caps identifiers at 63 bytes, and the longest
- * derived form is `app_<name>_rw` — `crates/oltp/src/schema.rs` `MAX_NAME_LEN`.
+ * derived form is `app_<name>_rw` — the server's OLTP `MAX_NAME_LEN`.
  */
 export const WRITER_NAME_MAX = 63 - "app_".length - "_rw".length;
 
@@ -42,14 +42,14 @@ export const WRITER_NAME_SHAPE = `1-${WRITER_NAME_MAX} characters: a lowercase l
 /** `app_writer_name`: how a slug becomes a writer, as a sentence. */
 export const WRITER_NAME_RULE = `\`-\` becomes \`_\`, and the result must be ${WRITER_NAME_SHAPE}`;
 
-/** `crates/oltp/src/schema.rs` `validate_name`. */
+/** The server's OLTP `validate_name`: the same rule, checked before upload. */
 export function isValidWriterName(name: string): boolean {
   return new RegExp(`^[a-z][a-z0-9_]{0,${WRITER_NAME_MAX - 1}}$`).test(name);
 }
 
 /**
- * The writer an app owns, DERIVED from its slug — `app_writer_name` in
- * `crates/oltp/src/schema.rs`. `undefined` when the slug cannot back a schema.
+ * The writer an app owns, DERIVED from its slug — the server's OLTP
+ * `app_writer_name`. `undefined` when the slug cannot back a schema.
  *
  * A slug that already contains `_` is refused rather than normalised: `my_app`
  * would alias the hyphenated sibling `my-app` onto one schema and role.

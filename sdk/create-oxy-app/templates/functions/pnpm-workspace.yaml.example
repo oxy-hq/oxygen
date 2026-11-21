@@ -2,8 +2,7 @@
 # package, not a workspace.
 #
 # `.example`, like the deploy workflows: the CLI renames it back on a standalone
-# scaffold, but the server-side scaffold
-# (crates/app/src/custom_app_template/mod.rs) filters it, because that path
+# scaffold, but the server-side scaffold filters it, because that path
 # writes into `apps/<org>/<app>/` of the customer-apps MONOREPO. pnpm resolves a
 # workspace root as the nearest ancestor `pnpm-workspace.yaml`, so shipping one
 # there would make the app its own root and cut it off from the monorepo's

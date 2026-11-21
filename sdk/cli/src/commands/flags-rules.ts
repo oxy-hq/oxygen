@@ -2,8 +2,8 @@
  * The rules half of `oxyc flags`, pure: no I/O, so every rule of the grammar is
  * testable without a server.
  *
- * The wire shapes mirror `crates/feature-flags/src/targeting.rs`
- * (and `web-app/src/services/api/featureFlags.ts`). The server stays the
+ * The wire shapes mirror the targeting rules the server's
+ * `/api/admin/feature-flags` routes accept and return. The server stays the
  * authority on what is valid; what is checked here is what can be said better
  * before a round trip — a typo'd variant, a split that does not add up — with a
  * usage exit code rather than a 422.

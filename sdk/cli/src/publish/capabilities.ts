@@ -1,10 +1,9 @@
 /**
  * Which manifest capability each `ctx.<area>.<op>` needs — the CLI's copy of
- * the fail-closed gates in
- * `crates/app/src/server/api/custom_apps_functions/host.rs`.
+ * the fail-closed gates in the server's Oxy Functions host.
  *
  * ONE SOURCE OF TRUTH, AND IT IS NOT THIS FILE. `FunctionCapabilities` in
- * `host.rs` is the struct every gate reads: each `ctx.*` op refuses with
+ * the host is the struct every gate reads: each `ctx.*` op refuses with
  * `<Area>CapabilityMissing` when its field is false, `check_storage_capability`
  * is the op-by-op split for `ctx.storage`, and `check_write_destination` plus
  * `host/destinations.rs` decide a `ctx.warehouse` / `ctx.tx` write. This file

@@ -3,8 +3,7 @@
  * SDK's `useFunction(name).invoke(body)` does from the browser.
  *
  * `POST {target}/customer-apps/{org}/{app}/fn/{name}` — no `/api` prefix,
- * because this is the public custom-apps surface
- * (`crates/app/src/server/api/custom_apps_functions/mod.rs`), reachable by
+ * because this is the public custom-apps surface, reachable by
  * a bearer OR an API key, and in a sandbox or staging by a publish token too
  * (unlike `env`/`invocations`/`logs`, which refuse one outright). The
  * response is NOT JSON: it is an SSE stream of `log` / `data` / `done` /

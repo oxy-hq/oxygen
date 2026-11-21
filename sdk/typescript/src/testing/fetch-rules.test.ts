@@ -1,6 +1,6 @@
-// `isSafeOutbound` says what `is_safe_outbound` in
-// `crates/shared/src/http/public_only.rs` says, case by
-// case — the examples are the host's own unit tests' shapes.
+// `isSafeOutbound` says what the host's public-only outbound check
+// (`is_safe_outbound`) says, case by case — the examples are the host's own
+// unit tests' shapes.
 
 import { describe, expect, it } from "vitest";
 import { isSafeOutbound } from "./fetch-rules";

@@ -270,9 +270,9 @@ function accountValue(o: WorkflowOptions): string {
  * routes for its own app — and then the routes' own platform gates
  * (`oxy_owner_or_app_admin_guard`, `platform_cap_guard`) decide on the CALLER's
  * platform standing, which a service account never holds. The server answers
- * `403`: `crates/server/tests/integration/token_auth/trusted_publish.rs` pins
- * it for the app's `GET`, and `app_publish_token_scope.rs` says the check-run
- * routes sit behind the same gates. A step that always exits `4` would fail
+ * `403`: the server's token-auth integration tests pin it for the app's
+ * `GET`, and its publish-token scope says the check-run routes sit behind the
+ * same gates. A step that always exits `4` would fail
  * every promoted publish of every app that declares a check.
  *
  * Whether a `ci` token SHOULD run its app's checks is a product decision, not

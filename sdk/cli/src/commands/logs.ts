@@ -1,7 +1,6 @@
 /**
  * `oxyc logs` — persisted `ctx.log()` / `console.*` output of an app's Oxy
- * Functions: `GET /api/customer-apps/{org}/{app}/logs`
- * (`crates/app/src/server/api/custom_apps_logs.rs`). ClickHouse-backed, so a
+ * Functions: `GET /api/customer-apps/{org}/{app}/logs`. ClickHouse-backed, so a
  * deployment with observability capture off answers `501` — not an error in
  * the usual sense, which is why it maps to the retryable exit code rather
  * than a hard failure (it may simply not be configured on THIS deployment).

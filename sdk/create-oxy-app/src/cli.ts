@@ -116,8 +116,8 @@ function slugify(name: string): string {
 
 /** Filename a template entry is written under in a scaffolded app.
  *
- * Both `.example` spellings are stripped, matching the server-side filter in
- * `crates/app/src/custom_app_template/mod.rs`, which skips `.yml.example` AND
+ * Both `.example` spellings are stripped, matching the server-side scaffold's
+ * filter, which skips `.yml.example` AND
  * `.yaml.example`. The two must agree: anything the server filters out, the CLI
  * has to rename back, or a standalone scaffold silently loses the file.
  */
@@ -175,9 +175,8 @@ async function copyTemplate(
       continue;
     } else {
       const bytes = await fs.readFile(src, "utf-8");
-      // Use the same placeholders as the server-side renderer
-      // (crates/app/src/custom_app_template/mod.rs) so a single
-      // template set serves both code paths.
+      // Use the same placeholders as the server-side scaffold renderer so a
+      // single template set serves both code paths.
       const substituted = bytes
         .replace(/\{\{APP_DISPLAY_NAME\}\}/g, vars.name)
         .replace(/\{\{APP_SLUG\}\}/g, vars.slug);

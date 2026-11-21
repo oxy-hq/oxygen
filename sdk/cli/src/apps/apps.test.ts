@@ -3,7 +3,7 @@
  * sandbox-aware command shares.
  *
  * `environment.ts` is pure, so its grammar cases are pinned straight from the
- * Rust test list (`crates/app-core/src/custom_app_environment.rs`): the two
+ * server's own environment-name tests: the two
  * lists must accept and reject exactly the same names, since the database
  * carries the same CHECK constraint.
  *

@@ -823,8 +823,8 @@ admin; staff act inside a tenant through `oxyc assume`.
 
 ## Feature flags
 
-Staff-only control of the flags Oxy declares in code
-(`crates/feature-flags/src/registry.rs`): the kill switch and the
+Staff-only control of the flags Oxy declares in its server code (the
+registry `GET /api/admin/feature-flags` lists): the kill switch and the
 targeting rules — per-org / per-user overrides plus a weighted fallthrough for
 A/B splits. Flags are not created at runtime. **Every write hits the
 deployment `--env` names (production by default) and takes effect for real

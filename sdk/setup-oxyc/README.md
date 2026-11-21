@@ -190,7 +190,7 @@ through the `Io` in `src/io.mjs`, which is what lets the tests run the real
 logic against `test/fake-runner.mjs`.
 
 The audience (`oxy:<host>`, derived from `host` exactly as the server derives
-its own in `crates/auth/src/github_oidc/audience.rs`) and the refusal codes
+its own for `/api/auth/oidc/*`) and the refusal codes
 mirror `sdk/cli/src/auth/oidc.ts`. The URL → audience cases are repeated in all
 three test suites.
 Change one and change the other.

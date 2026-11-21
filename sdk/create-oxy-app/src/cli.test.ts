@@ -71,7 +71,7 @@ describe("templateDestName", () => {
   });
 
   // Both spellings must be stripped: the server-side scaffold
-  // (crates/app/src/custom_app_template/mod.rs) filters `.yml.example` AND
+  // filters `.yml.example` AND
   // `.yaml.example` so those files never land in the customer-apps monorepo,
   // so a standalone CLI scaffold has to rename both back or it loses them.
   test("strips .yml.example (shared deploy workflow)", () => {

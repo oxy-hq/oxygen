@@ -137,8 +137,8 @@ describe("exchangeOidc", () => {
   });
 
   /**
-   * URL → audience. THE SAME LIST is in `crates/auth/src/github_oidc/audience.rs`
-   * (the server deriving its own, from the URL it calls itself by) and in
+   * URL → audience. THE SAME LIST is in the server's GitHub OIDC audience
+   * tests (the server deriving its own, from the URL it calls itself by) and in
    * `sdk/setup-oxyc/test/main.test.mjs`. The three must never disagree: a
    * client that derived anything else would be refused by the very deployment
    * it was pointed at. Change one, change all.

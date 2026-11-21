@@ -148,7 +148,7 @@ const warningsOf = (issues: PlacementIssue[]) => issues.filter((i) => i.level ==
 const SYNC_SOURCE = { "functions/sync.ts": "export default async function sync() {}\n" };
 
 describe("the writer an app slug derives", () => {
-  /** Mirrors `app_writer_name` in crates/oltp/src/schema.rs, length cap included. */
+  /** Mirrors the server's OLTP `app_writer_name`, length cap included. */
   it("turns hyphens into underscores and refuses what cannot back a schema", () => {
     expect(appWriterName("store-ops")).toBe("store_ops");
     expect(appWriterName("bookings")).toBe("bookings");

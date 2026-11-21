@@ -6,8 +6,8 @@
  * caller who has neither a checkout nor a doc site open.
  *
  * The Rust `oxy api` answered this from data baked into the binary at build
- * time — `crates/app/build_route_catalog.rs` walks the axum router source and
- * emits a table. That has one flaw this design fixes: the table describes the
+ * time — a build script walked the axum router source and
+ * emitted a table. That has one flaw this design fixes: the table describes the
  * routes the BINARY could mount, and several mounts are mode-conditional, so a
  * listed path can still 404 on the deployment in front of you. Asking the
  * deployment is strictly more truthful.

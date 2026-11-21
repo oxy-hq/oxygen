@@ -12,8 +12,8 @@
  *   `surface`     WHO can do it, and therefore whether a staff caller needs an
  *                 assume-role session. `admin` and `tenant` are mutually
  *                 exclusive in one session: an active assume session CLOSES
- *                 `/admin` (`crates/app/src/server/api/admin/mod.rs` — the
- *                 staff surface is refused while acting as a tenant), so a
+ *                 `/api/admin/*` (the staff surface is refused while acting
+ *                 as a tenant), so a
  *                 standup is several stages, not one pass. `stages()` below is
  *                 what computes them.
  *   `automation`  whether `oxyc` does it, does part of it, only verifies it, or

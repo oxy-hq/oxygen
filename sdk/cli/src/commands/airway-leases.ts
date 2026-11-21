@@ -6,7 +6,7 @@
  *   DELETE /api/{workspace_id}/agentic-airway/leases/{pipeline_name_b64}?run_id=<id>
  *   DELETE /api/{workspace_id}/agentic-airway/leases/{pipeline_name_b64}?force=true
  *
- * Both behind `WorkspaceAdmin` (`crates/api-airway/src/leases.rs`). These were
+ * Both behind the server's `WorkspaceAdmin` guard. These were
  * `oxy airway leases | release-lease`, which needed `OXY_DATABASE_URL`.
  *
  * THE CONFIRMATION IS THE RUST COMMAND'S. It showed the holder and asked
