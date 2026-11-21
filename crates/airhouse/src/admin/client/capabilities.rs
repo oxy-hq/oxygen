@@ -18,6 +18,10 @@ pub struct Capabilities {
     /// session state on that credential's connection, and is echoed back.
     #[serde(rename = "mint.shared_session", default)]
     pub mint_shared_session: bool,
+    /// A mint's `uncached_reads` keeps every read on that credential's
+    /// connections out of the result cache, and is echoed back.
+    #[serde(rename = "mint.uncached_reads", default)]
+    pub mint_uncached_reads: bool,
 }
 
 impl AirhouseAdminClient {

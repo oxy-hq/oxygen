@@ -14,6 +14,18 @@
 //! that carry deletes) come back from `table_changes` as an update of every
 //! surviving row. See `internal-docs/customer-apps-functions.md`, "Table
 //! changes", for the evidence.
+//!
+//! **Rows are never filtered by `change_type` in SQL.** On Airhouse's DuckLake
+//! any such filter on `ducklake_table_changes` fails inside DuckDB
+//! ("INTERNAL Error: optional_idx cannot be initialized with an invalid
+//! index"), so the reader counts with `GROUP BY change_type`, orders every
+//! inserted row before every deleted one ([`SIDE_ORDER`]), and splits the
+//! sides itself. Airhouse's `tests/change_feed_reader.rs` runs these
+//! statements verbatim and pins that failure.
+//!
+//! The credential is minted with `uncached_reads`, so a commit made through
+//! any Airhouse pod is in the next pass rather than up to a pod's cache TTL
+//! later.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock, RwLock};
@@ -224,8 +236,54 @@ fn changes_fn(schema: &str, table: &str, snapshot: i64) -> String {
     )
 }
 
-const INSERTED: &str = "change_type IN ('insert', 'update_postimage')";
-const DELETED: &str = "change_type IN ('delete', 'update_preimage')";
+/// Orders a snapshot's changed rows with every inserted row (`insert`,
+/// `update_postimage`) before every deleted one (`delete`,
+/// `update_preimage`), each side by `rowid`. A side is then one contiguous
+/// range, read with `LIMIT`/`OFFSET` from the counts, with no filter on
+/// `change_type` (see the module doc).
+const SIDE_ORDER: &str = "CASE WHEN change_type IN ('insert', 'update_postimage') THEN 0 ELSE 1 END, \
+     rowid, change_type";
+
+/// What a snapshot changed, from `SELECT change_type, count(*) … GROUP BY
+/// change_type`. An update is counted on both sides and as an update.
+fn tally(counts: Vec<Vec<Option<String>>>) -> Changed {
+    let mut changed = Changed::default();
+    for row in counts {
+        let n: u64 = row
+            .get(1)
+            .and_then(|c| c.as_deref())
+            .and_then(|c| c.trim().parse().ok())
+            .unwrap_or(0);
+        match row.first().and_then(|c| c.as_deref()) {
+            Some("insert") => changed.inserted += n,
+            Some("update_postimage") => {
+                changed.inserted += n;
+                changed.updated += n;
+            }
+            Some("delete" | "update_preimage") => changed.deleted += n,
+            _ => {}
+        }
+    }
+    changed
+}
+
+/// Split changed rows into `(inserted, deleted)` by each row's `change_type`.
+fn split_sides(rows: Vec<Vec<Option<String>>>) -> Result<(Vec<Row>, Vec<Row>), ReadError> {
+    let (mut inserted, mut deleted) = (Vec::new(), Vec::new());
+    for text in rows.into_iter().filter_map(|mut r| r.pop().flatten()) {
+        let (change_type, row) = parse_change(&text)?;
+        match change_type.as_str() {
+            "insert" | "update_postimage" => inserted.push(row),
+            "delete" | "update_preimage" => deleted.push(row),
+            other => {
+                return Err(ReadError::Failed(format!(
+                    "a changed row has an unknown change_type `{other}`"
+                )));
+            }
+        }
+    }
+    Ok((inserted, deleted))
+}
 
 /// Production's reader: a Reader the platform mints for the workspace.
 pub struct AirhouseTableReader;
@@ -329,25 +387,26 @@ impl AirhouseTableReader {
     }
 }
 
-fn parse_row(text: &str) -> Result<Row, ReadError> {
+/// A changed row's `change_type`, and the row without the metadata columns
+/// `table_changes` adds.
+fn parse_change(text: &str) -> Result<(String, Row), ReadError> {
     match serde_json::from_str::<Value>(text) {
         Ok(Value::Object(mut row)) => {
+            let change_type = match row.get("change_type") {
+                Some(Value::String(t)) => t.clone(),
+                _ => {
+                    return Err(ReadError::Failed("a changed row has no change_type".into()));
+                }
+            };
             for meta in META_COLUMNS {
                 row.remove(meta);
             }
-            Ok(row)
+            Ok((change_type, row))
         }
         _ => Err(ReadError::Failed(
             "a changed row did not read as JSON".into(),
         )),
     }
-}
-
-fn rows_of(rows: Vec<Vec<Option<String>>>) -> Result<Vec<Row>, ReadError> {
-    rows.into_iter()
-        .filter_map(|mut r| r.pop().flatten())
-        .map(|text| parse_row(&text))
-        .collect()
 }
 
 #[async_trait]
@@ -474,43 +533,25 @@ impl TableReader for AirhouseTableReader {
         snapshot: i64,
     ) -> Result<Changed, ReadError> {
         let from = changes_fn(schema, table, snapshot);
-        let counts = self
-            .run(
+        let mut changed = tally(
+            self.run(
                 workspace_id,
                 &format!("SELECT change_type, count(*) FROM {from} GROUP BY change_type"),
             )
-            .await?;
-        let mut changed = Changed::default();
-        for row in counts {
-            let n: u64 = row
-                .get(1)
-                .and_then(|c| c.as_deref())
-                .and_then(|c| c.trim().parse().ok())
-                .unwrap_or(0);
-            match row.first().and_then(|c| c.as_deref()) {
-                Some("insert") => changed.inserted += n,
-                Some("update_postimage") => {
-                    changed.inserted += n;
-                    changed.updated += n;
-                }
-                Some("delete" | "update_preimage") => changed.deleted += n,
-                _ => {}
-            }
-        }
+            .await?,
+        );
         if changed.inserted + changed.deleted == 0
             || changed.inserted + changed.deleted > INLINE_MAX_ROWS as u64
         {
             return Ok(changed);
         }
-        let side = |predicate: &'static str| {
-            format!(
-                "SELECT cast(to_json(c) AS VARCHAR) FROM {from} c WHERE {predicate} \
-                 ORDER BY rowid, change_type"
+        let rows = self
+            .run(
+                workspace_id,
+                &format!("SELECT cast(to_json(c) AS VARCHAR) FROM {from} c ORDER BY {SIDE_ORDER}"),
             )
-        };
-        let inserted = rows_of(self.run(workspace_id, &side(INSERTED)).await?)?;
-        let deleted = rows_of(self.run(workspace_id, &side(DELETED)).await?)?;
-        changed.rows = Some((inserted, deleted));
+            .await?;
+        changed.rows = Some(split_sides(rows)?);
         Ok(changed)
     }
 
@@ -524,15 +565,38 @@ impl TableReader for AirhouseTableReader {
         offset: usize,
     ) -> Result<ChangePage, ReadError> {
         let from = changes_fn(schema, table, snapshot);
-        let page = |predicate: &'static str| {
+        // Each side's size, so each pages from its own offset within the one
+        // ordering: the inserted side is rows `[0, inserted)`, the deleted side
+        // the rest.
+        let sides = tally(
+            self.run(
+                workspace_id,
+                &format!("SELECT change_type, count(*) FROM {from} GROUP BY change_type"),
+            )
+            .await?,
+        );
+        let (ins, del) = (sides.inserted as usize, sides.deleted as usize);
+        let take = |len: usize| len.saturating_sub(offset).min(limit.saturating_add(1));
+        let page = |start: usize, n: usize| {
             format!(
-                "SELECT cast(to_json(c) AS VARCHAR) FROM {from} c WHERE {predicate} \
-                 ORDER BY rowid, change_type LIMIT {} OFFSET {offset}",
-                limit + 1
+                "SELECT cast(to_json(c) AS VARCHAR) FROM {from} c \
+                 ORDER BY {SIDE_ORDER} LIMIT {n} OFFSET {start}"
             )
         };
-        let mut inserted = rows_of(self.run(workspace_id, &page(INSERTED)).await?)?;
-        let mut deleted = rows_of(self.run(workspace_id, &page(DELETED)).await?)?;
+        let mut inserted = match take(ins) {
+            0 => Vec::new(),
+            n => split_sides(self.run(workspace_id, &page(offset, n)).await?)?.0,
+        };
+        let mut deleted = match take(del) {
+            0 => Vec::new(),
+            n => {
+                split_sides(
+                    self.run(workspace_id, &page(ins.saturating_add(offset), n))
+                        .await?,
+                )?
+                .1
+            }
+        };
         let has_more = inserted.len() > limit || deleted.len() > limit;
         inserted.truncate(limit);
         deleted.truncate(limit);
@@ -567,6 +631,8 @@ mod tests {
         for made in [
             "merge_adjacent:3",
             "rewrite_delete:3",
+            // The raw kind; `ducklake_snapshots().changes` calls it
+            // `flushed_inlined`. Airhouse pins it.
             "inline_flush:3",
             "inserted_into_table:2",
             "inlined_insert:30",
@@ -633,10 +699,51 @@ mod tests {
 
     #[test]
     fn a_changed_row_loses_the_columns_table_changes_added() {
-        let row =
-            parse_row(r#"{"snapshot_id":3,"rowid":0,"change_type":"insert","id":1,"note":"a"}"#)
+        let (change_type, row) =
+            parse_change(r#"{"snapshot_id":3,"rowid":0,"change_type":"insert","id":1,"note":"a"}"#)
                 .unwrap();
+        assert_eq!(change_type, "insert");
         assert_eq!(row.len(), 2);
         assert!(row.contains_key("id") && row.contains_key("note"));
+    }
+
+    fn cell(text: &str) -> Vec<Option<String>> {
+        vec![Some(text.to_string())]
+    }
+
+    /// The sides are split by each row's `change_type`, since the SQL may not
+    /// filter on it: an update's post-image is inserted, its pre-image deleted.
+    #[test]
+    fn changed_rows_are_split_by_their_change_type() {
+        let (inserted, deleted) = split_sides(vec![
+            cell(r#"{"rowid":0,"change_type":"insert","id":1}"#),
+            cell(r#"{"rowid":1,"change_type":"update_postimage","id":2,"v":"B"}"#),
+            cell(r#"{"rowid":1,"change_type":"update_preimage","id":2,"v":"b"}"#),
+            cell(r#"{"rowid":2,"change_type":"delete","id":3}"#),
+        ])
+        .unwrap();
+        let ids = |rows: &[Row]| rows.iter().map(|r| r["id"].clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&inserted), [1, 2]);
+        assert_eq!(ids(&deleted), [2, 3]);
+        assert_eq!(deleted[0]["v"], "b");
+        assert!(split_sides(vec![cell(r#"{"change_type":"moved"}"#)]).is_err());
+        assert!(split_sides(vec![cell(r#"{"id":1}"#)]).is_err());
+    }
+
+    /// The counts by `change_type`: an update is on both sides and counted once
+    /// as an update.
+    #[test]
+    fn a_tally_counts_an_update_on_both_sides() {
+        let row = |t: &str, n: &str| vec![Some(t.to_string()), Some(n.to_string())];
+        let changed = tally(vec![
+            row("insert", "3"),
+            row("update_postimage", "2"),
+            row("update_preimage", "2"),
+            row("delete", "1"),
+        ]);
+        assert_eq!(
+            (changed.inserted, changed.deleted, changed.updated),
+            (5, 3, 2)
+        );
     }
 }

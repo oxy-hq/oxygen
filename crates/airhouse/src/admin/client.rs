@@ -39,6 +39,8 @@ struct MintTokenRequest<'a> {
     write_schemas: Option<&'a [String]>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     shared_session: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    uncached_reads: bool,
 }
 
 /// Wire shape of the create-SA response. Flattens
@@ -421,6 +423,12 @@ impl AirhouseAdminClient {
     /// `shared_session` tells Airhouse the credential's connection serves more
     /// than one requester, so it refuses statements that change session state.
     /// Omitted when `false`, for the same reason.
+    ///
+    /// `uncached_reads` tells Airhouse every read on the credential's
+    /// connections must run: none is answered from a pod's result cache, which
+    /// hides a commit made through another pod until the entry expires.
+    /// Omitted when `false`, for the same reason.
+    #[allow(clippy::too_many_arguments)]
     pub async fn mint_token(
         &self,
         tenant_id: &str,
@@ -430,6 +438,7 @@ impl AirhouseAdminClient {
         ttl_secs: i32,
         write_schemas: Option<&[String]>,
         shared_session: bool,
+        uncached_reads: bool,
     ) -> Result<EphemeralCredential, AirhouseError> {
         let resp = self
             .client
@@ -441,6 +450,7 @@ impl AirhouseAdminClient {
                 ttl_secs,
                 write_schemas,
                 shared_session,
+                uncached_reads,
             })
             .send()
             .await?;
@@ -816,6 +826,7 @@ mod tests {
                 900,
                 None,
                 false,
+                false,
             )
             .await
             .unwrap();
@@ -857,6 +868,7 @@ mod tests {
                 900,
                 None,
                 true,
+                false,
             )
             .await
             .unwrap();
@@ -869,6 +881,7 @@ mod tests {
                 UserRole::Reader,
                 900,
                 None,
+                false,
                 false,
             )
             .await
@@ -884,6 +897,68 @@ mod tests {
             .collect();
         assert_eq!(bodies[0]["shared_session"], json!(true));
         assert!(bodies[1].get("shared_session").is_none(), "{}", bodies[1]);
+    }
+
+    /// `uncached_reads` goes on the wire only when asked for, and its echo comes
+    /// back on the credential.
+    #[tokio::test]
+    async fn test_mint_token_sends_uncached_reads_only_when_asked() {
+        let server = MockServer::start().await;
+        let mut echoed = mint_response_json();
+        echoed["uncached_reads"] = json!(true);
+        Mock::given(method("POST"))
+            .and(path("/admin/v1/tenants/acme/tokens"))
+            .and(wiremock::matchers::body_partial_json(
+                json!({"uncached_reads": true}),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&echoed))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/admin/v1/tenants/acme/tokens"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&mint_response_json()))
+            .mount(&server)
+            .await;
+
+        let client = AirhouseAdminClient::new(server.uri(), "tok");
+        let watch = client
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "watch",
+                UserRole::Reader,
+                900,
+                None,
+                false,
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(watch.uncached_reads);
+        let plain = client
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "alice",
+                UserRole::Reader,
+                900,
+                None,
+                false,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(!plain.uncached_reads);
+
+        let bodies: Vec<serde_json::Value> = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| serde_json::from_slice(&r.body).unwrap())
+            .collect();
+        assert_eq!(bodies[0]["uncached_reads"], json!(true));
+        assert!(bodies[1].get("uncached_reads").is_none(), "{}", bodies[1]);
     }
 
     #[tokio::test]
@@ -904,6 +979,7 @@ mod tests {
                 UserRole::Reader,
                 900,
                 None,
+                false,
                 false,
             )
             .await
@@ -932,6 +1008,7 @@ mod tests {
                 7200,
                 None,
                 false,
+                false,
             )
             .await
             .unwrap_err();
@@ -957,6 +1034,7 @@ mod tests {
                 900,
                 None,
                 false,
+                false,
             )
             .await
             .unwrap_err();
@@ -981,6 +1059,7 @@ mod tests {
                 UserRole::Reader,
                 0,
                 None,
+                false,
                 false,
             )
             .await

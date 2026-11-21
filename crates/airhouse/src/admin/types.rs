@@ -148,6 +148,10 @@ pub struct EphemeralCredential {
     /// asked for and when the Airhouse predates the claim and ignored it.
     #[serde(default)]
     pub shared_session: bool,
+    /// Echo of the `uncached_reads` mint claim. `false` both when it was not
+    /// asked for and when the Airhouse predates the claim and ignored it.
+    #[serde(default)]
+    pub uncached_reads: bool,
 }
 
 /// Auth selector for the per-token revoke endpoint.

@@ -312,6 +312,20 @@ impl BrokerSubject {
         )
     }
 
+    /// Whether a mint for this subject asks Airhouse to answer every read
+    /// fresh (the `uncached_reads` claim). Only [`SystemPurpose::TableWatch`]
+    /// does: it polls for new snapshots, and a pod's result cache hides a
+    /// commit made through another pod until the entry expires.
+    fn uncached_reads(&self) -> bool {
+        matches!(
+            self,
+            BrokerSubject::System {
+                purpose: SystemPurpose::TableWatch,
+                ..
+            }
+        )
+    }
+
     fn workspace_id(&self) -> Option<Uuid> {
         match self {
             BrokerSubject::User(_) => None,
@@ -671,6 +685,7 @@ impl AirhouseTokenBroker {
         let subject_str = subject.audit_subject();
         let write_schemas = subject.write_schemas(role);
         let shared_session = subject.shared_session();
+        let uncached_reads = subject.uncached_reads();
 
         let mut attempt = 0;
         loop {
@@ -684,6 +699,7 @@ impl AirhouseTokenBroker {
                     ttl_secs,
                     write_schemas.as_deref(),
                     shared_session,
+                    uncached_reads,
                 )
                 .await
             {
@@ -697,6 +713,16 @@ impl AirhouseTokenBroker {
                             tenant_id = %tenant_id,
                             "airhouse ignored the shared_session claim; only the client-side \
                              session-state check applies to this pooled credential"
+                        );
+                    }
+                    // Without it, a table watch still works, but a commit made
+                    // through another Airhouse pod can reach it up to that
+                    // pod's cache TTL late.
+                    if uncached_reads && !cred.uncached_reads {
+                        warn!(
+                            tenant_id = %tenant_id,
+                            "airhouse ignored the uncached_reads claim; this credential's reads \
+                             may be served from a pod's result cache"
                         );
                     }
                     return Ok(cred);

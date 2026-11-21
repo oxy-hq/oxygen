@@ -52,6 +52,7 @@ pub(super) fn cred(role: &str, write_schemas: Option<Vec<String>>) -> EphemeralC
         service_account_id: "sa_acme".into(),
         write_schemas,
         shared_session: false,
+        uncached_reads: false,
     }
 }
 

@@ -72,6 +72,32 @@ fn only_the_shared_query_pool_asks_for_a_shared_session() {
     assert!(!BrokerSubject::User(Uuid::nil()).shared_session());
 }
 
+/// Only the table watch asks Airhouse to answer every read fresh: it polls for
+/// new snapshots, which a pod's result cache would hide. Everyone else keeps
+/// the cache.
+#[test]
+fn only_the_table_watch_asks_for_uncached_reads() {
+    let ws = Uuid::nil();
+    let watch = BrokerSubject::System {
+        workspace_id: ws,
+        purpose: SystemPurpose::TableWatch,
+    };
+    assert!(watch.uncached_reads());
+    for purpose in [
+        SystemPurpose::SharedQuery,
+        SystemPurpose::Scheduler,
+        SystemPurpose::EventLog,
+        SystemPurpose::UsageRead,
+    ] {
+        let s = BrokerSubject::System {
+            workspace_id: ws,
+            purpose,
+        };
+        assert!(!s.uncached_reads(), "{}", s.audit_subject());
+    }
+    assert!(!BrokerSubject::User(Uuid::nil()).uncached_reads());
+}
+
 /// The previews' live-table read is its own audit segment, so a staff
 /// check reading `information_schema` never reads as scheduler traffic.
 #[test]
@@ -176,5 +202,6 @@ fn mock_cred(expires_at: DateTime<Utc>) -> EphemeralCredential {
         service_account_id: "sa_test".into(),
         write_schemas: None,
         shared_session: false,
+        uncached_reads: false,
     }
 }
