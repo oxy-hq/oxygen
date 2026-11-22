@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
-use sea_orm::{ActiveModelTrait, ActiveValue};
+use sea_orm::{ActiveModelTrait, ActiveValue, TransactionTrait};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy, drive_policy_for};
 use super::*;
@@ -158,7 +158,10 @@ impl TaskExecutor for Stub {
 ///
 /// Scoped to this test's workspace because lib tests share one database:
 /// `drive_pending` is what `tick_cloud` calls per workspace, and calling it
-/// for ours alone leaves every other test's queued work untouched.
+/// for ours alone leaves every other test's queued work untouched. The reverse
+/// is not in this test's hands: another process that boots `api_router(..)`
+/// with its in-process workers on drives or fails any workspace's run, so
+/// `.config/nextest.toml` pins this test into `serial-db` with those builders.
 #[tokio::test]
 async fn a_single_process_executes_the_run_it_queued() {
     let Some(db) = crate::server::test_support::test_db().await else {
@@ -193,11 +196,19 @@ async fn a_single_process_executes_the_run_it_queued() {
     .await
     .expect("seed workspace");
 
-    // Queued as the start handler queues it: an `agentic_runs` row and a
-    // `Global` entry of the procedure-run kind.
+    // Queued as the start handler queues it (`automation_run::task::submit`):
+    // an `agentic_runs` row and a `Global` entry of the procedure-run kind, in
+    // ONE transaction. Committed apart, the run sits for a round trip as a
+    // `running` root with no events, no lease and no queue row, which is
+    // exactly what `cleanup_stale_runs`' "run never started" arm fails. Lib
+    // tests share this database, and any of them that boots `api_router`
+    // with the in-process workers on runs that cleanup at startup: one did,
+    // 26 ms into this test (PR #4311's first CI run), and the run was
+    // `failed` before the first drive could select it.
     let task_id = uuid::Uuid::new_v4().to_string();
+    let txn = db.begin().await.expect("begin the submit transaction");
     agentic_runtime::crud::insert_run(
-        &db,
+        &txn,
         &task_id,
         "procedure: greet",
         None,
@@ -212,7 +223,7 @@ async fn a_single_process_executes_the_run_it_queued() {
         payload: serde_json::json!({}),
     };
     agentic_runtime::crud::enqueue_task(
-        &db,
+        &txn,
         &task_id,
         &task_id,
         None,
@@ -222,6 +233,7 @@ async fn a_single_process_executes_the_run_it_queued() {
     )
     .await
     .expect("queue the run");
+    txn.commit().await.expect("commit the submit transaction");
     let tasks = [TaskSeam {
         kind: PROCEDURE_RUN_KIND,
         build: |_| Arc::new(Stub),
@@ -252,10 +264,19 @@ async fn a_single_process_executes_the_run_it_queued() {
         if STUB_RAN.load(Ordering::SeqCst) {
             break;
         }
-        assert!(
-            Instant::now() < deadline,
-            "the run was never executed: with no worker fleet nothing else will"
-        );
+        if Instant::now() >= deadline {
+            // What the run and its queue row ended as says who took it: a
+            // `failed` run with a "server restarted" note is a boot cleanup,
+            // a claimed or terminal queue row is another driver.
+            let run = agentic_runtime::crud::get_run(&db, &task_id).await;
+            let entry = agentic_runtime::crud::get_queue_entry(&db, &task_id).await;
+            panic!(
+                "the run was never executed: with no worker fleet nothing else will \
+                 (run: {:?}, queue entry: {:?})",
+                run.map(|r| r.map(|r| (r.task_status, r.error_message, r.driver_id))),
+                entry.map(|q| q.map(|q| (q.queue_status, q.worker_id))),
+            );
+        }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }

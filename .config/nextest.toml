@@ -471,3 +471,19 @@ retries = 2
 filter = "package(=oxy-app) & kind(lib) & test(/^server::router::router_split_tests::/)"
 test-group = "serial-db"
 retries = 2
+
+# The other side of the writers above: `oxy-app`'s one lib test that owns
+# `agentic_runs` rows on the shared `OXY_DATABASE_URL`. It queues a Global
+# procedure run in its own workspace and drives it with a stub executor, so
+# anything else that drives or rewrites that row makes it fail at its deadline
+# with "the run was never executed". Every test that builds `api_router(..)`
+# with the in-process workers on is such a thing: at boot it runs the unscoped
+# `cleanup_stale_runs` and a startup recovery pass over every workspace (cloud
+# mode), then a latency worker that drives any workspace's pending Global run
+# with a registry that has no stub. PR #4311's first CI run lost the run this
+# way while `router_split_tests::local_router_mounts_workspace_routes_under_nil_uuid`
+# booted 26 ms into it. Pinned by exact name, with no `retries`, because a
+# retry would hide the next unscoped writer instead of naming it.
+[[profile.default.overrides]]
+filter = "package(=oxy-app) & kind(lib) & test(=server::router::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
+test-group = "serial-db"
