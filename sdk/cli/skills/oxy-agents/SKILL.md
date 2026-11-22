@@ -8,7 +8,7 @@ description: >-
   agent can't see a database", "which tools can a state call", "set thinking, effort,
   budget_tokens or extended thinking", "per-state model or max_retries", "validation rules",
   "Cube or Looker semantic_engine", "analytics vs app-builder agent", "`.agent.yml` or
-  `.agentic.yml`", and validating, running (`oxy agentic run`) or testing (`oxy test`) an agent.
+  `.agentic.yml`", and validating, running (`oxy agentic run`) or testing (`oxyc evals run`) an agent.
   Not for writing the semantic model itself (views, topics) or automations.
 ---
 
@@ -271,7 +271,7 @@ thinking. A value you set is used as-is, and thinking tokens count against it.
 oxyc validate --file agents/sales.agentic.yml   # offline schema check, no server
 oxy validate --file agents/sales.agentic.yml    # the runtime's own parser
 oxy agentic run agents/sales.agentic.yml -q "Revenue by region last quarter?"
-oxy test agents/sales.agentic.test.yml          # LLM-judged evals
+oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged evals, on the deployment
 ```
 
 - **Both validators are structural only.** They catch a bad shape (a
@@ -288,9 +288,12 @@ oxy test agents/sales.agentic.test.yml          # LLM-judged evals
   usefully resumed from the CLI, because `oxy agentic answer` only marks the
   run as running and does not deliver the text. Ask a more specific question,
   or continue in the app.
-- **`oxy test`** runs `.test.yml` evals against an agent and scores each case
-  with an LLM judge. The format and flags are in
-  [references/quick-reference.md](references/quick-reference.md).
+- **`oxyc evals run`** runs `.test.yml` evals against an agent on the
+  deployment and scores each case with an LLM judge. It runs what the workspace
+  has compiled (push first), not your checkout, and exits `9` under
+  `--min-accuracy`. The format and flags are in
+  [references/quick-reference.md](references/quick-reference.md) and the
+  `oxy-evals` skill.
 
 To point an editor at the schema, start the file with:
 

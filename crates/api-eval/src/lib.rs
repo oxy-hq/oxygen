@@ -1,33 +1,85 @@
-//! The eval context: `oxy test`, which runs the LLM-as-judge evaluations
-//! defined in `.test.yml` files against their `.agentic.yml` targets.
+//! The eval context: LLM-as-judge evaluations defined in `.test.yml` files,
+//! run against their `.agentic.yml` targets.
 //!
-//! Its own owner in `oxy-cli-shim`, registered by `oxy-server` (rule S10 in
-//! `internal-docs/domain-boundaries.md`, "the CLI is a shim; a command belongs
-//! to its owner"). It moved out of `oxy-app` in two steps, top down, because
-//! the engine builds its runs on `OxyProjectContext`, which only `oxy-app` can
-//! name, so this crate sits above it and `oxy-app` can never call back:
+//! It moved out of `oxy-app` in two steps, top down, because the engine builds
+//! its runs on `OxyProjectContext`, which only `oxy-app` can name, so this
+//! crate sits above it and `oxy-app` can never call back:
 //!
-//! - **First (PR 1):** the command (`test_command`), its event handler,
-//!   progress bars and launch helpers (`service`, was
-//!   `oxy-app`'s `server::service::eval`), and the reporters (`reporters`, was
-//!   `integrations::eval::reporters`).
+//! - **First (PR 1):** the `oxy test` command (`test_command`), its event
+//!   handler, progress bars and launch helpers, and the reporters, each its
+//!   own `oxy-cli-shim` owner, registered by `oxy-server` (rule S10 in
+//!   `internal-docs/domain-boundaries.md`).
 //! - **Then (PR 2):** the engine (`builders`, was `oxy-app`'s
 //!   `integrations::eval::builders`: the launcher, the target, the solvers and
-//!   judges, the result types). It builds its runs on
-//!   `oxy_app::surface::workspace_runtime::OxyProjectContext`.
+//!   judges, the result types).
+//! - **Then (2026-11-21):** the routes `oxyc evals run` calls ([`runs`]):
+//!   `POST /api/{workspace_id}/evals/runs` queues an `eval_run` task (its
+//!   executor rides `SurfaceSeams::tasks`), `GET …/evals/runs/{id}` reads the
+//!   results back. They read the suite from the compile boundary
+//!   (`eval_test_definitions`), never a working copy, and run the engine on
+//!   the worker fleet (`internal-docs/oxy-cli-to-oxyc.md`, step 12). The
+//!   engine takes the project context and the test file from its caller there
+//!   (`EvalLauncher::with_project`, `EvalInput::test`); `oxy test` keeps its
+//!   local run over a checkout: it stays as dev tooling (it moves under
+//!   `oxy dev`, step 13, decision 2026-11-22), because the BIRD harness
+//!   (`evals/bird`) runs a local workspace no deployment holds.
 //!
-//! It mounts no route. It is named `api-*` because that is the layer it sits
-//! in (above `oxy-app`, reaching it through `oxy_app::surface` only, held by
-//! `surface_contract`), where the airway context's `oxy airway` lived until
-//! it became `oxyc airway` (2026-11-21).
+//! It sits above `oxy-app`, reaching it through `oxy_app::surface` only (held
+//! by `surface_contract`).
 #![recursion_limit = "256"]
 
 // The engine. `pub` as its types were when `oxy-app` re-exported them
 // (`surface::eval`), so none of its constructors reads as dead here.
 pub mod builders;
 mod reporters;
+pub mod runs;
 mod service;
 mod test_command;
+
+use std::sync::Arc;
+
+use axum::Router;
+use axum::routing::{get, post};
+use oxy_app::surface::seams::TaskSeam;
+use oxy_app_core::AppState;
+use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+/// The workspace seam's share, merged inside `/api/{workspace_id}`: the eval
+/// runs ([`runs`]).
+pub fn workspace_routes() -> Router<AppState> {
+    Router::new()
+        .route("/evals/runs", post(runs::handlers::create_run))
+        .route("/evals/runs/{run_id}", get(runs::handlers::get_run))
+}
+
+const fn fleet(path: &'static str) -> RouteRoleDecl {
+    RouteRoleDecl {
+        method: "*",
+        path,
+        role: RouteRole::FleetOk,
+    }
+}
+
+/// Pod placement for [`workspace_routes`], relative to the workspace tree:
+/// FleetOk, as both read Postgres and enqueue, and touch no disk.
+pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
+    WORKSPACE_ROUTE_ROLES
+}
+
+const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] =
+    &[fleet("/evals/runs"), fleet("/evals/runs/{run_id}")];
+
+/// The task kind this surface queues and runs: one eval run.
+pub fn tasks() -> Vec<TaskSeam> {
+    vec![TaskSeam {
+        kind: runs::executor::EVAL_RUN_KIND,
+        build: |deps| {
+            Arc::new(runs::executor::EvalRunExecutor {
+                db: deps.db.clone(),
+            })
+        },
+    }]
+}
 
 // `oxy test`: its own owner in `oxy-cli-shim`, registered by `oxy-server`.
 // The variant's doc is the command's `--help` text, carried over verbatim. A

@@ -1,13 +1,20 @@
-# Reading `oxy test` results
+# Reading eval results
 
-`oxy test <file> --output-json` writes `<file without .yml>.results.json` next to the test
-file (`tests/sales.performance.test.yml` → `tests/sales.performance.test.results.json`).
-Without a file argument it writes `test-results.json` in the current directory.
-`--format json` prints the same document on stdout.
+`oxyc evals run <file> --output-json` writes `<file without .yml>.results.json` at the test
+file's path, relative to the current directory (`tests/sales.performance.test.yml` →
+`tests/sales.performance.test.results.json`), or to the file you name after `--output-json`.
+Without a file argument it writes `test-results.json`. `--json` prints the same document on
+stdout.
+
+It is the text the deployment's run produced, byte for byte the document the older local
+`oxy test --output-json` wrote, so the shape below holds for both.
 
 ## Shape
 
-The file is a JSON array with **one element per test file**:
+The file is a JSON array with **one element per test file**. Keys appear in the order below
+except `test_name`, which is written last; every record also carries `llm_rounds`, and
+optional fields (`final_sql`, `answer_text`, `timing`, `runtime`, `model`, …) appear only when
+set:
 
 ```jsonc
 [
@@ -22,7 +29,7 @@ The file is a JSON array with **one element per test file**:
     },
     "metrics": [
       {
-        "type": "Correctness",        // the only metric `oxy test` produces
+        "type": "Correctness",        // the only metric an eval produces
         "score": 0.6667,              // mean of every record's score in this file
         "records": [
           {
@@ -137,9 +144,9 @@ diagnosis:
 Run it two or three times for a flaky case. Different `source` values or different SQL across
 runs is the flakiness, made visible.
 
-## The pretty report
+## The summary
 
-Without `--format json`, each case prints as `PASS (n/n)`, `FLKY (k/n)` or `FAIL (0/n)`,
-followed by the file's Correctness score and a `Failures:` section with the judge's reasoning.
-`-v` adds each failing run's actual answer, and `-q` prints only the summary. The footer gives
-the overall `Tests: x/y passed`, the answer rate, the time taken and the token totals.
+Without `--json`, `oxyc evals run` prints one line per test file (its name, the Correctness
+score and `answered x/y`), then, indented, `FAIL` and the prompt of every run that didn't
+pass. The judge's reasoning, the actual answers and the errors are only in the results
+document.

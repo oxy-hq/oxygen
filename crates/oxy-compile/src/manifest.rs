@@ -74,6 +74,7 @@ pub fn kind_label(kind: FileKind) -> Option<&'static str> {
         FileKind::WorldModelConfig => "world_model_config",
         FileKind::Simulation => "simulation",
         FileKind::ContextDocument => "context_document",
+        FileKind::EvalTest => "eval_test",
         FileKind::RetiredAgent => return None,
     })
 }

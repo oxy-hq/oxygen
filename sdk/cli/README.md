@@ -792,6 +792,29 @@ a tenant with no service account (provision first); a 502 may have revoked the
 old account without binding a new one, so run it again (the revoke is
 idempotent). It replaced the Rust `oxy admin airhouse rotate-sa`.
 
+## Evals
+
+Run a workspace's `.test.yml` evals (LLM-judged, over its `.agentic.yml`
+agents) on a deployment: the counterpart of `oxy test`, which runs them on a
+local checkout.
+
+```bash
+oxyc evals run [<file>.test.yml] --workspace <id> [--case <c>] [--tag <t>] [--regrade <results.json>] [--min-accuracy N] [--threshold-mode average|all] [--wait [s]] [--detach] [--json] [--output-json [file]]
+oxyc evals wait <run_id> --workspace <id> [--min-accuracy N] [--threshold-mode average|all] [--wait [s]] [--json] [--output-json [file]]
+```
+
+`run` queues the eval for the deployment's worker fleet
+(`POST /api/{workspace_id}/evals/runs`) and polls it to the end. The deployment
+runs the test files and agents the workspace has **compiled**, so push a new or
+edited test file first (a file it has not compiled answers exit `5`). With no
+file it runs every compiled test file. `--json` prints the results document and
+`--output-json` writes it — byte for byte what `oxy test --output-json` wrote,
+to the same default path (`<file>.results.json`, or `test-results.json`).
+`--min-accuracy` exits `9` when the average (or, with `--threshold-mode all`,
+any test file's) accuracy is below it; a failed, cancelled or timed-out run
+exits `1`; `--wait <s>` gives up after `s` seconds with exit `7` while the run
+goes on. `--detach` prints the run id; `wait <run_id>` reports it later.
+
 ## Airway pipelines
 
 Run, backfill and inspect a workspace's airway ELT pipelines on a deployment,

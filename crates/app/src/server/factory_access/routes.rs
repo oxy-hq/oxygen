@@ -98,6 +98,10 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     ("GET", "/analytics/runs/{id}/events"),
     // Mobile ask: "tell me when this is answered" on the caller's own run.
     ("POST", "/analytics/runs/{id}/notify"),
+    // Evals run the agents the way chat does (`oxyc evals run`), so whoever
+    // may start an agent run may start one and read it back.
+    ("POST", "/evals/runs"),
+    ("GET", "/evals/runs/{run_id}"),
     ("PATCH", "/analytics/runs/{id}/thinking_mode"),
     ("GET", "/analytics/threads/{thread_id}/run"),
     ("GET", "/analytics/threads/{thread_id}/runs"),

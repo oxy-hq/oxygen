@@ -1,0 +1,44 @@
+[
+  {
+    "errors": [
+      "agentic pipeline asked a clarifying question: Which region do you mean?"
+    ],
+    "metrics": [
+      {
+        "type": "Correctness",
+        "score": 0.5,
+        "records": [
+          {
+            "cot": "1. Key facts: $6.7B.\n2. The answer states $6.74B.\nVerdict: PASS",
+            "choice": "PASS",
+            "score": 1.0,
+            "prompt": "What was total revenue across all stores in 2025?",
+            "expected": "Total revenue across all stores in 2025 was approximately $6.7 billion.",
+            "actual_output": "Total revenue in 2025 was $6.74B across 45 stores.",
+            "duration_ms": 18234.5,
+            "input_tokens": 41210,
+            "output_tokens": 1830,
+            "llm_rounds": 0
+          },
+          {
+            "cot": "Run failed with error: agentic pipeline asked a clarifying question: Which region do you mean?",
+            "choice": "FAIL",
+            "score": 0.0,
+            "prompt": "What was total revenue across all stores in 2025?",
+            "expected": "Total revenue across all stores in 2025 was approximately $6.7 billion.",
+            "actual_output": "[ERROR] agentic pipeline asked a clarifying question: Which region do you mean?",
+            "duration_ms": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "llm_rounds": 0
+          }
+        ]
+      }
+    ],
+    "stats": {
+      "total_attempted": 2,
+      "answered": 1
+    },
+    "test_name": "sales.performance.test.yml"
+  }
+]

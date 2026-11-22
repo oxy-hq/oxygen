@@ -62,11 +62,12 @@ cases:
 #      - score: overall pass rate across all cases
 #      - consistency: fraction of cases that were fully consistent
 #
-# CLI usage:
-#   oxy test                                        # run all *.test.yml in project
-#   oxy test testing/analytics.agentic.test.yml     # run specific test file
-#   oxy test --tag critical                         # filter by tag
-#   oxy test --min-accuracy 0.8                     # fail if score < 80%
-#   oxy test --output-json                          # write results to JSON file
-#   oxy test testing/analytics.agentic.test.yml --case 0
-#                                                   # run one case by index, name, or prompt
+# CLI usage (runs on the deployment, against what the workspace has compiled,
+# so push the file first; install with `npm i -g @oxy-hq/cli`, then `oxyc login`):
+#   oxyc evals run --workspace <id>                      # run all compiled *.test.yml
+#   oxyc evals run testing/analytics.agentic.test.yml --workspace <id>   # one file
+#   oxyc evals run --workspace <id> --tag critical       # filter by tag
+#   oxyc evals run --workspace <id> --min-accuracy 0.8   # exit 9 if score < 80%
+#   oxyc evals run --workspace <id> --output-json        # write results to JSON file
+#   oxyc evals run testing/analytics.agentic.test.yml --workspace <id> --case 0
+#                                                        # run one case by index, name, or prompt

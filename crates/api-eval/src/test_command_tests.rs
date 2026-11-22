@@ -7,7 +7,7 @@
 //! validation, and the threshold gate.
 
 use super::*;
-use crate::builders::types::{Correctness, Execution, RunStats, Similarity};
+use crate::builders::types::{Correctness, Execution, MetricKind, RunStats, Similarity};
 use clap::Parser;
 
 /// Builds a `TestArgs` from a CLI-style argv, mirroring how clap parses it in

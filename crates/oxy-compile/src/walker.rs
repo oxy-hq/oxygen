@@ -77,6 +77,12 @@ pub enum FileKind {
     /// ([`crate::classic_agents`]). Test mirrors (`x.agent.test.yml`,
     /// `x.test.agent.yml`) are not this kind.
     RetiredAgent,
+    /// `*.test.yml` — an eval suite (`oxyc evals run`). The one kind whose name
+    /// carries `.test.`: the fixture rule below drops a test file MIRRORING an
+    /// entity extension, and this is the test file itself. A file that does
+    /// not parse as a mapping compiles to no row rather than failing the
+    /// revision, as the working-copy lister skips it.
+    EvalTest,
 }
 
 /// The kind of automation file. `.procedure.yml` is kept for back-compat;
@@ -187,6 +193,7 @@ const NAMED_KINDS: &[(&str, FileKind)] = &[
     ),
     (".airway.yml", FileKind::AirwayPipeline),
     (".simulation.yml", FileKind::Simulation),
+    (".test.yml", FileKind::EvalTest),
 ];
 
 /// The kind `file_name`, at workspace-relative `rel_path`, would compile as;
@@ -336,7 +343,7 @@ impl Walk<'_> {
         // `drafts/scratch.test.agentic.yml` both carry `.test.` in the file
         // name, so both drop, and the working-copy lister
         // (`storage.rs::list_entity_files`) applies the same rule.
-        if file_name.contains(".test.") {
+        if file_name.contains(".test.") && kind != FileKind::EvalTest {
             dropped(&rel_path, "test file mirroring an entity extension");
             return;
         }
@@ -645,6 +652,8 @@ mod tests {
         // File names that mirror an entity extension but are test fixtures.
         write(root, "semantics/orders.test.view.yml", "name: orders");
         write(root, "worlds/w.test.simulation.yml", "name: w");
+        // …while the test file itself, an eval suite, is discovered as one.
+        write(root, "tests/sales.agentic.test.yml", "cases: []");
 
         // The documented any-depth directory skips, one stray copy each.
         for skipped in [
@@ -668,9 +677,9 @@ mod tests {
 
         assert_eq!(
             paths,
-            vec!["semantics/orders.view.yml"],
+            vec!["semantics/orders.view.yml", "tests/sales.agentic.test.yml"],
             "exactly one view survives: every stray copy is pruned and both \
-             `.test.`-named fixtures are dropped"
+             `.test.`-named fixtures are dropped; the eval suite is its own kind"
         );
     }
 

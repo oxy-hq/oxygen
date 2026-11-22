@@ -10,5 +10,5 @@ pub trait Reporter {
 mod json;
 mod pretty;
 
-pub use json::JsonReporter;
+pub use json::{JsonReporter, results_json};
 pub use pretty::PrettyReporter;

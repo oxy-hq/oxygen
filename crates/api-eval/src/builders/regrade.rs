@@ -63,6 +63,16 @@ pub(super) type LoadedOutputs = (
     Vec<(String, TargetOutput)>,
 );
 
+/// Rebuild the generator's outputs from a results document, wherever it is.
+pub(super) fn load(source: &super::types::RegradeSource) -> Result<LoadedOutputs, OxyError> {
+    match source {
+        super::types::RegradeSource::File(path) => load_outputs(path),
+        super::types::RegradeSource::Text(text) => {
+            parse_outputs(text).map_err(|e| OxyError::ConfigurationError(format!("regrade: {e}")))
+        }
+    }
+}
+
 /// Read a results file and rebuild the generator's outputs from its records.
 pub(super) fn load_outputs(path: &Path) -> Result<LoadedOutputs, OxyError> {
     let text = std::fs::read_to_string(path).map_err(|e| {

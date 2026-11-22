@@ -44,11 +44,13 @@ use uuid::Uuid;
 /// * `1` — everything up to `schema_migration_definitions`.
 /// * `2` — plus `context_document_definitions`
 ///   ([`crate::context_documents::SINCE_SCHEMA_VERSION`]).
+/// * `3` — plus `eval_test_definitions` (`*.test.yml`)
+///   ([`crate::eval_tests::SINCE_SCHEMA_VERSION`]).
 ///
 /// Reuse is keyed on it too (`lookup_idempotent_revision`,
 /// `find_reusable_revision`), so a bump stops an older revision of the same
 /// SHA being handed back as if it carried the new kind.
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 /// How recent a successful revision has to be for an idempotent
 /// re-compile to reuse it. Hardcoded to one hour; a same-SHA re-compile
@@ -76,6 +78,16 @@ pub enum CompiledRow {
     WorldModelConfig(CompiledWorldModelConfig),
     Simulation(CompiledSimulation),
     ContextDocument(CompiledContextDocument),
+    EvalTest(CompiledEvalTest),
+}
+
+/// One `.test.yml`, its body opaque: the eval engine (`oxy-api-eval`) is the
+/// authority on what a test file means, and a wrong one is a run failure with
+/// a message, not a compile failure.
+#[derive(Debug, Clone)]
+pub struct CompiledEvalTest {
+    pub file_path: String,
+    pub definition: Value,
 }
 
 /// One `.md` an agent's `context:` reaches. The body IS the artifact, as it is
@@ -542,6 +554,9 @@ pub(crate) async fn compile_files(
             Err(f) => Err(f),
         };
         match compiled {
+            // A `.test.yml` with no `cases` is not a test file: not compiled,
+            // not in the manifest, as if discovery had not claimed it.
+            Ok((produced, _)) if file.kind == FileKind::EvalTest && produced.is_empty() => {}
             Ok((produced, content)) => {
                 batch
                     .sources
@@ -870,6 +885,7 @@ fn compile_content(
                 definition: def,
             })
         }),
+        FileKind::EvalTest => Ok(compile_eval_test(file, content)),
         FileKind::VerifiedQuery => compile_verified_query(file, &content),
         FileKind::ContextDocument => compile_context_document(file, &content),
         FileKind::SchemaMigration => compile_schema_migration(file, &content),
@@ -1520,6 +1536,26 @@ fn compile_verified_query(
 
 /// Helper for YAML kinds whose row shape is essentially
 /// `(name, file_path, definition jsonb)`.
+/// A `.test.yml` that is not a YAML mapping with `cases` is not a test file,
+/// so it compiles to no row instead of failing the revision: these files were
+/// never compiled, and a stray one (a classic agent's `x.agent.test.yml`
+/// mirror) must not start failing a workspace's pushes. Whether the cases
+/// make sense is the eval engine's call, at run time.
+fn compile_eval_test(file: &DiscoveredFile, content: &str) -> Vec<CompiledRow> {
+    match serde_yaml::from_str::<Value>(content) {
+        Ok(definition) if definition.get("cases").is_some_and(Value::is_array) => {
+            vec![CompiledRow::EvalTest(CompiledEvalTest {
+                file_path: file.rel_path.clone(),
+                definition,
+            })]
+        }
+        Ok(_) | Err(_) => {
+            tracing::debug!(rel_path = %file.rel_path, "a .test.yml with no `cases` list compiles to no row");
+            Vec::new()
+        }
+    }
+}
+
 fn compile_named_yaml<F>(
     file: &DiscoveredFile,
     content: &str,
@@ -1599,6 +1635,7 @@ fn row_dedupe_key(row: &CompiledRow, _kind: &FileKind) -> Option<String> {
         CompiledRow::WorldModelConfig(_) => None,
         CompiledRow::Simulation(s) => Some(format!("simulation:{}", s.name)),
         CompiledRow::ContextDocument(d) => Some(format!("doc:{}", d.file_path)),
+        CompiledRow::EvalTest(t) => Some(format!("test:{}", t.file_path)),
     }
 }
 
@@ -1835,6 +1872,37 @@ mod tests {
                 assert!(c.definition.get("checks").unwrap().is_array());
             }
             other => panic!("expected ReconcileConfig, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_test_yml_compiles_to_a_row_keyed_by_path_and_a_stray_one_to_none() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        write(
+            root,
+            "tests/sales.agentic.test.yml",
+            "cases:\n  - prompt: p\n    expected: e\n",
+        );
+        write(root, "tests/mirror.agent.test.yml", "name: t\n");
+        write(root, "tests/broken.test.yml", "cases: [\n");
+        let files = discover(root).unwrap();
+        let tests: Vec<_> = files
+            .iter()
+            .filter(|f| matches!(f.kind, FileKind::EvalTest))
+            .collect();
+        assert_eq!(tests.len(), 3, "every .test.yml is discovered");
+        let mut rows = Vec::new();
+        for file in tests {
+            rows.extend(compile_one(file).await.expect("never a compile failure"));
+        }
+        assert_eq!(rows.len(), 1, "only the file with cases compiles");
+        match &rows[0] {
+            CompiledRow::EvalTest(t) => {
+                assert_eq!(t.file_path, "tests/sales.agentic.test.yml");
+                assert!(t.definition.get("cases").unwrap().is_array());
+            }
+            other => panic!("expected EvalTest, got {other:?}"),
         }
     }
 

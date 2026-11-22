@@ -285,6 +285,7 @@ pub async fn run_eval_with_tag<P: AsRef<Path>, H: EventHandler + Send + 'static>
         target_ref: path.as_ref().to_string_lossy().to_string(),
         tag,
         regrade_from: None,
+        test: None,
     };
     launch_eval(workspace_manager, input, event_handler).await
 }
@@ -302,7 +303,10 @@ pub async fn regrade_eval<P: AsRef<Path>, H: EventHandler + Send + 'static>(
         index: None,
         target_ref: path.as_ref().to_string_lossy().to_string(),
         tag: None,
-        regrade_from: Some(results.to_path_buf()),
+        regrade_from: Some(crate::builders::types::RegradeSource::File(
+            results.to_path_buf(),
+        )),
+        test: None,
     };
     launch_eval(workspace_manager, input, event_handler).await
 }

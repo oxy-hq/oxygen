@@ -7,7 +7,8 @@ description: >-
   my agent", "bootstrap an eval suite", "fill in expected answers", "run the tests"; and the
   repair side: "tests are failing", "this test is flaky", "the agent's answer is wrong", "the
   answer should be X but the agent says Y", "debug this eval", "make this test pass", or pasted
-  `oxy test --output-json` output or a prompt/response pair to diagnose. Drafts expected answers
+  `oxyc evals run --output-json` output (or an older `oxy test --output-json` file) or a
+  prompt/response pair to diagnose. Drafts expected answers
   from observed runs, then diagnoses failures and repairs the agent's semantic model, context and
   instructions — never the test.
 ---
@@ -15,8 +16,8 @@ description: >-
 # Oxy evals: draft, run, diagnose, repair
 
 An Oxy eval is a `.test.yml` file: a list of prompts, each with the answer a correct agent
-gives. `oxy test` runs the target agent on every prompt several times and asks an LLM judge
-whether each answer carries the expected facts.
+gives. `oxyc evals run` has the Oxy deployment run the target agent on every prompt several
+times and ask an LLM judge whether each answer carries the expected facts.
 
 Drafting the tests and repairing the agent are one loop:
 
@@ -35,7 +36,7 @@ Reference docs (field tables, CI usage):
 
 ## What can be tested
 
-- **Only `.agentic.yml` agents.** `oxy test` rejects any other target, including classic
+- **Only `.agentic.yml` agents.** The eval engine rejects any other target, including classic
   `.agent.yml` agents (that runtime was removed). Inline `tests:` blocks inside agent or
   automation files are gone too. A `.test.yml` file is the only entry point.
 - **Only the final answer text is judged.** The judge sees the question, `expected`, and the
@@ -64,10 +65,12 @@ cases:
 Rules the parser enforces:
 
 - **Unknown keys are rejected at every level** (file, `settings`, each case). A typo such as
-  `judge-model:` or `expect:` makes the file fail to parse. Run with an explicit file and you
-  get `Failed to deserialize test config …`. **Run `oxy test` with no file and a broken file
-  is skipped silently.** It just isn't in the run, with no error. After editing a test file,
-  run it by path once.
+  `judge-model:` or `expect:` makes the file fail to parse. Run it by path and
+  `oxyc evals run` exits `6` with `Failed to deserialize test config …`. **Run with no file
+  and a broken file is skipped silently.** It just isn't in the run, with no error. A file
+  that isn't valid YAML, or has no `cases:` list, isn't compiled at all, so by path it answers
+  exit `5` (not in the served revision), as if it had never been pushed. After pushing a test
+  file, run it by path once.
 - **`prompt` and `expected` are required strings.** Everything else is optional.
 - **`target`** is resolved from the project root (the directory holding `config.yml`). If you
   omit it, it's inferred from the filename, in the same directory: `sales.agentic.test.yml`
@@ -80,8 +83,8 @@ Rules the parser enforces:
   different model family than the agent's, to avoid self-preference bias.
 
 Naming and placement: `<agent-stem>.<topic>.test.yml` (for example
-`sales.performance.test.yml`) in the folder the project already uses for tests. Discovery
-(`oxy test` with no file) finds every `*.test.yml` in the project, except under hidden
+`sales.performance.test.yml`) in the folder the project already uses for tests. With no file,
+`oxyc evals run` runs every `*.test.yml` the workspace compiled, except under hidden
 (dot-prefixed) directories and `target/`, `node_modules/`, `dist/` or `build/`.
 
 ## When to write evals
@@ -155,42 +158,59 @@ More worked examples, and the evidence rules for each kind of question:
 
 ## Running
 
-Run from the project root (the directory holding `config.yml`). The file argument is resolved
-from your current directory, and `target` from the project root.
+Evals run on the Oxy deployment, on its worker fleet, with `oxyc evals run` (install with
+`npm i -g @oxy-hq/cli`, sign in with `oxyc login`). The deployment runs the test files and
+agents the workspace has **compiled**: its served revision, what was pushed, not the files in
+your checkout. Push a new or edited `.test.yml` (and the agent change it tests) first; a test
+file the deployment has not compiled answers exit `5`. The file argument is the test file's
+path in the workspace, from the project root (the directory holding `config.yml`), and
+`target` is resolved from the project root too.
 
 ```bash
-oxy test tests/sales.performance.test.yml                                  # one file
-oxy test tests/sales.performance.test.yml --case total-revenue-2025 --output-json
-oxy test tests/sales.performance.test.yml --case 0 --output-json           # by 0-based index
-oxy test tests/sales.performance.test.yml --tag critical --output-json     # by tag
-oxy test                                                                   # every *.test.yml
-oxy test --min-accuracy 0.8 --quiet                                        # CI gate, exit 1 below
+oxyc evals run tests/sales.performance.test.yml --workspace <id>                  # one file: wait, summarise
+oxyc evals run tests/sales.performance.test.yml --workspace <id> --case total-revenue-2025 --output-json
+oxyc evals run tests/sales.performance.test.yml --workspace <id> --case 0 --output-json   # by 0-based index
+oxyc evals run tests/sales.performance.test.yml --workspace <id> --tag critical --output-json
+oxyc evals run --workspace <id>                                                   # every compiled *.test.yml
+oxyc evals run --workspace <id> --min-accuracy 0.8                                # CI gate, exit 9 below
+oxyc evals run <file> --workspace <id> --detach                                   # print the run id
+oxyc evals wait <run-id> --workspace <id> --json                                  # results on stdout
 ```
 
 - `--case` takes a 0-based index, a case `name`, or the exact prompt. It requires a file. With
   `--tag` as well, a case must match both. If two cases share a name, the first one runs.
 - `--tag` takes one tag.
-- `--output-json` writes the full results next to the test file, replacing `.yml` with
+- `--output-json [file]` writes the full results document to the file you name or, with none,
+  to the test file's path (relative to your current directory) with `.yml` replaced by
   `.results.json` (`tests/sales.performance.test.results.json`). With no file argument it
-  writes `test-results.json` in the current directory. `--format json` prints the same JSON
-  to stdout instead of the pretty report.
-- `-v` adds each failing run's actual output to the pretty report. `-q` shows only the
+  writes `test-results.json`. `--json` prints the same document to stdout instead of the
   summary.
+- The summary prints one line per test file (its Correctness score and how many runs
+  answered), then the prompt of every run that didn't pass. The judge's reasoning and the
+  actual answers are only in the results document.
+- `--regrade <results.json>` grades a results file's recorded answers again, without running
+  the agent. It needs the test file the results came from, and can't be combined with
+  `--case` or `--tag`.
 - `--min-accuracy` compares **per-file** scores. `--threshold-mode average` (the default)
   checks the mean across files, and `all` checks every file. It doesn't check individual
   cases.
+- Exit codes: `1` the run failed, was cancelled or timed out, `4` not signed in or not a
+  member of the workspace, `5` not found (or not compiled yet), `6` the test file does not
+  parse or `--case` matched nothing, `7` retryable (or `--wait <seconds>` ran out; the run
+  goes on), `9` below `--min-accuracy`.
 - **Cost:** every case runs `runs` times through the full agent, plus one judge call per run,
   with `concurrency` runs against the warehouse at once. When you iterate, run one case.
 
 ## Reading results
 
-The pretty report gives one line per case:
+The summary names each file's score and the prompts that failed. For the rest, read the
+results document (`--output-json`, or `--json`) and group its records by `prompt`:
 
-| Status | Meaning |
+| A case's runs | Meaning |
 | --- | --- |
-| `PASS (3/3)` | every run passed |
-| `FLKY (1/3)` | some runs passed. The answer is unstable, which is a real defect |
-| `FAIL (0/3)` | no run passed |
+| every run `PASS` | passing |
+| some runs `PASS` | flaky. The answer is unstable, which is a real defect |
+| no run `PASS` | failing |
 
 The file's **Correctness** score is the mean over every case × run. Each run scores 1 (PASS)
 or 0 (FAIL). There's no partial credit.
@@ -250,7 +270,7 @@ apart from mechanical edits such as adding a missing `name:`.
 ### 1. Reproduce
 
 ```bash
-oxy test <file> --case <name> --output-json
+oxyc evals run <file> --workspace <id> --case <name> --output-json
 ```
 
 Read every run of that case: `expected`, `actual_output`, `cot`, `choice`.
@@ -314,14 +334,19 @@ all of them. Preserve the file's existing style. Explain the root cause alongsid
 
 ### 5. Validate
 
-There's no build step. `oxy test` reloads the agent file, its context and its semantic files
-from disk on every run. Check the files you edited, then re-run:
+Evals read the workspace's served revision, so a repair counts only once it is pushed and
+compiled. Check the files you edited, push them to the branch the workspace serves, wait for
+the deployment to compile it, then re-run:
 
 ```bash
 oxy validate agents/sales.agentic.yml
 oxy validate semantics/views/orders.view.yml
-oxy test <file> --case <name> --output-json
+oxyc evals run <file> --workspace <id> --case <name> --output-json   # after the push compiled
 ```
+
+A run started before the compile finished scores the previous revision. `oxyc compile
+<branch> --wait` checks that a branch compiles before you merge it, but its staging revision
+is never served, so evals don't see it.
 
 **One pass isn't proof.** A case needs `runs`/`runs` on at least two rounds. Then run the
 whole file to catch regressions in other cases. If the repair doesn't hold after three

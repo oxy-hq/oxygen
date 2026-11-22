@@ -183,7 +183,7 @@ or the engine is unreachable at run start, the run fails.
 | `oxyc validate --file <path>` | JSON-schema shape, offline. Catches wrong types, a malformed `thinking` and vendor spelling. Misses unknown keys, `ref`, databases, globs, rule names, env vars |
 | `oxy validate --file <path>` | parses with the runtime's own parser. Structural only, with the same blind spots |
 | `oxy agentic run <path> -q "<question>"` | the real build and run, streamed by state. `--json`, `--thinking-mode extended_thinking`. Needs Oxy's Postgres (`OXY_DATABASE_URL`) |
-| `oxy test [<file>.test.yml]` | LLM-judged evals; with no file, every `*.test.yml` in the workspace |
+| `oxyc evals run [<file>.test.yml] --workspace <id>` | LLM-judged evals on the deployment, against the compiled (pushed) test files and agents; with no file, every compiled `*.test.yml`; exit `9` under `--min-accuracy` |
 
 ## `.test.yml` (evals)
 

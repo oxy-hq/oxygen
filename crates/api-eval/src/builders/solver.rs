@@ -57,11 +57,9 @@ pub(super) async fn run_solver(
     // model (explicit `model_ref`, else the project default) ONCE up front — so
     // a missing model/key fails fast before any judging, and the client is built
     // once and reused across pairs instead of per pair.
-    let project_ctx = oxy_app::surface::workspace_runtime::OxyProjectContext::new(
-        execution_context.workspace.clone(),
-    );
+    let project_ctx = execution_context.project_ctx();
     let judge = agentic_pipeline::prepare_one_shot(
-        &project_ctx,
+        &*project_ctx,
         correctness_solver.model_ref.as_deref(),
         "eval-judge",
     )
@@ -100,15 +98,7 @@ pub(super) async fn run_solver(
                     .complete("", &prompt)
                     .await
                     .map_err(OxyError::RuntimeError)?;
-                let mut record = parse_correctness_record(Output::Text(response))?;
-                record.prompt = expected.task_description.clone();
-                record.expected = Some(expected.output.clone());
-                record.actual_output = Some(actual.output.clone());
-                record.references = actual.references.clone();
-                record.duration_ms = actual.duration_ms;
-                record.input_tokens = actual.input_tokens;
-                record.output_tokens = actual.output_tokens;
-                Ok(record)
+                judged_record(response, &actual, &expected)
             }
         })
         .buffered(concurrency.max(1));
@@ -131,29 +121,52 @@ pub(super) async fn run_solver(
 
     // Errored runs count as FAILs so the denominator is correct.
     for (error_msg, expected) in &errors_with_expected {
-        records.push(Record {
-            cot: format!("Run failed with error: {error_msg}"),
-            choice: "FAIL".to_string(),
-            score: 0.0,
-            prompt: expected.task_description.clone(),
-            expected: Some(expected.output.clone()),
-            actual_output: Some(format!("[ERROR] {error_msg}")),
-            references: vec![],
-            duration_ms: 0.0,
-            input_tokens: 0,
-            output_tokens: 0,
-            soft_f1: None,
-            llm_rounds: 0,
-            final_sql: None,
-            judge_verdict: None,
-            judge_reason: None,
-            answer_text: None,
-            gold_preview: None,
-            timing: None,
-            runtime: None,
-            model: None,
-        });
+        records.push(errored_record(error_msg, expected));
     }
 
     Ok(MetricKind::Correctness(Correctness::from_records(records)))
+}
+
+/// One judged run: the judge's verdict, with the case and the agent's answer.
+pub(super) fn judged_record(
+    response: String,
+    actual: &TargetOutput,
+    expected: &TargetOutput,
+) -> Result<Record, OxyError> {
+    let mut record = parse_correctness_record(Output::Text(response))?;
+    record.prompt = expected.task_description.clone();
+    record.expected = Some(expected.output.clone());
+    record.actual_output = Some(actual.output.clone());
+    record.references = actual.references.clone();
+    record.duration_ms = actual.duration_ms;
+    record.input_tokens = actual.input_tokens;
+    record.output_tokens = actual.output_tokens;
+    Ok(record)
+}
+
+/// A run that errored before answering counts as a FAIL, so the denominator
+/// is correct.
+pub(super) fn errored_record(error_msg: &str, expected: &TargetOutput) -> Record {
+    Record {
+        cot: format!("Run failed with error: {error_msg}"),
+        choice: "FAIL".to_string(),
+        score: 0.0,
+        prompt: expected.task_description.clone(),
+        expected: Some(expected.output.clone()),
+        actual_output: Some(format!("[ERROR] {error_msg}")),
+        references: vec![],
+        duration_ms: 0.0,
+        input_tokens: 0,
+        output_tokens: 0,
+        soft_f1: None,
+        llm_rounds: 0,
+        final_sql: None,
+        judge_verdict: None,
+        judge_reason: None,
+        answer_text: None,
+        gold_preview: None,
+        timing: None,
+        runtime: None,
+        model: None,
+    }
 }

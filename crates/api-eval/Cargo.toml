@@ -2,7 +2,7 @@
 name = "oxy-api-eval"
 version.workspace = true
 authors.workspace = true
-description = "The eval context: the `oxy test` command (LLM-as-judge evals over .test.yml files), its own oxy-cli-shim owner, out of oxy-app (internal-docs/domain-boundaries.md S10). Mounts no route; registered by oxy-server"
+description = "The eval context: LLM-as-judge evals over .test.yml files. The `oxy test` command (its own oxy-cli-shim owner, internal-docs/domain-boundaries.md S10) and the eval-run routes plus their `eval_run` task kind that `oxyc evals run` calls, mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -13,15 +13,20 @@ edition.workspace = true
 # depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }        # AppState
 oxy = { workspace = true }
+oxy-auth = { workspace = true }            # AuthenticatedUserExtractor
 oxy-shared = { workspace = true }
+entity = { workspace = true }              # WorkspaceRole on the queued payload
 agentic-analytics = { workspace = true }
 agentic-connector = { workspace = true }
 agentic-core = { workspace = true }
 agentic-pipeline = { workspace = true }
+agentic-runtime = { workspace = true }     # the run row, the queue, the task executor
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 enum_dispatch = { workspace = true }
@@ -30,13 +35,18 @@ indexmap = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
 minijinja = { workspace = true }
+sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

@@ -75,7 +75,9 @@ any subcommand. The commands you'll reach for most:
 | `oxy run <file>` | Run an automation (`.automation.yml`) or a `.sql` file |
 | `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
 | `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
-| `oxy test` | Run agent tests defined in `.test.yml` files |
+
+Agent tests (`.test.yml` files) run on your deployment with
+[`oxyc evals run`](/guide/build/test-evaluate/testing).
 
 ### Validate your config
 

@@ -13,8 +13,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::artifacts::{
-    AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry,
-    SimulationEntry, VerifiedQueryEntry,
+    AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, EvalTestEntry,
+    PipelineEntry, SimulationEntry, VerifiedQueryEntry,
 };
 
 pub(super) async fn conn() -> Result<DatabaseConnection, ArtifactError> {
@@ -363,6 +363,42 @@ pub(super) async fn resolve_simulation_at(
             .map_err(|e| ArtifactError::Backend(e.to_string()))?
             .map(|m| m.definition),
     )
+}
+
+/// Every eval suite (`eval_test_definitions`) at a revision, by path, or
+/// `None` when the revision was compiled before suites were a compiled kind
+/// (`oxy_compile::eval_tests::SINCE_SCHEMA_VERSION`): its empty table means
+/// nobody looked, not "no test files". A revision that is gone is an error.
+pub(super) async fn list_eval_tests_at(
+    revision_id: Uuid,
+) -> Result<Option<Vec<EvalTestEntry>>, ArtifactError> {
+    let db = conn().await?;
+    let revision = entity::revisions::Entity::find_by_id(revision_id)
+        .one(&db)
+        .await
+        .map_err(|e| ArtifactError::Backend(e.to_string()))?
+        .ok_or_else(|| {
+            ArtifactError::Backend(format!(
+                "revision {revision_id} is no longer in the compile boundary"
+            ))
+        })?;
+    if revision.schema_version < oxy_compile::eval_tests::SINCE_SCHEMA_VERSION {
+        return Ok(None);
+    }
+    Ok(Some(
+        entity::eval_test_definitions::Entity::find()
+            .filter(entity::eval_test_definitions::Column::RevisionId.eq(revision_id))
+            .order_by_asc(entity::eval_test_definitions::Column::FilePath)
+            .all(&db)
+            .await
+            .map_err(|e| ArtifactError::Backend(e.to_string()))?
+            .into_iter()
+            .map(|m| EvalTestEntry {
+                file_path: m.file_path,
+                definition: m.definition,
+            })
+            .collect(),
+    ))
 }
 
 pub(super) async fn list_verified_queries_at(

@@ -79,6 +79,7 @@ never sent to the server as a literal.
     oxyc airway run <ref> --workspace <id>   # run a deployed pipeline and stream it; also backfill, coverage, leases
     oxyc sync [db] --workspace <id>          # write .databases/ schema files into the checkout (server introspects the deployed config)
     oxyc looker test <name> --workspace <id> # check a Looker integration's credentials; exit 9 when they fail
+    oxyc evals run <file> --workspace <id>   # LLM-judged evals on the deployment; exit 9 under --min-accuracy
     oxyc guide                     # this page, to paste into a context file
 
 `oxyc workspace clone <workspace-id>` is how you change a workspace: authoring

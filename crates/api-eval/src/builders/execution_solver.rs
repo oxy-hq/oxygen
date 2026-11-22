@@ -302,13 +302,12 @@ pub(super) async fn run_execution_solver(
     errors_with_expected: Vec<(String, TargetOutput)>,
     concurrency: usize,
 ) -> Result<MetricKind, OxyError> {
-    let project_ctx =
-        oxy_app::surface::workspace_runtime::OxyProjectContext::new(ctx.workspace.clone());
+    let project_ctx = ctx.project_ctx();
     let conn = resolve_conn(&project_ctx, &solver.database).await?;
     // Same judge-model resolution as the correctness solver: `judge_model`,
     // else the project default; resolved once, fails fast before grading.
     let judge = agentic_pipeline::prepare_one_shot(
-        &project_ctx,
+        &*project_ctx,
         solver.model_ref.as_deref(),
         "eval-answer-judge",
     )

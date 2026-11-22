@@ -80,11 +80,10 @@ pub(super) async fn run_generator(
     {
         tracing::warn!("eval: failed to emit target progress Started: {e}");
     }
-    let workspace = execution_context.workspace.clone();
     let mut stream = futures::stream::iter(all_targets)
         .map(|input| {
-            let workspace = workspace.clone();
-            async move { run_target(&workspace, input).await }
+            let run = execution_context.clone();
+            async move { run_target(&run, input).await }
         })
         .buffered(concurrency.max(1));
     // `Updated(1)` fires in input order as `buffered` yields (not at real

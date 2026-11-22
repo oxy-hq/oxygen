@@ -65,6 +65,7 @@ pub mod compile;
 pub mod context_documents;
 pub mod duckdb_mirror;
 pub mod errors;
+pub mod eval_tests;
 pub mod manifest;
 pub mod outcome;
 pub mod preagg_blob;

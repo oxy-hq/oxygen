@@ -130,6 +130,7 @@
       "!sdk/cli/template",
       "!sdk/cli/skills",
       "!sdk/typescript/src/testing/shape-zoo.json",
+      "!sdk/cli/fixtures/evals/results.json",
       "!oxlint-suppressions.json",
       "!**/dist",
       "!**/node_modules",

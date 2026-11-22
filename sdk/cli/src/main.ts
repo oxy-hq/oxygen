@@ -66,6 +66,7 @@ import { runEnvOutbox } from "./commands/env-outbox.js";
 import { runEnvReset, runEnvUpdate } from "./commands/env-planes.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
+import { registerEvals } from "./commands/evals-cli.js";
 import { runEnvEvents } from "./commands/events.js";
 import { registerEvents } from "./commands/events-cli.js";
 import { registerExperiments } from "./commands/experiments-cli.js";
@@ -1652,6 +1653,7 @@ function buildProgram(): Command {
   registerHome(program, { withGlobals, globals, collect });
   registerWorkspace(program, { withGlobals, globals, collect });
   registerAirway(program, { withGlobals, globals, collect });
+  registerEvals(program, { withGlobals, globals, collect });
   registerSync(program, { withGlobals, globals, collect });
   registerLooker(program, { withGlobals, globals, collect });
 
@@ -2311,7 +2313,8 @@ const EXIT_CODE_HELP = `0  success
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`, \`oxyc looker test\`)
+9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`,
+   \`oxyc looker test\`, \`oxyc evals run --min-accuracy\`)
 `;
 
 /**

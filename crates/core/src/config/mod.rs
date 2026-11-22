@@ -39,8 +39,8 @@ use oxy_shared::errors::OxyError;
 pub use agent_census::compiled_agent_counts;
 pub use artifacts::{
     AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
-    ContextDocuments, PipelineEntry, QuickBooksSource, SimulationEntry, VerifiedQueryEntry,
-    pipeline_quickbooks_source, pipeline_source_kind,
+    ContextDocuments, EvalTest, EvalTestEntry, EvalTests, PipelineEntry, QuickBooksSource,
+    SimulationEntry, VerifiedQueryEntry, pipeline_quickbooks_source, pipeline_source_kind,
 };
 pub use builder::{ConfigBuilder, OnMissing};
 pub use context_graph::{ContextGraphSources, GraphArtifact};

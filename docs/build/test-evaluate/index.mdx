@@ -38,16 +38,18 @@ supported.
 
 ## Run your tests
 
-Tests run from the CLI, locally or in your repository's CI. Oxygen executes
-each case the configured number of times and reports the results for each
-case:
+Tests run on your Oxygen deployment, from the `oxyc` CLI (`npm i -g
+@oxy-hq/cli`, then `oxyc login`) or your repository's CI. The deployment runs
+the test files and agents your workspace has compiled, so push the
+`.test.yml` first. Oxygen executes each case the configured number of times
+and reports the results:
 
 ```bash
-# Every .test.yml file in the project
-oxy test
+# Every .test.yml file in the workspace
+oxyc evals run --workspace <workspace-id>
 
 # Just this agent's tests
-oxy test sleep.agentic.test.yml
+oxyc evals run sleep.agentic.test.yml --workspace <workspace-id>
 ```
 
 ## What the judge ignores
@@ -67,12 +69,13 @@ number, the opposite trend, or a different conclusion.
 Fail the build when accuracy drops below a threshold:
 
 ```bash
-oxy test --min-accuracy 0.8
+oxyc evals run --workspace <workspace-id> --min-accuracy 0.8
 ```
 
-The command exits with code 1 if the score is below the threshold. Add
-`--format json` for machine-readable output, or `--tag critical` to gate on a
-subset of cases.
+The command exits with code 9 if the score is below the threshold. Add
+`--json` for machine-readable output, or `--tag critical` to gate on a
+subset of cases. It scores what the workspace has compiled, so run it after
+your push compiles.
 
 For every field and flag, see the [Testing reference](/guide/build/test-evaluate/testing).
 

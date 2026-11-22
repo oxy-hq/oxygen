@@ -115,6 +115,7 @@ pub mod custom_app_usage_report_deliveries;
 pub mod custom_app_usage_reports;
 pub mod custom_app_view_event;
 pub mod customer_app_automation_runs;
+pub mod eval_test_definitions;
 pub mod oidc_issuer_trust_policies;
 pub mod oidc_issuer_trust_policy_grants;
 pub mod oidc_issuers;

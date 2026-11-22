@@ -5,7 +5,9 @@ use crate::state_dir::resolve_state_dir_with_fallback;
 use oxy_compile::context_documents::{ContextPatterns, DocumentFile};
 use oxy_shared::errors::OxyError;
 
-use super::artifacts::{AgentEntry, AutomationEntry, PipelineEntry, SimulationEntry};
+use super::artifacts::{
+    AgentEntry, AutomationEntry, EvalTestEntry, PipelineEntry, SimulationEntry,
+};
 use super::model::{Automation, AutomationWithRawVariables, Config};
 use super::naming::artifact_name;
 use super::test_config::TestFileConfig;
@@ -92,6 +94,31 @@ pub(super) struct FsStorage {
 }
 
 impl FsStorage {
+    /// Every eval suite (`*.test.yml`) the working copy holds, with its body,
+    /// in the shape `eval_test_definitions` holds it. The same files
+    /// [`ConfigStorage::list_tests`] lists (one that does not parse as a test
+    /// file is not one), keyed by workspace-relative path.
+    pub(super) async fn list_eval_tests(&self) -> Result<Vec<EvalTestEntry>, OxyError> {
+        let mut out = Vec::new();
+        for path in self.list_tests().await? {
+            let Ok(relative) = path.strip_prefix(&self.project_path) else {
+                continue;
+            };
+            let Ok(source) = fs::read_to_string(&path).await else {
+                continue;
+            };
+            let Ok(definition) = serde_yaml::from_str::<serde_json::Value>(&source) else {
+                continue;
+            };
+            out.push(EvalTestEntry {
+                file_path: relative.to_string_lossy().replace('\\', "/"),
+                definition,
+            });
+        }
+        out.sort_by(|a, b| a.file_path.cmp(&b.file_path));
+        Ok(out)
+    }
+
     pub fn new<P: AsRef<Path>>(project_path: P) -> Result<Self, OxyError> {
         Ok(FsStorage {
             project_path: project_path.as_ref().to_path_buf(),

@@ -108,5 +108,6 @@ resolves relative dates against today in its `timezone:` (UTC when unset).
 - [ ] No schema, view or column names the user wouldn't say.
 - [ ] No `expected` was copied from a single run without agreement or verification.
 - [ ] Uncertain cases carry a narrowed `DRAFT:` note, not an invented value.
-- [ ] The file parses: run it by path once (`oxy test <file> --case 0`). Discovery skips a
-      broken file silently.
+- [ ] The file parses: once it is pushed, run it by path
+      (`oxyc evals run <file> --workspace <id> --case 0`). A run with no file skips a broken
+      file silently.

@@ -696,6 +696,11 @@ mod tests {
             "oxy_api_eval::builders::generator",
             "oxy_api_eval::builders::solver",
             "oxy_api_eval::builders::target_agentic",
+            // The eval runs `oxyc evals run` queues (2026-11-21): a failed run
+            // or route is real signal, as the engine's own lines are.
+            "oxy_api_eval::runs::executor",
+            "oxy_api_eval::runs::handlers",
+            "eval_run",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),

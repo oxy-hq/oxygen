@@ -19,7 +19,7 @@ use ::oxy::adapters::workspace::manager::WorkspaceManager;
 use ::oxy::config::resolve_local_workspace_path;
 use oxy_shared::errors::OxyError;
 
-use crate::builders::types::{EvalResult, MetricKind};
+use crate::builders::types::EvalResult;
 use crate::reporters::{JsonReporter, PrettyReporter, Reporter};
 use crate::service::{
     EvalEventsHandler, SharedTokenStats, TokenStats, regrade_eval, run_eval_with_tag,
@@ -384,17 +384,7 @@ fn enforce_threshold(
     min_accuracy: f32,
     threshold_mode: &ThresholdMode,
 ) -> Result<(), OxyError> {
-    let accuracies: Vec<f32> = results
-        .iter()
-        .flat_map(|r| &r.metrics)
-        .filter_map(|m| match m {
-            MetricKind::Similarity(s) => Some(s.score),
-            MetricKind::Correctness(c) => Some(c.score),
-            // The judge's answer accuracy, not EX: EX is reported, never gated on.
-            MetricKind::Execution(e) => Some(e.answer_acc),
-            _ => None,
-        })
-        .collect();
+    let accuracies: Vec<f32> = results.iter().flat_map(|r| r.gated_accuracies()).collect();
 
     if accuracies.is_empty() {
         eprintln!("Warning: --min-accuracy specified but no accuracy metrics found");

@@ -75,7 +75,28 @@ pub struct TestCase {
     pub tool: Option<String>,
 }
 
+/// The agent a test file runs when it names none, beside it:
+/// `tests/sales.agentic.test.yml` -> `tests/sales.agentic.yml`. The rule
+/// `ConfigStorage::load_test_config` applies to a file on disk.
+pub fn inferred_target(file_path: &str) -> Option<String> {
+    file_path
+        .strip_suffix(".test.yml")
+        .map(|base| format!("{base}.yml"))
+}
+
 impl TestFileConfig {
+    /// A compiled test file's body (`eval_test_definitions.definition`), read
+    /// as `load_test_config` reads the file: its `target`, or the agent beside
+    /// it.
+    pub fn from_definition(file_path: &str, definition: serde_json::Value) -> Result<Self, String> {
+        let mut config: Self = serde_json::from_value(definition)
+            .map_err(|e| format!("Failed to deserialize test config {file_path}: {e}"))?;
+        if config.target.is_none() {
+            config.target = inferred_target(file_path);
+        }
+        Ok(config)
+    }
+
     /// Check that every case carries what the selected grader needs.
     pub fn validate_grading(&self) -> Result<(), String> {
         match self.settings.grader {
@@ -116,6 +137,23 @@ mod tests {
 
     fn parse(yaml: &str) -> TestFileConfig {
         serde_yaml::from_str(yaml).expect("test yaml parses")
+    }
+
+    #[test]
+    fn a_compiled_test_file_reads_as_the_file_on_disk_does() {
+        let def: serde_json::Value =
+            serde_yaml::from_str("cases:\n  - prompt: p\n    expected: e\n").unwrap();
+        let config = TestFileConfig::from_definition("tests/sales.agentic.test.yml", def).unwrap();
+        assert_eq!(config.target.as_deref(), Some("tests/sales.agentic.yml"));
+        assert_eq!(config.settings.runs, 3);
+
+        let named: serde_json::Value =
+            serde_yaml::from_str("target: agents/a.agentic.yml\ncases: []\n").unwrap();
+        let config = TestFileConfig::from_definition("x.test.yml", named).unwrap();
+        assert_eq!(config.target.as_deref(), Some("agents/a.agentic.yml"));
+
+        let bad: serde_json::Value = serde_yaml::from_str("nope: 1\ncases: []\n").unwrap();
+        assert!(TestFileConfig::from_definition("x.test.yml", bad).is_err());
     }
 
     #[test]

@@ -196,6 +196,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_threads::workspace_routes())
         .merge(oxy_api_workspaces::workspace_routes())
         .merge(oxy_api_semantic::workspace_routes())
+        .merge(oxy_api_eval::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
@@ -401,6 +402,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_threads::workspace_route_roles())
                 .chain(oxy_api_workspaces::workspace_route_roles())
                 .chain(oxy_api_semantic::workspace_route_roles())
+                .chain(oxy_api_eval::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -501,6 +503,7 @@ fn surface_seams() -> SurfaceSeams {
             // (in-tree in `oxy-app` until 2026-11-21).
             .chain(oxy_api_metric_monitoring::tasks())
             .chain(oxy_api_previews::tasks())
+            .chain(oxy_api_eval::tasks())
             .collect(),
         // Chat's delivery listener first: `new_agentic_state` started it
         // ahead of every other listener, before it moved (2026-11-16).

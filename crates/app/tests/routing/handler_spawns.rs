@@ -285,6 +285,12 @@ const ALLOWED: &[(&str, &str)] = &[
         "a queue executor's own task: `NotificationDeliverExecutor::execute` delivers \
          under a spawn and reports through the task's channels",
     ),
+    // ---- api-eval ----
+    (
+        "api-eval/src/runs/executor.rs",
+        "a queue executor's own task: the `eval_run` kind runs the eval under a spawn \
+         that answers cancel and always sends a terminal outcome",
+    ),
     // ---- api-workspace-health ----
     (
         "api-workspace-health/src/executor.rs",

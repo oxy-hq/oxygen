@@ -264,16 +264,14 @@ async fn automations_agree_that_workflow_yml_is_not_a_kind() {
     );
 }
 
-/// What survives of the old divergence: `list_tests` itself.
-///
-/// Both enumerations now drop a FILE NAME containing `.test.`, for every
-/// entity kind, unconditionally — but only the file name; a directory
-/// component carrying `.test.` is `is_skipped`'s question, not this rule's.
-/// The remaining asymmetry is that tests are a working-copy-only concept: the
-/// walker has no test `FileKind` at all, so `.test.yml` files reach
-/// `list_tests` and never reach a compiled revision.
+/// Both enumerations drop a FILE NAME containing `.test.` for every entity
+/// kind — but only the file name; a directory component carrying `.test.` is
+/// `is_skipped`'s question, not this rule's. The one exception is the test
+/// file itself: since 2026-11-21 `*.test.yml` is the walker's `EvalTest` kind
+/// (compiled to `eval_test_definitions` when it has `cases`), the files
+/// `list_tests` enumerates on the working copy.
 #[tokio::test]
-async fn test_mirrors_drop_on_both_arms_but_list_tests_is_working_copy_only() {
+async fn test_mirrors_drop_on_both_arms_and_test_files_are_their_own_kind() {
     let dir = fixture();
     let root = dir.path();
 
@@ -287,8 +285,13 @@ async fn test_mirrors_drop_on_both_arms_but_list_tests_is_working_copy_only() {
         !discover(root)
             .unwrap()
             .iter()
-            .any(|f| f.rel_path.contains(".test.")),
-        "the walker drops every path containing `.test.`"
+            .any(|f| f.rel_path.contains(".test.") && f.kind != FileKind::EvalTest),
+        "the walker drops every `.test.` path but a `.test.yml` test file"
+    );
+    assert_eq!(
+        walked(root, FileKind::EvalTest),
+        vec!["analyst.agent.test.yml"],
+        "a `.test.yml` is discovered as a test file (it compiles to a row only with `cases`)"
     );
     assert!(
         !manager(root)
@@ -309,8 +312,7 @@ async fn test_mirrors_drop_on_both_arms_but_list_tests_is_working_copy_only() {
             .unwrap()
             .iter()
             .all(|p| p.to_string_lossy().contains(".test.")),
-        "tests are a working-copy-only concept — the walker has no test kind, so \
-         `.test.yml` files exist on one side and not the other"
+        "the working copy lists only `.test.yml` files, the walker's `EvalTest` kind"
     );
 }
 

@@ -10,9 +10,22 @@ pub struct EvalInput {
     pub index: Option<usize>,
     pub target_ref: String,
     pub tag: Option<String>,
-    /// Grade the outputs recorded in this results file instead of running
-    /// the agent (`oxy test --regrade`).
-    pub regrade_from: Option<std::path::PathBuf>,
+    /// Grade the outputs recorded in a results file instead of running the
+    /// agent (`oxy test --regrade`, `oxyc evals run --regrade`).
+    pub regrade_from: Option<RegradeSource>,
+    /// The test file, already read by the caller: the server reads it from the
+    /// compile boundary (`ConfigManager::eval_test`). `None` reads `target_ref`
+    /// from the working copy, as `oxy test` does.
+    pub test: Option<oxy::config::test_config::TestFileConfig>,
+}
+
+/// Where a regrade's recorded outputs come from.
+#[derive(Clone, Debug)]
+pub enum RegradeSource {
+    /// A results file on this machine (`oxy test --regrade <file>`).
+    File(std::path::PathBuf),
+    /// A results document's text, as `oxyc` sends it.
+    Text(String),
 }
 
 #[derive(Clone, Debug)]
@@ -307,6 +320,18 @@ pub struct EvalResult {
 }
 
 impl EvalResult {
+    /// The accuracies a `--min-accuracy` gate reads, one per metric that has
+    /// one: a similarity or correctness score, or an execution metric's judged
+    /// answer accuracy (EX is reported, never gated on).
+    pub fn gated_accuracies(&self) -> impl Iterator<Item = f32> + '_ {
+        self.metrics.iter().filter_map(|m| match m {
+            MetricKind::Similarity(s) => Some(s.score),
+            MetricKind::Correctness(c) => Some(c.score),
+            MetricKind::Execution(e) => Some(e.answer_acc),
+            _ => None,
+        })
+    }
+
     pub fn new(errors: Vec<String>, metrics: Vec<MetricKind>, stats: RunStats) -> Self {
         Self {
             errors,

@@ -27,6 +27,7 @@ use oxy::exec_types::TargetOutput;
 use oxy_shared::errors::OxyError;
 use tokio::sync::mpsc;
 
+use super::EvalRun;
 use super::run_timing::{TimingAccumulator, source_name};
 use super::types::AgenticInput;
 
@@ -35,30 +36,14 @@ use super::types::AgenticInput;
 /// (one target run → one output) that `run_generator` pairs with its expected
 /// answer.
 pub(super) async fn run_target(
-    workspace: &WorkspaceManager<oxy::config::WorkingCopy>,
+    run: &EvalRun,
     input: AgenticInput,
 ) -> Result<Vec<TargetOutput>, OxyError> {
     let start = Instant::now();
-
-    // Checked here only so a target outside the workspace fails with this
-    // message. The run itself takes the workspace-relative ref and reads it
-    // through `ConfigManager::agent_by_ref`, like every other agent run (the
-    // `.test.yml` itself stays a working-copy read: evals are CLI-only).
-    workspace
-        .config_manager
-        .resolve_file(&input.config_path)
-        .await
-        .map_err(|e| {
-            OxyError::ConfigurationError(format!(
-                "Failed to resolve agentic config path '{}': {e}",
-                input.config_path
-            ))
-        })?;
-
-    let project_ctx = Arc::new(oxy_app::surface::workspace_runtime::OxyProjectContext::new(
-        workspace.clone(),
-    ));
-    let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx;
+    if run.reads_working_copy() {
+        check_target_in_working_copy(&run.workspace, &input.config_path).await?;
+    }
+    let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = run.project_ctx();
 
     // Capture token usage straight off the agentic event stream — no
     // `EventKind::Usage` round-trip, no `UsageAccumulatorHandler`, no writer.
@@ -95,6 +80,26 @@ pub(super) async fn run_target(
     timing.answer_source = usage.answer_source;
     out.timing = Some(timing);
     Ok(vec![out])
+}
+
+/// `oxy test` only: a target outside the workspace fails with this message.
+/// The run itself takes the workspace-relative ref and reads it through
+/// `ConfigManager::agent_by_ref`, like every other agent run, so the server
+/// (which holds no working copy) skips this.
+async fn check_target_in_working_copy(
+    workspace: &WorkspaceManager<oxy::config::WorkingCopy>,
+    config_path: &str,
+) -> Result<(), OxyError> {
+    workspace
+        .config_manager
+        .resolve_file(config_path)
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            OxyError::ConfigurationError(format!(
+                "Failed to resolve agentic config path '{config_path}': {e}"
+            ))
+        })
 }
 
 /// Drain the run's event stream, stamping each event with its receipt instant.

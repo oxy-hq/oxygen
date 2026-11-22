@@ -611,6 +611,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_automations",
         function: "workspace_routes",
     },
+    // `oxy-api-eval`: the eval runs `oxyc evals run` queues and reads ride
+    // `SurfaceSeams::workspace` inside the `/{workspace_id}` tree.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_eval",
+        function: "workspace_routes",
+    },
     // `oxy-api-workspace-config`: `/databases`, `/secrets` and
     // `/integrations/*` (the Looker listing, and since 2026-11-21 the OAuth
     // connects, out of `build_integration_routes`) ride
@@ -722,8 +730,8 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-world-model/src`, `crates/api-previews/src`,
 /// `crates/api-metric-monitoring/src`, `crates/api-observability/src`,
 /// `crates/api-automations/src`, `crates/api-workspace-config/src`,
-/// `crates/api-threads/src`, `crates/api-workspaces/src` and
-/// `crates/api-semantic/src`, none of
+/// `crates/api-threads/src`, `crates/api-workspaces/src`,
+/// `crates/api-semantic/src` and `crates/api-eval/src`, none of
 /// which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
@@ -770,6 +778,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-threads/src",
     "crates/api-workspaces/src",
     "crates/api-semantic/src",
+    "crates/api-eval/src",
     // The health probes and route discovery, `oxy-server`'s since
     // 2026-11-16. The one directory, not the binary's `src`: that would
     // pull `serve`'s Swagger mount and the test routers into the walk.
@@ -820,6 +829,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-threads/src",
     "crates/api-workspaces/src",
     "crates/api-semantic/src",
+    "crates/api-eval/src",
     // The health probes and route discovery, `oxy-server`'s since
     // 2026-11-16. The one directory, not the binary's `src`: that would
     // pull `serve`'s Swagger mount and the test routers into the walk.

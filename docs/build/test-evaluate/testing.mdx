@@ -79,29 +79,35 @@ run, and **consistency** is the fraction of cases whose runs all agreed.
 
 ## Running tests
 
-Run tests from the CLI, locally or in your repository's CI:
+Tests run on your Oxygen deployment with `oxyc`, the Oxygen API client. Install
+it with `npm i -g @oxy-hq/cli` and sign in with `oxyc login`. The deployment
+queues the eval and runs it against the test files and agents the workspace
+has **compiled** — what you pushed, not the files on your machine — so push a
+new or edited `.test.yml` (and the agent change it tests) before you run it.
+The file argument is the test file's path in the workspace, from the project
+root.
 
 ```sh
-# Run every .test.yml file in the project
-oxy test
+# Run every compiled .test.yml file; waits for the run and prints a summary
+oxyc evals run --workspace <workspace-id>
 
 # Run one file
-oxy test sales.agentic.test.yml
+oxyc evals run sales.agentic.test.yml --workspace <workspace-id>
 
 # Only cases tagged "critical"
-oxy test --tag critical
+oxyc evals run --workspace <workspace-id> --tag critical
 
 # One case, by 0-based index, name, or exact prompt
-oxy test sales.agentic.test.yml --case signups-last-month
+oxyc evals run sales.agentic.test.yml --workspace <workspace-id> --case signups-last-month
 ```
 
 ### Accuracy thresholds
 
-Use `--min-accuracy` to fail the command (exit code 1) when the score is below
+Use `--min-accuracy` to fail the command (exit code 9) when the score is below
 a threshold — useful as a CI quality gate:
 
 ```sh
-oxy test --min-accuracy 0.8
+oxyc evals run --workspace <workspace-id> --min-accuracy 0.8
 ```
 
 Each test file produces one score. When several files run,
@@ -110,53 +116,80 @@ checks the average score across files; `all` requires every file's score to
 meet it.
 
 ```sh
-oxy test --min-accuracy 0.8 --threshold-mode all
+oxyc evals run --workspace <workspace-id> --min-accuracy 0.8 --threshold-mode all
 ```
 
 ### Machine-readable output
 
-`--format json` prints the full results as JSON on stdout. `--output-json`
-also writes the JSON to a file next to the test file
+The summary shows each file's score and the prompts of the runs that failed.
+`--json` prints the full results as JSON on stdout instead. `--output-json`
+also writes the JSON to a file at the test file's path
 (`sales.agentic.test.results.json`, or `test-results.json` when running every
-file).
+file), or to the file you name after it.
 
 ```sh
-oxy test sales.agentic.test.yml --format json --quiet
+oxyc evals run sales.agentic.test.yml --workspace <workspace-id> --json
 ```
+
+### Long runs
+
+`--detach` queues the run and prints its id; `oxyc evals wait <run-id>` picks
+it up later. `--wait <seconds>` stops waiting after that long (exit code 7)
+while the run goes on.
 
 ## CLI reference
 
 ```sh
-oxy test [FILE] [OPTIONS]
+oxyc evals run [FILE] --workspace <workspace-id> [OPTIONS]
+oxyc evals wait <RUN_ID> --workspace <workspace-id> [OPTIONS]
 ```
 
-- `FILE` — path to a `.test.yml` file. Omit it to run every `.test.yml` file in
-  the project.
+- `FILE` — the workspace path of a `.test.yml` file. Omit it to run every
+  compiled `.test.yml` file in the workspace.
 
-| Flag                         | Short | Description | Default |
-| ---------------------------- | ----- | ----------- | ------- |
-| `--tag <tag>`                |       | Only run cases with this tag | — |
-| `--case <case>`              |       | Only run one case, by 0-based index, `name`, or exact prompt. Requires `FILE` | — |
-| `--format <format>`          |       | Output format: `pretty` or `json` | `pretty` |
-| `--output-json`              |       | Also write full JSON results to a file | `false` |
-| `--min-accuracy <threshold>` |       | Minimum score (0.0–1.0). Exit code 1 if below | — |
-| `--threshold-mode <mode>`    |       | `average` or `all` | `average` |
-| `--quiet`                    | `-q`  | Show only the results summary | `false` |
-| `--verbose`                  | `-v`  | Show agent steps, actual output, and judge reasoning | `false` |
+| Flag                         | Description | Default |
+| ---------------------------- | ----------- | ------- |
+| `--workspace <id>`           | The workspace to run in (required) | — |
+| `--tag <tag>`                | Only run cases with this tag | — |
+| `--case <case>`              | Only run one case, by 0-based index, `name`, or exact prompt. Requires `FILE` | — |
+| `--regrade <file>`           | Grade the answers recorded in a results file again, without running the agent. Requires `FILE` | — |
+| `--json`                     | Print the full results as JSON instead of the summary | `false` |
+| `--output-json [file]`       | Also write the full JSON results to a file | — |
+| `--min-accuracy <threshold>` | Minimum score (0.0–1.0). Exit code 9 if below | — |
+| `--threshold-mode <mode>`    | `average` or `all` | `average` |
+| `--wait [seconds]`           | Stop waiting after this many seconds (exit code 7); the run goes on | wait to the end |
+| `--detach`                   | Queue the run, print its id, and return (`run` only) | `false` |
+
+| Exit code | Meaning |
+| --------- | ------- |
+| `0` | The run finished, and met `--min-accuracy` if one was given |
+| `1` | The run failed, was cancelled, or timed out |
+| `4` | Not signed in, or not a member of the workspace |
+| `5` | No such workspace, or the test file is not in the compiled workspace (push it) |
+| `6` | The test file does not parse, or `--case` matched nothing |
+| `7` | Retryable: the deployment could not read the compiled workspace, or `--wait <seconds>` ran out |
+| `9` | Accuracy below `--min-accuracy` |
 
 ## CI example
 
+The tests score the workspace's compiled revision, not a pull request's
+branch, so run them after a push to the branch the workspace serves has
+compiled. Store a personal access token as a repository secret:
+
 ```yaml
 - name: Run agent tests
-  run: oxy test --min-accuracy 0.8 --quiet
+  env:
+    OXY_TOKEN: ${{ secrets.OXY_TOKEN }}
+  run: npx @oxy-hq/cli evals run --workspace ${{ vars.OXY_WORKSPACE_ID }} --min-accuracy 0.8
 ```
 
 ## Error handling
 
-- **Wrong file type** — `oxy test` rejects any file that doesn't end in
-  `.test.yml`, and any test whose target isn't an `.agentic.yml` agent.
-- **No tests found** — running `oxy test` with no file fails if the project has
-  no `.test.yml` files.
-- **Threshold failures** — the command exits with code 1 only when
+- **Wrong file type** — `oxyc evals run` rejects any file that doesn't end in
+  `.test.yml`, and the eval engine any test whose target isn't an
+  `.agentic.yml` agent.
+- **No tests found** — running `oxyc evals run` with no file fails (exit code
+  5) if the workspace has no compiled `.test.yml` files.
+- **Threshold failures** — the command exits with code 9 only when
   `--min-accuracy` is set and not met. If no score was produced, it prints a
   warning and exits 0.

@@ -97,6 +97,10 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // route is declared FleetOk in `public_route_roles`, as it was under
     // `route_fleet` in `oxy-app`. The working-copy needles still apply.
     ("api-custom-apps/src/automation_run/mod.rs", "ConfigManager"),
+    // The eval-run route reads the test files from the compile boundary
+    // (`eval_test_definitions`) through `ConfigManager`, which owns the
+    // compiled-vs-disk choice.
+    ("api-eval/src/runs/handlers.rs", "ConfigManager"),
     // Its unit tests build a manager over a temp directory to drive that
     // lookup without a database. Test code, mounted on no route.
     (
@@ -328,6 +332,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `WorkspaceManagerReadOnly`, the scan resolves through the compile
         // boundary first, the revision reads are compiled rows.
         "../api-semantic/src",
+        // The eval runs (`oxyc evals run`), new on 2026-11-21 and declared
+        // FleetOk in `oxy_api_eval::workspace_route_roles`: the handlers read the
+        // compile boundary and enqueue; the executor runs on a worker over the
+        // promoted revision. Only `runs/`: the crate's `oxy test` command reads
+        // a local working copy on purpose and mounts no route.
+        "../api-eval/src/runs",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

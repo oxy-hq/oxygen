@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use minijinja::Value;
+use oxy_app::surface::workspace_runtime::OxyProjectContext;
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 
@@ -41,6 +44,12 @@ pub mod types;
 #[derive(Clone)]
 pub(super) struct EvalRun {
     pub workspace: WorkspaceManager<WorkingCopy>,
+    /// The project context every agent run and judge in this eval shares,
+    /// when the caller built one: the server's, from
+    /// `workspace_runtime::build_workspace_ctx` (compiled revision, the
+    /// caller's identity). `None` builds one per use from `workspace`, as
+    /// `oxy test` always has.
+    project: Option<Arc<OxyProjectContext>>,
     pub source: Source,
     pub renderer: Renderer,
     writer: Sender<Event>,
@@ -50,6 +59,7 @@ impl EvalRun {
     pub fn with_child_source(&self, source_id: String, kind: String) -> Self {
         Self {
             workspace: self.workspace.clone(),
+            project: self.project.clone(),
             source: Source {
                 parent_id: Some(self.source.id.clone()),
                 id: source_id,
@@ -58,6 +68,22 @@ impl EvalRun {
             renderer: self.renderer.clone(),
             writer: self.writer.clone(),
         }
+    }
+
+    /// The context a run or judge uses: the shared one, or a fresh one over
+    /// the workspace.
+    pub fn project_ctx(&self) -> Arc<OxyProjectContext> {
+        match &self.project {
+            Some(ctx) => ctx.clone(),
+            None => Arc::new(OxyProjectContext::new(self.workspace.clone())),
+        }
+    }
+
+    /// Whether a target ref may be checked against a working copy on this
+    /// node: only when the eval reads one (`oxy test`). A shared context reads
+    /// the compiled revision, and a fleet node holds no files.
+    pub fn reads_working_copy(&self) -> bool {
+        self.project.is_none()
     }
 
     pub async fn write_kind(&self, event: EventKind) -> Result<(), OxyError> {
@@ -100,6 +126,24 @@ impl EvalLauncher {
     ) -> Result<Self, OxyError> {
         self.eval_run = Some(EvalRun {
             workspace,
+            project: None,
+            source: Source {
+                parent_id: None,
+                id: "eval".to_string(),
+                kind: EVAL_SOURCE_ROOT.to_string(),
+            },
+            renderer: Renderer::new(Value::UNDEFINED),
+            writer: self.buf_writer.create_writer(None)?,
+        });
+        Ok(self)
+    }
+
+    /// Run against a project context the caller built — the server's, over the
+    /// compiled revision. Every agent run and judge shares it.
+    pub fn with_project(mut self, project: Arc<OxyProjectContext>) -> Result<Self, OxyError> {
+        self.eval_run = Some(EvalRun {
+            workspace: project.workspace_manager().clone(),
+            project: Some(project),
             source: Source {
                 parent_id: None,
                 id: "eval".to_string(),
@@ -134,3 +178,7 @@ impl EvalLauncher {
         response
     }
 }
+
+#[cfg(test)]
+#[path = "results_pin_tests.rs"]
+mod results_pin_tests;

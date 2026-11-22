@@ -126,6 +126,36 @@ pub struct SimulationEntry {
     pub definition: serde_json::Value,
 }
 
+/// An eval suite (`.test.yml`), body included: what `oxyc evals run` runs on
+/// the worker fleet. `file_path` is the key, not a name: a test file is
+/// addressed by where it sits, and its default target is the agent beside it
+/// ([`super::test_config::TestFileConfig::from_definition`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvalTestEntry {
+    pub file_path: String,
+    pub definition: serde_json::Value,
+}
+
+/// What a revision says about its eval suites. `NotCompiled` is the revision
+/// that predates them as a compiled kind
+/// (`oxy_compile::eval_tests::SINCE_SCHEMA_VERSION`) on a node with no files
+/// to read instead: nobody looked, so it is neither "none" nor an error, and a
+/// caller answers it retryable while a compile catches the revision up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvalTests {
+    Read(Vec<EvalTestEntry>),
+    NotCompiled,
+}
+
+/// One eval suite by path: found, absent from a revision that does carry
+/// suites, or unknown because the revision predates them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvalTest {
+    Found(EvalTestEntry),
+    Missing,
+    NotCompiled,
+}
+
 /// A verified query (`.sql`). No parsed `definition` — its body IS the SQL,
 /// carried verbatim with the hash the compile worker recorded so a reader can
 /// check the Postgres/S3 round-trip did not corrupt it.

@@ -442,6 +442,10 @@ const TABLES: &[(&str, Placement)] = &[
     ("device_tokens", Control("push delivery tokens")),
     ("edge_boxes", Control("edge box inventory")),
     (
+        "eval_test_definitions",
+        Control("compiled .test.yml eval suites"),
+    ),
+    (
         "experiment_designs",
         Control("insert-only versions of an experiment's design: the pre-registration record"),
     ),

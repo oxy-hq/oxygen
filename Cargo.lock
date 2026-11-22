@@ -3712,9 +3712,9 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.16.3"
+version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
+checksum = "e96a4956774c13c126a8b5af4daa79384f4d826534c95a02d76afb39e2ab64e3"
 dependencies = [
  "encode_unicode",
  "libc",
@@ -7366,11 +7366,11 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.18.4"
+version = "0.18.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+checksum = "9433806cd6b4ec1aba79c021c7e4c58fb4c3b9977c085062e611ac929998fb0c"
 dependencies = [
- "console 0.16.3",
+ "console 0.16.6",
  "portable-atomic",
  "unicode-width",
  "unit-prefix",
@@ -9764,23 +9764,31 @@ dependencies = [
  "agentic-connector",
  "agentic-core",
  "agentic-pipeline",
+ "agentic-runtime",
  "anyhow",
  "async-trait",
+ "axum",
  "chrono",
  "clap",
+ "entity",
  "enum_dispatch",
  "futures",
  "indexmap 2.14.0",
- "indicatif 0.18.4",
+ "indicatif 0.18.6",
  "itertools 0.15.0",
  "minijinja",
  "oxy",
  "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
  "oxy-shared",
+ "sea-orm",
  "serde",
  "serde_json",
+ "serde_yaml",
  "strip-ansi-escapes",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
  "workspace-hack",
@@ -11210,6 +11218,7 @@ dependencies = [
  "oxy-api-airway",
  "oxy-api-automations",
  "oxy-api-custom-apps",
+ "oxy-api-eval",
  "oxy-api-experiment",
  "oxy-api-identity",
  "oxy-api-metric-monitoring",

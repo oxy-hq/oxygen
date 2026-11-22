@@ -124,6 +124,10 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "Explaining an anomaly",
     ),
     ("*", "/simulations/{name}/runs", "Running a simulation"),
+    // Queued for the worker fleet, which runs the promoted revision with no
+    // write hold: a preview's run would neither read the preview nor hold
+    // its writes.
+    ("POST", "/evals/runs", "Running an eval"),
     ("POST", "/experiments", "Creating an experiment"),
     (
         "PUT",

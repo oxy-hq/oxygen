@@ -21,7 +21,7 @@
 //! * `admin_staff_scope`, `compiled_reader_semantic`,
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `worker_ctx_follows_promote`,
-//!   `semantic_scan_from_memory`, `context_documents_boundary`,
+//!   `semantic_scan_from_memory`, `context_documents_boundary`, `eval_tests_boundary`,
 //!   `connector_vars_from_workspace_secrets`,
 //!   `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
@@ -83,6 +83,7 @@ mod coordinator_any_replica;
 mod data_placement;
 mod encryption_key_check;
 mod env_pins;
+mod eval_tests_boundary;
 mod factory_access;
 mod feature_flag_refresh;
 mod file_credentials_at_compile;

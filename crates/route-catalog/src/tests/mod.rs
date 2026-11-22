@@ -194,6 +194,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     // `oxy-api-automations`' two groups, on the workspace seam.
     "/api/{workspace_id}/agentic-schedules",
     "/api/{workspace_id}/automations",
+    // `oxy-api-eval`'s eval runs (2026-11-21), on the workspace seam.
+    "/api/{workspace_id}/evals/runs",
     "/api/{workspace_id}/world-model",
     "/api/{workspace_id}/sql/",
     // `oxy-api-previews`' workspace-seam share (2026-11-16); its previews

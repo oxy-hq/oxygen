@@ -16,7 +16,7 @@ use super::{
     generator::run_generator,
     regrade,
     solver::run_solver,
-    types::{AgenticInput, RunStats},
+    types::{AgenticInput, RegradeSource, RunStats},
 };
 
 /// Resolve an `EvalInput` (`.test.yml` reference + optional case index / tag
@@ -32,6 +32,7 @@ async fn resolve_eval_inputs(
         index,
         tag,
         regrade_from: _,
+        test,
     } = eval_input;
 
     if !target_ref.ends_with("test.yml") {
@@ -41,8 +42,16 @@ async fn resolve_eval_inputs(
         )));
     }
 
-    let config_manager = &execution_context.workspace.config_manager;
-    let test_config = config_manager.resolve_test(&target_ref).await?;
+    let test_config = match test {
+        Some(test) => test,
+        None => {
+            execution_context
+                .workspace
+                .config_manager
+                .resolve_test(&target_ref)
+                .await?
+        }
+    };
     test_config
         .validate_grading()
         .map_err(|e| OxyError::ConfigurationError(format!("{target_ref}: {e}")))?;
@@ -110,7 +119,7 @@ async fn run_one_eval(
     idx: usize,
     eval: EvalConfig,
     target: AgenticInput,
-    regrade_from: Option<&std::path::Path>,
+    regrade_from: Option<&RegradeSource>,
 ) -> Result<EvalResult, OxyError> {
     let eval_context =
         execution_context.with_child_source(format!("eval-{idx}"), EVAL_SOURCE.to_string());
@@ -127,9 +136,9 @@ async fn run_one_eval(
         })
         .await?;
     let (outputs, errors_with_expected) = match regrade_from {
-        Some(path) => {
+        Some(source) => {
             refuse_regrade_unless_execution(&eval.metrics)?;
-            regrade::load_outputs(path)?
+            regrade::load(source)?
         }
         None => run_generator(&eval_context, eval.kind, target, eval.concurrency).await?,
     };
@@ -202,6 +211,6 @@ pub(crate) async fn run_eval(
     let regrade_from = eval_input.regrade_from.clone();
     let (eval, target) = resolve_eval_inputs(execution_context, eval_input).await?;
     Ok(vec![
-        run_one_eval(execution_context, 0, eval, target, regrade_from.as_deref()).await,
+        run_one_eval(execution_context, 0, eval, target, regrade_from.as_ref()).await,
     ])
 }

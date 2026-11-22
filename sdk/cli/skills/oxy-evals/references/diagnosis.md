@@ -238,6 +238,8 @@ that make the agent sound as if it can answer.
 3. Instructions: global first, then per-state.
 4. Validation tuning.
 
-After each change, `oxy validate <edited file>`, then re-run the case at least twice
-(`oxy test <file> --case <name> --output-json`), then the whole file. Nothing needs to be
-rebuilt between edits. Stop after three cycles that don't hold, and report.
+After each change, `oxy validate <edited file>`, push it, and once the deployment has
+compiled it re-run the case at least twice
+(`oxyc evals run <file> --workspace <id> --case <name> --output-json`), then the whole file.
+Evals read the served revision, so an edit counts only once it is pushed and compiled. Stop
+after three cycles that don't hold, and report.

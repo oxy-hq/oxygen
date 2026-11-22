@@ -10,8 +10,8 @@ use oxy_shared::errors::OxyError;
 
 use super::{
     artifacts::{
-        AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments,
-        PipelineEntry, SimulationEntry, VerifiedQueryEntry,
+        AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments, EvalTest,
+        EvalTests, PipelineEntry, SimulationEntry, VerifiedQueryEntry,
     },
     model::{Automation, AutomationWithRawVariables, Config, Database, Model},
     storage::{ConfigStorage, FsStorage},
@@ -835,6 +835,49 @@ impl<S: DiskSlot> ConfigManager<S> {
             }
             Origin::Disk => Ok(self.disk()?.list_simulations().await?),
         }
+    }
+
+    /// Every eval suite (`.test.yml`), body included, by path. Read like
+    /// [`Self::list_simulations`]: a promoted revision is authoritative, and
+    /// only a boundary FAILURE falls through to a working copy this node holds.
+    /// A revision compiled before suites were a compiled kind is
+    /// [`EvalTests::NotCompiled`] — read from the files instead where this
+    /// node has them, as [`Self::context_documents`] does.
+    pub async fn list_eval_tests(&self) -> Result<EvalTests, ArtifactError> {
+        match self.origin {
+            Origin::Compiled { revision_id, .. } => {
+                match super::compiled::list_eval_tests_at(revision_id).await {
+                    Ok(Some(tests)) => Ok(EvalTests::Read(tests)),
+                    Ok(None) => match self.disk() {
+                        Ok(disk) => Ok(EvalTests::Read(disk.list_eval_tests().await?)),
+                        Err(_) => Ok(EvalTests::NotCompiled),
+                    },
+                    Err(e) => match self.working_copy() {
+                        Some(_) => {
+                            tracing::warn!(
+                                error = %e,
+                                "compile boundary failed; falling back to the working copy"
+                            );
+                            Ok(EvalTests::Read(self.disk()?.list_eval_tests().await?))
+                        }
+                        None => Err(e),
+                    },
+                }
+            }
+            Origin::Disk => Ok(EvalTests::Read(self.disk()?.list_eval_tests().await?)),
+        }
+    }
+
+    /// One eval suite by workspace-relative path (a leading `./` ignored).
+    pub async fn eval_test(&self, file_path: &str) -> Result<EvalTest, ArtifactError> {
+        let wanted = file_path.trim_start_matches("./");
+        Ok(match self.list_eval_tests().await? {
+            EvalTests::NotCompiled => EvalTest::NotCompiled,
+            EvalTests::Read(tests) => tests
+                .into_iter()
+                .find(|t| t.file_path == wanted)
+                .map_or(EvalTest::Missing, EvalTest::Found),
+        })
     }
 
     /// One declared world's definition, keyed by NAME rather than by path:
