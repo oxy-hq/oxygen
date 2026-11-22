@@ -11,10 +11,9 @@ refactor lands, the churn lives in this module.
 
 | Path | Role |
 | ------ | ------ |
-| [`project_ctx.rs`](project_ctx.rs) | `OxyProjectContext`: implements `ProjectContext` + `agentic_automation::WorkspaceContext` (combined into `PlatformContext` via blanket impl) |
+| [`project_ctx/`](project_ctx/mod.rs) | `OxyProjectContext`: implements `ProjectContext` + `agentic_automation::WorkspaceContext` (combined into `PlatformContext` via blanket impl). Its connector half (`build_connector_for_db`, `try_database_to_connector_config`, the Airhouse wire/mint helpers) is `oxy_workspace_runtime::connector` since 2026-11-22, re-exported here |
 | [`scan_source.rs`](scan_source.rs) | Where a semantic read finds the model (`resolve_query_scan_source`, `resolve_compiled_scan_source`, `QueryScanSource`) and the `{ message }` refusal envelope. Down from `api::semantic` (2026-11-16) |
-| [`sql_exec.rs`](sql_exec.rs) | How a Dev Portal query runs (`run_via_agentic_connector`, `build_connector`, the 10k ad-hoc row cap). Down from `api::data` (2026-11-16) |
-| [`sql_http.rs`](sql_http.rs) | The HTTP answer of a Dev Portal SQL execute (`SqlErrorResponse`, `agentic_error_response`, `execute_sql_response`: `400`/`409 preview_read_only`/`500`/`502`). Down from `api::data` (2026-11-16, Wave D2) |
+| `sql_exec`, `sql_http` | In `oxy-workspace-runtime` since 2026-11-22 (W1b), re-exported here. `sql_exec`: how a Dev Portal query runs (`run_via_agentic_connector`, `build_connector`, the 10k ad-hoc row cap), down from `api::data` (2026-11-16). `sql_http`: its HTTP answer (`SqlErrorResponse`, `agentic_error_response`, `execute_sql_response`: `400`/`409 preview_read_only`/`500`/`502`), down from `api::data` (2026-11-16, Wave D2) |
 | `thread_owner`, `airhouse_pool`, `app_airhouse`, `metric_sink`, `string_literal` | In `oxy-workspace-runtime` (`crates/workspace-runtime/src/`) since 2026-11-21, re-exported here (`pub use`) so the paths did not change. `thread_owner`: `OxyThreadOwnerLookup`, the auth-facing `ThreadOwnerLookup` trait against `entity::threads`. `airhouse_pool`: the process-wide Airhouse connection pool. `app_airhouse`: `ctx.airhouse`'s connector |
 
 ## Wiring at app startup

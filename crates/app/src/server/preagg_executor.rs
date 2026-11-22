@@ -20,9 +20,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::preagg_workspace::{build_workspace_manager, manifest_write_lock_for};
+use super::preagg_workspace::build_workspace_manager;
 use crate::agentic_wiring::OxyProjectContext;
 use oxy_preagg::cycle::{CycleWorkspace, run_preagg_task};
+use oxy_preagg::manifest_lock::manifest_write_lock_for;
 use oxy_preagg::worker_config::PreaggWorkerConfig;
 
 /// The cycle's request types, `oxy_preagg::cycle` since it moved down; named

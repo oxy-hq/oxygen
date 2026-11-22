@@ -38,10 +38,12 @@ const ALLOWED: &[(&str, &str)] = &[
          same way the middleware does.",
     ),
     (
-        "src/server/preagg_workspace.rs",
+        "../workspace-runtime/src/preagg_workspace.rs",
         "Same: the pre-aggregation cycle builds its manager on the worker fleet, \
          off the HTTP path. Without the resolved revision the builder reads the \
-         worker's absent working copy and self-heal compiles every heartbeat.",
+         worker's absent working copy and self-heal compiles every heartbeat. \
+         (Was `src/server/preagg_workspace.rs` until it went down into \
+         `oxy-workspace-runtime`, 2026-11-22.)",
     ),
     (
         "src/server/api/custom_apps_gates.rs",
@@ -306,7 +308,9 @@ fn source_files() -> Vec<(String, String)> {
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
     // `oxy-workspace-runtime` (2026-11-21): the agentic wiring's leaves, out
     // of `src/agentic_wiring`, and `src/server/{runtime_artifact,
-    // api/typed_stream}.rs`, all walked above before the move.
+    // api/typed_stream}.rs`, all walked above before the move; then (W1b,
+    // 2026-11-22) `project_ctx`'s connector half, `sql_exec`, `sql_http` and
+    // `src/server/preagg_workspace.rs`.
     let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-runtime/src");
     walk(&runtime, &runtime, "../workspace-runtime/src/", &mut out);
     // `oxy-compile-runtime` (2026-11-21): the compile boundary's runtime

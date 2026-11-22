@@ -56,7 +56,8 @@ const BASE: &[&str] = &[
     // the workspace manager the global driver builds. Its own crate when it
     // leaves (too big to share a rebuild with the rest).
     "agentic_wiring",
-    "server::preagg_workspace",
+    // (The workspace manager the global driver builds, `server::preagg_workspace`,
+    // went down into `oxy-workspace-runtime` on 2026-11-22, W1b.)
     // (The runtime-artifact S3 mirror, `server::runtime_artifact`, went down
     // into `oxy-workspace-runtime` on 2026-11-21, with the agentic wiring's
     // leaves.)

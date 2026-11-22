@@ -174,7 +174,8 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # The workspace runtime (`oxy-workspace-runtime`), 2026-11-21: what builds and
 # runs an `OxyProjectContext`, going down out of crates/app/src/agentic_wiring/.
 # Started with the leaves (the Airhouse pool, `ctx.airhouse`, the typed-stream
-# sinks, the runtime-artifact mirror).
+# sinks, the runtime-artifact mirror); then (2026-11-22) project_ctx's connector
+# half, sql_exec, sql_http and server/preagg_workspace.rs.
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay

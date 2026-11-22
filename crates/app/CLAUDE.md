@@ -47,7 +47,7 @@ after the skill's checklist says the work really is request-scoped.
 | ------ | ---- |
 | `cli/` | Command surface. `cli/commands/` has one file per one-shot command: `run.rs`, `compile.rs`, `migrate*.rs` (`migrate.rs` also holds the migration runner `serve`/`worker` call), `admin.rs`, … `mod.rs` declares them as `SubCommand`. The long-lived `serve` / `start` / `worker` are `oxy-server`'s (`crates/server/src/commands/`), reaching oxy-app through `host.rs`. HTTP-client commands (`publish`, `login`, `proxy`, `assume`, `api`) are not here — they are `oxyc` (`sdk/cli`). |
 | `server/` | The Axum server (~80k LOC) — see breakdown below. |
-| `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. It is going down into `oxy-workspace-runtime` (`crates/workspace-runtime`): the leaves (`airhouse_pool`, `app_airhouse`, `metric_sink`, `string_literal`, `thread_owner`, with `server::runtime_artifact` and `server::api::typed_stream`) moved there on 2026-11-21 and are re-exported at their old paths. |
+| `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx/mod.rs`, ~1k lines after W1b, is still a decomposition target). Has its own `CLAUDE.md`. It is going down into `oxy-workspace-runtime` (`crates/workspace-runtime`): the leaves (`airhouse_pool`, `app_airhouse`, `metric_sink`, `string_literal`, `thread_owner`, with `server::runtime_artifact` and `server::api::typed_stream`) moved there on 2026-11-21 and are re-exported at their old paths; `project_ctx`'s connector half, `sql_exec`, `sql_http` and `server::preagg_workspace` followed on 2026-11-22 (W1b), re-exported the same way. |
 | `integrations/` | External integrations (QuickBooks OAuth, the OAuth provider). The Slack bot is `oxy-api-slack`; the eval context (`oxy dev test`, its event handler, the reporters and the engine) is `oxy-api-eval` (`crates/api-eval`). |
 | — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `oxy-api-identity`'s `sign_in/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
 
@@ -95,5 +95,5 @@ own schedule ticks.
 - Check both packages after edits: `cargo check -p oxy-app` **and** `cargo check -p oxy`.
 - The file/function size limits bite hardest here — this crate holds the workspace's worst
   god files (`role_manifest.rs`, `admin/apps/handlers.rs`,
-  `project_ctx.rs`). Prefer a new module over growing one; see
+  `project_ctx/mod.rs`). Prefer a new module over growing one; see
   `internal-docs/domain-boundaries.md`.

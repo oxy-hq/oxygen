@@ -11,7 +11,7 @@
 //! * **Connectors** — every warehouse and Airhouse connector built for the
 //!   request is a [`HoldingConnector`] ([`hold_if`]): reads are sent, any
 //!   statement `sql_kind` does not classify as a read is refused, and nothing
-//!   is sent. Built in `agentic_wiring::project_ctx` — `build_connector_for_db`
+//!   is sent. Built in `oxy_workspace_runtime::connector`'s `build_connector_for_db`
 //!   and the platform's `resolve_pre_built_connector`, the two doors every
 //!   request-path connector comes through.
 //! * **The platform** (`OxyProjectContext`) captures [`active`] when it is

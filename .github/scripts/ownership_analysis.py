@@ -99,6 +99,13 @@ AREAS = [
     ("crates/app/src/agentic_wiring/thread_owner.rs",     "Workspace runtime"),
     ("crates/app/src/server/runtime_artifact.rs",         "Workspace runtime"),
     ("crates/app/src/server/api/typed_stream.rs",         "Workspace runtime"),
+    # W1b, 2026-11-22: project_ctx's connector half, the SQL execute and the
+    # preagg cycle's workspace manager.
+    ("crates/app/src/agentic_wiring/sql_exec.rs",        "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/sql_http.rs",        "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/project_ctx/connector.rs", "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/project_ctx/connector_translation_tests.rs", "Workspace runtime"),
+    ("crates/app/src/server/preagg_workspace.rs",         "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability
@@ -124,7 +131,6 @@ AREAS = [
     ("crates/app/src/server/preagg_retract.rs",           "Pre-aggregation runtime"),
     ("crates/app/src/server/preagg_executor.rs",          "Pre-aggregation runtime"),
     ("crates/app/src/server/preagg_promote.rs",           "Pre-aggregation runtime"),
-    ("crates/app/src/server/preagg_workspace.rs",         "Pre-aggregation runtime"),
     ("crates/world-model",                                "World Model (backend)"),
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
     # The IDE graph + cohort handlers moved into crates/api-world-model 2026-11-12;

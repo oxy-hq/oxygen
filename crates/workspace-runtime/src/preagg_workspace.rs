@@ -14,10 +14,7 @@ use oxy::config::WorkingCopy;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
-use crate::server::service::secret_manager::SecretManagerService;
-
-/// The per-workspace manifest write lock, down in `oxy-preagg` since 2026-11-21.
-pub(super) use oxy_preagg::manifest_lock::manifest_write_lock_for;
+use oxy::service::secret_manager::SecretManagerService;
 
 /// Build a [`WorkspaceManager`] for `workspace_id` from nothing but a
 /// database handle.
@@ -67,7 +64,7 @@ pub async fn build_workspace_manager(
     // never been compiled is a real state here, and the rebuild has nothing to
     // do rather than something to fail at.
     let revision_id =
-        crate::server::api::compiled_reader::resolve_request_revision(workspace_id, None).await;
+        oxy_app_core::compiled_reader::resolve_request_revision(workspace_id, None).await;
     let builder = WorkspaceBuilder::new(workspace_id)
         .with_working_copy(
             std::path::Path::new(path),
@@ -114,7 +111,13 @@ mod tests {
     use uuid::Uuid;
 
     use super::build_workspace_manager;
-    use crate::server::test_support::{SKIP_MSG, test_db};
+    use oxy_test_utils::db::SKIP_MSG;
+
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator, as `oxy-app`'s
+    /// `server::test_support::test_db` names it.
+    async fn test_db() -> Option<DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
 
     /// A workspace whose `path` is a directory with no `config.yml` — a worker
     /// node, which has the column but not the checkout — and a promoted revision

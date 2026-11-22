@@ -173,8 +173,10 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 9] = [
     // The Dev Portal's SQL execution and the world model's `WorkspaceWarehouse`
     // run tenant warehouse queries through here (`run_with_connector`), and a
     // failure line carries the warehouse's error text. Down from `api::data`
-    // in Wave D1; it was never listed there either (fixed 2026-11-16).
-    "oxy_app::agentic_wiring::sql_exec",
+    // in Wave D1; it was never listed there either (fixed 2026-11-16). Down
+    // from `oxy_app::agentic_wiring::sql_exec` into the workspace runtime on
+    // 2026-11-22 (W1b), still the data plane.
+    "oxy_workspace_runtime::sql_exec",
     // The connector those handlers and `ctx.warehouse` host calls execute through.
     "agentic_connector",
     // Compiles semantic queries and reads pre-aggregations (`execute_preagg_sql`).
@@ -1116,8 +1118,10 @@ mod tests {
             // workspace runtime (Wave D1, 2026-11-16): kept, as it was there.
             "oxy_app::agentic_wiring::scan_source",
             // The Dev Portal's SQL execution, down from `api::data` the same
-            // day: kept, as it was there.
+            // day: kept, as it was there; and again into the workspace runtime
+            // (2026-11-22, W1b), still kept.
             "oxy_app::agentic_wiring::sql_exec",
+            "oxy_workspace_runtime::sql_exec",
             // The rollup ledger, down from `oxy-app`'s preagg runtime into
             // `oxy-compile` (Wave D2, 2026-11-16): kept, as it was there.
             "oxy_compile::preagg_ledger",
@@ -1150,6 +1154,13 @@ mod tests {
             "oxy_workspace_runtime::string_literal",
             "oxy_workspace_runtime::thread_owner",
             "oxy_workspace_runtime::typed_stream",
+            // Then (W1b, 2026-11-22) `project_ctx`'s connector half, the SQL
+            // execute's HTTP answer and the preagg cycle's workspace manager,
+            // out of `oxy_app::agentic_wiring::{project_ctx, sql_http}` and
+            // `oxy_app::server::preagg_workspace`: kept, as they were there.
+            "oxy_workspace_runtime::connector",
+            "oxy_workspace_runtime::sql_http",
+            "oxy_workspace_runtime::preagg_workspace",
             // The automatic compile enqueue, out of the workspace middleware
             // into `compile_reconcile` (2026-11-21, with its throttle), and the
             // compile task enqueue, out of `api::compile` into
@@ -1584,7 +1595,9 @@ mod tests {
             "agentic_semantic::preagg",
             "oxy::connector::snowflake",
             "airhouse::connector",
-            "oxy_app::agentic_wiring::sql_exec",
+            // The Dev Portal's SQL execution, at its path since W1b
+            // (2026-11-22, down from `oxy_app::agentic_wiring::sql_exec`).
+            "oxy_workspace_runtime::sql_exec",
         ] {
             assert!(is_data_plane_module(module), "{module}");
         }
@@ -1713,6 +1726,15 @@ mod tests {
             "oxy_workspace_runtime::string_literal",
             "oxy_workspace_runtime::thread_owner",
             "oxy_workspace_runtime::typed_stream",
+            // Then (W1b, 2026-11-22) `project_ctx`'s connector half (it builds
+            // the connector; `agentic_connector` runs the query), the SQL
+            // execute's HTTP answer and the preagg cycle's workspace manager:
+            // `oxy_app::agentic_wiring::{project_ctx, sql_http}` and
+            // `oxy_app::server` were not the data plane. Classified as they
+            // were there.
+            "oxy_workspace_runtime::connector",
+            "oxy_workspace_runtime::sql_http",
+            "oxy_workspace_runtime::preagg_workspace",
             // The automatic compile enqueue (2026-11-21, out of the workspace
             // middleware into `compile_reconcile`, with its throttle) and the
             // compile task enqueue (out of `api::compile` into

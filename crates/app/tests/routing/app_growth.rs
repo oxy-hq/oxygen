@@ -58,7 +58,8 @@ const SERVER: &[&str] = &[
     // the cycle's body (`oxy_preagg::cycle`); `preagg_executor` keeps the
     // executor shell and re-exports the request types.
     "preagg_executor",
-    "preagg_workspace",
+    // `preagg_workspace` (the cycle's workspace manager) left for
+    // `oxy-workspace-runtime` on 2026-11-22 (re-exported in `server/mod.rs`).
     "previews",
     "queued_analytics",
     "role_manifest",

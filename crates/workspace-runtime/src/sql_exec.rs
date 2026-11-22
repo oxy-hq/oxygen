@@ -12,9 +12,10 @@
 //! (`SqlErrorResponse`, `agentic_error_response`) stayed with the handlers until
 //! they left too (Wave D2); it is [`super::sql_http`] now.
 //!
-//! Not a domain crate yet: it builds on `project_ctx::build_connector_for_db`
-//! and writes results through `oxy_workspace_runtime::typed_stream` (the S3
-//! result mirror), both of which go down with the base.
+//! Not a domain crate: it builds on [`crate::connector::build_connector_for_db`]
+//! and writes results through [`crate::typed_stream`] (the S3 result mirror).
+//! Down from `oxy-app`'s `agentic_wiring::sql_exec` on 2026-11-22 (W1b), which
+//! re-exports it there.
 
 use std::sync::Arc;
 
@@ -28,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use oxy_workspace_runtime::typed_stream::{
+use crate::typed_stream::{
     EMPTY_RESULT_SENTINEL, typed_stream_to_json_array, typed_stream_to_parquet,
 };
 
@@ -163,7 +164,7 @@ pub async fn run_via_agentic_connector<S: DiskSlot>(
 where
     ConfigManager<S>: ResolveWorkspaceFile,
 {
-    let connector = crate::agentic_wiring::project_ctx::build_connector_for_db(
+    let connector = crate::connector::build_connector_for_db(
         workspace_manager,
         &payload.database,
         Some(user_id),
@@ -280,13 +281,8 @@ pub async fn build_connector<S: DiskSlot>(
 where
     ConfigManager<S>: ResolveWorkspaceFile,
 {
-    crate::agentic_wiring::project_ctx::build_connector_for_db(
-        workspace_manager,
-        database,
-        Some(user_id),
-        Some(role),
-    )
-    .await
+    crate::connector::build_connector_for_db(workspace_manager, database, Some(user_id), Some(role))
+        .await
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! The per-workspace manifest write lock, out of `oxy-app`'s
-//! `server::preagg_workspace` (2026-11-21). `oxy-app` re-exports it there; the
+//! `server::preagg_workspace` (2026-11-21), which re-exported it until it went
+//! down into `oxy-workspace-runtime` (2026-11-22); the
 //! executor shell hands each cycle the lock for its workspace, and
 //! [`crate::rebuild`] publishes the manifest under it.
 

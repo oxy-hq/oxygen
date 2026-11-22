@@ -12,7 +12,7 @@
 //!   what an older builder stored wrongly.
 //! - [`worker_config`] is the per-task bag the cycle threads through them.
 //! - [`manifest_lock`] is the per-workspace manifest write lock a cycle holds
-//!   to publish. `oxy-app` re-exports it at `server::preagg_workspace`.
+//!   to publish. `oxy-app`'s `preagg_executor` imports it from here.
 //! - [`promote`] is the compile worker's post-promote nudge: it enqueues a
 //!   cycle when a promote declared a rollup hash the previous revision did
 //!   not. `oxy-app` re-exports it at `server::preagg_promote`.

@@ -23,20 +23,36 @@ oxy-app-core = { workspace = true }
 # `blob_store`: the runtime-artifact S3 mirror.
 oxy-compile = { workspace = true }
 oxy-observability = { workspace = true }
+# `resolver`: the read-only analyst connection a `type: oltp` database
+# translates to (`connector`).
+oxy-oltp = { workspace = true }
 oxy-shared = { workspace = true }
 
 arrow = { workspace = true }
 async-trait = { workspace = true }
+# `sql_http`: the SQL execute's HTTP answer.
+axum = { workspace = true }
 futures = { workspace = true }
 parquet = { workspace = true }
 sea-orm = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+# `connector`: the percent-encoded userinfo of a pgwire DSN.
+urlencoding = { workspace = true }
+# `sql_exec`/`sql_http`: the request and response schemas.
+utoipa = { workspace = true, features = ["uuid"] }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# `preagg_workspace`'s DB-backed tests: the shared test database (`db`) with
+# the runtime migrator, and `connector`'s workspace fixtures.
+agentic-runtime = { workspace = true }
+chrono = { workspace = true }
+oxy-test-utils = { workspace = true }
+tempfile = { workspace = true }
 # `string_literal`'s tests build their `DatabaseType` fixtures from YAML.
 serde_yaml = { workspace = true }
 

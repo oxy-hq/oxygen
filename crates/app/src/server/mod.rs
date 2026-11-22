@@ -34,7 +34,10 @@ pub mod preagg_executor;
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
 // 2026-11-20; re-exported so `compile_worker` and the prelude keep this path.
 pub use oxy_preagg::promote as preagg_promote;
-pub(crate) mod preagg_workspace;
+// The preagg cycle's workspace manager, `oxy-workspace-runtime`'s since
+// 2026-11-22 (W1b); re-exported so `preagg_executor` and the prelude keep
+// this path.
+pub(crate) use oxy_workspace_runtime::preagg_workspace;
 pub mod previews;
 pub mod queued_analytics;
 pub mod role_manifest;

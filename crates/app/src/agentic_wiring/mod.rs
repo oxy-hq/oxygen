@@ -21,14 +21,15 @@ pub mod preview_airhouse;
 pub mod preview_ctx;
 pub mod project_ctx;
 pub mod scan_source;
-pub mod sql_exec;
-pub mod sql_http;
 
 // The leaves went down into `oxy-workspace-runtime` on 2026-11-21, re-exported
 // here so their paths did not change.
 pub use oxy_workspace_runtime::{
     airhouse_pool, app_airhouse, metric_sink, string_literal, thread_owner,
 };
+// The SQL execute and its HTTP answer followed on 2026-11-22 (W1b), with the
+// connector half of `project_ctx` they build on.
+pub use oxy_workspace_runtime::{sql_exec, sql_http};
 
 pub use metric_sink::OxyAnalyticsMetricSink;
 pub use metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};
