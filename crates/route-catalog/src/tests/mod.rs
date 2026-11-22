@@ -235,7 +235,7 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     // listener rather than the product router. Not an API route and
     // deliberately not in the catalog — it is scraped in-cluster, carries
     // no `/api` prefix, and is not something an `oxyc` user calls.
-    "crates/app/src/server/metrics_server.rs",
+    "crates/server/src/metrics_server.rs",
     // `oxy-oltp`'s router, merged at the protected-tree root. Wiring it
     // into SOURCE_DIRS needs a seed, and a seed resolves a builder by
     // module-path SUFFIX — this crate's entry point is `api::router`,

@@ -31,13 +31,11 @@ const SRC: &[&str] = &[
     // `surface`. It shrinks to nothing as the router and the base leave.
     "host",
     "managed_connection_resolver",
-    "observability_boot",
     "server",
     "surface",
 ];
 
 const SERVER: &[&str] = &[
-    "admission",
     "api",
     "audit_anchor",
     "auth_provider_check",
@@ -53,7 +51,6 @@ const SERVER: &[&str] = &[
     "factory_access",
     "http_cache",
     "ide_proxy",
-    "metrics_server",
     // The pre-aggregation runtime's domain half (`freshness`, `generation`,
     // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20, and the
     // post-promote nudge (`preagg_promote`, now `oxy_preagg::promote`,

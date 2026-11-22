@@ -29,7 +29,7 @@ pub fn set_global(store: Arc<dyn ObservabilityStore>) {
 /// because `StartArgs` flattens `ServeArgs`.
 ///
 /// The real cause is printed at startup by `observability_boot::finalize` in
-/// oxy-app (a label error from `backend_enabled`, a connection error from each
+/// the `oxy` binary (a label error from `backend_enabled`, a connection error from each
 /// failed open); this is the message that repeats, so it is the one that has to
 /// be right.
 pub fn require_global() -> Result<&'static Arc<dyn ObservabilityStore>, OxyError> {

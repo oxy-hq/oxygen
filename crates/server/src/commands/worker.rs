@@ -365,7 +365,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     // Before `WorkerRuntime::start` and the run drivers, so the sinks exist
     // before the first invocation this process can run. `OXY_CLICKHOUSE_*`
     // comes from the pod spec, so unlike `oxy start` nothing has to boot first.
-    oxy_app::observability_boot::finalize().await;
+    crate::observability_boot::finalize().await;
 
     let max_inflight = read_max_inflight();
     let recovery_interval = resolve_recovery_interval(args.recovery_interval_secs);

@@ -6,7 +6,7 @@
 //! # The span channel
 //!
 //! `main.rs` installs the `SpanCollectorLayer` for its server commands and
-//! parks the receiver of an UNBOUNDED channel; only `oxy_app::observability_boot::finalize` ever
+//! parks the receiver of an UNBOUNDED channel; only `crate::observability_boot::finalize` ever
 //! reads it. A command in that list without a `finalize` keeps every span it
 //! closes for as long as it runs. `oxy worker` shipped exactly that way: its
 //! latency worker closes a `driver_tick` span every poll, and prod worker pods

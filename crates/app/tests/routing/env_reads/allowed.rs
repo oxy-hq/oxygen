@@ -690,17 +690,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_MAX_INFLIGHT_PER_WORKSPACE",
-        "crates/app/src/server/admission.rs",
+        "crates/server/src/admission.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_MAX_INFLIGHT_REQUESTS",
-        "crates/app/src/server/admission.rs",
+        "crates/server/src/admission.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_METRICS_PORT",
-        "crates/app/src/server/metrics_server.rs",
+        "crates/server/src/metrics_server.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -725,7 +725,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OBSERVABILITY_BACKEND",
-        "crates/app/src/observability_boot.rs",
+        "crates/server/src/observability_boot.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

@@ -188,7 +188,7 @@ pub async fn start_server_and_web_app(
     // observability backend and spawn the bridge that drains the span channel
     // into it. No-op when OXY_OBSERVABILITY_BACKEND is unset — the layer was
     // never installed and there's no receiver to drain.
-    oxy_app::observability_boot::finalize().await;
+    crate::observability_boot::finalize().await;
 
     // Detect whether any cloud auth provider is configured — used only to
     // surface an informational log when `--local` is requested with providers
@@ -514,7 +514,7 @@ async fn create_web_application(
         // Above the in-flight ceiling it returns 503 + Retry-After so a spike
         // backs off instead of cascading across the fleet; probes are exempt.
         .layer(axum::middleware::from_fn(
-            oxy_app::host::middleware::admission_control,
+            crate::admission::admission_control,
         ))
         .layer(oxy_app::host::router::build_cors_layer())
         // Innermost of the trace pair: the request span must be current when
@@ -871,8 +871,8 @@ async fn serve_application(
     // observability is a degradation, and taking the serve fleet down over it
     // would make the monitoring a source of outages instead of a witness to
     // them.
-    if let Some(port) = oxy_app::host::metrics_server::resolve_metrics_port(None) {
-        match oxy_app::host::metrics_server::start(port, shutdown_token.clone()).await {
+    if let Some(port) = crate::metrics_server::resolve_metrics_port(None) {
+        match crate::metrics_server::start(port, shutdown_token.clone()).await {
             Ok(_handle) => {}
             Err(e) => tracing::warn!(
                 error = %e,

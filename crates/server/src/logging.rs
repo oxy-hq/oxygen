@@ -24,9 +24,9 @@
 use std::env;
 use std::io::IsTerminal;
 
+use crate::observability_boot;
 use once_cell::sync::OnceCell;
 use oxy::state_dir::get_state_dir;
-use oxy_app::observability_boot;
 use oxy_telemetry::otel::OtelConfig;
 use oxy_telemetry::sentry_filter::sentry_tracing_layer;
 use tracing_subscriber::filter::LevelFilter;

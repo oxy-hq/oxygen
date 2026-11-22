@@ -1,6 +1,5 @@
 //! HTTP server and API endpoints
 
-pub mod admission;
 pub mod api;
 pub mod audit_anchor;
 pub mod auth_provider_check;
@@ -23,7 +22,6 @@ pub mod factory_access;
 // the runtime is `oxy-feature-flags`.
 pub mod http_cache;
 pub mod ide_proxy;
-pub mod metrics_server;
 pub use oxy_app_core::preagg_context;
 pub mod preagg_executor;
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since

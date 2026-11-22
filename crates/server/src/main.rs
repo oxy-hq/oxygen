@@ -11,6 +11,7 @@
 #[cfg(feature = "dev-dynamic")]
 extern crate oxy_app_dylib as _;
 
+mod admission;
 mod app_platform;
 #[cfg(test)]
 mod catalog_tests;
@@ -20,6 +21,8 @@ mod custom_apps_seams;
 #[cfg(test)]
 mod healthcheck_tests;
 mod logging;
+mod metrics_server;
+mod observability_boot;
 #[cfg(test)]
 mod recursion_limit_guard;
 #[cfg(test)]
@@ -32,7 +35,6 @@ use human_panic::Metadata;
 use human_panic::setup_panic;
 use oxy::sentry_config;
 use oxy::theme::StyledText;
-use oxy_app::observability_boot;
 use oxy_app::server::router::{SurfaceSeam, SurfaceSeams};
 use oxy_telemetry::otel::OtelConfig;
 use std::env;

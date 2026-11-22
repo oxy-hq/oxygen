@@ -76,7 +76,6 @@ pub mod router {
 
 /// The layers `serve` wraps the router in.
 pub mod middleware {
-    pub use crate::server::admission::admission_control;
     pub use crate::server::api::middlewares::request_id::{
         REQUEST_ID_HEADER, request_id_middleware,
     };
@@ -87,11 +86,6 @@ pub mod middleware {
 /// The `ETag` helpers the SPA handler answers conditional requests with.
 pub mod http_cache {
     pub use crate::server::http_cache::{if_none_match, weak_etag};
-}
-
-/// The Prometheus listener (`OXY_METRICS_PORT`).
-pub mod metrics_server {
-    pub use crate::server::metrics_server::{resolve_metrics_port, start};
 }
 
 /// The standalone worker's runtime, health listener and metrics.

@@ -92,6 +92,9 @@ dotenv = { workspace = true }
 human-panic = { workspace = true }
 libc = { workspace = true }
 once_cell = { workspace = true }
+# `admission`: the per-workspace in-flight table and its request ids.
+dashmap = { workspace = true }
+uuid = { workspace = true }
 rustls = { workspace = true }
 sentry = { workspace = true }
 tokio = { workspace = true }
@@ -124,7 +127,6 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
-uuid = { workspace = true }
 oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 # `console_test_notification` and `notification_function_action`: the
 # notification tests that span the custom-app and notifications surfaces (a

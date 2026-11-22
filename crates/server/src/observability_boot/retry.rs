@@ -45,14 +45,6 @@ pub(super) enum OpenError {
     Unavailable(String),
 }
 
-impl OpenError {
-    pub(super) fn message(&self) -> &str {
-        match self {
-            OpenError::Config(msg) | OpenError::Unavailable(msg) => msg,
-        }
-    }
-}
-
 /// Drop the oldest records until at most `max_pending` remain queued. Returns
 /// how many were dropped.
 fn trim_backlog<R>(receiver: &mut UnboundedReceiver<R>, max_pending: usize) -> usize {

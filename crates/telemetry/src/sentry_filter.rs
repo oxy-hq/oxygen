@@ -650,6 +650,36 @@ mod tests {
         }
     }
 
+    /// The binary's boot modules went up from `oxy-app` into the `oxy` binary
+    /// (`oxy-server`) on 2026-11-21 (decompose UP1): the span store's boot
+    /// bridge and its retry, the Prometheus listener and admission control.
+    /// They were platform code there, kept and not the data plane, and are
+    /// pinned so here. The binary's crate ident is `oxy`, the same as the core
+    /// library's, so each new path is also checked against its old one: none
+    /// may read as `oxy::connector` (data plane) or `oxy::app_function`.
+    #[test]
+    fn the_boot_modules_keep_their_sentry_lines_after_moving_up() {
+        for (old, new) in [
+            ("oxy_app::observability_boot", "oxy::observability_boot"),
+            (
+                "oxy_app::observability_boot::retry",
+                "oxy::observability_boot::retry",
+            ),
+            ("oxy_app::server::metrics_server", "oxy::metrics_server"),
+            ("oxy_app::server::admission", "oxy::admission"),
+        ] {
+            for module in [old, new] {
+                assert_eq!(
+                    sentry_disposition(module, &Level::ERROR),
+                    Disposition::Event,
+                    "{module}"
+                );
+                assert!(!drop_log(Some(module)), "{module}");
+                assert!(!is_data_plane_module(module), "{module}");
+            }
+        }
+    }
+
     /// The eval context left `oxy-app` on 2026-11-20 (`oxy test`, then its
     /// engine, out of `oxy_app::integrations::eval`), into `oxy_api_eval`. It
     /// was platform code there, kept and not the data plane (no rule named it),

@@ -24,7 +24,6 @@ pub mod cli;
 pub use oxy_app_core::emails;
 pub mod host;
 pub mod managed_connection_resolver;
-pub mod observability_boot;
 pub mod server;
 pub mod surface;
 
