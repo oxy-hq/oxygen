@@ -2,11 +2,12 @@
 //! `oxy_session` cookie that carries it, the login payload, a token session's
 //! response and hydration, `return_to` validation and the link bases.
 //!
-//! Base, not a context (`tests/routing/base_boundary.rs`): the sign-in routes
-//! themselves (magic link, OAuth, dev sign-in, the mobile app's sign-in, `/user`
-//! and `/logout`) are `oxy-api-identity`'s, and reach this through
-//! `surface::session`, beside frontline's PIN sign-in and a token's browser
-//! sign-in, which mint the same session.
+//! A `Request` module of the app-core charter (`charter_tests.rs`), not a
+//! context: the sign-in routes themselves (magic link, OAuth, dev sign-in, the
+//! mobile app's sign-in, `/user` and `/logout`) are `oxy-api-identity`'s, and
+//! reach this through `oxy_app::surface::session`, beside frontline's PIN
+//! sign-in and a token's browser sign-in, which mint the same session. Down from
+//! `oxy-app`'s `server::api::auth` on 2026-11-21, which re-exports it.
 //!
 //! - [`dto`]: the session's own shapes (`AuthResponse`, `UserInfo`, `OrgInfo`,
 //!   the JWT `Claims`).

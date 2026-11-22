@@ -59,6 +59,7 @@ const CHARTER: &[(&str, Kind)] = &[
     ("semantic_limit", Service),
     ("semantic_pin_seam", Seam),
     ("serve_mode", Request),
+    ("session", Request),
     ("shutdown", Request),
     ("sql_kind", Service),
     ("workspace_cache", Request),

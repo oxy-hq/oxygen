@@ -318,10 +318,8 @@ pub async fn finalize_login(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     // A login is a browser session being born: no key or token is involved.
-    let caller = crate::server::authz::Caller::without_credential(
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-    );
+    let caller =
+        oxy_server_authz::Caller::without_credential(user.id, user.email.as_deref().unwrap_or(""));
     let (user_info, orgs) = session_payload(&user, &caller, connection).await?;
     Ok((token, user_info, orgs))
 }
@@ -332,11 +330,11 @@ pub async fn finalize_login(
 /// touches, so the web app lands somewhere the session can actually read.
 pub(super) async fn session_payload(
     user: &users::Model,
-    caller: &crate::server::authz::Caller,
+    caller: &oxy_server_authz::Caller,
     connection: &DatabaseConnection,
 ) -> Result<(UserInfo, Vec<OrgInfo>), StatusCode> {
     // Reported on the payload, not decided here — the flag door, not a ring.
-    let standing = crate::server::authz::globals::platform_standing(connection, caller).await;
+    let standing = oxy_server_authz::globals::platform_standing(connection, caller).await;
     let user_info = UserInfo {
         id: user.id.to_string(),
         email: user.label().to_string(),
@@ -506,7 +504,7 @@ fn is_bare_loopback_authority(value: &str) -> bool {
     let Ok(authority) = value.parse::<axum::http::uri::Authority>() else {
         return false;
     };
-    plain && port_ok && crate::server::router::is_loopback_host(authority.host())
+    plain && port_ok && crate::origin::is_loopback_host(authority.host())
 }
 
 #[cfg(test)]
@@ -661,8 +659,8 @@ pub fn pin_org_subdomain_to_app_host(base: String) -> String {
     let Some(host) = url.host_str() else {
         return base;
     };
-    if oxy_app_core::org_host_dispatch::parse_org_subdomain(host).is_some()
-        && let Some(app_host) = oxy_app_core::custom_apps_host_dispatch::admin_base_url()
+    if crate::org_host_dispatch::parse_org_subdomain(host).is_some()
+        && let Some(app_host) = crate::custom_apps_host_dispatch::admin_base_url()
     {
         return app_host;
     }

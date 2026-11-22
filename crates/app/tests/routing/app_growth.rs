@@ -83,7 +83,6 @@ const SERVER: &[&str] = &[
 
 const SERVER_API: &[&str] = &[
     "admin",
-    "auth",
     "billing",
     "custom_apps_gates",
     "local_setup",

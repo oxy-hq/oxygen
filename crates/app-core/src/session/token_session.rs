@@ -22,7 +22,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 
 use super::dto::AuthResponse;
 use super::ops::{build_session_cookie_with_max_age, is_request_secure, session_payload};
-use crate::server::authz::Caller;
+use oxy_server_authz::Caller;
 
 /// The response that hands `jwt` to a browser as `user`'s session under
 /// `credential`. `cookie_max_age_secs` sets the `oxy_session` cookie to lapse

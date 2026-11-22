@@ -715,6 +715,33 @@ mod tests {
         }
     }
 
+    /// The session plumbing every sign-in path shares went down on 2026-11-21,
+    /// out of `oxy_app::server::api::auth` into `oxy_app_core::session` (the
+    /// decompose's G1). It was platform code there, kept and not the data plane
+    /// (no rule named it), and is pinned so here: a failed mint or org lookup at
+    /// sign-in is real signal.
+    #[test]
+    fn the_session_plumbing_keeps_its_sentry_lines_after_the_move() {
+        for module in [
+            "oxy_app_core::session",
+            "oxy_app_core::session::ops",
+            "oxy_app_core::session::cookie_session",
+            "oxy_app_core::session::token_session",
+            "oxy_app_core::session::dto",
+            // The old path, as it classified on main.
+            "oxy_app::server::api::auth",
+            "oxy_app::server::api::auth::ops",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]

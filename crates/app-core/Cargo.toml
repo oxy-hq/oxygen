@@ -18,6 +18,8 @@ oxy-compile = { workspace = true }
 oxy-git = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-authz = { workspace = true }
+# `session`: the login payload's `Caller` and the platform-standing flag door.
+oxy-server-authz = { workspace = true }
 oxy-telemetry = { workspace = true }
 entity = { workspace = true }
 
@@ -57,6 +59,9 @@ aws-sdk-sesv2 = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 lettre = { workspace = true }
 base64 = { workspace = true, features = ["std"] }
+
+# `session`: the session JWT.
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 
 # `write_hold`: the request-scoped write hold a workspace preview and a custom
 # app's staging ask run under — the holding connector, and an http_request

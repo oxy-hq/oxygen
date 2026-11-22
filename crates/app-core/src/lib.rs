@@ -51,6 +51,7 @@ pub mod rate_limit;
 pub mod semantic_limit;
 pub mod semantic_pin_seam;
 pub mod serve_mode;
+pub mod session;
 pub mod shutdown;
 pub mod sql_kind;
 pub mod staging_pin_scope;

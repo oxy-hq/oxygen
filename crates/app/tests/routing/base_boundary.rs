@@ -32,13 +32,8 @@ const BASE: &[&str] = &[
     // Guards and request context: role guards, org and workspace context,
     // the staff-console guards, token scopes, request id, timeout.
     "server::api::middlewares",
-    // Session helpers every sign-in path shares. The sign-in handlers beside
-    // them (`handlers`, `dev_login`, `anonymous_link`, `mobile`) are the
-    // identity context, not base.
-    "server::api::auth::ops",
-    "server::api::auth::cookie_session",
-    "server::api::auth::token_session",
-    "server::api::auth::dto",
+    // (The session helpers every sign-in path shares, `server::api::auth`,
+    // went down into `oxy-app-core::session` on 2026-11-21.)
     // The authz shim over `oxy-server-authz`.
     "server::authz",
     // Pod placement: route roles, the role middleware, the Factory relay,

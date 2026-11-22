@@ -1,9 +1,11 @@
 pub mod admin;
+/// The session plumbing every sign-in path shares moved down to `oxy-app-core`
+/// (2026-11-21); the old path stays so no call site changes.
+pub use oxy_app_core::session as auth;
 // `agent` (the agent listing) and `artifacts` moved to
 // `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
 // `apps` (the app integrations `config.yml` declares, `/app-integrations`)
 // moved to `oxy-api-workspaces` (2026-11-16), mounted on the workspace seam.
-pub mod auth;
 // `automation` (the compile-boundary automation listing) and `schedules`
 // moved to the `oxy-api-automations` sibling crate, mounted by `oxy-server` on
 // the workspace seam. oxy-app no longer depends on them.

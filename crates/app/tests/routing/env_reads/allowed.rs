@@ -130,7 +130,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_AUTH_ALLOW_LOCALHOST_RETURN",
-        "crates/app/src/server/api/auth/ops.rs",
+        "crates/app-core/src/session/ops.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -900,12 +900,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_SESSION_COOKIE_DOMAIN",
-        "crates/app/src/server/api/auth/ops.rs",
+        "crates/app-core/src/session/ops.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SESSION_COOKIE_FORCE_SECURE",
-        "crates/app/src/server/api/auth/ops.rs",
+        "crates/app-core/src/session/ops.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
