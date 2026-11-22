@@ -11,7 +11,8 @@ description: |
   `year_month` (column `date`) is TEXT 'YYYYMM' (e.g. '201309'), not a date;
   use `year` / `month` or `LIKE '2013%'` / `SUBSTR`. Months present: 201112 ..
   201209 and 201301 .. 201311 (201210-201212 are absent).
-  Data notes: consumption is a real; 152 rows are negative and 28 are zero
+  Data notes: consumption is a real (single precision), so
+  `total_consumption` casts it to double precision before summing; 152 rows are negative and 28 are zero
   (rows still exist for those months - no filter is applied). Only 30,566 of
   the 32,461 customers have any row.
   Joins to customers on `customer` (segment, currency). Do not join with
@@ -62,9 +63,9 @@ dimensions:
 measures:
   - name: total_consumption
     type: sum
-    description: Total consumption (sum of monthly consumption amounts).
+    description: Total consumption (sum of monthly consumption amounts, summed in double precision).
     synonyms: ["consumption", "total spent", "fuel consumption"]
-    expr: consumption
+    expr: "CAST({{TABLE}}.consumption AS double precision)"
   - name: average_consumption
     type: average
     description: Average consumption per customer-month row. For an average per customer over a period, divide total_consumption by consuming_customer_count.
