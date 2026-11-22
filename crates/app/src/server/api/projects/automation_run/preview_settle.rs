@@ -1,5 +1,7 @@
 //! Closing a custom app's preview-run poll rows from the finished run: the
-//! half of [`super`] that the preview sweep (`previews::runs::sweep`) drives.
+//! half of the automation run's row that the preview sweep
+//! (`previews::queue::sweep`) drives. It closes each row through
+//! `oxy_custom_apps::automation_run::settle`.
 
 use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
@@ -7,7 +9,8 @@ use serde_json::Value as JsonValue;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::server::api::projects::automation_run::settle;
+use oxy_custom_apps::automation_run::{automation_error_to_code, settle};
+
 use crate::server::previews::queue::lifecycle::TERMINAL_RUN_STATUSES;
 
 /// Close every open poll row whose preview run has finished, from its
@@ -71,8 +74,7 @@ fn terminal_for(
             let message = message.unwrap_or_else(|| "automation failed".to_string());
             let error =
                 agentic_pipeline::automation_run::AutomationRunError::Inline(message.clone());
-            let (code, _) =
-                crate::server::api::projects::automation_run::automation_error_to_code(&error);
+            let (code, _) = automation_error_to_code(&error);
             settle::failed_with(code, message)
         }
     }

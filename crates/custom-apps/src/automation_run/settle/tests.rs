@@ -99,7 +99,7 @@ async fn status(db: &DatabaseConnection, id: Uuid) -> String {
 /// one gets `true` from the stamp, and nothing reopens the run afterwards.
 #[tokio::test]
 async fn exactly_one_attempt_begins_a_run() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = running_row(&db, false).await;
@@ -136,7 +136,7 @@ async fn exactly_one_attempt_begins_a_run() {
 /// A pending cancel and a closed row are both "not yours to begin".
 #[tokio::test]
 async fn a_cancelled_or_closed_run_is_never_begun() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let cancel_stamped = running_row(&db, true).await;
@@ -165,7 +165,7 @@ async fn a_cancelled_or_closed_run_is_never_begun() {
 /// wrote: a result that arrives after its user cancelled must not land.
 #[tokio::test]
 async fn a_result_does_not_land_on_a_run_its_user_cancelled() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let outputs = HashMap::from([("step".to_string(), serde_json::json!("ok"))]);
@@ -207,7 +207,7 @@ async fn a_result_does_not_land_on_a_run_its_user_cancelled() {
 /// second attempt after a requeue cannot overwrite the first one's result.
 #[tokio::test]
 async fn a_closed_run_is_never_reopened_or_rewritten() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = running_row(&db, false).await;
@@ -264,7 +264,7 @@ async fn poll(db: &DatabaseConnection, run_id: Uuid) -> proc_run::Model {
 #[tokio::test]
 async fn a_run_failed_under_a_driver_that_holds_it_is_left_running() {
     const WORKER: &str = "settle-test-held";
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = queued_row(&db).await;
@@ -306,7 +306,7 @@ async fn a_run_failed_under_a_driver_that_holds_it_is_left_running() {
 #[tokio::test]
 async fn a_failed_run_nothing_holds_is_closed_as_orphaned() {
     const WORKER: &str = "settle-test-released";
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = queued_row(&db).await;

@@ -53,6 +53,8 @@
 //!   surface crate.
 //! - `updates`: how a long-open tab picks up a new build (the platform mode,
 //!   an app's `autoUpdate`, the `/fn` build handshake headers).
+//! - `automation_run`: an automation run's row state machine (`settle`: begin,
+//!   close, the orphan reconcile) and the failure classifier.
 
 // The usage sink's chained connector futures (`usage_airhouse`) exceed the
 // default type-layout query depth of 128, as the same code did in `oxy-app`.
@@ -62,6 +64,7 @@ pub mod agent;
 pub mod agent_built;
 pub mod app_access;
 pub mod asset_manifest;
+pub mod automation_run;
 pub use oxy_app_core::audience;
 pub mod auth;
 pub mod authenticate;
@@ -112,3 +115,13 @@ pub mod usage_rows;
 pub mod usage_writes;
 pub mod workspace_actions;
 pub mod write_record;
+
+/// The shared in-source DB harness (`oxy_test_utils::db`), so these tests migrate
+/// and lock the shared test database exactly the way `oxy-app`'s own do.
+#[cfg(test)]
+mod test_support {
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator.
+    pub(crate) async fn test_db() -> Option<sea_orm::DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
+}

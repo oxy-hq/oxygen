@@ -48,10 +48,11 @@ pub mod preview_mode;
 pub mod task;
 
 /// The run row's state machine — the first terminal state wins, the first
-/// attempt to begin wins — and the failure classifier. `oxy-app`'s, because
-/// the workspace-preview sweep settles a preview-mode run's row in the same
-/// tick it finishes the preview run.
-pub use oxy_app::surface::automation_runs::{automation_error_to_code, settle};
+/// attempt to begin wins — and the failure classifier. Below the surfaces in
+/// `oxy_custom_apps::automation_run`, because `oxy-app`'s workspace-preview
+/// sweep settles a preview-mode run's row in the same tick it finishes the
+/// preview run.
+pub use oxy_custom_apps::automation_run::{automation_error_to_code, settle};
 
 use std::collections::HashMap;
 

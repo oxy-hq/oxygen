@@ -96,7 +96,18 @@ const CUSTOM_APPS_MODULE_MARKER: &str = "custom_apps";
 ///   `app_publish_tokens` table and the audit log: staff-minted, app-unscoped
 ///   rows, no tenant object key, manifest or app name. Never the plaintext;
 ///   the hash is only ever a bound parameter.
-const CUSTOM_APPS_MARKER_EXEMPT: [&str; 1] = ["oxy_api_custom_apps::admin::app_publish_tokens"];
+/// - `oxy_custom_apps::automation_run` — the automation run's row state machine
+///   (`settle`: begin, close, the orphan reconcile) and the failure classifier,
+///   down from `oxy_app::server::api::projects::automation_run` (2026-11-22),
+///   where the marker never applied. It writes Oxy's own
+///   `customer_app_automation_runs` rows; a line carries a run id and a
+///   Postgres error, and its failure *text* can quote a warehouse error, which
+///   is why it is also in [`DATA_PLANE_MODULE_PREFIXES`]: kept as an issue and
+///   shaped in Sentry Logs, exactly as under the `projects` prefix.
+const CUSTOM_APPS_MARKER_EXEMPT: [&str; 2] = [
+    "oxy_api_custom_apps::admin::app_publish_tokens",
+    "oxy_custom_apps::automation_run",
+];
 
 /// Whether `name` is one of [`CUSTOM_APPS_MARKER_EXEMPT`], or under one.
 fn is_custom_apps_marker_exempt(name: &str) -> bool {
@@ -134,7 +145,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// execute nothing, so they are not listed; `oxy::database` is Oxy's own
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
-const DATA_PLANE_MODULE_PREFIXES: [&str; 7] = [
+const DATA_PLANE_MODULE_PREFIXES: [&str; 8] = [
     // The automation run's row state machine (`settle`), which stayed when its
     // handlers left, and the semantic boundary the twins enter by. (`/query`,
     // `/semantic-query` and the metric tree's twins moved to
@@ -143,6 +154,12 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 7] = [
     // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path
     // drops their lines outright: [`drop_log`].)
     "oxy_app::server::api::projects",
+    // The automation run's row state machine itself, down from
+    // `oxy_app::server::api::projects::automation_run` (2026-11-22). Its path
+    // carries the `custom_apps` marker only because of its crate, so it is
+    // also in [`CUSTOM_APPS_MARKER_EXEMPT`]: shaped, as it was there, not
+    // dropped. The preview settle stayed under the `projects` prefix above.
+    "oxy_custom_apps::automation_run",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
     "oxy_api_world_model::customer_app",
@@ -591,6 +608,50 @@ mod tests {
             "oxy_api_custom_apps::admin::app_publish_tokens_extra",
             "oxy_api_custom_apps::admin",
             "oxy_api_custom_apps::serve",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Drop,
+                "{module}"
+            );
+            assert!(drop_log(Some(module)), "{module}");
+        }
+    }
+
+    /// The automation run's row state machine kept its classification when it
+    /// went down from `oxy_app::server::api::projects::automation_run` to
+    /// `oxy_custom_apps::automation_run` (2026-11-22): an issue at `error`, a
+    /// breadcrumb at `warn`, not dropped from Sentry Logs, and shaped there as
+    /// data plane — at the old path and the new one. The exemption is a path
+    /// segment: a sibling that shares the name, the surface's own
+    /// `automation_run` and every other module of the crate stay dropped.
+    #[test]
+    fn the_automation_run_row_keeps_its_sentry_class_after_the_move() {
+        for module in [
+            "oxy_app::server::api::projects::automation_run",
+            "oxy_app::server::api::projects::automation_run::settle",
+            "oxy_app::server::api::projects::automation_run::preview_settle",
+            "oxy_custom_apps::automation_run",
+            "oxy_custom_apps::automation_run::settle",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert_eq!(
+                sentry_disposition(module, &Level::WARN),
+                Disposition::Breadcrumb,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(is_data_plane_module(module), "{module}");
+        }
+        for module in [
+            "oxy_custom_apps::automation_run_x",
+            "oxy_custom_apps::storage::sweeper",
+            "oxy_api_custom_apps::automation_run",
+            "oxy_api_custom_apps::automation_run::executor",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),
@@ -1407,9 +1468,14 @@ mod tests {
     fn data_plane_modules_are_matched_a_segment_at_a_time() {
         for module in [
             "oxy_app::server::api::projects",
-            // The automation run's row state machine, which stayed in `oxy-app`.
+            // The automation run's preview settle, which stayed in `oxy-app`,
+            // and the old path of the row state machine.
             "oxy_app::server::api::projects::automation_run",
+            "oxy_app::server::api::projects::automation_run::preview_settle",
             "oxy_app::server::api::projects::automation_run::settle",
+            // The row state machine at its new path (2026-11-22).
+            "oxy_custom_apps::automation_run",
+            "oxy_custom_apps::automation_run::settle",
             "oxy_api_world_model::customer_app::cohort",
             "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",

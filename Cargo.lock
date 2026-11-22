@@ -10910,6 +10910,9 @@ name = "oxy-custom-apps"
 version = "0.5.161"
 dependencies = [
  "agentic-connector",
+ "agentic-core",
+ "agentic-pipeline",
+ "agentic-runtime",
  "airhouse",
  "async-trait",
  "aws-config",
@@ -10936,6 +10939,7 @@ dependencies = [
  "oxy-shared",
  "oxy-telemetry",
  "oxy-tenancy",
+ "oxy-test-utils",
  "parking_lot 0.12.5",
  "rayon",
  "reqwest 0.13.4",

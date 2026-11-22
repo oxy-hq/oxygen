@@ -262,12 +262,15 @@ pub mod queued_runs {
 
 /// The custom-app automation run's row: closed and begun by its state machine
 /// (`settle`), a preview-mode run's row settled from its finished preview run,
-/// the failure classifier. Stays because the workspace-preview sweep settles in
-/// the same tick it finishes the preview run; the handlers, the executor and
-/// the sweep are `oxy-api-custom-apps`' `automation_run`.
+/// the failure classifier. The state machine and the classifier are
+/// `oxy_custom_apps::automation_run` (2026-11-22), re-exported here; the
+/// preview settle stays in `oxy-app` beside the workspace-preview sweep that
+/// drives it. The handlers, the executor and the sweep are
+/// `oxy-api-custom-apps`' `automation_run`.
 pub mod automation_runs {
+    pub use crate::server::api::projects::automation_run::preview_settle::settle_custom_app_runs;
     pub use crate::server::api::projects::automation_run::{
-        automation_error_to_code, owns_run, settle, settle_custom_app_runs,
+        automation_error_to_code, owns_run, settle,
     };
 }
 

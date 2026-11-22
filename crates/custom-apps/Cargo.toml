@@ -15,6 +15,10 @@ test-fixtures = ["dep:duckdb"]
 
 [dependencies]
 agentic-connector = { workspace = true }
+# The automation run's error type, which `automation_run` classifies.
+agentic-pipeline = { workspace = true }
+# The run and queue rows `automation_run::settle`'s orphan reconcile reads.
+agentic-runtime = { workspace = true }
 airhouse = { workspace = true, features = ["connector", "rest"] }
 entity = { workspace = true }
 oxy = { workspace = true }
@@ -69,6 +73,12 @@ uuid = { workspace = true, features = ["v5"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# `automation_run::settle`'s in-source DB tests share the harness in
+# `oxy_test_utils::db`, which runs the central and runtime migrators against
+# `OXY_DATABASE_URL` (the runtime migrator is `agentic-runtime`'s), and queue
+# a held run as an `agentic-core` task spec.
+agentic-core = { workspace = true }
+oxy-test-utils = { workspace = true }
 # `usage_fixtures`' stand-in for Airhouse, for this crate's own tests.
 duckdb = { workspace = true }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
