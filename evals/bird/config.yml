@@ -29,7 +29,13 @@ databases:
     database: "bird_formula_1"
 
 models:
-  - name: eval-model
+  # First, so it is the workspace default the answer judge falls back to: the
+  # grader stays on the model every earlier report used.
+  - name: judge-model
     vendor: anthropic
     model_ref: claude-opus-4-8
+    key_var: ANTHROPIC_API_KEY
+  - name: eval-model
+    vendor: anthropic
+    model_ref: claude-sonnet-5-5
     key_var: ANTHROPIC_API_KEY

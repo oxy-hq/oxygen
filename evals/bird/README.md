@@ -44,9 +44,12 @@ python3 evals/bird/bird.py gen-cases            # rewrites <db>.test.yml (1 run 
 cd evals/bird && ../../target/debug/oxy dev test financial.test.yml --case 0 --format json
 ```
 
-- `eval-model` is `claude-opus-4-8`, which is `agentic_llm::constants::DEFAULT_MODEL`: what an
+- `eval-model` is `claude-sonnet-5-5`, which is `agentic_llm::constants::DEFAULT_MODEL`: what an
   analytics agent with no `llm.ref` runs on today. `eval-model` in `config.yml` is the one place
-  to change it.
+  to change it. Reports before 2026-11-22 ran on `claude-opus-4-8`.
+- The answer judge sets no model, so it uses the workspace default: `judge-model`, the first entry
+  in `config.yml`, kept on `claude-opus-4-8` so grading stays the same across reports. Keep it
+  first.
 - The `<db>.test.yml` files are generated and committed; do not edit them. Cases listed in
   `disputed.json` (question ids) are left out. A milestone run regenerates with
   `gen-cases --runs 3` and does not commit that.

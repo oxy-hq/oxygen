@@ -19,7 +19,11 @@ pub(super) const ANTHROPIC_THINKING_BETA: &str = "interleaved-thinking-2025-05-1
 pub(super) const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 /// The default model used when constructing an [`LlmClient`] via [`LlmClient::new`].
-pub const DEFAULT_MODEL: &str = "claude-opus-4-8";
+///
+/// Claude Sonnet 5.5 since 2026-11-22: on the semantic-only BIRD eval it answered
+/// 148 of 162 questions against 134 for Claude Opus 4.8, in about half the time
+/// and at about 40% of the cost.
+pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 
 pub(super) const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// Higher token cap used when extended thinking is enabled.  Thinking

@@ -107,7 +107,7 @@ impl ModelConfigBuilder {
         // A model added without an explicit `model_ref` must not silently fall
         // back to a retiring id. `claude-3-opus-20240229` (Claude 3) is on
         // Anthropic's deprecation path and may 404 once sunset; default to the
-        // current platform top-tier instead. The canonical value lives in
+        // current platform default instead. The canonical value lives in
         // `oxy::config::constants::DEFAULT_ANTHROPIC_MODEL`, kept in sync with
         // `agentic_llm::constants::DEFAULT_MODEL`.
         let model_ref = anthropic_config

@@ -55,7 +55,7 @@ pub const GEMINI_API_KEY_VAR: &str = "GEMINI_API_KEY";
 /// `agentic_llm::constants::DEFAULT_MODEL`; that crate is infrastructure and
 /// must not be imported by the platform layer, so the value is mirrored here
 /// rather than re-exported.
-pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-opus-4-8";
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-5-5";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4o";
 // `gemini-1.5-pro` is retired/retiring on Google's side; scaffolding it into
 // every `oxy make`/`oxy init` Google model reproduced exactly the drift the
