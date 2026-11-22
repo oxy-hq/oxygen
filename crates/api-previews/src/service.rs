@@ -162,15 +162,9 @@ impl PreviewRequest<'_> {
     /// from the upsert on, the pin no longer serves that commit's revision.
     async fn record(&self, git_sha: &str) -> Result<Model, PreviewRequestError> {
         let ws = self.workspace.id;
-        let previous = oxy_app::surface::previews::store::find(self.db, ws, self.branch).await?;
-        let row = oxy_app::surface::previews::store::upsert(
-            self.db,
-            ws,
-            self.branch,
-            git_sha,
-            self.requested_by,
-        )
-        .await?;
+        let previous = oxy_previews::store::find(self.db, ws, self.branch).await?;
+        let row = oxy_previews::store::upsert(self.db, ws, self.branch, git_sha, self.requested_by)
+            .await?;
         if let Some(previous) = previous.filter(|p| p.git_sha != git_sha) {
             self.release_superseded(&previous.git_sha).await;
         }
@@ -183,7 +177,7 @@ impl PreviewRequest<'_> {
     /// whatever is left here, retention reclaims.
     async fn release_superseded(&self, old_sha: &str) {
         let ws = self.workspace.id;
-        let key = oxy_app::surface::previews::namespace::preview_key(ws, self.branch);
+        let key = oxy_previews::namespace::preview_key(ws, self.branch);
         let result = async {
             crate::runs::cancel_queued_at(self.db, ws, &key, old_sha).await?;
             crate::revisions::release(self.db, ws, old_sha).await
@@ -243,7 +237,7 @@ pub async fn create(req: &PreviewRequest<'_>) -> Result<Model, PreviewRequestErr
 /// head moved (or the last compile failed or went stale), the same one when not.
 pub async fn refresh(req: &PreviewRequest<'_>) -> Result<Model, PreviewRequestError> {
     validate_branch_name(req.branch)?;
-    if oxy_app::surface::previews::store::find(req.db, req.workspace.id, req.branch)
+    if oxy_previews::store::find(req.db, req.workspace.id, req.branch)
         .await?
         .is_none()
     {
@@ -264,13 +258,11 @@ pub async fn delete(
     branch: &str,
 ) -> Result<(), PreviewRequestError> {
     validate_branch_name(branch)?;
-    let key = oxy_app::surface::previews::namespace::preview_key(workspace_id, branch);
+    let key = oxy_previews::namespace::preview_key(workspace_id, branch);
     crate::runs::cancel_queued(db, workspace_id, &key).await?;
-    oxy_app::surface::previews::registry::expire_key(db, workspace_id, &key).await?;
+    oxy_previews::registry::expire_key(db, workspace_id, &key).await?;
     let txn = db.begin().await?;
-    if let Some(git_sha) =
-        oxy_app::surface::previews::store::delete(&txn, workspace_id, branch).await?
-    {
+    if let Some(git_sha) = oxy_previews::store::delete(&txn, workspace_id, branch).await? {
         crate::revisions::release(&txn, workspace_id, &git_sha).await?;
     }
     txn.commit().await?;
@@ -397,7 +389,7 @@ pub async fn checks(
     branch: &str,
 ) -> Result<ChecksResponse, PreviewRequestError> {
     validate_branch_name(branch)?;
-    let preview = oxy_app::surface::previews::store::find(db, workspace_id, branch)
+    let preview = oxy_previews::store::find(db, workspace_id, branch)
         .await?
         .ok_or_else(|| PreviewRequestError::NotFound(branch.to_string()))?;
     let (staged, _) = status_of(db, workspace_id, &preview.git_sha).await?;

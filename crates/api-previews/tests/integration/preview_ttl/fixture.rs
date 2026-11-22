@@ -13,9 +13,9 @@ use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, users, workspaces};
 use oxy_api_previews::drop::PreviewSchemaDropExecutor;
 use oxy_api_previews::maintenance::{DropClaim, sweep_expired};
-use oxy_app::surface::testing::previews::ddl::OpenSchemaDropper;
-use oxy_app::surface::testing::previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
-use oxy_app::surface::testing::previews::registry;
+use oxy_previews::ddl::OpenSchemaDropper;
+use oxy_previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
+use oxy_previews::registry;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, Statement,

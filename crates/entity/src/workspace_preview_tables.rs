@@ -1,7 +1,7 @@
 //! `workspace_preview_tables` — a preview's shadow map: which live tables it
 //! holds a copy of in its own schemas, so reads resolve to the copy. Names and
 //! states only; the copies live in the workspace's Airhouse. See
-//! `crates/app/src/server/previews/registry.rs`.
+//! `crates/previews/src/registry/mod.rs`.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

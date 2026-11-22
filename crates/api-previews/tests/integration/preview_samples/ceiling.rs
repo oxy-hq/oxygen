@@ -21,7 +21,7 @@ async fn overdue_sample(fx: &crate::preview_routes::fixture::Fx, minutes: i64) -
         vec![run_id.clone().into(), (minutes as i32).into()],
     )
     .await;
-    let key = oxy_app::surface::testing::previews::namespace::preview_key(fx.ws, BRANCH);
+    let key = oxy_previews::namespace::preview_key(fx.ws, BRANCH);
     let name = format!("preview:{key}:orders_api");
     let held = pipeline_lease::try_acquire(&fx.db, fx.ws, &name, &run_id, 3600)
         .await

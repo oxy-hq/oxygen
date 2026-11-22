@@ -4,7 +4,7 @@
 
 use agentic_pipeline::platform::PlatformContext;
 use oxy_app::surface::testing::previews::airhouse_duckdb::{DuckDbAirhouse, UNCONFINED_ECHO};
-use oxy_app::surface::testing::previews::namespace::preview_key;
+use oxy_previews::namespace::preview_key;
 use serde_json::json;
 use std::sync::Arc;
 

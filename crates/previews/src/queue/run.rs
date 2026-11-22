@@ -70,13 +70,7 @@ pub async fn advance(db: &DatabaseConnection, workspace_id: Uuid) -> Result<Opti
     // Run start: the key's schemas outlive the run, and a drop claimed but
     // not yet run lets them go (`registry::touch_key`); what the preview
     // already holds is noted on the run, for a build's compare.
-    crate::server::previews::registry::touch_key(
-        &txn,
-        workspace_id,
-        &key,
-        crate::server::previews::registry::schema_ttl(),
-    )
-    .await?;
+    crate::registry::touch_key(&txn, workspace_id, &key, crate::registry::schema_ttl()).await?;
     super::lifecycle::note_held_before(&txn, &run_id, workspace_id, &key).await?;
     txn.commit().await?;
     tracing::info!(target: "preview", %workspace_id, %run_id, %kind, "preview run started");

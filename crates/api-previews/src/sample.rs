@@ -9,7 +9,7 @@
 //!   (default the last 7); any other names its `resources` when it has more
 //!   than one, and runs under a wall-clock cap instead; a rotate-on-use source
 //!   (QuickBooks) needs a sandbox company registered for the pipeline
-//!   (`PUT /previews/sources`, [`oxy_app::surface::previews::sources`]) or answers `409
+//!   (`PUT /previews/sources`, [`oxy_previews::sources`]) or answers `409
 //!   sandbox_required`. The destination must be the workspace's managed
 //!   Airhouse.
 //! * **Seed** ([`seed`]) — when the workspace's preview queue frees up
@@ -44,7 +44,7 @@ use std::time::Duration;
 
 pub use agentic_pipeline::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
 pub use executor::PreviewAirwaySampleExecutor;
-pub use oxy_app::surface::previews::queue::sample_seed::{RUN_KIND, SampleSeed, seed};
+pub use oxy_previews::queue::sample_seed::{RUN_KIND, SampleSeed, seed};
 pub use record::{Recorded, SampleReport, record_sample};
 pub use validate::{Asked, SampleOptions, check, validate};
 pub use view::view;

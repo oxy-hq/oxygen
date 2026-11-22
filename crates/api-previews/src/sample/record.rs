@@ -21,7 +21,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::analyze::FindingView;
-use oxy_app::surface::previews::registry;
+use oxy_previews::registry;
 
 /// A finished sample, as its run outcome reports it. Names and findings only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

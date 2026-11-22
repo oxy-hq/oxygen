@@ -7,9 +7,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use airhouse::preview_sql::PreviewNamespace;
 
 use super::DropReport;
-use oxy_app::surface::previews::ddl::{
-    PreviewDdlError, Relation, RelationKind, SchemaDropper, well_formed,
-};
+use oxy_previews::ddl::{PreviewDdlError, Relation, RelationKind, SchemaDropper, well_formed};
 
 /// One schema the drop run holds a claim on, as its registry row and the
 /// preview's shadow map describe it.

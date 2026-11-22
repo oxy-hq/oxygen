@@ -40,8 +40,8 @@ use serde::{Deserialize, Serialize};
 use crate::checks::ChecksResponse;
 use crate::runs::{self as runs, RunDetail, RunRequestError, RunSummary, SubmitRun, Submitted};
 use crate::service::{self, PreviewItem, PreviewRequest, PreviewRequestError};
-use oxy_app::surface::previews::sources::{self, PutSource, SourceItem, SourceRequestError};
 use oxy_app::surface::role_guards::WorkspacePreviewer;
+use oxy_previews::sources::{self, PutSource, SourceItem, SourceRequestError};
 
 #[derive(Serialize)]
 pub struct PreviewList {
@@ -144,7 +144,7 @@ pub async fn list_previews(
     Extension(ws): Extension<entity::workspaces::Model>,
 ) -> Result<Json<PreviewList>, PreviewApiError> {
     let db = db().await?;
-    let rows = oxy_app::surface::previews::store::list(&db, ws.id)
+    let rows = oxy_previews::store::list(&db, ws.id)
         .await
         .map_err(PreviewRequestError::from)?;
     Ok(Json(PreviewList {

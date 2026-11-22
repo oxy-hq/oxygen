@@ -21,7 +21,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::server::previews::namespace::preview_key;
+use crate::namespace::preview_key;
 
 /// The `TaskSpec::Custom` kind of a change check.
 pub const PREVIEW_ANALYZE_KIND: &str = "preview_analyze";
@@ -198,8 +198,7 @@ pub async fn enqueue_after_staging_compile(
         return;
     };
     let result = async {
-        let Some(preview) = crate::server::previews::store::find(db, workspace_id, branch).await?
-        else {
+        let Some(preview) = crate::store::find(db, workspace_id, branch).await? else {
             return Ok(None);
         };
         // A compile of a commit the preview has since moved off is not the

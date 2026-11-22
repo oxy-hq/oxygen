@@ -6,10 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use airhouse::preview_sql::PreviewNamespace;
 use async_trait::async_trait;
-use oxy_app::surface::testing::previews::ddl::{
+use oxy_previews::ddl::{
     OpenSchemaDropper, PreviewDdlError, Relation, SchemaCreator, SchemaDropper,
 };
-use oxy_app::surface::testing::previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
+use oxy_previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 

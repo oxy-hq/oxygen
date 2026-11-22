@@ -288,15 +288,14 @@ pub mod runtime_artifact {
 /// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
 /// only to one of them.
 pub mod previews {
-    // The lower half `oxy-api-previews` builds on (2026-11-14): the registry
-    // and its DDL, the namespace, the sources, the pin, the run platform and
-    // the run queue stay below because the workspace runtime and the
-    // middleware read them. Whole modules: the surface is their one consumer
-    // above, and they move down together with the request base.
-    pub use crate::server::previews::{
-        airhouse_duckdb, ddl, ddl_airhouse, ddl_duckdb, namespace, pin, queue, registry, runtime,
-        sources, store,
-    };
+    // The lower half `oxy-api-previews` builds on (2026-11-14): the run
+    // platform and its DuckDB double stay below because the workspace runtime
+    // reads them. Whole modules: the surface is their one consumer above, and
+    // they move down together with the request base. (The rows — the registry
+    // and its DDL, the namespace, the sources, the pin and the run queue —
+    // went down to `oxy-previews` on 2026-11-22; the surface imports them
+    // from there.)
+    pub use crate::server::previews::{airhouse_duckdb, runtime};
     // The preview platform a held run executes on, and the compile pieces
     // create and refresh drive.
     pub use crate::agentic_wiring::{preview_airhouse, preview_ctx};

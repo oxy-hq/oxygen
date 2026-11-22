@@ -39,8 +39,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use executor::PreviewCompareExecutor;
-use oxy_app::surface::previews::queue::compare as enqueue;
-pub use oxy_app::surface::previews::queue::compare::{PREVIEW_COMPARE_KIND, enqueue_compares};
+use oxy_previews::queue::compare as enqueue;
+pub use oxy_previews::queue::compare::{PREVIEW_COMPARE_KIND, enqueue_compares};
 pub use table::{
     DEFAULT_DIFF_MAX_ROWS, DIFF_MAX_ROWS_VAR, Limits, ReadFailed, Retyped, Sides, TableCompare,
     compare_table, diff_max_rows,
@@ -118,8 +118,7 @@ pub async fn compare(
         .await
         .map_err(CompareError::Database)?
         .ok_or(CompareError::NoBuild)?;
-    let ns = oxy_app::surface::previews::namespace::for_preview(&row)
-        .map_err(|_| CompareError::Namespace)?;
+    let ns = oxy_previews::namespace::for_preview(&row).map_err(|_| CompareError::Namespace)?;
     let limits = Limits {
         diff_max_rows: diff_max_rows().map_err(CompareError::Config)?,
         ignore_columns: ignore_columns(&row.options),

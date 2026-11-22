@@ -219,7 +219,7 @@ async fn preview(db: &DatabaseConnection, ws: Uuid, branch: &str, rev: Uuid, by:
         .unwrap()
         .expect("revision")
         .git_sha;
-    oxy_app::surface::testing::previews::store::upsert(db, ws, branch, &sha, by)
+    oxy_previews::store::upsert(db, ws, branch, &sha, by)
         .await
         .expect("register preview");
 }

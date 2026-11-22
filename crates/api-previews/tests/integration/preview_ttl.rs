@@ -25,10 +25,10 @@ use agentic_core::delegation::{TaskOutcome, TaskSpec};
 use airhouse::preview_sql::ShadowState;
 use oxy_api_previews::drop::PREVIEW_SCHEMA_DROP_KIND;
 use oxy_api_previews::{analyze, service};
-use oxy_app::surface::testing::previews::ddl::OpenSchemaDropper;
-use oxy_app::surface::testing::previews::ddl_duckdb::DuckDbDroppers;
-use oxy_app::surface::testing::previews::registry;
-use oxy_app::surface::testing::previews::store;
+use oxy_previews::ddl::OpenSchemaDropper;
+use oxy_previews::ddl_duckdb::DuckDbDroppers;
+use oxy_previews::registry;
+use oxy_previews::store;
 use serde_json::json;
 use uuid::Uuid;
 

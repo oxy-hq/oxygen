@@ -311,7 +311,7 @@ fn column(name: &str, data_type: &str) -> Value {
 #[tokio::test]
 async fn a_finished_sample_is_compared_with_live_and_its_tables_recorded() {
     let fx = setup().await;
-    let key = oxy_app::surface::testing::previews::namespace::preview_key(fx.ws, BRANCH);
+    let key = oxy_previews::namespace::preview_key(fx.ws, BRANCH);
     let live = schema(
         "orders_api",
         json!({ "orders": { "name": "orders",

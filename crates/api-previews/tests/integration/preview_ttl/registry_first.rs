@@ -5,7 +5,7 @@
 
 use std::sync::atomic::Ordering;
 
-use oxy_app::surface::testing::previews::registry::{self, RegistryError};
+use oxy_previews::registry::{self, RegistryError};
 use uuid::Uuid;
 
 use super::done_metadata;

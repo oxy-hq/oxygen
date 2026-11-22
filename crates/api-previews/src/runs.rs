@@ -38,17 +38,13 @@ mod tests;
 
 // The queue step and the run lifecycle are the half that stays below when the
 // rest of previews leaves `oxy-app`: the compile worker, the custom-app
-// automation run's preview mode and its settle call them (`oxy_app::surface::previews::queue`).
-pub use oxy_app::surface::previews::queue::lifecycle::{
-    TERMINAL_RUN_STATUSES, cancel_queued, cancel_queued_at,
-};
-pub use oxy_app::surface::previews::queue::run::{RUNS_FLAG_ENV, advance, runs_enabled};
+// automation run's preview mode and its settle call them (`oxy_previews::queue`).
+pub use oxy_previews::queue::lifecycle::{TERMINAL_RUN_STATUSES, cancel_queued, cancel_queued_at};
+pub use oxy_previews::queue::run::{RUNS_FLAG_ENV, advance, runs_enabled};
 // The per-pass sweep (and the ceiling it applies) is rows only, so it stays
 // below too: the global driver calls it inline (`queue::sweep`).
-pub use oxy_app::surface::previews::queue::ceiling::{
-    MAX_MINUTES_ENV, max_minutes, retire_overdue,
-};
-pub use oxy_app::surface::previews::queue::sweep::{mark_finished, sweep};
+pub use oxy_previews::queue::ceiling::{MAX_MINUTES_ENV, max_minutes, retire_overdue};
+pub use oxy_previews::queue::sweep::{mark_finished, sweep};
 
 pub(crate) use report::outcome_of;
 pub use report::{

@@ -9,7 +9,7 @@
 
 use entity::{app_builds, apps, workspace_preview_runs};
 use oxy_api_previews::service;
-use oxy_app::surface::testing::previews::namespace::preview_key;
+use oxy_previews::namespace::preview_key;
 use sea_orm::{ColumnTrait, PaginatorTrait, QueryFilter};
 
 use super::*;

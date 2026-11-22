@@ -73,7 +73,11 @@ use super::OxyProjectContext;
 use super::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
 use crate::server::service::secret_manager::SecretManagerService;
 pub(crate) use airhouse_writes::PreviewAirhouse;
-pub(crate) use sample::{SAMPLE_KIND, SampleSide};
+pub(crate) use sample::SampleSide;
+// The sample run kind, for the platform's tests; the queue that seeds the run
+// defines it (`previews::queue::sample_seed::RUN_KIND`).
+#[cfg(test)]
+pub(crate) use sample::SAMPLE_KIND;
 
 /// The working-copy root the inner manager is built over. It never exists, so
 /// a compiled miss falls through to nothing instead of to a checkout.

@@ -319,6 +319,11 @@ fn source_files() -> Vec<(String, String)> {
         "../compile-runtime/src/",
         &mut out,
     );
+    // `oxy-previews` (2026-11-22): workspace previews' rows, out of
+    // `src/server/previews` and `src/server/api/projects/automation_run/
+    // preview_settle.rs`, walked above before the move.
+    let previews_rows = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../previews/src");
+    walk(&previews_rows, &previews_rows, "../previews/src/", &mut out);
     // `oxy-feature-flags` (2026-11-20): the feature-flag runtime's domain
     // half, out of `src/server/feature_flags`, walked above before the move.
     let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");

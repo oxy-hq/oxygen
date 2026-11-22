@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::{RunRequestError, advance};
 use crate::sample;
-use oxy_app::surface::previews::namespace::preview_key;
+use oxy_previews::namespace::preview_key;
 
 /// `POST /previews/runs`.
 #[derive(Debug, Deserialize)]
@@ -121,7 +121,7 @@ async fn ready_revision(
     workspace_id: Uuid,
     branch: &str,
 ) -> Result<Uuid, RunRequestError> {
-    let preview = oxy_app::surface::previews::store::find(db, workspace_id, branch)
+    let preview = oxy_previews::store::find(db, workspace_id, branch)
         .await?
         .ok_or_else(|| RunRequestError::PreviewNotFound(branch.to_string()))?;
     let staged = oxy_app::surface::previews::compile_request::status(

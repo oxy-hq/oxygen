@@ -12,8 +12,8 @@ use sea_orm::{
 use super::pass::{ClaimedSchema, drop_listed};
 use super::{DropPayload, DropReport};
 use crate::runs::TERMINAL_RUN_STATUSES;
-use oxy_app::surface::previews::ddl::SchemaDropper;
-use oxy_app::surface::previews::registry::refuse;
+use oxy_previews::ddl::SchemaDropper;
+use oxy_previews::registry::refuse;
 
 /// The rows this run still holds a claim on, locked until the transaction
 /// ends, in `schema_name` order (the registry's lock order).

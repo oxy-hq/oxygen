@@ -10,11 +10,13 @@ edition.workspace = true
 
 [dependencies]
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# previews' lower half (registry, DDL, namespace, sources, pin, the run queue),
-# the preview platform the runs execute on, the staff guard and the seam types.
+# preview platform the runs execute on, the staff guard and the seam types.
 # oxy-app never depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+# The previews' rows (registry, DDL, namespace, sources, pin, the run queue),
+# below oxy-app since 2026-11-22.
+oxy-previews = { workspace = true }
 oxy-app-core = { workspace = true }     # AppState, default_branch
 oxy = { workspace = true }
 oxy-auth = { workspace = true }

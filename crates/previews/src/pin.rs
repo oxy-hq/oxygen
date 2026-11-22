@@ -17,9 +17,7 @@
 //! still reads it. Any miss leaves the request exactly as it would have been
 //! without the header.
 
-use axum::body::Body;
-use axum::http::{HeaderMap, HeaderValue, Request};
-use axum::response::Response;
+use http::{HeaderMap, HeaderValue, Request, Response};
 use uuid::Uuid;
 
 /// Request header that marks a preview request: the revision to read.
@@ -45,7 +43,7 @@ impl PreviewPin {
 
     /// Mark `response` as served from this preview. The branch is
     /// percent-encoded when it is not a legal header value as it stands.
-    pub fn stamp(&self, response: &mut Response) {
+    pub fn stamp<B>(&self, response: &mut Response<B>) {
         let value = HeaderValue::from_str(&self.header_value()).or_else(|_| {
             let encoded = format!("{}@{}", urlencoding::encode(&self.branch), self.revision_id);
             HeaderValue::from_str(&encoded)
@@ -73,11 +71,11 @@ pub fn has_preview_header(headers: &HeaderMap) -> bool {
 ///
 /// Takes the request by value because the staff check reads (and memoizes into)
 /// its extensions; hands it back either way.
-pub async fn for_request(
+pub async fn for_request<B>(
     workspace_id: Uuid,
     query_branch: Option<&str>,
-    request: Request<Body>,
-) -> (Request<Body>, Option<PreviewPin>) {
+    request: Request<B>,
+) -> (Request<B>, Option<PreviewPin>) {
     let Some(revision_id) = requested_revision(request.headers()) else {
         return (request, None);
     };
@@ -168,7 +166,7 @@ mod tests {
             branch: "feat/x".into(),
             revision_id: Uuid::nil(),
         };
-        let mut resp = Response::new(Body::empty());
+        let mut resp = Response::new(());
         pin.stamp(&mut resp);
         assert_eq!(
             resp.headers().get(RESPONSE_HEADER).unwrap(),
@@ -182,7 +180,7 @@ mod tests {
             branch: "feat/\u{1}bell".into(),
             revision_id: Uuid::nil(),
         };
-        let mut resp = Response::new(Body::empty());
+        let mut resp = Response::new(());
         pin.stamp(&mut resp);
         assert_eq!(
             resp.headers().get(RESPONSE_HEADER).unwrap(),

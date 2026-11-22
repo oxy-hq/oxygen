@@ -237,7 +237,7 @@ async fn ensure_enqueued_is_idempotent_per_revision() {
     assert_eq!(row.revision_id, rev);
     assert_eq!(
         row.preview_key,
-        oxy_app::surface::previews::namespace::preview_key(ws, "feat/x")
+        oxy_previews::namespace::preview_key(ws, "feat/x")
     );
 
     // The winner seeded its run and queued its task, globally scoped, in the

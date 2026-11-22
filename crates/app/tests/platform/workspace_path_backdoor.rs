@@ -164,6 +164,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // maintenance}`), and the branch compile since 2026-11-22 (out of
         // `src/server/compile_request`).
         manifest.join("../compile-runtime/src"),
+        // Workspace previews' rows, `oxy-previews` since 2026-11-22 (out of
+        // `src/server/previews` and the custom-app preview settle).
+        manifest.join("../previews/src"),
         // The feature-flag runtime's domain half, `oxy-feature-flags` since
         // 2026-11-20 (out of `src/server/feature_flags`).
         manifest.join("../feature-flags/src"),

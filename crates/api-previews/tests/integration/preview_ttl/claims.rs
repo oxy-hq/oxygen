@@ -8,9 +8,9 @@ use std::sync::atomic::AtomicBool;
 use agentic_core::delegation::TaskOutcome;
 use airhouse::preview_sql::PreviewNamespace;
 use oxy_api_previews::maintenance::{self, MAX_DROP_ATTEMPTS};
-use oxy_app::surface::testing::previews::ddl::OpenSchemaDropper;
-use oxy_app::surface::testing::previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
-use oxy_app::surface::testing::previews::registry;
+use oxy_previews::ddl::OpenSchemaDropper;
+use oxy_previews::ddl_duckdb::{DuckDbDroppers, DuckDbPreviewDdl};
+use oxy_previews::registry;
 
 use super::doubles::Flaky;
 use super::fixture::{TTL, setup};

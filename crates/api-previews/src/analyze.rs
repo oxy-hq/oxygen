@@ -67,10 +67,8 @@ pub use changes::{Change, ChangedPipeline, changed_pipelines};
 /// sample counts a source's resources with it (`previews::sample`).
 pub(crate) use evaluate::offline_connector;
 pub use live::{AirhouseLiveTables, LiveTables};
-use oxy_app::surface::previews::queue::analyze as enqueue;
-pub use oxy_app::surface::previews::queue::analyze::{
-    enqueue_after_staging_compile, ensure_enqueued,
-};
+use oxy_previews::queue::analyze as enqueue;
+pub use oxy_previews::queue::analyze::{enqueue_after_staging_compile, ensure_enqueued};
 pub use report::{AnalyzeReport, FindingView, PipelineReport};
 pub use transforms::{Build, TransformReport, classify, database_types, detect};
 
@@ -79,7 +77,7 @@ use evaluate::{LiveRead, Prepared};
 
 use oxy_app::surface::previews::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
 
-pub use oxy_app::surface::previews::queue::analyze::PREVIEW_ANALYZE_KIND;
+pub use oxy_previews::queue::analyze::PREVIEW_ANALYZE_KIND;
 
 /// Check the staging revision `run` names against the workspace's promoted
 /// revision. `live` answers the live-column reads.

@@ -1,7 +1,7 @@
 //! `workspace_preview_schemas` — the registry of Airhouse schemas a workspace
 //! preview may create, `preview_<preview_key>__<live_schema>`, and when each
 //! expires. A row is written before its schema exists; the TTL sweeper drops
-//! only registered schemas. See `crates/app/src/server/previews/registry.rs`.
+//! only registered schemas. See `crates/previews/src/registry/mod.rs`.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

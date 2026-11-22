@@ -66,10 +66,10 @@ const BASE: &[&str] = &[
 /// is not base. Shrink-only. Each clears when its target moves (down, or out
 /// to its context's crate) or the base module stops needing it.
 const BACKLOG: &[(&str, &str)] = &[
-    // The workspace runtime reaches into contexts it serves. Previews: the
-    // request-scoped write hold and the preview DDL/registry the preview
-    // context builds on. Clears when previews leaves (or its hold goes down).
-    ("agentic_wiring", "server::previews"),
+    // (The workspace runtime's reach into previews, the preview DDL, registry,
+    // namespace, sources and statement classifier the preview context builds
+    // on, cleared on 2026-11-22: the rows went down to `oxy-previews`, and the
+    // sample run kind is now defined there, not read from here.)
     // The compile dispatcher builds the compile worker. (The project
     // context's reach into `api::semantic`, the compiled scan source, cleared
     // on 2026-11-16: the scan resolution moved down into
@@ -97,6 +97,8 @@ const BACKLOG: &[(&str, &str)] = &[
     // (The subscription guard's ask of billing, whether billing is switched
     // off, cleared on 2026-11-21: the gate moved down to `oxy_billing::gate`.)
     ("server::api::middlewares", "server::factory_access"),
+    // Previews: the read-only guard (`previews::read_only`). The pin went
+    // down to `oxy-previews` on 2026-11-22.
     ("server::api::middlewares", "server::previews"),
     // `IdeState` and `FleetState` are base types defined in the router's
     // `mod.rs`, which goes up last. They clear when the two move beside

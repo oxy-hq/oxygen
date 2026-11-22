@@ -5,7 +5,7 @@
 //! else's.
 
 use airhouse::preview_sql::{Prelude, RewriteOptions, ShadowMap, rewrite};
-use oxy_app::surface::testing::previews::registry;
+use oxy_previews::registry;
 use serde_json::json;
 
 use super::done_metadata;

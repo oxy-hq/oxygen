@@ -825,12 +825,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_PREVIEW_RUNS",
-        "crates/app/src/server/previews/queue/run.rs",
+        "crates/previews/src/queue/run.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_RUN_MAX_MINUTES",
-        "crates/app/src/server/previews/queue/ceiling.rs",
+        "crates/previews/src/queue/ceiling.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -840,7 +840,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_PREVIEW_SCHEMA_TTL_HOURS",
-        "crates/app/src/server/previews/registry/mod.rs",
+        "crates/previews/src/registry/mod.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

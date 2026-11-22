@@ -43,7 +43,7 @@ use uuid::Uuid;
 pub use claimed::drop_claimed;
 pub use pass::{ClaimedSchema, drop_listed};
 
-use oxy_app::surface::previews::ddl::OpenSchemaDropper;
+use oxy_previews::ddl::OpenSchemaDropper;
 
 /// The `TaskSpec::Custom` kind, and the drop run's `source_type`.
 pub const PREVIEW_SCHEMA_DROP_KIND: &str = "preview_schema_drop";
@@ -99,7 +99,7 @@ impl PreviewSchemaDropExecutor {
     pub fn airhouse(db: DatabaseConnection) -> Self {
         Self {
             db,
-            droppers: Arc::new(oxy_app::surface::previews::ddl_airhouse::AirhouseDroppers),
+            droppers: Arc::new(oxy_previews::ddl_airhouse::AirhouseDroppers),
         }
     }
 }

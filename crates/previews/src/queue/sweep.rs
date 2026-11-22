@@ -32,12 +32,12 @@ pub async fn mark_finished<C: ConnectionTrait>(db: &C) -> Result<Vec<Uuid>, DbEr
     let rows = db
         .query_all_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
         .await?;
-    let ttl = crate::server::previews::registry::schema_ttl();
+    let ttl = crate::registry::schema_ttl();
     let mut workspaces = Vec::with_capacity(rows.len());
     for row in &rows {
         let workspace_id: Uuid = row.try_get("", "workspace_id")?;
         let key: String = row.try_get("", "preview_key")?;
-        crate::server::previews::registry::touch_key(db, workspace_id, &key, ttl).await?;
+        crate::registry::touch_key(db, workspace_id, &key, ttl).await?;
         workspaces.push(workspace_id);
     }
     Ok(workspaces)
@@ -59,10 +59,7 @@ pub async fn sweep(db: &DatabaseConnection) {
     }
     // A custom app's automation run that ran as a preview: its poll row reads
     // the outcome now that the run is finished.
-    if let Err(e) =
-        crate::server::api::projects::automation_run::preview_settle::settle_custom_app_runs(db)
-            .await
-    {
+    if let Err(e) = super::preview_settle::settle_custom_app_runs(db).await {
         tracing::warn!(target: "preview", error = %e, "could not settle custom-app preview runs");
     }
     // A transform build that just finished gets its compare this tick.

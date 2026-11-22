@@ -1,6 +1,6 @@
 //! `workspace_previews` — which branches Oxy staff are previewing. A preview's
 //! compile state lives on its staging revision in `revisions`; this row is only
-//! the registration. See `crates/app/src/server/previews/mod.rs`.
+//! the registration. See `crates/app/src/server/previews/mod.rs` (the rows: `crates/previews/`).
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

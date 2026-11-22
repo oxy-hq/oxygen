@@ -263,7 +263,10 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
     let mut files = Vec::new();
     src_files(&app_src, &mut files);
     assert!(
-        files.len() > 200,
+        // A walk-sanity floor, not a policy count: the decompose shrinks
+        // `crates/app/src` on purpose (195 files after P1, 2026-11-22), so it
+        // sits well below today's count and still catches a broken walk.
+        files.len() > 100,
         "the walk found only {} files under crates/app/src — it lost its way",
         files.len()
     );

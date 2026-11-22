@@ -5,27 +5,29 @@
 //! ([`analyze::enqueue_after_staging_compile`], from the compile worker) and
 //! seeding an Airway sample's run ([`sample_seed`], from the queue step), and
 //! the per-pass [`sweep`] the global driver runs (with its [`ceiling`] and the
-//! compares it queues, [`compare`]).
+//! compares it queues, [`compare`], and the custom-app preview runs it settles,
+//! [`preview_settle`]).
 //!
 //! Rows only, over the registry's own tables: nothing here runs a check, a
 //! sample or a procedure. Its callers outside previews are the compile worker,
-//! the custom-app automation run's preview mode and its settle, so it stays in
-//! `oxy-app` with the registry, the DDL and the pin when the rest of previews
-//! (the handlers, the executors, maintenance) moves to its own surface crate.
+//! the custom-app automation run's preview mode and its settle, so it lives in
+//! `oxy-previews` with the registry, the DDL and the pin, below the previews
+//! surface (`oxy-api-previews`: the handlers, the executors, maintenance).
 //! Nothing here may name those: `queue_names_no_upper_module` holds it.
 
 pub mod analyze;
 pub mod ceiling;
 pub mod compare;
 pub mod lifecycle;
+pub mod preview_settle;
 pub mod run;
 pub mod sample_seed;
 pub mod sweep;
 
 #[cfg(test)]
 mod tests {
-    /// The modules that leave `oxy-app` with the previews surface. A file here
-    /// naming one would pull it back below, or break when it goes.
+    /// The modules of the previews surface (`oxy-api-previews`), above this
+    /// crate. A file here naming one would pull it back below.
     const UPPER: &[&str] = &[
         "previews::analyze::",
         "previews::compare",
@@ -43,8 +45,7 @@ mod tests {
 
     #[test]
     fn queue_names_no_upper_module() {
-        let dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/server/previews/queue");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/queue");
         let mut scanned = 0;
         for entry in std::fs::read_dir(&dir).expect("queue dir") {
             let path = entry.expect("entry").path();
@@ -61,8 +62,8 @@ mod tests {
                 for upper in UPPER {
                     assert!(
                         !code.contains(upper),
-                        "{}:{} names `{upper}`, which leaves `oxy-app` with the previews \
-                         surface; the queue must not depend on it",
+                        "{}:{} names `{upper}`, which is the previews surface's \
+                         (`oxy-api-previews`); the queue must not depend on it",
                         path.display(),
                         n + 1
                     );

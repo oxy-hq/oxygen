@@ -585,6 +585,13 @@ fn server_sources() -> Vec<(String, String)> {
     // the walk above). Not on the data plane (Postgres, GitHub and the compile
     // queue); walked so a gate call added there is seen.
     rust_files(&crate_root.join("../compile-runtime/src"), &mut files);
+    // Workspace previews' rows, `oxy-previews`' since 2026-11-22 (was
+    // `src/server/previews/{ddl*,namespace,pin,registry,sources*,store,
+    // queue}` and `src/server/api/projects/automation_run/preview_settle.rs`,
+    // inside the walk above). Not on the data plane (the registry's own
+    // tables and the preview's Airhouse schemas); walked so a gate call
+    // added there is seen.
+    rust_files(&crate_root.join("../previews/src"), &mut files);
     files.sort();
     files
         .into_iter()

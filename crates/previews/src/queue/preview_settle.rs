@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use oxy_custom_apps::automation_run::{automation_error_to_code, settle};
 
-use crate::server::previews::queue::lifecycle::TERMINAL_RUN_STATUSES;
+use super::lifecycle::TERMINAL_RUN_STATUSES;
 
 /// Close every open poll row whose preview run has finished, from its
 /// `agentic_runs` row: `done` with the steps' results as outputs, `failed`

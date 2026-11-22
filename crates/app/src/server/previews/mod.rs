@@ -69,26 +69,25 @@
 //!
 //! **Where it lives.** Since 2026-11-14 this module is the lower half: what the
 //! workspace runtime, the middleware and the compile worker below the previews
-//! surface read (the registry and DDL, the namespace, the sources, the pin and
-//! read-only guard, the run platform, and the run queue in `queue`, including
-//! the per-pass runs' sweep the global driver calls inline). The upper half —
-//! the `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
+//! surface read. Since 2026-11-22 (the decompose's P1) its rows — the registry
+//! and DDL, the namespace, the sources, the pin and the run queue in `queue`,
+//! including the per-pass runs' sweep the global driver calls inline — are the
+//! `oxy-previews` crate, re-exported here at their old paths. What is still
+//! here: the read-only guard ([`read_only`]), the run platform ([`runtime`])
+//! and the DuckDB double ([`airhouse_duckdb`]), which go down with the route
+//! matcher and the preview platform. The upper half — the
+//! `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
 //! `checks`, `compare`, `sample`, `drop`, `runs` and `maintenance` — is
 //! `oxy-api-previews`, mounted through `SurfaceSeams::previews`, `tasks` and
-//! `background`; it reaches this half through `oxy_app::surface::previews`.
+//! `background`; it reads the rows from `oxy_previews` and the rest through
+//! `oxy_app::surface::previews`.
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
 pub mod airhouse_duckdb;
-pub mod ddl;
-pub mod ddl_airhouse;
-pub mod ddl_duckdb;
-pub mod namespace;
-pub mod pin;
-pub mod queue;
 pub mod read_only;
-pub mod registry;
 pub mod runtime;
-pub mod sources;
-pub mod sql_kind;
-pub mod store;
+
+pub use oxy_previews::{
+    ddl, ddl_airhouse, ddl_duckdb, namespace, pin, queue, registry, sources, sql_kind, store,
+};

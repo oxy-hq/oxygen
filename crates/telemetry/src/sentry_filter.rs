@@ -145,7 +145,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// execute nothing, so they are not listed; `oxy::database` is Oxy's own
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
-const DATA_PLANE_MODULE_PREFIXES: [&str; 8] = [
+const DATA_PLANE_MODULE_PREFIXES: [&str; 9] = [
     // The automation run's row state machine (`settle`), which stayed when its
     // handlers left, and the semantic boundary the twins enter by. (`/query`,
     // `/semantic-query` and the metric tree's twins moved to
@@ -158,8 +158,15 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 8] = [
     // `oxy_app::server::api::projects::automation_run` (2026-11-22). Its path
     // carries the `custom_apps` marker only because of its crate, so it is
     // also in [`CUSTOM_APPS_MARKER_EXEMPT`]: shaped, as it was there, not
-    // dropped. The preview settle stayed under the `projects` prefix above.
+    // dropped.
     "oxy_custom_apps::automation_run",
+    // The automation run's preview settle, down from
+    // `oxy_app::server::api::projects::automation_run::preview_settle` into
+    // the previews rows (2026-11-22). It settles the run through the state
+    // machine above, so a line can quote the same failure text: shaped, as it
+    // was under the `projects` prefix. The module only, not the rest of
+    // `oxy_previews::queue`, which never was.
+    "oxy_previews::queue::preview_settle",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
     "oxy_api_world_model::customer_app",
@@ -624,7 +631,10 @@ mod tests {
     /// breadcrumb at `warn`, not dropped from Sentry Logs, and shaped there as
     /// data plane — at the old path and the new one. The exemption is a path
     /// segment: a sibling that shares the name, the surface's own
-    /// `automation_run` and every other module of the crate stay dropped.
+    /// `automation_run` and every other module of the crate stay dropped. Its
+    /// preview settle kept the same class when it went down the same day to
+    /// `oxy_previews::queue::preview_settle`; its queue siblings stay kept and
+    /// unshaped.
     #[test]
     fn the_automation_run_row_keeps_its_sentry_class_after_the_move() {
         for module in [
@@ -633,6 +643,8 @@ mod tests {
             "oxy_app::server::api::projects::automation_run::preview_settle",
             "oxy_custom_apps::automation_run",
             "oxy_custom_apps::automation_run::settle",
+            // The preview settle at its new path (2026-11-22).
+            "oxy_previews::queue::preview_settle",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),
@@ -659,6 +671,17 @@ mod tests {
                 "{module}"
             );
             assert!(drop_log(Some(module)), "{module}");
+        }
+        // The preview settle's shaping is the one module, not its siblings
+        // in the previews queue, which were never the data plane.
+        for module in [
+            "oxy_previews::queue",
+            "oxy_previews::queue::sweep",
+            "oxy_previews::queue::lifecycle",
+            "oxy_previews::queue::preview_settle_x",
+        ] {
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
         }
     }
 
@@ -1174,6 +1197,30 @@ mod tests {
             "oxy_compile_runtime::reconcile::lazy_compile_throttle",
             "oxy_compile_runtime::reconcile::push",
             "oxy_compile_runtime::reconcile::state",
+            // Workspace previews' rows, down from `oxy-app`'s
+            // `server::previews` into `oxy-previews` (2026-11-22): the
+            // registry's own tables and a preview's Airhouse schemas, kept
+            // and not the data plane, classified as they were there. (The
+            // custom-app preview settle that moved with them stays data-plane
+            // shaped: `the_automation_run_row_keeps_its_sentry_class_after_the_move`.)
+            "oxy_previews::ddl",
+            "oxy_previews::ddl_airhouse",
+            "oxy_previews::ddl_duckdb",
+            "oxy_previews::namespace",
+            "oxy_previews::pin",
+            "oxy_previews::registry",
+            "oxy_previews::store",
+            "oxy_previews::sources",
+            "oxy_previews::sources::guard",
+            "oxy_previews::sql_kind",
+            "oxy_previews::queue",
+            "oxy_previews::queue::analyze",
+            "oxy_previews::queue::ceiling",
+            "oxy_previews::queue::compare",
+            "oxy_previews::queue::lifecycle",
+            "oxy_previews::queue::run",
+            "oxy_previews::queue::sample_seed",
+            "oxy_previews::queue::sweep",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
             // answer down from `api::data` into the workspace runtime. Kept,
@@ -1520,14 +1567,16 @@ mod tests {
     fn data_plane_modules_are_matched_a_segment_at_a_time() {
         for module in [
             "oxy_app::server::api::projects",
-            // The automation run's preview settle, which stayed in `oxy-app`,
-            // and the old path of the row state machine.
+            // The automation run's preview settle's old path, and the old
+            // path of the row state machine.
             "oxy_app::server::api::projects::automation_run",
             "oxy_app::server::api::projects::automation_run::preview_settle",
             "oxy_app::server::api::projects::automation_run::settle",
             // The row state machine at its new path (2026-11-22).
             "oxy_custom_apps::automation_run",
             "oxy_custom_apps::automation_run::settle",
+            // The preview settle at its new path (2026-11-22).
+            "oxy_previews::queue::preview_settle",
             "oxy_api_world_model::customer_app::cohort",
             "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",
@@ -1705,6 +1754,30 @@ mod tests {
             "oxy_compile_runtime::reconcile::lazy_compile_throttle",
             "oxy_compile_runtime::reconcile::push",
             "oxy_compile_runtime::reconcile::state",
+            // Workspace previews' rows, down from `oxy-app`'s
+            // `server::previews` into `oxy-previews` (2026-11-22): the
+            // registry's own tables and a preview's Airhouse schemas, kept
+            // and not the data plane, classified as they were there. (The
+            // custom-app preview settle that moved with them stays data-plane
+            // shaped: `the_automation_run_row_keeps_its_sentry_class_after_the_move`.)
+            "oxy_previews::ddl",
+            "oxy_previews::ddl_airhouse",
+            "oxy_previews::ddl_duckdb",
+            "oxy_previews::namespace",
+            "oxy_previews::pin",
+            "oxy_previews::registry",
+            "oxy_previews::store",
+            "oxy_previews::sources",
+            "oxy_previews::sources::guard",
+            "oxy_previews::sql_kind",
+            "oxy_previews::queue",
+            "oxy_previews::queue::analyze",
+            "oxy_previews::queue::ceiling",
+            "oxy_previews::queue::compare",
+            "oxy_previews::queue::lifecycle",
+            "oxy_previews::queue::run",
+            "oxy_previews::queue::sample_seed",
+            "oxy_previews::queue::sweep",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data
             // plane, as `api::{semantic, semantic_scan, data, preagg}` were

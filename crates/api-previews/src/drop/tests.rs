@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use airhouse::preview_sql::PreviewNamespace;
 
 use super::*;
-use oxy_app::surface::previews::ddl::{PreviewDdlError, Relation, SchemaDropper};
-use oxy_app::surface::previews::ddl_duckdb::DuckDbPreviewDdl;
+use oxy_previews::ddl::{PreviewDdlError, Relation, SchemaDropper};
+use oxy_previews::ddl_duckdb::DuckDbPreviewDdl;
 
 const KEY: &str = "feat_je_v2_92a1b7";
 const OTHER_KEY: &str = "feat_je_v3_000000";

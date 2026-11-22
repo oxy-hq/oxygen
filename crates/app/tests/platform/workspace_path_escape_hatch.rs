@@ -116,6 +116,10 @@ fn server_files() -> Vec<(String, String)> {
     // `src/server/compile_{git,oltp,config_gate,maintenance}`; the compile
     // worker and the workspace middleware run them in this binary.
     walk(&manifest.join("../compile-runtime/src"), &mut out);
+    // Workspace previews' rows (2026-11-22), out of `src/server/previews` and
+    // the custom-app preview settle; the middleware, the compile worker and
+    // the global driver's sweep run them in this binary.
+    walk(&manifest.join("../previews/src"), &mut out);
     // The feature-flag runtime's domain half (2026-11-20), out of
     // `src/server/feature_flags`; every process here loads and reads it.
     walk(&manifest.join("../feature-flags/src"), &mut out);

@@ -134,9 +134,11 @@ AREAS = [
     # them with the cameras owners, so the area follows. Before its parent.
     ("crates/api-world-model/src/video.rs",               "Cameras / edge / video"),
     ("crates/api-world-model",                            "World Model (backend)"),
-    # Workspace previews: the lower half stays in oxy-app, the upper half moved
-    # into crates/api-previews 2026-11-14.
+    # Workspace previews: the upper half moved into crates/api-previews
+    # 2026-11-14, the rows into crates/previews 2026-11-22; the rest of the
+    # lower half stays in oxy-app (crates/app/src/server/previews, below).
     ("crates/api-previews",                               "Workspace previews"),
+    ("crates/previews",                                   "Workspace previews"),
     # The feature-flag routes, 2026-11-21, out of
     # crates/app/src/server/feature_flags/routes.rs: still "Feature flags",
     # listed before the crate so it wins.
