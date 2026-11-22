@@ -833,7 +833,7 @@ fn the_admin_scope_fence_refuses_rather_than_allowing() {
 /// one uuid at a time — the guard would fence the data and leak the index.
 #[test]
 fn out_of_scope_reads_are_not_found_rather_than_forbidden() {
-    let guard = read("crates/app/src/server/api/middlewares/app_scope_guard.rs");
+    let guard = read("crates/app-core/src/guards/app_scope_guard.rs");
     assert!(
         guard.contains("StatusCode::NOT_FOUND"),
         "`app_scope_guard` no longer answers out-of-scope requests with 404"
@@ -863,7 +863,7 @@ fn out_of_scope_reads_are_not_found_rather_than_forbidden() {
 /// exact count too: adding one fails loudly and points at the list to update.
 #[test]
 fn every_failure_arm_in_the_scope_guard_refuses() {
-    let guard = read("crates/app/src/server/api/middlewares/app_scope_guard.rs");
+    let guard = read("crates/app-core/src/guards/app_scope_guard.rs");
 
     let refusals = guard.matches("StatusCode::INTERNAL_SERVER_ERROR").count();
     assert!(

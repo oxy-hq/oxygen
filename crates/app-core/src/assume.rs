@@ -8,7 +8,7 @@
 //! carries the design: why assume-role exists, why it names an org and never a user,
 //! and what it deliberately does not change.
 //!
-//! What stays here is what `oxy-app` itself, and the surfaces below the routes, still
+//! What stays below the routes is what `oxy-app` itself, and the surfaces, still
 //! call, and a surface above `oxy-app` cannot be called from it:
 //!
 //! * [`block_admin_while_acting`] — `admin::router` and the sibling nests
@@ -21,10 +21,11 @@
 //! * session liveness, re-exported from `oxy-server-authz` (`assume_liveness`), so
 //!   callers keep resolving `assume::…` unchanged.
 //!
-//! It stays in `oxy-app`'s base (`base_boundary`'s `BASE`), not in
+//! It went down from `oxy-app`'s `server::api::admin::assume` (the base) on
+//! 2026-11-22 (decompose G2), and `oxy-app` re-exports it at that path. It is not in
 //! `oxy-server-authz` with the liveness queries: the middleware opens its own
 //! database connection (`oxy`'s client), which `oxy-server-authz` does not depend
-//! on, and it leaves with the rest of the base.
+//! on.
 
 use axum::http::StatusCode;
 use oxy::database::client::establish_connection;
@@ -59,10 +60,10 @@ pub use oxy_server_authz::assume_liveness::{
 /// carries: an API token without `platform` is not staff here, and one without
 /// `partner` operates no partner.
 ///
-/// [`Caller`]: crate::server::authz::Caller
+/// [`Caller`]: oxy_server_authz::Caller
 pub async fn may_act_as(
     db: &DatabaseConnection,
-    caller: &crate::server::authz::Caller,
+    caller: &oxy_server_authz::Caller,
     org_id: Uuid,
 ) -> Option<ActingAs> {
     // Staff acting as a tenant synthesize **Owner** in that org, so this door demands the
@@ -75,7 +76,7 @@ pub async fn may_act_as(
     // is the app data plane (`Ring::AppAccess` via `develop_apps`), which needs no
     // impersonation at all. A Global Admin holds `ManageOrgSettings` at `Scope::All`, so
     // nothing changes for them.
-    if crate::server::authz::globals::platform_reaches(
+    if oxy_server_authz::globals::platform_reaches(
         db,
         caller,
         oxy_authz::Cap::ManageOrgSettings,
@@ -87,9 +88,7 @@ pub async fn may_act_as(
     }
 
     // A partner acting as one of its clients.
-    use crate::server::api::middlewares::partner_authz::{
-        PartnerCapability, partner_for_org, resolve_scope,
-    };
+    use crate::guards::partner_authz::{PartnerCapability, partner_for_org, resolve_scope};
     let partner_org_id = partner_for_org(db, org_id).await?;
     let scope = resolve_scope(db, partner_org_id, caller).await?;
     if !scope.allows(PartnerCapability::DevelopApps) {
@@ -149,7 +148,7 @@ pub async fn block_admin_while_acting(
         // Can't tell ⇒ don't invent a lockout. Admin routes have their own guards.
         return Ok(next.run(request).await);
     };
-    let caller = crate::server::authz::Caller::from_user(&actor);
+    let caller = oxy_server_authz::Caller::from_user(&actor);
     if !live_sessions_for(&db, &caller).await.is_empty() {
         tracing::info!(
             actor = %actor.label(),

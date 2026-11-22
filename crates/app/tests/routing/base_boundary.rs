@@ -43,9 +43,10 @@ const BASE: &[&str] = &[
     "server::ide_proxy",
     "server::servability",
     "server::router::role_router",
-    // Assume-role sessions. (Staff scope, `admin::{scope, org_filter}`, went
-    // down to `oxy-server-authz`'s `staff` in the admin split's PR 3.)
-    "server::api::admin::assume",
+    // (Assume-role's authority, `server::api::admin::assume`, went down into
+    // `oxy-app-core::assume` on 2026-11-22 with the request guards, decompose
+    // G2. Staff scope, `admin::{scope, org_filter}`, went down to
+    // `oxy-server-authz`'s `staff` in the admin split's PR 3.)
     // The seam types surfaces fill, and the router's semantic caches.
     "server::router::seams",
     "server::router::workspace_cache",

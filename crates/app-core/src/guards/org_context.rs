@@ -181,7 +181,7 @@ async fn assumed_membership(
     caller: &Caller,
     org_id: Uuid,
 ) -> Result<entity::org_members::Model, StatusCode> {
-    use crate::server::api::admin::assume;
+    use crate::assume;
     // Both reads take the CALLER: a session belongs to the credential that
     // opened it, and standing is what that credential carries.
     let live = assume::is_session_live(db, caller, org_id).await;

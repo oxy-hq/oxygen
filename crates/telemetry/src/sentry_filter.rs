@@ -807,6 +807,37 @@ mod tests {
         }
     }
 
+    /// The request guards and assume-role's authority went down on 2026-11-22,
+    /// out of `oxy_app::server::api::{middlewares, admin::assume}` into
+    /// `oxy_app_core::{guards, assume}` (the decompose's G2). They were platform
+    /// code there, kept and not the data plane (no rule named them), and are
+    /// pinned so here: a guard that cannot read the database or an org's billing
+    /// row is real signal. (`app_scope_guard`'s refusals log under the explicit
+    /// `authz` target, which the move does not change.)
+    #[test]
+    fn the_request_guards_keep_their_sentry_lines_after_the_move() {
+        for module in [
+            "oxy_app_core::guards",
+            "oxy_app_core::guards::org_context",
+            "oxy_app_core::guards::subscription_guard",
+            "oxy_app_core::guards::app_scope_guard",
+            "oxy_app_core::assume",
+            // The old paths, as they classified on main.
+            "oxy_app::server::api::middlewares::org_context",
+            "oxy_app::server::api::middlewares::subscription_guard",
+            "oxy_app::server::api::middlewares::app_scope_guard",
+            "oxy_app::server::api::admin::assume",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]

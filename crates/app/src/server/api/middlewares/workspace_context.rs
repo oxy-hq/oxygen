@@ -913,7 +913,7 @@ pub async fn resolve_effective_role(
             // an assigned client with `develop_apps`. Building a client's app means
             // opening their workspace, so this is exactly where the data-plane
             // capability has to be honoured.
-            use crate::server::api::admin::assume;
+            use oxy_app_core::assume;
             // Capability is independent of an active session — `may_act_as` reads
             // platform standing / partner scope only. Compute it FIRST so the
             // refusal can be shaped for the population that can actually act on

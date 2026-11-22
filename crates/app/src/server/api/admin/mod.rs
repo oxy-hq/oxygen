@@ -11,7 +11,9 @@
 // `app_admins` (`/app-admins*`, the grant table) is `oxy-api-admin`'s since
 // the admin split (2026-11-20): a section behind `PlatformGrants`,
 // arriving through `extracted`.
-pub mod assume;
+/// Assume-role's authority, down in `oxy-app-core::assume` since decompose G2
+/// (2026-11-22); re-exported at its old path.
+pub use oxy_app_core::assume;
 // `audit` (`/audit*`, the platform audit log) is `oxy-api-admin`'s since
 // the admin split's audit move (2026-11-20): a section behind
 // `PlatformAudit`, arriving through `extracted`.

@@ -10694,6 +10694,7 @@ dependencies = [
  "oxy-airlayer-compat",
  "oxy-auth",
  "oxy-authz",
+ "oxy-billing",
  "oxy-compile",
  "oxy-git",
  "oxy-observability",

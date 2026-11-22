@@ -41,7 +41,7 @@ use oxy_auth::types::AuthenticatedUser;
 use sea_orm::EntityTrait;
 use uuid::Uuid;
 
-use crate::server::authz::globals;
+use oxy_server_authz::globals;
 
 /// Enforce the caller's grant scope on whatever app `{id}` names.
 ///
@@ -113,7 +113,7 @@ pub async fn enforce_app_scope(request: Request<Body>, next: Next) -> Result<Res
 
     if !globals::platform_reaches(
         &db,
-        &crate::server::authz::Caller::of_request(request.extensions(), &user),
+        &oxy_server_authz::Caller::of_request(request.extensions(), &user),
         oxy_authz::Cap::ManageApps,
         app.org_id,
     )

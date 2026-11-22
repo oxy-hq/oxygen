@@ -13,6 +13,11 @@
 //! When Stripe isn't configured (local mode, or cloud mode missing the env
 //! vars) the middleware short-circuits to `Ok` so non-cloud deployments
 //! continue to work.
+//!
+//! Refusal plumbing, not the billing decision: whether billing is switched off
+//! (`oxy_billing::billing_disabled`) and whether a status grants access
+//! (`oxy_billing::state`) are `oxy-billing`'s. This module only turns that answer
+//! into the 402 every org- and workspace-scoped surface returns.
 
 use axum::Json;
 use axum::http::StatusCode;

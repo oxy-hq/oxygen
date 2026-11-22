@@ -111,7 +111,8 @@ crates/api-previews/                               @luong-komorebi @hotay
 # with the task fleet's console (internal jobs); audit, app admins,
 # assume-role and (2026-11-21) the routing manifest followed it out of
 # crates/app/src/server/api/admin/, which keeps only the console shell
-# (mod.rs) and assume-role's authority (assume.rs).
+# (mod.rs); assume-role's authority went down to crates/app-core/src/assume.rs
+# on 2026-11-22.
 crates/api-admin/                                  @hotay @luong-komorebi
 # Billing's surface crate (`oxy-api-billing`), 2026-11-20 (admin split PR 8b):
 # the usage report's routes, delivery and weekly job out of

@@ -20,6 +20,9 @@ oxy-shared = { workspace = true }
 oxy-authz = { workspace = true }
 # `session`: the login payload's `Caller` and the platform-standing flag door.
 oxy-server-authz = { workspace = true }
+# `guards::subscription_guard`: the paywall asks billing whether it is switched off
+# and whether a status grants access; the decision is billing's.
+oxy-billing = { workspace = true }
 oxy-telemetry = { workspace = true }
 entity = { workspace = true }
 
