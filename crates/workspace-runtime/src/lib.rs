@@ -66,7 +66,15 @@
 //! - [`workspace_cache`]: `WorkspaceContextCache`, the recovery path's TTL
 //!   cache of built contexts.
 //!
-//! The rest of `agentic_wiring` (the preview context) follows in later PRs.
+//! Then, on 2026-11-22 (W5), the preview platform, the last of
+//! `agentic_wiring` (`oxy-app` re-exports each at its old path:
+//! `agentic_wiring::preview_ctx`, `server::previews::runtime`):
+//!
+//! - [`preview_ctx`]: `PreviewPlatformContext`, the `PlatformContext` a
+//!   workspace preview's procedure dry run and Airway sample run on (reads at
+//!   the staging revision, writes held or confined to the preview's schemas).
+//! - [`preview_runtime`]: `PreviewRunResolver`, the global-run driver's
+//!   `RunPlatformResolver` that hands a preview-owned root that platform.
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
@@ -81,12 +89,16 @@ pub mod metric_tree_runner;
 pub mod preagg_executor;
 pub mod preagg_workspace;
 pub mod preview_airhouse;
+pub mod preview_ctx;
+pub mod preview_runtime;
 pub mod project_ctx;
 pub mod runtime_artifact;
 pub mod scan_source;
 pub mod sql_exec;
 pub mod sql_http;
 pub mod string_literal;
+#[cfg(test)]
+mod test_support;
 pub mod thread_owner;
 pub mod typed_stream;
 pub mod workspace_cache;

@@ -70,6 +70,11 @@ mod sentry_filter_w2_pins_tests;
 #[cfg(test)]
 mod sentry_filter_w4_pins_tests;
 
+// Sentry pins for decompose W5's moves (the preview platform and its run
+// resolver), kept out of the over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_w5_pins_tests;
+
 /// Framework crates whose `info`/`debug` output is wire-level chatter, not
 /// something an operator acts on: HTTP frames, raw SQL, TLS handshakes. Both
 /// the stderr layers and the OTLP layers append this to whatever level the

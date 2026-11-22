@@ -5,10 +5,13 @@
 //! because `OxyProjectContext`, then still in `oxy-app`, called them and wraps
 //! the result in the hold itself. W4 moved it down beside them, so they are
 //! `pub(crate)` again and the compiler keeps every other crate out. This scan
-//! still pins them inside this crate: the rest of the agentic wiring (the
-//! preview runtime) is moving in too, and a module here could otherwise hand a
-//! workspace-preview request a connector that writes. It fails if any file
-//! outside the two allowed places names one.
+//! still pins them inside this crate: the preview platform (`preview_ctx`,
+//! `preview_runtime`) moved in beside them in W5 (2026-11-22), and a module
+//! here could otherwise hand a workspace-preview request a connector that
+//! writes. The preview platform names none of them: it takes its connectors
+//! from the project context and wraps each in its own hold, so it is not
+//! allowed here. It
+//! fails if any file outside the two allowed places names one.
 
 use std::path::{Path, PathBuf};
 

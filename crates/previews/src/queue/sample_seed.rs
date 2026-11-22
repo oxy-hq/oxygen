@@ -12,7 +12,7 @@ use agentic_pipeline::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
 
 /// The `workspace_preview_runs.kind` of a sample. Defined here, beside the
 /// queue that seeds the run; the preview platform a sample runs on
-/// (`agentic_wiring::preview_ctx::SAMPLE_KIND`) names this one.
+/// (`oxy_workspace_runtime::preview_ctx::SAMPLE_KIND`) names this one.
 pub const RUN_KIND: &str = "airway_sample";
 
 /// The run `runs::advance` just started.

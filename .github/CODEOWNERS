@@ -181,7 +181,8 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # (agentic_wiring/preview_airhouse) and its DuckDB double
 # (server/previews/airhouse_duckdb.rs); then (W4, the same day) project_ctx,
 # compile_dispatcher, server/preagg_executor.rs and the WorkspaceContextCache
-# out of server/router/workspace_cache.rs.
+# out of server/router/workspace_cache.rs; then (W5, the same day) the last of
+# the wiring, agentic_wiring/preview_ctx, and server/previews/runtime.rs.
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay

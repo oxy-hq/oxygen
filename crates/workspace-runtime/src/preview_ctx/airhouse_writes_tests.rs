@@ -75,7 +75,7 @@ fn read_live_only_comes_from_the_run_options() {
 /// listing said.
 #[tokio::test]
 async fn a_batch_that_failed_before_its_copy_is_copied_again_strictly_on_retry() {
-    use crate::server::test_support::{SKIP_MSG, test_db};
+    use crate::test_support::{SKIP_MSG, test_db};
     let Some(db) = test_db().await else {
         eprintln!("{SKIP_MSG}");
         return;
@@ -84,7 +84,7 @@ async fn a_batch_that_failed_before_its_copy_is_copied_again_strictly_on_retry()
         seed_workspace(&db).await,
         Arc::new(std::sync::Mutex::new(lake())),
     );
-    let ports = crate::server::previews::airhouse_duckdb::DuckDbAirhouse::new(lake.clone())
+    let ports = crate::airhouse_duckdb::DuckDbAirhouse::new(lake.clone())
         .unwrap()
         .with_failing_writes(1)
         .shared();

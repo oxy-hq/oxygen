@@ -13,12 +13,12 @@ use serde_json::json;
 
 use super::fixture::{clickhouse_and_airhouse, row, seed_revision, seed_workspace};
 use super::*;
-use crate::agentic_wiring::preview_airhouse::{
+use crate::airhouse_duckdb::DuckDbAirhouse;
+use crate::preview_airhouse::{
     PipelineWriter, PreviewAirhouseBackend, PreviewAirhousePorts, Writers,
 };
-use crate::server::previews::airhouse_duckdb::DuckDbAirhouse;
-use crate::server::previews::ddl::SchemaCreator;
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::test_support::{SKIP_MSG, test_db};
+use oxy_previews::ddl::SchemaCreator;
 
 const KEY: &str = "feat_x_abc123";
 pub(super) const DSN: &str = "postgresql://preview-writer:pw@airhouse.test:5445/tenant";

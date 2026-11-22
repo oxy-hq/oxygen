@@ -21,8 +21,8 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use super::airhouse_writes::PreviewAirhouse;
 use super::workspace::AIRHOUSE_TOO_OLD;
-use crate::agentic_wiring::preview_airhouse::PipelineWriter;
-use crate::server::previews::registry::{self, RegistryError};
+use crate::preview_airhouse::PipelineWriter;
+use oxy_previews::registry::{self, RegistryError};
 
 impl PreviewAirhouse {
     /// An Airway sample's destination for `dataset` (module doc). `Err` says

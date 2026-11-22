@@ -169,7 +169,7 @@ pub(super) async fn offline_ctx(withheld: HashSet<String>) -> PreviewPlatformCon
         airway_steps: AirwayStepMode::Hold,
     };
     PreviewPlatformContext::from_parts(
-        crate::agentic_wiring::OxyProjectContext::new(manager),
+        crate::project_ctx::OxyProjectContext::new(manager),
         scope,
         withheld,
     )

@@ -24,13 +24,13 @@
 //! - [`sql_kind`]: `oxy_app_core::sql_kind`, re-exported at its old path.
 //!
 //! It is its own crate because the preview platform (`agentic_wiring::
-//! preview_ctx`, on its way to `oxy-workspace-runtime`) and these rows named
+//! preview_ctx`, `oxy-workspace-runtime`'s since W5) and these rows named
 //! each other: the platform builds on the registry and the DDL, and the queue
 //! named the platform's sample kind (inverted: [`queue::sample_seed::RUN_KIND`]).
 //! What stays in `oxy-app` for now: `read_only`'s axum adapter (with the
-//! workspace middleware) and `runtime` (with the preview platform);
-//! `airhouse_duckdb` went to `oxy-workspace-runtime` with the preview
-//! connector: `internal-docs/domain-boundaries.md`, End state.
+//! workspace middleware); `airhouse_duckdb` went to `oxy-workspace-runtime`
+//! with the preview connector, and `runtime` with the preview platform (as
+//! `preview_runtime`): `internal-docs/domain-boundaries.md`, End state.
 
 pub mod ddl;
 pub mod ddl_airhouse;

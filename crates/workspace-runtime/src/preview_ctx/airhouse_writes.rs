@@ -62,9 +62,9 @@ use super::airhouse_batches::{Batches, Planned};
 use super::airhouse_copies::{copy_plans, missing_copies};
 
 type Live = (String, String);
-use crate::agentic_wiring::preview_airhouse::{PreviewAirhousePorts, Writers, connector_on};
-use crate::server::previews::ddl::SchemaCreator;
-use crate::server::previews::registry::{self, RegistryError};
+use crate::preview_airhouse::{PreviewAirhousePorts, Writers, connector_on};
+use oxy_previews::ddl::SchemaCreator;
+use oxy_previews::registry::{self, RegistryError};
 
 /// What the review of an Airhouse step decided.
 #[derive(Debug)]
@@ -102,7 +102,7 @@ impl PreviewAirhouse {
         row: &entity::workspace_preview_runs::Model,
         ports: Arc<dyn PreviewAirhousePorts>,
     ) -> Result<Self, PreviewError> {
-        let ns = crate::server::previews::namespace::for_preview(row)
+        let ns = oxy_previews::namespace::for_preview(row)
             .map_err(|e| PreviewError::Unusable(format!("preview key: {e}")))?;
         let shadow = registry::load_shadow(db, row.workspace_id, ns.key())
             .await

@@ -23,8 +23,8 @@ use agentic_pipeline::platform::{PlatformContext, RunPlatformResolver};
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, EntityTrait};
 
-use crate::agentic_wiring::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
-use crate::agentic_wiring::preview_ctx::PreviewPlatformContext;
+use crate::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
+use crate::preview_ctx::PreviewPlatformContext;
 
 /// The kinds whose runs are driven on the base platform: the change check and
 /// the compare are `TaskSpec::Custom` work that reads through its own

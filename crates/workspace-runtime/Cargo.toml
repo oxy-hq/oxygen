@@ -86,6 +86,10 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 # `connector`: the percent-encoded userinfo of a pgwire DSN.
 urlencoding = { workspace = true }
+# `preview_ctx`: the empty materialised context root a preview agent reads.
+tempfile = { workspace = true }
+# `preview_ctx`: `PreviewError`.
+thiserror = { workspace = true }
 # `sql_exec`/`sql_http`: the request and response schemas.
 utoipa = { workspace = true, features = ["uuid"] }
 uuid = { workspace = true }
@@ -98,7 +102,7 @@ duckdb = { workspace = true }
 # the runtime migrator (`agentic-runtime`, a normal dependency since W4), and
 # `connector`'s workspace fixtures.
 oxy-test-utils = { workspace = true }
-tempfile = { workspace = true }
+# (`tempfile`: a normal dependency since W5.)
 # `preview_airhouse`'s session tests run on a paused clock.
 tokio = { workspace = true, features = ["test-util"] }
 # (`string_literal`'s tests build their `DatabaseType` fixtures from YAML:

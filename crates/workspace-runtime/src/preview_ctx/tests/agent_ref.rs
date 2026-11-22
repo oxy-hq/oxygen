@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::super::PreviewPlatformContext;
 use super::fixture::{RUN, exec, row, seed_revision, seed_workspace};
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::test_support::{SKIP_MSG, test_db};
 
 /// Seeds the row exactly as `oxy-compile` writes a nameless agent in a
 /// subdirectory: `name` is the path minus `.agentic.yml`.

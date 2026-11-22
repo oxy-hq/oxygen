@@ -18,7 +18,7 @@ use agentic_pipeline::platform::ProjectContext;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::test_support::{SKIP_MSG, test_db};
 use fixture::{
     RUN, clickhouse_and_airhouse, exec, offline_ctx, row, seed_artifacts, seed_revision,
     seed_workspace,
@@ -205,8 +205,7 @@ async fn a_branch_database_cannot_name_a_withheld_var() {
     let manager = ctx.inner.workspace_manager();
     let translate = |name: &'static str| async move {
         let database = manager.config_manager.resolve_database(name).expect(name);
-        crate::agentic_wiring::project_ctx::try_database_to_connector_config(&database, manager)
-            .await
+        crate::project_ctx::try_database_to_connector_config(&database, manager).await
     };
     // A withheld var resolves to nothing, and a `password_var` that resolves to
     // nothing is a named error: no connector is built at all, so there is no

@@ -25,7 +25,7 @@
 //!   [`airhouse_writes`]) a step's writes are rewritten into the preview's own
 //!   schemas, `preview_<key>__<live schema>`, registered and recorded before
 //!   anything is sent, and sent through the preview Airhouse connector
-//!   (`agentic_wiring::preview_airhouse`), which every Airhouse read of the run
+//!   (`crate::preview_airhouse`), which every Airhouse read of the run
 //!   goes through too, so reads see the preview's copies. An Airhouse that
 //!   cannot confine a Writer to those schemas (older than 0.1.49) holds the
 //!   write as before; it is never sent live.
@@ -69,10 +69,10 @@ use oxy::config::WorkingCopy;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
-use super::OxyProjectContext;
-use super::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
-use crate::server::service::secret_manager::SecretManagerService;
+use crate::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
+use crate::project_ctx::OxyProjectContext;
 pub(crate) use airhouse_writes::PreviewAirhouse;
+use oxy::service::secret_manager::SecretManagerService;
 pub(crate) use sample::SampleSide;
 // The sample run kind, for the platform's tests; the queue that seeds the run
 // defines it (`previews::queue::sample_seed::RUN_KIND`).
@@ -255,7 +255,7 @@ async fn build_manager(
             "revision {revision_id} is not workspace {workspace_id}'s"
         )));
     }
-    let value = crate::server::api::compiled_reader::resolve_workspace_config_at(revision_id)
+    let value = oxy_app_core::compiled_reader::resolve_workspace_config_at(revision_id)
         .await
         .map_err(|e| Unavailable(e.to_string()))?
         .ok_or_else(|| Unusable(format!("revision {revision_id} has no compiled config")))?;

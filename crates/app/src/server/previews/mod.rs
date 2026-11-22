@@ -74,9 +74,10 @@
 //! including the per-pass runs' sweep the global driver calls inline — are the
 //! `oxy-previews` crate, re-exported here at their old paths. What is still
 //! here: the read-only guard's axum adapter ([`read_only`]; its table went
-//! down to `oxy_previews::read_only` on 2026-11-22, P2) and the run platform
-//! ([`runtime`]), which go down with the workspace middleware and the preview
-//! platform. The DuckDB double ([`airhouse_duckdb`]) went down into
+//! down to `oxy_previews::read_only` on 2026-11-22, P2), which goes down with
+//! the workspace middleware. The run platform ([`runtime`]) went down into
+//! `oxy-workspace-runtime` (`preview_runtime`) with the preview platform on
+//! 2026-11-22 (W5), re-exported here at its old path. The DuckDB double ([`airhouse_duckdb`]) went down into
 //! `oxy-workspace-runtime` with the preview connector on 2026-11-22 (W3),
 //! re-exported here at its old path. The upper half — the
 //! `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
@@ -89,7 +90,9 @@
 #[doc(hidden)]
 pub use oxy_workspace_runtime::airhouse_duckdb;
 pub mod read_only;
-pub mod runtime;
+/// The run platform resolver, `oxy-workspace-runtime`'s `preview_runtime` since
+/// 2026-11-22 (W5), re-exported at its old path.
+pub use oxy_workspace_runtime::preview_runtime as runtime;
 
 pub use oxy_previews::{
     ddl, ddl_airhouse, ddl_duckdb, namespace, pin, queue, registry, sources, sql_kind, store,

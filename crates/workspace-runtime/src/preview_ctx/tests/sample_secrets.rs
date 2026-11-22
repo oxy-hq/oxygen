@@ -14,9 +14,9 @@ use uuid::Uuid;
 use super::fixture::exec;
 use super::sample::{DSN, airhouse, sample_row_of};
 use super::*;
-use crate::agentic_wiring::preview_airhouse::PipelineWriter;
-use crate::server::service::secret_manager::SecretManagerService;
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::preview_airhouse::PipelineWriter;
+use crate::test_support::{SKIP_MSG, test_db};
+use oxy::service::secret_manager::SecretManagerService;
 
 const APP_TOKEN: &str = "apps/5b7e0c55-1f2a-4f7e-9d1c-7a0b1c2d3e4f/QB_REFRESH_TOKEN_EASTBAY";
 

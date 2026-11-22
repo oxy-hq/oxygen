@@ -13,7 +13,7 @@ use oxy_shared::errors::OxyError;
 
 use super::PreviewPlatformContext;
 use super::sample::SampleSide;
-use crate::server::service::secret_manager::SecretManagerService;
+use oxy::service::secret_manager::SecretManagerService;
 
 /// Why a write of `var` was refused.
 fn refused(var: &str) -> String {

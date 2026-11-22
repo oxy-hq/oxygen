@@ -6729,7 +6729,7 @@ metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
-path = "crates/app/src/agentic_wiring/preview_ctx/airhouse_writes.rs"
+path = "crates/workspace-runtime/src/preview_ctx/airhouse_writes.rs"
 qualified = "PreviewAirhouse::review"
 metric = "abc"
 value = 40.47221268969612

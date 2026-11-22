@@ -102,12 +102,13 @@ const ALLOWED: &[(&str, &str)] = &[
          pass is the cost this avoids.",
     ),
     (
-        "src/agentic_wiring/preview_ctx.rs",
+        "../workspace-runtime/src/preview_ctx.rs",
         "Builds the workspace-preview platform's manager: reads the staging \
          revision's compiled config and hands it to the builder as a provided \
          config, because the builder's own load falls back to the working copy \
          (and to an EMPTY config) on a miss. Resolving the `Origin` — there is no \
-         manager yet.",
+         manager yet. (Was `src/agentic_wiring/preview_ctx.rs` until it went \
+         down into `oxy-workspace-runtime`, 2026-11-22, W5.)",
     ),
     (
         "../api-custom-apps/src/custom_apps_functions/preflight.rs",

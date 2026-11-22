@@ -31,11 +31,11 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use uuid::Uuid;
 
 use super::{PreviewError, PreviewPlatformContext};
-use crate::server::previews::sources::{SourceRequestError, check_sandbox};
+use oxy_previews::sources::{SourceRequestError, check_sandbox};
 
 /// The preview run kind a sample's platform is built for: the queue's
 /// (`previews::queue::sample_seed::RUN_KIND`), which seeds the run.
-pub(crate) const SAMPLE_KIND: &str = crate::server::previews::queue::sample_seed::RUN_KIND;
+pub(crate) const SAMPLE_KIND: &str = oxy_previews::queue::sample_seed::RUN_KIND;
 
 /// Where the sandbox's rotated token is written back: the workspace's own
 /// secrets table, attributed to the staffer who started the sample.

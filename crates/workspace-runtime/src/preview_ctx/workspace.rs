@@ -14,9 +14,9 @@ use oxy::config::model::DatabaseType;
 
 use super::airhouse_writes::{PreviewAirhouse, Step};
 use super::{PreviewPlatformContext, airhouse, names};
-use crate::agentic_wiring::string_literal::string_literal_of;
-use crate::server::previews::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
+use crate::string_literal::string_literal_of;
 use oxy_app_core::write_hold::connector::{HoldingConnector, Session};
+use oxy_previews::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
 
 impl PreviewPlatformContext {
     /// The connector for `name` (scoped to this run or unscoped), built once

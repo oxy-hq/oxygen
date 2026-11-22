@@ -13,8 +13,10 @@
 //!   [`agentic_pipeline::platform::ThreadOwnerLookup`].
 //! - [`preview_airhouse`] — the Airhouse connector a workspace preview run
 //!   sends everything through (verified, overlaid, on a scoped credential).
-
-pub mod preview_ctx;
+//! - [`preview_ctx`] — the platform a workspace preview run runs on.
+//!
+//! Every entry is `oxy-workspace-runtime`'s now (the last, `preview_ctx`, on
+//! 2026-11-22, W5), re-exported here at its old path.
 
 // The leaves went down into `oxy-workspace-runtime` on 2026-11-21, re-exported
 // here so their paths did not change.
@@ -35,6 +37,9 @@ pub use oxy_workspace_runtime::preview_airhouse;
 // `oxy-workspace-runtime`'s since 2026-11-22 (W4): re-exported at their old
 // paths.
 pub use oxy_workspace_runtime::{compile_dispatcher, project_ctx};
+// The preview platform, the last of the wiring, followed on 2026-11-22 (W5):
+// this module now only re-exports.
+pub use oxy_workspace_runtime::preview_ctx;
 
 pub use metric_sink::OxyAnalyticsMetricSink;
 pub use metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};
