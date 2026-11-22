@@ -476,6 +476,10 @@ where
     }
 }
 
+// The compile check's guard lives in its own file (this one is long); it is a role
+// guard like the rest and is named from here.
+pub use crate::compile_check_guard::CompileChecker;
+
 /// Caller may price an experiment design. Same reach as [`WorkspaceEditor`],
 /// its own [`authz::Action`] so the audit trail and the differential say what
 /// was asked.

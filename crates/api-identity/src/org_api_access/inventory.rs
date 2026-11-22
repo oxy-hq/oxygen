@@ -152,6 +152,7 @@ impl OrgSide {
             blocked_orgs: blocked_orgs(&here),
             sandbox_agent: None,
             app: None,
+            ci_run: false,
         };
         reach.workspace_ceiling(self.org_id, workspace_id).is_some()
     }

@@ -107,6 +107,16 @@ pub struct TokenReach {
     /// the org or on the approved workspace: what lets the account's admin
     /// standing reach the ring at all. The actions are what confine it.
     pub app: Option<AppReach>,
+    /// Set for a **CI run token** (`oxy_ci_`): minted by a trust policy for one
+    /// GitHub Actions run (or another registered OIDC issuer's workload), acting as
+    /// the policy's service account for fifteen minutes. `false` for every other
+    /// token, the account's own long-lived `oxy_sat_` included.
+    ///
+    /// Unlike [`Self::sandbox_agent`] and [`Self::app`] it narrows nothing: the
+    /// token's grants already do. It is read by exactly one ring,
+    /// [`crate::Action::CompileCheck`]'s, which admits the org's service account through
+    /// such a token at a `viewer` ceiling — the CI compile gate, and nothing else.
+    pub ci_run: bool,
 }
 
 impl TokenReach {
@@ -120,6 +130,7 @@ impl TokenReach {
             blocked_orgs: Vec::new(),
             sandbox_agent: None,
             app: None,
+            ci_run: false,
         }
     }
 

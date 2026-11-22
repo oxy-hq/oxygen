@@ -79,6 +79,7 @@ fn token(grants: Vec<TokenGrant>) -> TokenReach {
         blocked_orgs: Vec::new(),
         sandbox_agent: None,
         app: None,
+        ci_run: false,
     }
 }
 
@@ -106,6 +107,10 @@ const ROLES: [RoleCeiling; 3] = [RoleCeiling::Member, RoleCeiling::Admin, RoleCe
 fn viewer_loses(action: Action, resource: &Resource) -> bool {
     matches!(action.ring(), crate::Ring::WorkspaceEdit)
         || action == Action::FactoryUse
+        // A person checks a compile only as a Factory user who may edit; a
+        // viewer may do neither. (The CI account's viewer term needs a CI run
+        // token, which no token here is.)
+        || action == Action::CompileCheck
         || (matches!(action, Action::WorkspaceRename | Action::NamespaceDelete)
             && resource.owner == Some(USER))
 }

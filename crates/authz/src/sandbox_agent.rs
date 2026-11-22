@@ -163,6 +163,7 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::WorkspacePreview
         | Action::WorkspaceProvision
         | Action::FactoryUse
+        | Action::CompileCheck
         | Action::PartnerManageMembers
         | Action::PartnerManageApps
         | Action::PartnerDevelopApps

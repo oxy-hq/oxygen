@@ -55,6 +55,8 @@ pub use sandbox_agent::{EnvFacet, SandboxAgentReach, SandboxApp};
 pub use token::{RoleCeiling, TokenGrant, TokenReach};
 
 #[cfg(test)]
+mod compile_check_tests;
+#[cfg(test)]
 mod service_account_tests;
 
 /// An action a principal may take on a resource. Oxy owns this closed vocabulary, and
@@ -368,6 +370,30 @@ pub enum Action {
     /// to carry a grant, and an admin ceiling to carry staff reach or an officer's
     /// role.
     FactoryUse,
+    /// **Check a branch compiles**: queue a staging compile of one branch of the
+    /// workspace (`POST /{workspace_id}/compile/staging`) and read where it stands
+    /// (`GET …/compile/staging/status`). A staging revision is never promoted and
+    /// nothing that picks a revision by itself lands on one, so this changes no
+    /// served state: it is the customer CI gate (`oxyc compile <branch> --wait`).
+    ///
+    /// Two ways in, and only two:
+    ///
+    /// - **A person who may use the Factory here AND edit the workspace** —
+    ///   [`Action::FactoryUse`] and [`Action::WorkspaceEdit`] both, which is exactly
+    ///   what the two routes asked of a person before this action existed (the
+    ///   Factory gate, then `WorkspaceEditor`). Unchanged for every person.
+    /// - **The org's service account acting through a CI run token** (`oxy_ci_`,
+    ///   minted by a trust policy for one GitHub Actions run:
+    ///   [`TokenReach::ci_run`]), at any ceiling its grants give it over the
+    ///   workspace — a `viewer` grant included. That is the narrow grant open
+    ///   question 2 of `internal-docs/oxy-cli-to-oxyc.md` chose (decided 2026-11-21)
+    ///   instead of making the account an editor: it may check a branch, and
+    ///   nothing else a viewer could not already do.
+    ///
+    /// Deliberately NOT: the same account through its own long-lived token
+    /// (`oxy_sat_`) — a CI gate runs as a CI run; a workspace viewer who is a person;
+    /// an account of another org; a sandbox agent token; an app's credential.
+    CompileCheck,
 
     // ── Partner ceiling (one action per PartnerCapability) ────────────────────
     // The partner tier shipped a whole second decision engine of its own. These absorb
@@ -481,7 +507,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 59] = [
+    pub const ALL: [Action; 60] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -519,6 +545,7 @@ impl Action {
         Action::WorkspacePreview,
         Action::WorkspaceProvision,
         Action::FactoryUse,
+        Action::CompileCheck,
         Action::PartnerManageMembers,
         Action::PartnerManageApps,
         Action::PartnerDevelopApps,
@@ -585,6 +612,7 @@ impl Action {
             Action::WorkspacePreview => "workspace_preview",
             Action::WorkspaceProvision => "workspace_provision",
             Action::FactoryUse => "factory_use",
+            Action::CompileCheck => "compile_check",
             // Ids match PartnerCapability::as_str, prefixed — the partner tier's own
             // policy uses the bare cap name; these live in the shared action space.
             Action::PartnerManageMembers => "partner_manage_members",
@@ -650,6 +678,7 @@ impl Action {
                 Ring::StaffReach(Cap::OperatePlatform)
             }
             Action::FactoryUse => Ring::Factory,
+            Action::CompileCheck => Ring::CompileCheck,
             Action::PartnerManageMembers => Ring::PartnerCap(Cap::ManageMembers),
             Action::PartnerManageApps => Ring::PartnerCap(Cap::ManageApps),
             Action::PartnerDevelopApps => Ring::PartnerCap(Cap::DevelopApps),
@@ -1227,6 +1256,14 @@ enum Ring {
     /// is the synthetic-owner override, conditioned on non-membership. Neither
     /// shape fits "staff, the org's officers, or a member Oxy named".
     Factory,
+    /// [`Action::CompileCheck`]: [`Self::Factory`] AND [`Self::WorkspaceEdit`] — what
+    /// a person needed for the staging compile routes before the action existed —
+    /// OR the resource org's service account through a CI run token
+    /// ([`TokenReach::ci_run`]) reaching the workspace at any ceiling.
+    ///
+    /// Its own ring because no existing one admits a `viewer` ceiling for a write:
+    /// every other ring that queues work asks for at least a member.
+    CompileCheck,
     /// Platform tier — holds ANY staff standing. The `/admin/*` door only
     /// (`oxy_owner_or_app_admin_guard`); every section behind it escalates to
     /// [`Self::PlatformCap`].
@@ -1874,6 +1911,23 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
                         && resource.kind == ResourceKind::Workspace
                         && member_here
                         && facts.factory_workspaces.contains(&resource.id)))
+        }
+        // Checking a branch compiles. A person keeps exactly the two doors the routes
+        // had (the Factory, then the editor guard), asked of this same model. The one
+        // addition is the org's own service account acting through a CI run token, at
+        // whatever ceiling the token reaches the workspace with — `viewer` included,
+        // which is the point: the CI gate needs this and no editor standing. The
+        // account term is keyed on the token fact AND the account's own org, so the
+        // account's long-lived token, another org's account and a person holding a
+        // CI-shaped fact by mistake all fall to the person term.
+        Ring::CompileCheck => {
+            let person = allows(facts, Action::FactoryUse, resource)
+                && allows(facts, Action::WorkspaceEdit, resource);
+            let ci_account = resource.kind == ResourceKind::Workspace
+                && at_least(RoleCeiling::Viewer)
+                && account_here.is_some()
+                && facts.token.as_ref().is_some_and(|token| token.ci_run);
+            person || ci_account
         }
         // The console IS scoped: the capability must come from the partner being acted
         // as. Operating a partner that grants `cap` over some other client authorizes
@@ -3010,6 +3064,7 @@ mod policy_tests {
             Ring::StaffReach(Cap::DevelopApps),
             Ring::StaffReach(Cap::OperatePlatform),
             Ring::Factory,
+            Ring::CompileCheck,
         ] {
             assert!(
                 Action::ALL.iter().any(|a| a.ring() == ring),

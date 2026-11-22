@@ -33,7 +33,7 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 ## Vocabulary
 
-- **`Action`** (57) — the closed vocabulary of things a caller can do. This is what call
+- **`Action`** (60) — the closed vocabulary of things a caller can do. This is what call
   sites name.
 - **`Ring`** — the authority level that gates an action. **Private on purpose:** a
   ring is how the model is *stated*, not a menu callers pick from. Public, it would let a
@@ -51,7 +51,7 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 Rings, briefly: `Read` · `MemberStrict` · `OrgAdmin` · `OrgAdminStrict` · `OwnerOnly` ·
 `OrgAdminOrCreator` · `WorkspaceAdmin` · `WorkspaceAdminStrict` · `WorkspaceEdit` ·
-`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `Factory` · `PlatformAny` ·
+`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `Factory` · `CompileCheck` · `PlatformAny` ·
 `PlatformCap` · `GlobalOwnerOnly`. `StaffReach` is `PlatformCap` on a *tenant* resource: a staff-only
 tool used inside one org (non-production app hosts, workspace previews), so the grant's scope is
 consulted.
@@ -63,6 +63,14 @@ ceiling; decided 2026-10-27), **or** a real member holding a per-workspace row i
 so a plain org member is refused without the grant, whatever their workspace role. The routes
 it guards, the switch and the operator steps are in `internal-docs/roles-and-authorization.md`
 § The Factory.
+
+`CompileCheck` (`Action::CompileCheck`, decided 2026-11-21) is the customer CI compile gate:
+queue a staging compile of a branch and read its status. For a person it is exactly
+`FactoryUse` AND `WorkspaceEdit` (what the two routes asked before); the one caller it adds is
+the org's service account acting through a **CI run token**, read from the fact
+`TokenReach::ci_run`, at any ceiling over the workspace (`viewer` included). It is also the
+Factory gate's one exception, on two exact routes. Routes, guard and trust policy:
+`internal-docs/roles-and-authorization.md` § The one exception: checking a compile.
 
 ## Staff standing is a grant, not a flag
 
@@ -128,6 +136,11 @@ existing check, use `require` and say so.
    token (`oxy_sbx_`) covers four actions, and a new one is not a fifth by default.
 
 ## A credential narrows as a fact, never as a ring
+
+(One credential fact widens instead of narrowing, and only inside one ring:
+`TokenReach::ci_run`, read by `Ring::CompileCheck` alone, with a sweep proving it moves no
+other decision — `compile_check_tests::the_ci_run_fact_moves_no_decision_but_the_compile_check`.)
+
 
 An API token is the same principal seen through a narrower credential, so it is a fact
 on the principal (`PrincipalFacts::token`) that `allows()` reads **first** and can only

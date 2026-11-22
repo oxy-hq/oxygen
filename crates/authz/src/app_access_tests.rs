@@ -50,6 +50,7 @@ fn app_token(approvals: Vec<AppActionGrant>) -> TokenReach {
             app_id: APP,
             grants: approvals,
         }),
+        ci_run: false,
     }
 }
 

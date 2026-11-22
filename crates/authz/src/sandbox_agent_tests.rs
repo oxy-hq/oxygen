@@ -85,6 +85,7 @@ fn reach() -> TokenReach {
             }],
         }),
         app: None,
+        ci_run: false,
     }
 }
 

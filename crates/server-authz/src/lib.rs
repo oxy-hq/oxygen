@@ -20,6 +20,7 @@ pub use oxy_authz::*;
 
 pub mod assume_liveness;
 pub mod caller;
+mod compile_check_guard;
 pub mod factory;
 pub mod globals;
 mod grant_memo;

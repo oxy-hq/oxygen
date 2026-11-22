@@ -107,6 +107,7 @@ fn token_facts() -> PrincipalFacts {
             }],
         }),
         app: None,
+        ci_run: false,
     })
 }
 

@@ -62,6 +62,26 @@ pub enum Resolution {
     Ambiguous,
 }
 
+/// The Factory routes that **check a compile** — queue a staging compile of a branch,
+/// and read where it stands — which the gate also opens to a caller the model admits
+/// for `Action::CompileCheck` ([`super::gate`]). Exact (method, path) pairs, no
+/// wildcard: a route is added here by name, never by sitting under a prefix.
+///
+/// Both stay on the Factory list (`/compile/{*rest}`) — moving them to the customer
+/// list would open them to every member. For a person `CompileCheck` is `FactoryUse`
+/// AND editing, so this admits no person the Factory refuses; the one caller it adds
+/// is the org's service account acting through a CI run token, the customer CI
+/// compile gate (`oxyc compile`; open question 2 of `internal-docs/oxy-cli-to-oxyc.md`).
+pub const COMPILE_CHECK: &[(&str, &str)] = &[
+    ("POST", "/compile/staging"),
+    ("GET", "/compile/staging/status"),
+];
+
+/// Whether `method path` is one of the [`COMPILE_CHECK`] pairs, exactly.
+pub fn checks_a_compile(method: &str, path: &str) -> bool {
+    COMPILE_CHECK.iter().any(|&(m, p)| m == method && p == path)
+}
+
 /// Routes a customer's surfaces call. Exact patterns only — see the module doc.
 pub const CUSTOMER: &[(&str, &str)] = &[
     // ── The shell, on every page ──────────────────────────────────────────────
@@ -267,6 +287,31 @@ pub fn surface_of(method: &str, path: &str) -> Surface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The compile check is two exact pairs that stay the Factory's: listed there,
+    /// so every other caller still meets the Factory decision, and matched exactly,
+    /// so a sibling route or another method is not opened by sitting next to them.
+    #[test]
+    fn the_compile_check_routes_are_two_exact_factory_pairs() {
+        for &(method, path) in COMPILE_CHECK {
+            assert_eq!(
+                resolve(method, path),
+                Resolution::Listed(Surface::Factory),
+                "{method} {path}"
+            );
+            assert!(checks_a_compile(method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            ("GET", "/compile/staging"),
+            ("POST", "/compile/staging/status"),
+            ("POST", "/compile"),
+            ("POST", "/compile/staging/other"),
+            ("POST", "/semantic/compile"),
+            ("PUT", "/secrets/abc"),
+        ] {
+            assert!(!checks_a_compile(method, path), "{method} {path}");
+        }
+    }
 
     #[test]
     fn authoring_routes_are_the_factorys_and_chat_is_a_customers() {

@@ -315,6 +315,10 @@ impl CredentialContext {
                     grants: Vec::new(),
                 })
             }),
+            // A CI run token, and only that kind: the one fact the compile check's
+            // account term reads (`oxy_authz::Action::CompileCheck`). The account's
+            // own `oxy_sat_` token is not one.
+            ci_run: self.kind == StoredKind::Ci,
         })
     }
 

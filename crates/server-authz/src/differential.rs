@@ -433,6 +433,46 @@ fn source_upload_report_ring_matches_the_workspace_edit_guard() {
     }
 }
 
+/// The staging compile routes took the Factory gate and then `WorkspaceEditor`;
+/// they now take the Factory gate (with its one `CompileCheck` exception) and
+/// `CompileChecker`. For every PERSON shape — each with and without a Factory grant
+/// for the workspace — the action must answer exactly `FactoryUse && WorkspaceEdit`,
+/// and may only subtract from the two shipped checks: the Factory's decision, and
+/// the editor guard's legacy term (a real member, or an assume-session override).
+/// The one caller it adds, the org's service account through a CI run token, is not
+/// a person and is proved in `oxy-authz`'s `compile_check_tests` and the guard's
+/// tests.
+#[test]
+fn compile_check_ring_is_the_factory_and_the_editor_guard_for_every_person() {
+    let ws_id = Uuid::from_u128(700);
+    let ws = Resource::workspace(ws_id, org());
+    for s in scenarios() {
+        for granted in [false, true] {
+            let facts = PrincipalFacts {
+                factory_workspaces: if granted { vec![ws_id] } else { Vec::new() },
+                ..s.facts.clone()
+            };
+            let check = allows(&facts, Action::CompileCheck, &ws);
+            let factory = allows(&facts, Action::FactoryUse, &ws);
+            let edit = allows(&facts, Action::WorkspaceEdit, &ws);
+            assert_eq!(
+                check,
+                factory && edit,
+                "ring drift — scenario {:?} (factory grant: {granted}): the compile check \
+                 is not the Factory and the editor guard",
+                s.name
+            );
+            let editor_legacy = s.ctx_override || s.facts.member_orgs.contains(&org());
+            assert!(
+                !check || (factory && editor_legacy),
+                "scenario {:?} (factory grant: {granted}): the model allows a compile \
+                 check where the shipped checks would not",
+                s.name
+            );
+        }
+    }
+}
+
 /// `POST /experiments/{name}/abort` takes `ExperimentAbortGuard`, whose legacy
 /// term is `WorkspaceAdmin`'s: effective workspace role Owner or Admin. The
 /// action sits on the `WorkspaceManage` ring on purpose (it runs `lever.off`,
@@ -1015,6 +1055,7 @@ fn app_admin_ring_under_a_token_is_the_shipped_resolution_capped_at_its_ceiling(
             blocked_orgs: Vec::new(),
             sandbox_agent: None,
             app: None,
+            ci_run: false,
         };
         for s in app_scenarios() {
             let session = s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin;

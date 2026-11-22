@@ -207,6 +207,15 @@ impl Caller {
         self.account.is_some()
     }
 
+    /// Whether the request is a service account acting through a **CI run
+    /// token** (`oxy_ci_`, minted by a trust policy for one CI run) rather than
+    /// through its own long-lived token or as a person. Read by the compile
+    /// check's guard (`role_guards::CompileChecker`) for its shipped term; the
+    /// decision itself is `oxy_authz::Action::CompileCheck`.
+    pub fn is_ci_run(&self) -> bool {
+        self.is_service_account() && self.reach().is_some_and(|reach| reach.ci_run)
+    }
+
     /// The service account's standing: its one org, and whether it is an
     /// admin there. `None` for a person — and for an account with none.
     pub fn account_standing(&self) -> Option<AccountStanding> {

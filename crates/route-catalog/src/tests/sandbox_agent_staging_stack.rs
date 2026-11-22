@@ -81,6 +81,7 @@ fn token_facts(staging: bool) -> PrincipalFacts {
             }],
         }),
         app: None,
+        ci_run: false,
     })
 }
 

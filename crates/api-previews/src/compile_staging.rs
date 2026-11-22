@@ -32,7 +32,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use oxy_app::surface::previews::compile_request::{self, CompileState, Refusal, Target};
-use oxy_app::surface::role_guards::WorkspaceEditor;
+use oxy_app::surface::role_guards::CompileChecker;
 
 #[derive(Deserialize)]
 pub struct StagingCompileQuery {
@@ -49,10 +49,12 @@ type ApiResult<T> = Result<Json<T>, (StatusCode, String)>;
 
 /// POST /{workspace_id}/compile/staging?branch=<b>
 ///
-/// Same guard as the Compile button (`WorkspaceEditor`): compiling a branch
-/// that is never promoted is strictly weaker than shipping main.
+/// `CompileChecker`: a person needs what the Compile button needs (an editor, past
+/// the Factory gate) — compiling a branch that is never promoted is strictly weaker
+/// than shipping main — and the org's service account may through a CI run token at
+/// `viewer` (`Action::CompileCheck`, the customer CI gate `oxyc compile`).
 pub async fn enqueue_staging_compile(
-    _: WorkspaceEditor,
+    _: CompileChecker,
     Path(workspace_id): Path<Uuid>,
     Query(q): Query<StagingCompileQuery>,
 ) -> Result<Response, (StatusCode, String)> {
@@ -76,7 +78,7 @@ pub async fn enqueue_staging_compile(
 /// Reads only Postgres, so it is served on any replica. Guarded like its
 /// POST: the answer names a revision of the workspace's model.
 pub async fn staging_compile_status(
-    _: WorkspaceEditor,
+    _: CompileChecker,
     Path(workspace_id): Path<Uuid>,
     Query(q): Query<StagingStatusQuery>,
 ) -> ApiResult<CompileState> {

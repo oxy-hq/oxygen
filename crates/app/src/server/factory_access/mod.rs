@@ -15,7 +15,12 @@
 //!   member holding the workspace's grant.
 //! - [`gate`] — runs inside `workspace_middleware`, so every Factory route asks the
 //!   decision and a customer route never does. [`FactoryAccess`] hands the same answer
-//!   to the response the rail reads.
+//!   to the response the rail reads. **One exception, stated by the model:** on the
+//!   two routes that check a compile ([`routes::COMPILE_CHECK`]) the gate also lets
+//!   through a caller `Action::CompileCheck` admits
+//!   ([`may_check_compile`](oxy_server_authz::factory::may_check_compile)) — no person
+//!   the Factory refuses, and the org's service account through a CI run token (the
+//!   customer CI compile gate).
 //!
 //! **Always enforced.** It began as part of the `apps_first_experience` flag, turned
 //! on per org; that flag is gone. Every Factory route refuses a caller the decision
@@ -32,7 +37,7 @@ use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use entity::workspaces;
-use oxy_server_authz::factory::may_use_factory;
+use oxy_server_authz::factory::{may_check_compile, may_use_factory};
 use oxy_server_authz::request_facts;
 
 pub use routes::{Resolution, Surface, resolve, surface_of};
@@ -130,8 +135,16 @@ async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
         );
         return Err(unavailable());
     };
+    let checks_a_compile = routes::checks_a_compile(parts.method.as_str(), parts.uri.path());
     match request_facts(&mut parts).await {
         Some(facts) if may_use_factory(&facts, workspace.id, org_id) => {
+            Ok(Request::from_parts(parts, body))
+        }
+        // The one exception, stated by the model: on the two routes that check a
+        // compile, a caller `Action::CompileCheck` admits — for a person that already
+        // implies the Factory, so this adds only the org's service account through a
+        // CI run token. Unknown facts still fail closed below.
+        Some(facts) if checks_a_compile && may_check_compile(&facts, workspace.id, org_id) => {
             Ok(Request::from_parts(parts, body))
         }
         Some(_) => {
@@ -206,5 +219,120 @@ mod tests {
         let response = refused(uuid::Uuid::nil());
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(REFUSAL_CODE, "factory_access_required");
+    }
+
+    const ORG: uuid::Uuid = uuid::Uuid::from_u128(0x7);
+    const WS: uuid::Uuid = uuid::Uuid::from_u128(0x71);
+
+    fn workspace() -> workspaces::Model {
+        let now = chrono::Utc::now().fixed_offset();
+        workspaces::Model {
+            id: WS,
+            name: "ws".into(),
+            git_namespace_id: None,
+            git_remote_url: None,
+            created_at: now,
+            updated_at: now,
+            path: None,
+            last_opened_at: None,
+            created_by: None,
+            org_id: Some(ORG),
+            status: workspaces::WorkspaceStatus::Ready,
+            error: None,
+            monthly_vlm_budget_micros: None,
+            current_revision_id: None,
+            default_branch: None,
+            repo_subdir: None,
+            default_branch_attempted_at: None,
+        }
+    }
+
+    /// The org's service account through a token holding `viewer` on `WS`;
+    /// `ci_run` says whether that token is a CI run's.
+    fn account(ci_run: bool) -> oxy_server_authz::PrincipalFacts {
+        use oxy_server_authz::{
+            PrincipalFacts, RoleCeiling, ServiceAccountStanding, TokenGrant, TokenReach,
+        };
+        PrincipalFacts {
+            service_account: Some(ServiceAccountStanding {
+                org_id: ORG,
+                admin: false,
+            }),
+            ..Default::default()
+        }
+        .narrowed_by(&TokenReach {
+            all_access: false,
+            platform: false,
+            partner: false,
+            grants: vec![TokenGrant {
+                org_id: ORG,
+                workspace_id: Some(WS),
+                ceiling: RoleCeiling::Viewer,
+            }],
+            blocked_orgs: Vec::new(),
+            sandbox_agent: None,
+            app: None,
+            ci_run,
+        })
+    }
+
+    /// The gate's answer for `method path`, with the facts pre-inserted where
+    /// `request_facts` memoizes them, so no database is read.
+    async fn gate_status(
+        facts: oxy_server_authz::PrincipalFacts,
+        method: &str,
+        path: &str,
+    ) -> Option<StatusCode> {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(workspace());
+        request.extensions_mut().insert(facts);
+        decide(request).await.err().map(|refusal| refusal.status())
+    }
+
+    /// The gate's one exception, end to end: the CI account passes the two compile
+    /// check pairs and nothing else on the Factory side — a sibling Factory route,
+    /// and the same path under another method, still answer `factory_access_required`.
+    #[tokio::test]
+    async fn the_ci_account_passes_the_compile_check_routes_and_no_other_factory_route() {
+        for (method, path) in [
+            ("POST", "/compile/staging"),
+            ("GET", "/compile/staging/status"),
+        ] {
+            assert_eq!(
+                gate_status(account(true), method, path).await,
+                None,
+                "{method} {path}"
+            );
+        }
+        for (method, path) in [
+            ("PUT", "/secrets/abc"),
+            ("POST", "/compile"),
+            ("GET", "/compile/staging"),
+            ("GET", "/semantic/objects"),
+        ] {
+            assert_eq!(
+                gate_status(account(true), method, path).await,
+                Some(StatusCode::FORBIDDEN),
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_accounts_own_token_and_a_plain_member_are_refused_the_compile_check() {
+        let member = oxy_server_authz::PrincipalFacts {
+            member_orgs: vec![ORG],
+            ..Default::default()
+        };
+        for facts in [account(false), member] {
+            assert_eq!(
+                gate_status(facts, "POST", "/compile/staging").await,
+                Some(StatusCode::FORBIDDEN)
+            );
+        }
     }
 }
