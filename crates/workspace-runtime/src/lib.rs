@@ -42,9 +42,21 @@
 //! - [`scan_source`]: where a semantic read finds the model (the compiled
 //!   revision first, the working copy second, a compile enqueued on a miss).
 //!
-//! The rest of `agentic_wiring` (the project context, the preview runtime)
+//! Then, on 2026-11-22 (W3), the preview connector and its DuckDB double
+//! (`oxy-app` re-exports each at its old path: `agentic_wiring::preview_airhouse`,
+//! `server::previews::airhouse_duckdb`):
+//!
+//! - [`preview_airhouse`]: the Airhouse connector a workspace preview run
+//!   sends everything through (verified, overlaid, on a scoped credential).
+//! - `airhouse_duckdb`: the in-process DuckDB stand-in for every preview port,
+//!   a test double never wired into the server (hidden from the docs).
+//!
+//! The rest of `agentic_wiring` (the project context, the preview context)
 //! follows in later PRs.
 
+/// Test stand-in for Airhouse; never wired into the server (see its module doc).
+#[doc(hidden)]
+pub mod airhouse_duckdb;
 pub mod airhouse_pool;
 pub mod app_airhouse;
 pub mod connector;
@@ -52,6 +64,7 @@ pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;
 pub mod preagg_workspace;
+pub mod preview_airhouse;
 pub mod runtime_artifact;
 pub mod scan_source;
 pub mod sql_exec;

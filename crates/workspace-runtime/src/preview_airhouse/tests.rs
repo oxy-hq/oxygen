@@ -11,8 +11,8 @@ use futures::StreamExt;
 use uuid::Uuid;
 
 use super::{AirhouseBackend, Ddl, PreviewAirhouseConnector, Scope, Use, system_ddl};
-use crate::server::previews::ddl::{PreviewDdlError, Relation, RelationKind};
 use fake::FakeAirhouse;
+use oxy_previews::ddl::{PreviewDdlError, Relation, RelationKind};
 
 const KEY: &str = "feat_je_v2_92a1b7";
 

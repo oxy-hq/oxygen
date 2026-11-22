@@ -28,8 +28,9 @@
 //! each other: the platform builds on the registry and the DDL, and the queue
 //! named the platform's sample kind (inverted: [`queue::sample_seed::RUN_KIND`]).
 //! What stays in `oxy-app` for now: `read_only`'s axum adapter (with the
-//! workspace middleware), `runtime` and `airhouse_duckdb` (with the preview
-//! platform): `internal-docs/domain-boundaries.md`, End state.
+//! workspace middleware) and `runtime` (with the preview platform);
+//! `airhouse_duckdb` went to `oxy-workspace-runtime` with the preview
+//! connector: `internal-docs/domain-boundaries.md`, End state.
 
 pub mod ddl;
 pub mod ddl_airhouse;

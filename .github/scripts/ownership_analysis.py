@@ -117,6 +117,11 @@ AREAS = [
     # W2, 2026-11-22: the metric-tree runner and the semantic scan resolution.
     ("crates/app/src/agentic_wiring/metric_tree_runner.rs", "Workspace runtime"),
     ("crates/app/src/agentic_wiring/scan_source.rs",      "Workspace runtime"),
+    # W3, 2026-11-22: the preview connector and its DuckDB double (listed
+    # before crates/app/src/server/previews, so it wins).
+    ("crates/app/src/agentic_wiring/preview_airhouse.rs", "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/preview_airhouse",    "Workspace runtime"),
+    ("crates/app/src/server/previews/airhouse_duckdb.rs", "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

@@ -9,7 +9,7 @@ use futures::FutureExt;
 
 use super::fake::FakeAirhouse;
 use super::{connector, p, q};
-use crate::agentic_wiring::preview_airhouse::{Scope, Use};
+use crate::preview_airhouse::{Scope, Use};
 
 /// Wait (bounded) for the transaction lease to go back.
 async fn wait_released(fake: &FakeAirhouse) {

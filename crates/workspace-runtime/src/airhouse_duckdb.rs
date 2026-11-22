@@ -1,15 +1,16 @@
 //! **Test stand-in; never wired into the server.** In-process DuckDB standing
 //! in for the workspace's Airhouse behind every preview port at once
-//! (`agentic_wiring::preview_airhouse::PreviewAirhousePorts`): the batches a
+//! ([`crate::preview_airhouse::PreviewAirhousePorts`]): the batches a
 //! preview run sends, the schemas its registry creates
-//! ([`super::ddl_duckdb::DuckDbPreviewDdl`], the same fixed statements
+//! ([`oxy_previews::ddl_duckdb::DuckDbPreviewDdl`], the same fixed statements
 //! production sends), and the two "can this Airhouse confine a Writer?"
 //! answers, which a test sets.
 //!
 //! It is compiled into the library (the platform integration tests drive whole
 //! runs over it, and this crate has no test-only feature), hidden from the
 //! docs, and kept out of the server by
-//! `tests::the_duckdb_stand_in_is_never_wired_into_the_server`, a source scan.
+//! `tests::the_duckdb_stand_in_is_never_wired_into_the_server`, a source scan
+//! of this crate and `oxy-app` (where it lived until 2026-11-22, `server::previews`).
 //!
 //! The rewrite, the verifier, the registry, copy-on-write and the shadow map
 //! all run for real against it; only the credential fence (Airhouse's own
@@ -24,9 +25,10 @@ use airhouse::preview_sql::PreviewNamespace;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::ddl::SchemaCreator;
-use super::ddl_duckdb::DuckDbPreviewDdl;
-use crate::agentic_wiring::preview_airhouse::{
+use oxy_previews::ddl::SchemaCreator;
+use oxy_previews::ddl_duckdb::DuckDbPreviewDdl;
+
+use crate::preview_airhouse::{
     Lease, PreviewAirhouseBackend, PreviewAirhousePorts, Scope, Use, Writers,
 };
 
@@ -162,23 +164,29 @@ impl PreviewAirhousePorts for DuckDbAirhouse {
 
 #[cfg(test)]
 mod tests {
-    /// No server code names the stand-in: only this module and test files do.
+    /// No server code names the stand-in: only this module and test files do,
+    /// here and in `oxy-app`, which it left on 2026-11-22 (W3) and which
+    /// re-exports it at `server::previews::airhouse_duckdb`.
     #[test]
     fn the_duckdb_stand_in_is_never_wired_into_the_server() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut offenders = Vec::new();
-        visit(&src, &mut |path, text| {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default();
-            let test_file =
-                name.ends_with("tests.rs") || path.components().any(|c| c.as_os_str() == "tests");
-            let mentions = text.contains("DuckDbAirhouse") || text.contains("airhouse_duckdb::");
-            if mentions && !test_file && name != "airhouse_duckdb.rs" {
-                offenders.push(path.display().to_string());
-            }
-        });
+        for src in [manifest.join("src"), manifest.join("../app/src")] {
+            assert!(src.is_dir(), "{} is not readable", src.display());
+            visit(&src, &mut |path, text| {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                let test_file = name.ends_with("tests.rs")
+                    || path.components().any(|c| c.as_os_str() == "tests");
+                let mentions =
+                    text.contains("DuckDbAirhouse") || text.contains("airhouse_duckdb::");
+                if mentions && !test_file && name != "airhouse_duckdb.rs" {
+                    offenders.push(path.display().to_string());
+                }
+            });
+        }
         assert!(
             offenders.is_empty(),
             "server code uses the stand-in: {offenders:?}"

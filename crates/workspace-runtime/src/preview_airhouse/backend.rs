@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use oxy_shared::errors::OxyError;
 use uuid::Uuid;
 
-use crate::agentic_wiring::airhouse_pool::{self, PREVIEW_KEY_PREFIX};
+use crate::airhouse_pool::{self, PREVIEW_KEY_PREFIX};
 
 /// The credential a batch runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]

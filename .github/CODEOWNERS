@@ -177,7 +177,9 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # sinks, the runtime-artifact mirror); then (2026-11-22) project_ctx's connector
 # half, sql_exec, sql_http and server/preagg_workspace.rs; then (W2, the same
 # day) metric_tree_runner, scan_source and metric_tree_exec (whose own row,
-# under Metric Tree below, keeps its owners).
+# under Metric Tree below, keeps its owners); then (W3) the preview connector
+# (agentic_wiring/preview_airhouse) and its DuckDB double
+# (server/previews/airhouse_duckdb.rs).
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay

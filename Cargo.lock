@@ -11671,6 +11671,7 @@ dependencies = [
  "oxy-metric-monitoring",
  "oxy-observability",
  "oxy-oltp",
+ "oxy-previews",
  "oxy-semantic",
  "oxy-shared",
  "oxy-test-utils",

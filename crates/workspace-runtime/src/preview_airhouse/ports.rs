@@ -17,8 +17,8 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::backend::{AirhouseBackend, PreviewAirhouseBackend};
-use crate::server::previews::ddl::SchemaCreator;
-use crate::server::previews::ddl_airhouse::AirhousePreviewDdl;
+use oxy_previews::ddl::SchemaCreator;
+use oxy_previews::ddl_airhouse::AirhousePreviewDdl;
 
 /// Whether preview writes can land on this Airhouse.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -54,6 +54,8 @@ pub mod resource;
 pub mod sentry_filter;
 #[cfg(test)]
 mod sentry_filter_move_pins_tests;
+#[cfg(test)]
+mod sentry_filter_w3_pins_tests;
 pub mod sentry_surface;
 pub mod stderr_capture;
 pub mod with_dispatch;

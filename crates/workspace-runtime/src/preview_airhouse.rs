@@ -66,9 +66,9 @@ use airhouse::preview_sql::{PreviewNamespace, Refused, RewriteOptions, ShadowMap
 use async_trait::async_trait;
 use uuid::Uuid;
 
-pub use crate::server::previews::ddl::Ddl;
-pub use crate::server::previews::ddl_airhouse::system_ddl;
 pub use backend::{AirhouseBackend, Hold, Lease, PreviewAirhouseBackend, Scope, Use};
+pub use oxy_previews::ddl::Ddl;
+pub use oxy_previews::ddl_airhouse::system_ddl;
 pub use ports::{PipelineWriter, PreviewAirhousePorts, WorkspaceAirhouse, Writers};
 
 use batch::{Call, Plan};

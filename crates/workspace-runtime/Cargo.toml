@@ -16,7 +16,9 @@ agentic-core = { workspace = true }
 agentic-pipeline = { workspace = true }
 # `connector`: the pooled `AirhouseConnector`. `admin`: the token broker, the
 # wire endpoint and `UserRole`, which `ctx.airhouse` mints its credential with.
-airhouse = { workspace = true, features = ["connector", "admin"] }
+# `preview-sql`: the preview namespace, its rewrite and verifier
+# (`preview_airhouse`).
+airhouse = { workspace = true, features = ["connector", "admin", "preview-sql"] }
 # `metric_tree_runner`: the refresh-key cache the preagg short-circuit reads.
 agentic-semantic = { workspace = true }
 entity = { workspace = true }
@@ -36,6 +38,9 @@ oxy-observability = { workspace = true }
 # `resolver`: the read-only analyst connection a `type: oltp` database
 # translates to (`connector`).
 oxy-oltp = { workspace = true }
+# The preview schemas' DDL (`ddl`, `ddl_airhouse`, `ddl_duckdb`) the preview
+# connector and its DuckDB double send.
+oxy-previews = { workspace = true }
 # `metric_tree_exec`: the metric tree a projection validates against.
 oxy-semantic = { workspace = true }
 oxy-shared = { workspace = true }
@@ -46,6 +51,8 @@ arrow = { workspace = true }
 async-trait = { workspace = true }
 # `sql_http`: the SQL execute's HTTP answer.
 axum = { workspace = true }
+# `airhouse_duckdb`: the DuckDB connection the preview stand-in runs on.
+duckdb = { workspace = true }
 # `metric_tree_*`: dates and the trailing windows.
 chrono = { workspace = true }
 futures = { workspace = true }
@@ -72,6 +79,8 @@ duckdb = { workspace = true }
 agentic-runtime = { workspace = true }
 oxy-test-utils = { workspace = true }
 tempfile = { workspace = true }
+# `preview_airhouse`'s session tests run on a paused clock.
+tokio = { workspace = true, features = ["test-util"] }
 # `string_literal`'s tests build their `DatabaseType` fixtures from YAML.
 serde_yaml = { workspace = true }
 
