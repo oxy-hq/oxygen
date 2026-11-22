@@ -13,7 +13,10 @@ pub use oxy_compile_runtime::git as compile_git;
 pub use oxy_compile_runtime::maintenance as compile_maintenance;
 pub use oxy_compile_runtime::oltp as compile_oltp;
 pub mod compile_reconcile;
-pub mod compile_request;
+// The branch compile and its status read, `oxy-compile-runtime`'s `request`
+// since 2026-11-22; re-exported so the prelude, `compile_reconcile` and
+// `tests/platform` keep this path.
+pub use oxy_compile_runtime::request as compile_request;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;
 pub mod factory_access;

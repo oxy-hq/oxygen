@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -18,6 +18,8 @@ oxy = { workspace = true }
 # `process_role` and `workspace_repo_facts`.
 oxy-app-core = { workspace = true }
 oxy-compile = { workspace = true }
+# `request`: the working-copy fallback reads a branch's head and worktree.
+oxy-git = { workspace = true }
 # `manifest::is_safe_relative_path`: an unpacked entry's path check.
 oxy-custom-apps = { workspace = true }
 # The config gate's rollout flags (`cache`, `rollout`).
@@ -28,8 +30,13 @@ oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 
 flate2 = { workspace = true }
+# `request::Refusal::status`: the status code a route answers a refusal with.
+# The `http` types only (what `axum::http` re-exports), no web framework, as
+# oxy-tenancy and oxy-custom-apps take it.
+http = { workspace = true }
 reqwest = { workspace = true }
 sea-orm = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tar = { workspace = true }
@@ -40,6 +47,10 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# `request::status`'s tests build a revision row.
+chrono = { workspace = true }
 
 [lints]
 workspace = true

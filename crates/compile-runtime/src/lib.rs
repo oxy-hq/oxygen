@@ -12,14 +12,19 @@
 //!   through `oxy_compile::ConfigGate`.
 //! - [`oltp`]: apply a revision's OLTP schemas, then promote it.
 //! - [`maintenance`]: the stuck-compile reaper and the revision retention loop.
+//! - [`request`]: the branch or commit compile a person waits on, its status
+//!   read, and the compile task enqueue (was `server::compile_request`, moved
+//!   on 2026-11-22, the decompose's C2; re-exported at
+//!   `oxy_app::server::compile_request`).
 //!
 //! It is its own crate, not part of `oxy-compile`, because it needs
 //! `oxy-app-core` (the process role, the workspace's repository facts), and
 //! `oxy-app-core` depends on `oxy-compile`. The rest of `server::compile_*`
-//! (`compile_request`, `compile_reconcile`, `compile_worker`) follows it:
+//! (`compile_reconcile`, `compile_worker`) follows it:
 //! `internal-docs/domain-boundaries.md`, End state.
 
 pub mod config_gate;
 pub mod git;
 pub mod maintenance;
 pub mod oltp;
+pub mod request;

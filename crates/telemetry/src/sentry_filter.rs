@@ -1054,6 +1054,16 @@ mod tests {
             "oxy_compile_runtime::config_gate",
             "oxy_compile_runtime::oltp",
             "oxy_compile_runtime::maintenance",
+            // The branch compile, its status read and the compile task
+            // enqueue, down from `oxy-app`'s `server::compile_request` into
+            // `oxy-compile-runtime` (2026-11-22): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::request",
+            "oxy_compile_runtime::request::enqueue_task",
+            "oxy_compile_runtime::request::from_git",
+            "oxy_compile_runtime::request::main_source",
+            "oxy_compile_runtime::request::status",
+            "oxy_compile_runtime::request::working_copy",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
             // answer down from `api::data` into the workspace runtime. Kept,
@@ -1553,6 +1563,16 @@ mod tests {
             "oxy_compile_runtime::config_gate",
             "oxy_compile_runtime::oltp",
             "oxy_compile_runtime::maintenance",
+            // The branch compile, its status read and the compile task
+            // enqueue, down from `oxy-app`'s `server::compile_request` into
+            // `oxy-compile-runtime` (2026-11-22): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::request",
+            "oxy_compile_runtime::request::enqueue_task",
+            "oxy_compile_runtime::request::from_git",
+            "oxy_compile_runtime::request::main_source",
+            "oxy_compile_runtime::request::status",
+            "oxy_compile_runtime::request::working_copy",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data
             // plane, as `api::{semantic, semantic_scan, data, preagg}` were

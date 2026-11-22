@@ -7,7 +7,7 @@
 use entity::workspaces;
 use oxy::github::{BranchHeadError, GitHubClient, github_token_for_workspace};
 
-use crate::server::compile_git::{CompileGitError, github_repository};
+use crate::git::{CompileGitError, github_repository};
 
 /// Why GitHub is not where this branch can be compiled from. None of these
 /// passes on its own: someone has to push, connect GitHub, or compile once on

@@ -12,7 +12,7 @@ use entity::workspaces;
 
 use super::Refusal;
 use super::from_git::{Unresolved, branch_head};
-use crate::server::workspace_repo_facts::stored_default_branch;
+use oxy_app_core::workspace_repo_facts::stored_default_branch;
 
 /// What an operator's compile of `main` will read.
 #[derive(Debug, Clone, PartialEq, Eq)]

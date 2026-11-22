@@ -579,6 +579,12 @@ fn server_sources() -> Vec<(String, String)> {
     // walk above, and the agentic wiring's leaves). Not on the data plane;
     // walked so a gate call added there is seen.
     rust_files(&crate_root.join("../workspace-runtime/src"), &mut files);
+    // The compile boundary's runtime, `oxy-compile-runtime`'s since
+    // 2026-11-21 (was `src/server/compile_{git,oltp,config_gate,maintenance}`
+    // and, since 2026-11-22, `src/server/compile_request`, inside the walk
+    // above). Not on the data plane (Postgres, GitHub and the compile
+    // queue); walked so a gate call added there is seen.
+    rust_files(&crate_root.join("../compile-runtime/src"), &mut files);
     files.sort();
     files
         .into_iter()

@@ -81,6 +81,8 @@ AREAS = [
     ("crates/app/src/server/compile_oltp.rs",             "Compile boundary"),
     ("crates/app/src/server/compile_config_gate.rs",      "Compile boundary"),
     ("crates/app/src/server/compile_maintenance.rs",      "Compile boundary"),
+    # compile_request followed on 2026-11-22 (as compile-runtime's `request`).
+    ("crates/app/src/server/compile_request",             "Compile boundary"),
     ("crates/project",                                    "Project domain"),
     ("crates/workspace-fs",                               "Workspace FS"),
     ("crates/app-core",                                   "App-layer core seam"),

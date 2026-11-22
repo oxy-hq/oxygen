@@ -33,7 +33,7 @@ mod main_source;
 mod status;
 mod working_copy;
 
-use axum::http::StatusCode;
+use http::StatusCode;
 use oxy_compile::RevisionKind;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -197,7 +197,7 @@ async fn resolve(
         Target::Branch(branch) => branch.trim(),
         Target::Commit(sha) => {
             return Ok(Commit {
-                git_sha: crate::server::compile_git::commit_sha(Some(sha))
+                git_sha: crate::git::commit_sha(Some(sha))
                     .map_err(|e| Refusal::NotACommit(e.to_string()))?,
                 branch: None,
                 from_git: true,
@@ -252,15 +252,9 @@ async fn enqueue(
     const PROMOTE: bool = false;
     let branch = commit.branch.as_deref();
     if commit.from_git {
-        return Ok(crate::server::compile_git::enqueue(
-            db,
-            workspace_id,
-            &commit.git_sha,
-            branch,
-            kind,
-            PROMOTE,
-        )
-        .await?);
+        return Ok(
+            crate::git::enqueue(db, workspace_id, &commit.git_sha, branch, kind, PROMOTE).await?,
+        );
     }
     let branch = branch.ok_or_else(|| Refusal::internal("a working-copy compile has no branch"))?;
     enqueue_task::enqueue_compile_task(db, workspace_id, &commit.git_sha, branch, kind, PROMOTE)

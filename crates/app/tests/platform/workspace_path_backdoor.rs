@@ -63,7 +63,9 @@ const ALLOWED: &[(&str, &str)] = &[
          manager exists — the manager is what the compile produces",
     ),
     (
-        "src/server/compile_request/working_copy.rs",
+        // `oxy-compile-runtime`'s `request` since 2026-11-22 (was
+        // `src/server/compile_request/working_copy.rs`).
+        "../compile-runtime/src/request/working_copy.rs",
         "the branch compile's working-copy arm, for a branch GitHub does not have: \
          it creates and inspects the branch worktree (head SHA, clean check) to \
          decide what to compile, before any manager for that branch exists. Only \
@@ -159,7 +161,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../workspace-runtime/src"),
         // The compile boundary's runtime leaves, `oxy-compile-runtime` since
         // 2026-11-21 (out of `src/server/compile_{git,oltp,config_gate,
-        // maintenance}`).
+        // maintenance}`), and the branch compile since 2026-11-22 (out of
+        // `src/server/compile_request`).
         manifest.join("../compile-runtime/src"),
         // The feature-flag runtime's domain half, `oxy-feature-flags` since
         // 2026-11-20 (out of `src/server/feature_flags`).
