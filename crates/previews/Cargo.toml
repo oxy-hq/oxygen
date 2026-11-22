@@ -2,7 +2,7 @@
 name = "oxy-previews"
 version.workspace = true
 authors.workspace = true
-description = "Workspace previews' rows: the registry (`workspace_previews`), the preview schemas' registry and DDL, the namespace, the Airway sample sources, the request pin, and the preview run queue with its sweep and the custom-app preview settle. Below the workspace runtime, the workspace middleware, the compile worker and the previews surface (oxy-api-previews); no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "Workspace previews' rows: the registry (`workspace_previews`), the preview schemas' registry and DDL, the namespace, the Airway sample sources, the request pin, the read-only table, and the preview run queue with its sweep and the custom-app preview settle. Below the workspace runtime, the workspace middleware, the compile worker and the previews surface (oxy-api-previews); no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -23,7 +23,8 @@ airhouse = { workspace = true, features = ["admin", "preview-registry"] }
 entity = { workspace = true }
 # `database::client::establish_connection`: the pin reads the registry.
 oxy = { workspace = true }
-# `sql_kind`, re-exported at `previews::sql_kind`.
+# `sql_kind`, re-exported at `previews::sql_kind`; `pods::role_manifest::
+# pattern_matches`, which the read-only table matches routes with.
 oxy-app-core = { workspace = true }
 # `staging_pin::check_pinnable` (the pin) and `automation_run::settle` (the
 # custom-app preview settle).

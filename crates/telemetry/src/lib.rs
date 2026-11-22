@@ -105,6 +105,9 @@ pub fn directives_for_level(level: &str) -> String {
 }
 
 #[cfg(test)]
+mod sentry_filter_previews_pins_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use tracing_subscriber::EnvFilter;

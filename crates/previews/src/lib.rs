@@ -17,14 +17,18 @@
 //!   say so.
 //! - [`queue`]: the preview run queue, its sweep and ceiling, the compares
 //!   and change checks it queues, and the custom-app preview settle.
+//! - [`read_only`]: what a request pinned to a preview may still call, and
+//!   what a refusal says (P2, 2026-11-22; the axum adapter that applies it,
+//!   `check` and `refusal`, stays beside the workspace middleware in
+//!   `oxy-app`).
 //! - [`sql_kind`]: `oxy_app_core::sql_kind`, re-exported at its old path.
 //!
 //! It is its own crate because the preview platform (`agentic_wiring::
 //! preview_ctx`, on its way to `oxy-workspace-runtime`) and these rows named
 //! each other: the platform builds on the registry and the DDL, and the queue
 //! named the platform's sample kind (inverted: [`queue::sample_seed::RUN_KIND`]).
-//! What stays in `oxy-app` for now: `read_only` (after the route-role
-//! matcher goes down), `runtime` and `airhouse_duckdb` (with the preview
+//! What stays in `oxy-app` for now: `read_only`'s axum adapter (with the
+//! workspace middleware), `runtime` and `airhouse_duckdb` (with the preview
 //! platform): `internal-docs/domain-boundaries.md`, End state.
 
 pub mod ddl;
@@ -33,6 +37,7 @@ pub mod ddl_duckdb;
 pub mod namespace;
 pub mod pin;
 pub mod queue;
+pub mod read_only;
 pub mod registry;
 pub mod sources;
 pub mod sql_kind;

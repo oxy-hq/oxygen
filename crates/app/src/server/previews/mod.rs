@@ -73,9 +73,10 @@
 //! and DDL, the namespace, the sources, the pin and the run queue in `queue`,
 //! including the per-pass runs' sweep the global driver calls inline — are the
 //! `oxy-previews` crate, re-exported here at their old paths. What is still
-//! here: the read-only guard ([`read_only`]), the run platform ([`runtime`])
-//! and the DuckDB double ([`airhouse_duckdb`]), which go down with the route
-//! matcher and the preview platform. The upper half — the
+//! here: the read-only guard's axum adapter ([`read_only`]; its table went
+//! down to `oxy_previews::read_only` on 2026-11-22, P2), the run platform
+//! ([`runtime`]) and the DuckDB double ([`airhouse_duckdb`]), which go down
+//! with the workspace middleware and the preview platform. The upper half — the
 //! `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
 //! `checks`, `compare`, `sample`, `drop`, `runs` and `maintenance` — is
 //! `oxy-api-previews`, mounted through `SurfaceSeams::previews`, `tasks` and

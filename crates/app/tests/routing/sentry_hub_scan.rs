@@ -605,7 +605,7 @@ fn server_sources() -> Vec<(String, String)> {
     rust_files(&crate_root.join("../compile-runtime/src"), &mut files);
     // Workspace previews' rows, `oxy-previews`' since 2026-11-22 (was
     // `src/server/previews/{ddl*,namespace,pin,registry,sources*,store,
-    // queue}` and `src/server/api/projects/automation_run/preview_settle.rs`,
+    // queue}` and, since P2, `read_only`'s table, and `src/server/api/projects/automation_run/preview_settle.rs`,
     // inside the walk above). Not on the data plane (the registry's own
     // tables and the preview's Airhouse schemas); walked so a gate call
     // added there is seen.

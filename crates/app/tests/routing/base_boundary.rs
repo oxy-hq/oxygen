@@ -100,8 +100,10 @@ const BACKLOG: &[(&str, &str)] = &[
     // (The subscription guard's ask of billing, whether billing is switched
     // off, cleared on 2026-11-21: the gate moved down to `oxy_billing::gate`.)
     ("server::api::middlewares", "server::factory_access"),
-    // Previews: the read-only guard (`previews::read_only`). The pin went
-    // down to `oxy-previews` on 2026-11-22.
+    // Previews: the read-only guard's axum adapter (`previews::read_only::
+    // check`). The pin went down to `oxy-previews` on 2026-11-22, and the
+    // read-only table with it (P2); `check` buffers an axum body, so it
+    // stays beside the middleware and goes with it (W7).
     ("server::api::middlewares", "server::previews"),
     // (`IdeState` and `FleetState`, which the middleware and `role_router`
     // reached in the router's `mod.rs`, cleared on 2026-11-22: the two went

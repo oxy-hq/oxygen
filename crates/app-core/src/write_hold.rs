@@ -1,7 +1,7 @@
 //! A workspace-preview **request** cannot write — enforced where work
 //! executes, not by the route it arrived on.
 //!
-//! `oxy-app`'s `previews::read_only` refuses a preview request by route before a handler
+//! `oxy_previews::read_only` refuses a preview request by route before a handler
 //! runs. That table cannot see what an allowed route does next: rendering a
 //! data app runs the branch's task SQL and HTTP calls, `/sql/*` runs whatever
 //! it is sent, and a chat run can delegate to a branch automation. So the
