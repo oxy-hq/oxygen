@@ -1,6 +1,6 @@
 //! What the periodic driver's cloud tick did, for `GET /metrics`.
 //!
-//! Process-local atomics, read by `worker_metrics::metrics` through
+//! Process-local atomics, read by `oxy-server`'s `worker_metrics::metrics` through
 //! [`push_prometheus`] — the same arrangement as the reap counters in
 //! `agentic_runtime::crud`. They live here rather than in `worker_metrics`
 //! because the tick is what increments them, and the tick must not depend on
@@ -54,7 +54,7 @@ pub(super) fn record_reconcile_skipped() {
 /// Exported unconditionally, at 0 before the first tick, so a per-target
 /// `== 0` has a series to match on — the absent-vs-zero rule the rest of
 /// `worker_metrics` follows.
-pub(crate) fn push_prometheus(body: &mut String) {
+pub fn push_prometheus(body: &mut String) {
     body.push_str(
         "# HELP oxy_periodic_ticks_total Periodic global-driver cloud ticks run by this process. PROCESS-LOCAL: aggregate with sum across replicas.\n\
          # TYPE oxy_periodic_ticks_total counter\n",

@@ -57,15 +57,11 @@ pub use oxy_workspace_runtime::runtime_artifact;
 // `oxy-app-core`'s `pods::servability` since 2026-11-22 (decompose G3).
 pub use oxy_app_core::pods::servability;
 pub mod service;
-pub mod shared_state_check;
 // The task router's LISTEN settings, `oxy-app-core`'s `listener` since 2026-11-22.
 pub use oxy_app_core::listener as task_router_listener;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod token_usage_flush;
-pub mod worker_health;
-pub mod worker_metrics;
-pub mod worker_runtime;
 pub mod workspace_fs;
 pub use oxy_app_core::workspace_repo_facts;
 

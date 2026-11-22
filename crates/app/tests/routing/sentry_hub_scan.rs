@@ -483,6 +483,27 @@ const GATE_ENTRY_POINTS: [&str; 3] = [
     "enter_semantic_boundary",
 ];
 
+/// The `oxy` binary's files [`server_sources`] walks, each once `oxy-app`'s.
+///
+/// The health probes and route discovery, `oxy-server`'s since 2026-11-16
+/// (was `src/server/api/{healthcheck,catalog}.rs`, inside the `src/server`
+/// walk). The standalone worker's runtime, health listener and metrics, and
+/// the boot-time shared-state check, `oxy-server`'s since 2026-11-22 (was
+/// `src/server/{worker_runtime,worker_health,worker_metrics,
+/// shared_state_check}.rs`, inside the same walk). None is on the data plane;
+/// walked so a gate call added there is seen.
+fn oxy_server_sources(crate_root: &Path, files: &mut Vec<PathBuf>) {
+    rust_files(&crate_root.join("../server/src/core_routes"), files);
+    for file in [
+        "worker_runtime.rs",
+        "worker_health.rs",
+        "worker_metrics.rs",
+        "shared_state_check.rs",
+    ] {
+        files.push(crate_root.join("../server/src").join(file));
+    }
+}
+
 /// Every source file under `src/server`, under `oxy-api-custom-apps`
 /// (`../api-custom-apps/src`, where the function runtime, the job executor
 /// and publish now live) and under `oxy-api-world-model`'s customer-app
@@ -554,11 +575,8 @@ fn server_sources() -> Vec<(String, String)> {
     // (was `src/server/api/compile_staging.rs`, inside the walk above). Not
     // on the data plane; walked so a gate call added there is seen.
     files.push(crate_root.join("../api-previews/src/compile_staging.rs"));
-    // The health probes and route discovery, `oxy-server`'s since
-    // 2026-11-16 (was `src/server/api/{healthcheck,catalog}.rs`, inside
-    // the walk above). Not on the data plane; walked so a gate call added
-    // there is seen.
-    rust_files(&crate_root.join("../server/src/core_routes"), &mut files);
+    // `oxy-server`'s files: see `oxy_server_sources`.
+    oxy_server_sources(crate_root, &mut files);
     // The conversation surface, `oxy-api-threads`' since 2026-11-16 (was
     // `src/server/api/{thread,agent,artifacts,chart,result_files}.rs` and
     // `chat/`, inside the walk above). Not on the data plane (the IDE's

@@ -46,10 +46,13 @@
 //! here, and re-seal every value the sources in `key_check` list.
 
 mod aws;
+mod entry;
 mod row;
 mod store;
 #[cfg(test)]
 mod tests;
+
+pub use entry::open_master_key;
 
 use std::future::Future;
 use std::path::Path;

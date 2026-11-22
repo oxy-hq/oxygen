@@ -46,7 +46,7 @@ pub async fn start_server_and_web_app(
     // Any role but `all` shares state with other nodes, and these settings are
     // what make the state shareable. Refuse here, before anything is built,
     // rather than boot onto this node's disk.
-    oxy_app::host::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
+    crate::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // Same reason for sign-in: a fleet process with no provider would serve
     // every request as the guest user.
     oxy_app::host::auth_provider_check::check(
@@ -139,7 +139,7 @@ pub async fn start_server_and_web_app(
     // In Kubernetes: the master key, from `server_keys` (sealed by KMS), before
     // anything can seal a value. Again after migrations, for a database that had
     // no `server_keys` yet.
-    oxy_app::host::shared_state_check::load_master_key()
+    crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     if oxy_app::host::migrations::skip_migrations_requested() {
@@ -151,10 +151,10 @@ pub async fn start_server_and_web_app(
     // Every role, `all` included: refuse a key that cannot open what this
     // database's secrets were sealed with. After migrations, because the check
     // value lives in `server_keys`.
-    oxy_app::host::shared_state_check::load_master_key()
+    crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    oxy_app::host::shared_state_check::check_encryption_key()
+    crate::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     // Mutes made on a previous release while it was rolled back to reach the

@@ -154,9 +154,9 @@ pub const HEALTH_PROBE_CHANNEL: &str = "oxy_health_probe";
 ///
 /// Same shape, and the same reasoning, as `crud::TASKS_REQUEUED`: a
 /// process-local static read directly by the exporter, because
-/// `oxy-app`'s `/metrics` handler holds no reference to the router the
+/// `oxy worker`'s `/metrics` handler holds no reference to the router the
 /// orchestrator built and `agentic-runtime` must never depend on
-/// `oxy-app`. Exported by `oxy_app::server::worker_metrics`.
+/// `oxy-app`. Exported by `oxy-server`'s `worker_metrics`.
 ///
 /// The per-receipt line is still emitted, at `debug`, so an interactive
 /// `RUST_LOG=debug` session can still watch individual probes land.

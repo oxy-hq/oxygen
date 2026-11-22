@@ -1,10 +1,14 @@
 //! `oxy serve` and `oxy worker` refuse to start, naming the setting, when they
 //! are not the single process and the state every node must share is missing.
 //!
-//! The unit tests in `server/shared_state_check.rs` pin the rule against a
-//! fake environment. These run the real binary, because what the operator
+//! The unit tests in `shared_state_check.rs`, beside this file, pin the rule
+//! against a fake environment. These run the real binary, because what the operator
 //! meets is the process exiting, and the check is only worth anything if it is
 //! wired into both entry points and runs before they do anything else.
+//!
+//! Was `oxy-app`'s `tests/platform/shared_state_boot.rs` until 2026-11-22
+//! (decompose UP2), when the check moved up into this binary with the entry
+//! points it guards. It imports nothing; it runs the built `oxy` binary.
 
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};

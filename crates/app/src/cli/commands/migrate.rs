@@ -32,7 +32,7 @@ pub async fn migrate() -> Result<(), OxyError> {
     // row; that stays with `oxy serve` / `oxy worker`, which compare it. A
     // fresh database has no `server_keys` yet, and nothing to seal either.
     if std::env::var(oxy::utils::ENCRYPTION_KEY_VAR).is_err() {
-        crate::server::shared_state_check::open_master_key()
+        oxy::adapters::secrets::master_key::open_master_key()
             .await
             .map_err(OxyError::RuntimeError)?;
     }

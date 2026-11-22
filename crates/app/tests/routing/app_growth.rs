@@ -74,12 +74,10 @@ const SERVER: &[&str] = &[
     // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
     // 2026-11-21 (re-exported in `server/mod.rs`).
     "service",
-    "shared_state_check",
     "test_support",
     "token_usage_flush",
-    "worker_health",
-    "worker_metrics",
-    "worker_runtime",
+    // `worker_health`, `worker_metrics`, `worker_runtime` and
+    // `shared_state_check` moved up into `oxy-server` on 2026-11-22 (UP2).
     "workspace_fs",
 ];
 

@@ -52,6 +52,7 @@ oxy-api-operating-graph = { path = "../api-operating-graph" }
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-custom-apps = { workspace = true }
 oxy-app-core = { workspace = true }
+oxy-workspace-runtime = { workspace = true }
 # The feature-flag cache `serve` and `worker` load at boot.
 oxy-feature-flags = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
@@ -83,6 +84,8 @@ axum = { workspace = true }
 # The long-lived commands (`src/commands`): `serve`'s listener, SPA embed and
 # Swagger UI; `worker`'s runtime; `start`'s Airhouse and Docker bring-up.
 agentic-runtime = { workspace = true }
+agentic-http = { workspace = true }
+agentic-pipeline = { workspace = true }
 airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql"] }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
@@ -93,6 +96,7 @@ sea-orm = { workspace = true }
 # The health probes and route discovery (`core_routes`): their bodies, their
 # OpenAPI operations and the probes' share of the served document.
 serde = { workspace = true }
+serde_json = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 tokio-util = { workspace = true }
@@ -130,12 +134,11 @@ oxy-authz = { workspace = true }
 oxy-oltp = { workspace = true }
 oxy-billing = { workspace = true }
 oxy-cameras = { workspace = true }
-agentic-pipeline = { workspace = true }
+agentic-core = { workspace = true }
 entity = { workspace = true }
 migration = { workspace = true }
 chrono = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
-serde_json = { workspace = true }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here

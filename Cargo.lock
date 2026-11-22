@@ -11311,6 +11311,8 @@ dependencies = [
 name = "oxy-server"
 version = "0.5.161"
 dependencies = [
+ "agentic-core",
+ "agentic-http",
  "agentic-pipeline",
  "agentic-runtime",
  "airhouse",
@@ -11371,6 +11373,7 @@ dependencies = [
  "oxy-shared",
  "oxy-telemetry",
  "oxy-test-utils",
+ "oxy-workspace-runtime",
  "rustls 0.23.43",
  "sea-orm",
  "sentry",

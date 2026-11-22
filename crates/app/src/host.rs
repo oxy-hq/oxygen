@@ -26,14 +26,9 @@ pub mod role_manifest {
     pub use crate::server::role_manifest::*;
 }
 
-/// Boot-time refusals: a process environment, encryption key or auth provider
-/// that cannot serve the role it was started in.
-pub mod shared_state_check {
-    pub use crate::server::shared_state_check::{
-        check_encryption_key, check_process_env, load_master_key,
-    };
-}
-
+/// Boot-time refusals: an auth provider that cannot serve the role it was
+/// started in. (The process-environment and encryption-key checks,
+/// `shared_state_check`, moved up into `oxy-server` on 2026-11-22.)
 pub mod auth_provider_check {
     pub use crate::server::auth_provider_check::{check, provider_configured};
 }
@@ -88,12 +83,18 @@ pub mod http_cache {
     pub use crate::server::http_cache::{if_none_match, weak_etag};
 }
 
-/// The standalone worker's runtime, health listener and metrics.
+/// What the standalone worker builds its pre-aggregation context from. Its
+/// runtime, health listener and metrics moved up into `oxy-server` on
+/// 2026-11-22 (decompose UP2).
 pub mod worker {
     pub use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-    pub use crate::server::worker_health::{self, WorkerHealthState};
-    pub use crate::server::worker_metrics::{ConcurrencyCaps, MetricsState};
-    pub use crate::server::worker_runtime::WorkerRuntime;
+}
+
+/// The periodic driver's tick counters in Prometheus text, which the worker's
+/// `GET /metrics` (`oxy-server`'s `worker_metrics`) appends. The tick that
+/// increments them stays here.
+pub mod periodic_metrics {
+    pub use crate::server::router::periodic::metrics::push_prometheus;
 }
 
 /// The custom-app bundle cache's byte budget, sized at boot.

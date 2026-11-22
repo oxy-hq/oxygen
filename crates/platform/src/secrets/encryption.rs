@@ -8,9 +8,9 @@
 //!
 //! Steps 2 and 3 are for a single process (`OXY_ROLE=all`, `oxy start`).
 //! `oxy serve` and `oxy worker` refuse to start in any other role without the
-//! env var — see `oxy_app::server::shared_state_check` — because a file key is
-//! per node, and a second node would mint its own and fail to read what the
-//! first sealed.
+//! env var — see `shared_state_check` in the `oxy` binary (`crates/server`) —
+//! because a file key is per node, and a second node would mint its own and
+//! fail to read what the first sealed.
 //!
 //! Step 3 is also refused, as a panic naming the variable, in any process that
 //! is not the single process: one whose `OXY_ROLE` is `ide`, `serve` or
@@ -261,7 +261,7 @@ mod tests {
 
     // `forbid_key_file_creation` is process-wide and never called in this
     // test binary, so only the `OXY_ROLE` half is exercised here; the boot
-    // test in `oxy-app` (`shared_state_boot`) covers the entry points.
+    // test in `oxy-server` (`shared_state_boot_tests`) covers the entry points.
     #[test]
     fn a_fleet_role_may_not_create_the_key_file() {
         for role in ["ide", "serve", "worker", " worker "] {

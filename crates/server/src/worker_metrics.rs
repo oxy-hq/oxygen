@@ -238,7 +238,7 @@ pub async fn metrics(State(state): State<MetricsState>) -> Response {
     push_abandoned_isolates(&mut body);
     // The periodic driver's claim counters: process-local like the reap
     // counters, read straight from their statics.
-    crate::server::router::periodic::metrics::push_prometheus(&mut body);
+    oxy_app::host::periodic_metrics::push_prometheus(&mut body);
     push_router_probe(
         &mut body,
         agentic_runtime::router::PROBES_RECEIVED.load(std::sync::atomic::Ordering::Relaxed),

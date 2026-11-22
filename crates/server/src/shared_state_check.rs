@@ -155,15 +155,9 @@ pub async fn load_master_key() -> Result<(), String> {
     oxy::adapters::secrets::master_key::load_at_boot(&db).await
 }
 
-/// For `oxy migrate`: in Kubernetes, open `server_keys` row `master_key` when
-/// it is there. Never seals a new one.
-pub async fn open_master_key() -> Result<(), String> {
-    if oxy::adapters::secrets::master_key::pod_namespace().is_none() {
-        return Ok(());
-    }
-    let db = master_key_db().await?;
-    oxy::adapters::secrets::master_key::open_at_boot(&db).await
-}
+// `oxy migrate`'s counterpart, `open_master_key`, went down to
+// `oxy_platform::secrets::master_key` on 2026-11-22 (decompose UP2): the
+// command is still `oxy-app`'s, and this module is the binary's.
 
 async fn master_key_db() -> Result<sea_orm::DatabaseConnection, String> {
     oxy::database::client::establish_connection()

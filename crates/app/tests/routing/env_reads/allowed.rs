@@ -1025,7 +1025,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_WORKER_MAX_INFLIGHT",
-        "crates/app/src/server/worker_metrics.rs",
+        "crates/server/src/worker_metrics.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

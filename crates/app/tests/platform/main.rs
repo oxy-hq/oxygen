@@ -115,7 +115,8 @@ mod run;
 mod run_retention;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
-mod shared_state_boot;
+// `shared_state_boot` moved to `oxy-server` (a unit-test module of the
+// binary) with `shared_state_check` on 2026-11-22 (decompose UP2).
 // `usage_report` moved to `oxy-api-billing`'s integration group with the
 // usage report's surface (admin split, PR 8b).
 mod walker_storage_divergence;

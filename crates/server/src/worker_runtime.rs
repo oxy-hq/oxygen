@@ -18,14 +18,12 @@
 
 use std::sync::Arc;
 
-use crate::server::task_router_listener::{
-    listener_factory_from_env, listener_tls_verification_from_env,
-};
 use agentic_runtime::background;
 use agentic_runtime::router::{
     DEFAULT_LISTENER_KEEPALIVE_INTERVAL, PostgresTaskRouter, PostgresTaskRouterOptions, TaskRouter,
 };
 use oxy::database::client::establish_connection;
+use oxy_app_core::listener::{listener_factory_from_env, listener_tls_verification_from_env};
 use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 use tokio_util::sync::CancellationToken;
@@ -38,8 +36,13 @@ pub struct WorkerRuntime {
     pub db: DatabaseConnection,
     pub router: Arc<dyn TaskRouter>,
     /// Cancel to stop the LISTEN/NOTIFY listener loop.
+    // Never read by `oxy worker` (shutdown goes through the umbrella token
+    // that `start` cascades into both); kept as the handle it always was. In
+    // `oxy-app`'s lib a `pub` field was never flagged; in the binary it is.
+    #[allow(dead_code)]
     pub router_cancel: CancellationToken,
     /// Cancel to stop the reaper + health-probe background tasks.
+    #[allow(dead_code)]
     pub background_cancel: CancellationToken,
 }
 
@@ -109,7 +112,7 @@ impl WorkerRuntime {
     }
 
     /// Build the `AgenticState` the run-driving loops in
-    /// [`crate::server::router::recovery`] take, reusing the DB handle and
+    /// [`oxy_app::host::router::recovery`] take, reusing the DB handle and
     /// router this runtime already owns.
     ///
     /// This is `new_agentic_state`'s tail, and deliberately only its tail. The
@@ -125,14 +128,14 @@ impl WorkerRuntime {
     ///   that died. A worker restart carries no such premise: the IDE node may
     ///   be mid-run, and stamping its runs `needs_resume` would put a red
     ///   banner over live work. Same asymmetry that makes the worker pass
-    ///   [`StartupPass::Skip`](crate::server::router::recovery::StartupPass).
+    ///   [`StartupPass::Skip`](oxy_app::host::router::recovery::StartupPass).
     ///
     /// `shutdown` must be the same umbrella token passed to [`Self::start`], so
     /// the driver loops exit with the router and the reaper rather than
     /// outliving them.
     pub fn agentic_state(&self, shutdown: CancellationToken) -> Arc<agentic_http::AgenticState> {
         let thread_owner: Arc<dyn agentic_pipeline::platform::ThreadOwnerLookup> = Arc::new(
-            crate::agentic_wiring::OxyThreadOwnerLookup::new(self.db.clone()),
+            oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup::new(self.db.clone()),
         );
         Arc::new(
             agentic_http::AgenticState::new(shutdown, self.db.clone(), thread_owner)

@@ -1,7 +1,7 @@
 //! Boot-time refusal: a process must not start with an encryption key that
 //! cannot open what this database's secrets were sealed with.
 //!
-//! `shared_state_check` (in `oxy-app`) makes sure `OXY_ENCRYPTION_KEY` is
+//! `shared_state_check` (in `oxy-server`) makes sure `OXY_ENCRYPTION_KEY` is
 //! *set* on every fleet pod. Nothing checked that it is the *right* key. A
 //! wrong one is silent: each sealed value fails to open where it is read
 //! (measured in staging, 2026-10-28: a worker logged `Decryption failed:

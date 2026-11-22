@@ -52,6 +52,8 @@ pub mod otel;
 pub mod propagation;
 pub mod resource;
 pub mod sentry_filter;
+#[cfg(test)]
+mod sentry_filter_move_pins_tests;
 pub mod sentry_surface;
 pub mod stderr_capture;
 pub mod with_dispatch;

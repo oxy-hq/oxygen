@@ -84,7 +84,7 @@ impl WorkerHealthState {
 pub async fn spawn(
     port: u16,
     state: WorkerHealthState,
-    metrics_state: Option<crate::server::worker_metrics::MetricsState>,
+    metrics_state: Option<crate::worker_metrics::MetricsState>,
     shutdown: CancellationToken,
 ) -> Result<JoinHandle<()>, OxyError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -99,7 +99,7 @@ pub async fn spawn(
 
     let router = if let Some(ms) = metrics_state {
         let metrics_router = Router::new()
-            .route("/metrics", get(crate::server::worker_metrics::metrics))
+            .route("/metrics", get(crate::worker_metrics::metrics))
             .with_state(ms);
         Router::new().merge(health_router).merge(metrics_router)
     } else {

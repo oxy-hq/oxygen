@@ -77,7 +77,7 @@ PG_PORT="${PG_PORT:-5432}"
 DB_URL="postgresql://admin:password@localhost:${PG_PORT}/oxy"
 # Native mode starts nodes with OXY_ROLE=ide / serve, and `oxy serve` refuses any
 # role but `all` without a shared key and the two custom-app buckets
-# (server/shared_state_check.rs), so native mode brings its own MinIO beside the
+# (crates/server/src/shared_state_check.rs), so native mode brings its own MinIO beside the
 # Postgres. The key is the disposable fixture value docker-compose.fleet.yml uses.
 MINIO_CONTAINER="${MINIO_CONTAINER:-oxy-fleet-assert-minio}"
 MINIO_PORT="${MINIO_PORT:-9100}"

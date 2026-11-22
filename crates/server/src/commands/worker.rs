@@ -47,10 +47,10 @@ use super::serve;
 // Aliased: this module already has a `spawn_recovery` (the reaper pre-pass
 // loop below), and the two are genuinely different jobs — one reaps stale
 // queue rows, the other drives runs.
+use crate::worker_health::{self, WorkerHealthState};
+use crate::worker_runtime::WorkerRuntime;
 use oxy_app::host::router::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
 use oxy_app::host::worker::PreaggCacheCtx;
-use oxy_app::host::worker::WorkerRuntime;
-use oxy_app::host::worker::{WorkerHealthState, worker_health};
 
 /// Default cadence for the standalone-worker recovery loop. Same default the
 /// in-process driver uses (`OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS`).
@@ -99,7 +99,7 @@ const _: () = assert!(
      four before changing it: the terminationGracePeriodSeconds bullet's \
      `reachable when` table and both `graceful shutdown takes...` \
      troubleshooting rows in internal-docs/worker-fleet.md, and the metrics() \
-     doc comment in crates/app/src/server/worker_metrics.rs. They all assume \
+     doc comment in crates/server/src/worker_metrics.rs. They all assume \
      tick_once short-circuits at the default interval"
 );
 
@@ -134,7 +134,7 @@ const _: () = assert!(
     "shutdown worst case changed. FOUR sites publish these magnitudes: the 45s \
      row and the 50s recommendation in internal-docs/worker-fleet.md's \
      terminationGracePeriodSeconds table; the metrics() doc comment in \
-     crates/app/src/server/worker_metrics.rs; and the two troubleshooting rows \
+     crates/server/src/worker_metrics.rs; and the two troubleshooting rows \
      in worker-fleet.md that quote the drain log lines VERBATIM as grep \
      strings - those strings derive their numbers from these consts, so \
      changing one silently makes the runbook's grep miss. Update all four, \
@@ -281,7 +281,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     require_database_url()?;
     // A worker is never the single process unless OXY_ROLE=all says so; its
     // secrets and custom-app files must come from state every node can read.
-    oxy_app::host::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
+    crate::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // And it is never the guest-mode single process either: refuse without a
     // sign-in provider, as `serve` does for its fleet roles.
     oxy_app::host::auth_provider_check::check(
@@ -306,7 +306,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
 
     // As at `oxy serve` boot: in Kubernetes, the master key from `server_keys`
     // (sealed by KMS), before and after migrations.
-    oxy_app::host::shared_state_check::load_master_key()
+    crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     if args.skip_migrations || oxy_app::host::migrations::skip_migrations_requested() {
@@ -318,10 +318,10 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     }
     // As at `oxy serve` boot: a key that cannot open this database's sealed
     // values is refused before the worker claims anything off the queue.
-    oxy_app::host::shared_state_check::load_master_key()
+    crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    oxy_app::host::shared_state_check::check_encryption_key()
+    crate::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     // As at `oxy serve` boot: a rollback's mutes, into the settings table.
@@ -491,7 +491,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     // `oxy_queue_depth_claimed`) against `oxy_worker_capacity`.
     let health_handle = match health_port {
         Some(port) => {
-            let metrics_state = oxy_app::host::worker::MetricsState {
+            let metrics_state = crate::worker_metrics::MetricsState {
                 worker_id: std::sync::Arc::new(worker_id.clone()),
                 version,
                 db: std::sync::Arc::new(
@@ -503,7 +503,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
                             ))
                         })?,
                 ),
-                capacity: oxy_app::host::worker::ConcurrencyCaps::from_env(),
+                capacity: crate::worker_metrics::ConcurrencyCaps::from_env(),
             };
             Some(
                 worker_health::spawn(port, health_state, Some(metrics_state), shutdown.clone())

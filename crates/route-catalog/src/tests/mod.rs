@@ -232,7 +232,7 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     // moved it out of `serve.rs`: outside `/api`, deliberately out of scope.
     "crates/server/src/custom_apps_seams.rs",
     // The `oxy worker --health-port` surface: /healthz, /readyz, /metrics.
-    "crates/app/src/server/worker_health.rs",
+    "crates/server/src/worker_health.rs",
     // The `OXY_METRICS_PORT` surface on serve/ide: `/metrics`, on its own
     // listener rather than the product router. Not an API route and
     // deliberately not in the catalog — it is scraped in-cluster, carries
