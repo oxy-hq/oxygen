@@ -960,7 +960,7 @@ jobs:
           # output, so a formatting change in a new release would fail every PR.
           # Keep in step with `just hakari`.
           tools: cargo-hakari@0.9.39
-      - name: Clippy, hakari and lint inheritance
+      - name: Clippy, hakari, lint inheritance and crate layering
         run: |
           # crates/workspace-hack must match the dependency graph, or builds
           # go back to compiling registry crates once per feature set. Fix
@@ -971,6 +971,17 @@ jobs:
           # `[lints] workspace = true`, and Cargo cannot make that the
           # default — a new crate without it lints clean with every rule off.
           python3 scripts/ci/verify-workspace-lints.py
+          # The dependency-direction rules in internal-docs/backend-architecture.md
+          # and crates/agentic/CLAUDE.md are marked HARD and were enforced by
+          # review alone, which is how a layering mistake reads as a normal
+          # import in a diff. What fails these lines is decided in
+          # scripts/ci/crate-layers.toml, not here — including the rule that a
+          # new crate under crates/agentic/ must be placed in a layer, since an
+          # unplaced crate is an unchecked one. The self-test runs first and
+          # costs milliseconds: a checker broken into always-passing is the one
+          # failure this step cannot report about itself.
+          python3 scripts/ci/check-crate-layering.py --self-test
+          python3 scripts/ci/check-crate-layering.py
           # What fails this step is decided in the root Cargo.toml, not here:
           # `[workspace.lints]` names the bug-shaped lints that are errors
           # and switches the cosmetic groups off, so `cargo clippy` on a

@@ -65,6 +65,10 @@ jobs:
               # The lint-inheritance check the cargo `check` task runs; without
               # this a change to the check does not run the job it lives in.
               - "scripts/ci/verify-workspace-lints.py"
+              # Same for the crate-layering check in that step, and the rules it
+              # reads — a PR that only edits either must run the job that runs it.
+              - "scripts/ci/check-crate-layering.py"
+              - "scripts/ci/crate-layers.toml"
               # Same for the memory watermark the `test` task runs.
               - "scripts/ci/mem-watermark.sh"
               # The test selector, the partitions' test summary and the

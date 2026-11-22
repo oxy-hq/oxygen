@@ -1,0 +1,103 @@
+# Layer membership and the dependency-direction rules checked by
+# scripts/ci/check-crate-layering.py.
+#
+# The rules themselves are not invented here. They are the HARD rules of
+# internal-docs/backend-architecture.md ("Dependency Direction") and the layer
+# table in crates/agentic/CLAUDE.md, which until now were prose that only a
+# reviewer could enforce.
+#
+# Adding a crate under crates/agentic/ without listing it in a layer below fails
+# the check, on purpose: an unplaced crate is an unchecked one, and the rule
+# exists for exactly the new crate someone wires up wrong.
+#
+# Rules are written as FORBID lists, never allowlists. The docs state the
+# "must NOT depend on" column explicitly, while their "may depend on" columns
+# have already drifted (the agentic table predates agentic-semantic, which
+# analytics and automation both legitimately use). A forbid list cannot produce
+# a false failure when a legitimate new edge appears; an allowlist would.
+
+[layers]
+# The bottom of the platform. oxy-shared depends on nothing agentic and
+# everything may depend on it.
+platform = ["oxy", "oxy-project", "oxy-shared"]
+
+# The platform crates that only the facade and the transport may import, as the
+# "only allowed upward dependency" rule in backend-architecture.md has it.
+# Deliberately overlaps `platform` above, and deliberately leaves out
+# oxy-shared: that one is below everything and every layer may depend on it, so
+# forbidding the `platform` layer wholesale would fail on correct code.
+platform_upper = ["oxy", "oxy-project"]
+
+# The pure FSM framework. Zero agentic dependencies, by design.
+agentic_core = ["agentic-core"]
+
+# Execution infrastructure: run rows, events, suspensions, the task queue.
+agentic_runtime = ["agentic-runtime"]
+
+# Infrastructure the domains sit on. agentic-semantic is placed here by its
+# dependencies (core + connector + oxy-shared), not by the table in
+# crates/agentic/CLAUDE.md, which does not mention it.
+agentic_infra = ["agentic-connector", "agentic-llm", "agentic-semantic"]
+
+# Sibling domains. None may import another; cross-domain delegation goes
+# through the agentic-core::subrun contract. agentic-airway is placed here by
+# its dependencies (core + runtime), for the same reason as agentic-semantic.
+agentic_domain = ["agentic-analytics", "agentic-automation", "agentic-airway"]
+
+# Facade / composition. May depend on every agentic crate and on oxy.
+agentic_facade = ["agentic-pipeline"]
+
+# Transport. Enters agentic only through the facade.
+agentic_transport = ["agentic-http"]
+
+# The one crate allowed to declare the `airlayer` dependency.
+airlayer_owner = ["oxy-airlayer-compat"]
+
+[[rules]]
+name = "platform-never-agentic"
+from = "platform"
+forbid = ["*agentic"]
+why = "Platform crates must never import any agentic-* crate (shipped graph; dev-dependencies are exempt)."
+
+[[rules]]
+name = "core-is-pure"
+from = "agentic_core"
+forbid = ["*agentic"]
+why = "Core is the pure FSM framework — zero agentic dependencies."
+
+[[rules]]
+name = "runtime-above-core-only"
+from = "agentic_runtime"
+forbid = ["agentic_domain", "agentic_infra", "agentic_facade", "agentic_transport"]
+why = "Runtime may depend on core and nothing else inside agentic."
+
+[[rules]]
+name = "infra-never-upward"
+from = "agentic_infra"
+forbid = ["agentic_domain", "agentic_runtime", "agentic_facade", "agentic_transport"]
+why = "Infrastructure may depend on core and oxy-shared, never on a domain or above."
+
+[[rules]]
+name = "domains-are-siblings"
+from = "agentic_domain"
+forbid = ["agentic_domain", "agentic_facade", "agentic_transport"]
+why = "Sibling domains must never import each other; delegation goes through agentic-core::subrun."
+
+[[rules]]
+name = "transport-enters-through-the-facade"
+from = "agentic_transport"
+forbid = ["agentic_domain", "agentic_infra", "agentic_core"]
+why = "HTTP handlers enter agentic only through agentic-pipeline."
+
+[[rules]]
+name = "one-upward-dependency"
+from = ["agentic_core", "agentic_runtime", "agentic_infra", "agentic_domain"]
+forbid = ["platform_upper"]
+why = "agentic-pipeline and agentic-http may import oxy — that is the only allowed upward dependency."
+
+[[rules]]
+name = "airlayer-has-one-owner"
+from = "*"
+except = ["airlayer_owner"]
+forbid_crates = ["airlayer"]
+why = "crates/infrastructure/semantic (oxy-airlayer-compat) is the sole member that may declare airlayer."
