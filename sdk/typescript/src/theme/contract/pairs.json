@@ -863,6 +863,44 @@
   "over": "--card"
  },
  {
+  "fg": "--status-check",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Check word as plain text on background (SDK 2.32.0, decision 99)."
+ },
+ {
+  "fg": "--status-check",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Check word as plain text on card."
+ },
+ {
+  "fg": "--status-check",
+  "bg": "--status-check-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Check word inside its callout on a card (AlertStrip's check alert).",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-check",
+  "bg": "--status-check-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Check word inside its callout on the canvas.",
+  "over": "--background"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--status-check-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Body text on a check tint.",
+  "over": "--card"
+ },
+ {
   "fg": "--chart-seq-1",
   "bg": "--background",
   "min": 3,

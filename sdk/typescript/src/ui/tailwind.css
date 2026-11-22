@@ -124,6 +124,10 @@
      (pokehouse-oxy Command Center: `bg-sidebar`, the neutral dot). */
   --color-status-neutral-series: var(--status-neutral-series);
   --color-status-info-series: var(--status-info-series);
+  /* 2.32.0: the check status (AlertStrip's `check` tone). */
+  --color-status-check: var(--status-check);
+  --color-status-check-bg: var(--status-check-bg);
+  --color-status-check-line: var(--status-check-line);
   --color-sidebar: var(--sidebar);
   --color-sidebar-border: var(--sidebar-border);
   --color-card-foreground: var(--card-foreground);

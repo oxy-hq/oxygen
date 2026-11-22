@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-11-22
+
+### Added
+
+The pieces the apps kept local after 2.31.1, chosen from pictures (decision 99). Each is opt-in:
+an app that passes none of the new props renders exactly as on 2.31.1
+(`src/ui/keptPieces.defaults.test.tsx` holds the 2.31.1 markup of every one, desk and phone).
+
+- **`PanelTable` `phoneCard` and `rowProps`** (Quadrogen's `PhoneRows` and its per-row hooks).
+  - `phoneCard={{ title, aside, subtitle, figures }}`: on a phone layout each row is a card
+    instead of a table row. The card is the tile (`--field` fill, `--border-subtle` edge,
+    `--radius-surface`) at `paddingSm`; the title column first, the `aside` column (a status)
+    at the title line's right end with the chevron after it, on the title's baseline; the
+    `subtitle` on its own line; then the figures, label over value in the dim ink, as many to a
+    line as fit at 5.5rem, with no cap. A column's new `phoneWide` takes the card's whole width
+    (a sentence-long value). A row that opens (`onRowOpen`, or `rowProps().onClick`) is pressed
+    anywhere on the card; its title is the button the keyboard reaches (`aria-current` when
+    `isSelected`). `actions` sit at the card's foot; a card draws no totals row or sub-rows.
+  - `rowProps={(row) => ({ ... })}`: `data-*`, `title`, `tabIndex`, key and click handlers on
+    the desk row, after the table's own; its `className` joins `rowClassName`; its `onClick` is
+    the row's when the table does not open rows itself. On a card the `data-*`, `aria-*`,
+    `className` and `onClick` go on the card; `title`, `tabIndex` and `onKeyDown` stay desk-only.
+  - Types `PanelPhoneCard` and `PanelRowProps`.
+- **`Subnav` `showHeadings` and `header`** (Quadrogen's lab names and plant line): each
+  section's heading printed over its links, and a line at the column's head, both in the
+  eyebrow, inset to the links' 10px, at the SDK's 220px column and 36px rows. The printed
+  heading is `aria-hidden` (the group already has the name); the header is the desk column's
+  only (not in the sideways row below 768px).
+- **Figure grids on a phone.** `StatGrid` `phonePairs`: on a phone layout two tiles to a row
+  whatever `min` is, an odd last tile across the row (a tile wrapped in its hint too).
+  `PhoneKpiStrip` `oddLastAcross` (`@oxy-hq/sdk/shell`): upright, an odd last tile across the
+  row (Site Scout's KPI row). Both opt-in, because callers with an odd count exist.
+- **`AlertStrip` `hint` and the `check` tone** (bmg reorder-sheet's attention row). `hint` puts
+  the alert in the SDK's `HoverHint`, opened on hover and on keyboard focus; a plain callout with
+  a hint becomes a Tab stop. `tone: "check"` ("look at this before acting") draws the new check
+  status. `AlertStripTone` is `StatusTone | "check"`; `StatusTone` itself is unchanged, so a
+  caller's `Record<StatusTone, ...>` still type-checks.
+- **Theme: the check status**, `--status-check`, `--status-check-bg`, `--status-check-line`
+  (and `--color-status-check*` in `tailwind.css`), beside the other status tones. Light: the
+  chart purple `#7e22ce`, tint at 0.12, edge at 0.3. Dark: the ink `#c084fc` (the chart purple
+  `#a855f7` holds only 3.78:1 on its own tint on the card), tint and edge from `#a855f7` at 0.14
+  and 0.32. Five new contrast obligations: the word plain and on its tint on the canvas and a
+  card (light 6.47 / 6.98 / 5.32 / 5.72, dark 7.49 / 6.59 / 6.62 / 5.65), and the body ink on
+  the tint (14.52 light, 12.75 dark). The web-app's copy and the mobile token files are
+  regenerated.
+- **`Sparkline` `domain`, `band`, `reference`, `baseline` and `endTone`** (Accounts Insight's
+  shared scale, four-week mean, cell foot and direction dot; Warehouse Management's safe
+  temperature band). `domain` fixes the y scale; `band={[low, high]}` shades a range with dashed
+  edges and `reference` draws a dashed line at a value, both in the neutral comparison grey
+  (`--trend-peer`); `reference={{ value, from }}` starts the line at a point (half a step before
+  it); `baseline` rules the scale's floor; `endTone` colours the end mark by a status's series
+  colour, apart from the line's. Type `SparkReference`.
+
 ## [2.31.1] - 2026-11-21
 
 ### Fixed

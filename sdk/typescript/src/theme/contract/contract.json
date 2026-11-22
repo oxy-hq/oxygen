@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "authored": 246,
-    "perMode": 126,
+    "authored": 249,
+    "perMode": 129,
     "both": 120,
     "aliases": 37,
     "fixed": 9
@@ -524,6 +524,30 @@
       "modes": "per-mode",
       "path": "color.status-info-series",
       "description": "Info as a chart mark (a chart's info series). `--brand` in light, as the chart drew it; one step lighter than `--brand` in dark (decision 64, 20 Nov) so a line holds 3:1 on a selected row while `--brand` stays the buttons' fill."
+    },
+    {
+      "name": "--status-check",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-check",
+      "description": "The check ink (SDK 2.32.0, decision 99): a status that says \"look at this before acting\", apart from a warning (bmg reorder-sheet's Researching alert, purple like its \"To Check\" tab). AlertStrip's `check` tone. Holds 4.5:1 on `--status-check-bg` on the canvas and a card."
+    },
+    {
+      "name": "--status-check-bg",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-check-bg",
+      "description": "Check tint. May be translucent."
+    },
+    {
+      "name": "--status-check-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-check-line",
+      "description": "Decorative edge of a check callout."
     },
     {
       "name": "--dot-success",

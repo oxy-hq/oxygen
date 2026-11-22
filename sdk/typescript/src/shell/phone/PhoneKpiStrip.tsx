@@ -17,6 +17,9 @@ export interface PhoneKpi {
 
 export interface PhoneKpiStripProps {
   items: PhoneKpi[];
+  /** Upright, an odd last tile across the row rather than half of it beside a hole. Default
+   *  off (2.32.0; Site Scout's KPI row). On its side the strip is left as laid out. */
+  oddLastAcross?: boolean;
 }
 
 function KpiBody({ item }: { item: PhoneKpi }) {
@@ -34,9 +37,14 @@ function KpiBody({ item }: { item: PhoneKpi }) {
 }
 
 /** The headline numbers, two to a row, on the first screen. */
-export function PhoneKpiStrip({ items }: PhoneKpiStripProps) {
+export function PhoneKpiStrip({ items, oddLastAcross = false }: PhoneKpiStripProps) {
   return (
-    <div className='oxy-shell-scope oxy-phone-kpis'>
+    <div
+      className={cx(
+        "oxy-shell-scope oxy-phone-kpis",
+        oddLastAcross && "oxy-phone-kpis--odd-across"
+      )}
+    >
       {items.map((item) =>
         item.onClick ? (
           <button

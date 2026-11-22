@@ -1,7 +1,7 @@
 // @oxy-hq/sdk/ui, the figures group. Each piece exports itself here (CONVENTIONS.md);
 // src/ui/index.ts re-exports this file whole.
 
-export type { AlertStripAlert, AlertStripProps } from "./AlertStrip";
+export type { AlertStripAlert, AlertStripProps, AlertStripTone } from "./AlertStrip";
 export { AlertStrip } from "./AlertStrip";
 export {
   APP_MARK_FADE_FLOOR,

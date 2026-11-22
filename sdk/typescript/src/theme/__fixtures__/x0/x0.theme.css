@@ -150,6 +150,9 @@
   --status-info: #2941b9;
   --status-info-line: #2941b9;
   --status-info-series: #3550ff;
+  --status-check: #2941b9;
+  --status-check-bg: #e3ebff;
+  --status-check-line: #2941b9;
   --dot-success: #1d994a;
   --dot-info: #2941b9;
   --dot-warning: #b36e00;
@@ -314,6 +317,9 @@
   --status-info: #acc2ff;
   --status-info-line: #acc2ff;
   --status-info-series: #7e9fff;
+  --status-check: #acc2ff;
+  --status-check-bg: #141f43;
+  --status-check-line: #acc2ff;
   --dot-success: #3eab5e;
   --dot-info: #acc2ff;
   --dot-warning: #cb7e00;

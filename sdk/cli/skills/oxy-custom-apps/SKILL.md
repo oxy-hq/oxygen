@@ -437,6 +437,15 @@ optional `title`, landmark (`as`, `label`, `headingLevel`) and `density="compact
 `useOxyMode()` in `@oxy-hq/sdk/shell`. An app that kept its own panel fold, KPI tile, dot-only
 status or Try again for want of one imports the SDK's and deletes its copy.
 
+SDK 2.32 adds, each opt-in: `PanelTable`'s `phoneCard` (each row a card on a phone: title,
+status and chevron on one line, subtitle, every figure, a column's `phoneWide` across) and
+`rowProps` (per-row `data-*`, `title`, `tabIndex` and handlers); `Subnav`'s `showHeadings` and
+`header`; `StatGrid phonePairs` and `PhoneKpiStrip oddLastAcross` (two to a row, an odd last
+tile across); `AlertStrip`'s per-alert `hint` and `check` tone (the theme's `--status-check`);
+`Sparkline`'s `domain`, `band`, `reference` (with `from`), `baseline` and `endTone`. An app that
+kept a local PanelTable, Subnav, StatGrid, KPI row, AlertStrip or Sparkline for one of these
+imports the SDK's and deletes its copy.
+
 What the pieces settle, so an app doesn't override them (decisions 81–93):
 
 - `SidePanel` keeps its overlay shadow; drop any `shadow-none` (81).

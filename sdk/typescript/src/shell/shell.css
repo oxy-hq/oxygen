@@ -2962,6 +2962,16 @@
   }
 }
 
+/* 2.32.0 `oddLastAcross`: upright, an odd last tile takes the row rather than
+   half of it beside a hole (Site Scout's KPI row). Upright only: on its side an
+   app may lay the strip out in one row (Site Scout does), where a tile across
+   the row would break it. */
+@media (orientation: portrait) {
+  .oxy-phone-kpis--odd-across > .oxy-phone-kpi:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
 .oxy-phone-kpi--button {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;

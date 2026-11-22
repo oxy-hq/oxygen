@@ -45,8 +45,14 @@
 // it (every one but Poke House Bookkeeping) drew the desk ⓘ on a phone, and a tap on that ⓘ is a
 // press on a control, which the desk HoverHint answers by closing: the source was out of reach by
 // touch. An app's own frame still wins; the desk is unchanged.
+//
+// 2.32.0: `StatGrid`'s `phonePairs`, opt-in: on a phone layout two tiles to a row whatever `min`
+// is, and an odd last tile across the row rather than beside a hole (Quadrogen's phone, whose
+// `min="12rem"` grids fit one tile across a 358px panel). Off, the grid is the auto-fit row at
+// every width, as before.
 
 import type { ComponentPropsWithRef, CSSProperties, ReactNode } from "react";
+import { usePhoneLayout } from "../../shell/phone/usePhoneLayout";
 import { HoverHint, useTapHint } from "../containers";
 import { cx } from "../cx";
 import { InfoIcon } from "../icons";
@@ -162,6 +168,9 @@ export interface StatGridProps extends Omit<ComponentPropsWithRef<"div">, "child
   min?: string;
   className?: string;
   style?: CSSProperties;
+  /** On a phone layout: two tiles to a row whatever `min` is, an odd last tile across the row.
+   *  Default off (the auto-fit row at every width). */
+  phonePairs?: boolean;
 }
 
 /**
@@ -169,12 +178,26 @@ export interface StatGridProps extends Omit<ComponentPropsWithRef<"div">, "child
  * as many columns as fit at `min` each, so one grid gives six across a full page, three across a
  * side panel and two on a phone, with no breakpoints chosen per caller.
  */
-export function StatGrid({ children, min = "9rem", className, style, ...rest }: StatGridProps) {
+export function StatGrid({
+  children,
+  min = "9rem",
+  className,
+  style,
+  phonePairs = false,
+  ...rest
+}: StatGridProps) {
+  const phone = usePhoneLayout();
+  const pairs = phonePairs && phone;
   return (
     <div
       {...rest}
-      className={cx("oxy-ui-stat-grid", className)}
-      style={{ ...style, gridTemplateColumns: `repeat(auto-fit, minmax(${min}, 1fr))` }}
+      className={cx("oxy-ui-stat-grid", pairs && "oxy-ui-stat-grid--pairs", className)}
+      style={{
+        ...style,
+        gridTemplateColumns: pairs
+          ? "repeat(2, minmax(0, 1fr))"
+          : `repeat(auto-fit, minmax(${min}, 1fr))`
+      }}
     >
       {children}
     </div>

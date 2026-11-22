@@ -44,8 +44,8 @@ with breakpoints until it "fits": the desktop and TV layout must not move.
 | --- | --- |
 | Tabs, a sidebar, a section switcher | `PhoneTabBar` at the bottom: up to five; past five it shows four and a More sheet |
 | The page | `PhonePage` with `tabBar` (and `stickyAction`); pass the tab id as `scrollKey` |
-| KPI cards | `PhoneKpiStrip`, two per row, first on the screen |
-| A table | `PhoneCardList` of `PhoneCard`s: the row's name, a status pill, two or three key figures; a `summary` line on top. **Never a sideways-scrolling table.** |
+| KPI cards | `PhoneKpiStrip`, two per row, first on the screen (`oddLastAcross`, SDK ≥ 2.32: an odd last tile takes the row); a `StatGrid` of `Stat`s takes `phonePairs` for the same |
+| A table | `PhoneCardList` of `PhoneCard`s: the row's name, a status pill, two or three key figures; a `summary` line on top. A desk `PanelTable` takes `phoneCard` instead (SDK ≥ 2.32): the same rows as cards, every figure kept. **Never a sideways-scrolling table.** |
 | A row's action button (Post, Approve) | the card's `trailing`, or `PhoneStickyAction` for the screen's one main action |
 | A detail panel, drawer or modal | `PhoneSheet` (full screen, Back). The phone's Back closes it through `onClose` and the page stays put; a sheet that opened by pushing its own entry (a route, `?item=`) passes `historyEntry={false}` |
 | A list of things that need someone | `PhoneSection` of `PhoneRow`s with a `tone` dot |

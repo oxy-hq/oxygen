@@ -349,7 +349,35 @@
   padding-left: var(--space-xs);
 }
 
+/* 2.32.0: a printed section heading and the column's header line, in the
+   eyebrow, inset to the links' own 10px so their text starts where the links'
+   does. In the sideways row the heading sits before its links; the header is
+   the column's only. */
+.oxy-ui-subnav__heading,
+.oxy-ui-subnav__header {
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.oxy-ui-subnav__heading {
+  align-self: center;
+}
+
+.oxy-ui-subnav__header {
+  display: none;
+}
+
 @media (min-width: 768px) {
+  .oxy-ui-subnav__heading {
+    align-self: auto;
+    margin: var(--space-sm) 0 var(--space-xs);
+  }
+
+  .oxy-ui-subnav__header {
+    display: block;
+    margin-bottom: var(--space-xs);
+  }
+
   .oxy-ui-subnav {
     width: 13.75rem;
     border-bottom: 0;

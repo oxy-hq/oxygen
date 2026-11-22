@@ -14,6 +14,13 @@
 // inside one app. Labelled, so a column of words beside the rail's column of glyphs reads as
 // another job, not one sidebar drawn twice. A section with several screens opens onto a
 // `ParentTabs` strip; there is no third level.
+//
+// 2.32.0 (the kept pieces, decision 99), both opt-in, so a Subnav that passes neither is drawn
+// as before: `showHeadings` prints each section's heading over its links (Quadrogen's lab names
+// over their modules), and `header` puts a line at the column's head (its "P-001 Plant 01"). Both
+// in the SDK's eyebrow, inset to the links' own 10px, at the SDK's column width and row height.
+// The printed heading is `aria-hidden`: the group already carries it as its name. The header is
+// the desk column's: the sideways row below 768px does not draw it.
 
 import { type MouseEvent, type ReactNode, useEffect, useRef } from "react";
 import { cx } from "../cx";
@@ -50,6 +57,12 @@ export interface SubnavProps {
   /** The nav's name (default "Sections"). */
   label?: string;
   className?: string;
+  /** A line at the column's head, in the eyebrow (the record the sections are about). Desk
+   *  column only. */
+  header?: ReactNode;
+  /** Print each section's heading over its links, in the eyebrow. Default off: the heading is
+   *  the group's accessible name only. */
+  showHeadings?: boolean;
 }
 
 const isActive = (item: SubnavItem, current: string) =>
@@ -103,7 +116,9 @@ export function Subnav({
   footerExtra,
   onNavigate,
   label = "Sections",
-  className
+  className,
+  header,
+  showHeadings = false
 }: SubnavProps) {
   const row = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new current screen re-centres the row.
@@ -114,6 +129,9 @@ export function Subnav({
     // items, so its edge would stop partway down a long page.
     <nav aria-label={label} className={cx("oxy-ui-subnav", className)}>
       <div ref={row} className='oxy-ui-subnav__list'>
+        {header !== undefined && header !== null && header !== false && (
+          <div className={cx(ui.eyebrow, "oxy-ui-subnav__header")}>{header}</div>
+        )}
         {sections.map((section) => (
           // biome-ignore lint/a11y/useSemanticElements: a section's links, named for a screen reader; a fieldset is a group of fields.
           <div
@@ -122,6 +140,11 @@ export function Subnav({
             aria-label={section.heading}
             className='oxy-ui-subnav__group'
           >
+            {showHeadings && (
+              <div aria-hidden='true' className={cx(ui.eyebrow, "oxy-ui-subnav__heading")}>
+                {section.heading}
+              </div>
+            )}
             {section.items.map((item) => (
               <SubnavLink key={item.id} item={item} current={current} onNavigate={onNavigate} />
             ))}

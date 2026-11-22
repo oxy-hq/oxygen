@@ -26,15 +26,30 @@
 // padding at both ends: the label starts where a tile's label does (its 1px frame and the 12px
 // of `paddingSm`), and the last callout ends as far from the right edge. An app whose strip must
 // not move (Store Ops on an enrolled store tablet) sets `--oxy-ui-alert-strip-inset: 0px`.
+//
+// 2.32.0 (the kept pieces, decision 99), both opt-in, so an alert that uses neither is drawn as
+// before (bmg reorder-sheet's attention row):
+//   - `hint`: what the alert counts and why, in the SDK's `HoverHint` around the alert. A door
+//     opens it on hover and on keyboard focus; a plain callout with a hint becomes a Tab stop
+//     (`focusable`), so the words are never pointer-only.
+//   - the `check` tone: "look at this before acting", apart from a warning (reorder-sheet's
+//     Researching alert, purple like its "To Check" tab). Drawn from `--status-check`,
+//     `--status-check-bg` and `--status-check-line`, the theme's purple status, in the callout
+//     recipe. Only the strip takes it: `StatusTone` is unchanged, so a caller's
+//     `Record<StatusTone, …>` still type-checks.
 
 import type { MouseEvent, ReactNode } from "react";
+import { HoverHint } from "../containers";
 import { cx } from "../cx";
 import { CaretRightIcon } from "../icons";
 import { ui } from "../recipes";
 import type { StatusTone } from "../tone";
 
+/** An alert's tone: a status, or `check` (look before acting, the theme's purple). */
+export type AlertStripTone = StatusTone | "check";
+
 export interface AlertStripAlert {
-  tone: StatusTone;
+  tone: AlertStripTone;
   /** The sentence, with its count: "3 reports not emailed". */
   label: ReactNode;
   /** The door's accessible name, where the label alone does not say where it leads. */
@@ -48,6 +63,8 @@ export interface AlertStripAlert {
   onFollow?: (event: MouseEvent<HTMLAnchorElement>) => void;
   /** Where the alert leads, as a state (a tab, a filter): the alert is a button. */
   onSelect?: () => void;
+  /** What the alert counts and why: a hover hint, opened on keyboard focus too. */
+  hint?: string;
 }
 
 export interface AlertStripProps {
@@ -64,13 +81,11 @@ export function isPlainClick(event: MouseEvent): boolean {
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
-const callout = (tone: StatusTone, door: boolean) =>
-  cx(
-    ui.callout,
-    ui.calloutTone[tone],
-    "oxy-ui-alert-strip__alert",
-    door && "oxy-ui-alert-strip__door"
-  );
+const toneClass = (tone: AlertStripTone) =>
+  tone === "check" ? "oxy-ui-callout--check" : ui.calloutTone[tone];
+
+const callout = (tone: AlertStripTone, door: boolean) =>
+  cx(ui.callout, toneClass(tone), "oxy-ui-alert-strip__alert", door && "oxy-ui-alert-strip__door");
 
 function Door({ alert }: { alert: AlertStripAlert }) {
   const caret = <CaretRightIcon className={cx(ui.iconInline, "oxy-ui-alert-strip__caret")} />;
@@ -114,6 +129,18 @@ function Door({ alert }: { alert: AlertStripAlert }) {
   );
 }
 
+/** The alert, inside its hint when it has one. A door is already a Tab stop; a plain callout
+ *  with a hint becomes one, so the hint is never pointer-only. */
+function Alert({ alert }: { alert: AlertStripAlert }) {
+  if (!alert.hint) return <Door alert={alert} />;
+  const door = alert.href !== undefined || alert.onSelect !== undefined;
+  return (
+    <HoverHint text={alert.hint} className={door ? "on-control" : undefined} focusable={!door}>
+      <Door alert={alert} />
+    </HoverHint>
+  );
+}
+
 export function AlertStrip({
   alerts,
   label = "Attention",
@@ -132,7 +159,7 @@ export function AlertStrip({
         </span>
       ) : (
         // biome-ignore lint/suspicious/noArrayIndexKey: alerts carry no id, and the strip is rebuilt whole
-        alerts.map((alert, i) => <Door key={i} alert={alert} />)
+        alerts.map((alert, i) => <Alert key={i} alert={alert} />)
       )}
     </div>
   );

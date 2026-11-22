@@ -218,6 +218,9 @@
   --status-info: #2a40cc;
   --status-info-line: rgba(42, 64, 204, 0.3);
   --status-info-series: #3550ff;
+  --status-check: #7e22ce;
+  --status-check-bg: rgba(126, 34, 206, 0.12);
+  --status-check-line: rgba(126, 34, 206, 0.3);
   --dot-success: #059341;
   --dot-info: #3550ff;
   --dot-warning: #a5770d;
@@ -348,6 +351,9 @@
   --status-info: #93a2ff;
   --status-info-line: rgba(134, 150, 255, 0.32);
   --status-info-series: #4f67ff;
+  --status-check: #c084fc;
+  --status-check-bg: rgba(168, 85, 247, 0.14);
+  --status-check-line: rgba(168, 85, 247, 0.32);
   --dot-success: #22c55e;
   --dot-info: #5d73ff;
   --dot-warning: #f5b000;

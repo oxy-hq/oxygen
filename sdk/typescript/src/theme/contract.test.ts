@@ -56,17 +56,18 @@ describe("theme contract", () => {
   // line, and the desk rhythm's 9) and the 8 Tailwind radius steps as aliases of the role radii;
   // and 2 per-mode colours, the app mark's square and glyph (`--app-mark-ground`, `--app-mark-ink`).
   // Decision 64 (20 Nov) made `--status-info` authored (it was an alias of `--link`) and added
-  // `--status-info-series`: 2 more per-mode colours, 1 alias fewer.
-  it("has 246 authored tokens (126 per-mode, 120 both), 37 derived aliases and 9 fixed names", () => {
-    expect(authored).toHaveLength(246);
-    expect(authored.filter((r) => r.modes === "per-mode")).toHaveLength(126);
+  // `--status-info-series`: 2 more per-mode colours, 1 alias fewer. 2.32.0 (decision 99) added
+  // the check status, `--status-check` and its `-bg` and `-line`: 3 more per-mode colours.
+  it("has 249 authored tokens (129 per-mode, 120 both), 37 derived aliases and 9 fixed names", () => {
+    expect(authored).toHaveLength(249);
+    expect(authored.filter((r) => r.modes === "per-mode")).toHaveLength(129);
     expect(authored.filter((r) => r.modes === "both")).toHaveLength(120);
     expect(aliases).toHaveLength(37);
     expect(fixed).toHaveLength(9);
-    expect(rows).toHaveLength(246 + 37 + 9);
+    expect(rows).toHaveLength(249 + 37 + 9);
     expect(contract.counts).toEqual({
-      authored: 246,
-      perMode: 126,
+      authored: 249,
+      perMode: 129,
       both: 120,
       aliases: 37,
       fixed: 9
@@ -135,9 +136,11 @@ describe("theme contract", () => {
   });
 
   // Decision 64 added 3: the info word on its tint on a card (the page's pair now names
-  // `--status-info`, its own token), and the info series on the canvas and a card.
-  it("states 185 contrast obligations, each naming authored colours", () => {
-    expect(pairs).toHaveLength(185);
+  // `--status-info`, its own token), and the info series on the canvas and a card. 2.32.0 added
+  // 5 for the check status: its word plain on the canvas and a card, on its tint on each, and the
+  // body ink on its tint.
+  it("states 190 contrast obligations, each naming authored colours", () => {
+    expect(pairs).toHaveLength(190);
     const kinds = ["text", "large-text", "non-text", "focus", "control-border"];
     for (const p of pairs) {
       for (const name of [p.fg, p.bg, ...(p.over ? [p.over] : [])]) {

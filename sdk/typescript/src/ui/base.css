@@ -622,6 +622,13 @@
   color: var(--status-info);
 }
 
+/* 2.32.0: the check tone, the theme's purple status (AlertStrip's `check`). */
+.oxy-ui-callout--check {
+  border-color: var(--status-check-line);
+  background-color: var(--status-check-bg);
+  color: var(--status-check);
+}
+
 .oxy-ui-callout--neutral {
   border-color: var(--status-neutral-line);
   background-color: var(--status-neutral-bg);

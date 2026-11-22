@@ -22,6 +22,17 @@
 //     reading's value and period show in a tooltip over a crosshair. Escape, blur or the pointer
 //     leaving puts it away. Its name says every value, so nothing is pointer-only.
 //
+// 2.32.0 (the kept pieces, decision 99), each opt-in, so a sparkline that passes none of it is
+// drawn as before:
+//   - `domain`: a fixed y scale, so lines drawn side by side compare by height (Accounts Insight's
+//     shared 0..max over every customer; a cold-chain sensor's band plus 2°F).
+//   - `band`: a shaded range behind the line with dashed edges (a safe range), in the neutral
+//     comparison grey (`--trend-peer`): the theme has no "safe range" colour.
+//   - `reference`: a dashed line at one value (a mean, a target), in the same grey; `{ value,
+//     from }` starts it at a point (Accounts Insight's four-week mean, from its window's start).
+//   - `baseline`: a rule at the scale's floor (Accounts Insight's cell foot).
+//   - `endTone`: the end mark in a status's series colour, apart from the line's (a direction).
+//
 // Texture, not a chart: it answers one question at a glance (is the gap new, or has it always been
 // there) and the expanded view (TrendChart) answers the rest. `readout` is for a card whose line
 // IS the detail (a metric tile with no expanded view).
@@ -40,6 +51,7 @@ import { ui } from "../recipes";
 import type { StatusTone } from "../tone";
 import { PointMark, type PointShape } from "./marks";
 import {
+  type SeriesGeometry,
   type SeriesShape,
   type SparkPoint,
   seriesColour,
@@ -87,6 +99,25 @@ export interface SparklineProps<P extends SparkPoint = TrendPoint> {
   /** Said for a series under two points. */
   emptyText?: string;
   className?: string;
+  /** A fixed y scale `[min, max]`, so lines side by side compare by height. Default the series'
+   *  own extent. */
+  domain?: readonly [number, number];
+  /** A shaded range `[low, high]` behind the line, with dashed edges (a safe or target range). */
+  band?: readonly [number, number] | null;
+  /** A dashed line at one value (a mean, a target); `from` starts it at that point's index
+   *  (half a step before it) rather than at the left edge. */
+  reference?: number | SparkReference | null;
+  /** A rule at the scale's floor. Default off. */
+  baseline?: boolean;
+  /** The end mark's colour as a status (a direction), apart from the line's. Default the line's. */
+  endTone?: StatusTone | null;
+}
+
+/** A dashed reference line: its value, and the point it starts at. */
+export interface SparkReference {
+  value: number;
+  /** The index of the point the line starts at. Default 0 (the left edge). */
+  from?: number;
 }
 
 const AREA: Partial<Record<StatusTone, number>> = { error: 0.38, warning: 0.26 };
@@ -105,6 +136,41 @@ function useWidth(ref: RefObject<Element | null>, on: boolean): number | null {
     return () => ro.disconnect();
   }, [ref, on]);
   return width;
+}
+
+/** A series under two points: a dash, named and titled with why. */
+function EmptySpark({
+  label,
+  emptyText,
+  width,
+  height,
+  fluid,
+  className
+}: {
+  label: string;
+  emptyText: string;
+  width: number;
+  height: number;
+  fluid: boolean;
+  className?: string;
+}) {
+  const sized = width !== W || height !== H || fluid;
+  return (
+    <span
+      role='img'
+      aria-label={`${label}: ${emptyText}`}
+      title={emptyText}
+      className={cx(
+        "oxy-ui-sparkline",
+        "oxy-ui-sparkline--empty",
+        fluid && "oxy-ui-sparkline--fluid",
+        className
+      )}
+      style={sized ? { width: fluid ? undefined : width, height } : undefined}
+    >
+      —
+    </span>
+  );
 }
 
 const STEPS: Record<string, (i: number, last: number) => number> = {
@@ -129,7 +195,8 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
   x,
   readout,
   emptyText = "Not enough history yet",
-  className
+  className,
+  ...guides
 }: SparklineProps<P>) {
   // Gradients live in the document, not the element: two sparklines with one id would share a
   // fill, and every row has its own tone.
@@ -139,28 +206,12 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
   const measured = useWidth(svgRef, fluid && points.length >= 2);
   const [at, setAt] = useState<number | null>(null);
   if (points.length < 2) {
-    const sized = width !== W || height !== H || fluid;
-    return (
-      <span
-        role='img'
-        aria-label={`${label}: ${emptyText}`}
-        title={emptyText}
-        className={cx(
-          "oxy-ui-sparkline",
-          "oxy-ui-sparkline--empty",
-          fluid && "oxy-ui-sparkline--fluid",
-          className
-        )}
-        style={sized ? { width: fluid ? undefined : width, height } : undefined}
-      >
-        —
-      </span>
-    );
+    return <EmptySpark {...{ label, emptyText, width, height, fluid, className }} />;
   }
   const Wd = fluid ? (measured ?? width) : width;
   const colour = color ?? seriesColour(tone);
   const top = areaOpacity ?? (tone ? (AREA[tone] ?? 0.16) : 0.16);
-  const g = seriesGeometry(points, Wd, height, 2, undefined, x ? points.map(x) : undefined);
+  const g = seriesGeometry(points, Wd, height, 2, guides.domain, x ? points.map(x) : undefined);
   const step = (Wd - 4) / points.length;
   const last = points.length - 1;
   const shown = readout && at !== null ? Math.min(at, last) : null;
@@ -216,6 +267,7 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
         readout ? undefined : className
       )}
     >
+      {guideMarks({ g, width: Wd, height, ...guides })}
       {shape === "line" && area && (
         <>
           <defs>
@@ -277,7 +329,13 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
       {/* The series' last point, not one more data point among twelve: hollow by default, its
           ground-coloured centre legible where it crosses the comparison. */}
       {g.lastPoint && (
-        <PointMark shape={end} x={g.lastPoint.x} y={g.lastPoint.y} r={3.5} colour={colour} />
+        <PointMark
+          shape={end}
+          x={g.lastPoint.x}
+          y={g.lastPoint.y}
+          r={3.5}
+          colour={endColourOf(guides.endTone, colour)}
+        />
       )}
       {shown !== null && shown !== last && (
         <PointMark
@@ -317,5 +375,110 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
         </span>
       )}
     </span>
+  );
+}
+
+const GUIDE = "var(--trend-peer)";
+
+/** The end mark's colour: the tone's series cut when one is given, else the line's. */
+function endColourOf(endTone: StatusTone | null | undefined, colour: string): string {
+  return endTone ? seriesColour(endTone) : colour;
+}
+
+interface GuideOptions {
+  g: SeriesGeometry;
+  width: number;
+  height: number;
+  band?: SparklineProps["band"];
+  reference?: SparklineProps["reference"];
+  baseline?: boolean;
+}
+
+/** The reference line's height and start, or null when there is none to draw. A flat scale
+ *  (every value equal, no domain) puts every value at mid-height, so it would only lie on the
+ *  line: none. */
+function referenceAt(g: SeriesGeometry, reference: SparklineProps["reference"]) {
+  const ref = typeof reference === "number" ? { value: reference } : (reference ?? null);
+  if (g.max === g.min || !ref || !Number.isFinite(ref.value)) return null;
+  return { y: g.y(ref.value), x: referenceStart(g, ref.from ?? 0) };
+}
+
+/** Half a step before the reference's first point, so the line covers that point's slot. */
+function referenceStart(g: SeriesGeometry, from: number): number {
+  const at = g.observed[from];
+  if (from <= 0 || !at) return 0;
+  return Math.max(0, at.x - (at.x - g.observed[from - 1].x) / 2);
+}
+
+/** The band's top and bottom, or null (none asked for, or a flat scale, where it would only lie
+ *  on the line). */
+function bandAt(g: SeriesGeometry, band: SparklineProps["band"]) {
+  return band && g.max !== g.min ? ([g.y(band[1]), g.y(band[0])] as const) : null;
+}
+
+function BandMark({ y, width }: { y: readonly [number, number]; width: number }) {
+  return (
+    <g data-mark='band'>
+      <rect
+        x={0}
+        y={y[0]}
+        width={width}
+        height={Math.max(0, y[1] - y[0])}
+        fill={GUIDE}
+        fillOpacity={0.14}
+      />
+      {y.map((edge, i) => (
+        <line
+          // biome-ignore lint/suspicious/noArrayIndexKey: the band's two edges, top then bottom
+          key={i}
+          x1={0}
+          x2={width}
+          y1={edge}
+          y2={edge}
+          stroke={GUIDE}
+          strokeWidth={1}
+          strokeDasharray='3 3'
+        />
+      ))}
+    </g>
+  );
+}
+
+/** The band, the floor rule and the reference line, under everything else; null when none is
+ *  asked for, so a sparkline without them draws exactly as before. */
+function guideMarks({ g, width, height, band, reference, baseline = false }: GuideOptions) {
+  const ref = referenceAt(g, reference);
+  const bandY = bandAt(g, band);
+  // The box's foot (the geometry's 2px pad, plus half the rule), not g.y(g.min): on a flat scale
+  // that is mid-height, on the line.
+  const floorY = height - 1.5;
+  if (!bandY && !ref && !baseline) return null;
+  return (
+    <>
+      {bandY && <BandMark y={bandY} width={width} />}
+      {baseline && (
+        <line
+          x1={0}
+          x2={width}
+          y1={floorY}
+          y2={floorY}
+          stroke='var(--border)'
+          strokeWidth={1}
+          data-mark='baseline'
+        />
+      )}
+      {ref && (
+        <line
+          x1={ref.x}
+          x2={width}
+          y1={ref.y}
+          y2={ref.y}
+          stroke={GUIDE}
+          strokeWidth={1}
+          strokeDasharray='2 2'
+          data-mark='reference'
+        />
+      )}
+    </>
   );
 }

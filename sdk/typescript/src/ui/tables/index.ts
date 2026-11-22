@@ -6,7 +6,12 @@ export type { LinkListColumn, LinkListProps } from "./LinkList";
 export { LinkList } from "./LinkList";
 export type { MetricCellProps, MetricStep, MetricThresholds } from "./MetricCell";
 export { MetricCell, metricStep } from "./MetricCell";
-export type { PanelColumn, PanelTableProps } from "./PanelTable";
+export type {
+  PanelColumn,
+  PanelPhoneCard,
+  PanelRowProps,
+  PanelTableProps
+} from "./PanelTable";
 export { PanelTable } from "./PanelTable";
 export type { SortHeaderProps } from "./SortHeader";
 export { SortHeader } from "./SortHeader";

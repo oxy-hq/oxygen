@@ -599,6 +599,44 @@
         },
         "$description": "#a855f7: reference-app@7c1ee7e src/index.css:929 (--hr-vis-purple)"
       },
+      "status-check": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7529,
+            0.5176,
+            0.9882
+          ],
+          "hex": "#c084fc"
+        },
+        "$description": "#c084fc: NEW in SDK 2.32.0 (decision 99), not the reference: the check status ink in dark. The chart purple (#a855f7, --hr-vis-purple) measures 3.78:1 on its own tint on the dark card, under 4.5; #c084fc (Tailwind purple-400, one palette step lighter) measures 5.65 there and 6.62 on the canvas."
+      },
+      "status-check-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6588,
+            0.3333,
+            0.9686
+          ],
+          "hex": "#a855f7",
+          "alpha": 0.14
+        },
+        "$description": "rgba(168,85,247,0.14): NEW in SDK 2.32.0, the check tint, the dark chart purple at the info tint's 0.14."
+      },
+      "status-check-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6588,
+            0.3333,
+            0.9686
+          ],
+          "hex": "#a855f7",
+          "alpha": 0.32
+        },
+        "$description": "rgba(168,85,247,0.32): NEW in SDK 2.32.0, the check edge, the dark chart purple at the info edge's 0.32."
+      },
       "vis-teal": {
         "$value": {
           "colorSpace": "srgb",
@@ -1317,6 +1355,44 @@
           "hex": "#7e22ce"
         },
         "$description": "#7e22ce: reference-app@7c1ee7e src/index.css:1107 (--hr-vis-purple)"
+      },
+      "status-check": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.4941,
+            0.1333,
+            0.8078
+          ],
+          "hex": "#7e22ce"
+        },
+        "$description": "#7e22ce: NEW in SDK 2.32.0 (decision 99), not the reference: the check status ink, the chart purple (--hr-vis-purple, reference-app@7c1ee7e src/index.css:1107) as bmg reorder-sheet's `alert-check` draws it from --chart-cat-2. 5.71:1 on its tint on a card, 5.34 on the canvas."
+      },
+      "status-check-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.4941,
+            0.1333,
+            0.8078
+          ],
+          "hex": "#7e22ce",
+          "alpha": 0.12
+        },
+        "$description": "rgba(126,34,206,0.12): NEW in SDK 2.32.0, the check tint, the chart purple at the info tint's 0.12."
+      },
+      "status-check-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.4941,
+            0.1333,
+            0.8078
+          ],
+          "hex": "#7e22ce",
+          "alpha": 0.3
+        },
+        "$description": "rgba(126,34,206,0.3): NEW in SDK 2.32.0, the check edge, the chart purple at the info edge's 0.3."
       },
       "vis-teal": {
         "$value": {

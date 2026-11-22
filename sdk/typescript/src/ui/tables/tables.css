@@ -293,6 +293,118 @@
   color: var(--muted-foreground);
 }
 
+/* ── PanelTable's phone card (2.32.0, `phoneCard`) ────────────────────────
+   Quadrogen's own card (command-center `PhoneRows.tsx`), in tokens: the tile's
+   fill and edge at paddingSm (set by the recipes on the element), 8px between
+   cards; the title line 24px high with the status and the chevron at its end,
+   tops aligned so the title and the status share a baseline; the subtitle 2px
+   under it; the figures 6px under that, as many to a line as fit at 5.5rem,
+   label over value in the dim ink. */
+.oxy-ui-panel-table__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oxy-ui-panel-table__card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: var(--type-scale-sm-size);
+  line-height: var(--type-scale-sm-line);
+  color: var(--dim-foreground);
+}
+
+/* The whole card is the press, and the touch target. */
+.oxy-ui-panel-table__card--open {
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.oxy-ui-panel-table__card-head {
+  display: flex;
+  min-height: calc(3 * var(--space-sm));
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(var(--space-sm) + var(--space-xs));
+}
+
+.oxy-ui-panel-table__card-title {
+  min-width: 0;
+  font-weight: var(--type-label-weight);
+  color: var(--foreground);
+}
+
+/* The title as the card's button, drawn as the text it wraps. */
+.oxy-ui-panel-table__card-open {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-weight: var(--type-label-weight);
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.oxy-ui-panel-table__card-trailing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-xs);
+  /* The aside in full ink, as Quadrogen's card draws it; a status word keeps its own colour and
+     the chevron its muted one. */
+  color: var(--foreground);
+}
+
+.oxy-ui-panel-table__card-chevron {
+  color: var(--muted-foreground);
+}
+
+.oxy-ui-panel-table__card-subtitle {
+  margin-top: var(--space-2xs);
+}
+
+.oxy-ui-panel-table__card-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: calc(var(--space-xs) + var(--space-2xs)) calc(var(--space-sm) + var(--space-xs));
+  margin: calc(var(--space-xs) + var(--space-2xs)) 0 0;
+}
+
+.oxy-ui-panel-table__card-figure {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* A sentence-long value takes the card's whole width. */
+.oxy-ui-panel-table__card-figure--wide {
+  grid-column: 1 / -1;
+}
+
+.oxy-ui-panel-table__card-label {
+  color: var(--subtle-foreground);
+}
+
+.oxy-ui-panel-table__card-value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+  font-variant-numeric: tabular-nums;
+}
+
+.oxy-ui-panel-table__card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
 /* Child rows (reference BookkeepingSalesTax.tsx PlatformRows): on the muted
    fill, the name indented and in the dim ink, a strong rule closing the block
    so a long split does not run into the next row. */

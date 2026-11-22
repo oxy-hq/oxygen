@@ -336,6 +336,21 @@
       "$value": "{palette.light.brand}",
       "$description": "Info at chart weight: the brand blue, as the chart drew it (--brand). Its own token since decision 64, which lightens it in dark only."
     },
+    "status-check": {
+      "$type": "color",
+      "$value": "{palette.light.status-check}",
+      "$description": "The check ink (SDK 2.32.0): \"look at this before acting\", apart from a warning; AlertStrip's `check` tone."
+    },
+    "status-check-bg": {
+      "$type": "color",
+      "$value": "{palette.light.status-check-bg}",
+      "$description": "The check tint. Translucent."
+    },
+    "status-check-line": {
+      "$type": "color",
+      "$value": "{palette.light.status-check-line}",
+      "$description": "Decorative edge of a check callout."
+    },
     "dot-success": {
       "$type": "color",
       "$value": "{palette.derived.light.dot-success}",

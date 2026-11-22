@@ -243,16 +243,16 @@ describe("tailwind.css", () => {
     expect(tw.trim().startsWith(LAYER_ORDER)).toBe(true);
   });
 
-  it("maps 56 --color-* (the reference's 51 and five apps paint), 26 --text-* and 8 radius names, each once", () => {
+  it("maps 59 --color-* (the reference's 51, five apps paint and the 2.32.0 check status), 26 --text-* and 8 radius names, each once", () => {
     expect(new Set(names).size).toBe(names.length);
-    expect(names.filter((n) => n.startsWith("--color-"))).toHaveLength(56);
+    expect(names.filter((n) => n.startsWith("--color-"))).toHaveLength(59);
     for (const n of ["sidebar", "sidebar-border", "card-foreground", "status-neutral-series"])
       expect(names, n).toContain(`--color-${n}`);
     expect(names.filter((n) => n.startsWith("--text-"))).toHaveLength(26);
     expect(names.filter((n) => n.startsWith("--radius-")).sort()).toEqual(
       ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl"].map((s) => `--radius-${s}`).sort()
     );
-    expect(names).toHaveLength(56 + 26 + 8);
+    expect(names).toHaveLength(59 + 26 + 8);
   });
 
   it("holds no literal value: every name is a var() of a theme token", () => {

@@ -354,6 +354,12 @@
   gap: var(--space-sm);
 }
 
+/* 2.32.0 `phonePairs`: an odd last tile takes the row, not half of it beside a
+   hole. On the grid's child, so a tile wrapped in its hint spans too. */
+.oxy-ui-stat-grid--pairs > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 /* ── AsOf ─────────────────────────────────────────────────────────────────────
    The note recipe; the time on one width and one line. */
 .oxy-ui-as-of {

@@ -579,7 +579,7 @@ function OrdersPhone({ stores, totals }: OrdersData) {
 | `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge?, badgeTone? }[]`, `activeId`, `onSelect`. A badge is the shell's red unless you give it a `badgeTone` (`good`, `warn`, `bad`, `neutral`): then it is drawn in that tone, and with the theme as the reference's tab count, the tone's status pair or, for `neutral` (a count that is just a count), `--muted` in the muted ink. An attention count takes the worst status it holds. More's dot takes the strongest tone behind it (error, then warning, then neutral; success counts as neutral) once every badge there has one. `historyEntry` (off by default) makes the phone's Back work as in a native app's bottom navigation: from any section but the first it calls `onSelect` with the first item's id, and from the first it leaves; the bar holds one history entry while another section shows (one, however many tabs are tapped), only in the phone layout. Turn it on when the section lives in state or in the URL by replace. Leave it off when `onSelect` pushes history (a route or `?tab=` per section): Back would swap between two sections forever. |
 | `PhoneSheet` | A full-screen sheet with a 44px Back, a scrolling body and an optional `footer`. Back and Escape call `onClose`; focus goes in on open (with the theme, Back shows its ring only for a sheet opened from the keyboard) and back to the control that opened it on close; the page behind does not scroll. The phone's Back also calls `onClose` and leaves the page where it was: an open sheet holds a history entry on the same URL. A sheet that opened by pushing its own entry (a route, `?item=`) passes `historyEntry={false}`. |
 | `PhoneStickyAction`, `PhoneButton` | The action a screen exists for, pinned above the tab bar. Buttons are 48px; `tone` is `primary`, `secondary` or `danger`. |
-| `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. |
+| `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. `oddLastAcross` (2.32.0): upright, an odd last tile takes the row. |
 | `PhoneSection` | An 11px label with an optional `action`, then its content. Rows directly inside join into one list. With the theme the label starts on the page title's and the cards' left edge. |
 | `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. With `onClick` the row's button is the row's full height, so a tap anywhere on it opens it; a control in `trailing` keeps its own tap. With the theme, a row anywhere in a `PhoneSheet` (under a `display: contents` wrapper too) keeps its whole height rather than squeezing to 56px. |
 | `PhoneCard`, `PhoneCardList` | A table row as a card: title with a status pill, subtitle, up to three figures, a `trailing` action (it keeps its own tap). A figure's value is never cut through a glyph: its parts wrap, text alone that still does not fit ends in an ellipsis, and an element of text wraps inside itself. With the theme, one figure column per figure. The list puts a one-line `summary` on top and goes to two columns on a phone on its side. |
@@ -648,8 +648,9 @@ it before Tailwind, so its first line fixes the layer order:
 @import "tailwindcss";
 ```
 
-It maps 56 `--color-*` (the reference's 51, plus `sidebar`, `sidebar-border`,
-`card-foreground`, `status-neutral-series` and `status-info-series`), 26 `--text-*`
+It maps 59 `--color-*` (the reference's 51, plus `sidebar`, `sidebar-border`,
+`card-foreground`, `status-neutral-series`, `status-info-series` and, from 2.32.0, the check
+status `status-check`, `status-check-bg` and `status-check-line`), 26 `--text-*`
 (13 steps and their line heights) and 8 radius steps onto theme tokens, all `var()`,
 inside `@theme inline`. Hand-written CSS still reads `var(--card)`, never
 `var(--color-card)`.
@@ -668,6 +669,17 @@ would win over the pieces (their colours, rings and titles). Put them in
 `@layer theme, base, oxy-ui, components, utilities;`. The same layering means a
 utility class (or any unlayered app rule) always beats a recipe class on the same
 element, whatever order the class list gives.
+
+**New in 2.32.0** (each opt-in: a piece that passes none of it renders exactly as on 2.31.1):
+
+| Piece | What it takes now |
+| --- | --- |
+| `PanelTable` | `phoneCard={{ title, aside, subtitle, figures }}`: on a phone layout each row is a card (the tile's fill and edge at `paddingSm`; title, then the `aside` status and the chevron on its first line; the subtitle on its own line; every figure, label over value, as many to a line as fit; a column's `phoneWide` takes the whole width). A row that opens is pressed anywhere on the card, its title the Tab stop. `rowProps={(row) => ({ "data-unit": ..., title, tabIndex, onClick, className })}` on the desk row (after the table's own; `onClick` is the row's when the table does not open rows) and, `data-*` / `aria-*` / `className` / `onClick` only, on the card |
+| `Subnav` | `showHeadings` (each section's heading printed over its links, `aria-hidden`: the group already has the name) and `header` (a line at the desk column's head), both in the eyebrow at the column's own width |
+| `StatGrid` | `phonePairs`: on a phone layout two tiles to a row whatever `min` is, an odd last tile across the row |
+| `PhoneKpiStrip` (`@oxy-hq/sdk/shell`) | `oddLastAcross`: upright, an odd last tile across the row |
+| `AlertStrip` | a `hint` per alert (the SDK's `HoverHint`, opened by hover and by keyboard focus; a plain callout with a hint becomes a Tab stop) and `tone: "check"`, the theme's new check status (`--status-check`, `-bg`, `-line`: purple, 4.5:1 on its tint in both modes) |
+| `Sparkline` | `domain={[min, max]}` (a fixed scale, so rows compare by height), `band={[low, high]}` (a shaded range with dashed edges), `reference={value}` or `{{ value, from }}` (a dashed line at a value, from a point), `baseline` (a rule at the floor), `endTone` (the end mark in a status's colour, apart from the line's) |
 
 **New in 2.31.0** (each opt-in, except the changes listed after the table: a piece
 that passes none of it is drawn as before):

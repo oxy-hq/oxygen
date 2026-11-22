@@ -306,6 +306,18 @@
       "$value": "{color.brand}",
       "$description": "Info series."
     },
+    "status-check": {
+      "$value": "{color.link}",
+      "$description": "Check ink (SDK 2.32.0): this fixture draws it as info."
+    },
+    "status-check-bg": {
+      "$value": "{color.brand-subtle}",
+      "$description": "Check tint."
+    },
+    "status-check-line": {
+      "$value": "{color.link}",
+      "$description": "Check line."
+    },
     "dot-success": {
       "$value": "{color.status-success-series}",
       "$description": "Success dot."
