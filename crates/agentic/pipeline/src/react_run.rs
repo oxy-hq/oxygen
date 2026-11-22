@@ -53,7 +53,7 @@ fn runs_react(config: &AgentConfig) -> bool {
 /// `react_runtime` flag is on (`react_served::decide`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReactPolicy {
-    /// Honor the `.agentic.yml` opt-in (the eval harness, `oxy test`).
+    /// Honor the `.agentic.yml` opt-in (the eval harness, `oxy dev test`).
     Allow,
     /// Run the FSM whatever the agent asks for (Slack, the health probe).
     Never,

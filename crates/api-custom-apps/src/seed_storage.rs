@@ -48,7 +48,7 @@ const HISTORY_DAYS: i64 = 90;
 /// The byte-shape of one seeded app's history. Each exists because it renders a
 /// different state in the UI and implies a different operator response.
 ///
-/// **Exactly as many variants as `oxy seed` can create apps.** The seed builds at
+/// **Exactly as many variants as `oxy dev seed` can create apps.** The seed builds at
 /// most three targets (the demo app, plus Acme's open and restricted pair when
 /// the partner seed ran — `seed::deploy_example_apps`), so a fourth variant would
 /// be assigned to an app that does not exist and would simply never render.
@@ -247,7 +247,7 @@ fn noon_utc_days_ago(days_ago: i64) -> DateTime<FixedOffset> {
 /// the rest of the seed.
 pub(crate) async fn seed_storage_usage(db: &DatabaseConnection) -> Result<(), OxyError> {
     // Skip (don't error) on a non-local DB, matching `seed_partner_tenants` — this
-    // is folded into `oxy seed`, so erroring would take down the whole seed over
+    // is folded into `oxy dev seed`, so erroring would take down the whole seed over
     // an optional fixture.
     if !oxy_app::surface::seed::is_local_db() {
         println!(
@@ -276,7 +276,7 @@ pub(crate) async fn seed_storage_usage(db: &DatabaseConnection) -> Result<(), Ox
     // the "N apps have never been measured" banner has something to report
     // without costing a distinct state.
     //
-    // `oxy seed` tops out at three apps, so in practice this is zero and that
+    // `oxy dev seed` tops out at three apps, so in practice this is zero and that
     // banner is NOT exercised by the seed — delete a usage row by hand to see it.
     // Sacrificing one of three apps to an empty state is the worse trade.
     let unmeasured_tail = usize::from(apps.len() > PROFILES.len());
@@ -408,7 +408,7 @@ async fn seed_objects(app_id: Uuid, profile: Profile) -> Result<(), OxyError> {
     Ok(())
 }
 
-/// Remove seeded storage rows. Called by `oxy seed --clear`.
+/// Remove seeded storage rows. Called by `oxy dev seed --clear`.
 pub(crate) async fn clear_storage_usage(db: &DatabaseConnection) -> Result<(), OxyError> {
     // Scoped to seeded apps, not a truncate. The FK is ON DELETE CASCADE so
     // dropping the apps would take these with them anyway — but `--clear` also
@@ -441,7 +441,7 @@ pub(crate) async fn clear_storage_usage(db: &DatabaseConnection) -> Result<(), O
 mod tests {
     use super::*;
 
-    /// The most apps `oxy seed` can create: the demo app, plus Acme's open and
+    /// The most apps `oxy dev seed` can create: the demo app, plus Acme's open and
     /// restricted pair when the partner seed ran (`seed::deploy_example_apps`).
     /// Fewer on a fleet where the partner seed skipped.
     const MAX_SEEDED_APPS: usize = 3;

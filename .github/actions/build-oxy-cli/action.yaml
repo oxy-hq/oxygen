@@ -30,6 +30,14 @@ inputs:
   repo_owner:
     description: Repository owner used to scope the GitHub App token.
     required: true
+  dev_tools:
+    description: >-
+      "true" builds the `-devtools` variant: the same binary plus oxy-server's
+      `dev-tools` feature (`oxy dev seed | compile | test`), uploaded as
+      `cli-<target>-devtools`. Only the release showcase uses it, to seed the
+      database the real release image then serves. Never shipped as `oxy`.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -121,10 +129,17 @@ runs:
         fi
         protoc --version
 
+    # `--no-default-features` drops oxy-server's `dev-tools` (`oxy dev seed |
+    # compile | test`): a shipped binary cannot write demo rows into whatever
+    # database OXY_DATABASE_URL names. `custom-app-functions` (V8) is the other
+    # default and stays on. internal-docs/oxy-cli-to-oxyc.md, "Dev tooling".
+    # With `dev_tools`, the showcase's seeding variant adds the feature back.
     - name: Build oxy CLI
       shell: bash
+      env:
+        FEATURES: ${{ inputs.dev_tools == 'true' && 'custom-app-functions,dev-tools' || 'custom-app-functions' }}
       run: |
-        cargo build --release --target ${{ inputs.target }}
+        cargo build --release --target ${{ inputs.target }} -p oxy-server --no-default-features --features "$FEATURES"
         mv target/${{ inputs.target }}/release/oxy artifacts/oxy-${{ inputs.target }}
 
     # The committed json-schemas/ are already current: oxy-app's
@@ -165,7 +180,7 @@ runs:
     - name: Upload release artifacts
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
-        name: cli-${{ inputs.target }}
+        name: cli-${{ inputs.target }}${{ inputs.dev_tools == 'true' && '-devtools' || '' }}
         path: artifacts/**/*
         if-no-files-found: error
         retention-days: 1

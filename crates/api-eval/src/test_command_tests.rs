@@ -1,4 +1,4 @@
-//! Unit tests for the `oxy test` subcommand.
+//! Unit tests for the `oxy dev test` subcommand.
 //!
 //! Co-located via `#[path = "test_command_tests.rs"] mod tests;` from
 //! `test_command.rs` to keep it under the 400-line file limit.

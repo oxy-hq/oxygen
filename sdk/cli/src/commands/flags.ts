@@ -59,7 +59,7 @@ async function readFlag(ctx: Context, key: string): Promise<FeatureFlag> {
   if (found) return found;
   throw new CliError(`no feature flag named '${key}'`, {
     code: ExitCode.NOT_FOUND,
-    hint: `declared flags: ${flags.map((f) => f.key).join(", ") || "none"} — flags are declared in code (registry.rs), not created at runtime`
+    hint: `declared flags: ${flags.map((f) => f.key).join(", ") || "none"} — flags are declared in the server's flag registry, not created at runtime`
   });
 }
 

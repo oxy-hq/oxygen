@@ -18,7 +18,7 @@ workspace like anything else:
 ## Load them
 
 Against a workspace that holds this `examples/` folder (for a local stack,
-`oxy seed --workspace-path ./examples`):
+`oxy dev seed --workspace-path ./examples`):
 
 ```bash
 bash examples/experiments/load_examples.sh --env local --workspace <workspace-id>

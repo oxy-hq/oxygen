@@ -9,7 +9,7 @@
 #   oxy-clickhouse. `oxy start --db-only` brings it up when it is not healthy; nothing else
 #   restarts it, so one stack's restart never drops another's database.
 #
-#   up       build, shared data layer, this checkout's backend, `oxy seed --fixtures`, Vite.
+#   up       build, shared data layer, this checkout's backend, `oxy dev seed --fixtures`, Vite.
 #            Reuses whatever is ours and healthy; restarts the backend only when the binary
 #            changed. Writes .oxy-dev/state.json, the file an agent reads next.
 #   down     Stops this checkout's backend + Vite.
@@ -17,7 +17,7 @@
 #   stacks   Every stack on this machine, and the shared data layer.
 #
 #   up flags    --no-build       use the existing binary ($OXY_BIN, else target/debug/oxy)
-#               --no-seed        skip `oxy seed`
+#               --no-seed        skip `oxy dev seed`
 #               --no-frontend    API only, no Vite
 #               --frontend-only  Vite only, proxying to a backend already running on this machine
 #                                (this checkout's, else the lowest slot's; OXY_DEV_BACKEND_URL
@@ -486,11 +486,11 @@ seed() {
   rset seed.log "$log"
   # --llm-keys: the database is this machine's shared container, so this box's keys stay on it.
   # --fixtures: the pulse-demo fixture app (release history + traffic); a no-op once built.
-  note "oxy seed --workspace-path ./examples --llm-keys --fixtures  (log: $(rel "$log"))"
+  note "oxy dev seed --workspace-path ./examples --llm-keys --fixtures  (log: $(rel "$log"))"
   if ! (cd "$REPO" && python3 "$SLOTS" with-lock --log "$log" seed -- env -u OXY_ROLE "${BACKEND_ENV[@]}" \
-    "$BIN" seed --workspace-path ./examples --llm-keys --fixtures); then
+    "$BIN" dev seed --workspace-path ./examples --llm-keys --fixtures); then
     tail -n 40 "$log" >&2
-    die "oxy seed failed — log: $log"
+    die "oxy dev seed failed — log: $log"
   fi
 }
 

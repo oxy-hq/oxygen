@@ -1,4 +1,4 @@
-//! Seed **platform grants** — the staff roles `oxy seed` creates so the capability
+//! Seed **platform grants** — the staff roles `oxy dev seed` creates so the capability
 //! model can actually be exercised locally.
 //!
 //! Without these, an App Operator exists only in tests. A developer opening `/admin`
@@ -20,7 +20,7 @@
 //! **Guarded by the same locality check as the partner seed.** These rows are staff
 //! standing — seeding them against a real database would be handing out platform
 //! access, which is categorically worse than seeding a demo tenant. On a non-local DB
-//! this skips (matching `seed_partner_tenants`, so a folded `oxy seed` stays safe).
+//! this skips (matching `seed_partner_tenants`, so a folded `oxy dev seed` stays safe).
 //!
 //! Idempotent by email, via the same `ON CONFLICT` upsert the admin API uses — so
 //! re-running after editing a grant in the console puts it back to the seeded shape
@@ -49,7 +49,7 @@ struct GrantSeed {
     /// `None` = every org. `Some(slug)` = bounded to that org, so the scope path is
     /// exercisable rather than merely implemented.
     scope_org_slug: Option<&'static str>,
-    /// Shown in the seed output, so `oxy seed` explains what it just created rather
+    /// Shown in the seed output, so `oxy dev seed` explains what it just created rather
     /// than leaving the developer to infer it from three similar addresses.
     demonstrates: &'static str,
 }
@@ -92,7 +92,7 @@ pub fn unscoped_app_operator_email() -> Option<&'static str> {
 }
 
 /// Seed the staff grants. Skips (does not error) on a non-local database, matching
-/// `seed_partner_tenants` so the folded `oxy seed` stays safe to run anywhere.
+/// `seed_partner_tenants` so the folded `oxy dev seed` stays safe to run anywhere.
 pub async fn seed_platform_grants() -> Result<(), OxyError> {
     if !super::seed_partners::is_local_db() {
         println!(

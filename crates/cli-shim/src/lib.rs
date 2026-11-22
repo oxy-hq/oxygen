@@ -121,6 +121,15 @@ fn command<C>(owners: &[Owner<C>]) -> Command {
     owners.iter().fold(root, |cmd, owner| (owner.augment)(cmd))
 }
 
+/// Every subcommand the owners register, hidden ones included, in `--help`
+/// order. For the binary's tests: which commands a build has.
+pub fn subcommand_names<C>(owners: &[Owner<C>]) -> Vec<String> {
+    command(owners)
+        .get_subcommands()
+        .map(|s| s.get_name().to_owned())
+        .collect()
+}
+
 /// Parse argv, call `prepare` with the subcommand's name, and run it with its
 /// owner. No subcommand prints the help.
 ///
@@ -190,6 +199,7 @@ mod tests {
         let cmd = command(&owners);
         let names: Vec<&str> = cmd.get_subcommands().map(|s| s.get_name()).collect();
         assert_eq!(names, ["alpha", "beta"]);
+        assert_eq!(subcommand_names(&owners), ["alpha", "beta"]);
 
         let m = command(&owners)
             .try_get_matches_from(["oxy", "beta", "7"])

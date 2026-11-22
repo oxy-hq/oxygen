@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Seeds ONE finished switchback run and its released report into the cloud
 # backend's Postgres, so the agentic flow `experiments-price-draft` (case 2) has a
-# directional report to read. Run AFTER `oxy seed` (it needs the Demo workspace, whose
+# directional report to read. Run AFTER `oxy dev seed` (it needs the Demo workspace, whose
 # promoted revision the report's views resolve at) and BEFORE the runner. Idempotent: a second run inserts nothing.
 #
 # WHY A SCRIPT: a report exists only once a run has registered, flipped, closed and
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 : "${OXY_DATABASE_URL:?set OXY_DATABASE_URL to the cloud backend Postgres URL}"
-# `oxy seed`'s own fixed Demo workspace id (crates/app/src/cli/commands/seed.rs).
+# `oxy dev seed`'s own fixed Demo workspace id (crates/app/src/cli/commands/seed.rs).
 WORKSPACE_ID="${OXY_SEED_WORKSPACE_ID:-70787bb2-e11b-5488-b2c3-02e60d5fc7d3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # The released report — the same bytes web-app's directionalFixture.test.tsx renders.

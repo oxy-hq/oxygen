@@ -1,4 +1,4 @@
-//! `oxy seed` — demo conversation threads for the seeded workspace.
+//! `oxy dev seed` — demo conversation threads for the seeded workspace.
 //!
 //! Gives a freshly-seeded box a Chat surface with history in it: the threads
 //! list, the recents rail and the analytics thread view all render real
@@ -221,7 +221,7 @@ async fn local_org_members(conn: &DatabaseConnection) -> Result<Vec<Uuid>, OxyEr
 /// **The first three writes are one transaction, and that is load-bearing.**
 /// The skip check below keys on the `threads` row alone, and the caller
 /// downgrades a failure to a warning — so a partial insert would leave a
-/// thread with no run behind, and every later `oxy seed` would find that row,
+/// thread with no run behind, and every later `oxy dev seed` would find that row,
 /// return `false`, and skip it forever. The thread renders empty and nothing
 /// short of a manual `DELETE` repairs it. All-or-nothing makes the skip check
 /// honest: no thread row means the next run genuinely retries.

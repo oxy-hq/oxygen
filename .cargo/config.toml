@@ -32,10 +32,12 @@ git-fetch-with-cli = true
 # `oxy-server` crate); their `--no-default-features` drops V8 — every oxy-app
 # dependent in the binary's graph (oxy-server, oxy-api-github, oxy-app-dylib) sets
 # `default-features = false`, and oxy-server's own `custom-app-functions` feature
-# is the single switch that turns V8 back on for the default build.
+# is the single switch that turns V8 back on for the default build. `bf`/`rf`
+# put `dev-tools` back (`oxy dev seed | compile | test`), which
+# `--no-default-features` would otherwise drop with V8.
 cf = "check --no-default-features -p oxy-app"
-bf = "build --no-default-features -p oxy-server"
-rf = "run   --no-default-features -p oxy-server"
+bf = "build --no-default-features --features dev-tools -p oxy-server"
+rf = "run   --no-default-features --features dev-tools -p oxy-server"
 
 # mold linker is automatically set via Github Actions
 # on macos, ld64 already works fairly well so there is no reason to use mold

@@ -2,7 +2,7 @@
 //! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the task kinds
 //! the worker fleet runs, the process-lifetime background jobs, the outer
 //! `/customer-apps/{*path}` mount, the function runtime for the `oxy-app`
-//! handlers that run a function, and the `oxy migrate` and `oxy seed` halves.
+//! handlers that run a function, and the `oxy migrate` and `oxy dev seed` halves.
 //!
 //! The executors, the mount, the runtime and the seed are `oxy-api-custom-apps`'s;
 //! the usage-retention and usage-drain jobs and the storage sweeps are in

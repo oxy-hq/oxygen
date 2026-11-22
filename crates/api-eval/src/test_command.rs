@@ -1,4 +1,4 @@
-//! The `oxy test` subcommand — runs LLM-as-judge evaluations defined in
+//! The `oxy dev test` subcommand — runs LLM-as-judge evaluations defined in
 //! `.test.yml` files.
 //!
 //! Scope: `.test.yml` files only. The inline `workflow.tests` / `agent.tests`
@@ -151,7 +151,7 @@ fn validate_args(test_args: &TestArgs) -> Result<(), OxyError> {
         && !file.ends_with(TEST_FILE_SUFFIX)
     {
         return Err(OxyError::ConfigurationError(format!(
-            "Unsupported test file: {file}. `oxy test` only runs {TEST_FILE_SUFFIX} files \
+            "Unsupported test file: {file}. `oxy dev test` only runs {TEST_FILE_SUFFIX} files \
              (the inline workflow.tests / agent.tests entry points were removed)."
         )));
     }

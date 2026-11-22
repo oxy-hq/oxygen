@@ -43,7 +43,7 @@ x-oxy-common: &oxy-common
     # So a browser flow signed in as staff never reaches the surface it came to
     # test; it lands on the admin console and times out waiting for a testid that
     # was never going to render. `member@oxy.tech` is an ordinary org owner that
-    # `oxy seed` creates, with no platform standing, and it is what workspace-
+    # `oxy dev seed` creates, with no platform standing, and it is what workspace-
     # scoped flows must sign in as. It is seeded as an owner of the Local org at
     # bootstrap time but is absent from OXY_OWNER/OXY_GLOBAL_ADMINS above, which
     # is exactly what "org owner without platform standing" means.
@@ -55,7 +55,7 @@ x-oxy-common: &oxy-common
     # ── The custom-app build store, and why this file needs one ─────────────
     # `custom_apps_build_store.rs:48-52` picks its backend at call time: S3 when
     # OXY_CUSTOMER_APPS_S3_BUCKET is set, otherwise the local filesystem under
-    # OXY_STATE_DIR. Without the bucket, `oxy seed`'s app deploy writes the
+    # OXY_STATE_DIR. Without the bucket, `oxy dev seed`'s app deploy writes the
     # bundle to whichever node ran it — the `ide`, the only node with a state
     # volume — and the replicas then answer `GET /customer-apps/local/
     # oxy-starter/` with a bare 404 while the ide answers 200. Measured on this

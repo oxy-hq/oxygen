@@ -65,7 +65,7 @@ Every flow runs in **enterprise mode**, the production path, unless it opts out.
 
 | `backend_mode` | what the runner does | runner targets |
 |---|---|---|
-| `cloud` (default) | `oxy start --enterprise` (repo root), then `oxy seed --workspace-path demo_project --llm-keys`, then a dev-login session as `flow@oxy.local` | `http://localhost:3000`, workspace paths prefixed with `/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3` |
+| `cloud` (default) | `oxy start --enterprise` (repo root), then `oxy dev seed --workspace-path demo_project --llm-keys`, then a dev-login session as `flow@oxy.local` | `http://localhost:3000`, workspace paths prefixed with `/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3` |
 | `local` (legacy) | `oxy start --local --enterprise` (`demo_project/`) | `http://localhost:3000` (auth-disabled in `--local`) |
 
 In enterprise mode (`runner/backend.ts`, `runner/session.ts`):
@@ -83,7 +83,7 @@ If a backend is already healthy at the resolved URL, the runner uses it as-is: n
 
 ```bash
 OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy OXY_GLOBAL_ADMINS=flow@oxy.local \
-  ./target/debug/oxy seed --workspace-path demo_project --llm-keys   # re-points Demo at demo_project/
+  ./target/debug/oxy dev seed --workspace-path demo_project --llm-keys   # re-points Demo at demo_project/
 OXY_FLOW_EMAIL=<a staff email from OXY_GLOBAL_ADMINS> pnpm test:agentic chat-ask
 ```
 
@@ -262,7 +262,7 @@ Older flows under `cache_actions: false` were written before egress substitution
 
 Enterprise mode drives the **authenticated** public port (3000) with a real session, not the auth-disabled internal port (3001): the internal port carries neither `enforce_role` nor the ide proxy, and its `/api/user` answers `null` to a cookie-less browser, so the SPA's admin gate bounced every admin flow that tried it. The session comes from dev-login, the same endpoint `/dev-login?as=<persona>` uses (see the `oxy-run-and-verify` skill).
 
-The runner injects **one** session per invocation. `flow@oxy.local` (the default) is what every workspace flow needs; the admin flows (`admin-*`, `airway-pipeline-run`) need a staff identity, so `scripts/verify-all.sh` phase 4 starts `oxy start --enterprise` itself, runs `oxy seed ./examples` (the partner tenants and `health_check:` block they read), mints a staff session and hands it to the runner in `OXY_SESSION_TOKEN`. No UI creates an org any more — orgs are provisioned by staff or a partner — so every enterprise flow depends on a seed having run first; the runner's own spawn seeds `demo_project/`, and anything else is seeded from the shell (`scripts/seed-fixtures.sh`). Keep the warehouse file-based (DuckDB), so a flow stays structurally incapable of hitting a port-forward to production — the failure mode of the 2026-05-06 incident.
+The runner injects **one** session per invocation. `flow@oxy.local` (the default) is what every workspace flow needs; the admin flows (`admin-*`, `airway-pipeline-run`) need a staff identity, so `scripts/verify-all.sh` phase 4 starts `oxy start --enterprise` itself, runs `oxy dev seed ./examples` (the partner tenants and `health_check:` block they read), mints a staff session and hands it to the runner in `OXY_SESSION_TOKEN`. No UI creates an org any more — orgs are provisioned by staff or a partner — so every enterprise flow depends on a seed having run first; the runner's own spawn seeds `demo_project/`, and anything else is seeded from the shell (`scripts/seed-fixtures.sh`). Keep the warehouse file-based (DuckDB), so a flow stays structurally incapable of hitting a port-forward to production — the failure mode of the 2026-05-06 incident.
 
 ### Driving a fleet or remote deployment (bypassing `backend_mode`)
 
@@ -457,7 +457,7 @@ If you intentionally want to nuke the cache (e.g. to remeasure cold cost), bump 
 ## Troubleshooting
 
 - **`backend did not become healthy`** — `oxy start --enterprise` (or the legacy `oxy start --local --enterprise`) failed. Tail `web-app/tests/agentic/.logs/backend.log`. Most often Docker isn't running, or the system `oxy` binary on PATH is older than the workspace build (set `$OXY_BIN` to the freshly built one).
-- **`oxy seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in `demo_project/` fails the seed (every seeded workspace points at it).
+- **`oxy dev seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in `demo_project/` fails the seed (every seeded workspace points at it).
 - **`[session] dev-login as flow@oxy.local failed: 404 / 403`** — the backend you are reusing does not list the identity in `OXY_DEV_LOGIN_EMAILS`. Stop it and let the runner spawn its own, or see "Run" above for signing in as someone it does list.
 - **Every page lands on `/onboarding`** — dev-login minted an account that belongs to no org: the backend was never seeded with `OXY_GLOBAL_ADMINS=flow@oxy.local`.
 - **`[session] workspace … is on a detached HEAD`** — the checkout holding `demo_project/` has no branch. The IDE itself works there now (it no longer answers 400), but the flows are authored for a named branch and every git action a flow takes would be refused. `git switch -c <name>` and rerun. See "Git state" under Run.

@@ -24,7 +24,7 @@ databases:
 
     # dry_run_limit: 1
 
-  # The workspace's own Airhouse tenant. `oxy seed` loads every file in
+  # The workspace's own Airhouse tenant. `oxy dev seed` loads every file in
   # `.db/` and `.training_data/` into it, under the names a file DuckDB gave
   # them (`orders.csv` is the table `main.orders`, with views
   # `main."orders.csv"` and `orders.csv`), so `FROM 'orders.csv'`,

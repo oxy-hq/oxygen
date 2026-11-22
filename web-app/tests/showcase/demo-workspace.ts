@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 export interface DemoWorkspace {
-  /** `hasData`: its data is files in the workspace (read directly, or loaded into its Airhouse tenant by `oxy seed`), so it answers on an instance with no warehouse. */
+  /** `hasData`: its data is files in the workspace (read directly, or loaded into its Airhouse tenant by `oxy dev seed`), so it answers on an instance with no warehouse. */
   databases: { name: string; type: string; hasData: boolean }[];
   /** Workspace-relative paths, grouped by what the product calls them. */
   files: { kind: string; paths: string[] }[];
@@ -37,7 +37,7 @@ const PER_KIND = 30;
 // workspace. Every other one is a service or a credential a throwaway instance
 // does not have, except the next.
 const FILE_BACKED_TYPE = "duckdb";
-// The workspace's own Airhouse tenant, which `oxy seed` fills from these
+// The workspace's own Airhouse tenant, which `oxy dev seed` fills from these
 // directories (`seed_airhouse.rs`, `DEMO_DATA_DIRS`) when the instance has an
 // Airhouse, as `scripts/ci/showcase-boot.sh` gives it.
 const SEEDED_TYPE = "airhouse_managed";

@@ -40,7 +40,7 @@ describe("describeDevLoginFailure", () => {
   it("shows the server's reason for an unseeded persona", () => {
     const reason = "persona `member` (amara.larsson@acme.test) is not seeded — run `just up`";
     expect(describeDevLoginFailure(409, undefined, reason)).toBe(reason);
-    expect(describeDevLoginFailure(409, undefined)).toContain("oxy seed");
+    expect(describeDevLoginFailure(409, undefined)).toContain("oxy dev seed");
   });
 
   it("shows the server's reason for a bad persona request", () => {

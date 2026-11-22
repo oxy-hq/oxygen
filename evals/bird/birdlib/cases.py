@@ -1,4 +1,4 @@
-"""Render per-DB `oxy test` files from BIRD questions. Never emits `evidence`."""
+"""Render per-DB `oxy dev test` files from BIRD questions. Never emits `evidence`."""
 import json
 from pathlib import Path
 

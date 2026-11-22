@@ -18,6 +18,8 @@ mod catalog_tests;
 mod commands;
 mod core_routes;
 mod custom_apps_seams;
+#[cfg(feature = "dev-tools")]
+mod dev;
 #[cfg(test)]
 mod healthcheck_tests;
 mod logging;
@@ -533,6 +535,32 @@ fn surface_seams() -> SurfaceSeams {
     }
 }
 
+/// Who owns which `oxy` subcommand. The parser is `oxy-cli-shim`'s and knows
+/// no command. This binary owns the long-lived ones (`start`, `serve`,
+/// `worker`), listed first; oxy-app owns most of the one-shot rest. The hidden
+/// `oxy dev` group (`seed`, dev `compile`, and `test` from `oxy-api-eval`) and
+/// the one-release `oxy test` alias exist only with the `dev-tools` feature,
+/// which the release build leaves off (`dev.rs`). `oxy airway` was
+/// `oxy-api-airway`'s until it moved to `oxyc airway` on 2026-11-21.
+fn cli_owners() -> Vec<oxy_cli_shim::Owner<SurfaceSeams>> {
+    let mut owners = vec![oxy_cli_shim::Owner::of::<commands::ServerCommand>(
+        |command, seams| Box::pin(commands::run(command, seams)),
+    )];
+    #[cfg(feature = "dev-tools")]
+    owners.extend([
+        oxy_cli_shim::Owner::of::<dev::DevGroup>(|command, seams| {
+            Box::pin(dev::run(command, seams))
+        }),
+        oxy_cli_shim::Owner::of::<dev::Renamed>(|command, _seams| {
+            Box::pin(dev::run_renamed(command))
+        }),
+    ]);
+    owners.push(oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(
+        |command, seams| Box::pin(oxy_app::cli::run(command, seams)),
+    ));
+    owners
+}
+
 fn main() {
     dotenv().ok();
     let _sentry_guard = sentry_config::init_sentry(oxy_app::BUILD_SHA);
@@ -651,27 +679,8 @@ fn main() {
         // soft NOFILE of 256, which busy instances exhaust (EMFILE).
         raise_fd_limit();
 
-        // The parser is `oxy-cli-shim`'s and knows no command. This binary
-        // owns the long-lived ones (`start`, `serve`, `worker`), listed first;
-        // oxy-app owns most of the one-shot rest, and a context that has left
-        // oxy-app brings its own (`oxy test`, from `oxy-api-eval`; `oxy airway`
-        // was `oxy-api-airway`'s until it moved to `oxyc airway` on
-        // 2026-11-21). `test` was second among oxy-app's
-        // commands, after `run`; registered ahead of them, it lists just before
-        // `run`, the nearest `--help` can keep it to where it was.
-        let owners = vec![
-            oxy_cli_shim::Owner::of::<commands::ServerCommand>(|command, seams| {
-                Box::pin(commands::run(command, seams))
-            }),
-            oxy_cli_shim::Owner::of::<oxy_api_eval::Command>(|command, _seams| {
-                Box::pin(oxy_api_eval::run(command))
-            }),
-            oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(|command, seams| {
-                Box::pin(oxy_app::cli::run(command, seams))
-            }),
-        ];
         let exit_code =
-            match oxy_cli_shim::run(owners, surface_seams(), oxy_app::cli::prepare).await {
+            match oxy_cli_shim::run(cli_owners(), surface_seams(), oxy_app::cli::prepare).await {
                 Ok(_) => 0,
                 Err(e) => {
                     tracing::error!(error = %e, "Application error");
@@ -720,6 +729,42 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The command tree `main` parses, hidden commands included.
+    fn root_commands() -> Vec<String> {
+        oxy_cli_shim::subcommand_names(&cli_owners())
+    }
+
+    /// The release build (`--no-default-features --features
+    /// custom-app-functions`, `.github/actions/build-oxy-cli`) has no dev
+    /// tooling: no `dev`, no top-level `seed` or `test`. CI compiles this test
+    /// (the release-shape clippy line in `ci.yaml`, `--profile test`).
+    #[cfg(not(feature = "dev-tools"))]
+    #[test]
+    fn a_build_without_dev_tools_cannot_seed() {
+        let names = root_commands();
+        for gone in ["dev", "seed", "test"] {
+            assert!(
+                !names.iter().any(|n| n == gone),
+                "`oxy {gone}` in {names:?}"
+            );
+        }
+        assert!(names.iter().any(|n| n == "compile"), "{names:?}");
+    }
+
+    /// A default (debug) build has the `dev` group and, for one release, the
+    /// old top-level `seed` and `test`.
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn a_dev_tools_build_has_the_dev_group_and_the_old_spellings() {
+        let names = root_commands();
+        for name in ["dev", "seed", "test", "compile", "serve"] {
+            assert!(
+                names.iter().any(|n| n == name),
+                "no `oxy {name}` in {names:?}"
+            );
+        }
+    }
 
     /// Composing the seams panics on a path collision between sibling crates,
     /// which would otherwise surface only as a boot panic.

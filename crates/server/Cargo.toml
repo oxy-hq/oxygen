@@ -12,7 +12,7 @@ name = "oxy"
 path = "src/main.rs"
 
 [features]
-default = ["custom-app-functions"]
+default = ["custom-app-functions", "dev-tools"]
 # Forwards to oxy-api-custom-apps' V8 (deno_core) Oxy Functions runtime. On by
 # default so a plain build runs the real runtime; `--no-default-features` drops V8
 # (Functions endpoints go inert) for the fast local loop — see `.cargo/config.toml`
@@ -24,6 +24,16 @@ custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 # `extern crate oxy_app_dylib` forces it into the link. NEVER enabled by
 # CI/release, so the ~1.4 GB dylib is never built there.
 dev-dynamic = ["dep:oxy-app-dylib"]
+
+# `oxy dev seed | compile | test` (and, for one release, the hidden top-level
+# `oxy seed` / `oxy test` aliases): dev tooling that writes demo rows straight
+# into a database. On by default, so debug builds, `just up`, CI's agentic job
+# and the fleet image have it; the release build
+# (`.github/actions/build-oxy-cli`) passes `--no-default-features --features
+# custom-app-functions`, so a shipped binary cannot seed. `oxy dev test` is
+# oxy-api-eval's command, registered only under this feature (`src/dev.rs`);
+# the crate itself is linked in every build for its eval-run routes and task.
+dev-tools = ["oxy-app/dev-tools"]
 
 [dependencies]
 # oxy-app is the library this binary drives; default-features off so the feature
@@ -59,7 +69,8 @@ oxy-api-workspace-health = { path = "../api-workspace-health" }
 oxy-api-threads = { path = "../api-threads" }
 oxy-api-workspaces = { path = "../api-workspaces" }
 oxy-api-semantic = { path = "../api-semantic" }
-# `oxy test`, its own oxy-cli-shim owner (S10). Mounts no route.
+# The eval context: the eval-run routes and `eval_run` task (`oxyc evals run`),
+# in every build, and `oxy dev test`, registered only with `dev-tools` (S10).
 oxy-api-eval = { path = "../api-eval" }
 oxy-cli-shim = { path = "../cli-shim" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.

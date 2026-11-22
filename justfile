@@ -308,11 +308,11 @@ oauth-proxy:
 
 # Seed the demo project (guest user + Local org + nil-UUID workspace at ./examples).
 seed:
-    cargo run -- seed
+    cargo run -- dev seed
 
 # Drop the demo workspace row.
 seed-clear:
-    cargo run -- seed --clear
+    cargo run -- dev seed --clear
 
 # Run database migrations manually
 migrate:
@@ -431,11 +431,11 @@ airhouse-up:
     @echo "Or step-by-step:"
     @echo "  set -a; source .env.airhouse; set +a"
     @echo "  cargo run -p migration --bin migration                                     # one-shot"
-    @echo "  cargo run -p oxy-server -- seed                                               # guest user + Local org + workspace at ./examples + OXY_GLOBAL_ADMINS as Owners"
+    @echo "  cargo run -p oxy-server -- dev seed                                           # guest user + Local org + workspace at ./examples + OXY_GLOBAL_ADMINS as Owners"
     @echo "  # Compile+PROMOTE the seeded workspace. ABSOLUTE path: a RELATIVE --workspace-path"
     @echo "  # silently under-compiles (the discover globs miss → only config.yml). --promote sets"
     @echo "  # current_revision_id so the serve fleet can actually read it."
-    @echo "  cargo run -p oxy-server -- compile --workspace-path $PWD/examples --workspace-id 70787bb2-e11b-5488-b2c3-02e60d5fc7d3 --enterprise --promote"
+    @echo "  cargo run -p oxy-server -- dev compile --workspace-path $PWD/examples --workspace-id 70787bb2-e11b-5488-b2c3-02e60d5fc7d3 --enterprise --promote"
     @echo "  # Split fleet — run BOTH (the serve node self-proxies IdeOnly → the ide node)."
     @echo "  # The serve node's --internal-port 0 turns OFF its internal API (which also"
     @echo "  # defaults to 3001) so it can't clash with the ide node's internal API on :3001."
@@ -465,9 +465,9 @@ airhouse-precompile:
         pg_isready -U airhouse -d oxydb >/dev/null 2>&1 && break || sleep 1
     done
     echo "→ migrate"; cargo run -p migration --bin migration
-    echo "→ seed";    cargo run -p oxy-server -- seed
+    echo "→ seed";    cargo run -p oxy-server -- dev seed
     echo "→ compile + promote (ABSOLUTE path — a relative --workspace-path under-compiles)"
-    cargo run -p oxy-server -- compile --workspace-path "$PWD/examples" \
+    cargo run -p oxy-server -- dev compile --workspace-path "$PWD/examples" \
       --workspace-id 70787bb2-e11b-5488-b2c3-02e60d5fc7d3 --enterprise --promote --skip-migrations
     echo "✓ demo workspace compiled + promoted. Next: just airhouse-fleet"
 
@@ -684,7 +684,7 @@ clickhouse-obs-verify:
 #   the SERVE node (OXY_ROLE=serve, :3002)  → FleetOk Served-By: serve, and on
 #       IdeOnly routes: Forwarded-Via: serve + Served-By: ide  (OXY_IDE_UPSTREAM set)
 #       or 421 + Required-Role: ide                            (OXY_IDE_UPSTREAM unset)
-# Default ws is the deterministic `oxy seed` demo workspace; any uuid works
+# Default ws is the deterministic `oxy dev seed` demo workspace; any uuid works
 # (classification is path-based, so the headers show even on a 404).
 routing-check port="3000" ws="70787bb2-e11b-5488-b2c3-02e60d5fc7d3":
     #!/usr/bin/env bash

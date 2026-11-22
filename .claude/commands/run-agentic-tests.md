@@ -15,7 +15,7 @@ browser and the per-iteration LLM reasoning.
 
 **The runner auto-spawns the right oxy backend** based on each flow's
 `settings.backend_mode` (`cloud`, the default, → enterprise mode: `oxy start
---enterprise`, `oxy seed` of `demo_project/`, and a dev-login session as
+--enterprise`, `oxy dev seed` of `demo_project/`, and a dev-login session as
 `flow@oxy.local`, all on port 3000; `local` → the legacy `oxy start --local
 --enterprise`). No port-probing or pre-start dance needed.
 
@@ -108,7 +108,7 @@ If healing happened (`.results/healing.json` non-empty), surface the
 When the dev wants to drive a backend they started themselves (e.g. to
 debug with a persistent Postgres volume across runs, attach a debugger,
 run a cloud-mode flow that needs an org — no UI creates one, so it must
-be `oxy seed`ed first), pass both `--no-auto-backend` and
+be `oxy dev seed`ed first), pass both `--no-auto-backend` and
 `--no-auto-frontend` and set `OXY_BASE_URL` / `OXY_HEALTH_URL`:
 
 ```bash
@@ -148,7 +148,7 @@ gh workflow run "CI check" --repo oxy-hq/oxygen-internal \
 - **`[session] dev-login as flow@oxy.local failed`** — you are reusing a
   backend that does not allow the identity (e.g. `just up`). Stop it, or
   set `OXY_FLOW_EMAIL` to an identity it allows.
-- **`backend did not become healthy`** / **`oxy seed failed`** — `oxy start
+- **`backend did not become healthy`** / **`oxy dev seed failed`** — `oxy start
   --enterprise` or the demo_project seed failed. Tail
   `web-app/tests/agentic/.logs/backend.log`. Common causes: Docker
   Desktop not running, system `oxy` on PATH older than the workspace

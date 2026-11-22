@@ -30,7 +30,9 @@ export const describeDevLoginFailure = (
     case 400:
       return reason ?? "The server rejected the sign-in request — pass `email` or `as`, not both.";
     case 409:
-      return reason ?? "That persona is not seeded on this server — run `just up` (or `oxy seed`).";
+      return (
+        reason ?? "That persona is not seeded on this server — run `just up` (or `oxy dev seed`)."
+      );
     default:
       return "Dev sign-in failed. Check the server logs.";
   }

@@ -997,6 +997,12 @@ jobs:
           # fingerprints from the line above are reused; the check pass runs first, so
           # an E0433 fails it identically.
           cargo clippy --no-default-features -p oxy-app
+          # The release shape (`.github/actions/build-oxy-cli`): no `dev-tools`,
+          # so no `oxy dev seed | compile | test`. Only oxy-server's own code
+          # differs from the line above (its `dev` module is compiled out).
+          # `--profile test` compiles the binary's unit tests too, so the
+          # feature-off guard `a_build_without_dev_tools_cannot_seed` builds.
+          cargo clippy -p oxy-server --bin oxy --profile test --no-default-features --features custom-app-functions
       # The test selector is its own workspace, so nothing above reaches it,
       # and a change to it only proves the full suite passes, not that it
       # still selects correctly. Its tests do (scripts/ci/test-selection/src/tests.rs).

@@ -16,7 +16,7 @@ import type { BackendMode } from "./types";
  * Owner off every tenant workspace into /admin, and a flow signed in as staff
  * then times out on a testid that was never going to render.
  *
- * The workspace is the Demo workspace `oxy seed` writes at a deterministic id
+ * The workspace is the Demo workspace `oxy dev seed` writes at a deterministic id
  * (`Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local")`, crates/app/src/cli/commands/seed.rs).
  * The runner (backend.ts) and CI seed it from this checkout's `demo_project/`,
  * the fixture the flows are authored against.
@@ -171,7 +171,7 @@ async function mintSession(base: string, email: string): Promise<{ token: string
  * A 200 is not proof of a usable identity either: dev-login mints an account
  * for an allow-listed address it has never seen, and that account belongs to
  * no org, so every flow lands on /onboarding. Seeding first
- * (`OXY_GLOBAL_ADMINS=<flow email> oxy seed --workspace-path demo_project`)
+ * (`OXY_GLOBAL_ADMINS=<flow email> oxy dev seed --workspace-path demo_project`)
  * is what makes it the Owner of `local`.
  */
 function explain(status: number): string {

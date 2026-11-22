@@ -1,5 +1,8 @@
 mod agentic_cli;
 mod compile;
+/// `oxy dev seed | compile`, only with the `dev-tools` feature.
+#[cfg(feature = "dev-tools")]
+pub mod dev;
 mod looker;
 pub(crate) mod migrate;
 mod migrate_agents;
@@ -13,6 +16,7 @@ pub mod seed;
 mod seed_airhouse;
 mod seed_compile;
 mod seed_llm_keys;
+#[cfg(feature = "dev-tools")]
 mod seed_org_workspace;
 pub(crate) mod seed_partners;
 pub(crate) mod seed_platform_grants;
@@ -32,7 +36,6 @@ use ::oxy::sentry_config;
 use ::oxy::theme::StyledText;
 use clap::Parser;
 use model::{Automation, Config};
-use oxy_shared::errors::OxyError;
 use std::backtrace;
 use std::error::Error;
 use std::path::PathBuf;
@@ -99,9 +102,10 @@ pub enum SubCommand {
     /// audit and rotation are `oxyc oltp`.
     Oltp(crate::cli::commands::oltp::OltpArgs),
 
-    /// Database seeding commands for development and testing
+    /// Renamed to `oxy dev seed` (kept for one release; dev-tools builds only)
+    #[cfg(feature = "dev-tools")]
     #[clap(hide = true)]
-    Seed(SeedArgs),
+    Seed(dev::SeedArgs),
     /// Moved to `oxyc looker test` (prints the command and exits 2)
     ///
     /// Checking a Looker integration's credentials is
@@ -130,40 +134,6 @@ pub struct ValidateArgs {
     /// still fail at runtime if those references don't exist.
     #[clap(long, short)]
     file: Option<std::path::PathBuf>,
-}
-
-#[derive(Parser, Debug)]
-pub struct SeedArgs {
-    /// Override the workspace path (defaults to `./examples`).
-    #[clap(long)]
-    pub workspace_path: Option<std::path::PathBuf>,
-    /// Tear down instead of seeding: drops the demo workspace AND the seeded
-    /// partner + tenant rows. Leaves the Local org + guest user in place.
-    #[clap(long)]
-    pub clear: bool,
-    /// Skip compiling + promoting the seeded workspaces. Without the compile a
-    /// seeded workspace answers `503 needs_recompile` until `oxy compile
-    /// --promote` runs for it.
-    #[clap(long, conflicts_with = "clear")]
-    pub no_compile: bool,
-    /// Copy the LLM keys each seeded workspace's `config.yml` references from
-    /// this shell's environment into its secrets store. Opt-in because the
-    /// values are your real credentials: a URL can look local and still reach a
-    /// shared database (a port-forward), so the locality check alone is not
-    /// consent. `just up` passes it; the database guard still applies.
-    #[clap(long, conflicts_with = "clear")]
-    pub llm_keys: bool,
-    /// Also build the demo fixture app (`local/pulse-demo`): five real builds,
-    /// a seven-day release history with the bad release live, seeded traffic
-    /// and a few real runs. Local DB only; `just up` passes it.
-    #[clap(long, conflicts_with = "clear")]
-    pub fixtures: bool,
-    /// Only give the existing org with this slug a local workspace (a Ready
-    /// `Default` with a minimal `config.yml`, no repository) and print its id
-    /// last. For a single-process dev or CI box: the product makes a workspace
-    /// only from a GitHub import. Reuses the org's workspace when it has one.
-    #[clap(long, conflicts_with_all = ["clear", "no_compile", "llm_keys", "fixtures"])]
-    pub org_workspace: Option<String>,
 }
 
 /// Validates a single file based on its extension.
@@ -396,13 +366,7 @@ pub async fn run(
             sentry_config::add_operation_context("run", Some(&run_args.file));
             handle_run_command(run_args).await?;
         }
-        SubCommand::Compile(compile_args) => {
-            sentry_config::add_operation_context("compile", None);
-            if let Err(e) = compile::run_compile(compile_args).await {
-                eprintln!("{}", format!("Compile failed: {e}").error());
-                exit(1);
-            }
-        }
+        SubCommand::Compile(compile_args) => compile_command(compile_args).await,
         SubCommand::Sync(args) => {
             eprintln!("{}", sync::moved_message(&args).warning());
             exit(sync::MOVED_EXIT_CODE);
@@ -504,8 +468,10 @@ pub async fn run(
                 exit(1);
             }
         }
+        #[cfg(feature = "dev-tools")]
         SubCommand::Seed(seed_args) => {
-            handle_seed_command(seed_args, seams.example_apps).await?;
+            eprintln!("{}", dev::renamed_hint("seed"));
+            dev::handle_seed_command(seed_args, seams.example_apps).await?;
         }
 
         SubCommand::Looker(looker_args) => {
@@ -520,35 +486,12 @@ pub async fn run(
     Ok(())
 }
 
-async fn handle_seed_command(
-    seed_args: SeedArgs,
-    example_apps: Option<crate::server::router::ExampleAppsSeam>,
-) -> Result<(), OxyError> {
-    use seed::*;
-    if let Some(slug) = seed_args.org_workspace.as_deref() {
-        return seed_org_workspace::seed_org_workspace(slug)
-            .await
-            .map(|_| ());
-    }
-    if seed_args.clear {
-        // Guard BOTH teardowns UP FRONT. clear_demo has no is_local() gate of its
-        // own, so without this it would run (unguarded) before clear_partner_tenants
-        // rejected a non-local DB — a partial, guard-bypassing teardown. Refuse
-        // first; delete nothing on a remote DB.
-        seed_partners::refuse_if_not_local()?;
-        clear_demo(example_apps).await?;
-        seed_partners::clear_partner_tenants().await
-    } else {
-        // Seeds the demo workspace AND (folded in) the partner + tenant data —
-        // one command, no `--partners` flag — then compiles, and stores LLM keys
-        // only when asked to (`--llm-keys`).
-        let options = SeedOptions {
-            compile: !seed_args.no_compile,
-            llm_keys: seed_args.llm_keys,
-            fixtures: seed_args.fixtures,
-            airhouse: true,
-        };
-        seed_demo_with(seed_args.workspace_path, options, example_apps).await
+/// `oxy compile` and `oxy dev compile`: a failed compile prints and exits 1.
+async fn compile_command(compile_args: compile::CompileArgs) {
+    sentry_config::add_operation_context("compile", None);
+    if let Err(e) = compile::run_compile(compile_args).await {
+        eprintln!("{}", format!("Compile failed: {e}").error());
+        exit(1);
     }
 }
 

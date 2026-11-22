@@ -60,7 +60,7 @@ jobs:
       # SHOWCASE_USER in tests/showcase/types.ts: a Global Admin, the highest role
       # that can still enter the product — OXY_OWNER would be higher, but
       # OwnerRedirect sends a Global Owner from every workspace page to the admin
-      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy seed` give it the Local
+      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy dev seed` give it the Local
       # org and its Demo workspace, and a release build honours only
       # OXY_DEV_LOGIN_EMAILS.
       OXY_GLOBAL_ADMINS: showcase-staff@oxy.test
@@ -131,6 +131,9 @@ jobs:
       # Main's image serves the API and this checkout's web-app is built in
       # front of it. A PR's own Rust changes are therefore not in a preview —
       # there is no build of them here — and are in the release's picture.
+      # Seeded by `main-<sha>-devtools` for the commit `main-latest` names
+      # (`oxy dev seed`; the release image has no dev tooling), served by
+      # `main-latest`. No -devtools tag fails here.
       - name: Boot and seed oxy
         if: steps.detect.outputs.action == 'capture'
         run: scripts/ci/showcase-boot.sh image ghcr.io/oxy-hq/oxygen:main-latest --spa-checkout

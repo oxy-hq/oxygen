@@ -8,7 +8,7 @@
 # Every argument but --run-past is passed to each `oxyc` call. The workspace
 # must hold this repo's examples/ (the exp_* views, the levers under
 # levers/, and the data from scripts/gen_experiments_data.py), e.g. one
-# seeded with `oxy seed --workspace-path ./examples`.
+# seeded with `oxy dev seed --workspace-path ./examples`.
 #
 # Creating and pricing only write drafts and proposals. --run-past starts
 # each past-data example's retrospective run, the experiment's only run:

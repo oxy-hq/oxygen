@@ -17,7 +17,7 @@
 #   • `chat-ask-fleet` / `context-graph-fleet` / `ide-unavailable-fleet` need a
 #     compiled + PROMOTED revision, or every compiled read 503s.
 #
-# All of that already exists as one first-party command — `oxy seed`, which
+# All of that already exists as one first-party command — `oxy dev seed`, which
 # documents itself as idempotent (crates/app/src/cli/commands/seed.rs:14) and
 # folds in the partner tenants, the platform grants and the example-app deploy.
 # What did not exist was (a) anything that ran it for the flows, (b) anything
@@ -44,7 +44,7 @@
 #   OXY_DATABASE_URL native mode: which DB to seed (default: read out of .env)
 #   FIXTURE_FLOW_EMAIL  / FIXTURE_STAFF_EMAIL  identities to mint sessions for
 #
-# Idempotent by construction: `oxy seed` skips rows it already wrote, `compile`
+# Idempotent by construction: `oxy dev seed` skips rows it already wrote, `compile`
 # writes a fresh revision and re-points the pointer (a new row, never a 409),
 # and the MinIO bucket is created with `--ignore-existing`. Running it twice
 # leaves the same fixture and the same PASS lines.
@@ -159,11 +159,11 @@ seed_fleet() {
   fi
 
   "${COMPOSE[@]}" exec -T -e OXY_GLOBAL_ADMINS="${FLOW_EMAIL},dev@oxy.local" \
-    -w /var/lib/oxy/data ide oxy seed >/tmp/oxy-seed-fixtures-seed.log 2>&1 \
-    || die "oxy seed failed inside the ide container (see /tmp/oxy-seed-fixtures-seed.log)"
-  ok "oxy seed: $(grep -cE '^  ✓' /tmp/oxy-seed-fixtures-seed.log) fixtures reported"
+    -w /var/lib/oxy/data ide oxy dev seed >/tmp/oxy-seed-fixtures-seed.log 2>&1 \
+    || die "oxy dev seed failed inside the ide container (see /tmp/oxy-seed-fixtures-seed.log)"
+  ok "oxy dev seed: $(grep -cE '^  ✓' /tmp/oxy-seed-fixtures-seed.log) fixtures reported"
 
-  "${COMPOSE[@]}" exec -T ide oxy compile --workspace-path /var/lib/oxy/data/examples \
+  "${COMPOSE[@]}" exec -T ide oxy dev compile --workspace-path /var/lib/oxy/data/examples \
     --workspace-id "$WS" --enterprise --promote --skip-migrations \
     >/tmp/oxy-seed-fixtures-compile.log 2>&1 \
     || die "compile failed inside the ide container (see /tmp/oxy-seed-fixtures-compile.log)"
@@ -180,11 +180,11 @@ seed_native() {
   printf '  database: %s\n' "${db##*@}"
 
   OXY_DATABASE_URL="$db" OXY_GLOBAL_ADMINS="${FLOW_EMAIL},dev@oxy.local" \
-    "$bin" seed --workspace-path "$REPO/examples" >/tmp/oxy-seed-fixtures-seed.log 2>&1 \
-    || die "oxy seed failed (see /tmp/oxy-seed-fixtures-seed.log)"
-  ok "oxy seed: $(grep -cE '^  ✓' /tmp/oxy-seed-fixtures-seed.log) fixtures reported"
+    "$bin" dev seed --workspace-path "$REPO/examples" >/tmp/oxy-seed-fixtures-seed.log 2>&1 \
+    || die "oxy dev seed failed (see /tmp/oxy-seed-fixtures-seed.log)"
+  ok "oxy dev seed: $(grep -cE '^  ✓' /tmp/oxy-seed-fixtures-seed.log) fixtures reported"
 
-  OXY_DATABASE_URL="$db" "$bin" compile --workspace-path "$REPO/examples" \
+  OXY_DATABASE_URL="$db" "$bin" dev compile --workspace-path "$REPO/examples" \
     --workspace-id "$WS" --enterprise --promote --skip-migrations \
     >/tmp/oxy-seed-fixtures-compile.log 2>&1 \
     || die "compile failed (see /tmp/oxy-seed-fixtures-compile.log)"

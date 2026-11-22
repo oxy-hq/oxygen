@@ -173,7 +173,7 @@ pub async fn start_database_and_server(
 /// line.
 ///
 /// The vars set here are the ones `airhouse::config::autodetect_local_airhouse`
-/// would set, so another process on this machine (`oxy seed`, `serve --local`)
+/// would set, so another process on this machine (`oxy dev seed`, `serve --local`)
 /// finds the same Airhouse without them.
 async fn start_airhouse(skip: bool, clean: bool) -> Result<String, OxyError> {
     use docker::airhouse::{self, LocalAirhouse};
@@ -222,7 +222,7 @@ async fn start_airhouse(skip: bool, clean: bool) -> Result<String, OxyError> {
                     "{}",
                     format!(
                         "⚠️ --clean does not reset an Airhouse oxy start did not start. \
-                         Reset it with `{}` before `oxy seed`.\n",
+                         Reset it with `{}` before `oxy dev seed`.\n",
                         airhouse::RESET_EXTERNAL_HINT
                     )
                     .warning()

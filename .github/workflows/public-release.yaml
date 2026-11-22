@@ -844,6 +844,154 @@ jobs:
           python3 scripts/ci/image-report.py "${IMAGE}@${DIGEST}" "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================================
+  # Job 6b: the `-devtools` image, for the release showcase only
+  #
+  # The release image has no `oxy dev seed` (oxy-server's `dev-tools` feature
+  # is off in `build-oxy-cli`), so the showcase (scripts/ci/showcase-boot.sh,
+  # internal-docs/release-showcase.md) seeds its database with this variant and
+  # then serves the REAL image. Same commit, same tags with `-devtools`
+  # appended: `main-<sha>-devtools` + `main-latest-devtools`, or
+  # `<version>-devtools`. The showcase pins the variant by the commit the image
+  # under test says it is (its OXY_IMAGE_TAG), never by `main-latest-devtools`.
+  # linux/arm64 only (the showcase runners are arm64).
+  # A stable release that is a RETAG of `main-<sha>` (`resolve-stable-digest`)
+  # is not rebuilt here either: its image says `main-<sha>`, so the showcase
+  # seeds from `main-<sha>-devtools`, and this job only retags that to
+  # `<version>-devtools` (failing if it is missing). So: one extra release
+  # build per main push, and per stable release built from its tag. Nothing
+  # waits on it: a failed variant fails the showcase loudly, never a release.
+  # ============================================================================
+  build-devtools-image:
+    name: Build ${{ needs.determine-build-type.outputs.channel }} -devtools image (showcase seed)
+    needs: [determine-build-type, build-web-app, resolve-stable-digest]
+    # `resolve-stable-digest` runs only for a stable release (skipped on main).
+    if: |
+      always() &&
+      needs.determine-build-type.result == 'success' &&
+      needs.build-web-app.result == 'success' &&
+      needs.resolve-stable-digest.result != 'failure' &&
+      needs.resolve-stable-digest.result != 'cancelled' &&
+      needs.determine-build-type.outputs.should_build_docker == 'true'
+    env:
+      # `main-<sha>` when this stable release retags main's image; empty otherwise.
+      RETAG_FROM: ${{ needs.resolve-stable-digest.outputs.retag_from }}
+    # No concurrency group: one would hold a full release build, and GitHub keeps
+    # only ONE pending run per group, cancelling the rest, so commits pushed in
+    # that window would never get their `main-<sha>-devtools`. Each run pushes
+    # its own sha tag, and moves `main-latest-devtools` only while its commit is
+    # still main's head, so a slower older build cannot move it back.
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        if: env.RETAG_FROM == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
+            needs.determine-build-type.outputs.version || github.sha }}
+
+      - name: Build oxy CLI with dev-tools
+        if: env.RETAG_FROM == ''
+        uses: ./.github/actions/build-oxy-cli
+        with:
+          target: aarch64-unknown-linux-gnu
+          generate_schema: "false"
+          cache_os: ubuntu-22.04-arm
+          dev_tools: "true"
+          app_client_id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          app_private_key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          repo_owner: ${{ github.repository_owner }}
+
+      - name: Prepare binary for Docker build
+        if: env.RETAG_FROM == ''
+        run: |
+          cp artifacts/oxy-aarch64-unknown-linux-gnu oxy
+          chmod +x oxy
+          ./oxy dev seed --help >/dev/null
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tags
+        id: meta
+        run: |
+          VERSION="${{ needs.determine-build-type.outputs.version }}"
+          CHANNEL="${{ needs.determine-build-type.outputs.channel }}"
+          SHORT_SHA="${{ needs.determine-build-type.outputs.short_sha }}"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/oxygen"
+          if [ "$CHANNEL" = "stable" ]; then
+            TAGS="${IMAGE}:${VERSION}-devtools"
+            IMAGE_TAG="${VERSION}-devtools"
+          else
+            TAGS="${IMAGE}:main-${SHORT_SHA}-devtools"
+            IMAGE_TAG="main-${SHORT_SHA}-devtools"
+          fi
+          {
+            echo "tags=${TAGS}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "image=${IMAGE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        if: env.RETAG_FROM == ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        env:
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          target: runtime
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            BINARY_PATH=oxy
+            OXY_IMAGE_TAG=${{ steps.meta.outputs.image_tag }}
+          provenance: false
+
+      # A retagged stable release: its image is main's `main-<sha>`, whose
+      # `-devtools` variant was built when the commit landed on main. Name it
+      # `<version>-devtools` too; no variant means no seed, so say so loudly.
+      - name: Retag main-<sha>-devtools as <version>-devtools
+        if: env.RETAG_FROM != ''
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          TARGET_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          source="${IMAGE}:${RETAG_FROM}-devtools"
+          if ! docker buildx imagetools inspect "$source" >/dev/null 2>&1; then
+            echo "::error::${source} is missing, so ${IMAGE}:${TARGET_TAG} cannot be made and the release showcase has no seed. Its main build's build-devtools-image job did not push it."
+            exit 1
+          fi
+          docker buildx imagetools create -t "${IMAGE}:${TARGET_TAG}" "$source"
+
+      # The rolling name, moved only while this commit is still main's head:
+      # builds finish out of order, and an older one must not move it back.
+      - name: Move main-latest-devtools
+        if: needs.determine-build-type.outputs.channel != 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.meta.outputs.image }}
+          SHA_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" -q .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice::main is at ${head}, not ${GITHUB_SHA}; main-latest-devtools stays where it is"
+            exit 0
+          fi
+          docker buildx imagetools create -t "${IMAGE}:main-latest-devtools" "${IMAGE}:${SHA_TAG}"
+
+  # ============================================================================
   # Job 7: Trivy Docker Image Security Scan
   # ============================================================================
   trivy-image-scan:

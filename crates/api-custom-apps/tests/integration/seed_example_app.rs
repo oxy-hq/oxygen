@@ -1,10 +1,10 @@
-//! `oxy seed` deploys the example custom app — end to end, against a real
+//! `oxy dev seed` deploys the example custom app — end to end, against a real
 //! Postgres and a real build store.
 //!
 //! The seed is a fixture the whole local-dev experience rests on, and every way
 //! it can break is quiet: a missing `published_at` hides the app from the
 //! launcher while direct URLs keep working; a build pointer with no bytes behind
-//! it 404s only when someone clicks; a second `oxy seed` that trips the
+//! it 404s only when someone clicks; a second `oxy dev seed` that trips the
 //! `(org_id, slug)` unique index fails a developer's first command. None of that
 //! shows up in a unit test, so it's tested here against the real thing.
 //!

@@ -56,7 +56,7 @@ and you say something like:
    - `setup:` — the 3 documented fixture commands
      (`reset_test_file`, `restore_demo_file:<rel>`, `goto:<path>`).
      None can make a network call; data a cloud-mode flow reads (an
-     org — no UI creates one any more) is `oxy seed`ed beforehand.
+     org — no UI creates one any more) is `oxy dev seed`ed beforehand.
    - `act:` — natural-language steps with explicit `[data-testid=…]`
      selectors when they exist (drops cold cost ~5×).
    - `wait_for:` — `streaming_complete` / `network_idle` /

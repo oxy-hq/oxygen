@@ -6,7 +6,7 @@
 //! the *reading* code does with them. These tests drive the real handlers —
 //! `list_custom_apps` (the home grid) and `serve_dispatch` (the bundle) —
 //! against real seeded data, so a change to either reader that orphans the seed
-//! fails here rather than on a developer's first `oxy seed`.
+//! fails here rather than on a developer's first `oxy dev seed`.
 //!
 //! Auth: `BuiltInAuthenticator` falls back to a guest identity when no auth
 //! method is configured, which is the default in a test process. The guest is a

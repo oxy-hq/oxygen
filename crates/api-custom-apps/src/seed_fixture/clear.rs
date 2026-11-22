@@ -1,4 +1,4 @@
-//! Removing the fixture: `oxy seed --clear`, and a rebuild of a fixture that
+//! Removing the fixture: `oxy dev seed --clear`, and a rebuild of a fixture that
 //! is partial or out of date (a crash mid-way, or an edited bundle file).
 //!
 //! Only the app with the fixture's derived id is touched; a developer's own

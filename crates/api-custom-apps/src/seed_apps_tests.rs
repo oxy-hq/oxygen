@@ -107,7 +107,7 @@ fn manifest_of_is_none_without_a_manifest() {
 // `examples/customer_apps/oxy-starter/`) and hold it to the contracts the
 // serve path enforces at runtime. The bundle has no build
 // step and no test of its own, so without these a broken example ships and
-// is only discovered by a developer whose first `oxy seed` hands them a
+// is only discovered by a developer whose first `oxy dev seed` hands them a
 // dead app — the worst possible first impression, and a slow one to debug
 // because every failure mode here is silent (a warn!, a None, an empty
 // card) rather than an error.

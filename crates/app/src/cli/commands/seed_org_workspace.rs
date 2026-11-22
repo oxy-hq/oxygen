@@ -1,4 +1,4 @@
-//! `oxy seed --org-workspace <slug>`: give one existing org a local workspace.
+//! `oxy dev seed --org-workspace <slug>`: give one existing org a local workspace.
 //!
 //! The product no longer makes a workspace without a repository: a new org
 //! gets one only from the GitHub import (`internal-docs/factory-retirement.md`

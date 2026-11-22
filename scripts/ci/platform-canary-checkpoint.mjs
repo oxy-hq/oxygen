@@ -464,17 +464,17 @@ async function ensureOrg(opts, staff, _canary) {
 /**
  * The org's workspace. A new org has none: the product makes a workspace only
  * from a GitHub import, and the canary needs one it can edit on disk, so the
- * seed makes it (`oxy seed --org-workspace`, a local database only) and prints
+ * seed makes it (`oxy dev seed --org-workspace`, a local database only) and prints
  * its id last. It reuses the org's workspace on a re-run. `OXY_BIN` overrides
  * the binary, for a checkout whose `oxy` is not on PATH.
  */
 function orgWorkspace(orgSlug) {
   const bin = process.env.OXY_BIN ?? "oxy";
-  const r = capture(bin, ["seed", "--org-workspace", orgSlug]);
+  const r = capture(bin, ["dev", "seed", "--org-workspace", orgSlug]);
   const id = r.stdout.trim().split("\n").pop()?.trim();
   if (r.status !== 0 || !/^[0-9a-f-]{36}$/.test(id ?? "")) {
     fail(
-      `\`${bin} seed --org-workspace ${orgSlug}\` gave no workspace id: ${r.stdout.slice(-300)}`
+      `\`${bin} dev seed --org-workspace ${orgSlug}\` gave no workspace id: ${r.stdout.slice(-300)}`
     );
   }
   note(`workspace ${id}`);

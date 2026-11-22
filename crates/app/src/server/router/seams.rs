@@ -384,7 +384,7 @@ pub type MigrateReport =
     fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>>;
 
 /// The demo seed's custom-app half: the example apps it deploys and the storage
-/// figures hung off them, and the matching teardown. `oxy seed` and the
+/// figures hung off them, and the matching teardown. `oxy dev seed` and the
 /// integration-test fixture pass it to `seed_demo_with`; `oxy-app` holds the rows
 /// the apps belong to (workspaces, orgs, teams) and `oxy-api-custom-apps` the
 /// apps themselves.
@@ -400,7 +400,7 @@ pub struct ExampleAppsSeam {
         Option<uuid::Uuid>,
     )
         -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>,
-    /// Build the demo fixture app (`oxy seed --fixtures`) in the demo workspace
+    /// Build the demo fixture app (`oxy dev seed --fixtures`) in the demo workspace
     /// (its id), after the compile; the flag says the compile succeeded. Warns
     /// instead of failing.
     pub fixtures:

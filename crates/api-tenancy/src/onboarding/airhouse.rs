@@ -1,7 +1,7 @@
 //! Onboarding data on a cloud role: uploaded files and the demo dataset go
 //! into the workspace's Airhouse, not into its checkout.
 //!
-//! `OXY_ROLE=all` (a laptop, the CLI, `oxy seed`) keeps the file DuckDB it has
+//! `OXY_ROLE=all` (a laptop, the CLI, `oxy dev seed`) keeps the file DuckDB it has
 //! always had: uploads land in `<workspace>/.db/` and the demo reads
 //! `.db/oxymart.csv`. Every other role is a cloud deployment, where a
 //! workspace's data lives in Airhouse; there the bytes come from the request

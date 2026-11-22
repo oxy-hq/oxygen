@@ -3,7 +3,7 @@
 //! It publishes an app that declares Oxy Functions and calls them the way a
 //! browser does. Each piece is the production one:
 //!
-//! - **Tenant.** `oxy seed`'s rows (`seed_demo`) in a per-test database with
+//! - **Tenant.** `oxy dev seed`'s rows (`seed_demo`) in a per-test database with
 //!   every migrator applied (`Schema::All`: a manual run writes `agentic_runs`
 //!   and `agentic_task_queue`). The Local org's guest is made its **Owner** —
 //!   publish admits an org Admin or above, and a system run (manual, schedule)

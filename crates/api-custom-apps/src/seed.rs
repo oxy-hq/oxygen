@@ -53,7 +53,7 @@ pub async fn deploy_example_apps(
     if let Err(e) = seed_example_apps(conn, path, &targets).await {
         println!(
             "{} example app not deployed: {e}\n  \
-             Everything else seeded. Re-run `oxy seed` once the cause is fixed.",
+             Everything else seeded. Re-run `oxy dev seed` once the cause is fixed.",
             "⚠️".warning()
         );
     }
@@ -67,7 +67,7 @@ pub async fn deploy_example_apps(
     }
 }
 
-/// The seam `oxy seed` and the integration-test fixture pass to `oxy-app`.
+/// The seam `oxy dev seed` and the integration-test fixture pass to `oxy-app`.
 pub fn example_apps() -> ExampleAppsSeam {
     ExampleAppsSeam {
         deploy: |conn, workspace_id, path, team| {
@@ -95,7 +95,7 @@ async fn clear_apps(conn: &DatabaseConnection) -> Result<u64, OxyError> {
     Ok(examples + fixture)
 }
 
-/// Drop the demo workspace row and every seeded example app (`oxy seed --clear`).
+/// Drop the demo workspace row and every seeded example app (`oxy dev seed --clear`).
 pub async fn clear_demo() -> Result<(), OxyError> {
     oxy_app::surface::seed::clear_demo(Some(example_apps())).await
 }

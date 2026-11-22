@@ -41,7 +41,7 @@ model, `eval-model`. Each `<db>.agentic.yml` is an analytics agent on that datab
 export BIRD_PG_PASSWORD=bird_ro
 export ANTHROPIC_API_KEY=...
 python3 evals/bird/bird.py gen-cases            # rewrites <db>.test.yml (1 run per case)
-cd evals/bird && ../../target/debug/oxy test financial.test.yml --case 0 --format json
+cd evals/bird && ../../target/debug/oxy dev test financial.test.yml --case 0 --format json
 ```
 
 - `eval-model` is `claude-opus-4-8`, which is `agentic_llm::constants::DEFAULT_MODEL`: what an
@@ -59,7 +59,7 @@ differs). `gen-cases --runtime react` writes only `<db>.react.test.yml` (suite `
 same cases); the FSM files stay as they are. Run it the same way, from `evals/bird`:
 
 ```bash
-../../target/debug/oxy test financial.react.test.yml --output-json   # -> financial.react.test.results.json
+../../target/debug/oxy dev test financial.react.test.yml --output-json   # -> financial.react.test.results.json
 python3 evals/bird/bird.py report --runtime react --dir <dir> --model ... --price-in ... --price-out ...
 python3 evals/bird/bird.py compare --fsm-dir <dir> --react-dir <dir> --model ... --price-in ... --price-out ...
 ```
@@ -100,6 +100,6 @@ and the judge run; the cost is the judge calls (about 160 for the full suite), n
 Results files are overwritten by `--output-json`, so regrade from a copy:
 
 ```bash
-cd evals/bird && ../../target/debug/oxy test financial.test.yml \
+cd evals/bird && ../../target/debug/oxy dev test financial.test.yml \
   --regrade ~/somewhere/financial.test.results.json --output-json
 ```

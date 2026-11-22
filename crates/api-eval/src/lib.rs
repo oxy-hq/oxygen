@@ -81,7 +81,13 @@ pub fn tasks() -> Vec<TaskSeam> {
     }]
 }
 
-// `oxy test`: its own owner in `oxy-cli-shim`, registered by `oxy-server`.
+/// `oxy test`'s arguments, for `oxy-server`'s one-release hidden alias of the
+/// old top-level spelling (the command is `oxy dev test` now).
+pub use test_command::TestArgs;
+
+// `oxy dev test`: flattened into `oxy-server`'s `dev` group, registered only
+// with its `dev-tools` feature (dev tooling; deployments use `oxyc evals`).
+// The routes and the task kind above are mounted in every build.
 // The variant's doc is the command's `--help` text, carried over verbatim. A
 // plain comment, not a doc comment: clap's derive turns a doc on this enum into
 // the `about` of the whole `oxy` command, as `oxy-server`'s `ServerCommand`
@@ -96,7 +102,7 @@ pub enum Command {
     Test(test_command::TestArgs),
 }
 
-/// Run `oxy test …`. The error propagates to the shim, as it did from
+/// Run `oxy dev test …`. The error propagates to the shim, as it did from
 /// `oxy-app`'s dispatcher, which prints it and exits 1.
 pub async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     match command {

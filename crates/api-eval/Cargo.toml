@@ -2,7 +2,7 @@
 name = "oxy-api-eval"
 version.workspace = true
 authors.workspace = true
-description = "The eval context: LLM-as-judge evals over .test.yml files. The `oxy test` command (its own oxy-cli-shim owner, internal-docs/domain-boundaries.md S10) and the eval-run routes plus their `eval_run` task kind that `oxyc evals run` calls, mounted by oxy-server"
+description = "The eval context: LLM-as-judge evals over .test.yml files. The `oxy dev test` command (dev tooling: oxy-server registers it only with its dev-tools feature; internal-docs/domain-boundaries.md S10) and the eval-run routes plus their `eval_run` task kind that `oxyc evals run` calls, mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

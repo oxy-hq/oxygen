@@ -90,7 +90,7 @@ jobs:
       # SHOWCASE_USER in tests/showcase/types.ts: a Global Admin, the highest role
       # that can still enter the product — OXY_OWNER would be higher, but
       # OwnerRedirect sends a Global Owner from every workspace page to the admin
-      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy seed` give it the Local
+      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy dev seed` give it the Local
       # org and its Demo workspace, and a release build honours only
       # OXY_DEV_LOGIN_EMAILS.
       OXY_GLOBAL_ADMINS: showcase-staff@oxy.test
@@ -206,6 +206,9 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
           fi
 
+      # Seeded by the image's own `<tag>-devtools` (the same commit with `oxy dev seed`,
+      # public-release.yaml `build-devtools-image`), served by the release image
+      # itself. A missing -devtools tag fails this step: no seed, no pictures.
       - name: Boot and seed the released image
         run: scripts/ci/showcase-boot.sh image "ghcr.io/oxy-hq/oxygen:${IMAGE_TAG}"
 

@@ -1,4 +1,4 @@
-//! The demo fixture (`oxy seed --fixtures`, `seed_fixture`) against a real
+//! The demo fixture (`oxy dev seed --fixtures`, `seed_fixture`) against a real
 //! Postgres and the real publish, promote and queue code.
 //!
 //! The seed runs with `compiled: true` directly: `seed_demo` compiles nothing,

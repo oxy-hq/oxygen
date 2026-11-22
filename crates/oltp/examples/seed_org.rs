@@ -29,7 +29,7 @@ use oxy_oltp::sql::PgSqlExecutor;
 use sea_orm::{ColumnTrait, ConnectOptions, Database, EntityTrait, QueryFilter};
 
 /// Workspace that claims the demo schema namespaces. Matches the id
-/// `oxy seed` uses: Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local").
+/// `oxy dev seed` uses: Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local").
 const DEMO_WORKSPACE_ID: uuid::Uuid = uuid::uuid!("70787bb2-e11b-5488-b2c3-02e60d5fc7d3");
 
 #[tokio::main]
@@ -51,7 +51,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(entity::users::Column::Email.eq(email.clone()))
         .one(&db)
         .await?
-        .ok_or_else(|| format!("no user with email {email} — sign in once, or run `oxy seed`"))?;
+        .ok_or_else(|| {
+            format!("no user with email {email} — sign in once, or run `oxy dev seed`")
+        })?;
 
     let membership = entity::prelude::OrgMembers::find()
         .filter(entity::org_members::Column::UserId.eq(user.id))

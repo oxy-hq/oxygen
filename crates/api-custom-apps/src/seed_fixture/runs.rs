@@ -1,4 +1,4 @@
-//! The real runs a freshly built fixture queues, and what `oxy seed` prints.
+//! The real runs a freshly built fixture queues, and what `oxy dev seed` prints.
 //!
 //! The runs are durable `app_function` tasks the server's worker executes on
 //! production's build (r4), exactly as the console's Run now queues them. They

@@ -1,5 +1,5 @@
 //! Regrade: grade the agent outputs a previous run recorded, without running
-//! the agent again. The records of a results file (`oxy test --output-json`)
+//! the agent again. The records of a results file (`oxy dev test --output-json`)
 //! carry each run's question, gold SQL, answer text, final SQL, tokens and
 //! timing, which is everything a grader reads. Only the grading (gold SQL,
 //! EX, judge) is redone, so a change to the grader can be applied to a costly

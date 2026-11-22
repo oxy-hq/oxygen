@@ -36,7 +36,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 const SOURCE_ROOT = process.env.SHOWCASE_SOURCE_ROOT
   ? resolve(process.env.SHOWCASE_SOURCE_ROOT)
   : REPO_ROOT;
-// The directory `oxy seed` built the Demo workspace from (showcase-boot.sh reads the same variable).
+// The directory `oxy dev seed` built the Demo workspace from (showcase-boot.sh reads the same variable).
 const EXAMPLES_DIR = process.env.SHOWCASE_EXAMPLES ?? join(REPO_ROOT, "examples");
 const ROUTE_BUILDERS = "web-app/src/libs/utils/routes.ts";
 // A corrected plan is only worth starting with enough left for a plan and a

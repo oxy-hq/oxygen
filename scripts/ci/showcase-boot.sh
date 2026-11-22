@@ -14,7 +14,7 @@
 #
 # The shape is the custom-app canary's (ci.yaml): `oxy serve --enterprise`
 # against the job's Postgres service and `docker-compose.airhouse.yml`'s
-# Airhouse, then `oxy seed` for the demo data, which loads the examples' data
+# Airhouse, then `oxy dev seed` for the demo data, which loads the examples' data
 # files into the Demo workspace's tenant. Needs OXY_DATABASE_URL,
 # OXY_GLOBAL_ADMINS and OXY_DEV_LOGIN_EMAILS in the env.
 set -euo pipefail
@@ -135,12 +135,18 @@ start_server() {
 }
 
 # After `migrate`: the schema the seed writes into is complete.
+#
+# The seed is dev tooling (`oxy dev seed`, oxy-server's `dev-tools` feature),
+# which the release build leaves out, so the image under test cannot seed. The
+# release pipeline publishes a `<tag>-devtools` variant of every image (same
+# commit, public-release.yaml `build-devtools-image`); the seed runs from it
+# against the same database, and the REAL image serves.
 seed() {
-  local cmd=(oxy seed --workspace-path "$EXAMPLES")
+  local args=(seed --workspace-path "$EXAMPLES")
   if [[ "$MODE" == binary ]]; then
-    OXY_STATE_DIR="$STATE_DIR" "${cmd[@]}" 2>&1 | tee "$LOG_DIR/seed.log"
+    OXY_STATE_DIR="$STATE_DIR" oxy dev "${args[@]}" 2>&1 | tee "$LOG_DIR/seed.log"
   else
-    docker run --rm "${DOCKER[@]}" "$IMAGE" "${cmd[@]}" 2>&1 | tee "$LOG_DIR/seed.log"
+    docker run --rm "${DOCKER[@]}" "$SEED_IMAGE" oxy dev "${args[@]}" 2>&1 | tee "$LOG_DIR/seed.log"
   fi
 }
 
@@ -173,6 +179,22 @@ case "$MODE" in
   image) [[ -n "$IMAGE" ]] || { echo "::error::image mode needs an image ref"; exit 1; } ;;
   *) echo "::error::unknown mode '$MODE'"; exit 1 ;;
 esac
+
+# The seeding variant, checked before anything boots: no `-devtools` tag means
+# no seed, and an unseeded server captures nothing. No fallback, by design. It
+# is named by the commit the image under test says it is (OXY_IMAGE_TAG, baked
+# in by public-release.yaml), not by the ref given: `main-latest` and
+# `main-latest-devtools` are moved by separate jobs and can briefly disagree.
+if [[ "$MODE" == image ]]; then
+  docker pull --quiet "$IMAGE" >/dev/null
+  BUILT_AS=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$IMAGE" | sed -n 's/^OXY_IMAGE_TAG=//p')
+  [[ -n "$BUILT_AS" ]] || { echo "::error::$IMAGE carries no OXY_IMAGE_TAG, so its -devtools variant cannot be named"; exit 1; }
+  SEED_IMAGE="${IMAGE%:*}:${BUILT_AS}-devtools"
+  if ! docker pull --quiet "$SEED_IMAGE" >/dev/null; then
+    echo "::error::$SEED_IMAGE is missing: the showcase seeds with the -devtools variant of the image (public-release.yaml build-devtools-image). Without it there is no seed."
+    exit 1
+  fi
+fi
 
 start_airhouse
 migrate

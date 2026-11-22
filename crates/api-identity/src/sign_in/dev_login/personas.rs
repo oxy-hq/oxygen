@@ -8,7 +8,7 @@
 //! them alongside `OXY_GLOBAL_ADMINS`. An explicit `OXY_DEV_LOGIN_EMAILS`
 //! replaces that list wholesale, personas included.
 //!
-//! The emails mirror what `oxy seed` creates (`seed_partners.rs`,
+//! The emails mirror what `oxy dev seed` creates (`seed_partners.rs`,
 //! `seed_platform_grants.rs`); `seeded_personas_match_the_seed` pins them, so a
 //! reshuffled seed fails a test instead of 409-ing a browser run.
 
@@ -93,12 +93,12 @@ impl Persona {
         }
     }
 
-    /// The refusal for a persona whose rows `oxy seed` has not created.
+    /// The refusal for a persona whose rows `oxy dev seed` has not created.
     pub(super) fn not_seeded(&self, email: &str) -> DevLoginRefusal {
         DevLoginRefusal::with_reason(
             StatusCode::CONFLICT,
             format!(
-                "persona `{}` ({email}) is not seeded — run `just up` (or `oxy seed`)",
+                "persona `{}` ({email}) is not seeded — run `just up` (or `oxy dev seed`)",
                 self.name
             ),
         )

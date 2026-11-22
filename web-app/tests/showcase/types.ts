@@ -4,7 +4,7 @@
  * The one identity every capture signs in as — the highest role that can still
  * enter the product, so a picture shows the whole feature and never a
  * permission error. The workflows put this address in OXY_GLOBAL_ADMINS (Global
- * Admin: every admin page but the owner-only two; `oxy seed` also makes it
+ * Admin: every admin page but the owner-only two; `oxy dev seed` also makes it
  * owner of the Local org and its Demo workspace, so no assume-role session is
  * needed) and alone in OXY_DEV_LOGIN_EMAILS, which a release build needs.
  *

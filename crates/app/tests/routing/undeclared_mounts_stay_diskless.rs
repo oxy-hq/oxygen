@@ -66,7 +66,7 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // still apply to the file. As it was in `oxy-app`'s `api/semantic.rs`,
     // where `route_fleet`'s handler type held the same line.
     ("api-semantic/src/semantic.rs", "ConfigManager"),
-    // The demo seed (`oxy seed`, and the integration fixture) deploys the example
+    // The demo seed (`oxy dev seed`, and the integration fixture) deploys the example
     // apps from a workspace path it is handed. It is a CLI step, mounted on no
     // route at all, so no pod placement applies.
     ("api-custom-apps/src/seed_apps.rs", "workspace_path"),

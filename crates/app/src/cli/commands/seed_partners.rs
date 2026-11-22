@@ -1,6 +1,6 @@
 //! Partner + multi-tenant seed data — realistic orgs, generated people,
 //! partnerships and workspaces so a developer can immediately exercise the admin
-//! surface and the partner console. **Folded into `oxy seed`** (no `--partners`
+//! surface and the partner console. **Folded into `oxy dev seed`** (no `--partners`
 //! flag); silently skipped on a non-local DB.
 //!
 //! The seed IS the design's demo (see
@@ -23,7 +23,7 @@
 //! first inserts make the whole seed idempotent and test-referenceable.
 //!
 //! Dev/test only — refuses a non-local `OXY_DATABASE_URL` for the destructive
-//! `--clear`, and skips the partner seed for a non-local `oxy seed`.
+//! `--clear`, and skips the partner seed for a non-local `oxy dev seed`.
 
 use chrono::Utc;
 use entity::org_members::{self, OrgRole};
@@ -65,7 +65,7 @@ struct OrgSeed {
 /// A team inside a seeded org.
 ///
 /// Seeded so the Teams settings pane and the app-access grant picker have real
-/// content on a fresh `oxy seed`, instead of an empty state that makes the feature
+/// content on a fresh `oxy dev seed`, instead of an empty state that makes the feature
 /// look unbuilt. Deliberately UNEVEN across orgs — one with several teams, one with
 /// a single team, one with none — because the interesting UI states are the empty
 /// one and the crowded one, and a uniform seed shows neither.
@@ -315,6 +315,7 @@ pub(crate) fn database_url_looks_local() -> bool {
 /// where silently skipping would be more surprising than refusing. `pub(crate)`
 /// so the seed command can guard the WHOLE clear branch up front (clear_demo has
 /// no gate of its own).
+#[cfg(feature = "dev-tools")]
 pub(crate) fn refuse_if_not_local() -> Result<(), OxyError> {
     if is_local() {
         return Ok(());
@@ -329,7 +330,7 @@ pub(crate) fn refuse_if_not_local() -> Result<(), OxyError> {
 
 /// Seed all tenant + partner test data. Idempotent. `demo_path` is the demo
 /// project every seeded workspace points at. On a non-local DB this **skips**
-/// (does not error) so a folded `oxy seed` still seeds the demo workspace safely.
+/// (does not error) so a folded `oxy dev seed` still seeds the demo workspace safely.
 pub async fn seed_partner_tenants(demo_path: &str) -> Result<(), OxyError> {
     if !is_local() {
         println!(
@@ -473,7 +474,7 @@ fn workspace_seed_id(org_id: Uuid, name: &str) -> Uuid {
 }
 
 /// Every workspace this seed creates, as (`<org> / <name>`, id), for orgs that
-/// exist — what `oxy seed` compiles and stores LLM keys on. Empty on a non-local
+/// exist — what `oxy dev seed` compiles and stores LLM keys on. Empty on a non-local
 /// DB, matching the skip in [`seed_partner_tenants`].
 pub(crate) async fn seeded_workspace_ids(conn: &Conn) -> Result<Vec<(String, Uuid)>, OxyError> {
     if !is_local() {
@@ -673,7 +674,7 @@ async fn ensure_workspace(
     {
         // Patch the path if it's missing or stale. Earlier seeds created these
         // path-less, which made the recovery/latency worker skip + warn on them
-        // ("workspace has no path"); a re-run of `oxy seed` now heals them.
+        // ("workspace has no path"); a re-run of `oxy dev seed` now heals them.
         let stale_path = row.path.as_deref() != Some(demo_path);
         // Backfill only — never restamp. A box seeded before this existed heals on
         // the next run, but a value already there is left alone.
@@ -874,6 +875,7 @@ fn print_summary() {
 /// Tear down seeded partner + tenant rows. Deleting the orgs cascades to the
 /// grants, ceilings, client links, role bindings and assignments (every FK is
 /// `on_delete = Cascade`). Seeded users are left in place, like `clear_demo`.
+#[cfg(feature = "dev-tools")]
 pub async fn clear_partner_tenants() -> Result<(), OxyError> {
     // Deleting orgs cascades to members, workspaces and partnerships — the last
     // thing you want pointed at prod by accident.

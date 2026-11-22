@@ -1,5 +1,5 @@
 //! Example custom-app seed — deploys the checked-in `oxy-starter` bundle so a
-//! fresh `oxy seed` lands on a launcher with a real, clickable app instead of an
+//! fresh `oxy dev seed` lands on a launcher with a real, clickable app instead of an
 //! empty grid.
 //!
 //! **It deploys through the real publish path**, not a shortcut: bytes go to the
@@ -10,7 +10,7 @@
 //! `oxyc publish` produces, so a test against it tests the shipping code.
 //!
 //! The bundle is checked into the repo (`examples/customer_apps/oxy-starter/`)
-//! rather than generated here: it's reviewable in a diff, and `oxy seed` stays a
+//! rather than generated here: it's reviewable in a diff, and `oxy dev seed` stays a
 //! tool that reads the workspace instead of writing to it.
 //!
 //! No S3, no Node. The build store falls back to the filesystem when
@@ -19,7 +19,7 @@
 //!
 //! **Superseded builds are left behind on purpose.** Editing the bundle changes
 //! its content hash, so a re-seed writes a new build (row + bytes) and repoints
-//! the channels at it; the previous one stays until `oxy seed --clear`. That's
+//! the channels at it; the previous one stays until `oxy dev seed --clear`. That's
 //! not a leak to fix here — it's how a rollback stays possible, it mirrors what
 //! the real publish pipeline keeps (which has `gc_builds` for the hosted case),
 //! and the cost is a few KB per edit on a dev machine.
@@ -57,7 +57,7 @@ const BUNDLE_REL_PATH: &str = "customer_apps/oxy-starter";
 /// Deliberately NOT `hello-oxy`: that slug belongs to the canonical worked
 /// example in the customer-apps repo. Sharing it would mean a developer who
 /// publishes the real one locally collides with the seed on `(org_id, slug)` —
-/// and `oxy seed --clear` would then delete their work.
+/// and `oxy dev seed --clear` would then delete their work.
 const APP_SLUG: &str = "oxy-starter";
 
 /// The slug of the second, RESTRICTED deployment seeded alongside the open one.
@@ -353,7 +353,7 @@ async fn ensure_org_subdomain(conn: &Conn, target: &AppTarget) -> Result<(), Oxy
 }
 
 /// Put the seeded app into the `visibility = 'members'` state for targets the seed
-/// defines a team for, so a fresh `oxy seed` shows the restricted case as well as
+/// defines a team for, so a fresh `oxy dev seed` shows the restricted case as well as
 /// the default one — otherwise the whole visibility feature looks unbuilt until
 /// someone restricts an app by hand.
 ///
@@ -442,7 +442,7 @@ async fn deploy(
     // Unconditional, even when the rows already exist: this is what heals a
     // wiped state dir (`oxy clean`, a new machine, a pruned Docker volume).
     // The DB would still name the build, but the bytes would be gone and the
-    // app would 404 — so re-running `oxy seed` is the repair.
+    // app would 404 — so re-running `oxy dev seed` is the repair.
     let prefix = store::put_build(app_id, build_id, files)
         .await
         .map_err(|e| OxyError::RuntimeError(format!("store example app bundle: {e}")))?;

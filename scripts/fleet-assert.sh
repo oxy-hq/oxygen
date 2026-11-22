@@ -128,7 +128,7 @@ FLOW_EMAIL="${FLOW_EMAIL:-flow@oxy.local}"
 #                         diagnostics service yet, so the feature it asserts
 #                         does not exist on any deployment.
 #   launcher-home       — two of its three cases need a workspace with NO apps;
-#                         `oxy seed` always publishes oxy-starter, so that state
+#                         `oxy dev seed` always publishes oxy-starter, so that state
 #                         is unreachable here rather than broken.
 #   semantic-builder-ask— assumes an edit is visible to a semantic read without
 #                         a compile. There is no compile-on-save by design
@@ -564,8 +564,8 @@ if [ "$MODE" = native ]; then
 
   step "4. Seed + compile + promote"
   OXY_DATABASE_URL="$DB_URL" OXY_GLOBAL_ADMINS="internal@localhost,$DEV_EMAIL,$FLOW_EMAIL" \
-    env "${SHARED_STATE_ENV[@]}" "$OXY_BIN" seed >/tmp/oxy-fleet-assert-seed.log 2>&1 || die "seed failed (see /tmp/oxy-fleet-assert-seed.log)"
-  OXY_DATABASE_URL="$DB_URL" "$OXY_BIN" compile \
+    env "${SHARED_STATE_ENV[@]}" "$OXY_BIN" dev seed >/tmp/oxy-fleet-assert-seed.log 2>&1 || die "seed failed (see /tmp/oxy-fleet-assert-seed.log)"
+  OXY_DATABASE_URL="$DB_URL" "$OXY_BIN" dev compile \
     --workspace-path "$REPO_ROOT/examples" --workspace-id "$WS" \
     --enterprise --promote --skip-migrations >/tmp/oxy-fleet-assert-compile.log 2>&1 \
     || die "compile failed (see /tmp/oxy-fleet-assert-compile.log)"
@@ -606,9 +606,9 @@ os.utime(sys.argv[2],(t,t))' "$created" "$img_ref" 2>/dev/null \
   "${COMPOSE[@]}" exec -T ide rm -rf "${WS_PATH:?}" >/dev/null 2>&1
   "${COMPOSE[@]}" cp examples "ide:${WS_PATH}" >/dev/null 2>&1 || die "could not copy examples/ into the ide container"
   "${COMPOSE[@]}" exec -T -e OXY_GLOBAL_ADMINS="${DEV_EMAIL},${FLOW_EMAIL}" \
-    -w /var/lib/oxy/data ide oxy seed >/tmp/oxy-fleet-assert-seed.log 2>&1 \
+    -w /var/lib/oxy/data ide oxy dev seed >/tmp/oxy-fleet-assert-seed.log 2>&1 \
     || die "seed failed inside the ide container (see /tmp/oxy-fleet-assert-seed.log)"
-  "${COMPOSE[@]}" exec -T ide oxy compile --workspace-path "$WS_PATH" --workspace-id "$WS" \
+  "${COMPOSE[@]}" exec -T ide oxy dev compile --workspace-path "$WS_PATH" --workspace-id "$WS" \
     --enterprise --promote --skip-migrations >/tmp/oxy-fleet-assert-compile.log 2>&1 \
     || die "compile failed inside the ide container (see /tmp/oxy-fleet-assert-compile.log)"
   promoted=$("${COMPOSE[@]}" exec -T postgres psql -U admin -d oxy -t -A \

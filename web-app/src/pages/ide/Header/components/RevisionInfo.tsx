@@ -6,7 +6,7 @@ import { githubCommitUrl } from "../githubRepoUrl";
 
 /**
  * Whether `sha` is a git commit. A workspace compiled from a directory with no
- * git (`oxy seed`, single-process mode) records `local-<uuid>` instead.
+ * git (`oxy dev seed`, single-process mode) records `local-<uuid>` instead.
  */
 export const isCommitSha = (sha: string) => /^[0-9a-f]{7,64}$/i.test(sha);
 

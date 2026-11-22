@@ -68,7 +68,7 @@ Authoritative: `web-app/tests/agentic/fixtures/reset.ts:SetupCommand`.
 | `restore_demo_file:<rel>` | local | Reverts `demo_project/<rel>` to `git show HEAD:demo_project/<rel>`. Used by flows that mutate demo files (semantic-builder-ask editing `sales_semantics/views/oxymart.view.yml`). Refuses paths escaping repo, containing `..`, or resolving through symlinks. |
 | `goto:<path>` | both | Navigate to `<OXY_BASE_URL><path>`. |
 
-The set is intentionally minimal — none of these can make a network call. No UI creates orgs any more, so a cloud-mode flow that needs one runs against a backend `oxy seed`ed beforehand (`scripts/verify-all.sh` phase 4).
+The set is intentionally minimal — none of these can make a network call. No UI creates orgs any more, so a cloud-mode flow that needs one runs against a backend `oxy dev seed`ed beforehand (`scripts/verify-all.sh` phase 4).
 
 **Don't invent commands.** Unknown setup commands throw at load time.
 

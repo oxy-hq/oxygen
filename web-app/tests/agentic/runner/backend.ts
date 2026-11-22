@@ -268,7 +268,7 @@ export function seedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv
 }
 
 function seedDemoWorkspace(): void {
-  const args = ["seed", "--workspace-path", PROJECT_DIR, "--llm-keys"];
+  const args = ["dev", "seed", "--workspace-path", PROJECT_DIR, "--llm-keys"];
   console.log(`[backend] seeding the Demo workspace: \`${OXY_BIN} ${args.join(" ")}\``);
   const logPath = resolve(LOG_DIR, "seed.log");
   const out = openSync(logPath, "a");
@@ -280,7 +280,7 @@ function seedDemoWorkspace(): void {
   });
   if (res.status !== 0) {
     throw new Error(
-      `oxy seed failed (status=${res.status} signal=${res.signal ?? "none"}) — see ${logPath}`
+      `oxy dev seed failed (status=${res.status} signal=${res.signal ?? "none"}) — see ${logPath}`
     );
   }
   console.log(`[backend] Demo workspace seeded from demo_project/ (logs: ${logPath})`);

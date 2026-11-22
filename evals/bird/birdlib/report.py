@@ -1,4 +1,4 @@
-"""Render the FSM baseline report from `oxy test --output-json` results files."""
+"""Render the FSM baseline report from `oxy dev test --output-json` results files."""
 import json
 import statistics
 from pathlib import Path

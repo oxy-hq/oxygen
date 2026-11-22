@@ -1,6 +1,6 @@
 //! The demo fixture: `pulse-demo` ("Pulse (demo fixture)"), a custom app with
 //! Oxy Functions and a seven-day release history, in the Local org's demo
-//! workspace. `oxy seed --fixtures` builds it; `just up` passes the flag. It
+//! workspace. `oxy dev seed --fixtures` builds it; `just up` passes the flag. It
 //! feeds the console's release timeline, Issues and function views with data
 //! a fresh dev box otherwise lacks (`oxy-starter` has no functions).
 //!
@@ -126,13 +126,13 @@ pub struct Built {
     pub queued: Result<usize, String>,
 }
 
-/// `oxy seed --fixtures`: build the fixture unless it is present, and say
+/// `oxy dev seed --fixtures`: build the fixture unless it is present, and say
 /// what happened. Warns instead of failing, like the seed's other extras.
 pub async fn seed_demo_fixture(conn: &DatabaseConnection, workspace_id: Uuid, compiled: bool) {
     match seed(conn, workspace_id, compiled).await {
         Ok(outcome) => runs::print_outcome(&outcome),
         Err(e) => println!(
-            "{} pulse-demo fixture not seeded: {e}\n  Re-run `oxy seed --fixtures` once the cause is fixed.",
+            "{} pulse-demo fixture not seeded: {e}\n  Re-run `oxy dev seed --fixtures` once the cause is fixed.",
             "⚠️".warning()
         ),
     }
@@ -188,7 +188,7 @@ pub async fn seed(
     Ok(Outcome::Built(built))
 }
 
-/// `oxy seed --clear`'s half: remove the fixture if this seed built it.
+/// `oxy dev seed --clear`'s half: remove the fixture if this seed built it.
 /// Answers how many apps were removed (0 or 1).
 pub async fn clear_fixture(conn: &DatabaseConnection) -> Result<u64, FixtureError> {
     let app_id = fixture_app_id(LOCAL_ORG_ID);

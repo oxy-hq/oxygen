@@ -18,11 +18,11 @@
 #           times out. Phase 2 splits into five invocations — see the comment
 #           there for which constraint each boundary is.
 #   runner  demo_project flows the runner backs itself: `oxy start
-#           --enterprise`, `oxy seed` of demo_project/ as the Demo workspace,
+#           --enterprise`, `oxy dev seed` of demo_project/ as the Demo workspace,
 #           then a dev-login session as flow@oxy.local (runner/backend.ts,
 #           runner/session.ts). Enterprise mode, like every phase here.
 #   cloud   admin flows against an `oxy start --enterprise` this script starts
-#           and fills with `oxy seed ./examples` first — the admin surfaces and
+#           and fills with `oxy dev seed ./examples` first — the admin surfaces and
 #           the airway run page need the staff identity and the partner
 #           tenants, and no UI path creates an org any more.
 #   obs     flows that read ClickHouse. No seed path exists for observability
@@ -279,10 +279,10 @@ else
   bad "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1) — see $LOG_DIR/b-local.log"
 fi
 
-# ── cloud-backed flows: backend up, `oxy seed`, then the admin surfaces ──────
-bold "4. Cloud-backed flows (oxy seed, then the admin surfaces)"
+# ── cloud-backed flows: backend up, `oxy dev seed`, then the admin surfaces ──────
+bold "4. Cloud-backed flows (oxy dev seed, then the admin surfaces)"
 # Self-serve org creation is gone, and with it the UI-driven seed that used to
-# run first here (`onboarding-blank-workspace`). `oxy seed` writes the dev
+# run first here (`onboarding-blank-workspace`). `oxy dev seed` writes the dev
 # stack's fixtures into the backend's Postgres instead: the `local` org + a
 # compiled, promoted Demo workspace (examples/, which carries a `health_check:`
 # block) plus the partner tenants. Start the backend OURSELVES before any flow:
@@ -313,14 +313,14 @@ if [ "$CLOUD_UP" = 1 ]; then
   # there — otherwise airway-pipeline-run's /local/workspaces/… page answers
   # 403 assume_role_required instead of rendering.
   if ! wet; then
-    printf '  [dry-run] OXY_DATABASE_URL=…@%s ./target/debug/oxy seed --workspace-path ./examples\n' "${CLOUD_DB##*@}"
+    printf '  [dry-run] OXY_DATABASE_URL=…@%s ./target/debug/oxy dev seed --workspace-path ./examples\n' "${CLOUD_DB##*@}"
   elif OXY_DATABASE_URL="$CLOUD_DB" OXY_GLOBAL_ADMINS="${GLOBAL_ADMINS:+$GLOBAL_ADMINS,}${OWNER:-hello@oxy.tech},flow@oxy.local" \
-       ./target/debug/oxy seed --workspace-path ./examples > "$LOG_DIR/cloud-seed.log" 2>&1; then
-    record "B: cloud seed" PASS "oxy seed (compiled + promoted)"
-    ok "oxy seed: local org + Demo workspace compiled + promoted"
+       ./target/debug/oxy dev seed --workspace-path ./examples > "$LOG_DIR/cloud-seed.log" 2>&1; then
+    record "B: cloud seed" PASS "oxy dev seed (compiled + promoted)"
+    ok "oxy dev seed: local org + Demo workspace compiled + promoted"
   else
     record "B: cloud seed" FAIL "see $LOG_DIR/cloud-seed.log"
-    bad "oxy seed failed — the five flows below have nothing to render; see $LOG_DIR/cloud-seed.log"
+    bad "oxy dev seed failed — the five flows below have nothing to render; see $LOG_DIR/cloud-seed.log"
   fi
   curl -s --max-time 10 "http://localhost:3000/api/auth/dev-login?email=${OWNER:-hello@oxy.tech}" -o "$LOG_DIR/staff.json" 2>/dev/null
   STOK=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["token"])' "$LOG_DIR/staff.json" 2>/dev/null || true)

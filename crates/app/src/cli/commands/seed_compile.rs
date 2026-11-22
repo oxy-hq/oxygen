@@ -1,4 +1,4 @@
-//! Compile + promote what `oxy seed` created, so a seeded workspace serves on
+//! Compile + promote what `oxy dev seed` created, so a seeded workspace serves on
 //! the first request instead of answering `503 needs_recompile`.
 //!
 //! In-process, through the same entry point as
@@ -96,7 +96,7 @@ pub(crate) async fn compile_seeded(targets: &[SeededWorkspace]) -> Result<(), Ox
     }
     Err(OxyError::RuntimeError(format!(
         "compile failed for {} seeded workspace(s): {}. Everything else seeded; fix the \
-         files and re-run `oxy seed` (or pass --no-compile to skip)",
+         files and re-run `oxy dev seed` (or pass --no-compile to skip)",
         failed.len(),
         failed.join(", ")
     )))

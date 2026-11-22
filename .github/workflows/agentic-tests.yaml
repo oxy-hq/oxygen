@@ -139,7 +139,7 @@ jobs:
     # the matrix. Flip to false once the suite has ≥3 consecutive green
     # main-branch runs.
     continue-on-error: true
-    # 25 for the flows + up to 10 for `oxy seed` (it compiles and promotes
+    # 25 for the flows + up to 10 for `oxy dev seed` (it compiles and promotes
     # every seeded workspace) + the 4-minute health wait and setup, so a slow
     # seed cannot push the flows into the job wall before artifacts upload.
     timeout-minutes: 45
@@ -272,7 +272,7 @@ jobs:
           echo "Backend healthy at $OXY_HEALTH_URL"
 
       # The fixture the flows are authored against, as the `local` org's Demo
-      # workspace: `oxy seed` writes the rows, binds OXY_GLOBAL_ADMINS (the
+      # workspace: `oxy dev seed` writes the rows, binds OXY_GLOBAL_ADMINS (the
       # flow identity, for THIS process only — exported to the server it would
       # make the identity staff) as Owner, stores ANTHROPIC_API_KEY as a
       # workspace secret (--llm-keys), and compiles + promotes every seeded
@@ -284,7 +284,7 @@ jobs:
         run: |
           set -o pipefail
           OXY_GLOBAL_ADMINS=flow@oxy.local \
-            oxy seed --workspace-path "$GITHUB_WORKSPACE/demo_project" --llm-keys \
+            oxy dev seed --workspace-path "$GITHUB_WORKSPACE/demo_project" --llm-keys \
             2>&1 | tee web-app/tests/agentic/.logs/seed.log | tail -n 40
 
       # Per-bucket action-cache. The exact key hashes every flow YAML

@@ -85,7 +85,7 @@ pub async fn api_router(
         outer: _,
         outer_decls,
         function_runtime,
-        // Run by `oxy migrate` and `oxy seed`, which never build this router.
+        // Run by `oxy migrate` and `oxy dev seed`, which never build this router.
         post_migrate: _,
         example_apps: _,
         // Documentation only — `build_openapi_doc` merges it, not the router.

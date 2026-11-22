@@ -1,4 +1,4 @@
-//! `oxy seed` — seed the demo project so local dev / multi-instance demos
+//! `oxy dev seed` — seed the demo project so local dev / multi-instance demos
 //! can compile + serve a workspace immediately after migrations.
 //!
 //! Seeds:
@@ -41,13 +41,13 @@ use uuid::Uuid;
 
 /// Deterministic UUID for the demo workspace. UUID v5 over a fixed name in
 /// the DNS namespace — same input → same output across machines, so a fresh
-/// clone + `oxy seed` lands on the same workspace_id and any saved IDE
+/// clone + `oxy dev seed` lands on the same workspace_id and any saved IDE
 /// state / bookmarks stay valid.
 fn demo_workspace_id() -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"demo.oxy.local")
 }
 
-/// What `oxy seed` does beyond writing rows. The CLI compiles by default and
+/// What `oxy dev seed` does beyond writing rows. The CLI compiles by default and
 /// copies keys only under `--llm-keys`; the integration-test fixture
 /// ([`seed_demo`]) leaves both off — a test wants rows, not ten compiles and a
 /// copy of whatever keys its shell exports.
@@ -322,7 +322,7 @@ async fn ensure_demo_workspace(
 /// Idempotent — already-bound emails are skipped. When the env is not set,
 /// returns Ok without action.
 async fn bind_org_admin_emails(conn: &sea_orm::DatabaseConnection) -> Result<(), OxyError> {
-    // This path lost the OXY_APP_ADMINS fallback too, and `oxy seed` never
+    // This path lost the OXY_APP_ADMINS fallback too, and `oxy dev seed` never
     // touches the serve boot that carries the same warning — so without this
     // call it would bind nobody and say nothing, which is the exact silent
     // failure the removal is supposed to announce.

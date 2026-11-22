@@ -112,7 +112,7 @@ from `.oxy-dev/state.json`, never assume `:5173`.
 3. `oxy serve --enterprise` on this slot's ports, pointed at the data layer (the variables
    `oxy start` would set; `.env` values win). Reused while ready and the binary is unchanged;
    restarted when the build produced a new binary.
-4. `oxy seed --workspace-path ./examples` — the `local` org with the Demo workspace and the
+4. `oxy dev seed --workspace-path ./examples` — the `local` org with the Demo workspace and the
    `oxy-starter` custom app, plus the tenant orgs (`acme`, `northwind`, `globex`, …), every
    workspace given its Airhouse tenant, compiled and promoted. Idempotent, and one seed at a
    time machine-wide (a second one says whose it is waiting for).
@@ -122,7 +122,7 @@ from `.oxy-dev/state.json`, never assume `:5173`.
 | Flag | Effect |
 | ---- | ------ |
 | `--no-build` | use the existing binary (`$OXY_BIN`, else `target/debug/oxy`) |
-| `--no-seed` | skip `oxy seed` |
+| `--no-seed` | skip `oxy dev seed` |
 | `--no-frontend` | API only |
 | `--frontend-only` | Vite only, proxying to a backend that is already running on this machine (this checkout's, else the lowest slot's; `OXY_DEV_BACKEND_URL` names one). No cargo, no Docker: for a web-app-only change, it skips the build entirely |
 | `--restart` | restart the backend and Vite even when healthy (e.g. after editing `.env`) |
@@ -183,7 +183,7 @@ pnpm --dir web-app dev                            # Vite on http://127.0.0.1:517
 
 # seed that database (idempotent)
 OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy \
-  ./target/debug/oxy seed --workspace-path ./examples
+  ./target/debug/oxy dev seed --workspace-path ./examples
 ```
 
 Against a Postgres you run yourself, set `OXY_DATABASE_URL` and use
@@ -444,7 +444,7 @@ through `bollard` rather than docker-compose:
 | Data | the `oxy-postgres-data` volume — `oxy start --clean` / `just up --clean` wipes it |
 
 `oxy start` removes and recreates the container on every start (the volume survives), and
-sets `OXY_DATABASE_URL` for its own process only — a separate `oxy seed` or `oxy compile`
+sets `OXY_DATABASE_URL` for its own process only — a separate `oxy dev seed` or `oxy compile`
 needs it passed explicitly. Open a shell with
 `docker exec -it oxy-postgres psql -U postgres -d oxy`.
 
@@ -461,8 +461,8 @@ Postgres. It is `docker-compose.airhouse.yml` without its HAProxy and its own Po
 | Catalogs | the `airhouse_cp` and `airhouse` databases in `oxy-postgres`, and one database per tenant |
 | Data | the `oxy-airhouse-minio-data` volume and the Postgres volume — `--clean` wipes both |
 
-New workspaces get a tenant when they are created and `oxy seed` gives every seeded one its
-tenant. A separate `oxy seed`, `oxy compile` or `oxy serve --local` finds this Airhouse on
+New workspaces get a tenant when they are created and `oxy dev seed` gives every seeded one its
+tenant. A separate `oxy dev seed`, `oxy compile` or `oxy serve --local` finds this Airhouse on
 its own: with no `AIRHOUSE_*` set, it looks at `localhost:8080`. When an Airhouse already
 answers there (`just airhouse-up`), `oxy start` uses it instead of starting its own. Set
 `AIRHOUSE_*` to use another one, or pass `--no-airhouse` to run without.

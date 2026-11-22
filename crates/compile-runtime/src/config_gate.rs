@@ -117,7 +117,7 @@ fn refusal_enabled() -> bool {
 /// key, so it fails on a pod the same way.
 ///
 /// `Role::All` is exempt from the refusals: one process compiles and serves,
-/// from the directory the files are in (the CLI, `oxy seed`, a laptop). Every
+/// from the directory the files are in (the CLI, `oxy dev seed`, a laptop). Every
 /// other role compiles for pods that are not that process.
 fn reject_file_credentials(config: &Config, role: Role, refuse: bool) -> Result<(), String> {
     let file_duckdb = file_duckdb_databases(config);
