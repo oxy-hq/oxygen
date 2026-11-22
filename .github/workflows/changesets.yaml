@@ -15,6 +15,8 @@ on:
         value: ${{ jobs.changesets.outputs.ci-counter }}
       lint-bugs:
         value: ${{ jobs.changesets.outputs.lint-bugs }}
+      code-metrics:
+        value: ${{ jobs.changesets.outputs.code-metrics }}
       canary-zoo:
         value: ${{ jobs.changesets.outputs.canary-zoo }}
       custom-app-canary:
@@ -49,6 +51,7 @@ jobs:
       ci-scripts: ${{ steps.changes.outputs.ci-scripts }}
       ci-counter: ${{ steps.changes.outputs.ci-counter }}
       lint-bugs: ${{ steps.changes.outputs.lint-bugs }}
+      code-metrics: ${{ steps.changes.outputs.code-metrics }}
       canary-zoo: ${{ steps.changes.outputs.canary-zoo }}
       custom-app-canary: ${{ steps.changes.outputs.custom-app-canary }}
       agentic: ${{ steps.changes.outputs.agentic }}
@@ -69,6 +72,12 @@ jobs:
               # reads — a PR that only edits either must run the job that runs it.
               - "scripts/ci/check-crate-layering.py"
               - "scripts/ci/crate-layers.toml"
+              # The metric gate's configuration, its debt record and its pinned
+              # installer: editing any of them must run the job that reads them.
+              - "bca.toml"
+              - ".bca-baseline.toml"
+              - ".bcaignore"
+              - "scripts/ci/install-bca.sh"
               # Same for the memory watermark the `test` task runs.
               - "scripts/ci/mem-watermark.sh"
               # The test selector, the partitions' test summary and the
@@ -79,6 +88,20 @@ jobs:
               # nextest's test groups and retries, and the hakari config.
               - ".config/**"
               - "**/Cargo.lock"
+            # The metric gate. This filter exists to MIRROR `bca.toml`'s
+            # `paths`, and that is the only thing it should ever contain: the
+            # job's trigger has to match what `bca check` measures, or a PR
+            # whose files it scans but whose filter it misses passes as green
+            # while the offenders it added wait to fail somebody else's PR.
+            # Change `bca.toml`'s paths, change this list in the same commit.
+            code-metrics:
+              - "crates/**"
+              - "web-app/**"
+              - "sdk/**"
+              - "scripts/**"
+              - "bca.toml"
+              - ".bca-baseline.toml"
+              - ".bcaignore"
             # web-app and the roots it shares with everything else in the pnpm
             # workspace.
             #

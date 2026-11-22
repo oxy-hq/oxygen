@@ -1,0 +1,98 @@
+# bca.toml — the metric gate for this repo, auto-discovered by `bca` when it
+# climbs from the working directory to the repo root. With this file present a
+# bare `bca check` reproduces the whole gate, so `just metrics` passes no
+# thresholds and a hook, a CI step and a laptop all measure the same thing.
+#
+# Thresholds are the tool's shipped defaults, kept on purpose. They are anchored
+# to published limits (SonarSource's own cognitive default, lizard's cyclomatic,
+# RuboCop's parameter list) and calibrated against a 20-language corpus to fire
+# on the worst 1-3% of spaces. A number we invented would be worse evidence than
+# that, and the one we did invent first — cognitive = 40 — was picked only to
+# make the first worklist short, which is what the baseline is for instead.
+#
+# What IS ours is below: the Rust `?` policy, the test-path overrides, and the
+# baseline.
+
+# `scripts` is in here because the editor hook measures whatever file was just
+# edited: without it the hook would flag a script the gate never scans, which is
+# both confusing and unfair to whoever gets told off for it.
+paths = ["crates", "web-app", "sdk", "scripts"]
+exclude_from = ".bcaignore"
+
+# Rust: `?` is linear error propagation, not a branch. Without this every
+# `?`-heavy function in the workspace reads as branchy — and this codebase
+# propagates errors with `?` almost everywhere, so leaving it on would measure
+# our error-handling style rather than our control flow. Inert for other
+# grammars (no other grammar emits `try_expression`).
+cyclomatic_count_try = false
+
+[check]
+# The debt as of 2026-11-22, written by `bca check --write-baseline`. Existing
+# offenders are absorbed; a NEW offender fails, and so does an existing one that
+# gets worse than its recorded value. That per-function ratchet is why the
+# baseline is checked in rather than a count being kept somewhere.
+#
+# Refresh it only deliberately, in its own commit, with the reason: it is the
+# record of what we owe, and regenerating it to make a red check green is how
+# that record becomes fiction.
+baseline = ".bca-baseline.toml"
+
+[thresholds]
+# Per-function. These gate the shape of the code, which is what reviewers
+# cannot hold in their heads.
+cognitive = 15
+cyclomatic = 15
+abc = 40
+# Matches the "more than 4-5 parameters, consider a config struct" rule in
+# internal-docs/backend-architecture.md — the one size rule there that the
+# measured distribution agrees with.
+nargs = 5
+
+# NOT gated, and these two are the measured exceptions to "keep the shipped
+# defaults" above. Both were tried at their defaults on 2026-11-22 and both
+# measure this codebase's idiom rather than its complexity:
+#
+#   nexits = 5            1,382 offenders. In Rust every `?` is an exit point,
+#                         so this counts error propagation. The default's own
+#                         comment allows for the Go `if err != nil` idiom
+#                         pushing honest functions past 4; `?` is that idiom
+#                         with more reach. We already tell the tool `?` is
+#                         linear for cyclomatic — gating it here would undo that.
+#   halstead.effort       3,044 offenders, the largest group by far, and the
+#     = 50000             tool documents it as "the most language-dependent
+#                         limit in the table" with no published anchor.
+#
+# Together they were 60% of a 7,339-entry baseline, which would have made the
+# debt record unreadable and told us nothing we would act on. They are still
+# computed and still in `bca metrics` output; they just do not gate.
+
+# Per-file. Deliberately looser than the "~400 lines" in backend-architecture.md,
+# which 480 of this repo's 6,954 files already exceed; see that file's "Function
+# & File Size" section for why the numbers moved and what replaced them.
+"loc.ploc" = 600
+"loc.sloc" = 1200
+
+# Container-scoped.
+nom = 30
+wmc = 60
+
+# Test files are long on purpose here. CLAUDE.md requires integration tests to
+# live in a few GROUPED binaries — a new top-level tests/*.rs adds a whole link
+# to every full run — so `crates/app/tests/platform/` and friends are large by
+# policy, not by neglect. Gating them at the project limit would be gating the
+# grouped-binary rule. They stay measured, at a limit chosen for that
+# population: the complexity limits above still apply, only size is relaxed.
+[[thresholds.path]]
+glob = "crates/*/tests/**"
+"loc.ploc" = 5000
+"loc.sloc" = 6000
+
+[[thresholds.path]]
+glob = "crates/*/*/tests/**"
+"loc.ploc" = 5000
+"loc.sloc" = 6000
+
+[[thresholds.path]]
+glob = "web-app/tests/**"
+"loc.ploc" = 5000
+"loc.sloc" = 6000

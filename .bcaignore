@@ -1,0 +1,23 @@
+# What `bca` does not measure in this repo. gitignore-style patterns, read by
+# bca.toml's `exclude_from`.
+#
+# This file is for code that is not ours to simplify. Code that IS ours but is
+# long for a reason belongs in bca.toml's `[[thresholds.path]]` overrides
+# instead, so it stays measured at a limit chosen for it — an exclusion here
+# makes it invisible, and invisible debt stops being debt.
+
+# Build output and dependencies.
+./target/**
+./node_modules/**
+./**/node_modules/**
+./web-app/dist/**
+./**/.venv/**
+
+# Generated: the shapes are a generator's, and the fix is in the generator.
+./**/*.generated.*
+./crates/entity/src/generated/**
+./web-app/src/types/api.gen.ts
+./sdk/typescript/src/generated/**
+
+# Scaffolding templates are copied into a customer's repo, not maintained here.
+./sdk/cli/templates/**

@@ -1068,3 +1068,39 @@ oltp-stop:
 #
 # Stop everything and clear the OLTP state — the full reset.
 oltp-clean: oltp-down oltp-stop
+
+# Did this change add a complexity offender, or make one worse?
+#
+# Zero-config: thresholds, exclusions and the baseline all come from bca.toml,
+# so this recipe, the `code-metrics` CI job and the editor hook measure the same
+# thing. The 3,029 offenders already in .bca-baseline.toml are filtered out —
+# what fails is a NEW offender, or one that got worse than its recorded value.
+#
+# Scoped to YOUR DIFF, like the CI job. A whole-tree run reports whatever
+# drifted on main since you branched, and a gate that blames you for other
+# people's commits is a gate someone switches off. Use `just metrics-report` for
+# the whole picture.
+#
+#   just metrics                   # vs origin/main
+#   just metrics origin/release    # vs another base
+#
+# The diff is `git diff --name-only <base>...HEAD`, so it sees COMMITTED work
+# only. Uncommitted edits are the editor hook's job, which measures the file you
+# just saved whether or not it is committed.
+#
+# Exit codes are passed through deliberately, none absorbed: bca uses 2 for
+# "thresholds exceeded" and 1 for a tool error, and an installer refusing a bad
+# digest also exits 1. A caller reading the code — the fix loop, a hook, CI —
+# must never read any of those as "measured, nothing to report".
+metrics base="origin/main":
+    @bin=$(scripts/ci/install-bca.sh) || exit 1; \
+      "$bin" check --changed-only --since {{ base }}
+
+# The whole debt, not just today's regressions: per-file and per-function
+# hotspot tables. Informational, always exits 0.
+metrics-report path="":
+    @bin=$(scripts/ci/install-bca.sh) || exit 1; "$bin" report markdown {{ path }}
+
+# Churn x complexity, which is the ranking the fix loop reads.
+hotspots path=".":
+    @bin=$(scripts/ci/install-bca.sh) && $bin vcs {{ path }}

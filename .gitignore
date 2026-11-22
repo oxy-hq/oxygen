@@ -159,3 +159,6 @@ docs/superpowers/
 
 # BIRD eval data cache (defensive; the real cache is ~/.cache/oxy-evals/bird/)
 evals/bird/.cache/
+
+# Pinned dev tools installed by scripts/ci/install-bca.sh and friends.
+.tools/

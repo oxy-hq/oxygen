@@ -651,6 +651,114 @@ jobs:
       - name: deploy-metrics.ts self-test
         run: node .github/scripts/deploy-metrics.ts --self-test
 
+  # Did this change add a complexity offender, or make an existing one worse?
+  #
+  # This job is what lets internal-docs/backend-architecture.md say its size and
+  # shape limits are checked. Without it that section would describe a gate that
+  # does not exist, which is worse than the aspirational "~60 lines, HARD" it
+  # replaced: a reviewer who believes CI covers it stops looking.
+  #
+  # The limits, the exclusions and the baseline all come from `bca.toml` at the
+  # repo root — the same file `just metrics` and the editor hook read, so this
+  # job cannot drift from what a developer sees locally.
+  #
+  # It judges THIS PR'S DIFF, not the tree. The first version of this job
+  # checked everything and failed on its own PR with twenty offenders from
+  # `sdk/typescript` that nobody here wrote: CI checks out the PR merged with
+  # its base, so the moment `main` moves, a whole-tree gate blames the next PR
+  # for whatever drifted in between. A baseline cannot fix that — it goes stale
+  # by the same mechanism — so the scope is the diff, which is also the only
+  # thing the author can act on. `--changed-only` is fatal when it cannot
+  # resolve a diff base, so a misconfigured run fails loudly instead of
+  # quietly passing everything.
+  #
+  # Within that diff it fails ONLY on a new offender, or one worse than the
+  # value recorded in `.bca-baseline.toml`; the 3,029 that exist today are
+  # filtered out. Two escape hatches, both deliberate and both visible in
+  # review: an in-source `bca: suppress(<metric>) -- reason` marker, which
+  # `bca exemptions` lists, or a baseline refresh in its own commit with the
+  # reason. Neither is a flag on this step, on purpose.
+  #
+  # Why this gates when Cargo.toml leaves clippy's `complexity` group at
+  # `allow`: that decision was about per-site warnings on existing code and it
+  # stands — nothing here reports on the debt. The only claim this job makes is
+  # the narrow one, that a change ADDED some.
+  code-metrics:
+    name: Code metrics (no new complexity offenders)
+    needs: [changesets]
+    concurrency:
+      group: code-metrics-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    # One filter, `code-metrics`, which mirrors bca.toml's `paths`. Not the
+    # union of oxy/web-app/sdk/ci-scripts this started as: that missed
+    # `scripts/*.py`, `scripts/*.sh` and `scripts/ci/*.py`, all of which bca
+    # scans, so a PR touching only those would have been skipped-green.
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.code-metrics == 'true'
+    runs-on:
+      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
+      'ubuntu-latest' }}
+    # A 16 MB download and a ~3s scan. 10m is hang insurance.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The gate diffs against the base branch, and a shallow clone has no
+          # base to diff against — `--changed-only` would then fail the job
+          # rather than resolve an empty set, which is the right failure but a
+          # useless one.
+          fetch-depth: 0
+      # The installer's path is never interpolated into the shell: it prints it,
+      # this reads it. It exits 1 on a digest mismatch, and bca exits 2 on a new
+      # or worsened offender and 1 on a tool error — each of those fails the job
+      # rather than passing quietly.
+      #
+      # The diff base is worked out here rather than left to bca's
+      # auto-detection, because this workflow runs on more than pull requests.
+      # Measured against bca 2.6.0: `--changed-only` with no resolvable base
+      # EXITS 1, and `--since ""` silently scopes to nothing. So a push to main
+      # or a workflow_dispatch would have turned this job red, or — worse, if
+      # the variable were merely empty — passed a no-op off as a gate.
+      - name: No new or worsened offenders in this diff
+        env:
+          # Set on pull_request runs only; the push event's previous sha covers
+          # merges to main. Through env, never inline in the script.
+          PR_BASE: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          bin=$(scripts/ci/install-bca.sh)
+
+          base=""
+          if [ -n "${PR_BASE:-}" ]; then
+            base="origin/${PR_BASE}"
+          elif [ -n "${PUSH_BEFORE:-}" ] &&
+               [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            base="${PUSH_BEFORE}"
+          fi
+
+          if [ -z "$base" ]; then
+            echo "No diff base for ${GITHUB_EVENT_NAME:-this event}: nothing to judge."
+            exit 0
+          fi
+
+          # When the gate's OWN configuration changes, the set of offenders is
+          # defined differently and `--changed-only` would scan no source files
+          # at all: a PR could lower a threshold, drop a `[[thresholds.path]]`
+          # override or trim the baseline, pass green, and leave the newly
+          # offending functions to fail whoever next touches their file. So the
+          # whole tree is re-judged against the new rules. The baseline is
+          # expected to be refreshed in the same change, which is exactly what
+          # that failure tells the author to do.
+          if git diff --name-only "$base"...HEAD -- \
+               bca.toml .bcaignore .bca-baseline.toml | grep -q .; then
+            echo "The metric gate's own configuration changed: checking the whole tree."
+            "$bin" check --github-annotations
+          else
+            "$bin" check --changed-only --since "$base" --github-annotations
+          fi
+
   # Lints that catch bugs, and only those. Formatting is `fmt-web`'s business
   # and is applied on commit; this job never asks how code looks.
   #
