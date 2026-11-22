@@ -4,6 +4,7 @@
 //! described the working copy, were removed with the IDE.
 
 use axum::http::StatusCode;
+use sea_orm::TransactionTrait;
 use uuid::Uuid;
 
 /// Materialise the run row and enqueue one durable `TaskSpec::Compile` on the
@@ -31,9 +32,18 @@ pub(crate) async fn enqueue_compile_task(
     // `agentic_task_queue.run_id` has a FK to `agentic_runs.id`; the
     // task insert below fails with `agentic_task_queue_run_id_fkey`
     // unless we materialise the run row first. Task and run share the
-    // same UUID for compile tasks (1:1, no fan-out).
+    // same UUID for compile tasks (1:1, no fan-out). Both commit in one
+    // transaction: a run committed alone is "never started" to a booting
+    // server's cleanup, which fails it.
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!(?e, "compile: begin failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to register compile run".into(),
+        )
+    })?;
     agentic_runtime::crud::insert_run(
-        db,
+        &txn,
         &task_id,
         &format!("compile {} @ {git_sha}", kind.as_str()),
         None,
@@ -56,7 +66,7 @@ pub(crate) async fn enqueue_compile_task(
     })?;
 
     agentic_runtime::crud::enqueue_task(
-        db,
+        &txn,
         &task_id,
         &task_id,
         None,
@@ -67,6 +77,13 @@ pub(crate) async fn enqueue_compile_task(
     .await
     .map_err(|e| {
         tracing::error!(?e, "compile: enqueue failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to enqueue compile task".into(),
+        )
+    })?;
+    txn.commit().await.map_err(|e| {
+        tracing::error!(?e, "compile: commit failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to enqueue compile task".into(),

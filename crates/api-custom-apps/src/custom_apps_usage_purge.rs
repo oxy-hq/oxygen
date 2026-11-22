@@ -32,7 +32,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
 use oxy_custom_apps::usage_airhouse::{self, SinkError};
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -126,7 +126,11 @@ pub async fn requeue_owed_at(db: &DatabaseConnection, now: DateTime<Utc>) -> Res
     let mut queued = 0;
     for task in ledger::due(db, now, REQUEUE_PER_SWEEP).await? {
         let run_id = format!("{}:{}", task.run_id(), now.timestamp_micros());
-        enqueue_run(db, &task, run_id).await?;
+        // The run row and its queue row commit together: a run committed
+        // alone is "never started" to a booting server's cleanup, which fails it.
+        let txn = db.begin().await?;
+        enqueue_run(&txn, &task, run_id).await?;
+        txn.commit().await?;
         queued += 1;
     }
     Ok(queued)

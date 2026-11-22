@@ -32,5 +32,6 @@ mod queued_analytics_park_test;
 mod react_resume;
 mod run_platform_resolver_test;
 mod scheduler_test;
+mod seed_atomicity_test;
 mod starting_run_recovery_test;
 mod suspended_root_requeue_test;

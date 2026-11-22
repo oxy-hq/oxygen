@@ -22,7 +22,7 @@
 use entity::prelude::AppFunctions;
 use entity::{app_functions, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait};
 use uuid::Uuid;
 
 use super::environment_gate::{self, Admission, Entrance, EnvironmentRefused};
@@ -264,9 +264,16 @@ pub(crate) async fn trigger(
     task.traceparent = oxy_telemetry::propagation::current_traceparent();
     task.environment = (*environment != AppEnvironment::Production).then(|| environment.name());
     task.credential_token_id = asked.credential_token_id.map(|id| id.to_string());
-    agentic_pipeline::scheduler::enqueue_app_function_task(db, app.project_id, policy, task)
-        .await
-        .map_err(|e| TriggerError::Enqueue(format!("{e:?}")))
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let enqueue_err = |e: sea_orm::DbErr| TriggerError::Enqueue(format!("{e:?}"));
+    let txn = db.begin().await.map_err(enqueue_err)?;
+    let run_id =
+        agentic_pipeline::scheduler::enqueue_app_function_task(&txn, app.project_id, policy, task)
+            .await
+            .map_err(|e| TriggerError::Enqueue(format!("{e:?}")))?;
+    txn.commit().await.map_err(enqueue_err)?;
+    Ok(run_id)
 }
 
 #[cfg(test)]

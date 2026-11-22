@@ -13,7 +13,7 @@
 
 use agentic_core::delegation::TaskSpec;
 use agentic_runtime::crud;
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -126,9 +126,13 @@ pub async fn start_agent_run(
         &request.retry_of,
     );
 
+    // The run row, its extension and its queue row commit together: a run
+    // committed alone is "never started" to a booting server's cleanup, which
+    // fails it.
+    let txn = db.begin().await?;
     if let Some(schedule_id) = request.schedule_id.as_deref() {
         crud::insert_run_with_schedule(
-            db,
+            &txn,
             &run_id,
             &request.question,
             request.thread_id,
@@ -140,7 +144,7 @@ pub async fn start_agent_run(
         .await?;
     } else {
         crud::insert_run(
-            db,
+            &txn,
             &run_id,
             &request.question,
             request.thread_id,
@@ -151,14 +155,15 @@ pub async fn start_agent_run(
         .await?;
     }
 
-    agentic_analytics::insert_run_meta(db, &run_id, &request.agent_id, None).await?;
+    agentic_analytics::insert_run_meta(&txn, &run_id, &request.agent_id, None).await?;
 
     let spec = TaskSpec::Agent {
         agent_id: request.agent_id,
         question: request.question,
         extra: None,
     };
-    crud::enqueue_task(db, &run_id, &run_id, None, &spec, None, scope).await?;
+    crud::enqueue_task(&txn, &run_id, &run_id, None, &spec, None, scope).await?;
+    txn.commit().await?;
 
     Ok(run_id)
 }

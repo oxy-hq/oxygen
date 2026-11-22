@@ -31,7 +31,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use oxy_auth::types::AuthenticatedUser;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Statement, TransactionTrait,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -91,8 +93,11 @@ pub(super) async fn insert_run_and_enqueue_compile(
     promote: bool,
 ) -> Result<String, sea_orm::DbErr> {
     let task_id = Uuid::new_v4().to_string();
+    // Both rows commit in one transaction: a run committed alone is "never
+    // started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await?;
     agentic_runtime::crud::insert_run(
-        db,
+        &txn,
         &task_id,
         &format!("compile main ({})", git_sha.as_deref().unwrap_or("local")),
         None,
@@ -115,7 +120,7 @@ pub(super) async fn insert_run_and_enqueue_compile(
         from_git: false,
     };
     agentic_runtime::crud::enqueue_task(
-        db,
+        &txn,
         &task_id,
         &task_id,
         None,
@@ -124,6 +129,7 @@ pub(super) async fn insert_run_and_enqueue_compile(
         agentic_runtime::orchestrator::crud::queue::TaskScope::Global,
     )
     .await?;
+    txn.commit().await?;
     Ok(task_id)
 }
 

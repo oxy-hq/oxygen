@@ -22,7 +22,7 @@ use agentic_runtime::crud;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
 use agentic_runtime::worker::{SlotPool, Worker};
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -339,9 +339,12 @@ async fn seed_airway_run_rows(
     let request = &inputs.request;
 
     let question = format!("airway: {}", spec.name);
+    // The three rows commit together: a run committed without its queue row is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await?;
     if let Some(schedule_id) = request.schedule_id.as_deref() {
         crud::insert_run_with_schedule(
-            db,
+            &txn,
             &run_id,
             &question,
             request.thread_id,
@@ -353,7 +356,7 @@ async fn seed_airway_run_rows(
         .await?;
     } else {
         crud::insert_run(
-            db,
+            &txn,
             &run_id,
             &question,
             request.thread_id,
@@ -367,7 +370,7 @@ async fn seed_airway_run_rows(
     // Same `admission` binding used below for the queued spec — borrowed here
     // (not moved) so both writes carry the one resolution, never two.
     run_extension::insert_run_extension(
-        db,
+        &txn,
         &run_id,
         &spec,
         Some(&request.pipeline_ref),
@@ -385,7 +388,8 @@ async fn seed_airway_run_rows(
         contract_policy: admission.contract_policy.clone(),
         environment: admission.environment.clone(),
     };
-    crud::enqueue_task(db, &run_id, &run_id, None, &task_spec, None, scope).await?;
+    crud::enqueue_task(&txn, &run_id, &run_id, None, &task_spec, None, scope).await?;
+    txn.commit().await?;
 
     Ok(())
 }

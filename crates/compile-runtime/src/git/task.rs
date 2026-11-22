@@ -10,7 +10,7 @@ use agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE;
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
 use oxy_compile::RevisionKind;
 use oxy_telemetry::metrics::record;
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -41,9 +41,12 @@ pub async fn enqueue(
 ) -> Result<String, DbErr> {
     let task_id = Uuid::new_v4().to_string();
     // `agentic_task_queue.run_id` references `agentic_runs.id`, so the run row
-    // comes first. One task per run: a compile does not fan out.
+    // comes first. One task per run: a compile does not fan out. Both commit in
+    // one transaction: a run committed alone is "never started" to a booting
+    // server's cleanup, which fails it.
+    let txn = db.begin().await?;
     agentic_runtime::crud::insert_run(
-        db,
+        &txn,
         &task_id,
         &format!("compile {} ({git_sha}) from git", kind.as_str()),
         None,
@@ -67,7 +70,7 @@ pub async fn enqueue(
         from_git: true,
     };
     agentic_runtime::crud::enqueue_task(
-        db,
+        &txn,
         &task_id,
         &task_id,
         None,
@@ -76,6 +79,7 @@ pub async fn enqueue(
         TaskScope::Global,
     )
     .await?;
+    txn.commit().await?;
     Ok(task_id)
 }
 

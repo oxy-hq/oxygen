@@ -26,7 +26,7 @@ use agentic_runtime::crud;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
 use agentic_runtime::worker::{SlotPool, Worker};
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -301,9 +301,12 @@ pub async fn start_automation_run_as(
 ) -> Result<String, AutomationRunError> {
     request.validate()?;
     let run_id = Uuid::new_v4().to_string();
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await?;
     let Some(schedule_id) = request.schedule_id.clone() else {
         crate::automation_seed::seed_automation_run_as(
-            db,
+            &txn,
             &run_id,
             request,
             scope,
@@ -311,6 +314,7 @@ pub async fn start_automation_run_as(
             requester,
         )
         .await?;
+        txn.commit().await?;
         return Ok(run_id);
     };
     let mut metadata = crate::automation_seed::automation_metadata(&request);
@@ -318,7 +322,7 @@ pub async fn start_automation_run_as(
     let thread_uuid = crate::automation_seed::thread_uuid(&request)?;
     let question = format!("workflow: {}", request.workflow_ref);
     crud::insert_run_with_schedule(
-        db,
+        &txn,
         &run_id,
         &question,
         thread_uuid,
@@ -329,7 +333,8 @@ pub async fn start_automation_run_as(
     )
     .await?;
     let spec = crate::automation_seed::automation_task_spec(request);
-    crud::enqueue_task(db, &run_id, &run_id, None, &spec, None, scope).await?;
+    crud::enqueue_task(&txn, &run_id, &run_id, None, &spec, None, scope).await?;
+    txn.commit().await?;
     Ok(run_id)
 }
 

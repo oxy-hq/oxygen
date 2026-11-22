@@ -27,6 +27,7 @@ use sea_orm::ActiveValue::Set;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr,
     EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect, Statement,
+    TransactionTrait,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -475,7 +476,12 @@ pub async fn enqueue_app_function_job_in(
     task.input = input.filter(|v| !v.is_null());
     task.traceparent = traceparent;
     task.environment = environment.map(str::to_string);
-    enqueue_app_function_task(db, workspace_id, policy, task).await
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await.map_err(ScheduleError::Db)?;
+    let run_id = enqueue_app_function_task(&txn, workspace_id, policy, task).await?;
+    txn.commit().await.map_err(ScheduleError::Db)?;
+    Ok(run_id)
 }
 
 /// Seed a run for `task` and queue it: the body of
@@ -1047,12 +1053,15 @@ async fn start_health_eval_run(
     use agentic_runtime::lifecycle::crud::runs::insert_run;
 
     let run_id = uuid::Uuid::new_v4().to_string();
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await.map_err(|e| e.to_string())?;
     // Scheduled fires stamp `schedule_id` so they surface under the job's run
     // history; an on-demand fire before the workspace's health row exists has no
     // schedule to attribute to and uses the plain insert.
     match schedule_id {
         Some(schedule_id) => insert_run_with_schedule(
-            db,
+            &txn,
             &run_id,
             HEALTH_SCHEDULE_NAME,
             None,
@@ -1064,7 +1073,7 @@ async fn start_health_eval_run(
         .await
         .map_err(|e| e.to_string())?,
         None => insert_run(
-            db,
+            &txn,
             &run_id,
             HEALTH_SCHEDULE_NAME,
             None,
@@ -1087,9 +1096,10 @@ async fn start_health_eval_run(
             "force_smoke": force_smoke,
         }),
     };
-    enqueue_task(db, &run_id, &run_id, None, &spec, None, TaskScope::Global)
+    enqueue_task(&txn, &run_id, &run_id, None, &spec, None, TaskScope::Global)
         .await
         .map_err(|e| e.to_string())?;
+    txn.commit().await.map_err(|e| e.to_string())?;
     Ok(run_id)
 }
 
@@ -1329,9 +1339,12 @@ async fn start_preagg_cycle_run(
     // labels workflow/airway/agent ones.
     let mut metadata = serde_json::json!({});
     stamp_trigger_metadata(&mut metadata, &Some(trigger.to_string()), &None, &None);
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await.map_err(|e| e.to_string())?;
     match schedule_id {
         Some(schedule_id) => insert_run_with_schedule(
-            db,
+            &txn,
             &run_id,
             PREAGG_SCHEDULE_NAME,
             None,
@@ -1343,7 +1356,7 @@ async fn start_preagg_cycle_run(
         .await
         .map_err(|e| e.to_string())?,
         None => insert_run(
-            db,
+            &txn,
             &run_id,
             PREAGG_SCHEDULE_NAME,
             None,
@@ -1365,9 +1378,10 @@ async fn start_preagg_cycle_run(
             "target": target_json,
         }),
     };
-    enqueue_task(db, &run_id, &run_id, None, &spec, None, TaskScope::Global)
+    enqueue_task(&txn, &run_id, &run_id, None, &spec, None, TaskScope::Global)
         .await
         .map_err(|e| e.to_string())?;
+    txn.commit().await.map_err(|e| e.to_string())?;
     Ok(run_id)
 }
 

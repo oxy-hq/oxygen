@@ -22,7 +22,7 @@
 
 use agentic_runtime::entity::schedule;
 use agentic_runtime::lifecycle::crud::runs::insert_run_with_schedule;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, TransactionTrait};
 
 use crate::app_function_task::{APP_FUNCTION_KIND, AppFunctionTask};
 
@@ -94,8 +94,11 @@ pub(crate) async fn fire(
         )
     })?;
     let run_id = uuid::Uuid::new_v4().to_string();
+    // The run row and its queue row commit together: a run committed alone is
+    // "never started" to a booting server's cleanup, which fails it.
+    let txn = db.begin().await.map_err(|e| e.to_string())?;
     insert_run_with_schedule(
-        db,
+        &txn,
         &run_id,
         &s.name,
         None,
@@ -117,7 +120,7 @@ pub(crate) async fn fire(
         payload: task.to_payload(),
     };
     agentic_runtime::crud::enqueue_task(
-        db,
+        &txn,
         &run_id,
         &run_id,
         None,
@@ -127,6 +130,7 @@ pub(crate) async fn fire(
     )
     .await
     .map_err(|e| e.to_string())?;
+    txn.commit().await.map_err(|e| e.to_string())?;
     Ok(run_id)
 }
 

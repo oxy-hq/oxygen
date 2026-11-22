@@ -160,9 +160,13 @@ pub async fn insert_run(
 /// Insert a run seeded by a scheduler fire. The only path that should stamp
 /// `schedule_id`; everything else goes through [`insert_run`]. Lets per-job
 /// run history queries do `WHERE schedule_id = $1` against the new index.
+///
+/// Takes any connection so a seed can insert the run and queue its task in
+/// one transaction: a run row committed without its queue row is a "run never
+/// started" to boot cleanup, which fails it.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_run_with_schedule(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     run_id: &str,
     question: &str,
     thread_id: Option<Uuid>,
