@@ -455,7 +455,7 @@ fn is_user_input_request(msg: &str) -> bool {
 
 /// Is this failure a stateless replica answering "not compiled yet"?
 ///
-/// `ScanUnavailable` (`oxy_app::agentic_wiring::scan_source`) states this condition as
+/// `ScanUnavailable` (`oxy_workspace_runtime::scan_source`) states this condition as
 /// explicitly retryable — every variant of its message ends "a (re)compile has
 /// been enqueued" — and that queued compile clears it with nobody touching
 /// anything. `router::recovery` already logs the very same `ScanUnavailable` at

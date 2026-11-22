@@ -9,12 +9,14 @@
 //! handlers and `oxy-api-world-model` / `oxy-api-experiment` (through
 //! `oxy_app::surface::workspace_runtime`). It lived in `api::semantic` until
 //! 2026-11-16 and moved down so those handlers can leave `oxy-app` without
-//! taking the runtime's scan resolution with them. With it, the `{ message }`
-//! envelope the semantic routes answer a refusal in.
+//! taking the runtime's scan resolution with them; it was `oxy-app`'s
+//! `agentic_wiring::scan_source` until 2026-11-22 (re-exported there). With
+//! it, the `{ message }` envelope the semantic routes answer a refusal in.
 //!
-//! Not a domain crate yet: both resolvers enqueue a compile on a miss
-//! (`workspace_context::enqueue_lazy_compile`, which reaches the compile
-//! self-heal and the reconcile check), so this goes down with the base.
+//! Not a domain crate: both resolvers enqueue a compile on a miss
+//! (`oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile`, which
+//! reaches the compile self-heal and the reconcile check), so it sits in the
+//! workspace runtime, above the compile runtime.
 
 use axum::{extract, http::StatusCode};
 use oxy::adapters::workspace::manager::WorkspaceManager;
@@ -49,7 +51,7 @@ impl QueryScanSource {
     /// A scan rooted at a directory that is already on disk — the working-copy
     /// arm. Lets a caller that resolved a root some other way (or a test) hand
     /// one to something that takes a `QueryScanSource`.
-    pub(crate) fn at(scan_path: std::path::PathBuf) -> Self {
+    pub fn at(scan_path: std::path::PathBuf) -> Self {
         Self {
             scan: ScanDir::Real(scan_path),
         }
@@ -172,11 +174,7 @@ pub async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
     // never run.
     let Ok(scan_path) = workspace_manager.config_manager.semantics_scan_dir() else {
         if let Ok(db) = oxy::database::client::establish_connection().await {
-            crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                &db,
-                workspace_id,
-            )
-            .await;
+            oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(&db, workspace_id).await;
         }
         return Err(ScanUnavailable {
             workspace_id,
@@ -216,11 +214,8 @@ pub async fn resolve_compiled_scan_source<S: oxy::config::DiskSlot>(
                 "compiled-only semantic scan: nothing compiled to read"
             );
             if let Ok(db) = oxy::database::client::establish_connection().await {
-                crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                    &db,
-                    workspace_id,
-                )
-                .await;
+                oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(&db, workspace_id)
+                    .await;
             }
             Err(ScanUnavailable {
                 workspace_id,

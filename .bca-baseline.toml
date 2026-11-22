@@ -6735,72 +6735,6 @@ metric = "nargs"
 value = 8.0
 
 [[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_exec.rs"
-qualified = "run_projection_query"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 1357.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1857.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "OxyMetricTreeRunner"
-metric = "nom"
-value = 44.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "OxyMetricTreeRunner::run_explain"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "OxyMetricTreeRunner::run_time_series"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "build_drill_query_executor"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "build_drill_query_executor::<anon@L1068>"
-metric = "abc"
-value = 73.13685801290619
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "build_query_executor"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "build_query_executor::<anon@L871>"
-metric = "abc"
-value = 65.89385403814228
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/metric_tree_runner.rs"
-qualified = "make_runner"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
 path = "crates/app/src/agentic_wiring/preview_ctx/airhouse_writes.rs"
 qualified = "PreviewAirhouse::review"
 metric = "abc"
@@ -10772,6 +10706,72 @@ path = "crates/workspace-runtime/src/connector/unheld_callers_guard.rs"
 qualified = "only_the_project_context_names_an_unheld_connector_door"
 metric = "cognitive"
 value = 17.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_exec.rs"
+qualified = "run_projection_query"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 1357.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1857.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "OxyMetricTreeRunner"
+metric = "nom"
+value = 44.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "OxyMetricTreeRunner::run_explain"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "OxyMetricTreeRunner::run_time_series"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "build_drill_query_executor"
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "build_drill_query_executor::<anon@L1068>"
+metric = "abc"
+value = 73.13685801290619
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "build_query_executor"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "build_query_executor::<anon@L871>"
+metric = "abc"
+value = 65.89385403814228
+
+[[entry]]
+path = "crates/workspace-runtime/src/metric_tree_runner.rs"
+qualified = "make_runner"
+metric = "nargs"
+value = 6.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/preagg_workspace.rs"

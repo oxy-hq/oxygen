@@ -75,11 +75,12 @@ const ALLOWED: &[(&str, &str)] = &[
         "Same, off the HTTP path entirely.",
     ),
     (
-        "src/agentic_wiring/scan_source.rs",
+        "../workspace-runtime/src/scan_source.rs",
         "Doc comment only — explains where branch semantics come from. If this \
          ever becomes a call, it is a bug: the caller has a manager. (Was \
          `src/server/api/semantic.rs` until the scan resolution moved down, \
-         2026-11-16.)",
+         2026-11-16, then `src/agentic_wiring/scan_source.rs` until it went \
+         into `oxy-workspace-runtime`, 2026-11-22.)",
     ),
     (
         "../compile-runtime/src/worker.rs",

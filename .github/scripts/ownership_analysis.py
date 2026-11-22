@@ -91,6 +91,11 @@ AREAS = [
     ("crates/project",                                    "Project domain"),
     ("crates/workspace-fs",                               "Workspace FS"),
     ("crates/app-core",                                   "App-layer core seam"),
+    # The metric tree's executor-facing core, down into the workspace runtime
+    # with the runner (W2, 2026-11-22): CODEOWNERS keeps it with the metric
+    # tree, so it is listed before its crate. The old path keeps its history.
+    ("crates/workspace-runtime/src/metric_tree_exec.rs",  "Metric tree & anomaly monitoring"),
+    ("crates/app/src/agentic_wiring/metric_tree_exec.rs", "Metric tree & anomaly monitoring"),
     # The workspace runtime, 2026-11-21, going down out of
     # crates/app/src/agentic_wiring; the pre-extraction paths keep their history.
     ("crates/workspace-runtime",                          "Workspace runtime"),
@@ -109,6 +114,9 @@ AREAS = [
     ("crates/app/src/agentic_wiring/project_ctx/connector.rs", "Workspace runtime"),
     ("crates/app/src/agentic_wiring/project_ctx/connector_translation_tests.rs", "Workspace runtime"),
     ("crates/app/src/server/preagg_workspace.rs",         "Workspace runtime"),
+    # W2, 2026-11-22: the metric-tree runner and the semantic scan resolution.
+    ("crates/app/src/agentic_wiring/metric_tree_runner.rs", "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/scan_source.rs",      "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

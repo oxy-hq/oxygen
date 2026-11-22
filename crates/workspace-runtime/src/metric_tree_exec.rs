@@ -3,7 +3,7 @@
 //! (`oxy-api-custom-apps`' `data_plane::metric_tree*`) share, and what neither
 //! surface may hold for the other (S3: a surface never imports another).
 //!
-//! Beside [`super::metric_tree_runner`], whose executor it drives: the error the
+//! Beside [`crate::metric_tree_runner`], whose executor it drives: the error the
 //! analysis ops answer in, the scan resolution (compile boundary first, working
 //! copy second), the layer and engine builders, the workspace's airlayer
 //! database configs, the one instance-scope rule, and the projection's
@@ -34,9 +34,9 @@ use oxy_metric_monitoring::metric_tree_projection::{
 use oxy_metric_monitoring::metric_tree_scenario::BaselineInstance;
 use oxy_metric_monitoring::metric_tree_series::build_time_series_query_request;
 
-use super::metric_tree_runner::{OxyMetricTreeRunner, RunnerPreagg, build_query_executor};
-use crate::agentic_wiring::scan_source::{QueryScanSource, resolve_query_scan_source};
-use crate::server::preagg_context::RollupFreshness;
+use crate::metric_tree_runner::{OxyMetricTreeRunner, RunnerPreagg, build_query_executor};
+use crate::scan_source::{QueryScanSource, resolve_query_scan_source};
+use oxy_app_core::preagg_context::RollupFreshness;
 
 #[derive(Debug)]
 pub enum MetricTreeError {

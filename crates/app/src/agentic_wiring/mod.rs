@@ -15,12 +15,9 @@
 //!   sends everything through (verified, overlaid, on a scoped credential).
 
 pub mod compile_dispatcher;
-pub mod metric_tree_exec;
-pub mod metric_tree_runner;
 pub mod preview_airhouse;
 pub mod preview_ctx;
 pub mod project_ctx;
-pub mod scan_source;
 
 // The leaves went down into `oxy-workspace-runtime` on 2026-11-21, re-exported
 // here so their paths did not change.
@@ -30,6 +27,10 @@ pub use oxy_workspace_runtime::{
 // The SQL execute and its HTTP answer followed on 2026-11-22 (W1b), with the
 // connector half of `project_ctx` they build on.
 pub use oxy_workspace_runtime::{sql_exec, sql_http};
+// The metric-tree runner, its executor-facing core and the semantic scan
+// resolution, `oxy-workspace-runtime`'s since 2026-11-22 (W2): re-exported at
+// their old paths.
+pub use oxy_workspace_runtime::{metric_tree_exec, metric_tree_runner, scan_source};
 
 pub use metric_sink::OxyAnalyticsMetricSink;
 pub use metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};

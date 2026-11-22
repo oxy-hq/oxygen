@@ -30,11 +30,11 @@ use oxy_airlayer_compat::engine::query::{QueryFilter, QueryRequest};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::agentic_wiring::project_ctx::build_connector_for_db;
+use crate::connector::build_connector_for_db;
 // A blocking thread is off the request's task, so the preview hold is passed
 // in (`holds_writes`) rather than read from `write_hold::active()` there.
-use crate::server::preagg_context::RollupFreshness;
 use oxy::config::{ReadOnly, ScanDir, WorkingCopy};
+use oxy_app_core::preagg_context::RollupFreshness;
 use oxy_app_core::write_hold::connector::Session;
 use oxy_app_core::write_hold::hold_if;
 use oxy_metric_monitoring::metric_tree_scenario::OPPORTUNITY_MIN_SUPPORT;
@@ -45,7 +45,7 @@ use oxy_metric_monitoring::metric_tree_series::{build_time_series_query_request,
 ///
 /// Holds the smallest set of fields needed to (a) load the on-disk semantic
 /// model and (b) execute SQL through `run_via_agentic_connector`. Built once
-/// per pipeline run from [`crate::agentic_wiring::OxyProjectContext`].
+/// per pipeline run from `oxy-app`'s `agentic_wiring::OxyProjectContext`.
 /// The rollup short-circuit a runner carries: the shared Layer-1 cache, the
 /// renewal threshold its freshness check runs against, and what to do with a
 /// rollup that check calls stale.
@@ -111,7 +111,7 @@ pub struct OxyMetricTreeRunner {
     /// `ConfigManager::revision_id()`, which reports the pin and is `Some` even
     /// when reading the working copy.
     engine_cache: Option<(
-        Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
+        Arc<oxy_app_core::workspace_cache::SemanticEngineCache>,
         Option<Uuid>,
     )>,
     /// Hold every connector the runner builds (a workspace-preview request).
@@ -157,7 +157,7 @@ impl OxyMetricTreeRunner {
     /// graph on every explain / opportunity run.
     pub fn with_engine_cache(
         mut self,
-        cache: Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
+        cache: Arc<oxy_app_core::workspace_cache::SemanticEngineCache>,
         source_revision: Option<Uuid>,
     ) -> Self {
         self.engine_cache = Some((cache, source_revision));
@@ -837,7 +837,7 @@ pub fn build_query_executor(
     // used to hash to a directory nothing had ever built, and every query then
     // silently took the warehouse path — right rows, no "Pre-aggregated"
     // badge, none of the explain headroom.
-    let preagg_ctx = crate::server::preagg_context::preagg_context(
+    let preagg_ctx = oxy_app_core::preagg_context::preagg_context(
         workspace_manager.workspace_id,
         preagg.cache,
         Some(preagg.renewal_threshold_secs),
@@ -982,7 +982,7 @@ pub fn build_query_executor(
         let exec_ms = exec_start.elapsed().as_millis() as u64;
         let decode_start = std::time::Instant::now();
         let rows = handle
-            .block_on(oxy_workspace_runtime::typed_stream::typed_stream_to_json_array(stream))
+            .block_on(crate::typed_stream::typed_stream_to_json_array(stream))
             .map_err(|e| EngineError::QueryError(format!("{e:?}")))?;
         let decode_ms = decode_start.elapsed().as_millis() as u64;
         let row_count = rows.len();
@@ -1040,7 +1040,7 @@ pub fn build_drill_query_executor(
     use agentic_connector::DatabaseConnector;
 
     // Cache key derived, not passed — same rule as [`build_query_executor`].
-    let preagg_ctx = crate::server::preagg_context::preagg_context(
+    let preagg_ctx = oxy_app_core::preagg_context::preagg_context(
         workspace_manager.workspace_id,
         preagg.cache,
         Some(preagg.renewal_threshold_secs),
@@ -1190,7 +1190,7 @@ pub fn build_drill_query_executor(
         let exec_ms = exec_start.elapsed().as_millis() as u64;
         let decode_start = std::time::Instant::now();
         let rows = handle
-            .block_on(oxy_workspace_runtime::typed_stream::typed_stream_to_json_array(stream))
+            .block_on(crate::typed_stream::typed_stream_to_json_array(stream))
             .map_err(|e| EngineError::QueryError(format!("{e:?}")))?;
         let decode_ms = decode_start.elapsed().as_millis() as u64;
         let row_count = rows.len();
@@ -1311,7 +1311,7 @@ impl ScanRoot {
 }
 
 /// Construct an `Arc<dyn MetricTreeRunner>` from a workspace + user + role
-/// triple. Used by [`crate::agentic_wiring::OxyProjectContext::metric_tree_runner`]
+/// triple. Used by `oxy-app`'s `agentic_wiring::OxyProjectContext::metric_tree_runner`
 /// to populate the agentic platform port.
 pub fn make_runner(
     workspace_manager: WorkspaceManager<WorkingCopy>,

@@ -109,7 +109,7 @@ pub async fn post_predict(
 // ── Executor bridge ─────────────────────────────────────────────────────────
 //
 // The executor closure that compiles airlayer `QueryRequest`s and runs them
-// through Oxy's connector pool lives in `oxy-app`'s `agentic_wiring::metric_tree_runner`
+// through Oxy's connector pool lives in `oxy-workspace-runtime`'s `metric_tree_runner`
 // so both this HTTP handler and the agentic analytics tools route through the
 // same code path. See `build_query_executor` there.
 
@@ -679,11 +679,12 @@ mod tests {
     #[test]
     fn handlers_never_scan_the_working_copy() {
         // The scan resolution these handlers call (`resolve_scan`) lives in the
-        // shared core in `oxy-app`, so the guard reads it too.
-        let core = include_str!("../../app/src/agentic_wiring/metric_tree_exec.rs");
+        // shared core in `oxy-workspace-runtime` (`oxy-app`'s until
+        // 2026-11-22), so the guard reads it too.
+        let core = include_str!("../../workspace-runtime/src/metric_tree_exec.rs");
         assert!(
             !core.contains("semantics_scan_path"),
-            "agentic_wiring/metric_tree_exec.rs must resolve the scan root via \
+            "workspace-runtime/src/metric_tree_exec.rs must resolve the scan root via \
              resolve_query_scan_source (compile boundary first)"
         );
         assert!(
@@ -714,8 +715,8 @@ mod tests {
             // The projection's executor-facing core, which the customer-app
             // twin shares, spends it too (`run_projection_query`).
             (
-                "app/src/agentic_wiring/metric_tree_exec.rs",
-                include_str!("../../app/src/agentic_wiring/metric_tree_exec.rs"),
+                "workspace-runtime/src/metric_tree_exec.rs",
+                include_str!("../../workspace-runtime/src/metric_tree_exec.rs"),
             ),
             // The domain halves spend the same budget (`baseline_reads`, the
             // projection's per-view read), so the guard follows them down.

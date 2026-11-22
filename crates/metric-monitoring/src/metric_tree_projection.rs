@@ -19,7 +19,7 @@
 //! The pure half lives here: the wire shapes, validation, seasonality
 //! resolution, the per-view read and the fit. The handler and the executor it
 //! builds from Oxy's connector pool are `oxy-api-metric-monitoring`'s
-//! `metric_tree_projection` and `oxy-app`'s `agentic_wiring::metric_tree_exec`;
+//! `metric_tree_projection` and `oxy-workspace-runtime`'s `metric_tree_exec`;
 //! the handler re-exports these items.
 
 use std::collections::HashMap;

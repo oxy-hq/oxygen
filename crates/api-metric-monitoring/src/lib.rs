@@ -28,9 +28,9 @@
 //! external seams' routes (`SurfaceSeams`), because the agentic state is built
 //! inside `api_router`, after the composition root hands the seams in.
 //!
-//! What stays below, in `oxy-app`: the executor (`agentic_wiring::
-//! metric_tree_runner`), the executor-facing core the customer-app twins share
-//! (`agentic_wiring::metric_tree_exec`, reached through
+//! What stays below, in `oxy-workspace-runtime` (`oxy-app`'s `agentic_wiring`
+//! until 2026-11-22): the executor (`metric_tree_runner`), the executor-facing
+//! core the customer-app twins share (`metric_tree_exec`, reached through
 //! `oxy_app::surface::metric_tree_exec`).
 //!
 //! Insights delivery is split by layer: the enqueue a scan calls is

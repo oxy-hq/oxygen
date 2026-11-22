@@ -74,20 +74,21 @@ const ALLOWED: &[(&str, &str)] = &[
          every rollup in the workspace.",
     ),
     (
-        "crates/app/src/agentic_wiring/metric_tree_runner.rs",
+        "crates/workspace-runtime/src/metric_tree_runner.rs",
         "The opportunity drill installs synthetic `__drill__` measures into a \
          `SharedLayer` mid-run and the executor must see them, so this engine \
          is rebuilt per query on purpose. A frozen snapshot would reject a \
          measure it never saw.",
     ),
     (
-        "crates/app/src/agentic_wiring/metric_tree_exec.rs",
+        "crates/workspace-runtime/src/metric_tree_exec.rs",
         "`build_engine`, the metric tree's per-request engine. Its callers \
          (`oxy-api-metric-monitoring`'s handlers) build from a layer the \
          request owns: `post_opportunity` runs `augment_layer_for_opportunity` \
          first, so its layer is unique to the request and shares nothing with \
          the workspace's. Moved here from `server/api/metric_tree.rs` with the \
-         core the customer-app twins share (2026-11-15).",
+         core the customer-app twins share (2026-11-15), then down out of \
+         `oxy-app`'s `agentic_wiring` with the runner (2026-11-22).",
     ),
     (
         "crates/world-model/src/graph/breakdown.rs",

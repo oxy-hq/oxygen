@@ -175,7 +175,9 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # runs an `OxyProjectContext`, going down out of crates/app/src/agentic_wiring/.
 # Started with the leaves (the Airhouse pool, `ctx.airhouse`, the typed-stream
 # sinks, the runtime-artifact mirror); then (2026-11-22) project_ctx's connector
-# half, sql_exec, sql_http and server/preagg_workspace.rs.
+# half, sql_exec, sql_http and server/preagg_workspace.rs; then (W2, the same
+# day) metric_tree_runner, scan_source and metric_tree_exec (whose own row,
+# under Metric Tree below, keeps its owners).
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay
@@ -273,9 +275,10 @@ crates/metric-monitoring/                          @haitrr @luong-komorebi
 # their own surface crate on 2026-11-15 (were `server/api/metric_tree*.rs` and
 # `server/api/metric_anomalies/`): the same owners followed them. The
 # executor-facing core both metric-tree surfaces share stayed below, beside the
-# runner.
+# runner (and went down into the workspace runtime with it on 2026-11-22, W2;
+# this row, after the crate's, keeps its owners).
 crates/api-metric-monitoring/                      @haitrr @NTtanh
-crates/app/src/agentic_wiring/metric_tree_exec.rs  @haitrr @NTtanh
+crates/workspace-runtime/src/metric_tree_exec.rs   @haitrr @NTtanh
 # metric_tree.rs's domain half, lowered into the domain crate: same owners.
 crates/metric-monitoring/src/metric_tree_scenario.rs  @haitrr @NTtanh
 crates/api-metric-monitoring/src/metric_anomalies/  @haitrr @luong-komorebi

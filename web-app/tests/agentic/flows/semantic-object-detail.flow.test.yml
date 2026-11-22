@@ -10,7 +10,7 @@
 #    did not exist on that node, so the topic list came back empty and the
 #    lookup reported the topic missing rather than reporting that it could not
 #    look. The guard and its comment live at
-#    crates/app/src/agentic_wiring/scan_source.rs:170 ("the 'Topic not found.
+#    crates/workspace-runtime/src/scan_source.rs:170 ("the 'Topic not found.
 #    Available: []' this guard exists to prevent"). Running a query off the
 #    topic is what exercises that path.
 # 2. A view/topic detail read surfaced a RAW FILESYSTEM IO ERROR instead of a

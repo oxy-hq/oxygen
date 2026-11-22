@@ -31,15 +31,29 @@
 //! - [`sql_http`]: its HTTP answer (`SqlErrorResponse`, `execute_sql_response`).
 //! - [`preagg_workspace`]: the workspace manager the preagg cycle builds.
 //!
-//! The rest of `agentic_wiring` (the project context, the metric-tree
-//! executor, the preview runtime) follows in later PRs.
+//! Then, on 2026-11-22 (W2), the metric tree's runtime and the semantic scan
+//! resolution (`oxy-app` re-exports each at its old path:
+//! `agentic_wiring::{metric_tree_runner, metric_tree_exec, scan_source}`):
+//!
+//! - [`metric_tree_runner`]: `OxyMetricTreeRunner`, the `MetricTreeRunner`
+//!   over the semantic engine and the connector pool, and the query executors.
+//! - [`metric_tree_exec`]: the executor-facing core the metric-tree surfaces
+//!   share (the error, scan and layer resolution, the projection core).
+//! - [`scan_source`]: where a semantic read finds the model (the compiled
+//!   revision first, the working copy second, a compile enqueued on a miss).
+//!
+//! The rest of `agentic_wiring` (the project context, the preview runtime)
+//! follows in later PRs.
 
 pub mod airhouse_pool;
 pub mod app_airhouse;
 pub mod connector;
 pub mod metric_sink;
+pub mod metric_tree_exec;
+pub mod metric_tree_runner;
 pub mod preagg_workspace;
 pub mod runtime_artifact;
+pub mod scan_source;
 pub mod sql_exec;
 pub mod sql_http;
 pub mod string_literal;

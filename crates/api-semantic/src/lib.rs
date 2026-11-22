@@ -31,7 +31,7 @@
 //! the preview write hold) and the error shaping of an execute are `oxy-app`'s
 //! workspace runtime (`agentic_wiring::sql_exec`), reached through
 //! [`oxy_app::surface::world_model_exec`]; the scan resolution is
-//! `agentic_wiring::scan_source`, reached through
+//! `oxy_workspace_runtime::scan_source`, reached through
 //! [`oxy_app::surface::workspace_runtime`]. The pre-aggregation context a
 //! semantic execute reads rollups through is `oxy_app_core::preagg_context`
 //! (display posture: `ServeStale`), and the ledger of rollups this node

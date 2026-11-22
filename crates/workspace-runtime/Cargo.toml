@@ -8,6 +8,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
+# `metric_tree_runner`: the `MetricTreeRunner` port it fills.
+agentic-analytics = { workspace = true }
 agentic-connector = { workspace = true }
 agentic-core = { workspace = true }
 # `ThreadOwnerLookup` and `AnalyticsMetricSink`, the ports the two adapters fill.
@@ -15,6 +17,8 @@ agentic-pipeline = { workspace = true }
 # `connector`: the pooled `AirhouseConnector`. `admin`: the token broker, the
 # wire endpoint and `UserRole`, which `ctx.airhouse` mints its credential with.
 airhouse = { workspace = true, features = ["connector", "admin"] }
+# `metric_tree_runner`: the refresh-key cache the preagg short-circuit reads.
+agentic-semantic = { workspace = true }
 entity = { workspace = true }
 # `WorkspaceManager`, `DiskSlot` and `DatabaseType`.
 oxy = { workspace = true }
@@ -22,18 +26,32 @@ oxy = { workspace = true }
 oxy-app-core = { workspace = true }
 # `blob_store`: the runtime-artifact S3 mirror.
 oxy-compile = { workspace = true }
+# `scan_source`: a scan miss enqueues the lazy compile (`reconcile::enqueue`).
+oxy-compile-runtime = { workspace = true }
+# `metric_tree_*`: the semantic engine, the layer and the metric-tree ops.
+oxy-airlayer-compat = { workspace = true }
+# `metric_tree_*`: the metric-tree series, scenario and projection domain.
+oxy-metric-monitoring = { workspace = true }
 oxy-observability = { workspace = true }
 # `resolver`: the read-only analyst connection a `type: oltp` database
 # translates to (`connector`).
 oxy-oltp = { workspace = true }
+# `metric_tree_exec`: the metric tree a projection validates against.
+oxy-semantic = { workspace = true }
 oxy-shared = { workspace = true }
+# `metric_tree_exec`: the world model's instance-scope rule.
+oxy-world-model = { workspace = true }
 
 arrow = { workspace = true }
 async-trait = { workspace = true }
 # `sql_http`: the SQL execute's HTTP answer.
 axum = { workspace = true }
+# `metric_tree_*`: dates and the trailing windows.
+chrono = { workspace = true }
 futures = { workspace = true }
 parquet = { workspace = true }
+# `metric_tree_exec`: the projection's per-series fits run in parallel.
+rayon = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -47,10 +65,11 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# `metric_tree_runner`'s preagg-read test writes its parquet fixture.
+duckdb = { workspace = true }
 # `preagg_workspace`'s DB-backed tests: the shared test database (`db`) with
 # the runtime migrator, and `connector`'s workspace fixtures.
 agentic-runtime = { workspace = true }
-chrono = { workspace = true }
 oxy-test-utils = { workspace = true }
 tempfile = { workspace = true }
 # `string_literal`'s tests build their `DatabaseType` fixtures from YAML.

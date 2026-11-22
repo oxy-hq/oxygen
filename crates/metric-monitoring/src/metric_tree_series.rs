@@ -2,7 +2,8 @@
 //! timezone pad/trim around it: one decision shared by the anomaly scan's
 //! `run_time_series` and the scenario projection's batched query, so the two
 //! cannot drift apart on the workaround. Lowered from `oxy-app`'s
-//! `agentic_wiring::metric_tree_runner`, which runs the request it builds.
+//! `agentic_wiring::metric_tree_runner` (now `oxy-workspace-runtime`'s), which
+//! runs the request it builds.
 
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime};
 use oxy_airlayer_compat::engine::query::QueryRequest;
