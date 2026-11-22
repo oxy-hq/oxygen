@@ -42,36 +42,20 @@ impl ModelPricing {
     }
 }
 
+/// The shared Anthropic list row for `model` (`oxy_shared::claude_pricing`,
+/// the table the platform's cost pages read too).
+fn claude_rates(model: &str) -> Option<ModelPricing> {
+    oxy_shared::claude_pricing::claude_rates(model)
+        .map(|r| ModelPricing::new(r.input, r.output).with_cache(r.cache_write, r.cache_read))
+}
+
 /// Resolve the published rates for `model`. The lookup is a series of
 /// prefix matches so model variants (e.g. `claude-sonnet-4-6-20251022`)
 /// hit the same rate as the canonical id. Returns `None` for any model
 /// not in the table — the caller surfaces this as "cost unavailable".
 pub fn rates_for(model: &str) -> Option<ModelPricing> {
-    // Anthropic — Claude 5 family. Priced at the same published tiers as the
-    // Claude 4 generation (opus/sonnet/haiku). Checked before the `-4`
-    // prefixes below so a `claude-*-5` id never accidentally matches a shorter
-    // family prefix. `claude-haiku-4-5` is intentionally a Claude 4.5 haiku id
-    // (matched by the `claude-haiku-4` arm), not a 5-family model.
-    if model.starts_with("claude-opus-5") {
-        return Some(ModelPricing::new(15.0, 75.0).with_cache(18.75, 1.50));
-    }
-    if model.starts_with("claude-sonnet-5") {
-        return Some(ModelPricing::new(3.0, 15.0).with_cache(3.75, 0.30));
-    }
-    if model.starts_with("claude-haiku-5") {
-        return Some(ModelPricing::new(0.80, 4.0).with_cache(1.0, 0.08));
-    }
-
-    // Anthropic — Claude 4 family (incl. 4.5 point releases like
-    // `claude-haiku-4-5`, which share the 4-family rate card).
-    if model.starts_with("claude-opus-4") {
-        return Some(ModelPricing::new(15.0, 75.0).with_cache(18.75, 1.50));
-    }
-    if model.starts_with("claude-sonnet-4") {
-        return Some(ModelPricing::new(3.0, 15.0).with_cache(3.75, 0.30));
-    }
-    if model.starts_with("claude-haiku-4") {
-        return Some(ModelPricing::new(0.80, 4.0).with_cache(1.0, 0.08));
+    if let Some(p) = claude_rates(model) {
+        return Some(p);
     }
 
     // OpenAI — GPT-5 generation. `-mini` / `-nano` variants are cheaper tiers
@@ -161,15 +145,54 @@ mod tests {
 
     #[test]
     fn claude_5_family_is_priced() {
-        // Claude 5 ids (already referenced in-repo, e.g. `claude-sonnet-5`)
-        // must resolve to a rate rather than showing blank cost.
         assert!(rates_for("claude-opus-5").is_some());
         assert!(rates_for("claude-sonnet-5").is_some());
         assert!(rates_for("claude-sonnet-5-20260101").is_some());
-        // Sonnet 5 shares the Sonnet 4 rate card.
+    }
+
+    /// The published list prices, one row per current model. A wrong row here
+    /// overstated Opus 4.8 three times over, and the react cost cap reads it.
+    #[test]
+    fn claude_list_prices() {
+        for (model, input, output) in [
+            ("claude-fable-5-2", 8.0, 40.0),
+            ("claude-fable-5-1", 10.0, 50.0),
+            ("claude-fable-5", 10.0, 50.0),
+            ("claude-fable-5-20260101", 10.0, 50.0),
+            ("claude-opus-5-5", 4.0, 20.0),
+            ("claude-opus-5", 5.0, 25.0),
+            ("claude-opus-4-8", 5.0, 25.0),
+            ("claude-opus-4-6", 5.0, 25.0),
+            ("claude-opus-4-1", 15.0, 75.0),
+            ("claude-sonnet-5-5", 2.0, 10.0),
+            ("claude-sonnet-5", 2.0, 10.0),
+            ("claude-sonnet-4-6", 3.0, 15.0),
+            ("claude-haiku-5-5", 0.10, 0.50),
+            ("claude-haiku-4-5-20251001", 1.0, 5.0),
+            ("us.anthropic.claude-opus-4-1-20250805-v1:0", 15.0, 75.0),
+            ("us.anthropic.claude-sonnet-5-5-v1:0", 2.0, 10.0),
+            ("claude-3-5-haiku-20241022", 0.80, 4.0),
+            ("claude-3-opus-20240229", 15.0, 75.0),
+            ("anthropic/claude-opus-4.6", 5.0, 25.0),
+            ("anthropic/claude-fable-5.2", 8.0, 40.0),
+            ("anthropic/claude-opus-5.5", 4.0, 20.0),
+        ] {
+            let p = rates_for(model).unwrap_or_else(|| panic!("{model} unpriced"));
+            assert_eq!(
+                (p.input_per_million, p.output_per_million),
+                (input, output),
+                "{model}"
+            );
+        }
         assert_eq!(
-            cost_for_call("claude-sonnet-5", 1_000_000, 1_000_000, 0, 0),
-            cost_for_call("claude-sonnet-4-6", 1_000_000, 1_000_000, 0, 0),
+            rates_for("claude-sonnet-5-5")
+                .unwrap()
+                .cache_read_per_million,
+            Some(0.10)
+        );
+        assert_eq!(
+            rates_for("claude-opus-5-5").unwrap().cache_read_per_million,
+            Some(0.20)
         );
     }
 

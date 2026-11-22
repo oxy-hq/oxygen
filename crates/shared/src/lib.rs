@@ -9,6 +9,7 @@
 //! Note: Some modules (checkpoint) have been temporarily disabled due to
 //! circular dependencies with core. They will be refactored in a future update.
 
+pub mod claude_pricing;
 pub mod domain;
 pub mod duckdb_s3;
 pub mod errors;

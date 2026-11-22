@@ -188,19 +188,18 @@ pub struct ExecutionCostResponse {
 /// model families. Unknown models price at `(0, 0)` — but a silent `$0` reads
 /// as "free" on the cost dashboard and hides real spend, so the unknown case is
 /// logged (`warn!`, once per model id) to make the under-report observable.
-/// Newer families that share a family name (`claude-opus-5`, `claude-sonnet-5`,
-/// …) already resolve via the substring match; genuinely new ids (e.g.
-/// `claude-fable-5`) fall through until priced here — deliberately not
-/// fabricated.
+/// Claude ids resolve through the shared list (`oxy_shared::claude_pricing`), then
+/// by family name at the older rates for an id the list does not name; ids of
+/// no known family fall through until priced here, deliberately not fabricated.
 ///
 /// Ordering matters. Two families defeat a naive `contains("mini")` heuristic:
 /// every Gemini id embeds the substring `mini` (`ge-mini`), and the GPT-5 /
 /// o-series ids share no substring with the GPT-4 arms. Both are matched
 /// **before** the generic `mini`/`4o` fall-throughs so Gemini spend is no longer
 /// billed at the `gpt-4o-mini` rate and GPT-5/o3 no longer under-report as `$0`.
-/// This mirrors the prefix-matched table in `agentic_llm::pricing::rates_for`;
-/// the two tables are kept in sync by hand (that crate is infrastructure and
-/// must not be imported by the platform layer).
+/// The non-Claude arms mirror `agentic_llm::pricing::rates_for` by hand (that
+/// crate is infrastructure and must not be imported by the platform layer); the
+/// Claude list is shared through `oxy_shared`.
 pub fn model_price_per_mtok(model: &str) -> (f64, f64) {
     let m = model.to_ascii_lowercase();
 
@@ -215,9 +214,11 @@ pub fn model_price_per_mtok(model: &str) -> (f64, f64) {
         };
     }
 
-    // Anthropic — family-name substring covers every version suffix, including
-    // the Claude 5 generation (`claude-opus-5`, `claude-sonnet-5`, …).
-    if m.contains("opus") {
+    // Anthropic: the shared versioned list first, then the family substring at
+    // the older rates for an id the list does not name.
+    if let Some(r) = oxy_shared::claude_pricing::claude_rates(&m) {
+        (r.input, r.output)
+    } else if m.contains("opus") {
         (15.0, 75.0)
     } else if m.contains("sonnet") {
         (3.0, 15.0)
@@ -357,10 +358,21 @@ mod pricing_tests {
         // Family-name substring keeps the current generation (opus/sonnet/haiku,
         // any version suffix) priced rather than silently $0.
         for (model, expected_in) in [
-            ("claude-opus-4-8", 15.0),
+            ("claude-opus-4-8", 5.0),
+            ("claude-opus-5-5", 4.0),
+            ("claude-opus-4-1", 15.0),
             ("claude-sonnet-4-6", 3.0),
-            ("claude-sonnet-5", 3.0),
-            ("claude-haiku-4-5-20251001", 0.80),
+            ("claude-sonnet-5", 2.0),
+            ("claude-sonnet-5-5", 2.0),
+            ("claude-haiku-4-5-20251001", 1.0),
+            ("claude-haiku-5-5", 0.10),
+            ("us.anthropic.claude-opus-4-1-20250805-v1:0", 15.0),
+            ("us.anthropic.claude-sonnet-5-5-v1:0", 2.0),
+            ("claude-3-5-haiku-20241022", 0.80),
+            ("claude-3-opus-20240229", 15.0),
+            ("anthropic/claude-opus-4.6", 5.0),
+            ("anthropic/claude-fable-5.2", 8.0),
+            ("anthropic/claude-opus-5.5", 4.0),
         ] {
             let (input, _) = model_price_per_mtok(model);
             assert_eq!(input, expected_in, "unexpected input price for {model}");
@@ -372,8 +384,8 @@ mod pricing_tests {
         // Documents the deliberate gap: genuinely-new ids fall through to $0
         // (logged as a warning) until priced, rather than a fabricated figure.
         // Uses an id that matches no family so the fall-through is exercised.
-        assert_eq!(model_price_per_mtok("claude-fable-5"), (0.0, 0.0));
-        assert_eq!(model_cost_usd("claude-fable-5", 1_000_000, 1_000_000), 0.0);
+        assert_eq!(model_price_per_mtok("claude-zephyr-1"), (0.0, 0.0));
+        assert_eq!(model_cost_usd("claude-zephyr-1", 1_000_000, 1_000_000), 0.0);
     }
 
     #[test]
