@@ -15,32 +15,32 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_AIRHOUSE_POOL_CONNS_PER_IDENTITY",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_DISABLED",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_IDLE_SECS",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_APP_IDENTITIES",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_IDENTITIES",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_PREVIEW_IDENTITIES",
-        "crates/app/src/agentic_wiring/airhouse_pool.rs",
+        "crates/workspace-runtime/src/airhouse_pool.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

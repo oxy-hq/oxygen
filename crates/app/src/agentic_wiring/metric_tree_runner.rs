@@ -982,7 +982,7 @@ pub fn build_query_executor(
         let exec_ms = exec_start.elapsed().as_millis() as u64;
         let decode_start = std::time::Instant::now();
         let rows = handle
-            .block_on(crate::server::api::typed_stream::typed_stream_to_json_array(stream))
+            .block_on(oxy_workspace_runtime::typed_stream::typed_stream_to_json_array(stream))
             .map_err(|e| EngineError::QueryError(format!("{e:?}")))?;
         let decode_ms = decode_start.elapsed().as_millis() as u64;
         let row_count = rows.len();
@@ -1190,7 +1190,7 @@ pub fn build_drill_query_executor(
         let exec_ms = exec_start.elapsed().as_millis() as u64;
         let decode_start = std::time::Instant::now();
         let rows = handle
-            .block_on(crate::server::api::typed_stream::typed_stream_to_json_array(stream))
+            .block_on(oxy_workspace_runtime::typed_stream::typed_stream_to_json_array(stream))
             .map_err(|e| EngineError::QueryError(format!("{e:?}")))?;
         let decode_ms = decode_start.elapsed().as_millis() as u64;
         let row_count = rows.len();

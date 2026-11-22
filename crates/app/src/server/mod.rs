@@ -34,7 +34,8 @@ pub mod role_manifest;
 pub mod role_middleware;
 pub mod route_catalog;
 pub mod router;
-pub mod runtime_artifact;
+// The runtime-artifact S3 mirror, `oxy-workspace-runtime`'s since 2026-11-21.
+pub use oxy_workspace_runtime::runtime_artifact;
 pub mod servability;
 pub mod service;
 pub mod shared_state_check;

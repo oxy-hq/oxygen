@@ -95,7 +95,8 @@ pub mod projects;
 // The tenant-facing observability console (`traces`, `metrics`,
 // `execution_analytics`) moved to the `oxy-api-observability` sibling crate,
 // mounted by `oxy-server` on the workspace seam. oxy-app no longer depends on it.
-pub mod typed_stream;
+// The typed-stream sinks, `oxy-workspace-runtime`'s since 2026-11-21.
+pub use oxy_workspace_runtime::typed_stream;
 // `video` (the UniFi camera list and the weather tiles and readings) moved to
 // the `oxy-api-world-model` sibling crate, mounted by `oxy-server` on the
 // workspace and external seams. oxy-app no longer depends on it.

@@ -726,6 +726,11 @@ mod tests {
         // walk above). Not on the data plane; walked so a gate call added
         // there is seen.
         rust_files(&crate_root.join("../api-semantic/src"), &mut files);
+        // The workspace runtime, `oxy-workspace-runtime`'s since 2026-11-21
+        // (was `src/server/{runtime_artifact,api/typed_stream}.rs`, inside the
+        // walk above, and the agentic wiring's leaves). Not on the data plane;
+        // walked so a gate call added there is seen.
+        rust_files(&crate_root.join("../workspace-runtime/src"), &mut files);
         files.sort();
         files
             .into_iter()

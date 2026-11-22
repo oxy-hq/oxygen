@@ -67,7 +67,8 @@ const SERVER: &[&str] = &[
     "role_middleware_tests",
     "route_catalog",
     "router",
-    "runtime_artifact",
+    // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
+    // 2026-11-21 (re-exported in `server/mod.rs`).
     "servability",
     "service",
     "shared_state_check",
@@ -88,7 +89,8 @@ const SERVER_API: &[&str] = &[
     "local_setup",
     "middlewares",
     "projects",
-    "typed_stream",
+    // The typed-stream sinks left for `oxy-workspace-runtime` on 2026-11-21
+    // (re-exported in `api/mod.rs`).
     "workspace_org",
 ];
 

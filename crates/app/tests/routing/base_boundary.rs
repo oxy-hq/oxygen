@@ -61,8 +61,9 @@ const BASE: &[&str] = &[
     // leaves (too big to share a rebuild with the rest).
     "agentic_wiring",
     "server::preagg_workspace",
-    // The runtime-artifact S3 mirror (`oxy-compile`'s blob store only).
-    "server::runtime_artifact",
+    // (The runtime-artifact S3 mirror, `server::runtime_artifact`, went down
+    // into `oxy-workspace-runtime` on 2026-11-21, with the agentic wiring's
+    // leaves.)
 ];
 
 /// `(base module, target prefix)`: a reach from the base into a module that
@@ -73,14 +74,15 @@ const BACKLOG: &[(&str, &str)] = &[
     // request-scoped write hold and the preview DDL/registry the preview
     // context builds on. Clears when previews leaves (or its hold goes down).
     ("agentic_wiring", "server::previews"),
-    // The compile dispatcher builds the compile worker; the metric-tree runner
-    // streams through `typed_stream`. (The project context's reach into
-    // `api::semantic`, the compiled scan source, cleared on 2026-11-16: the
-    // scan resolution moved down into `agentic_wiring::scan_source`. The
-    // monitor scan's reach into `server::anomaly_notify` cleared on
-    // 2026-11-21: the enqueue went down to `oxy_metric_monitoring::notify`.)
+    // The compile dispatcher builds the compile worker. (The project
+    // context's reach into `api::semantic`, the compiled scan source, cleared
+    // on 2026-11-16: the scan resolution moved down into
+    // `agentic_wiring::scan_source`. The metric-tree runner's and the SQL
+    // executor's reach into `api::typed_stream` cleared on 2026-11-21: the
+    // sinks went down into `oxy-workspace-runtime`, which both import
+    // directly. The monitor scan's reach into `server::anomaly_notify` cleared
+    // on 2026-11-21: the enqueue went down to `oxy_metric_monitoring::notify`.)
     ("agentic_wiring", "server::compile_worker"),
-    ("agentic_wiring", "server::api::typed_stream"),
     // The lazy compile enqueue and its backoff window, which the scan source,
     // the project context and the compile cooldown call. They were base while
     // the enqueue sat in the workspace middleware; it moved to

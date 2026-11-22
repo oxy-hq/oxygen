@@ -120,10 +120,10 @@ const DEFAULT_IDLE_SECS: u64 = 300;
 const DEFAULT_MAX_IDENTITIES: usize = 48;
 const DEFAULT_MAX_APP_IDENTITIES: usize = 16;
 const DEFAULT_MAX_PREVIEW_IDENTITIES: usize = 8;
-/// Identities `ctx.airhouse` builds (`agentic_wiring::app_airhouse`).
+/// Identities `ctx.airhouse` builds (`crate::app_airhouse`).
 const APP_KEY_PREFIX: &str = "app:";
 /// Identities a workspace preview builds (`agentic_wiring::preview_airhouse`).
-pub(crate) const PREVIEW_KEY_PREFIX: &str = "preview:";
+pub const PREVIEW_KEY_PREFIX: &str = "preview:";
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 type Slot = Arc<Mutex<Option<Arc<AirhouseConnector>>>>;

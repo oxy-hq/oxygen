@@ -1,0 +1,44 @@
+[package]
+name = "oxy-workspace-runtime"
+version.workspace = true
+authors.workspace = true
+description = "The workspace runtime: what builds and runs an OxyProjectContext, below oxy-app and above oxy-app-core. Started with the leaves (the Airhouse connection pool, ctx.airhouse, typed-stream sinks, the runtime-artifact S3 mirror); the rest of oxy-app's agentic_wiring follows (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+agentic-connector = { workspace = true }
+agentic-core = { workspace = true }
+# `ThreadOwnerLookup` and `AnalyticsMetricSink`, the ports the two adapters fill.
+agentic-pipeline = { workspace = true }
+# `connector`: the pooled `AirhouseConnector`. `admin`: the token broker, the
+# wire endpoint and `UserRole`, which `ctx.airhouse` mints its credential with.
+airhouse = { workspace = true, features = ["connector", "admin"] }
+entity = { workspace = true }
+# `WorkspaceManager`, `DiskSlot` and `DatabaseType`.
+oxy = { workspace = true }
+# `config::airhouse_pool`: the live-connection ceiling's one source of truth.
+oxy-app-core = { workspace = true }
+# `blob_store`: the runtime-artifact S3 mirror.
+oxy-compile = { workspace = true }
+oxy-observability = { workspace = true }
+oxy-shared = { workspace = true }
+
+arrow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+parquet = { workspace = true }
+sea-orm = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# `string_literal`'s tests build their `DatabaseType` fixtures from YAML.
+serde_yaml = { workspace = true }
+
+[lints]
+workspace = true

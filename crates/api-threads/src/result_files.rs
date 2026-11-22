@@ -55,7 +55,7 @@ pub async fn store_result_file(
 
     // Mirror to S3 so a serve replica OTHER than this one can still serve the
     // file via GET /{ws}/results/files/{id} (round-robin fleet). Best-effort;
-    // no-op when no bucket (dev/single-node). See server::runtime_artifact.
+    // no-op when no bucket (dev/single-node). See oxy_workspace_runtime::runtime_artifact.
     if let Ok(bytes) = tokio::fs::read(&dest_path).await {
         let key = oxy_app::surface::runtime_artifact::result_key(
             workspace_manager.workspace_id,

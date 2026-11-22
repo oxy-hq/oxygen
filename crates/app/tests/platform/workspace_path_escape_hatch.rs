@@ -108,6 +108,10 @@ fn server_files() -> Vec<(String, String)> {
     // `src/server/preagg_{freshness,generation,rebuild,retract,promote}`; the
     // cycle and the compile worker run it in this binary.
     walk(&manifest.join("../preagg/src"), &mut out);
+    // The workspace runtime (2026-11-21): the agentic wiring's leaves, out of
+    // `src/agentic_wiring`, and `src/server/{runtime_artifact,api/typed_stream}`;
+    // the agent-run host runs them in this binary.
+    walk(&manifest.join("../workspace-runtime/src"), &mut out);
     // The compile boundary's runtime leaves (2026-11-21), out of
     // `src/server/compile_{git,oltp,config_gate,maintenance}`; the compile
     // worker and the workspace middleware run them in this binary.

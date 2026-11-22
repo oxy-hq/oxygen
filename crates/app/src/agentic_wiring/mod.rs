@@ -14,10 +14,7 @@
 //! - [`preview_airhouse`] — the Airhouse connector a workspace preview run
 //!   sends everything through (verified, overlaid, on a scoped credential).
 
-pub mod airhouse_pool;
-pub mod app_airhouse;
 pub mod compile_dispatcher;
-pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;
 pub mod preview_airhouse;
@@ -26,8 +23,12 @@ pub mod project_ctx;
 pub mod scan_source;
 pub mod sql_exec;
 pub mod sql_http;
-pub mod string_literal;
-pub mod thread_owner;
+
+// The leaves went down into `oxy-workspace-runtime` on 2026-11-21, re-exported
+// here so their paths did not change.
+pub use oxy_workspace_runtime::{
+    airhouse_pool, app_airhouse, metric_sink, string_literal, thread_owner,
+};
 
 pub use metric_sink::OxyAnalyticsMetricSink;
 pub use metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};

@@ -13,8 +13,8 @@
 //! they left too (Wave D2); it is [`super::sql_http`] now.
 //!
 //! Not a domain crate yet: it builds on `project_ctx::build_connector_for_db`
-//! and writes results through `api::typed_stream` (the S3 result mirror), both
-//! of which go down with the base.
+//! and writes results through `oxy_workspace_runtime::typed_stream` (the S3
+//! result mirror), both of which go down with the base.
 
 use std::sync::Arc;
 
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::server::api::typed_stream::{
+use oxy_workspace_runtime::typed_stream::{
     EMPTY_RESULT_SENTINEL, typed_stream_to_json_array, typed_stream_to_parquet,
 };
 

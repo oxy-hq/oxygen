@@ -985,6 +985,17 @@ mod tests {
             // `oxy_app::server::preagg_workspace`), classified as it was there.
             "oxy_preagg::manifest_lock",
             "oxy_app::server::preagg_executor",
+            // The workspace runtime's leaves, down from `oxy_app::agentic_wiring`
+            // and `oxy_app::server::{runtime_artifact, api::typed_stream}` into
+            // `oxy-workspace-runtime` (2026-11-21): kept, as they were there.
+            "oxy_workspace_runtime::airhouse_pool",
+            "oxy_workspace_runtime::airhouse_pool::ceiling",
+            "oxy_workspace_runtime::app_airhouse",
+            "oxy_workspace_runtime::metric_sink",
+            "oxy_workspace_runtime::runtime_artifact",
+            "oxy_workspace_runtime::string_literal",
+            "oxy_workspace_runtime::thread_owner",
+            "oxy_workspace_runtime::typed_stream",
             // The automatic compile enqueue, out of the workspace middleware
             // into `compile_reconcile` (2026-11-21, with its throttle), and the
             // compile task enqueue, out of `api::compile` into
@@ -1466,6 +1477,20 @@ mod tests {
             // shell), classified as it was there.
             "oxy_preagg::cycle",
             "oxy_app::server::preagg_executor",
+            // The workspace runtime's leaves (2026-11-21, out of
+            // `oxy_app::agentic_wiring` and `oxy_app::server`): the Airhouse
+            // pool and `ctx.airhouse` open connections and the typed-stream
+            // sinks drain a result, but neither `oxy_app::agentic_wiring::*`
+            // (bar `sql_exec`) nor `oxy_app::server` was the data plane.
+            // Classified as they were there.
+            "oxy_workspace_runtime::airhouse_pool",
+            "oxy_workspace_runtime::airhouse_pool::ceiling",
+            "oxy_workspace_runtime::app_airhouse",
+            "oxy_workspace_runtime::metric_sink",
+            "oxy_workspace_runtime::runtime_artifact",
+            "oxy_workspace_runtime::string_literal",
+            "oxy_workspace_runtime::thread_owner",
+            "oxy_workspace_runtime::typed_stream",
             // The automatic compile enqueue (2026-11-21, out of the workspace
             // middleware into `compile_reconcile`, with its throttle) and the
             // compile task enqueue (out of `api::compile` into

@@ -154,6 +154,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // 2026-11-20 (out of `src/server/preagg_{freshness,generation,
         // rebuild,retract,promote}`).
         manifest.join("../preagg/src"),
+        // The workspace runtime, `oxy-workspace-runtime` since 2026-11-21
+        // (its leaves, out of `src/agentic_wiring` and `src/server`).
+        manifest.join("../workspace-runtime/src"),
         // The compile boundary's runtime leaves, `oxy-compile-runtime` since
         // 2026-11-21 (out of `src/server/compile_{git,oltp,config_gate,
         // maintenance}`).

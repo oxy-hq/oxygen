@@ -62,6 +62,7 @@ agentic-automation = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 oxy-auth = { workspace = true }
 oxy-app-core = { workspace = true }
+oxy-workspace-runtime = { workspace = true }
 oxy-tenancy = { workspace = true }
 oxy-identity = { workspace = true }
 oxy-custom-apps = { workspace = true }

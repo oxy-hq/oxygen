@@ -10600,6 +10600,7 @@ dependencies = [
  "oxy-tenancy",
  "oxy-test-utils",
  "oxy-workspace-fs",
+ "oxy-workspace-runtime",
  "oxy-world-model",
  "parking_lot 0.12.5",
  "parquet",
@@ -11570,6 +11571,33 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-workspace-runtime"
+version = "0.5.161"
+dependencies = [
+ "agentic-connector",
+ "agentic-core",
+ "agentic-pipeline",
+ "airhouse",
+ "arrow 58.3.0",
+ "async-trait",
+ "entity",
+ "futures",
+ "oxy",
+ "oxy-app-core",
+ "oxy-compile",
+ "oxy-observability",
+ "oxy-shared",
+ "parquet",
+ "sea-orm",
+ "serde_json",
+ "serde_yaml",
  "tokio",
  "tracing",
  "uuid",

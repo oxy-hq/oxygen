@@ -84,6 +84,17 @@ AREAS = [
     ("crates/project",                                    "Project domain"),
     ("crates/workspace-fs",                               "Workspace FS"),
     ("crates/app-core",                                   "App-layer core seam"),
+    # The workspace runtime, 2026-11-21, going down out of
+    # crates/app/src/agentic_wiring; the pre-extraction paths keep their history.
+    ("crates/workspace-runtime",                          "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/airhouse_pool.rs",    "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/airhouse_pool",       "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/app_airhouse.rs",     "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/metric_sink.rs",      "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/string_literal.rs",   "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/thread_owner.rs",     "Workspace runtime"),
+    ("crates/app/src/server/runtime_artifact.rs",         "Workspace runtime"),
+    ("crates/app/src/server/api/typed_stream.rs",         "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

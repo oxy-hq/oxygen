@@ -44,7 +44,7 @@ static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
 /// The caller resolves `sql`'s database to a concrete engine before calling
 /// this — [`query.rs`](super::query) answers a database it cannot resolve
 /// as its own bad-request, and every resolved database type has a rule
-/// (`agentic_wiring::string_literal::string_literal_of` is an exhaustive
+/// (`oxy_workspace_runtime::string_literal::string_literal_of` is an exhaustive
 /// match), so there is no "unnamed engine" case left for this function to
 /// refuse: every value `| sqlquote`s by a rule that quotes it. The error
 /// this returns is the caller's own to fix and is safe to return to it: it

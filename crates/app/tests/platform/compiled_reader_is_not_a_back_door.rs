@@ -304,6 +304,11 @@ fn source_files() -> Vec<(String, String)> {
     // walked above before the moves.
     let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
+    // `oxy-workspace-runtime` (2026-11-21): the agentic wiring's leaves, out
+    // of `src/agentic_wiring`, and `src/server/{runtime_artifact,
+    // api/typed_stream}.rs`, all walked above before the move.
+    let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-runtime/src");
+    walk(&runtime, &runtime, "../workspace-runtime/src/", &mut out);
     // `oxy-compile-runtime` (2026-11-21): the compile boundary's runtime
     // leaves, out of `src/server/compile_{git,oltp,config_gate,maintenance}`,
     // walked above before the move.
