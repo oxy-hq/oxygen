@@ -82,7 +82,7 @@ pub(super) async fn listing_scope(
 /// Materialise the `agentic_runs` row, then enqueue the Compile task.
 /// `agentic_task_queue.run_id` FKs to `agentic_runs.id`, so the run row MUST
 /// exist before the task insert or it fails with `agentic_task_queue_run_id_fkey`
-/// (mirrors the IDE/webhook path in `api::compile`). Returns the shared task/run id.
+/// (mirrors the IDE/webhook path in `compile_request::enqueue_task`). Returns the shared task/run id.
 pub(super) async fn insert_run_and_enqueue_compile(
     db: &DatabaseConnection,
     workspace_id: Uuid,

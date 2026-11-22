@@ -955,6 +955,13 @@ mod tests {
             // `oxy_app::server::preagg_workspace`), classified as it was there.
             "oxy_preagg::manifest_lock",
             "oxy_app::server::preagg_executor",
+            // The automatic compile enqueue, out of the workspace middleware
+            // into `compile_reconcile` (2026-11-21, with its throttle), and the
+            // compile task enqueue, out of `api::compile` into
+            // `compile_request`: kept, as each was where it came from.
+            "oxy_app::server::compile_reconcile::enqueue",
+            "oxy_app::server::compile_reconcile::lazy_compile_throttle",
+            "oxy_app::server::compile_request::enqueue_task",
             // Insights delivery, out of `oxy_app::server::anomaly_notify`
             // (2026-11-21): platform code that posts to the tenant's own
             // Slack, not custom-app code, so it keeps its lines as there.
@@ -1429,6 +1436,14 @@ mod tests {
             // shell), classified as it was there.
             "oxy_preagg::cycle",
             "oxy_app::server::preagg_executor",
+            // The automatic compile enqueue (2026-11-21, out of the workspace
+            // middleware into `compile_reconcile`, with its throttle) and the
+            // compile task enqueue (out of `api::compile` into
+            // `compile_request`): Postgres and the compile queue, no
+            // warehouse, and neither old path was the data plane.
+            "oxy_app::server::compile_reconcile::enqueue",
+            "oxy_app::server::compile_reconcile::lazy_compile_throttle",
+            "oxy_app::server::compile_request::enqueue_task",
             // The compile boundary's runtime leaves, down from `oxy-app`'s
             // `server::compile_{git,config_gate,oltp,maintenance}` into
             // `oxy-compile-runtime` (2026-11-21): kept and not the data

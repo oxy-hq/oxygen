@@ -8,9 +8,7 @@ use oxy::github::{BranchHeadError, GitHubClient, github_token_for_workspace};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::{
-    CompileEnqueue, enqueue_compile_deduped_as,
-};
+use super::enqueue::{CompileEnqueue, enqueue_compile_deduped_as};
 use crate::server::compile_git::github_repository;
 use crate::server::workspace_repo_facts::stored_default_branch;
 

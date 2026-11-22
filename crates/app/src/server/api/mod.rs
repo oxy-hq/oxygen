@@ -12,7 +12,8 @@ pub mod billing;
 // `/version`) moved UP into `oxy-server` (`core_routes`, 2026-11-16), mounted
 // through `SurfaceSeams::catalog` and `::public`.
 // `chart` (a legacy chart file) moved to `oxy-api-threads` (2026-11-16).
-pub mod compile;
+// `compile` (the compile task enqueue) moved to `compile_request::enqueue_task`
+// (2026-11-21), beside its one caller.
 // `compile_staging` (`/compile/staging` and its status) moved to
 // `oxy-api-previews` (2026-11-16), mounted on the workspace seam.
 /// Moved to `oxy-app-core`; the old path stays so no call site changes.

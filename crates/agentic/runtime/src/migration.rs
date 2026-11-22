@@ -2171,7 +2171,7 @@ impl MigrationTrait for AddPendingGlobalRunsIndex {
 
 /// Partial index for the lazy-compile backoff window.
 ///
-/// `enqueue_compile_deduped` (oxy-app's workspace middleware) asks, on the
+/// `enqueue_compile_deduped` (oxy-app's `compile_reconcile::enqueue`) asks, on the
 /// request hot path and while holding `pg_try_advisory_xact_lock`, for the
 /// last few TERMINAL compile tasks of one workspace, newest first. Nothing
 /// served that: `agentic_task_queue`'s only two indexes are partial on

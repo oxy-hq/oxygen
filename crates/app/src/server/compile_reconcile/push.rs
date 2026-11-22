@@ -36,9 +36,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::check::{Decision, compiled_state, decide};
-use crate::server::api::middlewares::workspace_context::{
-    CompileEnqueue, enqueue_compile_deduped_as,
-};
+use super::enqueue::{CompileEnqueue, enqueue_compile_deduped_as};
 use crate::server::compile_git::{commit_sha, github_slug_of};
 
 const BRANCH_REF_PREFIX: &str = "refs/heads/";

@@ -81,14 +81,22 @@ const BACKLOG: &[(&str, &str)] = &[
     // 2026-11-21: the enqueue went down to `oxy_metric_monitoring::notify`.)
     ("agentic_wiring", "server::compile_worker"),
     ("agentic_wiring", "server::api::typed_stream"),
-    // The workspace middleware: branch self-heal, the reconcile check, the
+    // The lazy compile enqueue and its backoff window, which the scan source,
+    // the project context and the compile cooldown call. They were base while
+    // the enqueue sat in the workspace middleware; it moved to
+    // `compile_reconcile::enqueue` on 2026-11-21, on its way down into the
+    // compile runtime under the workspace runtime. Clears when
+    // `compile_reconcile` goes down (decompose C3).
+    ("agentic_wiring", "server::compile_reconcile"),
+    // The workspace middleware: the lazy compile enqueue (re-exported), the
     // Factory-access gate, preview pins and read-only holds. The largest
     // knot: it is where request context meets every context that can refuse
     // a request. (Its reach into `server::api::workspaces`, the detached-branch
     // status, cleared on 2026-11-16: `unresolved_branch_status` moved beside
     // its one caller, the middleware, before the workspaces surface left. Its
     // reach into `server::compile_git`, the branch self-heal, cleared on
-    // 2026-11-21: `compile_git` went down to `oxy-compile-runtime`.)
+    // 2026-11-21: `compile_git` went down to `oxy-compile-runtime`, and the
+    // enqueue section moved to `compile_reconcile::enqueue`.)
     // The subscription guard asks billing whether billing is switched off.
     ("server::api::middlewares", "server::api::billing"),
     ("server::api::middlewares", "server::compile_reconcile"),

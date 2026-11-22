@@ -27,6 +27,7 @@
 //! `enqueue_compile_deduped_as`, which backs off a commit that keeps failing;
 //! a person asking again is the retry here.
 
+mod enqueue_task;
 mod from_git;
 mod main_source;
 mod status;
@@ -262,14 +263,7 @@ async fn enqueue(
         .await?);
     }
     let branch = branch.ok_or_else(|| Refusal::internal("a working-copy compile has no branch"))?;
-    crate::server::api::compile::enqueue_compile_task(
-        db,
-        workspace_id,
-        &commit.git_sha,
-        branch,
-        kind,
-        PROMOTE,
-    )
-    .await
-    .map_err(|(_, message)| Refusal::Internal(message))
+    enqueue_task::enqueue_compile_task(db, workspace_id, &commit.git_sha, branch, kind, PROMOTE)
+        .await
+        .map_err(|(_, message)| Refusal::Internal(message))
 }

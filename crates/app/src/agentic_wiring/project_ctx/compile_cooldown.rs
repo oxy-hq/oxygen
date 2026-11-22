@@ -30,7 +30,7 @@ use chrono::{DateTime, FixedOffset};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::LAZY_COMPILE_BACKOFF_SECS;
+use crate::server::compile_reconcile::enqueue::LAZY_COMPILE_BACKOFF_SECS;
 
 /// What the decision needs of the latest `main` revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
