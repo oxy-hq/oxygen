@@ -4,7 +4,7 @@
 #
 # Minimal and valid on purpose: this compiles clean on day one, before a single
 # view, topic, pipeline or automation exists. `models:` must be present even
-# when empty — `oxy compile` fails with "missing field `models`" without the
+# when empty — the compile fails with "missing field `models`" without the
 # key. `databases:` may be omitted entirely (the compiler synthesizes an empty
 # list), and is spelled out here only so there is an obvious place to add one.
 #
@@ -39,7 +39,7 @@ databases: []
 
 # defaults:
 #   database: <replace-me-database-name>     # must name an entry above; note
-#                                            # that `oxy compile` does NOT
+#                                            # that the compile does NOT
 #                                            # check this reference, so a typo
 #                                            # here surfaces at query time
 

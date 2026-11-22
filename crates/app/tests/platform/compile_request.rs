@@ -333,6 +333,47 @@ async fn a_compile_that_fails_before_it_writes_a_revision_is_reported_failed_wit
     assert_eq!(fx.status(HEAD).await.status, "pending");
 }
 
+/// A failed revision row is the outcome of the compile that wrote it, and of no
+/// later one. Its per-file failures come back structured (what `oxyc compile
+/// --json` prints); and once a compile of the same commit is queued again (CI's
+/// "re-run job"), the status reads `pending` until the new compile writes its own
+/// row, never the old failure.
+#[tokio::test]
+async fn a_failed_revision_is_reported_until_a_new_compile_of_the_commit_is_queued() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel};
+    let fx = Fx::new(Some("serve")).await;
+    fx.branch_is_at(BRANCH, HEAD).await;
+    let id = fx.ready_revision(HEAD, "staging").await;
+    let row = fx
+        .revisions_of(HEAD)
+        .await
+        .into_iter()
+        .find(|r| r.revision_id == id)
+        .expect("seeded");
+    let mut failed = row.into_active_model();
+    failed.status = ActiveValue::Set("failed".into());
+    failed.file_count_failed = ActiveValue::Set(1);
+    failed.error_summary = ActiveValue::Set(Some(serde_json::json!({
+        "failures": [{"path": "semantics/a.view.yml", "kind": "yaml", "message": "bad"}]
+    })));
+    failed.update(&fx.db).await.expect("mark failed");
+
+    let before = fx.status(HEAD).await;
+    assert_eq!(before.status, "failed", "{before:?}");
+    assert_eq!(before.failures.len(), 1, "{before:?}");
+    assert_eq!(before.failures[0].path, "semantics/a.view.yml");
+
+    let again = fx.compile(Target::Branch(BRANCH)).await.expect("queued");
+    assert_eq!(again.status, "pending");
+    assert!(again.task_id.is_some(), "a failed commit is compiled again");
+    let after = fx.status(HEAD).await;
+    assert_eq!(
+        after.status, "pending",
+        "the old failure is not the new outcome: {after:?}"
+    );
+    assert!(after.failures.is_empty());
+}
+
 /// The worker marks the queue row `failed` a moment before the run records
 /// why. Read in that moment, the compile is still in progress: `compiling`, not
 /// `pending`, which a preview with nothing queued would show as `stale` and

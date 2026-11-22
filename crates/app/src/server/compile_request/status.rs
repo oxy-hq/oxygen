@@ -1,7 +1,7 @@
 //! Where the compile of one commit stands: the status read beside
 //! [`super::compile`]. Postgres only, so any pod answers it.
 
-use oxy_compile::RevisionKind;
+use oxy_compile::{FileFailure, RevisionKind};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryOrder, Statement,
@@ -26,6 +26,21 @@ pub struct CompileState {
     pub task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The per-file failures of a `failed` revision, structured: the same
+    /// `{path, kind, message}` objects `oxy compile --json` printed, read back
+    /// from the row's `error_summary`. `error` carries the same summary as a
+    /// string, as it always has. Empty (and absent) for every other status, and
+    /// for a compile that failed before it wrote a revision.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<FileFailure>,
+    /// The revision row's counts, when the answer read the row (a `failed` or
+    /// `compiling` one). Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count_seen: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count_compiled: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count_failed: Option<u32>,
 }
 
 impl CompileState {
@@ -58,8 +73,32 @@ impl CompileState {
             revision_id: None,
             task_id: None,
             error: None,
+            failures: Vec::new(),
+            file_count_seen: None,
+            file_count_compiled: None,
+            file_count_failed: None,
         }
     }
+
+    /// The row's counts, and its per-file failures when it recorded any.
+    fn with_row(mut self, row: &entity::revisions::Model) -> Self {
+        self.file_count_seen = u32::try_from(row.file_count_seen).ok();
+        self.file_count_compiled = u32::try_from(row.file_count_compiled).ok();
+        self.file_count_failed = u32::try_from(row.file_count_failed).ok();
+        self.failures = failures_of(row.error_summary.as_ref());
+        self
+    }
+}
+
+/// The `failures` array of a revision's `error_summary` (`{"failures": [...]}`,
+/// written by `oxy_compile::writer`). Anything else there — a superseded row's
+/// `{"superseded_by", "reason"}`, or an entry this build cannot read — is no
+/// failure list, and reads as none rather than failing the status read.
+fn failures_of(summary: Option<&serde_json::Value>) -> Vec<FileFailure> {
+    summary
+        .and_then(|v| v.get("failures"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
 }
 
 /// Where the compile of `git_sha` as `kind` stands.
@@ -83,6 +122,14 @@ pub async fn status(
         return Ok(CompileState::ready(workspace_id, git_sha, revision_id));
     }
     if let Some(row) = latest_for_sha(db, workspace_id, &git_sha, kind).await? {
+        // A row that is not compiling is the outcome of an EARLIER compile. When a
+        // compile of the commit is queued or claimed now (a re-run after a failure,
+        // a recompile after a deploy), that row says nothing about it: until the
+        // worker writes the new row, the commit is pending. Without this a caller
+        // polling after its own re-POST reads the old `failed` as the new outcome.
+        if row.status != "compiling" && compile_task_in_flight(db, workspace_id, &git_sha).await? {
+            return Ok(CompileState::pending(workspace_id, git_sha, None));
+        }
         return Ok(from_row(workspace_id, git_sha, row));
     }
     Ok(
@@ -261,14 +308,16 @@ pub(super) fn from_row(
     row: entity::revisions::Model,
 ) -> CompileState {
     match row.status.as_str() {
-        "compiling" => CompileState::bare(workspace_id, git_sha, "compiling"),
+        "compiling" => CompileState::bare(workspace_id, git_sha, "compiling").with_row(&row),
         "failed" => CompileState::failed(
             workspace_id,
             git_sha,
             row.error_summary
+                .as_ref()
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "compile failed".into()),
-        ),
+        )
+        .with_row(&row),
         "ready" => CompileState::bare(workspace_id, git_sha, "stale"),
         _ => CompileState::bare(workspace_id, git_sha, "pending"),
     }
@@ -314,6 +363,68 @@ mod tests {
             file_count_compiled: 0,
             file_count_failed: 0,
             error_summary: None,
+        }
+    }
+
+    /// The structured failures `oxyc compile --json` prints come from the row's
+    /// `error_summary`, in the shape `oxy compile --json` printed them.
+    #[test]
+    fn a_failed_row_carries_its_failures_and_counts() {
+        let mut failed = row("failed");
+        failed.file_count_seen = 3;
+        failed.file_count_compiled = 2;
+        failed.file_count_failed = 1;
+        failed.error_summary = Some(serde_json::json!({
+            "failures": [{"path": "semantics/a.view.yml", "kind": "yaml", "message": "bad"}]
+        }));
+        let state = from_row(Uuid::nil(), "abc".into(), failed);
+        let body = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            body["failures"],
+            serde_json::json!([{"path": "semantics/a.view.yml", "kind": "yaml", "message": "bad"}])
+        );
+        assert_eq!(body["file_count_seen"], 3);
+        assert_eq!(body["file_count_compiled"], 2);
+        assert_eq!(body["file_count_failed"], 1);
+        // `error` keeps the summary string it has always carried.
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("semantics/a.view.yml")
+        );
+    }
+
+    #[test]
+    fn a_summary_that_is_not_a_failure_list_reads_as_none() {
+        let mut superseded = row("failed");
+        superseded.error_summary = Some(serde_json::json!({"superseded_by": "x", "reason": "y"}));
+        let body = serde_json::to_value(from_row(Uuid::nil(), "abc".into(), superseded)).unwrap();
+        assert!(body.get("failures").is_none(), "{body}");
+    }
+
+    /// The bodies the existing callers read are unchanged: no new key appears
+    /// on a ready or pending answer.
+    #[test]
+    fn a_ready_or_pending_answer_has_no_new_keys() {
+        for state in [
+            CompileState::ready(Uuid::nil(), "abc".into(), Uuid::nil()),
+            CompileState::pending(Uuid::nil(), "abc".into(), None),
+        ] {
+            let body = serde_json::to_value(&state).unwrap();
+            // Sorted: the map's order depends on serde_json's `preserve_order`.
+            let mut keys: Vec<&str> = body
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            keys.sort_unstable();
+            assert_eq!(
+                keys,
+                ["git_sha", "revision_id", "status", "workspace_id"],
+                "{body}"
+            );
         }
     }
 

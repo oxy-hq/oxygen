@@ -1,16 +1,18 @@
 # Validate __NAME__'s semantic model on every pull request.
 #
-# `oxy compile` is the gate. It parses every workspace YAML file and writes the
-# result into a Postgres schema, so this job needs a throwaway database — and
-# it needs one more thing that is easy to miss: a row in `workspaces` for the
-# workspace id it compiles under. That row is created at `oxy serve --local`
-# boot, NOT by migrations, so a CI job that only migrates dies on a foreign-key
-# violation *before reading a single line of YAML*.
+# `oxyc compile` is the gate. It asks the oxy deployment that serves this
+# workspace to compile the branch — the commit GitHub has for it, as the
+# workspace's registered subdirectory — into a STAGING revision, waits for the
+# answer, and fails the job when any file recorded a failure. A staging
+# revision is never promoted and nothing a customer sees reads it, so this
+# changes nothing anyone is served.
 #
-# Every step below was run against a real Postgres 16 container before it was
-# written here, on the pinned CLI version. If you change a step, run it — and
-# run it in BOTH layouts, since `OXY_WORKSPACE` below makes this file one that
-# has two correct answers rather than one.
+# It replaced a job that installed the Rust `oxy`, booted a throwaway Postgres,
+# ran `oxy migrate`, INSERTed a `workspaces` row with psql and ran
+# `oxy compile --json` over the checkout. That compiled what was on the runner,
+# with whatever compiler the pin named; this compiles what the deployment will
+# compile, with its compiler, and needs no database, no checkout and no
+# installer script.
 #
 # What this gate catches and what it does not: see "What CI checks" in README.md.
 
@@ -25,240 +27,164 @@ on:
   # nothing. It stays useful once PRs are required too — a merge is a push, and
   # a branch protected today can be unprotected tomorrow.
   #
-  # Deliberately no `paths:` filter. `oxy compile` reads the whole workspace,
-  # and a filter that missed a path would skip validation silently, which is
-  # worse than compiling on a README change.
+  # Deliberately no `paths:` filter. A compile reads the whole workspace, and a
+  # filter that missed a path would skip validation silently, which is worse
+  # than compiling on a README change.
   push:
     branches: [main]
 
-# This gate reads the tree and compiles it into a throwaway database. It never
-# writes to the repository, so it does not need a token that can. Stated
-# explicitly because the DEFAULT is whatever the repo or org is set to, which
-# for many repos is read/write on every scope.
+# This gate never writes to the repository, so it does not need a token that
+# can. Stated explicitly because the DEFAULT is whatever the repo or org is set
+# to, which for many repos is read/write on every scope.
 permissions:
   contents: read
 
 env:
-  # Pinned deliberately. `get.oxy.tech` honours OXY_VERSION, and this is the
-  # version the sequence below was proven against — bump it only after
-  # re-running the sequence, not on sight.
-  OXY_VERSION: "0.5.126"
+  # The `@oxy-hq/cli` (`oxyc`) this job installs, exactly. `oxyc compile`
+  # exists from 0.13.0; an older pin has no such command.
+  OXYC_VERSION: "0.13.0"
 
   # WHERE THE OXY WORKSPACE IS, relative to the repo root.
   #
   #   .     the repo IS the workspace — every repo `oxyc new` scaffolds
   #   oxy   the repo CONTAINS one — the shape of every repo that was imported
   #
-  # Substituted at render time from `__WORKSPACE__`, by the same machinery that
-  # writes __SLUG__ and __NAME__, so `oxyc update` re-renders it and there is no
-  # special case anywhere for a repo shaped the second way.
-  #
-  # It exists because this gate cannot be layout-agnostic and must not be
-  # layout-wrong: `oxy compile` at the repo root of a repo whose workspace is
-  # `oxy/` reads no config.yml, compiles nothing, and fails. A CI file that
-  # installs cleanly and then fails on every run is worse than one that was
-  # never installed.
-  #
-  # The TOOLING adapts to the repo, never the other way round. The platform
-  # registered this subdirectory when the workspace was onboarded and there is
-  # no UI or CLI to change it, so flattening a repo to match this template
-  # would silently break its registration with no repair short of re-onboarding.
+  # Substituted at render time from `__WORKSPACE__`. The deployment already
+  # knows the subdirectory it registered and compiles that; this is only used
+  # to anchor a failure annotation (a workspace-relative path) on the right
+  # file of the repo.
   OXY_WORKSPACE: "__WORKSPACE__"
 
 jobs:
   compile:
-    name: oxy compile
+    name: oxyc compile
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # `id-token: write` lets this job ask GitHub for a signed statement of what
+    # it is — this repository, this workflow file, this environment — which
+    # oxyc trades for a fifteen-minute token acting as the org's service
+    # account. No secret is stored anywhere.
+    permissions:
+      contents: read
+      id-token: write
+
+    # The environment the trust policy names. Trust policies must name one
+    # unless the org's token policy says otherwise, because without it anyone
+    # who can push a branch can mint. Create the trust policy for
+    # `.github/workflows/validate.yaml` with environment `validate` (see
+    # "What CI checks" in README.md).
+    environment: validate
 
     env:
-      OXY_DATABASE_URL: postgres://postgres:ci@localhost:5432/postgres
-      # OXY_STATE_DIR is set per step, not here: the `runner` context is not
-      # available in a job-level `env:` block, and the expression would expand
-      # to the empty string — putting the CLI's state dir at "/oxy-state".
-      # actionlint catches this; a job that "just ran" would not.
+      # The ID of the oxy workspace this repo is registered as — the one a
+      # branch is compiled for. Repository variable; from the workspace's
+      # settings page in Oxygen. Unset: the job says so and passes (the day-one
+      # state of a scaffold, before the repo is registered).
+      OXY_WORKSPACE_ID: ${{ vars.OXY_WORKSPACE_ID }}
+      # The ID of the org service account the OIDC exchange acts as, from
+      # Organization settings -> API access. Its trust policy needs a workspace
+      # grant on OXY_WORKSPACE_ID; `viewer` is enough — a compile check needs
+      # no editor standing, and the account gains nothing else from it.
+      OXY_SERVICE_ACCOUNT: ${{ vars.OXY_SERVICE_ACCOUNT }}
+      # The fallback, as in publish.yaml: a stored token wins when it is set,
+      # and no OIDC token is requested. Leave it unset to use trusted access.
+      OXY_TOKEN: ${{ secrets.OXY_TOKEN }}
+      # Which deployment: `production` unless the repository variable says
+      # otherwise. OXY_TARGET, when set, is an explicit base URL and overrides it.
+      OXY_ENV: ${{ vars.OXY_ENV }}
+      OXY_TARGET: ${{ vars.OXY_TARGET }}
+      # The branch the deployment compiles. On a pull request that is the head
+      # branch (`github.ref_name` would be `<n>/merge`, which GitHub's API does
+      # not serve as a branch); on a push, the pushed branch.
+      BRANCH: ${{ github.head_ref || github.ref_name }}
+      # The commit this run is about, to say so when the branch has moved on.
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # This job runs a downloaded installer script. Without this, checkout
-          # leaves a GITHUB_TOKEN in .git/config for that script to find. The
-          # job-level `permissions: contents: read` already narrows what such a
-          # token could do; not persisting it at all is the cheaper half of the
-          # same argument, and it costs nothing here — nothing in this job
-          # pushes.
-          persist-credentials: false
-
-      - name: Install the pinned oxy CLI
+      - name: Check this repo is set up for the gate
+        id: setup
         run: |
           set -euo pipefail
-          # NOT `bash <(curl ...)`, the form the docs use: process substitution
-          # hands bash an empty file when the download fails, and bash then
-          # exits 0 — a step that reports "installed" having installed nothing.
-          # Download to a file first so curl's own -f failure is the step's.
-          curl -sSfL https://get.oxy.tech -o "$RUNNER_TEMP/get-oxy.sh"
-          OXY_VERSION="$OXY_VERSION" bash "$RUNNER_TEMP/get-oxy.sh"
-
-          # And check the installer left something behind: it downloads the
-          # binary with `curl -L` (no -f) and exits 0 regardless.
-          if [ ! -x "$HOME/.local/bin/oxy" ]; then
-            echo "::error::the installer exited 0 but left no executable at $HOME/.local/bin/oxy." >&2
+          if [ -z "${OXY_WORKSPACE_ID:-}" ]; then
+            echo "::notice::not checked: no OXY_WORKSPACE_ID repository variable, so there is no oxy workspace to compile this branch for. Set it (and OXY_SERVICE_ACCOUNT, with a trust policy) once the repo is registered — see 'What CI checks' in README.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${OXY_TOKEN:-}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            # A pull request from a fork gets no OIDC token, by GitHub's design:
+            # a fork's code must not be able to act as this repo.
+            echo "::notice::not checked: GitHub issued this run no OIDC token (a pull request from a fork gets none) and no OXY_TOKEN secret is set. The branch is checked when it reaches this repository."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${OXY_TOKEN:-}" ] && [ -z "${OXY_SERVICE_ACCOUNT:-}" ]; then
+            echo "::error::OXY_WORKSPACE_ID is set but OXY_SERVICE_ACCOUNT is not: trusted access needs the ID of the service account to act as. Set the repository variable, or an OXY_TOKEN secret as the fallback." >&2
             exit 1
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
-          # The installer drops the binary in ~/.local/bin for a non-root user
-          # and edits shell rc files, which a GitHub step never reads. Put it
-          # on PATH explicitly instead of hoping.
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Verify the oxy CLI
+      - name: Install the pinned oxyc CLI
+        if: steps.setup.outputs.ready == 'true'
         run: |
           set -euo pipefail
-          # Not ceremony. Two silent failures make this load-bearing:
-          #   1. the installer runs `curl -L` WITHOUT -f, so a tag that does
-          #      not exist writes GitHub's 404 HTML page to the binary path,
-          #      chmod +x's it, and still exits 0;
-          #   2. this CLI falls through to `--help` with exit 0 on a subcommand
-          #      it does not have, so an old binary "succeeds" at doing nothing.
-          if ! raw="$(oxy --version 2>&1)"; then
-            echo "::error::'oxy --version' failed — the installed binary is not runnable." >&2
-            printf '%s\n' "$raw" >&2
-            exit 1
-          fi
+          npm install --prefix "$RUNNER_TEMP/oxyc" --no-audit --no-fund "@oxy-hq/cli@$OXYC_VERSION"
+          echo "$RUNNER_TEMP/oxyc/node_modules/.bin" >> "$GITHUB_PATH"
 
-          have="$(printf '%s\n' "$raw" | sed -n 's/^oxy-app version: \([0-9][0-9.]*\).*/\1/p' | head -1)"
-          if [ -z "$have" ]; then
-            echo "::error::could not read a version out of 'oxy --version' — the install probably wrote a 404 page." >&2
-            printf '%s\n' "$raw" >&2
-            exit 1
-          fi
-
-          oldest="$(printf '%s\n%s\n' "$OXY_VERSION" "$have" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)"
-          if [ "$oldest" != "$OXY_VERSION" ]; then
-            echo "::error::oxy $have is older than the pinned $OXY_VERSION." >&2
-            exit 1
-          fi
-
-          echo "oxy $have (pin $OXY_VERSION)"
-
-      - name: Migrate the throwaway database
-        env:
-          OXY_STATE_DIR: ${{ runner.temp }}/oxy-state
-        run: oxy migrate
-
-      - name: Seed the workspace row oxy compile needs
+      - name: Verify the oxyc CLI
+        if: steps.setup.outputs.ready == 'true'
         run: |
           set -euo pipefail
-          # `oxy compile --workspace-id` defaults to the nil UUID, and inserting
-          # a revision for it needs the matching `workspaces` row to exist.
-          # Migrations do not create it. Seeding it here is one INSERT against a
-          # database that is destroyed with the job; the alternative — booting
-          # `oxy serve --local` just to trigger its boot-time seed — costs ~25s,
-          # binds two ports, and has no "seed and exit" mode.
-          if ! command -v psql >/dev/null 2>&1; then
-            echo "::error::psql is not on this runner. GitHub's ubuntu-latest image ships it; a self-hosted runner may not. Install postgresql-client, or run this INSERT with: docker exec ${{ job.services.postgres.id }} psql -U postgres" >&2
+          # A version other than the pin means PATH found a different oxyc first.
+          have="$(oxyc --version)"
+          if [ "$have" != "$OXYC_VERSION" ]; then
+            echo "::error::oxyc $have is on PATH, not the pinned $OXYC_VERSION." >&2
             exit 1
           fi
-          psql "$OXY_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
-            "INSERT INTO workspaces (id, name) VALUES ('00000000-0000-0000-0000-000000000000', 'ci-validate') ON CONFLICT (id) DO NOTHING;"
+          echo "oxyc $have (pin $OXYC_VERSION)"
 
-      - name: Compile the workspace
-        env:
-          OXY_STATE_DIR: ${{ runner.temp }}/oxy-state
+      - name: Compile the branch
+        if: steps.setup.outputs.ready == 'true'
         run: |
           set -euo pipefail
-
-          # --workspace-path MUST be absolute. See the floor check below.
-          #
-          # $OXY_WORKSPACE is repo-RELATIVE, so it is joined to $GITHUB_WORKSPACE
-          # and then CANONICALISED rather than concatenated: `cd` + `pwd -P`
-          # collapses the trailing `/.` that a root workspace would otherwise
-          # leave in the path, and it fails HERE, naming the directory, instead
-          # of handing oxy a path that is not there. One expression, correct for
-          # a repo that is the workspace and for one that contains it.
-          ws=""
-          if ! ws="$(cd "$GITHUB_WORKSPACE/$OXY_WORKSPACE" 2>/dev/null && pwd -P)"; then
-            echo "::error::no directory at \$GITHUB_WORKSPACE/$OXY_WORKSPACE. OXY_WORKSPACE says where this repo's Oxy workspace is, relative to the repo root: '.' when the repo IS the workspace, a subdirectory name when it contains one." >&2
-            exit 1
+          # An unset secret arrives as an EMPTY variable; oxyc treats the two
+          # alike, and unsetting it says which path this run takes.
+          if [ -z "${OXY_TOKEN:-}" ]; then
+            unset OXY_TOKEN
+            echo "authenticating with this job's GitHub OIDC token as service account $OXY_SERVICE_ACCOUNT"
+          else
+            unset OXY_SERVICE_ACCOUNT
+            echo "authenticating with the OXY_TOKEN secret (the fallback path)"
           fi
-          echo "workspace: $ws  (OXY_WORKSPACE=$OXY_WORKSPACE)"
+          where=(--env "${OXY_ENV:-production}")
+          if [ -n "${OXY_TARGET:-}" ]; then where=(--target "$OXY_TARGET"); fi
 
           status=0
-          oxy compile --workspace-path "$ws" --skip-migrations --json \
-            >"$RUNNER_TEMP/compile.stdout" 2>"$RUNNER_TEMP/compile.stderr" || status=$?
+          oxyc compile "$BRANCH" --workspace "$OXY_WORKSPACE_ID" "${where[@]}" --wait --json \
+            >"$RUNNER_TEMP/compile.json" || status=$?
 
-          cat "$RUNNER_TEMP/compile.stderr" >&2
-
-          # `--json` does NOT put only JSON on stdout: a human-readable
-          # "Compiling workspace id=... path=..." line comes first, so piping
-          # stdout straight into jq fails ("Invalid numeric literal", exit 4).
-          # Extract from the line that opens the JSON object instead.
-          sed -n '/^{/,$p' "$RUNNER_TEMP/compile.stdout" > "$RUNNER_TEMP/compile.json"
-
+          # `--json` prints the report whenever the compile ran to an answer,
+          # failed or not. Empty means oxyc stopped before that — not signed
+          # in, not allowed, no such branch — and said why on stderr above.
           if [ ! -s "$RUNNER_TEMP/compile.json" ]; then
-            echo "::error::oxy compile printed no JSON — it failed before compiling anything (database unreachable, or no workspaces row for --workspace-id)." >&2
-            exit 1
+            echo "::error::oxyc compile stopped before the compile answered (exit $status) — the lines above say why." >&2
+            exit "$status"
           fi
 
-          # An empty .failures array is a legitimate result and jq exits 0 for
-          # it, so no `|| true` is needed — and `|| true` here would be wrong,
-          # since it would also swallow a real jq failure.
-          jq -r '.failures[] | "::error file=\(.path)::[\(.kind)] \(.message)"' "$RUNNER_TEMP/compile.json"
-          jq -r '"compile: status=\(.status) seen=\(.file_count_seen) compiled=\(.file_count_compiled) failed=\(.file_count_failed)"' "$RUNNER_TEMP/compile.json"
+          # The paths are workspace-relative; anchor each on the repo's file.
+          # An empty `failures` array is the green case and jq exits 0 for it.
+          prefix=""
+          if [ "$OXY_WORKSPACE" != "." ]; then prefix="$OXY_WORKSPACE/"; fi
+          jq -r --arg prefix "$prefix" \
+            '.failures[] | "::error file=\($prefix)\(.path)::[\(.kind)] \(.message)"' \
+            "$RUNNER_TEMP/compile.json"
+          jq -r '"compile: status=\(.status) sha=\(.git_sha) seen=\(.file_count_seen // "?") compiled=\(.file_count_compiled // "?") failed=\(.file_count_failed // "?")"' \
+            "$RUNNER_TEMP/compile.json"
 
-          # Floor check, and it earns its place: `oxy compile --workspace-path .`
-          # finds config.yml and nothing else — every recursive kind is globbed
-          # as "<root>/**/*.view.yml", which matches nothing when <root> is "."
-          # — and it exits 0 while doing it. A green gate that validated no
-          # views is worse than no gate, so assert the walker saw at least the
-          # semantic files that are on disk.
-          seen="$(jq -r '.file_count_seen' "$RUNNER_TEMP/compile.json")"
-          floor=0
-          # Under $ws, not the checkout directory. In a repo whose workspace is
-          # `oxy/` the root has no config.yml, so a root-relative floor would
-          # sit one lower than the truth — quietly agreeing with a walk that saw
-          # nothing, which is the exact silence this check exists to break.
-          if [ -f "$ws/config.yml" ]; then
-            floor=$((floor + 1))
-          fi
-          # Count the WHOLE workspace tree, not just semantics/: the walker
-          # globs `**/*.view.yml` from the workspace root, so a view under
-          # models/ counts too, and a floor that only looked at semantics/ would
-          # sit at 1 and agree with a walk that saw nothing — the same silent
-          # agreement it exists to catch. Rooted at $ws for the same reason the
-          # config.yml check is: what the walker will descend into is the
-          # workspace, and a repo that contains one may hold .view.yml files
-          # outside it (a vendored fixture, an example) that the walker will
-          # never see and that would make this floor unreachably high.
-          # The prunes mirror the walker's own skip list; pruning a directory
-          # the walker would have descended can only UNDER-count, and a floor
-          # that is too low never fails a healthy repo.
-          # find prints nothing and exits 0 when there is no match, which is
-          # this repo's day-one state — a legitimate result, not an error to
-          # swallow. (On that empty tree floor=1=seen, so the check has nothing
-          # to detect and correctly says nothing.)
-          n="$(find "$ws" \( -name .git -o -name node_modules -o -name target \
-                  -o -name dist -o -name build -o -name .oxy_state \
-                  -o -name .semantics -o -name .preagg -o -name .worktrees \
-                  -o -name .cubestore -o -name .airlayer_cache \) -prune \
-                -o -type f \( -name '*.view.yml' -o -name '*.topic.yml' \) \
-                   ! -name '*.test.*' -print | wc -l | tr -d ' ')"
-          floor=$((floor + n))
-          if [ "$seen" -lt "$floor" ]; then
-            echo "::error::oxy compile saw $seen file(s) but at least $floor are on disk under $ws — the walker did not descend into the workspace. Check that --workspace-path is absolute, and that OXY_WORKSPACE ('$OXY_WORKSPACE') names the directory holding config.yml." >&2
-            exit 1
+          # The deployment compiles the branch as GitHub has it NOW, which can
+          # be a later commit than the one this run was started for.
+          sha="$(jq -r '.git_sha' "$RUNNER_TEMP/compile.json")"
+          if [ "$sha" != "$EXPECTED_SHA" ]; then
+            echo "::warning::compiled $BRANCH at $sha, not $EXPECTED_SHA: the branch moved on after this run started. The newer run checks the newer commit."
           fi
 
           exit "$status"

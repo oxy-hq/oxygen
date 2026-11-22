@@ -19,6 +19,10 @@ fn staged(ws: Uuid, status: &str, revision_id: Option<Uuid>) -> CompileState {
         revision_id,
         task_id: None,
         error: None,
+        failures: Vec::new(),
+        file_count_seen: None,
+        file_count_compiled: None,
+        file_count_failed: None,
     }
 }
 

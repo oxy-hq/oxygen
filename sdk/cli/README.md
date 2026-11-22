@@ -13,6 +13,7 @@ manages customer workspace repos.
 - **Checks** — `checks run`
 - **Sandboxes** — `env`, `fn dev`, `fn call`, `invocations`, `logs`
 - **Workspace previews** — `preview`
+- **The CI compile gate** — `compile`
 - **Development** — `validate`, `mcp`, `guide`, `skills`
 
 ## Install
@@ -1861,6 +1862,34 @@ resolver. A deployment with `OXY_PREVIEW_RUNS` off answers every runs route
 is: the server's own `code` rides along on the thrown error, and the exit
 class follows the usual HTTP-status mapping (`400`/`409` → `6`, `404` → `5`).
 Full contract: `internal-docs/workspace-previews.md`.
+
+## The CI compile gate
+
+```bash
+oxyc compile <branch> --workspace <id> [--wait] [--timeout <s>] [--json]
+```
+
+Asks the deployment to compile `<branch>` of the workspace — the commit GitHub
+has for it, as the workspace's registered subdirectory — into a **staging**
+revision, which is never promoted, and with `--wait` polls until it is `ready`
+or `failed`. It is the customer repo's `validate.yaml` gate, and replaced the
+`oxy compile --skip-migrations --json` that job ran against a throwaway
+Postgres; `oxy compile` itself stays, for a local database.
+
+`--json` prints `{status, workspace_id, branch, git_sha, revision_id,
+file_count_seen, file_count_compiled, file_count_failed, failures, error}`;
+`failures` is always an array of `{path, kind, message}`, the shape
+`oxy compile --json` printed (pinned in `compile.test.ts`). Exit `0` compiled
+(or, without `--wait`, queued), `9` compiled and recorded file failures, `1`
+failed with no file failure (the compile did not run to the end; re-run), `4`
+not signed in or not allowed, `5` no such workspace or a branch GitHub does not
+have, `7` `--wait` ran out.
+
+Who may: a person with Factory access and editor standing in the workspace, or
+— in GitHub Actions, through trusted access (`OXY_SERVICE_ACCOUNT`,
+`id-token: write`) — the org's service account whose trust policy grants it a
+workspace grant (`viewer` is enough; it adds this and nothing else). The
+template's README ("What CI checks") has the setup.
 
 ## Development commands
 

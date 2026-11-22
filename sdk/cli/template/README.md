@@ -43,21 +43,47 @@ before the team sees it.
 
 ## What CI checks
 
-Every pull request runs `.github/workflows/validate.yaml`: a Postgres 16
-service container, then `oxy compile` over this whole tree. It needs no
-warehouse credentials — compiling is a pure YAML-to-rows transform — so the
-gate works before a single database is connected.
+Every pull request (and every push to `main`) runs
+`.github/workflows/validate.yaml`, which runs `oxyc compile <branch> --wait`:
+the oxy deployment that serves this workspace compiles the branch — the commit
+GitHub has for it, as the workspace's registered subdirectory, with the
+deployment's own compiler — into a **staging** revision, and the job fails if
+any file recorded a failure. A staging revision is never promoted and nothing
+anyone is served reads it. It needs no warehouse credentials — compiling is a
+pure YAML-to-rows transform — so the gate works before a single database is
+connected. The branch must be on GitHub, which a pull request's is.
+
+**Setting it up** (once, by an org admin, after the repo is registered as a
+workspace):
+
+1. Repository variable `OXY_WORKSPACE_ID`: the workspace's ID, from its
+   settings page in Oxygen. Until it is set the job passes with a notice saying
+   nothing was checked — a scaffold's day-one state.
+2. A service account (Organization settings → Service accounts), and on it a
+   **trust policy** (*Trusted access*) naming this repository, the workflow
+   file `.github/workflows/validate.yaml` and the environment `validate`, with
+   a **workspace grant on the workspace at `viewer`**. That is enough: checking
+   a branch compiles is the one thing it adds to a viewer, and the account can
+   edit nothing. Then repository variable `OXY_SERVICE_ACCOUNT`: the account's
+   ID (never `<org>/<name>`).
+3. Optional: repository variable `OXY_ENV` (default `production`), or
+   `OXY_TARGET` for an explicit base URL. A stored `OXY_TOKEN` secret is the
+   fallback, and wins when set, as in `publish.yaml`.
+
+A pull request from a fork gets no OIDC token from GitHub, so its run passes
+with a notice; the branch is checked once it is in this repository.
 
 It catches:
 
-- **YAML that does not parse**, anywhere in the tree, `config.yml` included.
-  The failing path is emitted as a GitHub error annotation, so the failure
-  lands on the diff rather than only in the log. It anchors to the **top of
-  the file**, not to the offending line: `oxy compile --json` reports a path, a
-  kind and a message per failure, and no line or column for the workflow to
+- **YAML that does not parse**, anywhere in the workspace, `config.yml`
+  included. The failing path is emitted as a GitHub error annotation, so the
+  failure lands on the diff rather than only in the log. It anchors to the
+  **top of the file**, not to the offending line: the compile reports a path,
+  a kind and a message per failure, and no line or column for the workflow to
   pass on.
 - **Two files of one kind declaring the same `name:`** — two views both called
   `orders`, say, which is what a copy-pasted file usually produces.
+- **A `config.yml` the platform could not read**, which is never promoted.
 
 It does **not** catch, and each of these compiles green today:
 
@@ -73,11 +99,13 @@ It does **not** catch, and each of these compiles green today:
 So a green check means "this parses, and the identifiers are unique". It does
 not mean the model is correct, and it is not a substitute for reading the diff.
 
-The `oxy` CLI version is **pinned** in that workflow, and the job fails if the
-installed binary is older. Both halves matter: the installer does not fail on a
-version tag that does not exist, and this CLI answers a subcommand it does not
-have with its own help text and exit 0 — so an unpinned, unguarded job can go
-green while doing less than you think.
+Exit codes, if you script around it: `0` compiled, `9` compiled and recorded
+file failures, `1` the compile itself did not run to the end (re-run), `4` not
+signed in or not allowed (check the trust policy and its grant), `5` no such
+workspace, or a branch GitHub does not have, `7` it did not finish in time.
+
+The `oxyc` version is **pinned** in that workflow (`OXYC_VERSION`), and the job
+fails if a different one is on `PATH`.
 
 ## Developing an app locally
 
@@ -459,10 +487,11 @@ someone points each at the branch:
 
 Promoting the production semantic model is a deliberate, human step: open the
 production workspace in Oxygen and pull the latest commit. **CI does not do
-it**, and holds no credential that could — the trust policy behind each
-environment grants publishing apps and nothing else, so the token the job is
-handed cannot compile or promote a workspace at all. (Keep it that way on the
-fallback path: an `OXY_TOKEN` should be a token that can only publish.) So a merge
+it**, and holds no credential that could — the publish trust policies grant
+publishing apps and nothing else, and the validate policy's `viewer` grant lets
+it compile a branch into a staging revision, which is never promoted. Neither
+token can promote a workspace. (Keep it that way on the fallback path: an
+`OXY_TOKEN` should be a token that can only publish.) So a merge
 to `main` never changes what production answers until someone decides it
 should.
 

@@ -6,10 +6,10 @@
 # ignore. Without this file the first commit of a customer workspace carries
 # node_modules/ and every app's build output.
 #
-# Both CI workflows already prune these same directory names when they walk
-# the tree (.github/scripts/discover-apps.sh, and the compile floor check in
-# validate.yaml), so this list and those prunes are two views of one rule:
-# these directories are generated, and nothing here reads them as source.
+# The publish workflow already prunes these same directory names when it walks
+# the tree (.github/scripts/discover-apps.sh), and the compiler skips them too,
+# so this list and those prunes are two views of one rule: these directories
+# are generated, and nothing here reads them as source.
 
 # Dependencies. Restored by `pnpm install` from pnpm-lock.yaml, which IS
 # committed.

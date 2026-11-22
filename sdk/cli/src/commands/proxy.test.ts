@@ -81,20 +81,31 @@ import {
 } from "./proxy-app.js";
 
 /**
- * A port the OS says is free, rather than one derived from another port.
+ * A port that is free now and that no `listen(0)` can be handed meanwhile.
  *
  * The previous `45_000 + upstreamPort % 1000` was a guess: anything else on the
- * machine holding that port made the proxy fail to bind, and the readiness loop
- * below then spent its full budget before failing with a connection error that
- * named nothing. Binding zero and reading the number back leaves only the race
- * between close and re-bind, which is orders of magnitude narrower.
+ * machine holding that port made the proxy fail to bind. Binding zero and reading
+ * the number back fixed that but left a real race: the probe's port goes back to
+ * the EPHEMERAL pool on close, and vitest runs test files in parallel, so another
+ * file's fake server (`listen(0, …)`) could be handed that very port before the
+ * proxy child bound it — CI saw "port 39241 is already in use". So the port is
+ * picked below every OS's ephemeral range (Linux 32768+, macOS 49152+), where
+ * `listen(0)` never lands, and checked bindable before it is used.
  */
-async function freePort(): Promise<number> {
+async function bindable(port: number): Promise<boolean> {
   const probe = createServer();
-  await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
-  const { port } = probe.address() as AddressInfo;
-  await new Promise<void>((r) => probe.close(() => r()));
-  return port;
+  return new Promise((done) => {
+    probe.once("error", () => done(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => done(true)));
+  });
+}
+
+async function freePort(): Promise<number> {
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    if (await bindable(port)) return port;
+  }
+  throw new Error("no bindable port in 20000-29999 after 64 tries");
 }
 
 describe("isWritePath — held by default", () => {

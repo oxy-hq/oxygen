@@ -88,7 +88,9 @@ subdirectory when the workspace lives in one), and opens it in VS Code or Cursor
 only from an interactive terminal (`--open code|cursor|none`; an agent gets the
 command printed instead). Edit, commit, push: **a push to the default branch
 compiles and deploys**; to try a branch first, `oxyc preview create <branch>
---workspace <id> --wait` (staff). Exit `5` means the workspace has no repository
+--workspace <id> --wait` (staff). To check a pushed branch compiles without
+serving it, `oxyc compile <branch> --workspace <id> --wait` (exit `9` on file
+failures, `--json` for the `failures` array) — what a customer repo's CI runs. Exit `5` means the workspace has no repository
 yet (connect one in Settings), `6` a failed `git clone`, `8` a non-empty `--dir`.
 
 `oxyc validate` is the one command that works entirely offline. It checks

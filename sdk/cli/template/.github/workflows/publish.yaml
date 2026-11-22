@@ -149,10 +149,10 @@ permissions:
   contents: read
 
 env:
-  # The `@oxy-hq/cli` (`oxyc`) both jobs install, exactly. Its own pin, not
-  # validate.yaml's `OXY_VERSION`: that one is the Rust `oxy` that validates the
-  # workspace, a different tool on a different release line. `--build-only` and
-  # `--prebuilt`, which the two jobs below depend on, arrived in 0.4.0.
+  # The `@oxy-hq/cli` (`oxyc`) both jobs install, exactly — the same pin as
+  # validate.yaml's `OXYC_VERSION`, raised together on every release.
+  # `--build-only` and `--prebuilt`, which the two jobs below depend on,
+  # arrived in 0.4.0.
   #
   # THE PIN DECIDES WHICH OIDC REGISTRATION THE PUBLISH JOB CAN USE. Through
   # 0.6.0, `oxyc publish` knows one exchange: the app's own registered
@@ -160,7 +160,7 @@ env:
   # service account are honoured from 0.7.0, which tries them first and falls
   # back to the publisher. A pin older than that still publishes, through the
   # publisher alone.
-  OXYC_VERSION: "0.12.0"
+  OXYC_VERSION: "0.13.0"
 
 jobs:
   build:

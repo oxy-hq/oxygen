@@ -57,6 +57,7 @@ import {
 } from "./commands/auth.js";
 import { runBootstrapPlan, runBootstrapRun, runBootstrapVerify } from "./commands/bootstrap.js";
 import { runChecks } from "./commands/checks.js";
+import { runCompile } from "./commands/compile.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./commands/env.js";
@@ -2130,6 +2131,40 @@ function buildProgram(): Command {
         route: () => resolveApproval(opts, approverSource, { noWait, what: "the trust policy" }),
         noWait
       }
+    });
+  });
+
+  withGlobals(
+    program
+      .command("compile <branch>")
+      .description(
+        "compile a branch of a workspace on the deployment (a staging revision, never served) and say whether it compiled — the customer CI gate"
+      )
+      .option("--wait", "poll until the compile is ready or failed (default: queue it and return)")
+      .option("--timeout <seconds>", "with --wait, give up after this long (default 600)")
+      .option("--json", "emit {status, git_sha, revision_id, file counts, failures[]} on stdout")
+      .addHelpText(
+        "after",
+        "\nNeeds --workspace <id>. The server compiles the commit GitHub has for <branch>,\n" +
+          "as the workspace's registered subdirectory, into a staging revision that is\n" +
+          "never promoted — nothing a customer sees changes. Push the branch first.\n" +
+          "\nIn GitHub Actions it authenticates as the org's service account through\n" +
+          "trusted access (OXY_SERVICE_ACCOUNT and `id-token: write`); the trust policy\n" +
+          "needs a workspace grant, and viewer is enough. A person needs Factory access\n" +
+          "and editor standing in the workspace.\n" +
+          "\n--json keeps the `failures` array of `oxy compile --json`: [{path, kind, message}],\n" +
+          "always an array. `oxy compile` itself stays, for compiling a local checkout into a\n" +
+          "local database.\n" +
+          "\nExit codes: 0 compiled (or, without --wait, queued); 9 it compiled and recorded\n" +
+          "file failures; 1 it failed with no file failure (re-run); 2 a bad flag; 4 not\n" +
+          "signed in, or not allowed; 5 no such workspace, or a branch GitHub does not have;\n" +
+          "7 --wait ran out, or the deployment is unavailable.\n"
+      )
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runCompile(createContext(globals(opts)), branch, {
+      wait: Boolean(opts.wait),
+      timeoutSeconds: opts.timeout === undefined ? undefined : Number(opts.timeout),
+      json: Boolean(opts.json)
     });
   });
 
