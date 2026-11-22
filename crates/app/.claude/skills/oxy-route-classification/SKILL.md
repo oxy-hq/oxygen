@@ -25,7 +25,7 @@ Oxy runs as a split fleet (see `internal-docs/multi-instance-fleet.md`):
 
 **Direction (decided 2026-10-05): `IdeOnly` is debt, not a home.** The Factory is being retired (`internal-docs/factory-retirement.md`), so the count of `IdeOnly` routes has to reach zero. Before adding one, ask whether the handler can read the compiled revision instead (`oxy-compile-boundary` skill) or run as a queued task (`oxy-task-spec-default` skill). Mount `route_ide` only for something that is going away with the IDE, or that the plan has a phase for.
 
-**A route states its role where it is mounted.** `RoleRouter` (`crates/app/src/server/router/role_router.rs`) has no plain `.route()`: every mount goes through `route_ide` or `route_fleet`, and the declaration it records is what `role_manifest::classify` reads at runtime. `enforce_role` then reverse-proxies an `IdeOnly` request that lands on a serve replica.
+**A route states its role where it is mounted.** `RoleRouter` (`crates/app-core/src/pods/role_router.rs`) has no plain `.route()`: every mount goes through `route_ide` or `route_fleet`, and the declaration it records is what `role_manifest::classify` reads at runtime. `enforce_role` then reverse-proxies an `IdeOnly` request that lands on a serve replica.
 
 The two doors take differently-typed handlers, and that is the real guard. `WorkspaceManagerWorkingCopy` resolves only from `IdeState`, so a handler that asks for a working copy produces a `MethodRouter<IdeState>` and **will not compile** through `route_fleet`:
 

@@ -933,7 +933,7 @@ fn skip_ws_and_comments(mut s: &str) -> &str {
 /// a node that owns files — or `route_ide`.
 #[test]
 fn the_optional_working_copy_door_stays_shut() {
-    let router = include_str!("router/role_router.rs");
+    let router = include_str!("../../../app-core/src/pods/role_router.rs");
     for gone in [
         "fn route_fleet_optional_working_copy",
         "fn route_split_optional_working_copy",

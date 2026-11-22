@@ -650,8 +650,8 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_IDE_UPSTREAM",
-        "crates/app/src/server/ide_proxy.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "crates/app-core/src/pods/ide_proxy.rs",
+        "read at the call site with its default (moved from oxy-app unchanged, decompose G3); migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_IMAGE_TAG",

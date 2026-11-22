@@ -295,7 +295,7 @@ export const LENSES: readonly Lens[] = [
   {
     id: "routes",
     prompt: "lens-routes.md",
-    paths: ["crates/app/src/server/router/**", "**/role_manifest*"],
+    paths: ["crates/app/src/server/router/**", "crates/app-core/src/pods/**", "**/role_manifest*"],
     patch: /\.(route|nest)\(|\bworkspace_path\(|\bresolve_state_dir\(|\bGitClient\b/,
     patchPaths: SERVER
   },

@@ -50,7 +50,11 @@ const SERVER: &[&str] = &[
     "compile_worker_tests",
     "factory_access",
     "http_cache",
-    "ide_proxy",
+    // Pod placement (`ide_proxy`, `servability`, and `role_manifest`'s and
+    // `role_middleware`'s code) left for `oxy-app-core::pods` on 2026-11-22,
+    // re-exported in `server/mod.rs`; the two files that stay hold the test
+    // installer and the tests that build the real router. The task-router
+    // listener (`task_router_listener`) left the same day, as `listener`.
     // The pre-aggregation runtime's domain half (`freshness`, `generation`,
     // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20, and the
     // post-promote nudge (`preagg_promote`, now `oxy_preagg::promote`,
@@ -70,10 +74,8 @@ const SERVER: &[&str] = &[
     "router",
     // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
     // 2026-11-21 (re-exported in `server/mod.rs`).
-    "servability",
     "service",
     "shared_state_check",
-    "task_router_listener",
     "test_support",
     "token_usage_flush",
     "worker_health",

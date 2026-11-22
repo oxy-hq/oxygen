@@ -72,6 +72,9 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 agentic-automation = { workspace = true }
 futures = { workspace = true }
 
+# `pods::ide_proxy`: the Factory relay streams a request body upstream
+# (`reqwest::Body::wrap_stream`) on `oxy_shared::http::builder()`'s client.
+reqwest = { workspace = true, features = ["stream"] }
 async-trait = { workspace = true }
 axum = { workspace = true }
 sea-orm = { workspace = true }

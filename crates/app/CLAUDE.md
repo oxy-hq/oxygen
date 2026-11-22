@@ -57,9 +57,9 @@ after the skill's checklist says the work really is request-scoped.
 | ---- | ---- |
 | `server/api/**` | One file (or dir) per resource: `projects/`, `admin/` (leaving section by section for the surfaces that own each context — `internal-docs/domain-boundaries.md` § The admin split), `billing/`, `custom_apps_*` (the serve + data hot path). `auth` is a re-export of `oxy_app_core::session` (the session plumbing, down 2026-11-21). Threads, agents, run artifacts and org chat are `oxy-api-threads` (`crates/api-threads`) since 2026-11-16; the workspaces surface (an org's workspace list, rename and delete, `/meta`, members, the Oxy-staff lockdown, the app integrations) is `oxy-api-workspaces` (`crates/api-workspaces`) the same day, and the semantic surface (the semantic explorer, the Dev Portal's `/sql` execute, the pre-aggregation status and rebuild, the revision reads) `oxy-api-semantic` (`crates/api-semantic`), Wave D2. |
 | `server/router/` | Route mounting: `public.rs`, `protected.rs`, `workspace.rs`, `global.rs`, `entry.rs`, `openapi.rs`. `ROUTES.md` documents the surface. |
-| `server/role_manifest.rs` (~230 lines; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
+| `server/role_manifest.rs` (a re-export of `oxy_app_core::pods::role_manifest` since 2026-11-22, plus the test installer that builds the real router; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
 | `server/{worker_runtime,worker_health,worker_metrics}.rs`, `preagg_*`, `compile_*` | Durable-task worker fleet + pre-aggregation + compile-boundary workers. The pre-aggregation runtime's domain half (`freshness`, `rebuild`, `retract`, `generation`, and the post-promote nudge `promote`, re-exported at `server::preagg_promote`) is `oxy-preagg` (`crates/preagg`) since 2026-11-20, and the cycle's body (`run_preagg_task`, its request types re-exported at `server::preagg_executor`) followed it as `oxy_preagg::cycle`; the executor shell (`PreaggTaskExecutor`, `build_task_config`, the `CycleWorkspace` impl for `OxyProjectContext`) and the workspace manager stay here. The compile runtime's leaves (`compile_git`, `compile_config_gate`, `compile_oltp`, `compile_maintenance`) are `oxy-compile-runtime` (`crates/compile-runtime`, as `git`, `config_gate`, `oltp`, `maintenance`) since 2026-11-21, re-exported at their old `server::compile_*` paths, `compile_request` followed as `request` on 2026-11-22 (re-exported at `server::compile_request`), and `compile_reconcile` (with the automatic compile enqueue) as `reconcile` the same day (re-exported at `server::compile_reconcile`); `compile_worker` follows them. |
-| `server/{servability,ide_proxy,role_middleware}.rs` | Whether a replica can serve a workspace without the working copy, self-routing reverse proxy (the `IdeOnly` routes left → ide upstream; `?branch=` escalates nothing since the IDE was removed). Admission control (`OXY_MAX_INFLIGHT_*`), the `/metrics` listener and the span store's boot bridge are `oxy-server`'s (`crates/server/src/{admission,metrics_server,observability_boot}.rs`). `ServeMode` itself now lives in `oxy-app-core` — see below. |
+| `server::{servability,ide_proxy,role_middleware}` (re-exports of `oxy_app_core::pods::*` since 2026-11-22; code in `crates/app-core/src/pods/`, and `server/role_middleware.rs` keeps only the tests that build the real router) | Whether a replica can serve a workspace without the working copy, self-routing reverse proxy (the `IdeOnly` routes left → ide upstream; `?branch=` escalates nothing since the IDE was removed). Admission control (`OXY_MAX_INFLIGHT_*`), the `/metrics` listener and the span store's boot bridge are `oxy-server`'s (`crates/server/src/{admission,metrics_server,observability_boot}.rs`). `ServeMode` itself now lives in `oxy-app-core` — see below. |
 | `server/service/` | Re-exports of `oxy::service` (`message`, `secret_manager`, `sync`, `task_manager`) and `oxy::types`, kept until their callers repoint. The eval launch helpers left with `oxy dev test` for `oxy-api-eval`; the dead `api_key`, `project` and `formatters` modules were deleted 2026-11-21. |
 
 **Five modules now live in `oxy-app-core` (`crates/app-core`), not here** — `audit`,
@@ -81,7 +81,7 @@ own schedule ticks.
 - `oxy serve` (`crates/server/src/commands/serve.rs`) — production HTTP path; `--enterprise` is the default
   shape for tests/demos, `--local` is the single-user/no-auth laptop mode only.
 - `server/router/entry.rs` — top-level router assembly.
-- `server/role_manifest.rs` — the map every new route must be classified in.
+- `server/role_manifest.rs` (code in `crates/app-core/src/pods/role_manifest.rs`) — the map every new route must be classified in.
 
 ## Conventions & pitfalls
 
@@ -94,6 +94,5 @@ own schedule ticks.
 - After CLI changes: `cargo build` then exercise `./target/debug/oxy <command>`.
 - Check both packages after edits: `cargo check -p oxy-app` **and** `cargo check -p oxy`.
 - The file/function size limits bite hardest here — this crate holds the workspace's worst
-  god files (`role_manifest.rs`, `admin/apps/handlers.rs`,
-  `project_ctx/mod.rs`). Prefer a new module over growing one; see
+  god files (`admin/apps/handlers.rs`, `project_ctx/mod.rs`). Prefer a new module over growing one; see
   `internal-docs/domain-boundaries.md`.

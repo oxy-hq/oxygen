@@ -489,6 +489,9 @@ sdk/vite-plugin/                                   @luong-komorebi @NTtanh
 # must be classified IdeOnly in role_manifest.rs or it 404s/421s on the serve
 # fleet. See crates/app/.claude/skills/oxy-route-classification/SKILL.md.
 crates/app/src/server/role_manifest.rs             @luong-komorebi @NTtanh
+# The route roles, `RoleRouter` and the role middleware went down here on
+# 2026-11-22 (decompose G3); the oxy-app file above keeps the test installer.
+crates/app-core/src/pods/                          @luong-komorebi @NTtanh
 crates/app/src/server/router/                      @luong-komorebi @NTtanh
 
 # Brand & positioning copy — require brand/marketing sign-off before merge.

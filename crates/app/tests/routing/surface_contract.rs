@@ -262,6 +262,20 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
     let app_src = crates_dir().join("app").join("src");
     let mut files = Vec::new();
     src_files(&app_src, &mut files);
+    // The walk is sane when it reaches the crate's anchors and finds a crate's
+    // worth of files: the anchors carry the "it lost its way" check, since the
+    // decompose keeps shrinking the count (190 files after G3, 2026-11-22).
+    for anchor in [
+        "lib.rs",
+        "surface.rs",
+        "server/mod.rs",
+        "server/router/mod.rs",
+    ] {
+        assert!(
+            files.iter().any(|f| f == &app_src.join(anchor)),
+            "the walk did not reach crates/app/src/{anchor} — it lost its way"
+        );
+    }
     assert!(
         // A walk-sanity floor, not a policy count: the decompose shrinks
         // `crates/app/src` on purpose (195 files after P1, 2026-11-22), so it

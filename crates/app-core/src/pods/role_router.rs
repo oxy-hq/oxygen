@@ -26,7 +26,8 @@ use axum::Router;
 use axum::routing::MethodRouter;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-use super::{AppState, FleetState, IdeState};
+use super::{FleetState, IdeState};
+use crate::AppState;
 
 /// `(method, path, role)`. `method` is `"*"` unless a path serves two verbs at
 /// different roles — `/app-integrations` lists on GET from Postgres but upserts

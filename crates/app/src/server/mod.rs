@@ -28,7 +28,12 @@ pub mod factory_access;
 // evaluate, and the org member's read) is `oxy-api-admin`'s since 2026-11-21;
 // the runtime is `oxy-feature-flags`.
 pub mod http_cache;
-pub mod ide_proxy;
+// Pod placement (the Factory relay, the role middleware, servability and the
+// route roles) is `oxy-app-core`'s `pods` since 2026-11-22 (decompose G3);
+// re-exported so the router, the prelude and `host` keep these paths.
+// `role_manifest` and `role_middleware` stay files here: they hold the test
+// installer that builds the real router, and the tests that run on it.
+pub use oxy_app_core::pods::ide_proxy;
 pub use oxy_app_core::preagg_context;
 pub mod preagg_executor;
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
@@ -46,10 +51,12 @@ pub mod route_catalog;
 pub mod router;
 // The runtime-artifact S3 mirror, `oxy-workspace-runtime`'s since 2026-11-21.
 pub use oxy_workspace_runtime::runtime_artifact;
-pub mod servability;
+// `oxy-app-core`'s `pods::servability` since 2026-11-22 (decompose G3).
+pub use oxy_app_core::pods::servability;
 pub mod service;
 pub mod shared_state_check;
-pub mod task_router_listener;
+// The task router's LISTEN settings, `oxy-app-core`'s `listener` since 2026-11-22.
+pub use oxy_app_core::listener as task_router_listener;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod token_usage_flush;

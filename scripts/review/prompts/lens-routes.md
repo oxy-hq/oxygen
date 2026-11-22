@@ -4,7 +4,7 @@ Read first: `crates/app/.claude/skills/oxy-route-classification/SKILL.md`.
 
 Check:
 - A route added, moved or renamed under `server/router/` (or an `api-*` crate) that is
-  missing from `crates/app/src/server/role_manifest.rs`, or classified wrongly. A handler
+  missing from the route declarations `crates/app-core/src/pods/role_manifest.rs` classifies against, or classified wrongly. A handler
   that reads the workspace working copy, `.git` or the state dir (`workspace_path()`,
   `ConfigManager::resolve_*`, `resolve_state_dir()`, `GitClient`) must be `IdeOnly`. A
   persisted-data read must stay `FleetOk`, or high availability hinges on one instance.

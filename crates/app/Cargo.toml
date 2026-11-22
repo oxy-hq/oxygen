@@ -137,8 +137,9 @@ tower-http = { workspace = true, features = ["cors", "trace", "timeout", "compre
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 utoipa-axum = { workspace = true }
 
-# HTTP client. `stream` enables reqwest::Body::wrap_stream for the ide_proxy
-# reverse-proxy (forwards IdeOnly request bodies without buffering).
+# HTTP client. `stream` was for the ide_proxy reverse-proxy, which went down to
+# oxy-app-core on 2026-11-22 (decompose G3, it declares the feature itself); kept
+# here so a pure move leaves this crate's feature set unchanged.
 reqwest = { workspace = true, features = ["stream", "form", "query", "json"] }
 
 # CLI

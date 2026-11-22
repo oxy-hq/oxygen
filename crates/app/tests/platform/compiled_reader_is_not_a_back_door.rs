@@ -87,7 +87,7 @@ const ALLOWED: &[(&str, &str)] = &[
          reads the promoted revision, which is a different question.",
     ),
     (
-        "src/server/servability.rs",
+        "../app-core/src/pods/servability.rs",
         "Decides whether a replica can serve a workspace's custom-app function \
          locally or must relay it to the Factory. A placement decision, taken \
          before there is a manager.",

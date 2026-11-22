@@ -13,10 +13,15 @@ The rule is S9 in `internal-docs/domain-boundaries.md`, enforced by
 
 | Kind | Means | Examples |
 | ---- | ----- | -------- |
-| `Request` | Request state and context every surface reads | `app_state`, `serve_mode`, `process_role`, `config`, `forwarded`, `origin`, `org_host_dispatch`, `workspace_org`, `session` |
+| `Request` | Request state and context every surface reads | `app_state`, `serve_mode`, `process_role`, `config`, `forwarded`, `origin`, `org_host_dispatch`, `workspace_org`, `session`, `pods` (pod placement) |
 | `Authz` | Authorization and refusal plumbing (the decisions stay in `oxy-authz`) | `member_authz`, `gate_response`, `agent_refusal`, `agent_body`, `guards`, `assume` |
-| `Service` | Cross-cutting services with no owning context | `audit`, `pagination`, `http_cache`, `rate_limit`, `compiled_reader`, `sql_kind` |
+| `Service` | Cross-cutting services with no owning context | `audit`, `pagination`, `http_cache`, `rate_limit`, `compiled_reader`, `sql_kind`, `listener` |
 | `Seam` | Traits that let a lower crate call up without depending up | `function_seam`, `semantic_pin_seam` |
+
+**`pods` is the split-fleet routing authority** (route roles, `RoleRouter`,
+the role middleware, the Factory relay, servability). Invoke
+`/crates/app:oxy-route-classification` before changing it: FS-touching routes
+must be `IdeOnly`, persisted-data reads must stay `FleetOk`.
 
 ## Admission test — all four must hold
 

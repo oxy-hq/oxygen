@@ -863,6 +863,67 @@ mod tests {
         }
     }
 
+    /// Pod placement and the task-router listener moved out of
+    /// `oxy_app::server::{role_manifest, role_middleware, ide_proxy,
+    /// servability, task_router_listener, router::role_router}` into
+    /// `oxy_app_core::{pods, listener}` (the decompose's G3). `role_manifest`
+    /// (the "route roles were never installed" line), `role_middleware` (the
+    /// relay's misconfiguration and prefix errors) and `ide_proxy` (an
+    /// unreachable Factory) log under their module paths, so each new path
+    /// must classify exactly as its old one did on main: kept, an issue at
+    /// ERROR, not the data plane.
+    #[test]
+    fn pod_placement_keeps_its_sentry_lines_after_the_move() {
+        for (new, old) in [
+            (
+                "oxy_app_core::pods::role_manifest",
+                "oxy_app::server::role_manifest",
+            ),
+            (
+                "oxy_app_core::pods::role_middleware",
+                "oxy_app::server::role_middleware",
+            ),
+            (
+                "oxy_app_core::pods::ide_proxy",
+                "oxy_app::server::ide_proxy",
+            ),
+            (
+                "oxy_app_core::pods::servability",
+                "oxy_app::server::servability",
+            ),
+            (
+                "oxy_app_core::pods::role_router",
+                "oxy_app::server::router::role_router",
+            ),
+            ("oxy_app_core::pods", "oxy_app::server::router"),
+            (
+                "oxy_app_core::listener",
+                "oxy_app::server::task_router_listener",
+            ),
+        ] {
+            for level in [Level::ERROR, Level::WARN, Level::INFO] {
+                assert_eq!(
+                    sentry_disposition(new, &level),
+                    sentry_disposition(old, &level),
+                    "{new} at {level} classifies unlike {old}"
+                );
+            }
+            assert_eq!(
+                sentry_disposition(new, &Level::ERROR),
+                Disposition::Event,
+                "{new}"
+            );
+            assert_eq!(drop_log(Some(new)), drop_log(Some(old)), "{new}");
+            assert!(!drop_log(Some(new)), "{new}");
+            assert_eq!(
+                is_data_plane_module(new),
+                is_data_plane_module(old),
+                "{new}"
+            );
+            assert!(!is_data_plane_module(new), "{new}");
+        }
+    }
+
     /// The staff console's three legacy-term guards (the `is_oxy_app_admin`
     /// wrapper, the door and the per-section capability gate) went down on
     /// 2026-11-22, out of `oxy_app::server::api::middlewares` into

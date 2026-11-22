@@ -18,7 +18,8 @@ pub mod periodic;
 mod protected;
 mod public;
 pub(crate) mod recovery;
-pub(crate) mod role_router;
+// `oxy-app-core`'s `pods::role_router` since 2026-11-22 (decompose G3).
+pub(crate) use oxy_app_core::pods::role_router;
 pub mod run_retention;
 mod seams;
 mod workspace;
@@ -193,29 +194,10 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
         .collect()
 }
 
-/// The two halves of the split. A route's role is a permission — `IdeState`
-/// means "this pod has a working copy, so a handler here may reach for one" —
-/// and the compiler enforces it: `WorkspaceManagerWorkingCopy` resolves only from
-/// `IdeState`, so a handler that asks for a working copy cannot be mounted on a
-/// fleet route. `AppState` comes from either, so `State<AppState>` handlers are
-/// unaffected.
-#[derive(Clone)]
-pub struct IdeState(pub AppState);
-
-#[derive(Clone)]
-pub struct FleetState(pub AppState);
-
-impl axum::extract::FromRef<IdeState> for AppState {
-    fn from_ref(state: &IdeState) -> Self {
-        state.0.clone()
-    }
-}
-
-impl axum::extract::FromRef<FleetState> for AppState {
-    fn from_ref(state: &FleetState) -> Self {
-        state.0.clone()
-    }
-}
+/// The two halves of the split, typed by the pod that may serve a route:
+/// `oxy-app-core`'s `pods` since 2026-11-22, re-exported at the path the
+/// handlers have always used.
+pub use oxy_app_core::pods::{FleetState, IdeState};
 
 /// The workspace the workspace middleware resolved. Defined beside that
 /// middleware (base), re-exported here at the path the handlers have always used.

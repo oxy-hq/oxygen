@@ -1955,7 +1955,7 @@ fn chain_start(expr: &str, at: usize) -> usize {
 
 /// Next `.route(` / `.nest(` / `.nest_service(` / `.merge(` at or after `from`.
 fn next_marker(s: &str, from: usize) -> Option<(&'static str, usize)> {
-    // The declaring doors count too. `RoleRouter` (crates/app/src/server/router/
+    // The declaring doors count too. `RoleRouter` (crates/app-core/src/pods/
     // role_router.rs) replaced bare `.route(` across the workspace and public
     // trees so a route's pod is a type rather than a note — and a catalog that
     // only knows `.route(` sees an empty router and says so with an empty

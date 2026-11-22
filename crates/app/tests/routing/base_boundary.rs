@@ -36,13 +36,13 @@ const BASE: &[&str] = &[
     // went down into `oxy-app-core::session` on 2026-11-21.)
     // The authz shim over `oxy-server-authz`.
     "server::authz",
-    // Pod placement: route roles, the role middleware, the Factory relay,
-    // servability.
+    // Pod placement: what is left of route roles and the role middleware here
+    // is the test installer that builds the real router and the tests that run
+    // on it. (The rest, with the Factory relay, servability, `role_router` and
+    // `IdeState`/`FleetState`, went down into `oxy-app-core::pods` on
+    // 2026-11-22, decompose G3.)
     "server::role_manifest",
     "server::role_middleware",
-    "server::ide_proxy",
-    "server::servability",
-    "server::router::role_router",
     // (Assume-role's authority, `server::api::admin::assume`, went down into
     // `oxy-app-core::assume` on 2026-11-22 with the request guards, decompose
     // G2. Staff scope, `admin::{scope, org_filter}`, went down to
@@ -50,8 +50,9 @@ const BASE: &[&str] = &[
     // The seam types surfaces fill, and the router's semantic caches.
     "server::router::seams",
     "server::router::workspace_cache",
-    // The LISTEN/NOTIFY settings a surface's listener rides.
-    "server::task_router_listener",
+    // (The LISTEN/NOTIFY settings a surface's listener rides,
+    // `server::task_router_listener`, went down into `oxy-app-core::listener`
+    // on 2026-11-22, decompose G3.)
     // The workspace runtime: `OxyProjectContext` and the agentic wiring, and
     // the workspace manager the global driver builds. Its own crate when it
     // leaves (too big to share a rebuild with the rest).
@@ -101,12 +102,9 @@ const BACKLOG: &[(&str, &str)] = &[
     // Previews: the read-only guard (`previews::read_only`). The pin went
     // down to `oxy-previews` on 2026-11-22.
     ("server::api::middlewares", "server::previews"),
-    // `IdeState` and `FleetState` are base types defined in the router's
-    // `mod.rs`, which goes up last. They clear when the two move beside
-    // `role_router`.
-    ("server::api::middlewares", "server::router::IdeState"),
-    ("server::router::role_router", "server::router::IdeState"),
-    ("server::router::role_router", "server::router::FleetState"),
+    // (`IdeState` and `FleetState`, which the middleware and `role_router`
+    // reached in the router's `mod.rs`, cleared on 2026-11-22: the two went
+    // down into `oxy-app-core::pods` beside `role_router`, decompose G3.)
     // The test-only installer builds the real routes to read their roles.
     (
         "server::role_manifest",

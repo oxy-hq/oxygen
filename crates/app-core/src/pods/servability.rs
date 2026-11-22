@@ -115,7 +115,7 @@ pub enum Servability {
 /// "its config deserialises" check included), so it judges the revision the
 /// caller is about to build from.
 pub async fn servability(workspace_id: Uuid) -> Servability {
-    use crate::server::api::compiled_reader;
+    use crate::compiled_reader;
     match compiled_reader::resolve_request_revision(workspace_id, None).await {
         Some(_) => Servability::Anywhere,
         None => Servability::NotCompiled,

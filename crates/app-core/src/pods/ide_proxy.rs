@@ -164,7 +164,7 @@ fn route_label(req: &Request) -> String {
     if let Some(matched) = req.extensions().get::<MatchedPath>() {
         return matched.as_str().to_string();
     }
-    crate::server::role_manifest::declared_pattern(req.method().as_str(), req.uri().path())
+    super::role_manifest::declared_pattern(req.method().as_str(), req.uri().path())
         .unwrap_or_else(|| "other".to_string())
 }
 
@@ -527,7 +527,7 @@ mod tests {
     fn forwarded_request_still_passes_the_origin_allowlist() {
         let inbound = browser_request();
         assert!(
-            crate::server::router::is_allowed_origin(&inbound),
+            crate::origin::is_allowed_origin(&inbound),
             "precondition: the request is allowed at the serve replica"
         );
 
@@ -537,7 +537,7 @@ mod tests {
             "Host still must not cross the hop — reqwest sets the upstream's"
         );
         assert!(
-            crate::server::router::is_allowed_origin(&out),
+            crate::origin::is_allowed_origin(&out),
             "origin allowlist must reach the same verdict on the ide pod; \
              without X-Forwarded-Host this is the 403 that broke every \
              custom-app query"
@@ -561,7 +561,7 @@ mod tests {
 
         let out = forwarded(&h);
         assert_eq!(out.get(HEADER_FORWARDED_HOST).unwrap(), "app.oxygen-hq.com");
-        assert!(crate::server::router::is_allowed_origin(&out));
+        assert!(crate::origin::is_allowed_origin(&out));
     }
 
     /// Org subdomains and custom-app subdomains are separate hosts; the
@@ -581,7 +581,7 @@ mod tests {
             out.get(HEADER_FORWARDED_HOST).unwrap(),
             "acme.oxygen-hq.com"
         );
-        assert!(crate::server::router::is_allowed_origin(&out));
+        assert!(crate::origin::is_allowed_origin(&out));
     }
 
     /// A cross-site origin must still be refused after the hop. The fix carries
@@ -597,7 +597,7 @@ mod tests {
 
         let out = forwarded(&h);
         assert!(
-            !crate::server::router::is_allowed_origin(&out),
+            !crate::origin::is_allowed_origin(&out),
             "carrying the public host must not turn the allowlist into a pass-through"
         );
     }

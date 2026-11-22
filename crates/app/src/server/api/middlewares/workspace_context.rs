@@ -216,12 +216,12 @@ struct NeedsRecompileMarker {
     workspace_id: Uuid,
 }
 
-impl FromRequestParts<crate::server::router::IdeState> for WorkspaceManagerWorkingCopy {
+impl FromRequestParts<oxy_app_core::pods::IdeState> for WorkspaceManagerWorkingCopy {
     type Rejection = WorkspaceManagerMissing;
 
     fn from_request_parts(
         parts: &mut Parts,
-        _state: &crate::server::router::IdeState,
+        _state: &oxy_app_core::pods::IdeState,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let result = parts
             .extensions

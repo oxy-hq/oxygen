@@ -10704,6 +10704,7 @@ dependencies = [
  "oxy-server-authz",
  "oxy-shared",
  "oxy-telemetry",
+ "reqwest 0.13.4",
  "sea-orm",
  "serde",
  "serde_json",
