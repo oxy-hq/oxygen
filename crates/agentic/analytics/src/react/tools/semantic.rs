@@ -3,6 +3,7 @@
 use agentic_core::react::ToolFailure;
 use agentic_semantic::compile::compile_with_engine;
 use agentic_semantic::config::SemanticQueryConfig;
+use serde_json::{Value, json};
 
 use super::query::closest;
 use crate::SemanticCatalog;
@@ -97,3 +98,54 @@ pub(super) fn semantic_datasource(
     }
     Ok(found.map(|(_, ds)| ds))
 }
+
+/// The JSON schema of `query`'s `semantic` argument: the shape
+/// [`SemanticQueryConfig`] deserializes, with each filter `op` paired with the
+/// field it takes (`value`, `values`, or `from`/`to`). The ops are an enum so
+/// the model sees `eq`, not `=` or `equals`.
+pub(super) fn semantic_parameter() -> Value {
+    let member =
+        |what: &str| json!({"type": "string", "description": format!("{what}, as `view.member`")});
+    let filter = |ops: &[&str], fields: Value, required: &[&str]| {
+        let mut props = json!({"field": member("the member filtered"), "op": {"enum": ops}});
+        if let (Some(p), Some(f)) = (props.as_object_mut(), fields.as_object()) {
+            p.extend(f.clone());
+        }
+        let mut req = vec!["field", "op"];
+        req.extend_from_slice(required);
+        json!({"type": "object", "properties": props, "required": req})
+    };
+    json!({
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string"},
+            "measures": {"type": "array", "items": member("a measure")},
+            "dimensions": {"type": "array", "items": member("a dimension")},
+            "time_dimensions": {"type": "array", "items": {
+                "type": "object",
+                "properties": {
+                    "dimension": member("a time dimension"),
+                    "granularity": {"enum": ["year", "quarter", "month", "week", "day", "hour", "minute", "second"]}
+                },
+                "required": ["dimension"]
+            }},
+            "filters": {"type": "array", "items": {"anyOf": [
+                filter(&["eq", "neq", "gt", "gte", "lt", "lte", "contains"], json!({"value": {}}), &["value"]),
+                filter(&["in", "not_in"], json!({"values": {"type": "array"}}), &["values"]),
+                filter(&["in_date_range", "not_in_date_range"], json!({"from": {}, "to": {}}), &["from", "to"]),
+            ]}},
+            "orders": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"field": member("a measure or dimension"), "direction": {"enum": ["asc", "desc"]}},
+                "required": ["field"]
+            }},
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"}
+        }
+    })
+}
+
+/// The hint for a `semantic` argument that does not deserialize: the error
+/// names the bad op or the missing field, and this says which op takes what.
+pub(super) const SEMANTIC_SHAPE_HINT: &str = "filter ops: eq, neq, gt, gte, lt, lte, contains take `value`; in, not_in take `values` \
+     (an array); in_date_range, not_in_date_range take `from` and `to`. There is no null test";

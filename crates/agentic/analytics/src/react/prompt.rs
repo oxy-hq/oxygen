@@ -25,6 +25,10 @@ const SEMANTIC_ONLY_RULE: &str = "- Query through the semantic model only: `quer
 
 const ANSWER_RULES: &str = "- Answer from query results only. Never state a number no result \
     returned.\n\
+    - Compute final figures (averages, ratios, counts, rounding) in a query when it can \
+    express them, not by hand in the answer.\n\
+    - When the question limits what counts (only some months, records or rows), look at the \
+    rows that limit applies to before answering.\n\
     - Ask the user only when the context cannot settle an ambiguity.";
 
 fn tool_rules(semantic_only: bool) -> String {
@@ -134,5 +138,7 @@ mod tests {
         assert!(p.contains("`query` refuses raw `sql`"));
         assert!(!p.contains("write raw SQL"));
         assert!(p.contains("Never state a number no result returned."));
+        assert!(p.contains("not by hand in the answer"), "{p}");
+        assert!(p.contains("look at the rows that limit applies to"), "{p}");
     }
 }

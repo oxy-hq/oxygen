@@ -19,7 +19,9 @@ use agentic_semantic::config::SemanticQueryConfig;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::semantic::{compile_semantic, semantic_datasource};
+use super::semantic::{
+    SEMANTIC_SHAPE_HINT, compile_semantic, semantic_datasource, semantic_parameter,
+};
 use crate::react::read_only::{gate, sqlparser_dialect};
 use crate::react::render::render_table;
 use crate::solver::lookup_connector;
@@ -122,7 +124,10 @@ impl QueryTool {
     /// Exactly one of `sql` and `semantic`; a semantic query compiles here.
     fn prepare(&self, args: &Value) -> Result<Prepared, ToolFailure> {
         let sql = args.get("sql").and_then(Value::as_str);
-        let semantic = args.get("semantic").filter(|v| !v.is_null());
+        let semantic = args
+            .get("semantic")
+            .filter(|v| !v.is_null())
+            .or_else(|| flattened_semantic(args));
         match (sql, semantic) {
             (Some(_), _) if self.deps.semantic_only => Err(ToolFailure {
                 error: "this agent queries through the semantic model only; raw `sql` is refused"
@@ -145,8 +150,12 @@ impl QueryTool {
                     .catalog
                     .as_deref()
                     .ok_or_else(|| failure("this agent has no semantic model; use `sql`"))?;
-                let config: SemanticQueryConfig = serde_json::from_value(v.clone())
-                    .map_err(|e| failure(&format!("invalid semantic query: {e}")))?;
+                let config: SemanticQueryConfig =
+                    serde_json::from_value(v.clone()).map_err(|e| ToolFailure {
+                        error: format!("invalid semantic query: {e}"),
+                        hint: Some(SEMANTIC_SHAPE_HINT.into()),
+                        candidates: Vec::new(),
+                    })?;
                 // Before compiling: views on two datasources have no one SQL.
                 let datasource = semantic_datasource(catalog, &config)?;
                 let sql = compile_semantic(catalog, &config)?;
@@ -156,9 +165,45 @@ impl QueryTool {
                     datasource,
                 })
             }
-            _ => Err(failure("give exactly one of `sql` and `semantic`")),
+            _ => Err(failure(&format!(
+                "give exactly one of `sql` and `semantic`; got {}",
+                received_keys(args)
+            ))),
         }
     }
+}
+
+/// The arguments themselves, when they are a semantic query sent without the
+/// `semantic` wrapper: no `sql` or `semantic` key, and a field that names
+/// members. Models send this shape on a first call often enough to matter.
+fn flattened_semantic(args: &Value) -> Option<&Value> {
+    let obj = args.as_object()?;
+    let names_members = ["topic", "measures", "dimensions", "time_dimensions"]
+        .iter()
+        .any(|k| obj.contains_key(*k));
+    (names_members && !obj.contains_key("sql") && !obj.contains_key("semantic")).then_some(args)
+}
+
+/// What a call that gave neither (or both) sent, so the model and a reader of
+/// `tool_errors` see the shape it tried: top-level keys, and the JSON type of
+/// `semantic` when it is not an object.
+fn received_keys(args: &Value) -> String {
+    let Some(obj) = args.as_object().filter(|o| !o.is_empty()) else {
+        return "no arguments".into();
+    };
+    let keys: Vec<String> = obj
+        .iter()
+        .map(|(k, v)| match v {
+            Value::Object(_) => k.clone(),
+            Value::String(_) => format!("{k} (a string)"),
+            Value::Null => format!("{k} (null)"),
+            _ => format!(
+                "{k} ({})",
+                if v.is_array() { "an array" } else { "a scalar" }
+            ),
+        })
+        .collect();
+    format!("keys: {}", keys.join(", "))
 }
 
 fn failure(error: &str) -> ToolFailure {
@@ -304,12 +349,7 @@ impl Tool for QueryTool {
     fn def(&self) -> ToolDef {
         let mut properties = json!({
             "sql": {"type": "string"},
-            "semantic": {
-                "type": "object",
-                "description": "{topic?, measures, dimensions, time_dimensions: \
-                    [{dimension, granularity?}], filters: [{field, op, value}], \
-                    orders: [{field, direction}], limit?}",
-            },
+            "semantic": semantic_parameter(),
             "database": {"type": "string", "description": "Required when there are several"},
             "limit": {"type": "integer", "description": "Rows shown (default 20, max 100)"}
         });

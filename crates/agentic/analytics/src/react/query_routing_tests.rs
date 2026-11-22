@@ -227,3 +227,106 @@ fn semantic_only_def_drops_the_sql_parameter() {
     let plain = tool(&[("warehouse", Fake::new(1))], None).def();
     assert!(plain.parameters["properties"].get("sql").is_some());
 }
+
+/// Every op the schema offers deserializes with the field its branch
+/// requires, and the schema offers every op the deserializer accepts: the
+/// schema and `SemanticQueryConfig` cannot drift apart.
+#[test]
+fn semantic_schema_ops_match_what_deserializes() {
+    use agentic_core::react::Tool;
+    use agentic_semantic::config::SemanticQueryConfig;
+    let def = tool(&[("warehouse", Fake::new(1))], Some(account_catalog())).def();
+    let semantic = &def.parameters["properties"]["semantic"];
+    let branches = semantic["properties"]["filters"]["items"]["anyOf"]
+        .as_array()
+        .expect("filter branches");
+    let mut offered: Vec<String> = Vec::new();
+    for b in branches {
+        let required: Vec<&str> = b["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        for op in b["properties"]["op"]["enum"].as_array().unwrap() {
+            let op = op.as_str().unwrap();
+            let mut filter = json!({"field": "account.district_id", "op": op});
+            for f in &required {
+                filter[*f] = match *f {
+                    "values" => json!([1, 2]),
+                    "field" | "op" => continue,
+                    _ => json!("2020-01-01"),
+                };
+            }
+            let config = json!({"measures": ["account.total_amount"], "filters": [filter]});
+            serde_json::from_value::<SemanticQueryConfig>(config.clone())
+                .unwrap_or_else(|e| panic!("{op}: {e} for {config}"));
+            offered.push(op.to_owned());
+        }
+    }
+    // An op the schema does not offer is refused, so the enum is complete
+    // when its count matches the deserializer's variants (11).
+    offered.sort();
+    offered.dedup();
+    assert_eq!(offered.len(), 11, "{offered:?}");
+    for g in semantic["properties"]["time_dimensions"]["items"]["properties"]["granularity"]["enum"]
+        .as_array()
+        .unwrap()
+    {
+        let config = json!({"time_dimensions": [{"dimension": "account.date", "granularity": g}]});
+        serde_json::from_value::<SemanticQueryConfig>(config)
+            .unwrap_or_else(|e| panic!("{g}: {e}"));
+    }
+}
+
+#[tokio::test]
+async fn invalid_semantic_query_names_each_op_and_its_field() {
+    let db = Fake::new(1);
+    let t = tool(&[("warehouse", db.clone())], Some(account_catalog()));
+    let err = run(
+        &t,
+        json!({"semantic": {"measures": ["account.total_amount"],
+            "filters": [{"field": "account.district_id", "op": "equals", "value": 1}]}}),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.error.contains("equals"), "{}", err.error);
+    let hint = err.hint.unwrap_or_default();
+    assert!(hint.contains("eq") && hint.contains("`values`"), "{hint}");
+    assert!(db.seen().is_empty());
+}
+
+#[tokio::test]
+async fn neither_sql_nor_semantic_names_what_was_sent() {
+    let t = tool(&[("warehouse", Fake::new(1))], Some(account_catalog()));
+    let err = run(&t, json!({})).await.unwrap_err();
+    assert!(err.error.ends_with("got no arguments"), "{}", err.error);
+    let err = run(
+        &t,
+        json!({"measures": ["account.total_amount"], "semantic": null}),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.error.contains("measures (an array)"), "{}", err.error);
+    assert!(err.error.contains("semantic (null)"), "{}", err.error);
+}
+
+/// A model often sends a semantic query's fields at the top level instead of
+/// under `semantic` (seen on the first call of most BIRD questions). With no
+/// `sql` and no `semantic` key at all, `query` reads the arguments
+/// themselves as the semantic query.
+#[tokio::test]
+async fn semantic_fields_at_the_top_level_run_as_a_semantic_query() {
+    let db = Fake::new(3);
+    let t = semantic_only_tool(db.clone());
+    let reply = run(
+        &t,
+        json!({"measures": ["account.total_amount"], "dimensions": ["account.district_id"], "limit": 5}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reply.artifacts[0].payload["source"], "semantic");
+    assert_eq!(db.seen().len(), 1);
+    let err = run(&t, json!({"limit": 5})).await.unwrap_err();
+    assert!(err.error.contains("got keys: limit"), "{}", err.error);
+}
