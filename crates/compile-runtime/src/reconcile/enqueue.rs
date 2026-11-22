@@ -24,7 +24,7 @@ use uuid::Uuid;
 /// Also the window `agentic_wiring::project_ctx::compile_cooldown` holds a
 /// request's compile request back after a *successful* compile — the same
 /// "not the same tree again sooner than this" judgement, read there.
-pub(crate) const LAZY_COMPILE_BACKOFF_SECS: i64 = 300;
+pub const LAZY_COMPILE_BACKOFF_SECS: i64 = 300;
 
 /// Ceiling for the self-heal backoff, however many compiles in a row failed.
 const LAZY_COMPILE_BACKOFF_MAX_SECS: i64 = 6 * 60 * 60;
@@ -201,9 +201,9 @@ fn lazy_compile_backoff_secs(consecutive_failures: u32, content_change: bool) ->
 /// A workspace serving a revision of a real commit that GitHub can give back
 /// recompiles that commit (`compile_git`, any worker can take it); anything
 /// else compiles the working copy, as before. See
-/// [`crate::server::compile_git::self_heal`].
+/// [`crate::git::self_heal`].
 pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id: Uuid) {
-    use crate::server::compile_git::self_heal::{Heal, heal};
+    use crate::git::self_heal::{Heal, heal};
     // A burst of requests for one workspace decides once, before any read
     // (see `lazy_compile_throttle`).
     if !super::lazy_compile_throttle::first_in_window(workspace_id) {
@@ -216,7 +216,7 @@ pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id
             // (not ready, or the last check found something a person has to
             // fix) no commit compile is coming, and the working-copy compile
             // is the only way to a first revision.
-            if crate::server::compile_reconcile::request_check(db, workspace_id).await {
+            if crate::reconcile::request_check(db, workspace_id).await {
                 return;
             }
             return enqueue_compile_deduped(db, workspace_id, "lazy self-heal").await;
@@ -553,7 +553,7 @@ pub(crate) async fn enqueue_compile_deduped_as(
         owner_user_id: None,
         from_git: how.from_git,
     };
-    let retry = how.from_git.then(crate::server::compile_git::retry_policy);
+    let retry = how.from_git.then(crate::git::retry_policy);
     if let Err(e) = agentic_runtime::crud::enqueue_task(
         &txn,
         &task_id,

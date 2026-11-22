@@ -1,8 +1,8 @@
 //! `POST /api/webhooks/github` — the GitHub App's webhook receiver.
 //!
 //! Today it acts on one event, `push`: a pushed default branch queues a commit
-//! compile for every workspace on that repository (`oxy-app`'s
-//! `compile_reconcile::push`, reached through
+//! compile for every workspace on that repository (`oxy-compile-runtime`'s
+//! `reconcile::push`, reached through
 //! [`oxy_app::surface::compile_push`]), so a merged pull request
 //! reaches production without anyone clicking Compile. `ping` is answered so
 //! GitHub's "Redeliver"/setup check shows green, and every other event the App

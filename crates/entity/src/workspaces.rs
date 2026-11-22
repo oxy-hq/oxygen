@@ -93,7 +93,7 @@ pub struct Model {
     pub repo_subdir: Option<String>,
     /// When the periodic compile check last asked GitHub for the default branch
     /// and recorded nothing; NULL when never asked. See
-    /// `compile_reconcile/default_branch.rs`.
+    /// `oxy-compile-runtime`'s `reconcile/default_branch.rs`.
     pub default_branch_attempted_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(
         belongs_to,

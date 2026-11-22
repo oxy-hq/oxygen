@@ -44,8 +44,8 @@ const SERVER: &[&str] = &[
     // The compile boundary's runtime leaves (`compile_config_gate`,
     // `compile_git`, `compile_maintenance`, `compile_oltp`) left for
     // `oxy-compile-runtime` on 2026-11-21, re-exported in `server/mod.rs`;
-    // `compile_request` followed them on 2026-11-22 (as `request`).
-    "compile_reconcile",
+    // `compile_request` followed them on 2026-11-22 (as `request`), and
+    // `compile_reconcile` the same day (as `reconcile`).
     "compile_worker",
     "compile_worker_tests",
     "factory_access",

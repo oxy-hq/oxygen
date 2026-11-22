@@ -9,7 +9,7 @@
 //! Each tick, for every workspace with a github.com remote and a recorded
 //! default branch, this asks GitHub where the branch is (one small request)
 //! and, when that is not the commit being served, queues a commit compile of
-//! it (`server::compile_git`). It is the periodic half of the triggers in
+//! it (`crate::git`). It is the periodic half of the triggers in
 //! `internal-docs/factory-retirement.md`, phase 1. Its other half is the GitHub
 //! `push` webhook ([`push`]), which reaches the same enqueue sooner.
 //!

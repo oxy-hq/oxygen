@@ -10879,7 +10879,9 @@ version = "0.5.161"
 dependencies = [
  "agentic-core",
  "agentic-runtime",
+ "async-trait",
  "chrono",
+ "dashmap",
  "entity",
  "flate2",
  "http 1.5.0",

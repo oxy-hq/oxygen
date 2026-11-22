@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use super::check::{Decision, compiled_state, decide};
 use super::enqueue::{CompileEnqueue, enqueue_compile_deduped_as};
-use crate::server::compile_git::{commit_sha, github_slug_of};
+use crate::git::{commit_sha, github_slug_of};
 
 const BRANCH_REF_PREFIX: &str = "refs/heads/";
 

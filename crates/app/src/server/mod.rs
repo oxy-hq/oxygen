@@ -12,10 +12,14 @@ pub use oxy_compile_runtime::config_gate as compile_config_gate;
 pub use oxy_compile_runtime::git as compile_git;
 pub use oxy_compile_runtime::maintenance as compile_maintenance;
 pub use oxy_compile_runtime::oltp as compile_oltp;
-pub mod compile_reconcile;
+// The branch check, the push webhook's reconciler, the env pins and the
+// automatic compile enqueue, `oxy-compile-runtime`'s `reconcile` since
+// 2026-11-22; re-exported so the router, the workspace middleware, the compile
+// worker, the prelude, `oxy-server` and `tests/platform` keep this path.
+pub use oxy_compile_runtime::reconcile as compile_reconcile;
 // The branch compile and its status read, `oxy-compile-runtime`'s `request`
-// since 2026-11-22; re-exported so the prelude, `compile_reconcile` and
-// `tests/platform` keep this path.
+// since 2026-11-22; re-exported so the prelude and `tests/platform` keep this
+// path.
 pub use oxy_compile_runtime::request as compile_request;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;

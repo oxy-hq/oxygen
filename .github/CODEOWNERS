@@ -162,7 +162,8 @@ internal-docs/frontline-identity.md                @luong-komorebi @NTtanh
 crates/oxy-compile/                                @luong-komorebi @NTtanh
 # The compile boundary's runtime leaves (`oxy-compile-runtime`), 2026-11-21:
 # out of crates/app/src/server/compile_{git,oltp,config_gate,maintenance},
-# and compile_request (as `request`) on 2026-11-22.
+# compile_request (as `request`) and compile_reconcile (as `reconcile`) on
+# 2026-11-22.
 crates/compile-runtime/                            @luong-komorebi @NTtanh
 crates/project/                                    @luong-komorebi @NTtanh
 crates/workspace-fs/                               @luong-komorebi @NTtanh

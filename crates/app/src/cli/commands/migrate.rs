@@ -50,7 +50,7 @@ pub async fn migrate() -> Result<(), OxyError> {
 /// space — Postgres does not separate the session (`pg_advisory_lock`) and
 /// transaction (`pg_try_advisory_xact_lock`) variants into different
 /// namespaces. The per-workspace lazy-compile lock in
-/// `server/compile_reconcile/enqueue.rs` is the only other user; it
+/// `oxy-compile-runtime`'s `reconcile/enqueue.rs` is the only other user; it
 /// keys off `workspace_id & 0x7fff_ffff_ffff_ffff`, so a workspace UUID whose
 /// low 63 bits equal this key COULD collide (~1-in-2^63). The collision is
 /// benign: a lazy-compile that loses this lock during the brief boot-migration

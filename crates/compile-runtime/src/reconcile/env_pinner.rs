@@ -13,7 +13,7 @@ use sea_orm::{DatabaseConnection, DbErr, EntityTrait};
 use uuid::Uuid;
 
 use super::env_pins;
-use crate::server::compile_request::Refusal;
+use crate::request::Refusal;
 
 /// The production [`SemanticPinner`].
 #[derive(Debug, Clone, Copy, Default)]
@@ -62,7 +62,7 @@ async fn workspace(db: &DatabaseConnection, id: Uuid) -> Result<workspaces::Mode
         .map_err(database)?
         .ok_or_else(|| {
             PinRefusal::new(
-                axum::http::StatusCode::NOT_FOUND,
+                http::StatusCode::NOT_FOUND,
                 "workspace_not_found",
                 format!("the app's workspace {id} does not exist"),
             )
@@ -78,7 +78,7 @@ fn database(error: DbErr) -> PinRefusal {
 /// detail. The detail is logged where the failure is handled.
 fn internal() -> PinRefusal {
     PinRefusal::new(
-        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        http::StatusCode::INTERNAL_SERVER_ERROR,
         "internal",
         "internal error",
     )
@@ -108,7 +108,7 @@ pub(crate) fn refusal(refusal: Refusal) -> PinRefusal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::StatusCode;
+    use http::StatusCode;
 
     /// A refusal keeps its own status and message, and only the two refusals
     /// about the branch itself are `is_bad_branch` (the planes write answers

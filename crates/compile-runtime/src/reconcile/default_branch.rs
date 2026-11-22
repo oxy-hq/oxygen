@@ -21,7 +21,7 @@ use sea_orm::{
     QueryOrder, QuerySelect, Set,
 };
 
-use crate::server::compile_git::github_repository;
+use crate::git::github_repository;
 
 /// At most this many workspaces are asked about per tick, before the checks.
 pub const MAX_PER_TICK: u64 = 5;

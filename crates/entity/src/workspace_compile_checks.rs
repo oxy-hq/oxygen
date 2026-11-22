@@ -1,7 +1,7 @@
 //! `workspace_compile_checks` — when a remote-backed workspace is next due to
 //! have its default branch's head compared with the revision it serves, and
 //! what the last comparison found. Written by the compile reconcile loop
-//! (`oxy-app`'s `server::compile_reconcile`); `next_check_at` is its
+//! (`oxy-compile-runtime`'s `reconcile`); `next_check_at` is its
 //! compare-and-set claim.
 
 use sea_orm::entity::prelude::*;

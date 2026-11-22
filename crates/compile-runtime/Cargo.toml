@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -29,6 +29,12 @@ oxy-oltp = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 
+# `reconcile`: the env pinner's seam impl.
+async-trait = { workspace = true }
+# `reconcile`: the timestamps the branch check and the enqueue backoff read.
+chrono = { workspace = true }
+# `reconcile`: the lazy-compile throttle's per-workspace map.
+dashmap = { workspace = true }
 flate2 = { workspace = true }
 # `request::Refusal::status`: the status code a route answers a refusal with.
 # The `http` types only (what `axum::http` re-exports), no web framework, as
@@ -47,10 +53,6 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-
-[dev-dependencies]
-# `request::status`'s tests build a revision row.
-chrono = { workspace = true }
 
 [lints]
 workspace = true

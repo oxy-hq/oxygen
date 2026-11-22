@@ -54,8 +54,8 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::push::PushEvent;
-use crate::server::compile_git::github_slug_of;
-use crate::server::compile_request::{self, Refusal, Target};
+use crate::git::github_slug_of;
+use crate::request::{self as compile_request, Refusal, Target};
 
 /// What [`pin_to_branch`] left the environment on.
 #[derive(Debug, Clone, PartialEq, Eq)]

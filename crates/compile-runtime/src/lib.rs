@@ -16,15 +16,22 @@
 //!   read, and the compile task enqueue (was `server::compile_request`, moved
 //!   on 2026-11-22, the decompose's C2; re-exported at
 //!   `oxy_app::server::compile_request`).
+//! - [`reconcile`]: keep a remote-backed workspace serving what its default
+//!   branch has: the periodic branch check, the GitHub push webhook's
+//!   reconciler, the staging env pins, and the deduped automatic compile
+//!   enqueue (lazy and import) with its backoff and throttle (was
+//!   `server::compile_reconcile`, moved on 2026-11-22, the decompose's C3;
+//!   re-exported at `oxy_app::server::compile_reconcile`).
 //!
 //! It is its own crate, not part of `oxy-compile`, because it needs
 //! `oxy-app-core` (the process role, the workspace's repository facts), and
 //! `oxy-app-core` depends on `oxy-compile`. The rest of `server::compile_*`
-//! (`compile_reconcile`, `compile_worker`) follows it:
+//! (`compile_worker`) follows it:
 //! `internal-docs/domain-boundaries.md`, End state.
 
 pub mod config_gate;
 pub mod git;
 pub mod maintenance;
 pub mod oltp;
+pub mod reconcile;
 pub mod request;

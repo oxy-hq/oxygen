@@ -3,10 +3,10 @@
 //!
 //! The environment planes routes (`PUT …/planes`, `POST …/environments`) live
 //! in `oxy-api-custom-apps`, which cannot depend on `oxy-app`; the branch
-//! lookup, the compile and the pin columns live in `oxy-app`
-//! (`server::compile_reconcile::env_pins`). So the planes write names this
-//! trait, `oxy-app` implements it, and the composition root (`oxy-server`)
-//! layers the implementation onto the custom-app routes as an
+//! lookup, the compile and the pin columns live in `oxy-compile-runtime`
+//! (`reconcile::env_pins`). So the planes write names this trait,
+//! `oxy-compile-runtime` implements it, and the composition root
+//! (`oxy-server`) layers the implementation onto the custom-app routes as an
 //! `Extension<Arc<dyn SemanticPinner>>` — the way `AppLifecycle` reaches the
 //! partner console and `FunctionQueryExecutor` reaches the serve route.
 //!

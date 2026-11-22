@@ -1160,6 +1160,20 @@ mod tests {
             "oxy_compile_runtime::request::main_source",
             "oxy_compile_runtime::request::status",
             "oxy_compile_runtime::request::working_copy",
+            // The branch check, the push webhook's reconciler, the env pins
+            // and the automatic compile enqueue with its throttle, down from
+            // `oxy-app`'s `server::compile_reconcile` into
+            // `oxy-compile-runtime` (2026-11-22): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::reconcile",
+            "oxy_compile_runtime::reconcile::check",
+            "oxy_compile_runtime::reconcile::default_branch",
+            "oxy_compile_runtime::reconcile::enqueue",
+            "oxy_compile_runtime::reconcile::env_pinner",
+            "oxy_compile_runtime::reconcile::env_pins",
+            "oxy_compile_runtime::reconcile::lazy_compile_throttle",
+            "oxy_compile_runtime::reconcile::push",
+            "oxy_compile_runtime::reconcile::state",
             // The semantic surface (Wave D2, 2026-11-16): the four handler
             // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
             // answer down from `api::data` into the workspace runtime. Kept,
@@ -1677,6 +1691,20 @@ mod tests {
             "oxy_compile_runtime::request::main_source",
             "oxy_compile_runtime::request::status",
             "oxy_compile_runtime::request::working_copy",
+            // The branch check, the push webhook's reconciler, the env pins
+            // and the automatic compile enqueue with its throttle, down from
+            // `oxy-app`'s `server::compile_reconcile` into
+            // `oxy-compile-runtime` (2026-11-22): kept and not the data
+            // plane, classified as they were there.
+            "oxy_compile_runtime::reconcile",
+            "oxy_compile_runtime::reconcile::check",
+            "oxy_compile_runtime::reconcile::default_branch",
+            "oxy_compile_runtime::reconcile::enqueue",
+            "oxy_compile_runtime::reconcile::env_pinner",
+            "oxy_compile_runtime::reconcile::env_pins",
+            "oxy_compile_runtime::reconcile::lazy_compile_throttle",
+            "oxy_compile_runtime::reconcile::push",
+            "oxy_compile_runtime::reconcile::state",
             // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
             // behind the workspace middleware, and not the custom-app data
             // plane, as `api::{semantic, semantic_scan, data, preagg}` were
