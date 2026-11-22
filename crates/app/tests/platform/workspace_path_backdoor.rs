@@ -42,7 +42,9 @@ const ALLOWED: &[(&str, &str)] = &[
          (`oxy-api-workspaces`' since 2026-11-16, was `src/server/api/workspaces/ops.rs`)",
     ),
     (
-        "src/server/api/custom_apps_gates.rs",
+        // `oxy-workspace-runtime`'s since 2026-11-22 (W6a), was
+        // `src/server/api/custom_apps_gates.rs`.
+        "../workspace-runtime/src/custom_apps_gates.rs",
         "the custom-app data plane and function context, which run outside \
          workspace_context: boundary first, the path only for the fallback on a \
          pod that holds the working copy. A pod that does not is handed the \

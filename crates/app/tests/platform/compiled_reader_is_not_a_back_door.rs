@@ -46,9 +46,11 @@ const ALLOWED: &[(&str, &str)] = &[
          `oxy-workspace-runtime`, 2026-11-22.)",
     ),
     (
-        "src/server/api/custom_apps_gates.rs",
+        "../workspace-runtime/src/custom_apps_gates.rs",
         "Same: builds the per-request project context for the public custom-app \
-         router, which has no workspace middleware.",
+         router, which has no workspace middleware. (Was \
+         `src/server/api/custom_apps_gates.rs` until it went down into \
+         `oxy-workspace-runtime`, 2026-11-22.)",
     ),
     (
         "../app-core/src/staging_pin_scope.rs",

@@ -40,11 +40,16 @@
 //! authentication, origin, user, database, access, staging pin) and the
 //! decisions behind them. Its module doc says what the chain remembers and what
 //! it reads fresh on every call; read that before changing the order of the
-//! steps. What stays here needs `Response` or `OxyProjectContext`:
+//! steps. What is here needs `Response` or `OxyProjectContext`:
 //! [`check_custom_app_gates`] (the same chain, with a `GateError` mapped onto
 //! the response), [`parse_versioned_body`], and `build_project_context*`, which
 //! compose the data plane's project context. The moved items are re-exported
 //! at the old path.
+//!
+//! Down from `oxy-app`'s `server::api::custom_apps_gates` on 2026-11-22 (W6a),
+//! re-exported there. The module keeps `custom_apps` in its path on purpose:
+//! `oxy_telemetry::sentry_filter`'s marker drops its lines from Sentry exactly
+//! as it did at the old path.
 
 use std::borrow::Cow;
 
@@ -59,12 +64,12 @@ use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::agentic_wiring::OxyProjectContext;
+use crate::project_ctx::OxyProjectContext;
 use oxy::service::secret_manager::SecretManagerService;
 
 pub use oxy_custom_apps::gate::{CustomAppContext, frontline_worker_with_app_grant};
 
-/// What [`CustomAppContext`] needs from `oxy-app`: the project context built
+/// What [`CustomAppContext`] needs from the workspace runtime: the project context built
 /// from its workspace. It is a trait because the type lives below
 /// `OxyProjectContext`; import it to call `ctx.build_project_context()`.
 pub trait CustomAppContextExt {
@@ -303,12 +308,10 @@ async fn build_project_context_inner(
     // `Origin` is recorded, so every boundary read downstream resolves at the
     // revision picked here rather than deriving its own.
     let revision_id = if workspace_is_fresh {
-        crate::server::api::compiled_reader::resolve_request_revision_for_workspace(
-            workspace, branch_opt,
-        )
-        .await
+        oxy_app_core::compiled_reader::resolve_request_revision_for_workspace(workspace, branch_opt)
+            .await
     } else {
-        crate::server::api::compiled_reader::resolve_request_revision(project_id, branch_opt).await
+        oxy_app_core::compiled_reader::resolve_request_revision(project_id, branch_opt).await
     };
     let effective_path = context_root(workspace, project_id, branch_opt).await?;
     let init = WorkspaceBuilder::new(project_id)

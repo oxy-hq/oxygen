@@ -24,9 +24,10 @@
 //! `oxy-api-custom-apps` now, so their reach into `oxy-app` is an `oxy_app::` path,
 //! which the first test below holds to the prelude, and the second test keeps the
 //! vertical from growing back: `oxy-app` has no `custom_app*` module that is not a
-//! re-export of one that moved, except the one named in [`NOT_SHIMS`]. The third test
-//! below is stricter: `crates/app/src` has no `custom_apps_*` file or directory at all
-//! except `custom_apps_gates.rs`.
+//! re-export of one that moved, except any named in [`NOT_SHIMS`] (none since
+//! `custom_apps_gates.rs` went down to `oxy-workspace-runtime`, 2026-11-22). The
+//! third test below is stricter: `crates/app/src` has no `custom_apps_*` file or
+//! directory at all.
 
 use std::path::{Path, PathBuf};
 
@@ -205,18 +206,12 @@ fn every_backlog_entry_is_still_a_real_reach() {
 }
 
 /// `custom_app*` files and directories `oxy-app` still has that are not a
-/// re-export, each with why. **Not a backlog to grow.**
-const NOT_SHIMS: &[(&str, &str)] = &[(
-    "server/api/custom_apps_gates.rs",
-    "the data plane's gate (`check_custom_app_gates` answered as a response, \
-     `parse_versioned_body`) and the project-context composition root \
-     (`build_project_context*`, `build_caller_context`), which \
-     `oxy-api-custom-apps`' data plane (the metric-tree twins included), agent ask and \
-     automation run call and which \
-     build an `OxyProjectContext`. The decisions \
-     are `oxy_custom_apps::gate`; the function host reaches the context builder \
-     through `FunctionQueryExecutor::build_project_context`.",
-)];
+/// re-export, each with why. **Not a backlog to grow.** Empty since
+/// 2026-11-22 (W6a): its last row, `server/api/custom_apps_gates.rs` (the data
+/// plane's gate answered as a response and the project-context composition
+/// root), went down to `oxy_workspace_runtime::custom_apps_gates`, re-exported
+/// from `server/api/mod.rs`.
+const NOT_SHIMS: &[(&str, &str)] = &[];
 
 fn src_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -356,29 +351,27 @@ fn src_entries(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn oxy_app_has_no_custom_apps_module_except_gates() {
+fn oxy_app_has_no_custom_apps_module() {
     let app_src = crates_dir().join("app").join("src");
+    // The walk is sane when it reaches the crate's anchors. (It used to prove
+    // that by finding `custom_apps_gates.rs`, the one allowed name, until that
+    // went down to `oxy-workspace-runtime` on 2026-11-22.)
+    let mut entries = Vec::new();
+    src_entries(&app_src, &mut entries);
+    for anchor in ["surface.rs", "server/api/mod.rs", "server/router/mod.rs"] {
+        assert!(
+            entries.iter().any(|e| e == &app_src.join(anchor)),
+            "the walk did not reach crates/app/src/{anchor} — it lost its way"
+        );
+    }
     let found = custom_apps_named_modules(&app_src);
-    let offenders: Vec<&String> = found
-        .iter()
-        .filter(|rel| rel.as_str() != "server/api/custom_apps_gates.rs")
-        .collect();
     assert!(
-        offenders.is_empty(),
-        "`crates/app/src` has a `custom_apps_*` module besides `custom_apps_gates`. \
-         The last re-export files were retired; import from the crate that owns the \
-         name (`oxy_custom_apps`, `oxy_app_core`) instead of adding one back:\n  {}",
-        offenders
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("\n  ")
-    );
-    assert!(
-        found
-            .iter()
-            .any(|rel| rel == "server/api/custom_apps_gates.rs"),
-        "the walk did not find `custom_apps_gates.rs` — it lost its way"
+        found.is_empty(),
+        "`crates/app/src` has a `custom_apps_*` module. The last re-export files \
+         were retired and the gate went down to `oxy_workspace_runtime::custom_apps_gates`; \
+         import from the crate that owns the name (`oxy_custom_apps`, `oxy_app_core`, \
+         `oxy_workspace_runtime`) instead of adding one back:\n  {}",
+        found.join("\n  ")
     );
 }
 

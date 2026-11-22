@@ -594,8 +594,11 @@ fn server_sources() -> Vec<(String, String)> {
     rust_files(&crate_root.join("../api-semantic/src"), &mut files);
     // The workspace runtime, `oxy-workspace-runtime`'s since 2026-11-21
     // (was `src/server/{runtime_artifact,api/typed_stream}.rs`, inside the
-    // walk above, and the agentic wiring's leaves). Not on the data plane;
-    // walked so a gate call added there is seen.
+    // walk above, and the agentic wiring's leaves). Since 2026-11-22 (W6a) it
+    // also holds the gate's response half and the semantic boundary (was
+    // `src/server/api/{custom_apps_gates,projects/semantic_boundary}.rs`),
+    // which call the gate, so those two files are on the data plane; the rest
+    // is walked so a gate call added there is seen.
     rust_files(&crate_root.join("../workspace-runtime/src"), &mut files);
     // The compile boundary's runtime, `oxy-compile-runtime`'s since
     // 2026-11-21 (was `src/server/compile_{git,oltp,config_gate,maintenance}`

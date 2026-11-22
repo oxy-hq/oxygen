@@ -34,8 +34,12 @@ oxy = { workspace = true }
 oxy-app-core = { workspace = true }
 # `blob_store`: the runtime-artifact S3 mirror.
 oxy-compile = { workspace = true }
-# `scan_source`: a scan miss enqueues the lazy compile (`reconcile::enqueue`).
+# `scan_source`: a scan miss enqueues the lazy compile (`reconcile::enqueue`),
+# and so does `semantic_boundary` on a diskless replica.
 oxy-compile-runtime = { workspace = true }
+# `custom_apps_gates`: the gate's decision half (`gate`, `CustomAppContext`,
+# `staging_pin`) it answers as a response; `semantic_boundary`: the result cache.
+oxy-custom-apps = { workspace = true }
 # `project_ctx`: the React runtime flag an agent run reads.
 oxy-feature-flags = { workspace = true }
 # `compile_dispatcher`: the branch worktree a staging compile reads.
@@ -75,6 +79,9 @@ parquet = { workspace = true }
 # `metric_tree_exec`: the projection's per-series fits run in parallel.
 rayon = { workspace = true }
 sea-orm = { workspace = true }
+# `semantic_boundary`: the request's hub, carried onto the blocking pool that
+# parses the semantic model.
+sentry = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # `project_ctx`: an agent's and an automation's YAML, read from the compiled

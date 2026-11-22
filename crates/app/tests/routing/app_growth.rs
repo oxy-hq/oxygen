@@ -87,7 +87,9 @@ const SERVER_API: &[&str] = &[
     // Re-exports only since decompose B2 (the gate is `oxy_billing::gate`,
     // the past-due dispatcher `oxy_api_billing::billing::notify`).
     "billing",
-    "custom_apps_gates",
+    // The data plane's gate and the semantic boundary (out of `projects`) left
+    // for `oxy-workspace-runtime` on 2026-11-22 (W6a), re-exported in
+    // `api/mod.rs` and `projects/mod.rs`.
     "local_setup",
     "middlewares",
     "projects",

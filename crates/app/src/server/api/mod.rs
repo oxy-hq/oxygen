@@ -34,7 +34,6 @@ pub use oxy_custom_apps::cache as custom_apps_cache;
 pub use oxy_custom_apps::env_resolve as custom_apps_env_resolve;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::environments as custom_apps_environments;
-pub mod custom_apps_gates;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::manifest as custom_apps_manifest;
 pub use oxy_custom_apps::non_production as custom_apps_non_production;
@@ -60,6 +59,10 @@ pub use oxy_custom_apps::updates as custom_apps_updates;
 pub use oxy_custom_apps::usage_airhouse as custom_apps_usage_airhouse;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::usage_queue as custom_apps_usage_queue;
+/// The data plane's gate and project-context composition root, down to
+/// `oxy-workspace-runtime` on 2026-11-22 (W6a); the old path stays so no call
+/// site changes.
+pub use oxy_workspace_runtime::custom_apps_gates;
 // `data` (the Dev Portal's `/sql` execute) moved to `oxy-api-semantic`
 // (2026-11-16), mounted on the workspace and external seams.
 // `database` (Workspace Settings → Databases, the schema and inspection

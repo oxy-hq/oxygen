@@ -131,6 +131,10 @@ AREAS = [
     ("crates/app/src/agentic_wiring/preview_ctx.rs",      "Workspace runtime"),
     ("crates/app/src/agentic_wiring/preview_ctx",         "Workspace runtime"),
     ("crates/app/src/server/previews/runtime.rs",         "Workspace runtime"),
+    # W6a, 2026-11-22: the custom-app data plane's composition root and the
+    # semantic boundary.
+    ("crates/app/src/server/api/custom_apps_gates.rs",    "Workspace runtime"),
+    ("crates/app/src/server/api/projects/semantic_boundary.rs", "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

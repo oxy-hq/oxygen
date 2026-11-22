@@ -145,7 +145,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// execute nothing, so they are not listed; `oxy::database` is Oxy's own
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
-const DATA_PLANE_MODULE_PREFIXES: [&str; 9] = [
+const DATA_PLANE_MODULE_PREFIXES: [&str; 10] = [
     // The automation run's row state machine (`settle`), which stayed when its
     // handlers left, and the semantic boundary the twins enter by. (`/query`,
     // `/semantic-query` and the metric tree's twins moved to
@@ -154,6 +154,8 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 9] = [
     // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path
     // drops their lines outright: [`drop_log`].)
     "oxy_app::server::api::projects",
+    // The semantic boundary, down from `projects` (W6a): sentry_filter_w6a_pins_tests.
+    "oxy_workspace_runtime::semantic_boundary",
     // The automation run's row state machine itself, down from
     // `oxy_app::server::api::projects::automation_run` (2026-11-22). Its path
     // carries the `custom_apps` marker only because of its crate, so it is
@@ -624,66 +626,6 @@ mod tests {
                 "{module}"
             );
             assert!(drop_log(Some(module)), "{module}");
-        }
-    }
-
-    /// The automation run's row state machine kept its classification when it
-    /// went down from `oxy_app::server::api::projects::automation_run` to
-    /// `oxy_custom_apps::automation_run` (2026-11-22): an issue at `error`, a
-    /// breadcrumb at `warn`, not dropped from Sentry Logs, and shaped there as
-    /// data plane — at the old path and the new one. The exemption is a path
-    /// segment: a sibling that shares the name, the surface's own
-    /// `automation_run` and every other module of the crate stay dropped. Its
-    /// preview settle kept the same class when it went down the same day to
-    /// `oxy_previews::queue::preview_settle`; its queue siblings stay kept and
-    /// unshaped.
-    #[test]
-    fn the_automation_run_row_keeps_its_sentry_class_after_the_move() {
-        for module in [
-            "oxy_app::server::api::projects::automation_run",
-            "oxy_app::server::api::projects::automation_run::settle",
-            "oxy_app::server::api::projects::automation_run::preview_settle",
-            "oxy_custom_apps::automation_run",
-            "oxy_custom_apps::automation_run::settle",
-            // The preview settle at its new path (2026-11-22).
-            "oxy_previews::queue::preview_settle",
-        ] {
-            assert_eq!(
-                sentry_disposition(module, &Level::ERROR),
-                Disposition::Event,
-                "{module}"
-            );
-            assert_eq!(
-                sentry_disposition(module, &Level::WARN),
-                Disposition::Breadcrumb,
-                "{module}"
-            );
-            assert!(!drop_log(Some(module)), "{module}");
-            assert!(is_data_plane_module(module), "{module}");
-        }
-        for module in [
-            "oxy_custom_apps::automation_run_x",
-            "oxy_custom_apps::storage::sweeper",
-            "oxy_api_custom_apps::automation_run",
-            "oxy_api_custom_apps::automation_run::executor",
-        ] {
-            assert_eq!(
-                sentry_disposition(module, &Level::ERROR),
-                Disposition::Drop,
-                "{module}"
-            );
-            assert!(drop_log(Some(module)), "{module}");
-        }
-        // The preview settle's shaping is the one module, not its siblings
-        // in the previews queue, which were never the data plane.
-        for module in [
-            "oxy_previews::queue",
-            "oxy_previews::queue::sweep",
-            "oxy_previews::queue::lifecycle",
-            "oxy_previews::queue::preview_settle_x",
-        ] {
-            assert!(!drop_log(Some(module)), "{module}");
-            assert!(!is_data_plane_module(module), "{module}");
         }
     }
 

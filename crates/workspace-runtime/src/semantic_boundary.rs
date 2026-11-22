@@ -15,8 +15,15 @@
 //! live in surface crates now — the world-model and cohort twins in
 //! `oxy-api-world-model`, the metric-tree twins in `oxy-api-custom-apps`
 //! (2026-11-14) — and take it through the prelude
-//! (`oxy_app::surface::custom_app_semantic`). It stays here because it builds
-//! an `OxyProjectContext`, and a surface may not import another surface.
+//! (`oxy_app::surface::custom_app_semantic`). It is not in a surface because it
+//! builds an `OxyProjectContext`, and a surface may not import another surface.
+//!
+//! Down from `oxy-app`'s `server::api::projects::semantic_boundary` on
+//! 2026-11-22 (W6a), re-exported there. Deliberately not under a
+//! `custom_apps*` module: `oxy_telemetry::sentry_filter` would drop its lines
+//! by that marker, where at the old path they were kept (and, as data plane,
+//! shaped in Sentry Logs, which `oxy_workspace_runtime::semantic_boundary`'s
+//! own row in `DATA_PLANE_MODULE_PREFIXES` keeps).
 
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
@@ -24,10 +31,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::agentic_wiring::OxyProjectContext;
-use crate::server::api::custom_apps_gates::{
-    CustomAppContext, CustomAppContextExt, check_custom_app_gates,
-};
+use crate::custom_apps_gates::{CustomAppContext, CustomAppContextExt, check_custom_app_gates};
+use crate::project_ctx::OxyProjectContext;
 use oxy::config::scan::{ScanDir, scan_dir};
 
 #[derive(Serialize)]
@@ -119,10 +124,8 @@ pub async fn enter_semantic_boundary(
             // diskless and fell straight through.
             if !proj_ctx.workspace_manager().config_manager.can_read_disk() {
                 if let Ok(db) = oxy::database::client::establish_connection().await {
-                    crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                        &db, project_id,
-                    )
-                    .await;
+                    oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(&db, project_id)
+                        .await;
                 }
                 let mut response = err_with_code(
                     StatusCode::SERVICE_UNAVAILABLE,

@@ -31,10 +31,9 @@
 # The serving half of the surface (the /customer-apps route, health, logs, the
 # browser beacon), lifted out of the custom_apps_* modules below.
 crates/api-custom-apps/                            @luong-komorebi @NTtanh
-# No `.rs` suffix on the glob: several of these are now directories
-# (custom_apps_client/, custom_apps_health/, custom_apps_migrations/ — #3103),
-# which a `custom_apps_*.rs` pattern silently stops matching.
-crates/app/src/server/api/custom_apps_*            @luong-komorebi @NTtanh
+# (`crates/app/src/server/api/custom_apps_*` is gone: its last file,
+# custom_apps_gates.rs, went down to crates/workspace-runtime/ on 2026-11-22,
+# which has the same owners.)
 # The domain crate the custom_apps_* modules are moving into (domain-boundaries Pending 7).
 crates/custom-apps/                                @luong-komorebi @NTtanh
 # Oxy Functions — kept BELOW the catch-all on purpose: the backup differs, and
@@ -182,7 +181,9 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # (server/previews/airhouse_duckdb.rs); then (W4, the same day) project_ctx,
 # compile_dispatcher, server/preagg_executor.rs and the WorkspaceContextCache
 # out of server/router/workspace_cache.rs; then (W5, the same day) the last of
-# the wiring, agentic_wiring/preview_ctx, and server/previews/runtime.rs.
+# the wiring, agentic_wiring/preview_ctx, and server/previews/runtime.rs; then
+# (W6a, the same day) server/api/custom_apps_gates.rs and
+# server/api/projects/semantic_boundary.rs.
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay

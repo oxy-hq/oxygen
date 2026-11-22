@@ -75,6 +75,16 @@
 //!   the staging revision, writes held or confined to the preview's schemas).
 //! - [`preview_runtime`]: `PreviewRunResolver`, the global-run driver's
 //!   `RunPlatformResolver` that hands a preview-owned root that platform.
+//!
+//! Then, on 2026-11-22 (W6a), the custom-app data plane's composition root
+//! (`oxy-app` re-exports each at its old path: `server::api::custom_apps_gates`,
+//! `server::api::projects::semantic_boundary`):
+//!
+//! - [`custom_apps_gates`]: the gate chain answered as a response,
+//!   `parse_versioned_body`, and `build_project_context*` /
+//!   `build_caller_context`, which compose the data plane's `OxyProjectContext`.
+//! - [`semantic_boundary`]: the prelude the semantic-analysis twins (metric
+//!   tree, world model, cohort) enter by: the gate, the context and the scan.
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
@@ -83,6 +93,7 @@ pub mod airhouse_pool;
 pub mod app_airhouse;
 pub mod compile_dispatcher;
 pub mod connector;
+pub mod custom_apps_gates;
 pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;
@@ -94,6 +105,7 @@ pub mod preview_runtime;
 pub mod project_ctx;
 pub mod runtime_artifact;
 pub mod scan_source;
+pub mod semantic_boundary;
 pub mod sql_exec;
 pub mod sql_http;
 pub mod string_literal;

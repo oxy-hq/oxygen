@@ -1,7 +1,7 @@
 //! The decision half of the custom-app data-plane gate: who the caller is, which
 //! workspace the request is for, and whether that caller may read its data.
 //!
-//! `oxy-app`'s `custom_apps_gates` runs the gate chain for every custom-app
+//! `oxy-workspace-runtime`'s `custom_apps_gates` runs the gate chain for every custom-app
 //! endpoint (`POST /api/projects/:id/query`, `/semantic-query`,
 //! `/agents/.../asks`, `/automations/.../runs`): cookie / API-key auth, Origin
 //! allowlist, user lookup, DB connection, workspace lookup, org-membership
