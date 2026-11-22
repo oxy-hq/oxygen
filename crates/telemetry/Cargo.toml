@@ -9,6 +9,9 @@ description = "Platform telemetry: OTLP export of traces + logs to the cluster O
 oxy-shared = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+# `sentry_surface::HubBoundStream` implements `Stream`; the trait alone, not
+# the `futures` facade.
+futures-core = { workspace = true }
 http = { workspace = true }
 libc = { workspace = true }
 opentelemetry = { workspace = true }

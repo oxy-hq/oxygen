@@ -1129,6 +1129,12 @@ mod tests {
             // The route-role table (2026-11-21): in memory only, kept and not
             // the data plane as it was at `oxy_app::server::api::admin::routing`.
             "oxy_api_admin::routing",
+            // The custom-app surface tag (2026-11-21), down from
+            // `oxy_app::server::api::middlewares::sentry_surface`, which still
+            // re-exports it: it logs nothing itself, and its path carries no
+            // `custom_apps` marker here either. Kept, as it was there.
+            "oxy_app::server::api::middlewares::sentry_surface",
+            "oxy_telemetry::sentry_surface",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1378,6 +1384,10 @@ mod tests {
         for module in [
             "oxy_app::server::api::threads",
             "oxy_app::server::api::projects_admin",
+            // The custom-app surface tag (2026-11-21): a hub tag, no warehouse,
+            // not the data plane at its old path or its new one.
+            "oxy_app::server::api::middlewares::sentry_surface",
+            "oxy_telemetry::sentry_surface",
             // The IDE twins: workspace-scoped, behind the workspace middleware.
             "oxy_api_world_model::cohort",
             "oxy_api_world_model::graph",

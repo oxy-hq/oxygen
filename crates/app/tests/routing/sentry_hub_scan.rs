@@ -1,0 +1,1516 @@
+//! The custom-app Sentry surface tag (`oxy_telemetry::sentry_surface`, barrier
+//! 2) end to end, and the source walks that pin every spawn on the custom-app
+//! data plane and in `crates/agentic` carries the request's hub.
+//!
+//! Moved here from the in-source tests of `oxy-app`'s
+//! `server::api::middlewares::sentry_surface` on 2026-11-21, when the
+//! production half moved down to `oxy-telemetry`. `CARGO_MANIFEST_DIR` is
+//! still `crates/app` in this binary, so every walked root (`src/server`,
+//! `../api-*`, `../agentic`) and every path the walks compare against reads
+//! exactly as it did there. The `sentry_surface.rs` filename filter in
+//! [`server_sources`] still leaves out that module, now a re-export.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use axum::Router;
+use axum::body::Body;
+use axum::extract::Request;
+use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::routing::any;
+use futures::Stream;
+use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+use oxy_telemetry::sentry_surface::{bind_hub_stream, custom_app_hub, tag_custom_app_surface};
+use sentry::integrations::tower::NewSentryLayer;
+use tower::{ServiceBuilder, ServiceExt};
+
+/// As [`surface_tag_for`], but with the caller's host arriving the way the
+/// ide hop leaves it: `X-Forwarded-Host` set, `Host` rewritten to the
+/// in-cluster Service name (or absent).
+fn surface_tag_forwarded(forwarded_host: &str, host: Option<&str>, path: &str) -> Option<String> {
+    let mut headers = vec![("x-forwarded-host", forwarded_host.to_string())];
+    if let Some(host) = host {
+        headers.push(("host", host.to_string()));
+    }
+    surface_tag_with_headers(&headers, path)
+}
+
+/// Serve one request behind the same two layers serve.rs installs, from a
+/// handler that captures one error, and return that event's surface tag.
+fn surface_tag_for(host: &str, path: &str) -> Option<String> {
+    surface_tag_with_headers(&[("host", host.to_string())], path)
+}
+
+fn surface_tag_with_headers(headers: &[(&str, String)], path: &str) -> Option<String> {
+    let events = sentry::test::with_captured_events(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let app = Router::new().route(
+                "/{*path}",
+                any(|| async {
+                    sentry::capture_message("boom", sentry::Level::Error);
+                    StatusCode::OK
+                }),
+            );
+            let service = ServiceBuilder::new()
+                .layer(NewSentryLayer::<Request>::new_from_top())
+                .layer(axum::middleware::from_fn(tag_custom_app_surface))
+                .service(app);
+            let mut builder = Request::builder().uri(path);
+            for (name, value) in headers {
+                builder = builder.header(*name, value);
+            }
+            let request = builder.body(Body::empty()).expect("request");
+            service.oneshot(request).await.expect("response");
+        });
+    });
+    assert_eq!(events.len(), 1, "exactly one captured event");
+    events[0].tags.get(CUSTOM_APP_SURFACE_TAG).cloned()
+}
+
+#[test]
+fn a_request_on_a_custom_app_subdomain_is_tagged() {
+    assert_eq!(
+        surface_tag_for(
+            "acme--store.customer-apps.oxygen-hq.com",
+            "/api/projects/1/query"
+        ),
+        Some(CUSTOM_APP_SURFACE.to_string())
+    );
+}
+
+#[test]
+fn a_customer_apps_path_on_the_admin_host_is_tagged() {
+    assert_eq!(
+        surface_tag_for("app.oxygen-hq.com", "/customer-apps/acme/store/fn/orders"),
+        Some(CUSTOM_APP_SURFACE.to_string())
+    );
+}
+
+/// The regression this fixes. On the ide pod `ide_proxy` has stripped
+/// `Host`, so a proxied custom-app data call (tenant SQL and results)
+/// carries its real host only in `X-Forwarded-Host` — and its path is
+/// `/api/**`, not `/customer-apps/**`, so the path rule cannot save it.
+#[test]
+fn a_proxied_custom_app_data_call_is_tagged_by_x_forwarded_host() {
+    assert_eq!(
+        surface_tag_forwarded(
+            "acme--store.customer-apps.oxygen-hq.com",
+            Some("oxy-ide.oxy-prod.svc.cluster.local"),
+            "/api/projects/1/query"
+        ),
+        Some(CUSTOM_APP_SURFACE.to_string()),
+        "a stripped Host must not un-tag a custom-app data call"
+    );
+}
+
+/// `filter_request_headers` drops `Host` outright, so the header can be
+/// missing altogether rather than merely rewritten.
+#[test]
+fn x_forwarded_host_alone_is_enough() {
+    assert_eq!(
+        surface_tag_forwarded(
+            "acme--store.customer-apps.oxygen-hq.com",
+            None,
+            "/api/projects/1/semantic-query"
+        ),
+        Some(CUSTOM_APP_SURFACE.to_string())
+    );
+}
+
+/// An edge that already rewrote the host is the authority on what the
+/// client asked for, so `X-Forwarded-Host` outranks `Host` — the same
+/// precedence `ide_proxy` and `is_self_origin` use.
+#[test]
+fn x_forwarded_host_outranks_a_platform_host_header() {
+    assert_eq!(
+        surface_tag_forwarded(
+            "acme--store.customer-apps.oxygen-hq.com",
+            Some("app.oxygen-hq.com"),
+            "/api/threads"
+        ),
+        Some(CUSTOM_APP_SURFACE.to_string())
+    );
+}
+
+/// The converse: a platform request forwarded by the same hop stays
+/// untagged, so this cannot start swallowing Oxy's own errors.
+#[test]
+fn a_forwarded_platform_request_is_not_tagged() {
+    assert_eq!(
+        surface_tag_forwarded(
+            "app.oxygen-hq.com",
+            Some("oxy-ide.oxy-prod.svc.cluster.local"),
+            "/api/threads"
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_platform_request_is_not_tagged() {
+    assert_eq!(
+        surface_tag_for("app.oxygen-hq.com", "/api/customer-apps/1f0c/builds"),
+        None
+    );
+}
+
+/// Serve one request through the **real** custom-app gate —
+/// `enter_semantic_boundary`, the door every semantic-analysis twin enters
+/// by, and through it `check_custom_app_gates` — behind the two layers
+/// serve.rs installs, and return the tag on an event captured later in the
+/// same request. (It mounted `/query`, then the metric tree's
+/// `post_baseline`, until each moved to `oxy-api-custom-apps`; the handler
+/// here is one line around the same entry point, so the gate that tags is
+/// the shipped one.)
+///
+/// The `Origin` is deliberately foreign, so `check_custom_app_gates` stops
+/// at its allowlist step and the test needs no database. The gate tags
+/// before it authenticates, so that is exactly the case the tag must
+/// already cover.
+fn data_plane_surface_tag(host: &str) -> Option<String> {
+    route_surface_tag(
+        Router::new().route(
+            "/api/projects/{project_id}/semantic/metric-tree/baseline",
+            axum::routing::post(
+                |axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+                 headers: axum::http::HeaderMap| async move {
+                    use axum::response::IntoResponse as _;
+                    match oxy_app::server::api::projects::semantic_boundary::enter_semantic_boundary(
+                        &headers, project_id,
+                    )
+                    .await
+                    {
+                        Ok(_) => axum::http::StatusCode::OK.into_response(),
+                        Err(response) => response,
+                    }
+                },
+            ),
+        ),
+        host,
+        "/api/projects/0195f0d2-0000-7000-8000-000000000000/semantic/metric-tree/baseline",
+    )
+}
+
+/// As [`data_plane_surface_tag`], for any router. The capture happens in a
+/// layer *inside* `NewSentryLayer`, so it lands on the request's own hub —
+/// standing in for the handler's `error!`, an `OxyError::capture_to_sentry`
+/// or a panic later in the same request.
+fn route_surface_tag(app: Router, host: &str, path: &str) -> Option<String> {
+    let events = sentry::test::with_captured_events(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let service = ServiceBuilder::new()
+                .layer(NewSentryLayer::<Request>::new_from_top())
+                // The shipped URL rule is in the stack on purpose: these
+                // URLs are the ones it cannot recognise, so whatever tag
+                // appears came from the gate.
+                .layer(axum::middleware::from_fn(tag_custom_app_surface))
+                .layer(axum::middleware::from_fn(
+                    |req: Request, next: Next| async move {
+                        let response = next.run(req).await;
+                        sentry::capture_message("boom", sentry::Level::Error);
+                        response
+                    },
+                ))
+                .service(app);
+            let request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("host", host)
+                // Not this host, and not a loopback pair: `is_allowed_origin`
+                // refuses it, so the gate returns 403 before any DB call.
+                .header("origin", "https://not-this-host.example")
+                .body(Body::empty())
+                .expect("request");
+            service.oneshot(request).await.expect("response");
+        });
+    });
+    assert_eq!(events.len(), 1, "exactly one captured event");
+    events[0].tags.get(CUSTOM_APP_SURFACE_TAG).cloned()
+}
+
+/// C1. The canonical app URL is `<base>/customer-apps/<org>/<app>/`, and the
+/// bundle fetches its data same-origin with an empty `apiBaseUrl` — so the
+/// data call lands on the platform host with an `/api` path. No URL rule can
+/// see that; the gate can.
+#[test]
+fn a_custom_app_data_call_on_the_platform_host_is_tagged_by_the_gate() {
+    assert_eq!(
+        data_plane_surface_tag("app.oxygen-hq.com"),
+        Some(CUSTOM_APP_SURFACE.to_string()),
+        "a custom app's warehouse query must not reach Sentry untagged"
+    );
+}
+
+/// The same call from an app served on an org subdomain. `org_host_dispatch`
+/// passes `/api/**` through untouched by design, so this request is
+/// indistinguishable from a platform one by host or path too.
+#[test]
+fn a_custom_app_data_call_on_an_org_subdomain_is_tagged_by_the_gate() {
+    assert_eq!(
+        data_plane_surface_tag("acme.oxygen-hq.com"),
+        Some(CUSTOM_APP_SURFACE.to_string())
+    );
+}
+
+/// The converse, and the reason the tag is keyed on the gate rather than on
+/// `/api/**`: an ordinary web-app call on the same host stays untagged, so
+/// Oxy's own errors still reach Sentry.
+#[test]
+fn a_plain_platform_api_call_stays_untagged() {
+    assert_eq!(
+        route_surface_tag(
+            Router::new().route(
+                "/api/threads",
+                axum::routing::post(|| async { StatusCode::OK })
+            ),
+            "app.oxygen-hq.com",
+            "/api/threads",
+        ),
+        None
+    );
+}
+
+/// Why the gate is needed at all, stated as a fact about the URL rules:
+/// neither data-plane URL above matches either of them.
+#[test]
+fn the_url_rules_alone_cannot_see_the_data_plane() {
+    use oxy_telemetry::sentry_filter::is_custom_app_request;
+
+    for host in ["app.oxygen-hq.com", "acme.oxygen-hq.com"] {
+        assert!(
+            !is_custom_app_request(Some(host), "/api/projects/1/query"),
+            "{host}"
+        );
+        assert!(
+            !is_custom_app_request(Some(host), "/api/projects/1/semantic-query"),
+            "{host}"
+        );
+    }
+}
+
+/// Run `body` on a current-thread runtime under a capture client, and
+/// return the tags of every event it captured, in order.
+///
+/// Current-thread on purpose: a hub is per thread, so a multi-thread
+/// runtime would move a spawned task off the capture client and the
+/// *untagged* halves below would record nothing — passing for the wrong
+/// reason. Here every task is polled on this thread, so an unbound spawn
+/// really does capture, untagged.
+fn tags_captured_in<F>(body: F) -> Vec<Option<String>>
+where
+    F: FnOnce(&tokio::runtime::Runtime),
+{
+    let events = sentry::test::with_captured_events(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        body(&runtime);
+    });
+    events
+        .into_iter()
+        .map(|event| event.tags.get(CUSTOM_APP_SURFACE_TAG).cloned())
+        .collect()
+}
+
+/// The mechanism behind the two custom-app data-plane spawns (the agent
+/// ask and the automation run, both now `oxy-api-custom-apps`'s
+/// `agent_ask` and `automation_run`): both return 202
+/// while the run continues, so by the time the pipeline captures anything
+/// the request's hub has unwound.
+///
+/// The second half is the control: the *same* spawn without the binding
+/// captures untagged, so this cannot pass by inheriting a tag from
+/// somewhere else.
+#[test]
+fn a_spawn_carries_the_tag_only_when_it_is_bound() {
+    use sentry::SentryFutureExt;
+
+    let tags = tags_captured_in(|runtime| {
+        runtime.block_on(async {
+            // Read the hub on the spawning task, the way a handler does.
+            let bound = sentry::Hub::run(custom_app_hub(), || {
+                tokio::spawn(
+                    async {
+                        sentry::capture_message("bound", sentry::Level::Error);
+                    }
+                    .bind_hub(sentry::Hub::current()),
+                )
+            });
+            bound.await.expect("bound task");
+
+            let unbound = tokio::spawn(async {
+                sentry::capture_message("unbound", sentry::Level::Error);
+            });
+            unbound.await.expect("unbound task");
+        });
+    });
+
+    assert_eq!(
+        tags,
+        vec![Some(CUSTOM_APP_SURFACE.to_string()), None],
+        "the binding is what carries the tag past the request"
+    );
+}
+
+/// The one test that crosses the two crate names. `oxy-app` binds through
+/// `sentry::Hub`; `agentic_core::hub_task` reads `sentry_core::Hub`. Today
+/// those are one crate and one thread-local. Pin them apart — `sentry`
+/// bumped to 0.50 with `sentry-core` left at 0.49 — and Cargo resolves two
+/// copies with two thread-locals: everything compiles, `hub_task`'s own
+/// tests pass (they live entirely inside `sentry-core`), the source walk
+/// below passes, and `Hub::current()` inside the wrapper returns a hub this
+/// middleware never bound. The bug the wrapper closes comes back silently.
+///
+/// It is also the only end-to-end proof that the carry reaches what
+/// `before_send` reads: the tag on the event. There is no control half
+/// here because `a_spawn_carries_the_tag_only_when_it_is_bound` above is
+/// it — a bare spawn on this runtime captures *untagged*, which is exactly
+/// what this test sees the day the wrapper stops binding.
+#[test]
+fn a_spawn_through_the_agentic_wrapper_keeps_the_custom_app_tag() {
+    let tags = tags_captured_in(|runtime| {
+        runtime.block_on(async {
+            // Read on the spawning task, under the tagged hub, the way a
+            // custom-app handler calls into the pipeline.
+            let carried = sentry::Hub::run(custom_app_hub(), || {
+                agentic_core::hub_task::spawn_with_hub(async {
+                    sentry::capture_message("carried", sentry::Level::Error);
+                })
+            });
+            carried.await.expect("carried task");
+        });
+    });
+
+    assert_eq!(
+        tags,
+        vec![Some(CUSTOM_APP_SURFACE.to_string())],
+        "`agentic_core::hub_task` must carry the hub `sentry::Hub::run` bound. `[None]` \
+         means the wrapper stopped binding, or the workspace's `sentry` and \
+         `sentry-core` pins resolved to two different crate versions"
+    );
+}
+
+/// The mechanism behind `oxy-api-custom-apps`' `agent_run_stream`. An SSE body is a
+/// `Stream`, so `bind_hub` — a `Future` extension — cannot reach it, and
+/// axum polls it after the handler future has resolved and the tower
+/// layer's `Hub::run` has unwound.
+///
+/// Both halves are polled outside the tagged hub, which is exactly where
+/// axum polls a body; only the bound one is tagged.
+#[test]
+fn a_stream_carries_the_tag_only_when_it_is_bound() {
+    use futures::StreamExt;
+
+    fn capturing_stream(message: &'static str) -> impl Stream<Item = u8> {
+        async_stream::stream! {
+            yield 1u8;
+            sentry::capture_message(message, sentry::Level::Error);
+        }
+    }
+
+    let tags = tags_captured_in(|runtime| {
+        runtime.block_on(async {
+            // Built inside the tagged hub, as the handler builds it...
+            let bound = sentry::Hub::run(custom_app_hub(), || {
+                bind_hub_stream(capturing_stream("bound"), sentry::Hub::current())
+            });
+            // ...and drained outside it, as axum drains it.
+            assert_eq!(bound.collect::<Vec<_>>().await, vec![1]);
+
+            let unbound = sentry::Hub::run(custom_app_hub(), || capturing_stream("unbound"));
+            assert_eq!(unbound.collect::<Vec<_>>().await, vec![1]);
+        });
+    });
+
+    assert_eq!(
+        tags,
+        vec![Some(CUSTOM_APP_SURFACE.to_string()), None],
+        "an SSE body outlives the hub that built it"
+    );
+}
+
+/// Work that deliberately runs with no custom-app hub, and why. One entry
+/// per site, for the two source walks below.
+struct Unhubbed {
+    /// Relative to `crates/app` in the data-plane walk, to `crates/agentic`
+    /// in the agentic one.
+    file: &'static str,
+    site: &'static str,
+    why: &'static str,
+}
+
+fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// The functions a request enters the custom-app gate through. Reaching
+/// any of them *is* the custom-app identity ([`mark_custom_app_surface`]),
+/// so a file whose production code calls one is on the data plane and the
+/// walk below reads it. `check_custom_app_gates` is the gate;
+/// `mark_custom_app_surface` is what it tags the hub with; and
+/// `enter_semantic_boundary` wraps the gate for the semantic-analysis
+/// surfaces (metric tree, cohort, world model, projection), whose handlers
+/// never name the gate themselves.
+///
+/// A helper that wraps the gate and is called from another file MUST be
+/// listed, or every one of its callers is invisible to the walk — which is
+/// how the metric-tree baseline and the cohort read shipped their warehouse
+/// queries on bare `spawn_blocking`s. `gate_entry_points_are_complete`
+/// derives that set from the source and fails on an unlisted one.
+const GATE_ENTRY_POINTS: [&str; 3] = [
+    "check_custom_app_gates",
+    "mark_custom_app_surface",
+    "enter_semantic_boundary",
+];
+
+/// Every source file under `src/server`, under `oxy-api-custom-apps`
+/// (`../api-custom-apps/src`, where the function runtime, the job executor
+/// and publish now live) and under `oxy-api-world-model`'s customer-app
+/// twins (`../api-world-model/src/customer_app`) but this one, as `(path relative to the crate,
+/// raw source)`, sorted — the one traversal both the walk's
+/// scope and the entry-point derivation read, so a violation in either
+/// reports in a deterministic order. This module is left out: it defines
+/// the bindings and names every detector in its own tests.
+fn server_sources() -> Vec<(String, String)> {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    rust_files(&crate_root.join("src/server"), &mut files);
+    rust_files(&crate_root.join("../api-custom-apps/src"), &mut files);
+    // The world model's customer-app twins, which enter through
+    // `enter_semantic_boundary` from `oxy-api-world-model`.
+    rust_files(
+        &crate_root.join("../api-world-model/src/customer_app"),
+        &mut files,
+    );
+    // The IDE's metric-tree handlers, `oxy-api-metric-monitoring`'s since
+    // 2026-11-15. Not on the data plane; walked so the check that a file
+    // which only MENTIONS a gate entry point stays out of scope keeps a
+    // real subject (`../api-metric-monitoring/src/metric_tree.rs`), and so
+    // `gate_entry_points_are_complete` still sees the IDE's same-named
+    // handlers.
+    rust_files(&crate_root.join("../api-metric-monitoring/src"), &mut files);
+    // The observability console, `oxy-api-observability`'s since 2026-11-15
+    // (was `src/server/api/{traces,metrics,execution_analytics}.rs`). Not on
+    // the data plane (it reads Oxy's own product store); walked so a gate
+    // call added there is still seen.
+    rust_files(&crate_root.join("../api-observability/src"), &mut files);
+    // The camera list and the weather, `oxy-api-world-model`'s since
+    // 2026-11-15 (was `src/server/api/video.rs`, inside the walk above). Not
+    // on the data plane (the IDE and standalone apps call UniFi and
+    // OpenWeatherMap through it); walked so a gate call added there is
+    // still seen. The one file, not the crate: the customer-app twins are
+    // walked above, and the rest never were.
+    files.push(crate_root.join("../api-world-model/src/video.rs"));
+    // The automation listing and the schedules, `oxy-api-automations`'
+    // since 2026-11-15 (was `src/server/api/{automation,schedules}.rs`).
+    // Not on the data plane; walked so a gate call added there is seen.
+    rust_files(&crate_root.join("../api-automations/src"), &mut files);
+    // The workspace's databases and secrets, `oxy-api-workspace-config`'s
+    // since 2026-11-15 (was `src/server/api/{database,secrets}.rs`). Not on
+    // the data plane (IDE and settings reads behind the workspace
+    // middleware); walked so a gate call added there is seen.
+    rust_files(&crate_root.join("../api-workspace-config/src"), &mut files);
+    // The GitHub App's webhook receiver, `oxy-api-github`'s since
+    // 2026-11-15 (was `src/server/api/webhooks/github.rs`, inside the walk
+    // above). Not on the data plane (an HMAC check and the compile queue);
+    // walked so a gate call added there is seen. The one file, not the
+    // crate: the rest of it never was.
+    files.push(crate_root.join("../api-github/src/webhook.rs"));
+    // The Toast order webhook, `oxy-api-world-model`'s since 2026-11-15
+    // (was `src/server/api/webhooks/toast.rs`, inside the walk above). Not
+    // on the data plane (an HMAC check and a feed append); walked so a gate
+    // call added there is seen.
+    files.push(crate_root.join("../api-world-model/src/toast_webhook.rs"));
+    // The org subdomain's status, the logo and the partner-publish consent
+    // switch, `oxy-api-tenancy`'s since 2026-11-16 (was
+    // `src/server/api/{org_subdomain,workspace_logo,partner_publish_consent}.rs`,
+    // inside the walk above). Not on the data plane; walked so a gate call
+    // added there is seen. The three files, not the crate: the rest of it
+    // never was.
+    files.push(crate_root.join("../api-tenancy/src/org_subdomain.rs"));
+    files.push(crate_root.join("../api-tenancy/src/workspace_logo.rs"));
+    files.push(crate_root.join("../api-tenancy/src/partner_publish_consent.rs"));
+    // The staging branch compile, `oxy-api-previews`' since 2026-11-16
+    // (was `src/server/api/compile_staging.rs`, inside the walk above). Not
+    // on the data plane; walked so a gate call added there is seen.
+    files.push(crate_root.join("../api-previews/src/compile_staging.rs"));
+    // The health probes and route discovery, `oxy-server`'s since
+    // 2026-11-16 (was `src/server/api/{healthcheck,catalog}.rs`, inside
+    // the walk above). Not on the data plane; walked so a gate call added
+    // there is seen.
+    rust_files(&crate_root.join("../server/src/core_routes"), &mut files);
+    // The conversation surface, `oxy-api-threads`' since 2026-11-16 (was
+    // `src/server/api/{thread,agent,artifacts,chart,result_files}.rs` and
+    // `chat/`, inside the walk above). Not on the data plane (the IDE's
+    // threads and org chat); walked so a gate call added there is seen.
+    rust_files(&crate_root.join("../api-threads/src"), &mut files);
+    // The workspaces surface, `oxy-api-workspaces`' since 2026-11-16 (was
+    // `src/server/api/{workspaces/,workspace_members,workspace_oxy_access,
+    // apps}.rs`, inside the walk above). Not on the data plane; walked so
+    // a gate call added there is seen.
+    rust_files(&crate_root.join("../api-workspaces/src"), &mut files);
+    // The semantic surface, `oxy-api-semantic`'s since 2026-11-16 (was
+    // `src/server/api/{semantic,semantic_scan,data,preagg}.rs`, inside the
+    // walk above). Not on the data plane; walked so a gate call added
+    // there is seen.
+    rust_files(&crate_root.join("../api-semantic/src"), &mut files);
+    // The workspace runtime, `oxy-workspace-runtime`'s since 2026-11-21
+    // (was `src/server/{runtime_artifact,api/typed_stream}.rs`, inside the
+    // walk above, and the agentic wiring's leaves). Not on the data plane;
+    // walked so a gate call added there is seen.
+    rust_files(&crate_root.join("../workspace-runtime/src"), &mut files);
+    files.sort();
+    files
+        .into_iter()
+        .filter(|path| {
+            !path
+                .file_name()
+                .is_some_and(|name| name == "sentry_surface.rs")
+        })
+        .filter_map(|path| {
+            let text = fs::read_to_string(&path).ok()?;
+            let relative = path
+                .strip_prefix(crate_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some((relative, text))
+        })
+        .collect()
+}
+
+/// The driver side of a custom app's procedure run. It passes no gate — the
+/// request that did is long gone — so it is kept in the walk by name, like
+/// the function job executor: it mints [`custom_app_hub`] for a run whose
+/// automation is tenant-authored. `oxy-api-custom-apps`' since 2026-11-14.
+const PROCEDURE_RUN_EXECUTOR: &str = "../api-custom-apps/src/automation_run/executor.rs";
+
+/// Publish, in `oxy-api-custom-apps`.
+const CUSTOM_APPS_PUBLISH: &str = "../api-custom-apps/src/custom_apps_publish.rs";
+
+/// The files the data-plane walk reads: every module whose production code
+/// calls one of `entry_points`, plus three kept in by name — the two places
+/// a hub is *made* rather than inherited from a request (the function
+/// runtime and the job executor), and `custom_apps_publish.rs`, which never
+/// passes the gate and is never tagged but carries the request hub across
+/// its unpack and file-walk pool hops on purpose, so a panic there is not
+/// attributed to whatever the pool thread last ran; that carry keeps its
+/// remove-it test here. By call, not by mention: a bare-name match would
+/// take the IDE's own metric-tree and world-model handlers in through the
+/// comments that name `enter_semantic_boundary`, and it was only such a
+/// comment that ever put publish in.
+fn data_plane_scope(entry_points: &[&str]) -> Vec<(String, String)> {
+    server_sources()
+        .into_iter()
+        .filter(|(relative, text)| {
+            let always_scanned = relative
+                .starts_with("../api-custom-apps/src/custom_apps_functions/")
+                || relative == "../api-custom-apps/src/app_function_executor.rs"
+                || relative == PROCEDURE_RUN_EXECUTOR
+                || relative == CUSTOM_APPS_PUBLISH;
+            let production = production_text(text);
+            let reaches_the_gate = entry_points
+                .iter()
+                .any(|entry| calls(&production, entry) > 0);
+            always_scanned || reaches_the_gate
+        })
+        .collect()
+}
+
+/// Boundary: every spawn and stream on the custom-app **data plane** must
+/// carry a hub.
+///
+/// The mechanism tests above prove `bind_hub` and [`bind_hub_stream`] work.
+/// They cannot prove any particular call site uses one — delete the
+/// `.bind_hub(..)` from `agent_ask` and both still pass, which is how three
+/// of these sites survived the first pass. Driving each site end to end is
+/// not the answer either: every one of them needs a live pipeline and a
+/// database to reach the point where it would capture.
+///
+/// So the objection is mechanical and the source is the evidence, as in
+/// `tests/authz/authz_boundaries.rs`. In scope ([`data_plane_scope`]):
+/// every module whose production code calls a gate entry point
+/// ([`GATE_ENTRY_POINTS`]) — reaching the gate *is* the custom-app
+/// identity ([`mark_custom_app_surface`]), so the set grows with the data
+/// plane instead of being a list someone must remember to extend. The gate
+/// is entered through helpers as well as by name — the semantic-analysis
+/// handlers go through `enter_semantic_boundary` and never say
+/// `check_custom_app_gates` — so the entry points are a list, and
+/// `gate_entry_points_are_complete` keeps it complete: matching the one
+/// literal left `projects/metric_tree.rs` and `projects/cohort.rs` out of
+/// the walk, each running warehouse reads on a bare `spawn_blocking`. Plus
+/// three files kept in by name: the two places a hub is *made* rather than
+/// inherited from a request — the function runtime
+/// (`custom_apps_functions/`: the isolate thread, the host-call reply
+/// tasks, the blocking-pool hops in `host.rs`) and the job executor
+/// (`app_function_executor.rs`, which mints [`custom_app_hub`] for a
+/// scheduled run) — and `custom_apps_publish.rs`, which passes no gate but
+/// carries the request hub across its pool hops deliberately. Those are
+/// the carries the design names by hand, and they had no remove-it test
+/// until this walk reached them.
+///
+/// Counting per file, rather than pairing each spawn with its own binding,
+/// is deliberate: a binding sits at the end of the spawned block, tens of
+/// lines from its `tokio::spawn(`, and a proximity rule there would be a
+/// guess. A count still fails on both moves that matter — a binding
+/// removed, or a new unbound spawn added. A file's trailing `#[cfg(test)]
+/// mod` is cut before counting: a spawn inside a test runs under the test's
+/// own hub, and demanding a binding there would prove nothing.
+#[test]
+fn every_custom_app_data_plane_spawn_carries_a_hub() {
+    const UNHUBBED: &[Unhubbed] = &[
+        Unhubbed {
+            file: "../api-custom-apps/src/automation_run/mod.rs",
+            site: "spawn_periodic_sweep",
+            why: "a boot-time loop started as a `SurfaceSeams::background` job, not request \
+                  work: there is no request hub to inherit. What it can report is Oxy's \
+                  own `customer_app_procedure_runs` UPDATE failing, and since 2026-11-14 \
+                  that line comes from `oxy_api_custom_apps::automation_run`, which \
+                  `drop_log` drops on every Sentry surface — so a failure shows up only \
+                  in the platform logs. A `custom_app_hub()` would change nothing.",
+        },
+        Unhubbed {
+            file: "../api-custom-apps/src/custom_apps_functions/runtime/warm_pool.rs",
+            site: "oxy-function-refill",
+            why: "the warm pool's refill thread, started once on the first take, not \
+                  request work: it only builds idle isolates ahead of demand, so there is \
+                  no request hub to inherit, and what it can capture is Oxy's own isolate \
+                  build failing — a platform bug carrying no tenant payload. The other \
+                  thread here, the one that runs a job, carries the invocation's hub \
+                  through `Hub::run`.",
+        },
+    ];
+
+    /// A spawn, blocking-pool hop, thread or stream that outlives the hub
+    /// it was created under. `spawn_blocking(` is matched bare so the
+    /// `tokio::task::` spelling and a `use`d one both count; `thread::spawn(`
+    /// likewise covers `std::thread::spawn(`. A spawn through a runtime
+    /// `Handle` is a spawn too — the held-write log's `Drop` wrote its row
+    /// that way, unbound, and no `tokio::spawn(` detector saw it — so the
+    /// usual spellings of one count: a `handle`/`runtime` binding, and
+    /// `Handle::current().spawn(` / `Handle::spawn(` inline.
+    const DETECTORS: [&str; 10] = [
+        "tokio::spawn(",
+        "tokio::task::spawn(",
+        "spawn_blocking(",
+        "async_stream::stream!",
+        "std::thread::Builder",
+        "thread::spawn(",
+        "handle.spawn(",
+        "runtime.spawn(",
+        "Handle::current().spawn(",
+        "Handle::spawn(",
+    ];
+    /// The ways to carry the hub across one: `bind_hub` on a future (the
+    /// request's hub, or the one [`custom_app_hub`] mints for a job),
+    /// [`bind_hub_stream`] on a stream, and `Hub::run` around a blocking
+    /// closure or a thread body. The `bind_hub` forms are spelled out in
+    /// full so a `.bind_hub(..)` of some other hub is not taken for a carry
+    /// — including the one hub carried from *earlier*: the held-write
+    /// log's, captured when the log is made, because its `Drop` runs where
+    /// `Hub::current()` is no longer the request's.
+    const BINDINGS: [&str; 6] = [
+        ".bind_hub(sentry::Hub::current())",
+        ".bind_hub(crate::server::api::middlewares::sentry_surface::custom_app_hub())",
+        ".bind_hub(oxy_telemetry::sentry_filter::custom_app_hub())",
+        ".bind_hub(Arc::clone(&self.writer.hub))",
+        "bind_hub_stream(",
+        "Hub::run(",
+    ];
+
+    let mut scanned = 0usize;
+    let mut sites = 0usize;
+    for (relative, text) in data_plane_scope(&GATE_ENTRY_POINTS) {
+        // Production code only: a test module in its own file
+        // (`foo_tests.rs`, `tests.rs`, declared `#[cfg(test)] mod …;`) and a
+        // trailing `#[cfg(test)] mod tests` both spawn under the test's own hub.
+        if relative.ends_with("_tests.rs") || relative.ends_with("/tests.rs") {
+            continue;
+        }
+        let text = match text.rfind("#[cfg(test)]\nmod ") {
+            Some(cut) => &text[..cut],
+            None => text.as_str(),
+        };
+        let count =
+            |needles: &[&str]| -> usize { needles.iter().map(|n| text.matches(n).count()).sum() };
+        let detected = count(&DETECTORS);
+        if detected == 0 {
+            continue;
+        }
+        scanned += 1;
+        sites += detected;
+
+        let exempt: Vec<&Unhubbed> = UNHUBBED
+            .iter()
+            .filter(|entry| entry.file == relative)
+            .collect();
+        let bound = count(&BINDINGS);
+
+        assert_eq!(
+            detected,
+            bound + exempt.len(),
+            "{relative}: {detected} spawn/blocking/thread/stream site(s), {bound} hub \
+             binding(s), {} documented exemption(s) ({}).\n\n\
+             Work started here outlives the request hub `tag_custom_app_surface` \
+             tagged, so `sentry_config::before_send` can no longer tell it is a \
+             custom app's — and barrier 1 will not catch it either, since a callee's \
+             `error!` and a panic carry no `custom_apps` target. Read \
+             `sentry::Hub::current()` on the spawning task and bind it: \
+             `.bind_hub(..)` on a future, `bind_hub_stream(..)` on a stream, \
+             `sentry::Hub::run(hub, ..)` around a blocking closure or a thread body. \
+             If this site genuinely has no request hub, add it to `UNHUBBED` with \
+             the reason.",
+            exempt.len(),
+            exempt
+                .iter()
+                .map(|entry| entry.site)
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+
+        for entry in exempt {
+            assert!(
+                text.contains(entry.site),
+                "{relative}: exemption for `{}` no longer matches anything in the file \
+                 — it was documented as: {}",
+                entry.site,
+                entry.why,
+            );
+        }
+    }
+
+    // The walk itself has to be load-bearing: a bad root, a renamed gate or
+    // a moved runtime directory would scan nothing and pass. 13 files and
+    // 19 sites when this floor was set (by call plus the three named files:
+    // the metric-tree baseline and the cohort read joined, publish stayed).
+    assert!(
+        scanned >= 11 && sites >= 17,
+        "expected the data-plane walk to find at least the known sites, \
+         scanned {scanned} file(s) / {sites} site(s)"
+    );
+}
+
+/// The walk's scope follows [`GATE_ENTRY_POINTS`], and each entry is
+/// load-bearing: the semantic-analysis handlers reach the gate only
+/// through `enter_semantic_boundary`, so dropping that name from the list
+/// drops them from the walk — the gap this pins shut.
+#[test]
+fn the_data_plane_scope_follows_every_gate_entry_point() {
+    let paths = |entry_points: &[&str]| -> Vec<String> {
+        data_plane_scope(entry_points)
+            .into_iter()
+            .map(|(relative, _)| relative)
+            .collect()
+    };
+    const THROUGH_THE_HELPER: [&str; 2] = [
+        "../api-custom-apps/src/data_plane/metric_tree.rs",
+        "../api-world-model/src/customer_app/cohort.rs",
+    ];
+    const THROUGH_THE_GATE: [&str; 2] = [
+        "../api-custom-apps/src/data_plane/query.rs",
+        "../api-custom-apps/src/data_plane/semantic_query.rs",
+    ];
+
+    let scope = paths(&GATE_ENTRY_POINTS);
+    for file in THROUGH_THE_HELPER.iter().chain(&THROUGH_THE_GATE) {
+        assert!(
+            scope.iter().any(|path| path == file),
+            "{file} must be in the data-plane walk's scope"
+        );
+    }
+
+    let without_the_helper: Vec<&str> = GATE_ENTRY_POINTS
+        .iter()
+        .copied()
+        .filter(|entry| *entry != "enter_semantic_boundary")
+        .collect();
+    let narrowed = paths(&without_the_helper);
+    for file in THROUGH_THE_HELPER {
+        assert!(
+            !narrowed.iter().any(|path| path == file),
+            "{file} reaches the gate only through `enter_semantic_boundary`; without that \
+             entry it must leave the scope, or the entry is not what puts it there"
+        );
+    }
+    for file in THROUGH_THE_GATE {
+        assert!(
+            narrowed.iter().any(|path| path == file),
+            "{file} calls the gate by name and stays whatever the helper list says"
+        );
+    }
+
+    // A mention is not a call: the IDE's own metric-tree handler names the
+    // helper in a comment and must stay out, or its spawns — platform work
+    // under a platform hub — would be demanded a custom-app binding.
+    assert!(
+        !scope
+            .iter()
+            .any(|path| path == "../api-metric-monitoring/src/metric_tree.rs"),
+        "a file that only mentions a gate entry point is not on the data plane"
+    );
+
+    // Publish calls no gate and is in by name, whatever the list says, so
+    // its deliberate carries keep their remove-it test.
+    for paths in [&scope, &narrowed] {
+        assert!(
+            paths.iter().any(|path| path == CUSTOM_APPS_PUBLISH),
+            "custom_apps_publish.rs is kept in the scope by name"
+        );
+    }
+}
+
+/// [`GATE_ENTRY_POINTS`] is complete. Every function whose body calls a
+/// listed entry point and which some *other* file calls is a way into the
+/// gate the walk has to follow, so it must be listed too — closed under
+/// the list itself, so a helper that wraps a helper is caught the same
+/// way. A handler calls the gate as well, but the router mounts it —
+/// `post(post_baseline)`, no call — and nothing calls it, so it needs no
+/// entry. And the other direction: a listed name no such function carries
+/// is a stale entry, kept only to match prose.
+///
+/// The SDK's handlers share their names with the IDE's — `post_baseline`
+/// is defined in both `api-metric-monitoring`'s `metric_tree.rs` and
+/// `api-custom-apps`'
+/// `data_plane/metric_tree.rs`
+/// — so a file that *defines* a function of the name is not counted as
+/// calling it: its `name(` is its own. A genuine cross-file call of a
+/// handler still trips the check, and the message says what to do then.
+///
+/// The derivation is textual ([`fn_items`], [`calls`], [`defines`]), so it
+/// is pinned twice: on fixtures below, and here by having to find both
+/// helpers.
+#[test]
+fn gate_entry_points_are_complete() {
+    let sources: Vec<(String, String)> = server_sources()
+        .into_iter()
+        .map(|(relative, text)| (relative, production_text(&text)))
+        .collect();
+
+    let mut helpers: Vec<(String, String)> = Vec::new();
+    for (file, text) in &sources {
+        for (name, body) in fn_items(text) {
+            let enters_the_gate = GATE_ENTRY_POINTS
+                .iter()
+                .any(|entry| calls(&body, entry) > 0);
+            if !enters_the_gate {
+                continue;
+            }
+            let called_elsewhere = sources.iter().any(|(other, text)| {
+                other != file && !defines(text, &name) && calls(text, &name) > 0
+            });
+            if called_elsewhere {
+                helpers.push((name, file.clone()));
+            }
+        }
+    }
+
+    for (name, file) in &helpers {
+        assert!(
+            GATE_ENTRY_POINTS.contains(&name.as_str()),
+            "{file}: `{name}` enters the custom-app gate and other files call it, but it is \
+             not in `GATE_ENTRY_POINTS` — so every file that reaches the gate through it is \
+             left out of `every_custom_app_data_plane_spawn_carries_a_hub`, and a bare spawn \
+             there captures a tenant's error untagged.\n\n\
+             If `{name}` is a helper that handlers enter the gate through, add it to the \
+             list. If it is an axum handler, listing it is the WRONG fix: the SDK's handlers \
+             share their names with the IDE's, so the entry would pull every file that calls \
+             anything so named into the walk — the IDE's `metric_tree.rs` and its \
+             platform-hub spawns included. The fix then is to stop calling the handler \
+             across files: mount it, or extract what the caller needs into a helper and list \
+             that."
+        );
+    }
+    for entry in GATE_ENTRY_POINTS {
+        // The marker is the root: it sets the tag rather than calling a gate.
+        if entry == "mark_custom_app_surface" {
+            continue;
+        }
+        assert!(
+            helpers.iter().any(|(name, _)| name == entry),
+            "`{entry}` is in `GATE_ENTRY_POINTS`, but no function of that name both calls a \
+             gate entry point and is called from another file — a stale entry, or the \
+             derivation stopped seeing it. Remove it, or fix `fn_items` / `calls`."
+        );
+    }
+}
+
+/// The name of the `fn` item `line` opens, if it opens one. Visibility and
+/// qualifiers come in the order rustfmt writes them; a declaration with no
+/// body (a trait method ending in `;`) opens nothing.
+fn fn_name(line: &str) -> Option<&str> {
+    let mut rest = line.trim_start();
+    loop {
+        let before = rest;
+        for qualifier in [
+            "pub(crate) ",
+            "pub(super) ",
+            "pub ",
+            "const ",
+            "async ",
+            "unsafe ",
+        ] {
+            if let Some(after) = rest.strip_prefix(qualifier) {
+                rest = after;
+            }
+        }
+        if rest == before {
+            break;
+        }
+    }
+    let name = rest
+        .strip_prefix("fn ")?
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .next()?;
+    (!name.is_empty() && !line.trim_end().ends_with(';')).then_some(name)
+}
+
+/// Every `fn` item in `text` (production text, so comments and test
+/// modules are already gone) as `(name, body)`. rustfmt puts an item's
+/// opening line and its closing `}` at one indentation with nothing else
+/// at that indentation between them, so the pair bounds the body; an item
+/// opening at the same indentation, or any line at a shallower one, closes
+/// whatever is open. A `fn` nested inside another's body is not an item of
+/// its own here: it opens nothing, and its body — a gate call included —
+/// counts as the outer function's. `src/server` has a few such local
+/// helpers today and none calls a gate; if one ever does, the outer
+/// function is what the derivation reports, which errs towards listing.
+fn fn_items(text: &str) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    let mut open: Option<(String, usize, String)> = None;
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        let opens = fn_name(line);
+        if let Some((name, at, mut body)) = open.take() {
+            if line.trim() == "}" && indent == at {
+                items.push((name, body));
+                continue;
+            }
+            let interrupted =
+                !line.trim().is_empty() && (indent < at || (opens.is_some() && indent == at));
+            if !interrupted {
+                body.push_str(line);
+                body.push('\n');
+                open = Some((name, at, body));
+                continue;
+            }
+            items.push((name, body));
+        }
+        if let Some(name) = opens {
+            if line.trim_end().ends_with('}') {
+                items.push((name.to_string(), line.to_string()));
+            } else {
+                open = Some((name.to_string(), indent, String::new()));
+            }
+        }
+    }
+    if let Some((name, _, body)) = open {
+        items.push((name, body));
+    }
+    items
+}
+
+/// How many times `text` calls the free function `name`: `name(` that is
+/// not its definition (`fn name(`), not a method of that name on some type
+/// (`.name(`), and not the tail of a longer identifier.
+fn calls(text: &str, name: &str) -> usize {
+    let needle = format!("{name}(");
+    text.match_indices(&needle)
+        .filter(|(at, _)| {
+            let before = &text[..*at];
+            !before.ends_with("fn ")
+                && !before.ends_with('.')
+                && !before
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+        .count()
+}
+
+/// Whether `text` defines a function named `name` — the reason a `name(`
+/// in that file is its own and not a call of a same-named function
+/// elsewhere.
+fn defines(text: &str, name: &str) -> bool {
+    text.contains(&format!("fn {name}(")) || text.contains(&format!("fn {name}<"))
+}
+
+/// The derivation's parser, on fixtures: a helper that wraps the gate is
+/// found by the call in its body, a method or a trait declaration is not
+/// mistaken for one, a nested `fn` folds into its parent, and a definition,
+/// a method call, a longer name or a comment elsewhere is not a call.
+#[test]
+fn a_gate_helper_is_derived_from_a_call_not_a_mention() {
+    let source = [
+        "pub(crate) async fn enter_boundary(",
+        "    headers: &HeaderMap,",
+        ") -> Result<Boundary, Response> {",
+        "    let app = check_custom_app_gates(headers, project_id).await?;",
+        "    Ok(app)",
+        "}",
+        "impl Boundary {",
+        "    fn project_id(&self) -> Uuid {",
+        "        self.app.project_id",
+        "    }",
+        "}",
+        "trait Gate {",
+        "    fn check_custom_app_gates(&self);",
+        "}",
+    ]
+    .join("\n");
+    let items = fn_items(&source);
+    let names: Vec<&str> = items.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["enter_boundary", "project_id"]);
+    assert_eq!(calls(&items[0].1, "check_custom_app_gates"), 1);
+    assert_eq!(calls(&items[1].1, "check_custom_app_gates"), 0);
+
+    // A nested fn is not an item of its own: its gate call is `outer`'s.
+    let nested = [
+        "fn outer() {",
+        "    fn inner() {",
+        "        check_custom_app_gates(h, id);",
+        "    }",
+        "}",
+    ]
+    .join("\n");
+    let items = fn_items(&nested);
+    let names: Vec<&str> = items.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["outer"], "a nested fn folds into its parent");
+    assert_eq!(calls(&items[0].1, "check_custom_app_gates"), 1);
+
+    // A file that defines the name is not counted as calling it.
+    assert!(defines(
+        "pub async fn post_baseline(\n    headers: HeaderMap,\n) -> Response {",
+        "post_baseline"
+    ));
+    assert!(defines("fn post_baseline<T>(t: T) {", "post_baseline"));
+    assert!(!defines(
+        "let r = post_baseline(headers).await;",
+        "post_baseline"
+    ));
+
+    assert_eq!(
+        calls(
+            "let b = enter_boundary(&headers, id).await?;",
+            "enter_boundary"
+        ),
+        1
+    );
+    assert_eq!(
+        calls(
+            "let b = super::enter_boundary(&headers, id).await?;",
+            "enter_boundary"
+        ),
+        1
+    );
+    assert_eq!(
+        calls(
+            "pub async fn enter_boundary(headers: &HeaderMap) {",
+            "enter_boundary"
+        ),
+        0
+    );
+    assert_eq!(calls("state.enter_boundary(id);", "enter_boundary"), 0);
+    assert_eq!(calls("re_enter_boundary(id);", "enter_boundary"), 0);
+    assert_eq!(
+        calls(
+            &production_text("// see enter_boundary(..)\nfn f() {}\n"),
+            "enter_boundary"
+        ),
+        0,
+        "prose is not production text"
+    );
+}
+
+/// A spawn or blocking-pool hop inside the agentic crates, one detector per
+/// way of writing one. `spawn_blocking(` matched bare covers the
+/// `tokio::task::` spelling, a `use`d one and the `JoinSet` / `Handle`
+/// methods; `spawn_local(` likewise covers `tokio::task::spawn_local` and
+/// the `LocalSet` / `JoinSet` methods; `.spawn(` covers a `JoinSet`, a
+/// runtime `Handle`, a `task::Builder`, a `std::thread::Builder` and a
+/// scoped thread. Every spelling trips exactly **one** detector — a
+/// `std::thread::Builder` detector beside `.spawn(` would count one site
+/// twice and demand two exemptions for it — which
+/// `a_bare_agentic_spawn_is_detected_in_every_spelling` pins.
+const AGENTIC_DETECTORS: [&str; 7] = [
+    "tokio::spawn(",
+    "tokio::task::spawn(",
+    "spawn_blocking(",
+    "spawn_local(",
+    ".spawn(",
+    "thread::spawn(",
+    "spawn_scoped(",
+];
+/// The one carry a detector can pair with: the two wrappers replace their
+/// detector outright, so only the executor form leaves one behind.
+const AGENTIC_BINDINGS: [&str; 1] = ["bind_current_hub("];
+/// The wrappers, counted only to prove the walk reached the sites.
+const AGENTIC_CARRIES: [&str; 3] = [
+    "spawn_with_hub(",
+    "spawn_blocking_with_hub(",
+    "bind_current_hub(",
+];
+
+/// `source` with every `#[cfg(test)] mod … { … }` block and every comment
+/// line removed. Test modules are cut wherever they sit, not only at the
+/// tail (`worker.rs` keeps one mid-file): rustfmt guarantees a top-level
+/// module closes with a `}` in column 0, and that is the cut. Shared by
+/// the agentic walk, [`data_plane_scope`] and the entry-point derivation.
+fn production_text(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut lines = source.lines().peekable();
+    while let Some(line) = lines.next() {
+        if line == "#[cfg(test)]"
+            && lines
+                .peek()
+                .is_some_and(|next| next.starts_with("mod ") && next.ends_with('{'))
+        {
+            for inner in lines.by_ref() {
+                if inner == "}" {
+                    break;
+                }
+            }
+            continue;
+        }
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// A file that only ever compiles under `cfg(test)`: anything under a
+/// `tests/` directory, or a `tests.rs` / `*_tests.rs` module.
+fn is_agentic_test_file(relative: &str) -> bool {
+    let mut parts = relative.split('/').peekable();
+    let mut name = "";
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            name = part;
+        } else if part == "tests" {
+            return true;
+        }
+    }
+    let stem = name.trim_end_matches(".rs");
+    stem == "tests" || stem.ends_with("_tests") || stem.ends_with("_test")
+}
+
+/// What one agentic source file's production code spawns.
+struct AgenticSpawns {
+    /// Detector hits: spawns the wrappers did not replace.
+    detected: usize,
+    /// `bind_current_hub(` calls, each able to pair with one detector hit.
+    bound: usize,
+    /// Wrapper calls of every kind.
+    carried: usize,
+}
+
+impl AgenticSpawns {
+    fn of(source: &str) -> Self {
+        let text = production_text(source);
+        let count =
+            |needles: &[&str]| -> usize { needles.iter().map(|n| text.matches(n).count()).sum() };
+        Self {
+            detected: count(&AGENTIC_DETECTORS),
+            bound: count(&AGENTIC_BINDINGS),
+            carried: count(&AGENTIC_CARRIES),
+        }
+    }
+
+    /// Every detected spawn is accounted for by a binding or a documented
+    /// exemption.
+    ///
+    /// `<=`, not `==`. A `bind_current_hub(` with no detector beside it — a
+    /// bound future handed to something the detectors do not name — is
+    /// over-binding, and an exact count failed it with a message about
+    /// bare spawns that pointed nowhere. The price is the one a per-file
+    /// count always carried: it cannot say *which* binding belongs to which
+    /// spawn, so a surplus binding can cover one bare spawn in the same
+    /// file. The exact form never prevented that either; it only forbade
+    /// the surplus.
+    fn all_carried(&self, exemptions: usize) -> bool {
+        self.detected <= self.bound + exemptions
+    }
+}
+
+/// Boundary, second walk: no bare spawn inside the agentic crates.
+///
+/// The walk above stops at `oxy-app`'s handlers, but the work they start
+/// runs on inside `crates/agentic/*` — the pipeline run behind a custom
+/// app's `useAsk`, an automation run, a connector query on the blocking
+/// pool — and every `tokio::spawn` in there dropped the hub the handler
+/// had bound, so an error or panic past that point reached Sentry
+/// untagged. Those crates cannot know the tag (`agentic-core` depends on
+/// nothing of ours), so they carry the hub blind:
+/// `agentic_core::hub_task::{spawn_with_hub, spawn_blocking_with_hub}`
+/// replace `tokio::spawn` / `spawn_blocking` outright, and
+/// `bind_current_hub` wraps the future handed to an executor those two
+/// cannot stand in for (`JoinSet::spawn`, `LocalSet::spawn_local`).
+///
+/// So the rule is simpler than the one above: a bare spawn has nothing to
+/// pair against and must not exist unless `UNHUBBED_AGENTIC` names it — a
+/// boot-time loop with no request hub to inherit, or a task that outlives
+/// the request that started it, where a carried hub would misattribute
+/// whatever it captures later. An exemption whose spawn is gone fails too:
+/// left behind, it would cover the next bare spawn added to that file.
+/// `async_stream::stream!` is not a detector here: a stream body runs on
+/// its poller's hub, and the only streams that escape one — SSE bodies —
+/// are bound where the custom-app handlers hand them to axum, above.
+///
+/// This lives here rather than in `agentic-core` because it shares
+/// `Unhubbed` and `rust_files` with the walk above and CI runs it on every
+/// PR; the cost is that `just unit agentic-runtime` alone stays green on a
+/// bare spawn.
+#[test]
+fn every_agentic_spawn_carries_a_hub() {
+    const UNHUBBED_AGENTIC: &[Unhubbed] = &[
+        Unhubbed {
+            file: "runtime/src/orchestrator/background.rs",
+            site: "start_with_options",
+            why: "the reaper + health-probe loop `background::start` spawns once at boot: \
+                  there is no request hub to inherit, and what it can capture is Oxy's \
+                  own queue upkeep failing — a platform bug, which is what Sentry is for.",
+        },
+        Unhubbed {
+            file: "runtime/src/orchestrator/router/postgres.rs",
+            site: "start_with_options",
+            why: "the LISTEN/NOTIFY listener loop the task router starts at boot.",
+        },
+        Unhubbed {
+            file: "runtime/src/orchestrator/router/postgres.rs",
+            site: "listen_once",
+            why: "that listener's connection driver: it lives as long as the listen \
+                  does and serves no request.",
+        },
+        Unhubbed {
+            file: "connector/src/postgres.rs",
+            site: "ensure_client_connected",
+            why: "the connection driver of the connector's memoized `Client`: it lives as \
+                  long as that client does and serves no single request, so carrying the \
+                  hub of whichever request opened the connection would drop a later \
+                  driver error as that custom app's. (`postgres_tx`'s driver is \
+                  transaction-scoped and stays wrapped.)",
+        },
+    ];
+
+    let agentic_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../agentic");
+    let mut files = Vec::new();
+    rust_files(&agentic_root, &mut files);
+    files.sort();
+
+    let mut walked = 0usize;
+    let mut carried = 0usize;
+    for path in files {
+        let relative = path
+            .strip_prefix(&agentic_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        // The wrappers themselves, and the tests that spawn bare on purpose.
+        if is_agentic_test_file(&relative) || relative == "core/src/hub_task.rs" {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        walked += 1;
+        let spawns = AgenticSpawns::of(&raw);
+        carried += spawns.carried;
+
+        let exempt: Vec<&Unhubbed> = UNHUBBED_AGENTIC
+            .iter()
+            .filter(|entry| entry.file == relative)
+            .collect();
+        let exempt_sites = exempt
+            .iter()
+            .map(|entry| entry.site)
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        assert!(
+            exempt.len() <= spawns.detected,
+            "crates/agentic/{relative}: {} documented exemption(s) ({exempt_sites}) but only \
+             {} bare spawn site(s) — an exempted spawn was removed or wrapped. Delete its \
+             `UNHUBBED_AGENTIC` entry: left behind, it would cover the next bare spawn \
+             added to this file.",
+            exempt.len(),
+            spawns.detected,
+        );
+        assert!(
+            spawns.all_carried(exempt.len()),
+            "crates/agentic/{relative}: {} bare spawn/blocking/thread site(s), but only {} \
+             `bind_current_hub` binding(s) and {} documented exemption(s) ({exempt_sites}) \
+             to account for them.\n\n\
+             Work spawned here drops the hub of the task that spawned it — for a \
+             custom app's run, the tag `before_send` needs to keep the tenant's error \
+             or panic out of Sentry. Spawn through `agentic_core::hub_task` \
+             (`agentic_runtime::hub_task` from `agentic-http`): `spawn_with_hub(..)` \
+             for `tokio::spawn`, `spawn_blocking_with_hub(..)` for `spawn_blocking`, \
+             `bind_current_hub(..)` on the future handed to a `JoinSet`, a `LocalSet` \
+             or another executor. If this is a loop started at boot with no request \
+             hub to inherit, or a task that outlives the request that started it, add \
+             it to `UNHUBBED_AGENTIC` with the reason.",
+            spawns.detected,
+            spawns.bound,
+            exempt.len(),
+        );
+        if !exempt.is_empty() {
+            let text = production_text(&raw);
+            for entry in exempt {
+                assert!(
+                    text.contains(entry.site),
+                    "crates/agentic/{relative}: exemption for `{}` no longer matches \
+                     anything in the file — it was documented as: {}",
+                    entry.site,
+                    entry.why,
+                );
+            }
+        }
+    }
+
+    // The walk has to be load-bearing: a moved crate directory would walk
+    // nothing and a renamed wrapper would count nothing, and either would
+    // pass every per-file check above. 301 files and 47 carried sites when
+    // these floors were set.
+    assert!(
+        walked >= 250,
+        "the agentic walk read only {walked} source file(s), expected at least 250. Did \
+         `crates/agentic` move? Fix the root this test walks rather than the number."
+    );
+    assert!(
+        carried >= 40,
+        "the agentic walk counted only {carried} `hub_task` call site(s), expected at \
+         least 40. If the wrappers were renamed, update `AGENTIC_CARRIES`. If the agentic \
+         crates legitimately shed spawns, nothing is wrong: lower this floor to just \
+         under the new count. It exists only so a scan that silently matches nothing \
+         cannot pass."
+    );
+}
+
+/// The scan's arithmetic, on fixtures: every way of writing a bare spawn
+/// trips exactly one detector and fails its file. One, not two — a site
+/// counted twice would need two bindings, or two exemptions, to clear.
+#[test]
+fn a_bare_agentic_spawn_is_detected_in_every_spelling() {
+    const BARE: [&str; 11] = [
+        "fn f() { tokio::spawn(async {}); }",
+        "fn f() { tokio::task::spawn(async {}); }",
+        "fn f() { tokio::task::spawn_blocking(|| ()); }",
+        "fn f(handle: Handle) { handle.spawn_blocking(|| ()); }",
+        "fn f() { tokio::task::spawn_local(async {}); }",
+        "fn f(local: &LocalSet) { local.spawn_local(async {}); }",
+        "fn f(set: &mut JoinSet<()>) { set.spawn(async {}); }",
+        "fn f() { std::thread::spawn(|| ()); }",
+        "fn f() { std::thread::Builder::new().spawn(|| ()).unwrap(); }",
+        "fn f() { std::thread::scope(|s| { s.spawn(|| ()); }); }",
+        "fn f(s: &Scope, b: Builder) { b.spawn_scoped(s, || ()).unwrap(); }",
+    ];
+    for source in BARE {
+        let spawns = AgenticSpawns::of(source);
+        assert_eq!(
+            spawns.detected, 1,
+            "`{source}` should trip exactly one detector"
+        );
+        assert!(
+            !spawns.all_carried(0),
+            "`{source}` is a bare spawn and must fail its file"
+        );
+    }
+}
+
+/// ...and the other direction: a wrapped, bound or exempted spawn passes,
+/// over-binding is not punished, test and comment text is not production
+/// code — and a bare spawn beside a bound one still fails.
+#[test]
+fn a_carried_agentic_spawn_passes_and_a_bare_one_beside_it_does_not() {
+    // The wrappers leave no detector behind.
+    let wrapped =
+        AgenticSpawns::of("fn f() { spawn_with_hub(async {}); spawn_blocking_with_hub(|| ()); }");
+    assert_eq!(
+        (wrapped.detected, wrapped.bound, wrapped.carried),
+        (0, 0, 2)
+    );
+    assert!(wrapped.all_carried(0));
+
+    // An executor spawn pairs with its binding, a `LocalSet` included.
+    for source in [
+        "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(async {})); }",
+        "fn f(local: &LocalSet) { local.spawn_local(bind_current_hub(async {})); }",
+    ] {
+        let spawns = AgenticSpawns::of(source);
+        assert_eq!((spawns.detected, spawns.bound), (1, 1), "{source}");
+        assert!(spawns.all_carried(0), "{source}");
+    }
+
+    // Over-binding: a bound future handed to something no detector names.
+    let over_bound = AgenticSpawns::of(
+        "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(a())); \
+         let later = bind_current_hub(b()); }",
+    );
+    assert_eq!((over_bound.detected, over_bound.bound), (1, 2));
+    assert!(
+        over_bound.all_carried(0),
+        "a surplus binding is not a bare spawn"
+    );
+
+    // A bare spawn beside a bound one still fails the file...
+    let mixed = AgenticSpawns::of(
+        "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(a())); tokio::spawn(b()); }",
+    );
+    assert_eq!((mixed.detected, mixed.bound), (2, 1));
+    assert!(!mixed.all_carried(0));
+    // ...unless it is a documented exemption.
+    assert!(mixed.all_carried(1));
+
+    // Test modules, wherever they sit, and comment lines are not production.
+    let source = [
+        "// tokio::spawn( named in prose",
+        "fn f() {}",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    fn t() { tokio::spawn(async {}); }",
+        "}",
+        "fn g() { spawn_with_hub(async {}); }",
+    ]
+    .join("\n");
+    let spawns = AgenticSpawns::of(&source);
+    assert_eq!((spawns.detected, spawns.carried), (0, 1));
+}
+
+#[test]
+fn a_background_job_hub_carries_the_tag() {
+    let events = sentry::test::with_captured_events(|| {
+        sentry::Hub::run(custom_app_hub(), || {
+            sentry::capture_message("boom", sentry::Level::Error);
+        });
+    });
+    assert_eq!(events.len(), 1, "exactly one captured event");
+    assert_eq!(
+        events[0]
+            .tags
+            .get(CUSTOM_APP_SURFACE_TAG)
+            .map(String::as_str),
+        Some(CUSTOM_APP_SURFACE)
+    );
+}

@@ -23,6 +23,7 @@
 //! | [`propagation`] | `traceparent` injection for the internal serve → ide hop               |
 //! | [`stderr_capture`] | Every stray stderr line (dependencies, C libs, panics) as JSON, repeats collapsed |
 //! | [`sentry_filter`] | What reaches Sentry: `error` an event, `warn` a breadcrumb, custom-app targets and surfaces nothing |
+//! | [`sentry_surface`] | The custom-app surface tag on a request's hub, and the stream that carries a hub across polls |
 //!
 //! ## Configuration is the OpenTelemetry environment contract
 //!
@@ -51,6 +52,7 @@ pub mod otel;
 pub mod propagation;
 pub mod resource;
 pub mod sentry_filter;
+pub mod sentry_surface;
 pub mod stderr_capture;
 pub mod with_dispatch;
 

@@ -8,8 +8,8 @@
 //! panics out of Sentry — and a pipeline run, an automation step or a
 //! connector query hopping onto another task inside these crates was losing
 //! it. The three functions here read [`Hub::current`] synchronously on the
-//! spawning task and bind it, the same carry `oxy-app`'s `sentry_surface`
-//! makes at its own spawns.
+//! spawning task and bind it, the same carry `oxy-app` makes at its own
+//! spawns (`oxy_telemetry::sentry_surface` is the tag).
 //!
 //! This crate learns nothing about the tag: it carries whichever hub is
 //! current, tagged or not, and nothing here reads or sets scope. The read is
@@ -19,7 +19,7 @@
 //! every hub to a no-op and there would be nothing to carry.
 //!
 //! These are the only request-scoped spawns the agentic crates make.
-//! `oxy-app`'s `sentry_surface` scan test (`every_agentic_spawn_carries_a_hub`)
+//! `oxy-app`'s hub scan (`tests/routing/sentry_hub_scan.rs`, `every_agentic_spawn_carries_a_hub`)
 //! fails on a bare `tokio::spawn` / `spawn_blocking` under `crates/agentic`,
 //! and keeps the allowlist of what legitimately stays bare: boot-time loops
 //! with no request hub to inherit, and a task that outlives the request that
