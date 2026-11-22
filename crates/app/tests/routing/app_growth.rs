@@ -83,6 +83,8 @@ const SERVER: &[&str] = &[
 
 const SERVER_API: &[&str] = &[
     "admin",
+    // Re-exports only since decompose B2 (the gate is `oxy_billing::gate`,
+    // the past-due dispatcher `oxy_api_billing::billing::notify`).
     "billing",
     "custom_apps_gates",
     "local_setup",

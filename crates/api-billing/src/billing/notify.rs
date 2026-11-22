@@ -1,4 +1,6 @@
-//! Dispatcher for [`BillingNotification`]s emitted by `oxy-billing`.
+//! Dispatcher for [`BillingNotification`]s emitted by `oxy-billing`. Out of
+//! `oxy-app`'s `server::api::billing::notify` (decompose B2): the Stripe
+//! webhook and the staff resync, both this crate's, were its only callers.
 //!
 //! Two things per past-due episode:
 //!
@@ -14,12 +16,12 @@
 //! billing transition is already committed.
 
 use entity::org_members::OrgRole;
-use oxy::database::client::establish_connection;
 use oxy_billing::service::BillingNotification;
+use oxy_platform::db::establish_connection;
 use sea_orm::{DatabaseConnection, DbErr};
 use uuid::Uuid;
 
-use crate::emails::billing_past_due::{PastDueEmail, send_past_due_email};
+use oxy_app_core::emails::billing_past_due::{PastDueEmail, send_past_due_email};
 use oxy_app_core::notifications::platform::{PlatformNotice, PlatformSent, notify, people};
 
 /// Record each notification's inbox notice and spawn its email. `public_url`

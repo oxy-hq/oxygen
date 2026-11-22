@@ -40,10 +40,11 @@ pub use crate::server::api::middlewares::subscription_guard::subscription_guard_
 
 /// Billing's base, which `oxy-app` reads as well as billing's surface
 /// (`oxy-api-billing`, since the admin split's PR 9): the one switch for the
-/// subsystem (`billing_service`, which the paywall's `billing_disabled` shares)
-/// and the past-due dispatcher the Stripe webhook and the staff resync call.
+/// subsystem (`billing_service`, which the paywall's `billing_disabled` shares;
+/// `oxy_billing::gate` since decompose B1). The past-due dispatcher left for
+/// `oxy-api-billing` in decompose B2.
 pub mod billing {
-    pub use crate::server::api::billing::{billing_service, notify};
+    pub use crate::server::api::billing::billing_service;
 }
 
 /// Workspace-scoped request context, as the workspace seam provides it.

@@ -4,11 +4,13 @@
 //! and [`public_routes`](crate::public_routes) (the public seam,
 //! `POST /webhooks/stripe`).
 //!
-//! The service gate (`billing_service`, `billing_disabled`) and the past-due
-//! dispatcher (`notify`) stayed in `oxy-app`, which reads them too; this
-//! module takes them through `oxy_app::surface::billing`.
+//! The service gate (`billing_service`, `billing_disabled`) lives in
+//! `oxy_billing::gate` (decompose B1); this module takes it through
+//! `oxy_app::surface::billing`. The past-due dispatcher ([`notify`]) stayed in
+//! `oxy-app` at PR 9 and followed its callers here in decompose B2.
 
 pub mod handlers;
+pub mod notify;
 pub mod webhook;
 
 use axum::Router;

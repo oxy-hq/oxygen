@@ -5,7 +5,8 @@
 //! `oxy-app`'s routes together with the extracted surface crates (`/orgs` and the
 //! rest of tenancy is `oxy-api-tenancy`'s), behind the one `/api` auth stack.
 //! Only this crate depends on both — which is also why the notification tests
-//! that span the custom-app and notifications surfaces live here.
+//! that span the custom-app and notifications surfaces live here, and billing's
+//! past-due notice, which spans billing's and notifications'.
 //!
 //! `token_auth` owns a database cloned from the per-run template, using
 //! `oxy-app`'s harness included by path rather than copied (it owns the
@@ -14,6 +15,8 @@
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
+#[path = "../../../api-notifications/tests/integration/platform_notices/fixture.rs"]
+mod notices_fixture;
 #[path = "../../../api-notifications/tests/integration/notification_categories/fixture.rs"]
 mod notification_fixture;
 #[path = "../../../app/tests/common/oltp_fx.rs"]
@@ -26,4 +29,8 @@ mod oltp_fx;
 // and a surface may not depend on another, so they are the composition root's.
 mod console_test_notification;
 mod notification_function_action;
+// Billing's past-due notice (decompose B2): `oxy-api-billing` sends it, and
+// the notifications surface delivers it, honours (or here, refuses) a mute and
+// renders it in the inbox.
+mod billing_past_due_notice;
 mod token_auth;

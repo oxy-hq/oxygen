@@ -26,7 +26,7 @@ use oxy_billing::service::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::billing::{billing_service, notify};
+use oxy_app::surface::billing::billing_service;
 use oxy_app_core::AppState;
 use oxy_app_core::emails::billing_checkout::{
     CheckoutEmail, EmailSendOutcome, send_checkout_email,
@@ -149,7 +149,7 @@ pub(crate) async fn resync_subscription(
     let sync_seats = body.map(|Json(r)| r.sync_seats).unwrap_or(true);
     match svc.admin_resync_subscription(org_id, sync_seats).await {
         Ok(notifications) => {
-            notify::dispatch(notifications, svc.public_url().to_string()).await;
+            crate::billing::notify::dispatch(notifications, svc.public_url().to_string()).await;
             Ok(StatusCode::NO_CONTENT)
         }
         Err(BillingError::NoSubscription) => {

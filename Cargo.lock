@@ -9607,6 +9607,7 @@ dependencies = [
  "oxy-custom-apps",
  "oxy-feature-flags",
  "oxy-oltp",
+ "oxy-platform",
  "oxy-server-authz",
  "oxy-shared",
  "oxy-test-utils",

@@ -703,6 +703,10 @@ mod tests {
             // The service gate's line, down from `oxy_app::server::api::billing`
             // into `oxy_billing::gate` (decompose B1): kept, as it was there.
             "oxy_billing::gate",
+            // The past-due dispatcher's lines, out of
+            // `oxy_app::server::api::billing::notify` into `oxy-api-billing`
+            // (decompose B2): kept, as they were there.
+            "oxy_api_billing::billing::notify",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),
@@ -1204,6 +1208,9 @@ mod tests {
             "oxy_api_billing::billing",
             "oxy_api_billing::billing::handlers",
             "oxy_api_billing::billing::webhook",
+            // Decompose B2: the past-due dispatcher, out of
+            // `oxy_app::server::api::billing::notify`, kept as it was there.
+            "oxy_api_billing::billing::notify",
             // The admin split (2026-11-20): the grant table, Oxy's own
             // Postgres only, kept and not the data plane as it was at
             // `oxy_app::server::api::admin::app_admins`.
@@ -1711,6 +1718,10 @@ mod tests {
             "oxy_api_billing::billing",
             "oxy_api_billing::billing::handlers",
             "oxy_api_billing::billing::webhook",
+            // Decompose B2: the past-due dispatcher. It writes the owners'
+            // inbox notice to Oxy's own Postgres and mails one owner; no
+            // warehouse query.
+            "oxy_api_billing::billing::notify",
             // The admin split (2026-11-20): the grant table. It reads and
             // writes `app_admins`; no warehouse query.
             "oxy_api_admin::app_admins",

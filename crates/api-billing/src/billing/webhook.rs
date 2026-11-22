@@ -23,7 +23,7 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use serde_json::Value as JsonValue;
 
-use oxy_app::surface::billing::{billing_service, notify};
+use oxy_app::surface::billing::billing_service;
 use oxy_billing::service::LookupOutcome;
 
 pub async fn stripe_webhook(headers: HeaderMap, body: Bytes) -> StatusCode {
@@ -91,7 +91,7 @@ pub async fn stripe_webhook(headers: HeaderMap, body: Bytes) -> StatusCode {
                 // mark success again. Log and move on.
                 tracing::warn!(?e, event_id = %event_id, "mark_success failed");
             }
-            notify::dispatch(notifications, svc.public_url().to_string()).await;
+            crate::billing::notify::dispatch(notifications, svc.public_url().to_string()).await;
             StatusCode::OK
         }
         Err(e) => {

@@ -14,7 +14,8 @@ edition.workspace = true
 # What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
 # types (`AdminSection`, `seams::{GlobalTickSeam, TickPass}`), the capability
 # they name (`Action`), `org_middleware`, the org role guards, and billing's
-# base (`billing::{billing_service, notify}`, which oxy-app reads too). oxy-app never depends back on this crate.
+# base (`billing::billing_service`, which oxy-app reads too; `notify` moved here
+# in decompose B2). oxy-app never depends back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
@@ -25,6 +26,7 @@ oxy-feature-flags = { workspace = true } # the `billing` switch
 oxy-authz = { workspace = true }        # `Cap` (the audience), `Scope` (a reader's reach)
 oxy-server-authz = { workspace = true } # staff::scope (the reader's reach), globals (who holds the audience)
 oxy-billing = { workspace = true }      # the Billing queue's and the tenant routes' Stripe service and DTOs
+oxy-platform = { workspace = true }     # billing::notify's connection (`db::establish_connection`)
 oxy-shared = { workspace = true }       # fleet_role: the tenant routes' and the webhook's FleetOk rows
 entity = { workspace = true }           # org_billing::BillingCycle
 axum = { workspace = true }

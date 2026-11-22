@@ -1,16 +1,9 @@
-//! Billing's base: what stays in `oxy-app` after the admin split's PR 9 moved
-//! billing's HTTP surface (the tenant's `/orgs/{org_id}/billing/*` routes, the
-//! Stripe webhook and the staff console's billing section) to
-//! `oxy-api-billing`.
-//!
-//! - [`billing_service`] / [`billing_disabled`]: the one switch for the billing
-//!   subsystem, which moved down to `oxy_billing::gate` (decompose B1) and is
-//!   re-exported here so `oxy_app::surface::billing` keeps its shape.
-//! - [`notify`]: the past-due dispatcher. The webhook and the staff resync call
-//!   it (through `oxy_app::surface::billing`), and `oxy-api-notifications`'
-//!   tests drive its `past_due_notice`, which they could not reach in another
-//!   surface (S3).
-
-pub mod notify;
+//! Billing's base, now only a re-export. The admin split's PR 9 moved
+//! billing's HTTP surface to `oxy-api-billing`; decompose B1 moved the one
+//! switch ([`billing_service`] / [`billing_disabled`]) down to
+//! `oxy_billing::gate`, re-exported here because the paywall, the seat
+//! reconciler and `oxy_app::surface::billing` read it at this path; decompose
+//! B2 moved the past-due dispatcher (`notify`) to `oxy-api-billing`'s
+//! `billing::notify`, beside its only callers.
 
 pub use oxy_billing::{billing_disabled, billing_service};

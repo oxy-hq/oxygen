@@ -1,273 +1,36 @@
 //! Platform notices (`oxy.*` kinds) against a real Oxy database: who each
 //! source tells, that each person is told once per subject, that the words are
 //! rendered from Oxy's records with no org OLTP store, that platform mutes
-//! apply per kind and channel, that billing cannot be muted, and that a
-//! failing pipeline tells once per streak, then daily (`run_failed_streak`).
+//! apply per kind and channel, and that a failing pipeline tells once per
+//! streak, then daily (`run_failed_streak`). Billing's notice (every owner,
+//! once per episode, and that it cannot be muted) is driven by
+//! `oxy-api-billing`, so its cases are `oxy-server`'s
+//! (`billing_past_due_notice`, decompose B2); they share [`fixture`].
 //!
 //! Run with:
 //! `cargo nextest run -p oxy-api-notifications --test integration -E 'test(platform_notices)'`
 
-use chrono::{TimeZone, Utc};
-use entity::org_members::OrgRole;
+use entity::notification_sends;
 use entity::workspaces::WorkspaceStatus;
-use entity::{
-    notification_deliveries, notification_sends, notifications, org_members, organizations, users,
-    workspaces,
-};
 use oxy_api_notifications::delivery::{Channel, deliver_send};
 use oxy_api_notifications::inbox_view;
-use oxy_api_notifications::platform::kinds::{BILLING_PAST_DUE, RUN_FAILED, WORKSPACE_READY};
+use oxy_api_notifications::platform::kinds::{RUN_FAILED, WORKSPACE_READY};
 use oxy_api_notifications::platform::preferences;
 use oxy_api_notifications::platform::run_failed::notify_run_failed;
 use oxy_api_notifications::platform::workspace_ready::notify_workspace_ready;
-use oxy_api_notifications::settings::model::Node;
-use oxy_api_notifications::settings::store;
-use oxy_app::surface::testing::billing::notify::past_due_notice;
-use sea_orm::ActiveValue::Set;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    Statement,
-};
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Statement};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
 
+pub(crate) mod fixture;
+use fixture::{people, push_outcome, seed_org, seed_user, seed_workspace, sorted, told};
+
 mod anomaly;
 mod ask_finished;
 mod ask_waiting;
 mod run_failed_streak;
-
-struct Org {
-    id: Uuid,
-    slug: String,
-    owner: Uuid,
-    second_owner: Uuid,
-    admin: Uuid,
-    member: Uuid,
-}
-
-async fn seed_user(db: &DatabaseConnection) -> Uuid {
-    let id = Uuid::new_v4();
-    users::ActiveModel {
-        id: Set(id),
-        email: Set(Some(format!("p-{}@example.com", id.simple()))),
-        name: Set(format!("Person {}", &id.simple().to_string()[..6])),
-        picture: Set(None),
-        email_verified: Set(true),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("seed user");
-    id
-}
-
-async fn join(db: &DatabaseConnection, org: Uuid, user: Uuid, role: OrgRole) {
-    let now = Utc::now().fixed_offset();
-    org_members::ActiveModel {
-        id: Set(Uuid::new_v4()),
-        org_id: Set(org),
-        user_id: Set(user),
-        role: Set(role),
-        created_at: Set(now),
-        updated_at: Set(now),
-    }
-    .insert(db)
-    .await
-    .expect("join org");
-}
-
-/// An org with two owners, an admin and a member — and no OLTP store, which a
-/// platform notice must not need.
-async fn seed_org(db: &DatabaseConnection) -> Org {
-    let id = Uuid::new_v4();
-    let slug = format!("notices-{}", id.simple());
-    let now = Utc::now().fixed_offset();
-    organizations::ActiveModel {
-        id: Set(id),
-        name: Set("Acme".into()),
-        slug: Set(slug.clone()),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("seed org");
-    let org = Org {
-        id,
-        slug,
-        owner: seed_user(db).await,
-        second_owner: seed_user(db).await,
-        admin: seed_user(db).await,
-        member: seed_user(db).await,
-    };
-    join(db, id, org.owner, OrgRole::Owner).await;
-    join(db, id, org.second_owner, OrgRole::Owner).await;
-    join(db, id, org.admin, OrgRole::Admin).await;
-    join(db, id, org.member, OrgRole::Member).await;
-    org
-}
-
-async fn seed_workspace(
-    db: &DatabaseConnection,
-    org: Uuid,
-    name: &str,
-    status: WorkspaceStatus,
-    created_by: Option<Uuid>,
-) -> Uuid {
-    let id = Uuid::new_v4();
-    let now = Utc::now().fixed_offset();
-    workspaces::ActiveModel {
-        id: Set(id),
-        name: Set(name.into()),
-        created_at: Set(now),
-        updated_at: Set(now),
-        org_id: Set(Some(org)),
-        status: Set(status),
-        created_by: Set(created_by),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("seed workspace");
-    id
-}
-
-async fn told(db: &DatabaseConnection, kind: &str, subject_id: &str) -> Vec<notifications::Model> {
-    notifications::Entity::find()
-        .filter(notifications::Column::Kind.eq(kind))
-        .filter(notifications::Column::SubjectId.eq(subject_id))
-        .all(db)
-        .await
-        .expect("query notices")
-}
-
-fn people(rows: &[notifications::Model]) -> Vec<Uuid> {
-    let mut ids: Vec<Uuid> = rows.iter().map(|r| r.user_id).collect();
-    ids.sort();
-    ids
-}
-
-fn sorted(mut ids: Vec<Uuid>) -> Vec<Uuid> {
-    ids.sort();
-    ids
-}
-
-async fn push_outcome(db: &DatabaseConnection, signal: Uuid) -> (String, Option<String>) {
-    let row = notification_deliveries::Entity::find_by_id((signal, "push".to_string()))
-        .one(db)
-        .await
-        .expect("query delivery")
-        .expect("a push delivery was recorded");
-    (row.status, row.reason)
-}
-
-/// Billing tells every owner, once per episode, needs no OLTP store, and is
-/// critical: a mute row cannot silence it, and the settings route refuses to
-/// write one.
-#[tokio::test]
-async fn platform_notices_billing_reaches_every_owner_once_and_cannot_be_muted() {
-    let (db, _url) = fresh_db(Schema::All).await;
-    let org = seed_org(&db).await;
-    seed_workspace(&db, org.id, "Default", WorkspaceStatus::Ready, None).await;
-    let grace = Utc.with_ymd_and_hms(2026, 10, 21, 9, 0, 0).unwrap();
-
-    let sent = past_due_notice(&db, org.id, grace).await.expect("notice");
-    assert_eq!(sent.recipients, 2);
-    let again = past_due_notice(&db, org.id, grace).await.expect("replay");
-    assert_eq!(
-        (again.recipients, again.already_told),
-        (0, 2),
-        "a replayed webhook tells nobody twice"
-    );
-
-    let rows = told(&db, BILLING_PAST_DUE, "2026-10-21T09:00:00Z").await;
-    assert_eq!(people(&rows), sorted(vec![org.owner, org.second_owner]));
-    let send = notification_sends::Entity::find_by_id(sent.id.unwrap())
-        .one(&db)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        send.critical && !send.email,
-        "critical, and the owner email is billing's own"
-    );
-    assert!(
-        send.run_id.is_some(),
-        "queued under the org's workspace, not delivered inline"
-    );
-
-    // The settings route will not write the mute; a row written anyway is
-    // ignored at delivery.
-    assert_eq!(
-        preferences::set(&db, org.owner, BILLING_PAST_DUE, Channel::Push, true).await,
-        Err(axum::http::StatusCode::BAD_REQUEST)
-    );
-    let billing = Node::Kind(BILLING_PAST_DUE.into());
-    store::set_channel(&db, org.owner, None, &billing, Channel::Push, Some(false))
-        .await
-        .expect("seed a mute");
-    deliver_send(&db, sent.id.unwrap()).await;
-    let owners_signal = rows.iter().find(|r| r.user_id == org.owner).unwrap();
-    assert_ne!(
-        push_outcome(&db, owners_signal.id).await.1.as_deref(),
-        Some("muted"),
-        "a critical kind ignores mutes"
-    );
-
-    let items = inbox_view::items(&db, vec![owners_signal.clone()])
-        .await
-        .expect("inbox");
-    assert_eq!(items[0].title.as_deref(), Some("Payment past due for Acme"));
-    assert!(
-        items[0]
-            .body
-            .as_deref()
-            .unwrap()
-            .contains("October 21, 2026")
-    );
-    assert_eq!(
-        items[0].href.as_deref(),
-        Some(format!("/{}?settings=organization.billing", org.slug).as_str())
-    );
-    assert!(items[0].app.is_none() && items[0].link.is_none());
-}
-
-/// Billing's subject is the grace period's end, which two orgs can share to the
-/// second. A person who owns both must hear about each: "already told" is per
-/// org, not per subject alone.
-#[tokio::test]
-async fn platform_notices_billing_tells_an_owner_of_two_orgs_about_each() {
-    let (db, _url) = fresh_db(Schema::All).await;
-    let first = seed_org(&db).await;
-    let second = seed_org(&db).await;
-    join(&db, second.id, first.owner, OrgRole::Owner).await;
-    seed_workspace(&db, first.id, "Default", WorkspaceStatus::Ready, None).await;
-    seed_workspace(&db, second.id, "Default", WorkspaceStatus::Ready, None).await;
-    let grace = Utc.with_ymd_and_hms(2026, 10, 21, 9, 0, 0).unwrap();
-
-    past_due_notice(&db, first.id, grace)
-        .await
-        .expect("first org");
-    let sent = past_due_notice(&db, second.id, grace)
-        .await
-        .expect("second org");
-    assert_eq!(
-        (sent.recipients, sent.already_told),
-        (3, 0),
-        "the shared owner is told about the second org too"
-    );
-
-    let shared_owner_orgs: Vec<Uuid> = told(&db, BILLING_PAST_DUE, "2026-10-21T09:00:00Z")
-        .await
-        .into_iter()
-        .filter(|r| r.user_id == first.owner)
-        .map(|r| r.org_id)
-        .collect();
-    assert_eq!(sorted(shared_owner_orgs), sorted(vec![first.id, second.id]));
-}
 
 /// The first workspace anyone can open is news for every member; a later one
 /// for its creator and the org's owners and admins. A workspace that is not

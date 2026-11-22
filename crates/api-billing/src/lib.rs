@@ -9,9 +9,10 @@
 //! `oxy-app`: the staff billing console ([`admin::billing`], out of
 //! `admin::billing`) and the tenant billing routes with the Stripe webhook
 //! ([`billing`], out of `api::billing`). The service gate (`billing_service`,
-//! `billing_disabled`) and the past-due dispatcher (`notify`) stayed in
-//! `oxy-app`, which reads them too, and arrive through
-//! `oxy_app::surface::billing`.
+//! `billing_disabled`, in `oxy_billing::gate` since decompose B1) arrives
+//! through `oxy_app::surface::billing`; the past-due dispatcher
+//! ([`billing::notify`]) stayed in `oxy-app` at PR 9 and came here in
+//! decompose B2, with its only callers.
 //!
 //! Mounted by the `oxy-server` composition root through four seams:
 //!

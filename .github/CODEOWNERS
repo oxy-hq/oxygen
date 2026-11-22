@@ -399,7 +399,8 @@ crates/billing/                                    @NTtanh @luong-komorebi
 crates/app/src/server/api/billing/                 @NTtanh @luong-komorebi
 # The tenant's billing routes and the Stripe webhook, out of
 # crates/app/src/server/api/billing/ into oxy-api-billing (admin split PR 9):
-# their owners follow them, over the crate's row above. (The Billing queue,
+# their owners follow them, over the crate's row above, and so do the
+# past-due dispatcher's (billing/notify.rs, decompose B2). (The Billing queue,
 # out of crates/app/src/server/api/admin/, takes the crate's owners.)
 crates/api-billing/src/billing/                    @NTtanh @luong-komorebi
 web-app/src/pages/billing/                         @NTtanh @luong-komorebi

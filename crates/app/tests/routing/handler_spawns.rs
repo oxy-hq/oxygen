@@ -125,12 +125,14 @@ const ALLOWED: &[(&str, &str)] = &[
          socket, then dispatches it. Per-process by nature, like the socket; \
          the dispatched run is the same backlog as `webhooks/events.rs`",
     ),
-    // ---- oxy-app: the handler layer ----
     (
-        "app/src/server/api/billing/notify.rs",
+        // `oxy-api-billing` since decompose B2 (was
+        // `app/src/server/api/billing/notify.rs`).
+        "api-billing/src/billing/notify.rs",
         "backlog: sends the past-due email off the billing tick. Same shape as the \
          magic link: one email, best effort, should be a durable delivery task",
     ),
+    // ---- oxy-app: the handler layer ----
     (
         // `oxy-api-threads` since 2026-11-16 (was `app/src/server/api/chat/`),
         // started through the `chat_delivery_listener` background seam.
