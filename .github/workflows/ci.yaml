@@ -1645,6 +1645,8 @@ jobs:
           # guarantee) start their own Postgres testcontainer; this makes a
           # failure to start one red instead of a silent skip.
           OXY_TEST_REQUIRE_POSTGRES: "1"
+          # Same rule for agentic-connector's MySQL suite (a testcontainer).
+          OXY_TEST_REQUIRE_MYSQL: "1"
           OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET: oxy-documents
           AWS_ENDPOINT_URL: http://127.0.0.1:9000
           AWS_REGION: us-east-1

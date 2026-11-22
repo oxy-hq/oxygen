@@ -2,7 +2,8 @@
 //!
 //! Spins up MySQL 8 via testcontainers (root user, no password, `test`
 //! database) unless `OXY_TEST_MYSQL_URL` is set. Container reused across
-//! tests via `OnceCell`. Skips gracefully when Docker is unavailable.
+//! tests via `OnceCell`. Skips when Docker is unavailable, unless
+//! `OXY_TEST_REQUIRE_MYSQL=1` (CI), which makes that a failure.
 //!
 //! Run with:
 //!
@@ -31,8 +32,13 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
     std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::mysql::Mysql>>,
 > = tokio::sync::OnceCell::const_new();
 
+/// The shared server, or `None` (skip) when there is none.
+///
+/// The one place that honours `OXY_TEST_REQUIRE_MYSQL=1` (CI sets it): with it
+/// set, "no MySQL" panics with the reason instead of letting the caller skip
+/// and report a pass.
 async fn test_dsn() -> Option<Dsn> {
-    TEST_DSN
+    let dsn = TEST_DSN
         .get_or_try_init(|| async {
             if let Ok(url) = std::env::var("OXY_TEST_MYSQL_URL") {
                 // `mysql://user:pass@host:port/db`
@@ -82,16 +88,34 @@ async fn test_dsn() -> Option<Dsn> {
                 database: "test".to_string(),
             })
         })
-        .await
-        .ok()
-        .cloned()
+        .await;
+    match dsn {
+        Ok(dsn) => Some(dsn.clone()),
+        Err(reason) => {
+            require_mysql_or_skip(&format!(
+                "OXY_TEST_MYSQL_URL unset or unusable, and the testcontainer failed: {reason}"
+            ));
+            None
+        }
+    }
+}
+
+/// Panic under `OXY_TEST_REQUIRE_MYSQL=1`; otherwise let the caller skip.
+fn require_mysql_or_skip(reason: &str) {
+    if std::env::var("OXY_TEST_REQUIRE_MYSQL").as_deref() == Ok("1") {
+        panic!("OXY_TEST_REQUIRE_MYSQL=1 but no MySQL is available ({reason})");
+    }
 }
 
 async fn skip_without_docker() -> Option<MysqlConnector> {
     let dsn = test_dsn().await?;
-    MysqlConnector::new(&dsn.host, dsn.port, &dsn.user, &dsn.password, &dsn.database)
-        .await
-        .ok()
+    match MysqlConnector::new(&dsn.host, dsn.port, &dsn.user, &dsn.password, &dsn.database).await {
+        Ok(c) => Some(c),
+        Err(e) => {
+            require_mysql_or_skip(&format!("connect failed: {e}"));
+            None
+        }
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
