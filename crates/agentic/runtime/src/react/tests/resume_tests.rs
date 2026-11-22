@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::super::AskUser;
 use super::super::testkit::*;
-use super::super::{LoopOutcome, SuspensionInput, suspension_data};
+use super::super::{LoopOutcome, Nudge, ResumeInput, SuspensionInput, suspension_data};
 use super::resume_support::*;
 
 #[tokio::test]
@@ -220,4 +220,40 @@ async fn artifacts_are_not_reemitted_on_resume() {
     let (out, new_rows) = resume(&ts, &e2, rows, Some("A"), 30).await;
     assert!(matches!(out, LoopOutcome::Done { .. }));
     assert_eq!(count(&new_rows, "query_executed"), 0);
+}
+
+/// Calls run during a resume count towards the nudge, and its note is saved
+/// on the result that met the trigger.
+#[tokio::test]
+async fn crash_recovery_counts_pending_queries_towards_the_nudge() {
+    let (q, _) = counted("query", Effect::Read);
+    let ts = toolset(vec![q]);
+    let calls = vec![
+        call("c1", "query", json!({})),
+        call("c2", "query", json!({})),
+        call("c3", "query", json!({})),
+    ];
+    let mut cfg = cfg(30);
+    cfg.nudge = Some(Nudge {
+        tool: "query".into(),
+        after_calls: 3,
+        text: "NUDGE".into(),
+    });
+    let input = ResumeInput {
+        run_id: "run1".into(),
+        answer: None,
+        call_id: None,
+    };
+    let e = ScriptedEngine::new(vec![reply("done")]);
+    let (out, rows) = resume_cfg(&ts, &e, crash_rows(calls, &["c1"]), input, cfg).await;
+    assert!(matches!(out, LoopOutcome::Done { .. }));
+    let saved: Vec<(&str, &str)> = rows
+        .iter()
+        .filter(|(t, _)| t == "react_tool_result")
+        .map(|(_, v)| (v["call_id"].as_str().unwrap(), v["text"].as_str().unwrap()))
+        .collect();
+    assert_eq!(saved.len(), 2, "{rows:?}");
+    assert!(!saved[0].1.contains("NUDGE"), "{saved:?}");
+    assert_eq!(saved[1].0, "c3");
+    assert!(saved[1].1.ends_with("\n\nNUDGE"), "{saved:?}");
 }

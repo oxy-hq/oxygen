@@ -42,6 +42,9 @@ fn llm_end(state: &str, duration_ms: u64) -> Ev {
         duration_ms,
         model: "m".into(),
         sub_spec_index: None,
+        advisor_calls: 0,
+        advisor_input_tokens: 0,
+        advisor_output_tokens: 0,
     })
 }
 
@@ -249,6 +252,9 @@ fn sub_spec_events_imply_fanout() {
         duration_ms: 50,
         model: "m".into(),
         sub_spec_index: Some(1),
+        advisor_calls: 0,
+        advisor_input_tokens: 0,
+        advisor_output_tokens: 0,
     });
     let t = run(vec![(10, tagged)], 1000);
     assert!(t.fanout);

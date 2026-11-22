@@ -18,12 +18,18 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
+/// For `skip_serializing_if`: a zero count is left out of the event row.
+fn is_zero<T: Default + PartialEq>(n: &T) -> bool {
+    *n == T::default()
+}
+
 // ── HumanInputQuestion ────────────────────────────────────────────────────────
 
 /// A single question the LLM poses to the user, with optional suggested answers.
 ///
 /// Used in [`CoreEvent::AwaitingHumanInput`] to support multiple simultaneous
 /// questions (e.g. when triage finds several independent ambiguities).
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HumanInputQuestion {
     /// The question text to display to the user.
@@ -129,6 +135,15 @@ pub enum CoreEvent {
         model: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         sub_spec_index: Option<usize>,
+        /// Advisor calls in this round (react with an `llm.advisor`). Their
+        /// tokens are not in the fields above.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        advisor_calls: u32,
+        /// The advisor's input tokens, cache reads and writes included.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        advisor_input_tokens: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        advisor_output_tokens: u64,
     },
 
     /// The model began emitting a thinking / reasoning block.

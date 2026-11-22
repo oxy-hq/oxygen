@@ -60,6 +60,7 @@ fn unsupported_agent_keys(config: &AgentConfig, ctx: &BuildContext) -> Vec<Strin
         max_tokens,           // honored on Anthropic only, below
         thinking: _,          // solving_thinking
         extended_thinking: _, // the served toggle (extended_thinking_overrides)
+        advisor,              // react_llm_client; Anthropic only, below
     } = llm;
     let mut found = Vec::new();
     if semantic_engine.is_some() {
@@ -73,6 +74,10 @@ fn unsupported_agent_keys(config: &AgentConfig, ctx: &BuildContext) -> Vec<Strin
     let vendor = config.solving_model_info(ctx).vendor;
     if max_tokens.is_some() && !matches!(vendor, LlmVendor::Anthropic) {
         found.push("llm.max_tokens".into());
+    }
+    // The advisor is Anthropic's server tool; no other provider runs it.
+    if advisor.is_some() && !matches!(vendor, LlmVendor::Anthropic) {
+        found.push("llm.advisor".into());
     }
     found
 }

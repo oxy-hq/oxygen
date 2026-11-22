@@ -80,7 +80,8 @@ use crate::engine::{EngineError, SemanticEngine};
 #[cfg(test)]
 use crate::llm::ReasoningEffort;
 use crate::llm::{
-    AnthropicProvider, LlmClient, OpenAiCompatProvider, OpenAiProvider, ThinkingConfig,
+    AdvisorConfig, AnthropicProvider, LlmClient, OpenAiCompatProvider, OpenAiProvider,
+    ThinkingConfig,
 };
 use crate::semantic::SemanticCatalog;
 use crate::solver::AnalyticsSolver;
@@ -97,7 +98,7 @@ mod tests;
 
 pub use error::ConfigError;
 pub use yaml::{
-    AgentConfig, AgentRuntime, ExtendedThinkingConfigYaml, LlmConfigYaml, LlmVendor,
+    AdvisorYaml, AgentConfig, AgentRuntime, ExtendedThinkingConfigYaml, LlmConfigYaml, LlmVendor,
     SemanticEngineConfig, StateConfig, ThinkingConfigYaml, VendorKind,
 };
 
@@ -338,6 +339,9 @@ pub(crate) struct LlmClientSpec<'a> {
     /// Extra request headers, already resolved from `key_var`-style
     /// references to literal values.
     pub headers: Option<&'a HashMap<String, String>>,
+    /// The advisor to declare (Anthropic only; react only, see
+    /// [`AgentConfig::react_llm_client`]).
+    pub advisor: Option<&'a AdvisorConfig>,
 }
 
 pub(crate) fn build_llm_client(spec: LlmClientSpec<'_>) -> LlmClient {
@@ -349,6 +353,7 @@ pub(crate) fn build_llm_client(spec: LlmClientSpec<'_>) -> LlmClient {
         azure_deployment_id,
         azure_api_version,
         headers,
+        advisor,
     } = spec;
     let extra_headers = || headers.cloned().unwrap_or_default();
 
@@ -379,10 +384,13 @@ pub(crate) fn build_llm_client(spec: LlmClientSpec<'_>) -> LlmClient {
             // `vendor: openai` at a Chat-Completions-only gateway. The value is
             // a root; the provider appends `/messages`, exactly as the OpenAI
             // providers append `/responses` and `/chat/completions`.
-            let provider = match base_url {
+            let mut provider = match base_url {
                 Some(url) => AnthropicProvider::with_base_url(api_key, model, url),
                 None => AnthropicProvider::new(api_key, model),
             };
+            if let Some(advisor) = advisor {
+                provider = provider.with_advisor(advisor.clone());
+            }
             LlmClient::with_provider(provider.with_headers(extra_headers()))
         }
         LlmVendor::OpenAi => {

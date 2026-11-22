@@ -300,6 +300,7 @@ pub(crate) async fn resume_react(
         cfg: &cfg,
         ev: &ev,
         cancel: &cancel,
+        nudge: None,
     };
     let had_answer = input.answer.is_some();
     let retry = ResumeInput {

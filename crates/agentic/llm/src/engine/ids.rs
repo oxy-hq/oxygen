@@ -29,18 +29,13 @@ pub(super) fn taken_ids(t: &Transcript) -> (HashSet<String>, usize) {
 
 /// Rewrites every missing or repeated id in `f` to `call_<turn>_<call>`. The
 /// first use of an id keeps it. Calls in `f.tool_calls` and the matching
-/// `ToolUse` blocks in `f.ordered` are the same calls in the same order.
+/// `ToolUse` blocks in `f.ordered` and `f.in_order` are the same calls in the
+/// same order.
 pub(super) fn ensure_unique(f: &mut Folded, mut taken: HashSet<String>, turn_index: usize) {
-    let positions: Vec<usize> = f
-        .ordered
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| matches!(b, ContentBlock::ToolUse { .. }))
-        .map(|(i, _)| i)
-        .collect();
-    let mut tool_use_pos = positions.into_iter();
+    let mut ordered_pos = tool_use_positions(&f.ordered).into_iter();
+    let mut in_order_pos = tool_use_positions(&f.in_order).into_iter();
     for (call_index, tc) in f.tool_calls.iter_mut().enumerate() {
-        let block = tool_use_pos.next();
+        let (a, b) = (ordered_pos.next(), in_order_pos.next());
         if !tc.id.is_empty() && taken.insert(tc.id.clone()) {
             continue;
         }
@@ -49,13 +44,27 @@ pub(super) fn ensure_unique(f: &mut Folded, mut taken: HashSet<String>, turn_ind
         tracing::warn!(old = %tc.id, new = %new_id, "react engine: rewrote a missing or repeated tool-call id");
         set_id(&mut tc.provider_data, &new_id);
         tc.id = new_id.clone();
-        if let Some(ContentBlock::ToolUse {
-            id, provider_data, ..
-        }) = block.and_then(|i| f.ordered.get_mut(i))
-        {
-            *id = new_id.clone();
-            set_id(provider_data, &new_id);
-        }
+        rename_block(a.and_then(|i| f.ordered.get_mut(i)), &new_id);
+        rename_block(b.and_then(|i| f.in_order.get_mut(i)), &new_id);
+    }
+}
+
+fn tool_use_positions(blocks: &[ContentBlock]) -> Vec<usize> {
+    blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| matches!(b, ContentBlock::ToolUse { .. }))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn rename_block(block: Option<&mut ContentBlock>, new_id: &str) {
+    if let Some(ContentBlock::ToolUse {
+        id, provider_data, ..
+    }) = block
+    {
+        *id = new_id.to_string();
+        set_id(provider_data, new_id);
     }
 }
 

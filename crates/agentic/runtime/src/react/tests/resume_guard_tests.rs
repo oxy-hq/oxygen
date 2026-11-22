@@ -134,6 +134,7 @@ async fn cancel_while_a_resume_runs_pending_calls_returns_cancelled() {
         cfg: &cfg,
         ev: &tx,
         cancel: &cancel,
+        nudge: None,
     };
     let canceller = async {
         tokio::time::sleep(Duration::from_millis(50)).await;

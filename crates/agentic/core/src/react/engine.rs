@@ -30,6 +30,23 @@ pub struct TurnUsage {
     pub cache_write_tokens: u64,
     pub cost_usd: Option<f64>,
     pub model: String,
+    /// Advisor calls in this turn (Anthropic's advisor tool). Their tokens
+    /// are NOT in the fields above; `cost_usd` includes them.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub advisor_calls: u32,
+    /// The advisor's input tokens, cache reads and writes included.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub advisor_input_tokens: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub advisor_output_tokens: u64,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
 }
 
 /// One assistant turn.

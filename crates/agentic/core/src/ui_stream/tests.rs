@@ -258,6 +258,9 @@ fn llm_start_dropped_end_emits_usage() {
         duration_ms: 1234,
         model: "test-model".into(),
         sub_spec_index: None,
+        advisor_calls: 0,
+        advisor_input_tokens: 0,
+        advisor_output_tokens: 0,
     }));
     assert_eq!(blocks.len(), 1);
     assert!(matches!(

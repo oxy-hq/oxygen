@@ -462,6 +462,9 @@ mod tests {
                 duration_ms: 5,
                 model: "m-1".into(),
                 sub_spec_index: None,
+                advisor_calls: 0,
+                advisor_input_tokens: 0,
+                advisor_output_tokens: 0,
             }),
         ]);
         assert_eq!((usage.input_tokens, usage.output_tokens), (111, 22));
@@ -486,6 +489,9 @@ mod tests {
                 duration_ms: 5,
                 model: "m-0".into(),
                 sub_spec_index: None,
+                advisor_calls: 0,
+                advisor_input_tokens: 0,
+                advisor_output_tokens: 0,
             }),
         ]);
         assert_eq!((usage.input_tokens, usage.output_tokens), (500, 7));

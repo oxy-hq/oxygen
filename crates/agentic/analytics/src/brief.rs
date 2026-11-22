@@ -162,6 +162,7 @@ fn brief_llm_client(params: &PipelineParams) -> Result<LlmClient, ConfigError> {
             azure_deployment_id: None,
             azure_api_version: None,
             headers,
+            advisor: None,
         }));
     }
 
@@ -175,6 +176,7 @@ fn brief_llm_client(params: &PipelineParams) -> Result<LlmClient, ConfigError> {
             azure_deployment_id: info.azure_deployment_id.as_deref(),
             azure_api_version: info.azure_api_version.as_deref(),
             headers,
+            advisor: None,
         }));
     }
 

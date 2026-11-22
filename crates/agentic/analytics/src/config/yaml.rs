@@ -446,6 +446,49 @@ pub struct LlmConfigYaml {
     /// ```
     #[serde(default)]
     pub extended_thinking: Option<ExtendedThinkingConfigYaml>,
+
+    /// React runtime, Anthropic only: a stronger model the agent consults
+    /// mid-turn for a plan or a check (Anthropic's advisor tool, beta). Its
+    /// tokens are billed at the advisor model's rates. The FSM ignores it.
+    ///
+    /// ```yaml
+    /// llm:
+    ///   model: claude-sonnet-5-5
+    ///   advisor:
+    ///     model: claude-opus-5-5
+    /// ```
+    #[serde(default)]
+    pub advisor: Option<AdvisorYaml>,
+}
+
+/// `llm.advisor`. The advisor must be at least as capable as the agent's
+/// model; the API refuses a pair it does not accept.
+#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AdvisorYaml {
+    /// The advisor's model ID, e.g. `claude-opus-5-5`.
+    pub model: String,
+    /// Advisor calls allowed per turn. Defaults to 3.
+    #[serde(default)]
+    pub max_uses: Option<u32>,
+    /// Cap on each call's output tokens, 1024 at least. Defaults to 2048.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+}
+
+impl AdvisorYaml {
+    /// Per-turn calls when `max_uses` is unset.
+    pub const DEFAULT_MAX_USES: u32 = 3;
+    /// Output cap per call when `max_tokens` is unset.
+    pub const DEFAULT_MAX_TOKENS: u32 = 2048;
+
+    pub fn to_config(&self) -> crate::llm::AdvisorConfig {
+        crate::llm::AdvisorConfig {
+            model: self.model.clone(),
+            max_uses: Some(self.max_uses.unwrap_or(Self::DEFAULT_MAX_USES)),
+            max_tokens: Some(self.max_tokens.unwrap_or(Self::DEFAULT_MAX_TOKENS)),
+        }
+    }
 }
 
 /// Extended thinking mode preset configuration.

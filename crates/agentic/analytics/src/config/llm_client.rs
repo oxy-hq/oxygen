@@ -7,8 +7,8 @@
 use chrono_tz::Tz;
 
 use super::{
-    AgentConfig, BuildContext, ConfigError, LlmClientSpec, LlmVendor, ResolvedModelInfo,
-    build_llm_client, resolve_timezone, resolve_vendor,
+    AdvisorYaml, AgentConfig, BuildContext, ConfigError, LlmClientSpec, LlmVendor,
+    ResolvedModelInfo, build_llm_client, resolve_timezone, resolve_vendor,
 };
 use crate::llm::{DEFAULT_MODEL, LlmClient, ThinkingConfig};
 use crate::solver::select_thinking;
@@ -24,6 +24,7 @@ impl ResolvedModelInfo {
             azure_deployment_id: self.azure_deployment_id.as_deref(),
             azure_api_version: self.azure_api_version.as_deref(),
             headers: self.headers.as_ref(),
+            advisor: None,
         }
     }
 }
@@ -106,6 +107,20 @@ impl AgentConfig {
     pub fn solving_llm_client(&self, ctx: &BuildContext) -> LlmClient {
         let info = self.solving_model_info(ctx);
         build_llm_client(info.client_spec()).with_genai_context(ctx.genai.clone())
+    }
+
+    /// The react loop's client: [`Self::solving_llm_client`] plus the
+    /// `llm.advisor`, which only react declares (the FSM tool loop does not
+    /// resume a turn paused on the advisor). The react build refuses an
+    /// advisor on a vendor other than Anthropic before calling this.
+    pub fn react_llm_client(&self, ctx: &BuildContext) -> LlmClient {
+        let info = self.solving_model_info(ctx);
+        let advisor = self.llm.advisor.as_ref().map(AdvisorYaml::to_config);
+        let spec = LlmClientSpec {
+            advisor: advisor.as_ref(),
+            ..info.client_spec()
+        };
+        build_llm_client(spec).with_genai_context(ctx.genai.clone())
     }
 
     /// The thinking setting the FSM's `solving` state runs with: the UI

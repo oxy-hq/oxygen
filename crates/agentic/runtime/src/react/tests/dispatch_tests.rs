@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::AskUser;
 use super::super::testkit::*;
-use super::super::{Budgets, LoopConfig, LoopOutcome, run_loop};
+use super::super::{Budgets, LoopConfig, LoopOutcome, Nudge, run_loop};
 
 type Log = Arc<Mutex<Vec<String>>>;
 
@@ -28,6 +28,16 @@ async fn drive(
     budgets: Budgets,
     cancel: CancellationToken,
 ) -> (LoopOutcome, Vec<(String, Value)>) {
+    drive_with(engine, tools, budgets, cancel, None).await
+}
+
+async fn drive_with(
+    engine: &dyn Engine,
+    tools: Vec<Arc<dyn Tool>>,
+    budgets: Budgets,
+    cancel: CancellationToken,
+    nudge: Option<Nudge>,
+) -> (LoopOutcome, Vec<(String, Value)>) {
     let (tx, mut rx) = mpsc::channel(256);
     let ts = Toolset {
         system_prompt: "sys".into(),
@@ -38,6 +48,7 @@ async fn drive(
         run_id: "run1".into(),
         results: Arc::new(NoResults),
         on_done: None,
+        nudge,
     };
     let t = Transcript {
         system: "sys".into(),
@@ -144,6 +155,34 @@ fn echo_tools() -> Vec<Arc<dyn Tool>> {
 
 fn echo_turn(id: &str) -> Result<Decision, EngineError> {
     call_tools(vec![call(id, "echo", json!({"text": id}))])
+}
+
+/// The note is part of the saved `react_tool_result` row, not only the
+/// in-memory transcript: a resume rebuilds the transcript from those rows.
+#[tokio::test]
+async fn react_the_nudge_note_is_in_the_saved_result_row() {
+    let e = ScriptedEngine::new(vec![
+        echo_turn("c1"),
+        echo_turn("c2"),
+        echo_turn("c3"),
+        reply("done"),
+    ]);
+    let nudge = Nudge {
+        tool: "echo".into(),
+        after_calls: 2,
+        text: "NUDGE".into(),
+    };
+    let cancel = CancellationToken::new();
+    let (_, rows) = drive_with(&e, echo_tools(), Budgets::default(), cancel, Some(nudge)).await;
+    let texts: Vec<&str> = rows
+        .iter()
+        .filter(|(t, _)| t == "react_tool_result")
+        .map(|(_, v)| v["text"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(texts.len(), 3, "{rows:?}");
+    assert!(!texts[0].contains("NUDGE"));
+    assert!(texts[1].ends_with("\n\nNUDGE"), "{}", texts[1]);
+    assert!(!texts[2].contains("NUDGE"), "fires once");
 }
 
 #[tokio::test]

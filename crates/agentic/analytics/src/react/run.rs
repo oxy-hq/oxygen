@@ -6,12 +6,12 @@ use std::sync::Arc;
 use agentic_connector::DatabaseConnector;
 use agentic_core::events::Event;
 use agentic_core::react::{DoneHook, EventSink, ResultHandle, Tool, Toolset, Turn};
-use agentic_runtime::react::{AskUser, Budgets};
+use agentic_runtime::react::{AskUser, Budgets, Nudge};
 use async_trait::async_trait;
 
 use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
-use super::prompt::{PromptInput, system_prompt};
+use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
 use super::tools::{QueryDeps, QueryTool, ReadTool, SearchTool};
 use crate::events::AnalyticsEvent;
 use crate::semantic::SemanticCatalog;
@@ -26,12 +26,17 @@ pub struct ReactInputs {
     pub files: Arc<WorkspaceFiles>,
     /// The agent's `semantic_only`: `query` refuses raw `sql`.
     pub semantic_only: bool,
+    /// The agent has an `llm.advisor`: the prompt says when to consult it.
+    pub advisor: bool,
 }
 
 /// What the loop needs to run one analytics question.
 pub struct ReactAnalytics {
     pub toolset: Toolset,
     pub budgets: Budgets,
+    /// With an advisor: the loop tells the model to call it after the third
+    /// query, or at the first failed one.
+    pub nudge: Option<Nudge>,
 }
 
 impl ReactAnalytics {
@@ -47,6 +52,7 @@ impl ReactAnalytics {
             databases: &dbs,
             files: &inputs.files.paths(),
             semantic_only: inputs.semantic_only,
+            advisor: inputs.advisor,
         });
         let tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(SearchTool::new(inputs.files.clone())),
@@ -69,6 +75,11 @@ impl ReactAnalytics {
                 max_tokens: 2_000_000,
                 max_cost_usd: Some(3.0),
             },
+            nudge: inputs.advisor.then(|| Nudge {
+                tool: "query".into(),
+                after_calls: 3,
+                text: ADVISOR_NUDGE.into(),
+            }),
         }
     }
 }

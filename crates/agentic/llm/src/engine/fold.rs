@@ -26,6 +26,9 @@ pub(super) struct Folded {
     pub tool_calls: Vec<ToolCallChunk>,
     /// Raw blocks and tool calls in stream order (no text).
     pub ordered: Vec<ContentBlock>,
+    /// Every block in stream order, text included: the replay order when the
+    /// stream carries advisor blocks.
+    pub in_order: Vec<ContentBlock>,
     pub usage: Usage,
 }
 
@@ -33,7 +36,24 @@ impl Folded {
     /// The assistant blocks, text first and then the stream-ordered blocks,
     /// under the same rule as `tool_loop.rs` (Anthropic wants text before
     /// tool_use; OpenAI's `assistant_message` reorders text itself).
+    ///
+    /// A stream with advisor blocks keeps its own order instead: a paused
+    /// turn must come back unchanged, and text written after the advice
+    /// cannot move ahead of the call. Empty text blocks are dropped, which
+    /// the API rejects.
     pub fn blocks(&self) -> Vec<ContentBlock> {
+        let advised = self
+            .ordered
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ServerTool { .. }));
+        if advised {
+            return self
+                .in_order
+                .iter()
+                .filter(|b| !matches!(b, ContentBlock::Text { text } if text.is_empty()))
+                .cloned()
+                .collect();
+        }
         let mut blocks = Vec::with_capacity(self.ordered.len() + 1);
         if !self.text.is_empty() {
             blocks.push(ContentBlock::Text {
@@ -102,6 +122,10 @@ async fn on_chunk(out: &mut Folded, in_thinking: &mut bool, chunk: Chunk, ev: &E
                 emit(ev, thinking_end()).await;
             }
             out.text.push_str(&t);
+            match out.in_order.last_mut() {
+                Some(ContentBlock::Text { text }) => text.push_str(&t),
+                _ => out.in_order.push(ContentBlock::Text { text: t.clone() }),
+            }
             if !t.is_empty() {
                 let token = CoreEvent::LlmToken {
                     token: t,
@@ -111,15 +135,20 @@ async fn on_chunk(out: &mut Folded, in_thinking: &mut bool, chunk: Chunk, ev: &E
             }
         }
         Chunk::ToolCall(tc) => {
-            out.ordered.push(ContentBlock::ToolUse {
+            let block = ContentBlock::ToolUse {
                 id: tc.id.clone(),
                 name: tc.name.clone(),
                 input: tc.input.clone(),
                 provider_data: tc.provider_data.clone(),
-            });
+            };
+            out.in_order.push(block.clone());
+            out.ordered.push(block);
             out.tool_calls.push(tc);
         }
-        Chunk::RawBlock(block) => out.ordered.push(block),
+        Chunk::RawBlock(block) => {
+            out.in_order.push(block.clone());
+            out.ordered.push(block);
+        }
         Chunk::Done(u) => out.usage = u,
     }
 }

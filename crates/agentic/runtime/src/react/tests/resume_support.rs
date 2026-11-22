@@ -43,6 +43,7 @@ pub(super) fn cfg(max_turns: u32) -> LoopConfig {
         run_id: "run1".into(),
         results: Arc::new(NoResults),
         on_done: None,
+        nudge: None,
     }
 }
 
@@ -91,13 +92,23 @@ pub(super) async fn resume_with(
     input: ResumeInput,
     max_turns: u32,
 ) -> (LoopOutcome, Rows) {
+    resume_cfg(ts, e, rows, input, cfg(max_turns)).await
+}
+
+pub(super) async fn resume_cfg(
+    ts: &Toolset,
+    e: &ScriptedEngine,
+    rows: Rows,
+    input: ResumeInput,
+    cfg: LoopConfig,
+) -> (LoopOutcome, Rows) {
     let (tx, rx) = mpsc::channel(256);
     let cancel = CancellationToken::new();
-    let cfg = cfg(max_turns);
     let cx = LoopCx {
         cfg: &cfg,
         ev: &tx,
         cancel: &cancel,
+        nudge: None,
     };
     let store = InMemoryStore::new(rows);
     let out = resume_loop(e, ts, &store, seed(), input, cx).await;

@@ -198,6 +198,33 @@ fn build_honors_max_tokens_on_anthropic() {
     assert_eq!(cfg.max_tokens, Some(900));
 }
 
+#[test]
+fn build_refuses_an_advisor_on_a_provider_that_has_none() {
+    for vendor in ["openai", "openai_compat"] {
+        let msg = refusal(&format!(
+            "llm:\n  vendor: {vendor}\n  model: m\n  advisor:\n    model: a\n"
+        ));
+        assert_eq!(msg, refusal_text("llm.advisor"), "{vendor}");
+    }
+}
+
+/// On Anthropic the advisor is honored, with the documented defaults filled
+/// in; an unknown key under it is a parse error.
+#[test]
+fn build_honors_an_advisor_on_anthropic_with_defaults() {
+    let yaml = "runtime: react\nllm:\n  vendor: anthropic\n  model: claude-sonnet-5-5\n  advisor:\n    model: claude-opus-5-5\n";
+    let config = AgentConfig::from_yaml(yaml).unwrap();
+    crate::react_config::refuse_unsupported(&config, &BuildContext::default()).unwrap();
+    let advisor = config.llm.advisor.as_ref().unwrap().to_config();
+    assert_eq!(advisor.model, "claude-opus-5-5");
+    assert_eq!(
+        (advisor.max_uses, advisor.max_tokens),
+        (Some(3), Some(2048))
+    );
+    let typo = "runtime: react\nllm:\n  advisor:\n    model: x\n    max_use: 2\n";
+    assert!(AgentConfig::from_yaml(typo).is_err());
+}
+
 /// An agent whose databases include one with no database-level read-only
 /// path gets no react run: its queries would rest on the gate alone.
 #[tokio::test]

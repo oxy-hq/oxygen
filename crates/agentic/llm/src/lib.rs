@@ -35,6 +35,9 @@ pub use provider::LlmProvider;
 
 mod sse;
 
+mod advisor;
+pub use advisor::AdvisorConfig;
+
 mod anthropic;
 
 mod strict_schema;
@@ -57,5 +60,7 @@ pub use engine::LlmEngine;
 mod evaluator;
 pub use evaluator::LlmConsistencyEvaluator;
 
+#[cfg(test)]
+mod advisor_stream_tests;
 #[cfg(test)]
 mod tests;

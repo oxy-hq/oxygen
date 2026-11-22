@@ -1,6 +1,6 @@
 //! The react loop driver: decide, dispatch, append, repeat.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use agentic_core::events::CoreEvent;
 use agentic_core::react::{
@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::budget::BudgetMeter;
 use super::dispatch::{DispatchCx, Dispatched, dispatch_turn};
 use super::events::{emit_core, emit_turn};
+use super::nudge::{Nudge, NudgeState};
 
 /// Limits on one run, enforced by [`BudgetMeter`] between model turns.
 #[derive(Clone, Debug)]
@@ -38,6 +39,9 @@ pub struct LoopConfig {
     pub results: Arc<dyn ResultHandle>,
     /// Called on every `Done`, before the `done` row. `None`: no hook.
     pub on_done: Option<Arc<dyn DoneHook>>,
+    /// A one-time note added to a tool result when the run looks stuck.
+    /// `None`: no note.
+    pub nudge: Option<Nudge>,
 }
 
 #[derive(Debug)]
@@ -98,6 +102,9 @@ pub(super) async fn run_loop_from(
     // terminal row. The worker/coordinator owns the `cancelled` outcome, as
     // for analytics (`PipelineOutcome::Cancelled`, no `CoreEvent::Error`).
     let defs: Vec<ToolDef> = toolset.tools.iter().map(|t| t.def()).collect();
+    // Rebuilt from the transcript, so a resumed run neither forgets the
+    // queries it made nor fires the note a second time.
+    let nudge = (cfg.nudge.clone()).map(|n| Mutex::new(NudgeState::resumed(n, &transcript)));
     loop {
         if cancel.is_cancelled() {
             return LoopOutcome::Cancelled;
@@ -131,7 +138,13 @@ pub(super) async fn run_loop_from(
                 emit_turn(ev, &turn, decide_ms).await;
                 let calls = turn.tool_calls.clone();
                 transcript.entries.push(Entry::Assistant(turn));
-                let cx = DispatchCx { cfg, ev, cancel };
+                let nudge = nudge.as_ref();
+                let cx = DispatchCx {
+                    cfg,
+                    ev,
+                    cancel,
+                    nudge,
+                };
                 let dispatched = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => return LoopOutcome::Cancelled,

@@ -150,6 +150,7 @@ impl AnthropicMockProvider {
         match block {
             ContentBlock::Thinking { provider_data } => provider_data.clone(),
             ContentBlock::RedactedThinking { provider_data } => provider_data.clone(),
+            ContentBlock::ServerTool { provider_data } => provider_data.clone(),
             ContentBlock::Text { text } => json!({"type": "text", "text": text}),
             ContentBlock::ToolUse {
                 id, name, input, ..
@@ -2055,6 +2056,7 @@ impl LlmProvider for OpenAiMockProvider {
 
         for block in blocks {
             match block {
+                ContentBlock::ServerTool { .. } => {}
                 ContentBlock::Text { text } => {
                     text_parts.push(json!({"type": "output_text", "text": text}));
                 }
@@ -2069,11 +2071,8 @@ impl LlmProvider for OpenAiMockProvider {
                         "arguments": input.to_string()
                     }));
                 }
-                ContentBlock::Thinking { provider_data } => {
-                    flush_text(&mut text_parts, &mut items);
-                    items.push(provider_data.clone());
-                }
-                ContentBlock::RedactedThinking { provider_data } => {
+                ContentBlock::Thinking { provider_data }
+                | ContentBlock::RedactedThinking { provider_data } => {
                     flush_text(&mut text_parts, &mut items);
                     items.push(provider_data.clone());
                 }
@@ -3226,6 +3225,7 @@ async fn cache_tokens_propagate_from_provider_to_llm_end_event() {
             cache_creation_input_tokens: 1234,
             cache_read_input_tokens: 5678,
             stop_reason: StopReason::EndTurn,
+            advisor: Default::default(),
         })),
     ]]);
     let client = LlmClient::with_provider(provider);

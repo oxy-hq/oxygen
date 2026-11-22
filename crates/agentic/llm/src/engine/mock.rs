@@ -84,6 +84,7 @@ pub(super) fn assistant(blocks: &[ContentBlock]) -> Value {
             ContentBlock::RedactedThinking { provider_data } => {
                 json!({"type": "redacted", "data": provider_data})
             }
+            ContentBlock::ServerTool { provider_data } => provider_data.clone(),
             ContentBlock::ToolUse { id, name, .. } => {
                 json!({"type": "tool_use", "id": id, "name": name})
             }

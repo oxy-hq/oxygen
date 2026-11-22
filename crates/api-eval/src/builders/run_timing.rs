@@ -123,11 +123,17 @@ impl TimingAccumulator {
             cache_read_input_tokens,
             duration_ms,
             sub_spec_index,
+            advisor_calls,
+            advisor_input_tokens,
+            advisor_output_tokens,
             ..
         } = ev
         else {
             return;
         };
+        self.t.advisor_calls += u64::from(*advisor_calls);
+        self.t.advisor_input_tokens += advisor_input_tokens;
+        self.t.advisor_output_tokens += advisor_output_tokens;
         // Only a round that streamed a token has a measured TTFT; the others
         // (structured response, tool calls only) count in neither TTFT nor
         // stream time.

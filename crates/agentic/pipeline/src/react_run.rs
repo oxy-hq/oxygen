@@ -104,10 +104,7 @@ pub(crate) async fn build_react_run(
     }
     require_read_only(&ctx)?;
     require_read_only_ready(&ctx).await?;
-    if ctx.genai.workspace_id.is_none() {
-        let id = platform.workspace_id();
-        ctx.genai.workspace_id = Some(id).filter(|id| !id.is_nil()).map(|id| id.to_string());
-    }
+    fill_workspace_id(platform, &mut ctx);
     let catalog = load_catalog(config, &ctx, base_dir).map_err(fail)?;
     if config.semantic_only && catalog.is_none() {
         return Err(
@@ -130,7 +127,7 @@ pub(crate) async fn build_react_run(
     .await;
     let engine = platform.react_engine().unwrap_or_else(|| {
         Box::new(LlmEngine::new(
-            config.solving_llm_client(&ctx),
+            config.react_llm_client(&ctx),
             engine_config(config, &ctx, hint),
         ))
     });
@@ -141,6 +138,7 @@ pub(crate) async fn build_react_run(
         catalog,
         files: Arc::new(files),
         semantic_only: config.semantic_only,
+        advisor: config.llm.advisor.is_some(),
     });
     Ok(ReactRun {
         engine,
@@ -148,6 +146,15 @@ pub(crate) async fn build_react_run(
         analytics,
         results: Arc::new(ResultStore::new()),
     })
+}
+
+/// Stamps the platform's workspace on the run's GenAI attributes when the
+/// caller left it unset (a nil id stays unset).
+fn fill_workspace_id(platform: &dyn PlatformContext, ctx: &mut BuildContext) {
+    if ctx.genai.workspace_id.is_none() {
+        let id = platform.workspace_id();
+        ctx.genai.workspace_id = Some(id).filter(|id| !id.is_nil()).map(|id| id.to_string());
+    }
 }
 
 /// Every database the agent reaches must run its queries behind a
@@ -237,6 +244,7 @@ pub(crate) fn loop_config(run: &ReactRun, run_id: String) -> LoopConfig {
         on_done: Some(Arc::new(AnswerFinisher {
             results: run.results.clone(),
         })),
+        nudge: run.analytics.nudge.clone(),
     }
 }
 

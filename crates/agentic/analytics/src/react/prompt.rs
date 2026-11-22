@@ -31,13 +31,34 @@ const ANSWER_RULES: &str = "- Answer from query results only. Never state a numb
     rows that limit applies to before answering.\n\
     - Ask the user only when the context cannot settle an ambiguity.";
 
-fn tool_rules(semantic_only: bool) -> String {
+/// For an agent with an `llm.advisor`. Sonnet-class models cannot be forced
+/// to call it, so the prompt says when. Only when stuck: on BIRD a call on
+/// every question bought nothing, because Sonnet alone answered ~90% correctly
+/// and the advisor then only added cost or a wrong turn.
+const ADVISOR_RULE: &str = "- Call the advisor only when one of these is true:\n  \
+    - A query returned no rows, an error, or a number that conflicts with another result.\n  \
+    - You ran 3 queries and you still cannot answer.\n  \
+    - The question has two readings and the views do not tell you which one is correct.\n\
+    - Do not call the advisor for a direct lookup.";
+
+/// Added by the loop to a `query` result after the third query, or at the
+/// first failed one, when the agent has an advisor (`ReactAnalytics::nudge`).
+pub(crate) const ADVISOR_NUDGE: &str = "[Note from the runtime: you ran 3 queries, or a query \
+    failed. Unless these results already answer the question, call the advisor before your \
+    next query.]";
+
+fn tool_rules(semantic_only: bool, advisor: bool) -> String {
     let source = if semantic_only {
         SEMANTIC_ONLY_RULE
     } else {
         SOURCE_RULE
     };
-    format!("How to work:\n{LOOK_RULE}\n{source}\n{ANSWER_RULES}")
+    let mut rules = format!("How to work:\n{LOOK_RULE}\n{source}\n{ANSWER_RULES}");
+    if advisor {
+        rules.push('\n');
+        rules.push_str(ADVISOR_RULE);
+    }
+    rules
 }
 
 pub struct PromptInput<'a> {
@@ -47,6 +68,8 @@ pub struct PromptInput<'a> {
     pub files: &'a [(&'a str, FileKind)],
     /// The agent's `semantic_only`: the rules say raw `sql` is refused.
     pub semantic_only: bool,
+    /// The agent has an advisor: the rules say when to call it.
+    pub advisor: bool,
 }
 
 fn kind_label(k: FileKind) -> &'static str {
@@ -84,7 +107,7 @@ pub fn system_prompt(p: PromptInput<'_>) -> String {
     }
     parts.push(databases_section(p.databases));
     parts.push(files_section(p.files));
-    parts.push(tool_rules(p.semantic_only));
+    parts.push(tool_rules(p.semantic_only, p.advisor));
     parts.push(CITATION_RULE.to_string());
     parts.join("\n\n")
 }
@@ -99,6 +122,7 @@ mod tests {
             databases: dbs,
             files,
             semantic_only: false,
+            advisor: false,
         }
     }
 
@@ -140,5 +164,20 @@ mod tests {
         assert!(p.contains("Never state a number no result returned."));
         assert!(p.contains("not by hand in the answer"), "{p}");
         assert!(p.contains("look at the rows that limit applies to"), "{p}");
+    }
+
+    #[test]
+    fn the_advisor_rule_appears_only_with_an_advisor() {
+        let plain = system_prompt(input(&[], &[]));
+        assert!(!plain.contains("Call the advisor"));
+        let mut i = input(&[], &[]);
+        i.advisor = true;
+        let p = system_prompt(i);
+        assert!(p.contains("Call the advisor only when"), "{p}");
+        assert!(
+            p.contains("Do not call the advisor for a direct lookup"),
+            "{p}"
+        );
+        assert!(!p.contains("before your first query"), "{p}");
     }
 }

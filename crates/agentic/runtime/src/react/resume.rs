@@ -2,6 +2,8 @@
 //! is the source of truth, so resume rebuilds the transcript from it and
 //! never re-runs a call that has a recorded result.
 
+use std::sync::Mutex;
+
 use agentic_core::human_input::SuspendedRunData;
 use agentic_core::react::{Engine, EventSink, ToolCallReq, Toolset, Transcript};
 use serde_json::json;
@@ -9,6 +11,7 @@ use serde_json::json;
 use super::budget::BudgetMeter;
 use super::dispatch::{DispatchCx, Dispatched, dispatch_turn, record_text};
 use super::driver::{LoopConfig, LoopOutcome, LoopStart, finish, run_loop_from, suspended};
+use super::nudge::NudgeState;
 use super::resume_guard::{already_terminal, parked_call, pending_write, unfinished_reply};
 use super::store::{TranscriptStore, rebuild};
 
@@ -117,6 +120,13 @@ async fn continue_run(
     cx: DispatchCx<'_>,
 ) -> LoopOutcome {
     let (cfg, ev, cancel) = (cx.cfg, cx.ev, cx.cancel);
+    // The pending calls count towards the nudge like any others: built from
+    // the rebuilt transcript, as `run_loop_from` builds its own afterwards.
+    let nudge = (cfg.nudge.clone()).map(|n| Mutex::new(NudgeState::resumed(n, &start.transcript)));
+    let cx = DispatchCx {
+        nudge: nudge.as_ref(),
+        ..cx
+    };
     let d = tokio::select! {
         biased;
         _ = cancel.cancelled() => return LoopOutcome::Cancelled,
@@ -142,6 +152,7 @@ async fn run_pending(
         cfg: cx.cfg,
         ev: cx.ev,
         cancel: cx.cancel,
+        nudge: cx.nudge,
     };
     let Some(pos) = parked
         .as_ref()

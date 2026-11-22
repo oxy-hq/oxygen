@@ -24,6 +24,7 @@ fn cfg() -> LoopConfig {
         run_id: "run1".into(),
         results: Arc::new(NoResults),
         on_done: None,
+        nudge: None,
     }
 }
 
@@ -196,6 +197,7 @@ async fn react_llm_end_carries_the_turn_usage_and_the_decide_time() {
         cache_write_tokens: 44,
         cost_usd: None,
         model: "m-1".into(),
+        ..TurnUsage::default()
     };
     let Ok(agentic_core::react::Decision::Reply(mut t)) = reply("hi") else {
         unreachable!()

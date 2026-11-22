@@ -57,6 +57,15 @@ pub struct RunTiming {
     pub output_tokens: u64,
     pub cache_read_input_tokens: u64,
     pub cache_creation_input_tokens: u64,
+    /// Advisor calls (react with an `llm.advisor`) and their tokens, billed at
+    /// the advisor model's rates and not counted in the fields above. Zero in
+    /// records written before the fields.
+    #[serde(default)]
+    pub advisor_calls: u64,
+    #[serde(default)]
+    pub advisor_input_tokens: u64,
+    #[serde(default)]
+    pub advisor_output_tokens: u64,
     pub llm_by_state: BTreeMap<String, LlmStateTiming>,
     pub tool_calls: u64,
     /// Σ `ToolResult.duration_ms`.

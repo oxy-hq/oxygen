@@ -573,9 +573,7 @@ impl LlmProvider for OpenAiCompatProvider {
 
         for block in blocks {
             match block {
-                ContentBlock::Text { text } => {
-                    text_parts.push(text.clone());
-                }
+                ContentBlock::Text { text } => text_parts.push(text.clone()),
                 ContentBlock::ToolUse {
                     id, name, input, ..
                 } => {
@@ -589,7 +587,9 @@ impl LlmProvider for OpenAiCompatProvider {
                     }));
                 }
                 // CoT compat provider does not produce encrypted thinking blobs.
-                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => {}
+                ContentBlock::Thinking { .. }
+                | ContentBlock::RedactedThinking { .. }
+                | ContentBlock::ServerTool { .. } => {}
             }
         }
 

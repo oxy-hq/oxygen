@@ -361,6 +361,9 @@ impl LlmClient {
                         duration_ms: round_llm_ms,
                         model: self.provider.model_name().to_string(),
                         sub_spec_index: ssi,
+                        advisor_calls: 0,
+                        advisor_input_tokens: 0,
+                        advisor_output_tokens: 0,
                     },
                 )
                 .await;

@@ -18,6 +18,13 @@
 //! stream's thinking blocks and the "Continue." message are not persisted.
 //! Both providers accept that history, so this is a narrow exception to
 //! "thinking blocks come back verbatim".
+//!
+//! # Paused turns
+//!
+//! A stream that stops on `pause_turn` (an advisor call still pending) goes
+//! back as the assistant message with no user message, and the model carries
+//! on. Unlike a continued turn, every paused stream is part of the returned
+//! turn: its blocks and text come first in `native` and `text`.
 
 use agentic_core::events::CoreEvent;
 use agentic_core::react::{
@@ -38,6 +45,8 @@ mod mock;
 mod render;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_advisor;
 #[cfg(test)]
 mod tests_ids;
 mod trace;
@@ -91,10 +100,17 @@ struct TurnRun {
     round: u32,
     continuations: u32,
     max_tokens_retried: bool,
+    /// Blocks and text of the streams that stopped on `pause_turn`.
+    paused: Vec<ContentBlock>,
+    paused_text: String,
+    pauses: usize,
 }
 
+/// Paused streams one turn may resume before it is abandoned.
+const MAX_PAUSES: usize = 8;
+
 enum Step {
-    Done(Decision),
+    Done(Box<Decision>),
     Again,
 }
 
@@ -110,6 +126,12 @@ impl LlmEngine {
         mut f: Folded,
         t: &Transcript,
     ) -> Result<Step, EngineError> {
+        // Before the thinking-only check: a paused stream often holds only
+        // thinking and the advisor call, and must not get a "Continue.".
+        if f.usage.stop_reason == StopReason::PauseTurn {
+            self.resume_paused(run, f)?;
+            return Ok(Step::Again);
+        }
         if f.tool_calls.is_empty() && f.text.trim().is_empty() && has_thinking(&f) {
             if run.continuations >= self.cfg.max_continuations {
                 return Err(EngineError::Fatal(
@@ -131,7 +153,24 @@ impl LlmEngine {
         }
         let (taken, turn_index) = ids::taken_ids(t);
         ids::ensure_unique(&mut f, taken, turn_index);
-        Ok(Step::Done(self.decision(f, &run.usage)))
+        Ok(Step::Done(Box::new(self.decision(f, run))))
+    }
+
+    /// Appends a paused stream as the assistant message, unchanged, and keeps
+    /// it for the returned turn.
+    fn resume_paused(&self, run: &mut TurnRun, f: Folded) -> Result<(), EngineError> {
+        if run.pauses >= MAX_PAUSES {
+            return Err(EngineError::Fatal(format!(
+                "the model paused {MAX_PAUSES} times in one turn waiting on the advisor"
+            )));
+        }
+        let blocks = f.blocks();
+        let provider = self.client.provider();
+        run.messages.push(provider.assistant_message(&blocks));
+        run.paused.extend(blocks);
+        run.paused_text.push_str(&f.text);
+        run.pauses += 1;
+        Ok(())
     }
 
     /// Appends the thinking-only turn and a "Continue." nudge, as
@@ -165,9 +204,13 @@ impl LlmEngine {
     }
 
     /// The final turn, priced on the usage of every stream of this `decide`.
-    fn decision(&self, f: Folded, usage: &Usage) -> Decision {
+    /// Paused streams come first in its blocks and text.
+    fn decision(&self, f: Folded, run: &TurnRun) -> Decision {
         let provider = self.client.provider();
-        let native = provider.assistant_message(&f.blocks());
+        let mut blocks = run.paused.clone();
+        blocks.extend(f.blocks());
+        let native = provider.assistant_message(&blocks);
+        let text = format!("{}{}", run.paused_text, f.text);
         let tool_calls: Vec<ToolCallReq> = f
             .tool_calls
             .into_iter()
@@ -178,10 +221,10 @@ impl LlmEngine {
             })
             .collect();
         let turn = Turn {
-            text: f.text,
+            text,
             tool_calls,
             native,
-            usage: turn_usage(provider.model_name(), usage),
+            usage: turn_usage(provider.model_name(), &run.usage),
         };
         if turn.tool_calls.is_empty() {
             Decision::Reply(turn)
@@ -210,14 +253,51 @@ fn turn_usage(model: &str, u: &Usage) -> TurnUsage {
         u.cache_creation_input_tokens as u64,
         u.cache_read_input_tokens as u64,
     );
+    let executor = pricing::cost_for_call(model, input, output, write, read);
+    let a = &u.advisor;
+    let cost_usd = if a.calls == 0 {
+        executor
+    } else {
+        executor.map(|e| e + advisor_cost(a))
+    };
     TurnUsage {
         input_tokens: input,
         output_tokens: output,
         cache_read_tokens: read,
         cache_write_tokens: write,
-        cost_usd: pricing::cost_for_call(model, input, output, write, read),
+        cost_usd,
         model: model.to_string(),
+        advisor_calls: a.calls,
+        advisor_input_tokens: (a.input_tokens
+            + a.cache_creation_input_tokens
+            + a.cache_read_input_tokens) as u64,
+        advisor_output_tokens: a.output_tokens as u64,
     }
+}
+
+/// Priced at the dearest Claude rate ($15/$75) when the advisor model is not in the
+/// table, so the react cost cap over-counts an unknown advisor rather than
+/// letting its spend through as zero.
+const UNPRICED_ADVISOR_RATES_OF: &str = "claude-opus-4-1";
+
+/// The advisor calls' cost at the advisor model's rates.
+fn advisor_cost(a: &crate::AdvisorUsage) -> f64 {
+    let tokens = |model: &str| {
+        pricing::cost_for_call(
+            model,
+            a.input_tokens as u64,
+            a.output_tokens as u64,
+            a.cache_creation_input_tokens as u64,
+            a.cache_read_input_tokens as u64,
+        )
+    };
+    tokens(&a.model).unwrap_or_else(|| {
+        tracing::warn!(
+            model = %a.model,
+            "advisor model has no price; costing it at {UNPRICED_ADVISOR_RATES_OF} rates"
+        );
+        tokens(UNPRICED_ADVISOR_RATES_OF).unwrap_or(0.0)
+    })
 }
 
 fn add_usage(total: &mut Usage, u: &Usage) {
@@ -226,6 +306,7 @@ fn add_usage(total: &mut Usage, u: &Usage) {
     total.cache_creation_input_tokens += u.cache_creation_input_tokens;
     total.cache_read_input_tokens += u.cache_read_input_tokens;
     total.stop_reason = u.stop_reason.clone();
+    total.advisor.add(&u.advisor);
 }
 
 #[async_trait]
@@ -245,6 +326,9 @@ impl Engine for LlmEngine {
         };
         fold::emit(events, start).await;
         let mut run = TurnRun {
+            paused: Vec::new(),
+            paused_text: String::new(),
+            pauses: 0,
             messages,
             max_tokens: self.cfg.max_tokens,
             usage: Usage::default(),
@@ -265,7 +349,7 @@ impl Engine for LlmEngine {
             run.round += 1;
             add_usage(&mut run.usage, &f.usage);
             if let Step::Done(d) = self.next_step(&mut run, f, transcript)? {
-                return Ok(d);
+                return Ok(*d);
             }
         }
     }

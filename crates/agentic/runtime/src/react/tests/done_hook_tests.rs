@@ -23,6 +23,7 @@ impl DoneHook for UpperHook {
 fn hooked_cfg() -> LoopConfig {
     LoopConfig {
         on_done: Some(Arc::new(UpperHook)),
+        nudge: None,
         ..cfg(30)
     }
 }
@@ -84,6 +85,7 @@ async fn resumed_recorded_reply_runs_the_done_hook() {
         cfg: &cfg,
         ev: &tx,
         cancel: &cancel,
+        nudge: None,
     };
     let input = ResumeInput {
         run_id: "run1".into(),

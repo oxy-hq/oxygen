@@ -45,6 +45,27 @@ Extended thinking (reasoning) uses opaque encrypted blobs:
 - The react runtime deliberately persists provider thinking blocks verbatim in `Turn.native` so they survive resume (spec: `internal-docs/agent-engine-runtime.md`, Layer 2)
 - Controlled by `ThinkingConfig` from the agent YAML
 
+## Advisor (Anthropic, react only)
+
+`AnthropicProvider::with_advisor(AdvisorConfig)` declares Anthropic's advisor
+tool (beta `advisor-tool-2026-03-01`): a stronger model the executor consults
+mid-turn. `advisor.rs` carries the tool JSON and the usage parsing.
+
+- Its `server_tool_use` / `advisor_tool_result` blocks come out as
+  `ContentBlock::ServerTool` and **must** go back verbatim, in stream order:
+  the react fold keeps stream order for any turn holding one.
+- `StopReason::PauseTurn` means the advisor call is still pending. The react
+  engine resends with the response appended and no user message. The FSM tool
+  loop does not, so only react declares an advisor (`.agentic.yml`
+  `llm.advisor`).
+- Advisor tokens are only in `usage.iterations`; `Usage.advisor` carries them,
+  priced at the advisor model's rates in `TurnUsage.cost_usd`, and reported on
+  `LlmEnd.advisor_*`. An advisor model the price table does not know (or an
+  empty one) is priced at the dearest Claude rate (`claude-opus-4-1`) with a
+  warning, a deliberate break from `pricing.rs`'s "unknown gives `None`": the
+  react cost cap must over-count, never read the turn as free.
+- The advice of current advisor models is encrypted: replay it, never log it.
+
 ## Events
 
 `LlmClient::run_with_tools` emits events through `EventStream`:

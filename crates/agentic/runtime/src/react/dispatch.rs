@@ -1,6 +1,7 @@
 //! Runs one turn's tool calls: consecutive parallel-safe calls concurrently,
 //! everything else one at a time, results in call order.
 
+use std::sync::Mutex;
 use std::time::Instant;
 
 use agentic_core::events::CoreEvent;
@@ -13,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::driver::LoopConfig;
 use super::events::{ReactEvent, emit_core, emit_react, send_row};
+use super::nudge::NudgeState;
 use super::results::persistable_value;
 
 /// Everything a dispatch needs besides the toolset and the calls.
@@ -20,6 +22,10 @@ pub struct DispatchCx<'a> {
     pub cfg: &'a LoopConfig,
     pub ev: &'a EventSink,
     pub cancel: &'a CancellationToken,
+    /// The run's nudge, when it has one: a result that meets its trigger is
+    /// recorded with the note, so the log holds what the model saw. Callers
+    /// pass `None`: the loop builds its own from `LoopConfig::nudge`.
+    pub nudge: Option<&'a Mutex<NudgeState>>,
 }
 
 /// A `Suspend` tool's question; the run parks on `call_id`.
@@ -65,7 +71,7 @@ pub async fn dispatch_turn(
             }
             let artifacts = take_artifacts(&mut outcome);
             out.entries
-                .push(record(cx.ev, call, outcome, duration_ms).await);
+                .push(record(&cx, call, outcome, duration_ms).await);
             for a in artifacts.into_iter().filter(artifact_allowed) {
                 send_row(cx.ev, (a.event_type, a.payload)).await;
             }
@@ -136,13 +142,25 @@ async fn emit_call(ev: &EventSink, call: &ToolCallReq) {
     emit_core(ev, e).await;
 }
 
-/// Emits the result rows for one call and returns its transcript entry.
-async fn record(ev: &EventSink, call: &ToolCallReq, o: CallOutcome, duration_ms: u64) -> Entry {
-    let (text, is_error, value) = match o {
+/// Emits the result rows for one call and returns its transcript entry. The
+/// nudge's note, when this result fires it, is part of the recorded text.
+async fn record(
+    cx: &DispatchCx<'_>,
+    call: &ToolCallReq,
+    o: CallOutcome,
+    duration_ms: u64,
+) -> Entry {
+    let (mut text, is_error, value) = match o {
         Ok((r, _)) => (r.text, false, persistable_value(&r.value)),
         Err(f) => (f.to_model_text(), true, Value::Null),
     };
-    record_with_value(ev, call, (text, is_error, value), duration_ms).await
+    if let Some(note) = cx
+        .nudge
+        .and_then(|n| n.lock().ok()?.note(&call.name, is_error))
+    {
+        text.push_str(&note);
+    }
+    record_with_value(cx.ev, call, (text, is_error, value), duration_ms).await
 }
 
 /// Emits the result rows for a call whose result text is already known (a

@@ -29,6 +29,7 @@ async fn drive(engine: &ScriptedEngine) -> Vec<(String, Value)> {
         run_id: "run1".into(),
         results: Arc::new(NoResults),
         on_done: None,
+        nudge: None,
     };
     let (tx, mut rx) = mpsc::channel(256);
     run_loop(

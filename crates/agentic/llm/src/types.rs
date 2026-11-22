@@ -190,6 +190,10 @@ pub enum ContentBlock {
         /// output item (including `id`, `status`, etc.) in the next input.
         provider_data: Option<Value>,
     },
+    /// A block of a tool the provider runs itself (Anthropic's advisor:
+    /// `server_tool_use` and `advisor_tool_result`). Opaque: pass back
+    /// verbatim, in stream order. Other providers never produce one.
+    ServerTool { provider_data: Value },
 }
 
 // ── Streaming chunk types ─────────────────────────────────────────────────────
@@ -239,6 +243,9 @@ pub enum StopReason {
     MaxTokens,
     /// The model elected to use a tool.
     ToolUse,
+    /// A provider-run tool (the advisor) is still pending: resend with this
+    /// response appended as the assistant message, adding no user message.
+    PauseTurn,
 }
 
 /// Token usage reported by the provider for a single completion.
@@ -255,6 +262,36 @@ pub struct Usage {
     pub cache_read_input_tokens: usize,
     /// Why the model stopped; populated by provider stream parsers.
     pub stop_reason: StopReason,
+    /// Advisor calls inside this completion, billed at the advisor model's
+    /// rates and NOT included in the token fields above.
+    pub advisor: AdvisorUsage,
+}
+
+/// Tokens of the advisor calls in one completion (Anthropic's
+/// `usage.iterations` entries of type `advisor_message`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AdvisorUsage {
+    pub calls: u32,
+    /// The advisor model, as the provider reported it; empty with no calls.
+    pub model: String,
+    pub input_tokens: usize,
+    pub output_tokens: usize,
+    pub cache_creation_input_tokens: usize,
+    pub cache_read_input_tokens: usize,
+}
+
+impl AdvisorUsage {
+    /// Adds `other`'s calls and tokens; keeps the first model seen.
+    pub fn add(&mut self, other: &AdvisorUsage) {
+        self.calls += other.calls;
+        if self.model.is_empty() {
+            self.model.clone_from(&other.model);
+        }
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.cache_creation_input_tokens += other.cache_creation_input_tokens;
+        self.cache_read_input_tokens += other.cache_read_input_tokens;
+    }
 }
 
 /// The final output produced by a completion or tool-use loop.

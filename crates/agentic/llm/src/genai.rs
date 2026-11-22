@@ -115,8 +115,7 @@ pub fn provider_name_for_url(url: &str, default: &'static str) -> &'static str {
 pub fn server_endpoint(url: &str) -> Option<(String, u16)> {
     let parsed = reqwest::Url::parse(url).ok()?;
     let host = parsed.host_str()?.to_string();
-    let port = parsed.port_or_known_default()?;
-    Some((host, port))
+    Some((host, parsed.port_or_known_default()?))
 }
 
 /// Build the span for one inference round. Every attribute that is recorded
@@ -368,6 +367,8 @@ pub fn finish_reasons_json(reason: &StopReason) -> String {
         StopReason::EndTurn => "stop",
         StopReason::MaxTokens => "length",
         StopReason::ToolUse => "tool_calls",
+        // The convention has no word for a paused turn; it is not finished.
+        StopReason::PauseTurn => "pause_turn",
     };
     format!("[\"{word}\"]")
 }
@@ -541,18 +542,16 @@ mod tests {
             cache_creation_input_tokens: 5,
             cache_read_input_tokens: 100,
             stop_reason: StopReason::ToolUse,
+            advisor: Default::default(),
         };
         let started = Instant::now() - std::time::Duration::from_millis(250);
-        let mut s = observe(
+        let s = observe(
             span,
             started,
             chunks(vec![Ok(Chunk::Text("hi".into())), Ok(Chunk::Done(usage))]),
         );
         use tokio_stream::StreamExt as _;
-        let mut n = 0;
-        while s.next().await.is_some() {
-            n += 1;
-        }
+        let n = s.collect::<Vec<_>>().await.len();
         assert_eq!(n, 2, "chunks pass through untouched");
 
         let all = cap.0.lock().unwrap();

@@ -95,6 +95,9 @@ pub(super) async fn emit_turn(ev: &EventSink, turn: &Turn, duration_ms: u64) {
             duration_ms,
             model: u.model.clone(),
             sub_spec_index: None,
+            advisor_calls: u.advisor_calls,
+            advisor_input_tokens: u.advisor_input_tokens,
+            advisor_output_tokens: u.advisor_output_tokens,
         },
     )
     .await;

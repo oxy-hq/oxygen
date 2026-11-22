@@ -518,6 +518,8 @@ impl LlmProvider for OpenAiProvider {
                     flush_text(&mut text_parts, &mut items);
                     items.push(provider_data.clone());
                 }
+                // Anthropic-only; this provider never produces one.
+                ContentBlock::ServerTool { .. } => {}
                 ContentBlock::Text { text } => {
                     text_parts.push(json!({
                         "type": "output_text",
