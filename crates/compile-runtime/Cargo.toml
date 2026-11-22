@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`). Below oxy-app, above oxy-compile and oxy-app-core; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`). Below oxy-app, above oxy-compile, oxy-app-core, oxy-preagg and oxy-previews; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -10,6 +10,8 @@ edition.workspace = true
 [dependencies]
 # `TaskSpec` and its retry policy: a commit compile is a queued task.
 agentic-core = { workspace = true }
+# `worker`: the health and pre-aggregation schedule reconciles after a promote.
+agentic-pipeline = { workspace = true }
 # `COMPILE_GIT_SOURCE_TYPE` and `TaskScope`: the task's run stamp and scope.
 agentic-runtime = { workspace = true }
 entity = { workspace = true }
@@ -26,6 +28,11 @@ oxy-custom-apps = { workspace = true }
 oxy-feature-flags = { workspace = true }
 # `migrator`: apply a revision's OLTP schemas before it is promoted.
 oxy-oltp = { workspace = true }
+# `worker`: the post-promote rollup nudge (`promote`).
+oxy-preagg = { workspace = true }
+# `worker`: a previewed branch's checks after its staging compile
+# (`queue::analyze`).
+oxy-previews = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 
@@ -53,6 +60,11 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# `worker`'s DB-backed tests: the shared test database (`db`) with the runtime
+# migrator.
+oxy-test-utils = { workspace = true }
 
 [lints]
 workspace = true

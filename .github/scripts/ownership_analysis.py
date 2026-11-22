@@ -85,6 +85,9 @@ AREAS = [
     ("crates/app/src/server/compile_request",             "Compile boundary"),
     # compile_reconcile followed the same day (as compile-runtime's `reconcile`).
     ("crates/app/src/server/compile_reconcile",           "Compile boundary"),
+    # compile_worker followed the same day (as compile-runtime's `worker`).
+    ("crates/app/src/server/compile_worker.rs",           "Compile boundary"),
+    ("crates/app/src/server/compile_worker_tests.rs",     "Compile boundary"),
     ("crates/project",                                    "Project domain"),
     ("crates/workspace-fs",                               "Workspace FS"),
     ("crates/app-core",                                   "App-layer core seam"),

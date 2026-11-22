@@ -82,7 +82,7 @@ const RECENT_COMPILE_TASKS_SQL: &str = "SELECT queue_status, updated_at FROM age
 /// it is treated as having no node that can take it.
 ///
 /// Only a process that owns the workspace's files (an IDE node) claims one
-/// (`compile_worker`'s `!from_git && !process_can_compile()` refusal), and it
+/// (`worker`'s `!from_git && !process_can_compile()` refusal), and it
 /// polls about every second. Unclaimed for ten minutes, there is no such node in
 /// this deployment (prod has none: INC-164), so the row would sit `queued`
 /// forever, its run showing `running`, and — counted as "in flight" — swallow

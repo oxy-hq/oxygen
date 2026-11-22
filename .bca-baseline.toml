@@ -6675,6 +6675,18 @@ metric = "loc.ploc"
 value = 612.0
 
 [[entry]]
+path = "crates/app-core/src/pods/ide_proxy.rs"
+qualified = "relay"
+metric = "abc"
+value = 47.10626285325551
+
+[[entry]]
+path = "crates/app-core/src/pods/role_manifest.rs"
+qualified = "pattern_matches"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
 path = "crates/app-core/src/rate_limit.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -6823,24 +6835,6 @@ path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
 qualified = "resolve_model_impl"
 metric = "cyclomatic"
 value = 18.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "try_database_to_connector_config"
-metric = "abc"
-value = 176.71728834497208
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "try_database_to_connector_config"
-metric = "cognitive"
-value = 41.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "try_database_to_connector_config"
-metric = "cyclomatic"
-value = 45.0
 
 [[entry]]
 path = "crates/app/src/agentic_wiring/project_ctx/workspace_context.rs"
@@ -7027,54 +7021,6 @@ path = "crates/app/src/server/api/middlewares/workspace_context.rs"
 qualified = "workspace_middleware"
 metric = "nargs"
 value = 6.0
-
-[[entry]]
-path = "crates/app/src/server/compile_worker.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 785.0
-
-[[entry]]
-path = "crates/app/src/server/compile_worker.rs"
-qualified = "drive"
-metric = "abc"
-value = 62.75348595894893
-
-[[entry]]
-path = "crates/app/src/server/compile_worker.rs"
-qualified = "drive"
-metric = "cognitive"
-value = 18.0
-
-[[entry]]
-path = "crates/app/src/server/compile_worker.rs"
-qualified = "drive"
-metric = "cyclomatic"
-value = 17.0
-
-[[entry]]
-path = "crates/app/src/server/compile_worker.rs"
-qualified = "spec_from_taskspec"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "crates/app/src/server/ide_proxy.rs"
-qualified = "relay"
-metric = "abc"
-value = 47.10626285325551
-
-[[entry]]
-path = "crates/app/src/server/preagg_workspace.rs"
-qualified = "seed_promoted_workspace"
-metric = "abc"
-value = 68.18357573492314
-
-[[entry]]
-path = "crates/app/src/server/role_manifest.rs"
-qualified = "pattern_matches"
-metric = "cognitive"
-value = 16.0
 
 [[entry]]
 path = "crates/app/src/server/role_manifest_tests.rs"
@@ -8077,6 +8023,36 @@ path = "crates/compile-runtime/src/request/enqueue_task.rs"
 qualified = "enqueue_compile_task"
 metric = "nargs"
 value = 6.0
+
+[[entry]]
+path = "crates/compile-runtime/src/worker.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 773.0
+
+[[entry]]
+path = "crates/compile-runtime/src/worker.rs"
+qualified = "drive"
+metric = "abc"
+value = 62.75348595894893
+
+[[entry]]
+path = "crates/compile-runtime/src/worker.rs"
+qualified = "drive"
+metric = "cognitive"
+value = 18.0
+
+[[entry]]
+path = "crates/compile-runtime/src/worker.rs"
+qualified = "drive"
+metric = "cyclomatic"
+value = 17.0
+
+[[entry]]
+path = "crates/compile-runtime/src/worker.rs"
+qualified = "spec_from_taskspec"
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "crates/core/src/adapters/semantic_tool_description.rs"
@@ -10669,13 +10645,13 @@ value = 40.099875311526844
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1090.0
+value = 1169.0
 
 [[entry]]
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1891.0
+value = 2012.0
 
 [[entry]]
 path = "crates/telemetry/src/stderr_capture.rs"
@@ -10760,6 +10736,48 @@ path = "crates/workspace-runtime/src/airhouse_pool.rs"
 qualified = "reclaim_unused_permits"
 metric = "cognitive"
 value = 26.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
+qualified = "try_database_to_connector_config"
+metric = "abc"
+value = 176.71728834497208
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
+qualified = "try_database_to_connector_config"
+metric = "cognitive"
+value = 41.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
+qualified = "try_database_to_connector_config"
+metric = "cyclomatic"
+value = 45.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 832.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1236.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector/unheld_callers_guard.rs"
+qualified = "only_the_project_context_names_an_unheld_connector_door"
+metric = "cognitive"
+value = 17.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/preagg_workspace.rs"
+qualified = "seed_promoted_workspace"
+metric = "abc"
+value = 68.18357573492314
 
 [[entry]]
 path = "crates/workspace-runtime/src/typed_stream.rs"

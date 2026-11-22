@@ -82,9 +82,10 @@ const ALLOWED: &[(&str, &str)] = &[
          2026-11-16.)",
     ),
     (
-        "src/server/compile_worker.rs",
+        "../compile-runtime/src/worker.rs",
         "Checks the revision it JUST wrote, before anything reads it. A manager \
-         reads the promoted revision, which is a different question.",
+         reads the promoted revision, which is a different question. (Was \
+         `src/server/compile_worker.rs` until it moved down, 2026-11-22.)",
     ),
     (
         "../app-core/src/pods/servability.rs",

@@ -150,7 +150,7 @@ async fn drive(
 
     // A commit compile brings its own tree, so the role's working copy — the
     // thing this check is about — is not involved.
-    if !spec.from_git && !crate::server::role_manifest::process_can_compile() {
+    if !spec.from_git && !oxy_app_core::pods::role_manifest::process_can_compile() {
         // FAIL, do not defer.
         //
         // An earlier revision deferred here, reasoning that "cannot compile" is
@@ -183,7 +183,7 @@ async fn drive(
             .send(TaskOutcome::Failed(format!(
                 "compile requires a workspace working copy, which OXY_ROLE={} does not own. \
                  Route Compile tasks to an ide or all node.",
-                crate::server::role_manifest::current_process_role().as_str()
+                oxy_app_core::process_role::current_process_role().as_str()
             )))
             .await;
         return;
@@ -196,7 +196,7 @@ async fn drive(
     // recoverable from `workspaces` at all, and the `revisions` history cannot
     // say which of its rows was the one being served.
     let served_before = if spec.promote {
-        crate::server::preagg_promote::promoted_revision(&db, spec.workspace_id)
+        oxy_preagg::promote::promoted_revision(&db, spec.workspace_id)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(
@@ -243,7 +243,7 @@ async fn drive(
         owner_user_id: spec.owner_user_id,
         // Reject a compiled config the stateless fleet couldn't read (#2520):
         // it fails the compile instead of promoting a revision that 503s.
-        config_gate: Some(crate::server::compile_config_gate::runtime_config_gate()),
+        config_gate: Some(crate::config_gate::runtime_config_gate()),
     })
     .await;
     record_compile_duration(&spec, &outcome, compile_started.elapsed());
@@ -257,9 +257,7 @@ async fn drive(
             // Must run BEFORE the reconciles below: both of them read "the
             // workspace's current compiled config", which is still the
             // PREVIOUS revision until this returns.
-            let settled =
-                crate::server::compile_oltp::settle_deferred_promotion(&db, spec.workspace_id, &o)
-                    .await;
+            let settled = crate::oltp::settle_deferred_promotion(&db, spec.workspace_id, &o).await;
 
             let _ = event_tx
                 .send((
@@ -320,7 +318,7 @@ async fn drive(
                             );
                             false
                         });
-                    crate::server::preagg_promote::nudge_after_promote(
+                    oxy_preagg::promote::nudge_after_promote(
                         &db,
                         spec.workspace_id,
                         served_before,
@@ -505,7 +503,7 @@ fn health_reconcile_target(
 /// when a read or the write failed — the periodic driver leaves such a
 /// workspace unstamped so its next claim retries, rather than waiting out the
 /// forced interval.
-pub(crate) async fn reconcile_health_from_compiled(
+pub async fn reconcile_health_from_compiled(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
 ) -> bool {
@@ -513,7 +511,7 @@ pub(crate) async fn reconcile_health_from_compiled(
     // `reconcile.yml` the warning below looks for must describe the same
     // compile, or a promote landing mid-pass warns about the wrong one.
     let Some(revision_id) =
-        crate::server::api::compiled_reader::resolve_request_revision(workspace_id, None).await
+        oxy_app_core::compiled_reader::resolve_request_revision(workspace_id, None).await
     else {
         tracing::debug!(
             target: "health_eval",
@@ -522,7 +520,7 @@ pub(crate) async fn reconcile_health_from_compiled(
         );
         return true;
     };
-    let read = crate::server::api::compiled_reader::resolve_workspace_config_at(revision_id).await;
+    let read = oxy_app_core::compiled_reader::resolve_workspace_config_at(revision_id).await;
     let read_failed = read.is_err();
     let Some((interval, opt_in)) = health_reconcile_target(read, workspace_id) else {
         return !read_failed;
@@ -577,7 +575,7 @@ async fn warn_if_reconcile_goes_inert(
     remedy: &str,
 ) {
     if let Ok(Some(_)) =
-        crate::server::api::compiled_reader::resolve_reconcile_config_at(revision_id).await
+        oxy_app_core::compiled_reader::resolve_reconcile_config_at(revision_id).await
     {
         tracing::warn!(
             target: "health_eval",
@@ -656,15 +654,14 @@ fn preagg_reconcile_target(
 ///
 /// Returns what it resolved ([`PreaggReconcile`]). The promote path reads the
 /// opt-in so a workspace with no `pre_aggregations:` block cannot be handed a
-/// cycle through [`crate::server::preagg_promote::nudge_after_promote`]; the
+/// cycle through [`oxy_preagg::promote::nudge_after_promote`]; the
 /// periodic driver reads whether it is settled, so a failed read or write
 /// leaves the workspace to be retried on its next claim.
-pub(crate) async fn reconcile_preagg_from_compiled(
+pub async fn reconcile_preagg_from_compiled(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
 ) -> PreaggReconcile {
-    let read =
-        crate::server::api::compiled_reader::resolve_workspace_config(workspace_id, None).await;
+    let read = oxy_app_core::compiled_reader::resolve_workspace_config(workspace_id, None).await;
     let read_failed = read.is_err();
     let Some((interval, enabled)) = preagg_reconcile_target(read, workspace_id) else {
         return if read_failed {
@@ -693,7 +690,7 @@ pub(crate) async fn reconcile_preagg_from_compiled(
 
 /// What [`reconcile_preagg_from_compiled`] found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PreaggReconcile {
+pub enum PreaggReconcile {
     /// The promoted config was read and the row now carries its cadence.
     Reconciled { enabled: bool },
     /// No promoted revision or no config row: nothing to reconcile from, and
@@ -705,7 +702,7 @@ pub(crate) enum PreaggReconcile {
 
 impl PreaggReconcile {
     /// The resolved opt-in, when the config was read and written.
-    pub(crate) fn enabled(self) -> Option<bool> {
+    pub fn enabled(self) -> Option<bool> {
         match self {
             Self::Reconciled { enabled } => Some(enabled),
             Self::NothingToSay | Self::Failed => None,
@@ -713,7 +710,7 @@ impl PreaggReconcile {
     }
 
     /// Whether there is nothing left to retry.
-    pub(crate) fn settled(self) -> bool {
+    pub fn settled(self) -> bool {
         !matches!(self, Self::Failed)
     }
 }
@@ -725,7 +722,7 @@ async fn queue_preview_check(db: &DatabaseConnection, spec: &CompileSpec, revisi
     if !matches!(spec.kind, RevisionKind::Staging) {
         return;
     }
-    crate::server::previews::queue::analyze::enqueue_after_staging_compile(
+    oxy_previews::queue::analyze::enqueue_after_staging_compile(
         db,
         spec.workspace_id,
         spec.branch.as_deref(),
@@ -752,13 +749,9 @@ async fn move_environment_pins(db: &DatabaseConnection, spec: &CompileSpec, revi
     let Some(git_sha) = spec.git_sha.as_deref() else {
         return;
     };
-    if let Err(e) = crate::server::compile_reconcile::env_pins::move_after_compile(
-        db,
-        spec.workspace_id,
-        git_sha,
-        revision_id,
-    )
-    .await
+    if let Err(e) =
+        crate::reconcile::env_pins::move_after_compile(db, spec.workspace_id, git_sha, revision_id)
+            .await
     {
         tracing::warn!(
             workspace_id = %spec.workspace_id, %git_sha, %revision_id, error = %e,
@@ -767,7 +760,7 @@ async fn move_environment_pins(db: &DatabaseConnection, spec: &CompileSpec, revi
     }
 }
 
-fn summarise_outcome(o: &CompileOutcome, settled: &crate::server::compile_oltp::Settled) -> Value {
+fn summarise_outcome(o: &CompileOutcome, settled: &crate::oltp::Settled) -> Value {
     json!({
         "revision_id": o.revision_id,
         // What happened to current_revision_id, and — when the revision
@@ -808,18 +801,13 @@ async fn fetch_commit(
     spec: &CompileSpec,
     db: &DatabaseConnection,
     cancel: &CancellationToken,
-) -> Result<Option<crate::server::compile_git::FetchedTree>, String> {
+) -> Result<Option<crate::git::FetchedTree>, String> {
     if !spec.from_git {
         return Ok(None);
     }
-    crate::server::compile_git::fetch_for_task(
-        db,
-        spec.workspace_id,
-        spec.git_sha.as_deref(),
-        cancel,
-    )
-    .await
-    .map(Some)
+    crate::git::fetch_for_task(db, spec.workspace_id, spec.git_sha.as_deref(), cancel)
+        .await
+        .map(Some)
 }
 
 fn record_compile_duration(
@@ -932,13 +920,13 @@ async fn superseded_since(
 }
 
 #[cfg(test)]
-#[path = "compile_worker_tests.rs"]
+#[path = "worker_tests.rs"]
 mod tests;
 
 #[cfg(test)]
 mod outcome_summary_tests {
     use super::*;
-    use crate::server::compile_oltp::Settled;
+    use crate::oltp::Settled;
     use oxy_compile::outcome::{CompileOutcome, Promotion, RevisionStatus};
 
     fn outcome(promotion: Promotion) -> CompileOutcome {

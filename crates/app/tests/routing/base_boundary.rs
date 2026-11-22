@@ -72,7 +72,9 @@ const BACKLOG: &[(&str, &str)] = &[
     // namespace, sources and statement classifier the preview context builds
     // on, cleared on 2026-11-22: the rows went down to `oxy-previews`, and the
     // sample run kind is now defined there, not read from here.)
-    // The compile dispatcher builds the compile worker. (The project
+    // (The compile dispatcher's reach into `server::compile_worker`, the
+    // compile worker it builds, cleared on 2026-11-22: `compile_worker` went
+    // down to `oxy-compile-runtime` as `worker`, decompose C4.) (The project
     // context's reach into `api::semantic`, the compiled scan source, cleared
     // on 2026-11-16: the scan resolution moved down into
     // `agentic_wiring::scan_source`. The metric-tree runner's and the SQL
@@ -84,7 +86,6 @@ const BACKLOG: &[(&str, &str)] = &[
     // source, the project context and the compile cooldown call, cleared on
     // 2026-11-22: `compile_reconcile` went down to `oxy-compile-runtime` as
     // `reconcile`, decompose C3.)
-    ("agentic_wiring", "server::compile_worker"),
     // The workspace middleware: the Factory-access gate, preview pins and
     // read-only holds. The largest knot: it is where request context meets
     // every context that can refuse a request. (Its reach into

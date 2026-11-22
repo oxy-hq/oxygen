@@ -8,7 +8,7 @@ use std::time::Duration;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use super::*;
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::test_support::{SKIP_MSG, test_db};
 
 const BRANCH: &str = "feat/x";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -91,7 +91,7 @@ async fn a_ready_staging_compile_with_a_preview_enqueues_analyze() {
     .insert(&db)
     .await
     .expect("seed user");
-    crate::server::previews::store::upsert(&db, ws, BRANCH, SHA, staff)
+    oxy_previews::store::upsert(&db, ws, BRANCH, SHA, staff)
         .await
         .expect("preview the branch");
 

@@ -22,11 +22,16 @@
 //!   enqueue (lazy and import) with its backoff and throttle (was
 //!   `server::compile_reconcile`, moved on 2026-11-22, the decompose's C3;
 //!   re-exported at `oxy_app::server::compile_reconcile`).
+//! - [`worker`]: the compile task's worker, which drives
+//!   `oxy_compile::compile_workspace` on the runtime's task channels and runs
+//!   what follows a promote (the OLTP settle, the health and pre-aggregation
+//!   schedule reconciles, the rollup nudge, the env pins and a preview's
+//!   checks) (was `server::compile_worker`, moved on 2026-11-22, the
+//!   decompose's C4; re-exported at `oxy_app::server::compile_worker`).
 //!
 //! It is its own crate, not part of `oxy-compile`, because it needs
 //! `oxy-app-core` (the process role, the workspace's repository facts), and
-//! `oxy-app-core` depends on `oxy-compile`. The rest of `server::compile_*`
-//! (`compile_worker`) follows it:
+//! `oxy-app-core` depends on `oxy-compile`:
 //! `internal-docs/domain-boundaries.md`, End state.
 
 pub mod config_gate;
@@ -35,3 +40,16 @@ pub mod maintenance;
 pub mod oltp;
 pub mod reconcile;
 pub mod request;
+pub mod worker;
+
+/// The shared in-source DB harness (`oxy_test_utils::db`), so `worker`'s tests
+/// migrate and lock the shared test database exactly the way `oxy-app`'s own do.
+#[cfg(test)]
+mod test_support {
+    pub(crate) use oxy_test_utils::db::SKIP_MSG;
+
+    /// [`oxy_test_utils::db::test_db`] with the runtime migrator.
+    pub(crate) async fn test_db() -> Option<sea_orm::DatabaseConnection> {
+        oxy_test_utils::db::test_db::<agentic_runtime::migration::RuntimeMigrator>().await
+    }
+}

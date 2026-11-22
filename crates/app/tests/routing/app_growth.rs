@@ -45,9 +45,8 @@ const SERVER: &[&str] = &[
     // `compile_git`, `compile_maintenance`, `compile_oltp`) left for
     // `oxy-compile-runtime` on 2026-11-21, re-exported in `server/mod.rs`;
     // `compile_request` followed them on 2026-11-22 (as `request`), and
-    // `compile_reconcile` the same day (as `reconcile`).
-    "compile_worker",
-    "compile_worker_tests",
+    // `compile_reconcile` the same day (as `reconcile`), and `compile_worker`
+    // (with `compile_worker_tests`) the same day too (as `worker`).
     "factory_access",
     "http_cache",
     // Pod placement (`ide_proxy`, `servability`, and `role_manifest`'s and

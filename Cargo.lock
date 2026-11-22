@@ -10881,6 +10881,7 @@ name = "oxy-compile-runtime"
 version = "0.5.161"
 dependencies = [
  "agentic-core",
+ "agentic-pipeline",
  "agentic-runtime",
  "async-trait",
  "chrono",
@@ -10895,8 +10896,11 @@ dependencies = [
  "oxy-feature-flags",
  "oxy-git",
  "oxy-oltp",
+ "oxy-preagg",
+ "oxy-previews",
  "oxy-shared",
  "oxy-telemetry",
+ "oxy-test-utils",
  "reqwest 0.13.4",
  "sea-orm",
  "serde",

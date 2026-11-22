@@ -225,7 +225,7 @@ mod tests {
         // `Value::Null` (unprojected keys ride the compiled `other` catch-all as
         // raw YAML→JSON), and `HealthCheckConfig` rejects null rather than
         // yielding its default — the same shape the compiled reader pins in
-        // `compile_worker::a_bare_health_check_key_is_off_like_the_typed_path`.
+        // `oxy_compile_runtime::worker::a_bare_health_check_key_is_off_like_the_typed_path`.
         // Pins the outcome only: unlike that sibling, this reader exposes no
         // branch signal, so which arm produced the `None` isn't observable from
         // here and the warning itself stays unasserted.

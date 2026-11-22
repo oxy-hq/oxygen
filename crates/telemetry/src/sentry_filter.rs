@@ -1297,6 +1297,11 @@ mod tests {
             "oxy_compile_runtime::reconcile::lazy_compile_throttle",
             "oxy_compile_runtime::reconcile::push",
             "oxy_compile_runtime::reconcile::state",
+            // The compile task's worker, down from `oxy-app`'s
+            // `server::compile_worker` into `oxy-compile-runtime` as `worker`
+            // (2026-11-22): kept and not the data plane, classified as it
+            // was there.
+            "oxy_compile_runtime::worker",
             // Workspace previews' rows, down from `oxy-app`'s
             // `server::previews` into `oxy-previews` (2026-11-22): the
             // registry's own tables and a preview's Airhouse schemas, kept
@@ -1865,6 +1870,11 @@ mod tests {
             "oxy_compile_runtime::reconcile::lazy_compile_throttle",
             "oxy_compile_runtime::reconcile::push",
             "oxy_compile_runtime::reconcile::state",
+            // The compile task's worker, down from `oxy-app`'s
+            // `server::compile_worker` into `oxy-compile-runtime` as `worker`
+            // (2026-11-22): kept and not the data plane, classified as it
+            // was there.
+            "oxy_compile_runtime::worker",
             // Workspace previews' rows, down from `oxy-app`'s
             // `server::previews` into `oxy-previews` (2026-11-22): the
             // registry's own tables and a preview's Airhouse schemas, kept

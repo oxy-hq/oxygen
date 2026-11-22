@@ -4,7 +4,7 @@
 //!
 //! A working-copy compile (`from_git: false`, run `source_type` `compile`) is
 //! claimable only by a process whose role owns workspace files
-//! (`compile_worker`'s `!from_git && !process_can_compile()` refusal). A
+//! (`worker`'s `!from_git && !process_can_compile()` refusal). A
 //! deployment with no such node (prod, INC-164) leaves one queued forever, its
 //! run showing `running`. So a process that owns none must not queue one.
 

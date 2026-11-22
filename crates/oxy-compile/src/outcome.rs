@@ -61,7 +61,7 @@ pub enum Promotion {
     /// over `entity`), which is the boundary that keeps the compiler
     /// ignorant of where a tenant's Postgres lives.
     ///
-    /// Callers: `oxy_app::server::compile_worker` and `oxy compile`.
+    /// Callers: `oxy_compile_runtime::worker` and `oxy compile`.
     Deferred { schema_migration_count: u32 },
 }
 

@@ -21,8 +21,11 @@ pub use oxy_compile_runtime::reconcile as compile_reconcile;
 // since 2026-11-22; re-exported so the prelude and `tests/platform` keep this
 // path.
 pub use oxy_compile_runtime::request as compile_request;
-pub mod compile_worker;
+// The compile task's worker, `oxy-compile-runtime`'s `worker` since 2026-11-22
+// (decompose C4); re-exported so the compile dispatcher and the periodic
+// reconcile keep this path.
 pub use oxy_app_core::default_branch;
+pub use oxy_compile_runtime::worker as compile_worker;
 pub mod factory_access;
 // `feature_flags` (the flag routes: the staff console's list, patch and
 // evaluate, and the org member's read) is `oxy-api-admin`'s since 2026-11-21;
@@ -37,7 +40,7 @@ pub use oxy_app_core::pods::ide_proxy;
 pub use oxy_app_core::preagg_context;
 pub mod preagg_executor;
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
-// 2026-11-20; re-exported so `compile_worker` and the prelude keep this path.
+// 2026-11-20; re-exported so the prelude keeps this path.
 pub use oxy_preagg::promote as preagg_promote;
 // The preagg cycle's workspace manager, `oxy-workspace-runtime`'s since
 // 2026-11-22 (W1b); re-exported so `preagg_executor` and the prelude keep
