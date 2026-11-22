@@ -9,10 +9,15 @@ publish.workspace = true
 
 [dependencies]
 oxy-shared = { workspace = true }
+# `gate`: the `billing` flag (the cache) and the service's DB connection.
+oxy-feature-flags = { workspace = true }
+oxy-platform = { workspace = true }
 chrono.workspace = true
 entity.workspace = true
 hex.workspace = true
 hmac.workspace = true
+# `gate::billing_service`'s refusal status (axum's `StatusCode` is this one).
+http.workspace = true
 reqwest = { workspace = true, features = ["json", "form"] }
 sea-orm.workspace = true
 serde.workspace = true

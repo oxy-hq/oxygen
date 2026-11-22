@@ -434,7 +434,7 @@ async fn spawn_billing_reconciler() {
         // Already spawned (e.g. tests or duplicated router builds).
         return;
     }
-    let Ok(svc) = crate::api::billing::billing_service().await else {
+    let Ok(svc) = oxy_billing::billing_service().await else {
         tracing::debug!("billing reconciler not spawned — Stripe isn't configured");
         return;
     };

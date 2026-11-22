@@ -639,6 +639,9 @@ mod tests {
             // gate and the past-due dispatcher's lines.
             "oxy_app::server::api::billing",
             "oxy_app::server::api::billing::notify",
+            // The service gate's line, down from `oxy_app::server::api::billing`
+            // into `oxy_billing::gate` (decompose B1): kept, as it was there.
+            "oxy_billing::gate",
         ] {
             assert_eq!(
                 sentry_disposition(module, &Level::ERROR),

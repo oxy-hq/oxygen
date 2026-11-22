@@ -25,7 +25,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::org_context::OrgContext;
-use crate::server::api::billing::billing_disabled;
+use oxy_billing::billing_disabled;
 
 /// 402 body shape. The web client reads `code = subscription_required` and
 /// mounts the `PaywallScreen` overlay; `status` lets it render the right copy.

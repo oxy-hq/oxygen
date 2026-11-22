@@ -99,8 +99,8 @@ const BACKLOG: &[(&str, &str)] = &[
     // reach into `server::compile_git`, the branch self-heal, cleared on
     // 2026-11-21: `compile_git` went down to `oxy-compile-runtime`, and the
     // enqueue section moved to `compile_reconcile::enqueue`.)
-    // The subscription guard asks billing whether billing is switched off.
-    ("server::api::middlewares", "server::api::billing"),
+    // (The subscription guard's ask of billing, whether billing is switched
+    // off, cleared on 2026-11-21: the gate moved down to `oxy_billing::gate`.)
     ("server::api::middlewares", "server::compile_reconcile"),
     ("server::api::middlewares", "server::factory_access"),
     ("server::api::middlewares", "server::previews"),
