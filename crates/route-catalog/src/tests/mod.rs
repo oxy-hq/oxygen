@@ -151,6 +151,10 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/admin/billing/prices",
     "/api/orgs/{org_id}/billing/status",
     "/api/webhooks/stripe",
+    // The OAuth callbacks (`oxy-api-workspace-config`'s public seed since
+    // 2026-11-21). The walk of `build_public_routes` reached them in-tree; its
+    // workspace-seam half (the connects) is pinned by `/integrations` below.
+    "/api/quickbooks/oauth/callback",
     // The admin split (2026-11-20): the grant table (`oxy-api-admin`, a
     // section on the admin seam). Reached by the walk of `admin::router`
     // in-tree, and required nowhere; now only its own seed reaches it.

@@ -37,6 +37,21 @@ async fn local_router_has_its_public_tree() {
     if db_unavailable() {
         return;
     }
+    // `oxy-app`'s own public tree mounts nothing since 2026-11-21: the
+    // QuickBooks OAuth callback, the last probe, left for
+    // `oxy-api-workspace-config` (the Stripe webhook before it, for
+    // `oxy-api-billing` in the admin split's PR 9). So the probe is a route
+    // handed in on the public seam, merged beside the public tree where every
+    // public route arrives now; `served_router_tests` holds the real ones on
+    // the served router, in both modes.
+    use oxy_app::server::router::{SurfaceSeam, SurfaceSeams};
+    let seams = SurfaceSeams {
+        public: SurfaceSeam {
+            routes: axum::Router::new().route("/seam-probe", axum::routing::get(|| async { "ok" })),
+            decls: Vec::new(),
+        },
+        ..SurfaceSeams::empty()
+    };
     let (router, _external, _preagg) = api_router(
         ServeMode::Local,
         false,
@@ -44,17 +59,14 @@ async fn local_router_has_its_public_tree() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        oxy_app::server::router::SurfaceSeams::empty(),
+        seams,
     )
     .await
     .expect("build router");
-    // The QuickBooks OAuth callback is public-tree and GET only: TRACE gets
-    // 405 where it is mounted and 404 where it is not, without reaching the
-    // handler. (The probe was the Stripe webhook until it left for
-    // `oxy-api-billing` in the admin split's PR 9; `served_router_tests` holds
-    // it on the served router, in both modes.)
+    // GET only: TRACE gets 405 where it is mounted and 404 where it is not,
+    // without reaching the handler.
     for (uri, want) in [
-        ("/quickbooks/oauth/callback", StatusCode::METHOD_NOT_ALLOWED),
+        ("/seam-probe", StatusCode::METHOD_NOT_ALLOWED),
         ("/webhooks/nothing-mounts-this", StatusCode::NOT_FOUND),
     ] {
         let req = Request::builder()

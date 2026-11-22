@@ -595,79 +595,14 @@ fn a_declaration_names_its_verb() {
     );
 }
 
-/// Per-sub-route drift guard for `build_integration_routes()`: every route in
-/// it is fleet-servable now, so each one is on the reviewed list with a reason.
-#[test]
-fn every_integration_sub_route_is_classified() {
-    let src = include_str!("router/workspace.rs");
-    const INTEGRATION_FLEET_OK: &[&str] = &[
-        "/quickbooks/authorize", // OAuth redirect — no workspace files
-        // Same shape, any provider: writes a Postgres state row and upserts the
-        // client secret through the workspace secret manager. No working copy,
-        // no .git, no local state dir — so any replica can serve it.
-        "/oauth/{provider}/authorize",
-        // `/looker` left this builder for `oxy-api-workspace-config` on
-        // 2026-11-16, and its row went with it
-        // (`every_database_secret_and_integration_route_classifies_fleet_ok`).
-    ];
-    assert_sub_routes_classified(
-        src,
-        "build_integration_routes",
-        "/integrations",
-        INTEGRATION_FLEET_OK,
-        0,
-    );
-}
-
-/// Shared body of the per-sub-route guards: every route in `builder` must be
-/// IdeOnly for some method, or be on the reviewed ack-list. Also rejects a
-/// stale ack, so removing a route forces the list to shrink with it.
-fn assert_sub_routes_classified(
-    src: &str,
-    builder: &str,
-    nest: &str,
-    ack: &[&str],
-    min_ide_only: usize,
-) {
-    let ws = "/api/d9830be4-c6a4";
-    let routes = route_paths_in_fn(src, builder);
-    assert!(
-        !routes.is_empty(),
-        "parsed no routes from {builder} — fix the parser rather than \
-         weakening the guard",
-    );
-    let mut ide_only_count = 0;
-    for route in &routes {
-        if ack.contains(&route.as_str()) {
-            continue;
-        }
-        let tail = if route == "/" { "" } else { route.as_str() };
-        let concrete = concretize(&format!("{ws}{nest}{tail}"));
-        assert!(
-            ["GET", "POST", "PUT", "DELETE", "PATCH"]
-                .iter()
-                .any(|m| classify(m, &concrete) == RouteRole::IdeOnly),
-            "sub-route {route:?} (under {nest}) classifies FleetOk but is not on \
-             the reviewed ack-list for {builder} — if it reads or writes the \
-             working copy, mount it with `route_ide`; if it is genuinely \
-             stateless, add it to the list with a reason.",
-        );
-        ide_only_count += 1;
-    }
-    assert!(
-        ide_only_count >= min_ide_only,
-        "{builder} has {ide_only_count} IdeOnly sub-routes, expected at least \
-         {min_ide_only} — a pin was lost",
-    );
-    let route_set: std::collections::HashSet<&str> = routes.iter().map(|r| r.as_str()).collect();
-    for entry in ack {
-        assert!(
-            route_set.contains(entry),
-            "the ack-list for {builder} lists {entry:?} but no such route exists \
-             — remove the stale entry."
-        );
-    }
-}
+// `every_integration_sub_route_is_classified` (the per-sub-route guard for
+// `build_integration_routes`) moved to `oxy-api-workspace-config` on
+// 2026-11-21 with the builder's last two routes, the OAuth connects: its ack
+// rows are in that crate's
+// `every_database_secret_and_integration_route_classifies_fleet_ok`, checked
+// against the declarations it installs, and its shared body
+// (`assert_sub_routes_classified`, with `route_paths_in_fn` and `concretize`)
+// had no other caller and went with it.
 
 /// `router/public.rs` mounts through the declaring door, not the silent one.
 ///
@@ -719,7 +654,13 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 3 (read off this assertion on 2026-11-16, after the
+    // The file declares 0 (2026-11-21: the two OAuth callbacks, its last
+    // routes, left for `oxy-api-workspace-config`'s `public_routes`, which
+    // declares them on the public seam). A floor of 0 would assert nothing
+    // (and `>= 0` on a `usize` is a clippy error), so the count is pinned
+    // exactly instead: the bare-`.route(` half above still guards the
+    // reversion, and a route mounted here again has to raise this number on
+    // purpose. Floor `>= 2` until then. The file declared 3 (read off this assertion on 2026-11-16, after the
     // four health probes left for `oxy-server`'s `core_routes`; floor `>= 7` ->
     // `>= 2`. 7 until then: the GitHub and Toast webhook receivers had left
     // on 2026-11-15 without this note following; 9 before that, 20 until
@@ -734,11 +675,12 @@ fn the_public_router_declares_every_route_it_mounts() {
     // is most of a surface — near enough to the real count to notice a subtree
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
-    assert!(
-        declared >= 2,
-        "only {declared} declared mounts found — the parser broke, or this file \
-         moved. A guard that silently stops covering anything is the shape this \
-         whole area exists to remove.",
+    assert_eq!(
+        declared, 0,
+        "router/public.rs declares {declared} mounts; it declared none since \
+         2026-11-21 (its routes are surface crates' now, on `SurfaceSeams::public`). \
+         If you mounted one here on purpose, raise this number; if not, the parser \
+         broke or this file moved.",
     );
 }
 
@@ -789,31 +731,6 @@ fn custom_app_run_state_routes_are_fleet_ok() {
 // cannot be asserted here: `oxy-app` does not declare them any more, so
 // `classify` would answer with the FleetOk default and pass for the wrong reason.
 
-/// Path string of every `.route("PATH", ...)` mounted directly in
-/// `fn {fn_name}` of `src`. Deliberately simple text parsing (no syntax
-/// crate): the FS builders are flat lists of `.route(...)` calls.
-fn route_paths_in_fn(src: &str, fn_name: &str) -> Vec<String> {
-    let start = src
-        .find(&format!("fn {fn_name}"))
-        .unwrap_or_else(|| panic!("{fn_name} not found in workspace.rs"));
-    let rest = &src[start..];
-    // Body ends at the next top-level `fn ` (column 0).
-    let end = rest[1..].find("\nfn ").map(|i| i + 1).unwrap_or(rest.len());
-    let mut out = Vec::new();
-    for marker in MOUNT_MARKERS {
-        for seg in rest[..end].split(marker).skip(1) {
-            let Some(after_quote) = seg.trim_start().strip_prefix('"') else {
-                continue;
-            };
-            let Some(close) = after_quote.find('"') else {
-                continue;
-            };
-            out.push(after_quote[..close].to_string());
-        }
-    }
-    out
-}
-
 /// Every way a route reaches the router. All of them take the path first,
 /// so a parser needs the names and nothing else.
 const MOUNT_MARKERS: &[&str] = &[
@@ -823,26 +740,6 @@ const MOUNT_MARKERS: &[&str] = &[
     ".route_split(",
     ".route_split_optional_working_copy(",
 ];
-
-/// Replace `{name}` / `{*name}` pattern segments with a literal so a route
-/// pattern becomes a concrete request path `classify` can match.
-fn concretize(pattern: &str) -> String {
-    let mut out = String::new();
-    let mut chars = pattern.chars();
-    while let Some(c) = chars.next() {
-        if c == '{' {
-            for d in chars.by_ref() {
-                if d == '}' {
-                    break;
-                }
-            }
-            out.push('x');
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
 
 /// Coverage guard for routes that read NODE-LOCAL state the compile
 /// boundary does not materialise (git state, process-local BROADCASTER

@@ -130,12 +130,14 @@ struct Seed {
 /// more than one — `oxy-api-tenancy` and `oxy-api-frontline` do, which is why
 /// each has more than one seed.
 const SEEDS: &[Seed] = &[
-    Seed {
-        surface: "public",
-        prefix: "/api",
-        module: "public",
-        function: "build_public_routes",
-    },
+    // `public::build_public_routes` is not a seed since 2026-11-21: its last
+    // routes (the OAuth callbacks) left for `oxy-api-workspace-config`'s
+    // `public_routes`, seeded below, and a file that mounts nothing is not
+    // indexed, so the seed could only warn "not found". Every public route
+    // arrives on `SurfaceSeams::public` now; a route mounted in
+    // `router/public.rs` again needs this seed back (its source test,
+    // `the_public_router_declares_every_route_it_mounts`, pins the count at
+    // zero so that edit cannot go unnoticed).
     // The health probes, `oxy-server`'s since 2026-11-16 (`core_routes`),
     // ride `SurfaceSeams::public`, beside the public tree.
     Seed {
@@ -609,13 +611,23 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_automations",
         function: "workspace_routes",
     },
-    // `oxy-api-workspace-config`: `/databases` and `/secrets` ride
-    // `SurfaceSeams::workspace` inside the `/{workspace_id}` tree.
+    // `oxy-api-workspace-config`: `/databases`, `/secrets` and
+    // `/integrations/*` (the Looker listing, and since 2026-11-21 the OAuth
+    // connects, out of `build_integration_routes`) ride
+    // `SurfaceSeams::workspace` inside the `/{workspace_id}` tree; the OAuth
+    // callbacks (out of `build_public_routes`, 2026-11-21) ride
+    // `SurfaceSeams::public` beside the public tree.
     Seed {
         surface: "workspace",
         prefix: "/api/{workspace_id}",
         module: "oxy_api_workspace_config",
         function: "workspace_routes",
+    },
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_workspace_config",
+        function: "public_routes",
     },
     // `oxy-api-threads` (2026-11-16): org chat rides `SurfaceSeams::api`,
     // merged beside the global tree at `/api` where `build_global_routes` had

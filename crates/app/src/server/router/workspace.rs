@@ -1,10 +1,11 @@
 //! The per-workspace route tree. Mounted under `/{workspace_id}` in both
 //! cloud and local modes (local always uses the nil UUID).
 //!
-//! This module owns the tree shape plus all per-resource sub-builders
-//! (integrations, app integrations, etc.). The workspace's databases and
-//! secrets are `oxy-api-workspace-config`'s, and its threads, agents and run
-//! artifacts `oxy-api-threads`', merged in through the workspace seam.
+//! This module owns the tree shape plus the per-resource sub-builders still
+//! in-tree. The workspace's databases, secrets and integrations (the Looker
+//! listing and the OAuth connects) are `oxy-api-workspace-config`'s, and its
+//! threads, agents and run artifacts `oxy-api-threads`', merged in through
+//! the workspace seam.
 
 use std::sync::Arc;
 
@@ -64,7 +65,12 @@ pub(super) fn build_workspace_routes(
         // Secrets, each handler `WorkspaceAdmin`-guarded where it writes) are
         // `oxy-api-workspace-config`'s since 2026-11-15, merged inside this
         // nest by `oxy-server` through `SurfaceSeams::workspace`, still FleetOk.
-        .nest("/integrations", build_integration_routes(&app_state))
+        // `/integrations/*` (the Looker listing since 2026-11-16, and the
+        // OAuth connects `/integrations/quickbooks/authorize` and
+        // `/integrations/oauth/{provider}/authorize` since 2026-11-21, each
+        // `WorkspaceAdmin`-guarded in its signature) is
+        // `oxy-api-workspace-config`'s, merged inside this nest by `oxy-server`
+        // through `SurfaceSeams::workspace`, still FleetOk.
         // `/members`, `/members/{user_id}` (a workspace's members and their
         // role overrides) and `/oxy-access` (the Oxy-staff lockdown) are
         // `oxy-api-workspaces`' since 2026-11-16, merged inside this nest
@@ -213,24 +219,9 @@ pub(super) fn build_external_workspace_routes(
 // alongside `oxy-workflow`. The agentic-pipeline workflow surface mounted
 // at `/agentic-workflows` replaces every endpoint they exposed.
 
-fn build_integration_routes(app_state: &AppState) -> RoleRouter {
-    // `/looker` (the Looker integrations `config.yml` declares) is
-    // `oxy-api-workspace-config`'s since 2026-11-16, merged inside the
-    // `/{workspace_id}` nest as `/integrations/looker` through the workspace
-    // seam, still FleetOk.
-    RoleRouter::new(app_state.clone())
-        .route_fleet(
-            "/quickbooks/authorize",
-            post(crate::integrations::quickbooks::oauth::authorize::authorize),
-        )
-        // Uniform OAuth connect for any provider in `integrations::oauth_provider`.
-        // FleetOk like its QuickBooks predecessor: Postgres state row + secret
-        // manager, no filesystem and no local state dir.
-        .route_fleet(
-            "/oauth/{provider}/authorize",
-            post(crate::integrations::quickbooks::oauth::authorize::authorize_by_slug),
-        )
-}
+// `build_integration_routes` left with its last two routes (the OAuth
+// connects) for `oxy-api-workspace-config` on 2026-11-21; see the comment
+// where it was nested above.
 
 #[cfg(test)]
 mod tests {

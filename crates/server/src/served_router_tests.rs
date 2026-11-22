@@ -1550,26 +1550,28 @@ async fn the_tenancy_leaves_are_mounted_where_oxy_app_had_them() {
 
 /// `oxy-api-workspace-config`'s Looker listing (2026-11-16, out of
 /// `build_integration_routes`) is merged into `/{workspace_id}/integrations`
-/// beside the OAuth connects `oxy-app` still nests there, so both halves of
-/// the prefix must answer. A real GET reaches the handler and answers from the
-/// empty workspace's config: no Looker integration, `[]`. The credentials check
-/// beside it (`/integrations/looker/{name}/test`, 2026-11-21) rides the same
-/// seam.
+/// beside the OAuth connects (the same crate's since 2026-11-21, out of the
+/// same builder, until then `oxy-app`'s nest under that prefix), so every
+/// route under the prefix must answer. A real GET reaches the handler and
+/// answers from the empty workspace's config: no Looker integration, `[]`.
+/// The credentials check beside it (`/integrations/looker/{name}/test`,
+/// 2026-11-21) rides the same seam.
 #[tokio::test]
 async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects() {
     let decls = surface_seams().workspace.decls;
-    assert!(
-        decls.iter().any(|d| d.method == "*"
-            && d.path == "/integrations/looker"
-            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
-        "the workspace seam must carry `* /integrations/looker` as FleetOk"
-    );
-    assert!(
-        decls.iter().any(|d| d.method == "*"
-            && d.path == "/integrations/looker/{name}/test"
-            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
-        "the workspace seam must carry the Looker credentials check as FleetOk"
-    );
+    for path in [
+        "/integrations/looker",
+        "/integrations/looker/{name}/test",
+        "/integrations/quickbooks/authorize",
+        "/integrations/oauth/{provider}/authorize",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
     if db_unavailable() {
         return;
     }
@@ -1579,7 +1581,8 @@ async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects(
         &[
             "/integrations/looker",
             "/integrations/looker/my_looker/test",
-            // `oxy-app`'s half of the same prefix, which must survive the merge.
+            // The OAuth connects, `oxy-app`'s half of the prefix until
+            // 2026-11-21 (`build_integration_routes`), now the same crate's.
             "/integrations/quickbooks/authorize",
             "/integrations/oauth/google/authorize",
         ],
@@ -5675,6 +5678,55 @@ async fn both_modes_mount_the_stripe_webhook() {
         );
     }
     assert_eq!(classify("POST", "/api/webhooks/stripe"), RouteRole::FleetOk);
+}
+
+/// The OAuth callbacks (`oxy-api-workspace-config`'s on the public seam since
+/// 2026-11-21, out of `build_public_routes`): QuickBooks' registered
+/// `/quickbooks/oauth/callback` and the uniform `/oauth/{provider}/callback`,
+/// served in both modes as they were, outside the auth stack, and declared
+/// FleetOk. TRACE, which neither takes, is 405 where they are mounted and the
+/// outer 404 where they are not, with no credential and without reaching the
+/// handler. Moved here from `oxy-app`'s two router canaries
+/// (`local_router_mounts_the_public_tree` and `local_mode_router`'s
+/// `local_router_has_its_public_tree`), which probe the public seam now.
+#[tokio::test]
+async fn both_modes_mount_the_oauth_callbacks() {
+    use oxy_app::surface::roles::{RouteRole, classify};
+    let seams = surface_seams();
+    for path in ["/quickbooks/oauth/callback", "/oauth/{provider}/callback"] {
+        assert!(
+            seams.public.decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the public seam declares {path} FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        for path in ["/quickbooks/oauth/callback", "/oauth/google/callback"] {
+            assert_eq!(
+                status(&router, &Method::TRACE, path).await,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{mode:?} serves {path}"
+            );
+        }
+        assert_eq!(
+            status(&router, &Method::TRACE, "/oauth/google/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "{mode:?} control"
+        );
+    }
+    assert_eq!(
+        classify("GET", "/api/quickbooks/oauth/callback"),
+        RouteRole::FleetOk
+    );
+    assert_eq!(
+        classify("GET", "/api/oauth/google/callback"),
+        RouteRole::FleetOk
+    );
 }
 
 /// The org member's flag read (`oxy-api-admin`'s on the api seam since

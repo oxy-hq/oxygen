@@ -417,6 +417,21 @@ mod router_split_tests {
         if db_unavailable() {
             return;
         }
+        // `oxy-app`'s own public tree mounts nothing since 2026-11-21 (the
+        // QuickBooks OAuth callback, the last probe, left for
+        // `oxy-api-workspace-config`), so the probe is a route handed in on the
+        // public seam, which is where every public route arrives now: it is
+        // merged beside the public tree, so it answering proves the public
+        // tree is mounted on the local router. (`oxy-server`'s
+        // `served_router_tests` holds the real callbacks, and the Stripe
+        // webhook before them, on the served router in both modes.)
+        let seams = SurfaceSeams {
+            public: SurfaceSeam {
+                routes: Router::new().route("/seam-probe", axum::routing::get(|| async { "ok" })),
+                decls: Vec::new(),
+            },
+            ..SurfaceSeams::empty()
+        };
         let (router, _external_router, _preagg) = api_router(
             ServeMode::Local,
             false,
@@ -424,16 +439,12 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            SurfaceSeams::empty(),
+            seams,
         )
         .await
         .expect("router built");
-        // The QuickBooks OAuth callback is public-tree, GET only: TRACE gets
-        // 405 where it is mounted and 404 where it is not, without reaching the
-        // handler. That confirms public routes are mounted on the local router.
-        // (The probe was the Stripe webhook until it left for `oxy-api-billing`
-        // in the admin split's PR 9; `oxy-server`'s `served_router_tests` holds
-        // it on the served router, in both modes.)
+        // GET only: TRACE gets 405 where it is mounted and 404 where it is
+        // not, without reaching the handler.
         let trace = |uri: &'static str| {
             let router = router.clone();
             async move {
@@ -445,10 +456,7 @@ mod router_split_tests {
                 router.oneshot(req).await.expect("oneshot").status()
             }
         };
-        assert_eq!(
-            trace("/quickbooks/oauth/callback").await,
-            StatusCode::METHOD_NOT_ALLOWED
-        );
+        assert_eq!(trace("/seam-probe").await, StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(
             trace("/webhooks/nothing-mounts-this").await,
             StatusCode::NOT_FOUND,
@@ -473,13 +481,16 @@ mod router_split_tests {
         )
         .await
         .expect("router built");
-        // `/integrations/quickbooks/authorize`, an in-tree workspace route, by
-        // TRACE (no handler runs: 405 when mounted). It probed `GET /agents`
-        // until that left for `oxy-api-threads`, then `/meta` until that left
-        // for `oxy-api-workspaces`, then `/revision` until that left for
-        // `oxy-api-semantic` (all 2026-11-16); `oxy-server`'s served-router
-        // tests hold all three in local mode now.
-        let uri = format!("/{}/integrations/quickbooks/authorize", LOCAL_WORKSPACE_ID);
+        // `/analytics/runs`, an in-tree workspace route (the agentic chat's
+        // run start, `nest_declared` in `build_workspace_routes`), by TRACE (no
+        // handler runs: 405 when mounted). It probed `GET /agents` until that
+        // left for `oxy-api-threads`, then `/meta` until that left for
+        // `oxy-api-workspaces`, then `/revision` until that left for
+        // `oxy-api-semantic` (all 2026-11-16), then
+        // `/integrations/quickbooks/authorize` until that left for
+        // `oxy-api-workspace-config` (2026-11-21); `oxy-server`'s served-router
+        // tests hold all four in local mode now.
+        let uri = format!("/{}/analytics/runs", LOCAL_WORKSPACE_ID);
         let req = Request::builder()
             .method(axum::http::Method::TRACE)
             .uri(&uri)

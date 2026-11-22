@@ -273,7 +273,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // now in `oxy_api_workspace_config::workspace_route_roles`; the list
         // reads the in-memory config (its datasets only where
         // `workspace_file_resolver` finds files), the schema and inspection
-        // talk to the warehouse, the secrets to Postgres.
+        // talk to the warehouse, the secrets to Postgres. Since 2026-11-21 also
+        // the OAuth connects and callbacks, out of `build_integration_routes`
+        // and `build_public_routes`, where all four were `route_fleet`;
+        // declared FleetOk by hand in `workspace_route_roles` and
+        // `public_route_roles`: a Postgres state row, the vendor's token
+        // endpoint and the workspace's secrets, never a working copy.
         "../api-workspace-config/src",
         // The GitHub App's webhook receiver (`POST /webhooks/github`), moved
         // out of `build_public_routes` on 2026-11-15, where it was

@@ -104,11 +104,16 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// declared in `build_org_routes`) left for `oxy-api-billing`, which declares
 /// them on the api seam. (The Stripe webhook has no row; the Billing queue's
 /// routes sit under the console's `/api/admin` wildcard, which stayed.)
+/// Plus one on 2026-11-21 when the QuickBooks connect
+/// (`/api/{workspace_id}/integrations/quickbooks/authorize`, `route_fleet` in
+/// `build_integration_routes`) left for `oxy-api-workspace-config`, which
+/// declares it on the workspace seam. (The uniform connect and the two OAuth
+/// callbacks, which left with it, have no rows.)
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 133;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 134;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];

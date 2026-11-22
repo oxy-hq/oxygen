@@ -70,10 +70,11 @@ fn server_files() -> Vec<(String, String)> {
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut out = Vec::new();
     walk(&manifest.join("src/server"), &mut out);
-    // Request paths that live outside `src/server`: Slack and eval runs
-    // (`src/integrations`, where Slack once ran an agent from a working-copy
-    // path on fleet pods), and the agent-run host (`src/agentic_wiring`).
-    walk(&manifest.join("src/integrations"), &mut out);
+    // Request paths that live outside `src/server`: the agent-run host
+    // (`src/agentic_wiring`). `src/integrations` was walked here too (Slack
+    // once ran an agent from a working-copy path on fleet pods) until its
+    // last code, the OAuth connects, left for `oxy-api-workspace-config` on
+    // 2026-11-21; that crate is walked below.
     walk(&manifest.join("src/agentic_wiring"), &mut out);
     // Extracted from `src/server/api/documents`; still a request path of this
     // server, so still in scope. Labelled `../api-documents/src/…`.
@@ -90,7 +91,8 @@ fn server_files() -> Vec<(String, String)> {
     walk(&manifest.join("../api-world-model/src"), &mut out);
     // The automation listing and the schedules (2026-11-15), served by this binary.
     walk(&manifest.join("../api-automations/src"), &mut out);
-    // The workspace's databases and secrets (2026-11-15), served by this binary.
+    // The workspace's databases and secrets (2026-11-15), and the OAuth
+    // connects (2026-11-21, out of `src/integrations`), served by this binary.
     walk(&manifest.join("../api-workspace-config/src"), &mut out);
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.

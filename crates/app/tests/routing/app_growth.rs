@@ -30,7 +30,6 @@ const SRC: &[&str] = &[
     // `start` / `worker` take from here, the binary's counterpart of
     // `surface`. It shrinks to nothing as the router and the base leave.
     "host",
-    "integrations",
     "managed_connection_resolver",
     "observability_boot",
     "server",

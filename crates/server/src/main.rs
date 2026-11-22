@@ -170,6 +170,11 @@ fn public_seam_routes() -> SeamRouter {
         // Stripe's webhook (`POST /webhooks/stripe`), `oxy-api-billing`'s since
         // the admin split's PR 9: signature-verified over the raw body.
         .merge(oxy_api_billing::public_routes())
+        // The OAuth callbacks (`/quickbooks/oauth/callback`,
+        // `/oauth/{provider}/callback`), `oxy-api-workspace-config`'s since
+        // 2026-11-21: the vendor redirects a bare browser here, and the
+        // single-use state nonce is the guard.
+        .merge(oxy_api_workspace_config::public_routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
@@ -414,6 +419,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_world_model::public_route_roles())
                 .chain(oxy_api_github::public_route_roles())
                 .chain(oxy_api_billing::public_route_roles())
+                .chain(oxy_api_workspace_config::public_route_roles())
                 .copied()
                 .collect(),
         },

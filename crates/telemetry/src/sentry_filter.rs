@@ -903,6 +903,14 @@ mod tests {
             "oxy_api_tenancy::workspace_logo",
             "oxy_api_tenancy::partner_publish_consent",
             "oxy_api_workspace_config::integration",
+            // The OAuth connects and callbacks (2026-11-21, out of
+            // `oxy_app::integrations`): a Postgres state row, the vendor's
+            // token endpoint and the workspace's secrets, no warehouse and no
+            // custom-app code.
+            "oxy_api_workspace_config::integrations::oauth_provider",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::authorize",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::callback",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::state",
             "oxy_api_previews::compile_staging",
             // The conversation surface (Wave B, 2026-11-16).
             "oxy_api_threads::thread",
@@ -1370,6 +1378,14 @@ mod tests {
             "oxy_api_tenancy::workspace_logo",
             "oxy_api_tenancy::partner_publish_consent",
             "oxy_api_workspace_config::integration",
+            // The OAuth connects and callbacks (2026-11-21, out of
+            // `oxy_app::integrations`): a Postgres state row, the vendor's
+            // token endpoint and the workspace's secrets, no warehouse and no
+            // custom-app code.
+            "oxy_api_workspace_config::integrations::oauth_provider",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::authorize",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::callback",
+            "oxy_api_workspace_config::integrations::quickbooks::oauth::state",
             "oxy_api_previews::compile_staging",
             // The conversation surface that left `oxy-app` on 2026-11-16:
             // threads, the agent listing and a run's artifacts. A result

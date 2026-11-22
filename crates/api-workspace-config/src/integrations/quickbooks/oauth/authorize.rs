@@ -6,10 +6,10 @@
 //! hand off to (popup or full-page redirect).
 
 use crate::integrations::quickbooks::oauth::state::{CreateState, QuickbooksOauthStateService};
-use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode, header};
+use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::{Deserialize, Serialize};
 

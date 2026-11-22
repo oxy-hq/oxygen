@@ -23,7 +23,6 @@ pub mod cli;
 /// Moved to `oxy_app_core::emails`; re-exported so `crate::emails::*` call sites don't move.
 pub use oxy_app_core::emails;
 pub mod host;
-pub mod integrations;
 pub mod managed_connection_resolver;
 pub mod observability_boot;
 pub mod server;

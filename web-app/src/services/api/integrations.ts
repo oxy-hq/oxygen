@@ -6,7 +6,7 @@ import { apiClient } from "./axios";
  * Surfaced in **Settings → Connections**.
  *
  * Hand-maintained mirror of the `slug`s in
- * `crates/app/src/integrations/oauth_provider.rs`, with no drift guard in
+ * `crates/api-workspace-config/src/integrations/oauth_provider.rs`, with no drift guard in
  * either direction — a slug typo'd here 404s at authorize rather than failing a
  * build. QuickBooks is deliberately absent: it has its own connect flow inside
  * the Airway pipeline wizard, where the realm id the callback returns is

@@ -16,20 +16,30 @@
 //!   declares, with the explores each names, read from the served revision's
 //!   compiled config (`/integrations/looker`), and (2026-11-21) the credentials
 //!   check for one (`/integrations/looker/{name}/test`, `WorkspaceAdmin`), which
-//!   replaced the Rust `oxy looker test`. The other `/integrations/*` routes
-//!   (the OAuth connects) are still `oxy-app`'s.
+//!   replaced the Rust `oxy looker test`.
+//! - [`integrations`] (2026-11-21, out of `oxy-app`'s `integrations`): the
+//!   OAuth "Connect" flow that lands a vendor's refresh token in this
+//!   workspace's secrets — QuickBooks' legacy authorize and callback, and the
+//!   uniform `/integrations/oauth/{provider}/authorize` and
+//!   `/oauth/{provider}/callback` over the provider table.
 //!
 //! [`workspace_routes`] rides the workspace seam, merged INSIDE the
 //! `/api/{workspace_id}` nest, so it inherits the session auth stack and
 //! `workspace_middleware`, where `build_workspace_routes` mounted
-//! `/databases` and `/secrets` (the latter through `router::secrets`). Every
-//! mutation takes `WorkspaceAdmin` in its signature, so no route-level
-//! middleware is needed, as before.
+//! `/databases`, `/integrations` and `/secrets` (the latter through
+//! `router::secrets`). Every mutation takes `WorkspaceAdmin` in its signature,
+//! so no route-level middleware is needed, as before.
+//!
+//! [`public_routes`] rides the public seam, merged beside `oxy-app`'s public
+//! tree OUTSIDE the auth stack, in both modes, where `build_public_routes`
+//! mounted the two OAuth callbacks: the vendor redirects a bare browser there
+//! with no Oxy session, and the single-use state nonce is the guard.
 //!
 //! Every route is FleetOk, method `*`, as `route_fleet` declared them: the
 //! listing reads the in-memory `Config` (its datasets degrade to `null` without
-//! a working copy), the schema, inspection and sync talk to the warehouse, and
-//! the secrets live in Postgres.
+//! a working copy), the schema, inspection and sync talk to the warehouse, the
+//! secrets live in Postgres, and the OAuth connects write a Postgres state row
+//! and the workspace's secrets, never a working copy or the local state dir.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
@@ -38,6 +48,7 @@
 
 pub mod database;
 pub mod integration;
+pub mod integrations;
 pub mod secrets;
 pub mod sync;
 
@@ -48,11 +59,13 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`. The two
 /// nests are as `oxy-app` nested them, so each prefix answers exactly what it
-/// did (the list is its `/`). `/integrations/looker` is a single route, not a
-/// nest: `oxy-app` still nests the rest of `/integrations` (the OAuth
-/// connects), and the two merge as siblings under that prefix. It lists the
-/// Looker integrations named in the served revision's config; `/{name}/test`
-/// beside it checks one integration's credentials (`oxyc looker test`).
+/// did (the list is its `/`). `/integrations/*` are single routes, not a nest:
+/// the Looker listing (named in the served revision's config), the Looker
+/// credentials check beside it (`/{name}/test`, `oxyc looker test`), and the
+/// two OAuth connects, which `oxy-app`'s `build_integration_routes` nested
+/// under `/integrations` until 2026-11-21. The check and both connects take
+/// `WorkspaceAdmin` in their signatures (see
+/// [`integrations::quickbooks::oauth::authorize`]).
 pub fn workspace_routes() -> Router<AppState> {
     Router::new()
         .nest("/databases", database_routes())
@@ -64,6 +77,42 @@ pub fn workspace_routes() -> Router<AppState> {
         .route(
             "/integrations/looker/{name}/test",
             post(integration::test_looker_integration),
+        )
+        .merge(integration_connect_routes())
+}
+
+/// The OAuth connects, as `build_integration_routes` mounted them. The handler
+/// paths are spelled as they were in `oxy-app` (`crate::integrations::…`, the
+/// same module path in this crate), which keeps the route catalog's `handler`
+/// field byte-identical.
+fn integration_connect_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/integrations/quickbooks/authorize",
+            post(crate::integrations::quickbooks::oauth::authorize::authorize),
+        )
+        .route(
+            "/integrations/oauth/{provider}/authorize",
+            post(crate::integrations::quickbooks::oauth::authorize::authorize_by_slug),
+        )
+}
+
+/// The public seam's share: merged beside `oxy-app`'s public tree, outside
+/// the auth stack, in both modes, where `build_public_routes` mounted them
+/// until 2026-11-21. Public because Intuit (or any provider) redirects the
+/// bare browser here after consent; the state nonce (single-use, 15-min TTL,
+/// matched on provider) is the CSRF/replay guard. QuickBooks keeps its own
+/// path because that URL is registered in every customer's Intuit app and can
+/// never be renamed; every other provider takes the uniform one.
+pub fn public_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/quickbooks/oauth/callback",
+            get(crate::integrations::quickbooks::oauth::callback::callback),
+        )
+        .route(
+            "/oauth/{provider}/callback",
+            get(crate::integrations::quickbooks::oauth::callback::callback_by_slug),
         )
 }
 
@@ -110,11 +159,25 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree:
-/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk, plus
+/// the twelve rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk, plus
 /// the Looker credentials check and `/databases/sync` added here (2026-11-21).
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     WORKSPACE_ROUTE_ROLES
 }
+
+/// Pod placement for [`public_routes`], relative to the public tree (the
+/// served router prefixes `/api`): the two rows `build_public_routes`'
+/// `route_fleet` declared, method `*`, FleetOk. The callback exchanges the
+/// code with the vendor and writes the workspace's secrets and the state row,
+/// all Postgres.
+pub fn public_route_roles() -> &'static [RouteRoleDecl] {
+    PUBLIC_ROUTE_ROLES
+}
+
+const PUBLIC_ROUTE_ROLES: &[RouteRoleDecl] = &[
+    fleet("/quickbooks/oauth/callback"),
+    fleet("/oauth/{provider}/callback"),
+];
 
 /// A `const`, not a literal in the function: `fleet` is a `const fn`, and a
 /// slice of its calls is promoted to `'static` only through a constant.
@@ -137,6 +200,11 @@ const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] = &[
     // Reads the compiled config and the secrets store, then calls Looker; no
     // working copy (2026-11-21, `oxyc looker test`).
     fleet("/integrations/looker/{name}/test"),
+    // The OAuth connects (2026-11-21, out of `build_integration_routes`): a
+    // Postgres state row and the workspace secret manager, no filesystem and
+    // no local state dir.
+    fleet("/integrations/quickbooks/authorize"),
+    fleet("/integrations/oauth/{provider}/authorize"),
 ];
 
 #[cfg(test)]
@@ -160,7 +228,12 @@ mod tests {
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7/value",
         "/integrations/looker",
         "/integrations/looker/my_looker/test",
+        "/integrations/quickbooks/authorize",
+        "/integrations/oauth/google/authorize",
     ];
+
+    /// Every concrete public route, with path parameters filled.
+    const PUBLIC_MOUNTED: &[&str] = &["/quickbooks/oauth/callback", "/oauth/google/callback"];
 
     async fn trace(router: &Router, uri: &str) -> StatusCode {
         router
@@ -186,8 +259,8 @@ mod tests {
         let declared = workspace_route_roles();
         assert_eq!(
             declared.len(),
-            12,
-            "six database paths, four secret paths, two integration paths"
+            14,
+            "six database paths, four secret paths, four integration paths"
         );
         for decl in declared {
             let same = declared
@@ -237,6 +310,14 @@ mod tests {
             ("GET", "/integrations/looker"),
             // The credentials check: compiled config + secrets store + Looker.
             ("POST", "/integrations/looker/my_looker/test"),
+            // The rest of that ack list, moved with the OAuth connects on
+            // 2026-11-21 (the test went with them: `build_integration_routes`
+            // no longer exists). Each writes a Postgres state row and upserts
+            // the client secret through the workspace secret manager. No
+            // working copy, no .git, no local state dir — so any replica can
+            // serve it.
+            ("POST", "/integrations/quickbooks/authorize"),
+            ("POST", "/integrations/oauth/google/authorize"),
         ] {
             let uri = format!("/api/{ws}{path}");
             assert_eq!(
@@ -306,5 +387,67 @@ mod tests {
                 .status();
             assert_eq!(status, StatusCode::FORBIDDEN, "{role:?}");
         }
+    }
+
+    /// The public seam's two rows, as `build_public_routes`' `route_fleet`
+    /// declared them: method `*`, FleetOk, each exactly once.
+    #[test]
+    fn every_public_route_is_declared_fleet_ok_exactly_once() {
+        let declared = public_route_roles();
+        assert_eq!(declared.len(), 2, "the two OAuth callbacks");
+        for decl in declared {
+            let same = declared
+                .iter()
+                .filter(|d| d.method == decl.method && d.path == decl.path)
+                .count();
+            assert_eq!(
+                same, 1,
+                "{} {}: declared {same} times",
+                decl.method, decl.path
+            );
+            assert_eq!(decl.role, RouteRole::FleetOk, "{}", decl.path);
+            assert_eq!(decl.method, "*", "{}", decl.path);
+        }
+    }
+
+    /// Classified against this crate's declarations, `/api`-prefixed as the
+    /// served router installs the public seam's, so a dropped row fails rather
+    /// than falling to `classify`'s FleetOk default. The callbacks exchange the
+    /// code with the vendor and write the workspace's secrets: Postgres only.
+    #[test]
+    fn every_public_route_classifies_fleet_ok() {
+        use oxy_app::surface::roles::declared_role_in;
+        let decls: Vec<_> = public_route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api{}", d.path), d.role))
+            .collect();
+        for path in PUBLIC_MOUNTED {
+            let uri = format!("/api{path}");
+            assert_eq!(
+                declared_role_in(&decls, "GET", &uri),
+                Some(RouteRole::FleetOk),
+                "GET {uri} must match a FleetOk declaration"
+            );
+        }
+    }
+
+    /// The public declarations and routes agree, by the same TRACE probe as
+    /// [`every_route_is_mounted`]: 405 from a mounted (GET-only) path, 404
+    /// from an unmounted one, without running a handler.
+    #[tokio::test]
+    async fn every_public_route_is_mounted() {
+        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        for uri in PUBLIC_MOUNTED {
+            assert_eq!(
+                trace(&router, uri).await,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{uri}: not mounted"
+            );
+        }
+        assert_eq!(
+            trace(&router, "/oauth/google/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control"
+        );
     }
 }

@@ -35,8 +35,9 @@
 //!
 //! ## Scope and precision
 //!
-//! The walk covers `crates/app/src/server/api/**`, `crates/app/src/integrations/**`
-//! (Slack and eval request paths), every `crates/api-*/src/**`, and the request-path
+//! The walk covers `crates/app/src/server/api/**`, every `crates/api-*/src/**`
+//! (`crates/app/src/integrations/**` too, until its last request path, the OAuth
+//! connects, left for `oxy-api-workspace-config` on 2026-11-21), and the request-path
 //! cores in `crates/world-model/src/{graph,cohort}/**` that the World Model handlers
 //! call into: the handler layer, the surface crates `oxy-server` mounts, and the
 //! handler bodies lowered out of them. Test code is out:
@@ -467,12 +468,12 @@ fn crates_root() -> &'static Path {
 /// The trees this rule covers: the handler layer and every surface crate.
 fn scan_roots() -> Vec<PathBuf> {
     let crates = crates_root();
-    // `app/src/integrations` holds the eval request path, which sits outside
-    // the handler layer and so outside this rule. (Slack's, which also did,
-    // is `oxy-api-slack` now, covered as an `api-*` crate.)
+    // `app/src/integrations` was a root while it held request paths outside
+    // the handler layer: Slack's (`oxy-api-slack` now), the eval runner's
+    // (`oxy-api-eval`) and last the OAuth connects (`oxy-api-workspace-config`,
+    // 2026-11-21), each covered as an `api-*` crate below. The directory is gone.
     let mut roots = vec![
         crates.join("app/src/server/api"),
-        crates.join("app/src/integrations"),
         // The World Model graph and cohort cores, lowered out of oxy-app's
         // handlers into `oxy-world-model`: still request paths, so still this
         // rule's. The rest of that crate (the live-feed outbox writer) is

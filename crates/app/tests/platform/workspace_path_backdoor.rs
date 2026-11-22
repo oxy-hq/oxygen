@@ -131,7 +131,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The automation listing and the schedules, `oxy-api-automations`
         // since 2026-11-15.
         manifest.join("../api-automations/src"),
-        // The workspace's databases and secrets, `oxy-api-workspace-config`
+        // The workspace's databases, secrets and OAuth connects (the last
+        // out of `src/integrations`, 2026-11-21), `oxy-api-workspace-config`
         // since 2026-11-15.
         manifest.join("../api-workspace-config/src"),
         // The health probes and route discovery, `oxy-server`'s `core_routes`

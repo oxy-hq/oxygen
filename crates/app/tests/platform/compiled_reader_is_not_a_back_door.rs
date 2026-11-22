@@ -232,7 +232,8 @@ fn source_files() -> Vec<(String, String)> {
         &mut out,
     );
     // `oxy-api-workspace-config` (2026-11-15): the workspace's databases and
-    // secrets.
+    // secrets, and (2026-11-21) the OAuth connects out of `src/integrations`,
+    // walked above (under `src`) before the move.
     let workspace_config =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-config/src");
     walk(
