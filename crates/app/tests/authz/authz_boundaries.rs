@@ -101,15 +101,15 @@ const ALLOWED: &[(&str, &str)] = &[
         "defines `is_oxy_owner` (the OXY_OWNER env read `globals` wraps)",
     ),
     (
-        "app/src/server/api/middlewares/oxy_app_admin_guard.rs",
+        "server-authz/src/oxy_app_admin_guard.rs",
         "legacy term + the `is_oxy_app_admin` wrapper",
     ),
     (
-        "app/src/server/api/middlewares/oxy_owner_or_app_admin_guard.rs",
+        "server-authz/src/oxy_owner_or_app_admin_guard.rs",
         "legacy term — the `is_staff` shape",
     ),
     (
-        "app/src/server/api/middlewares/platform_cap_guard.rs",
+        "server-authz/src/platform_cap_guard.rs",
         "legacy term — the SAME `is_staff` oracle as the door guard above, passed as \
          `existing_allow` so the per-capability gate can only SUBTRACT from the reach \
          the console already had. Without it this layer would be a bare `allows`, and a \

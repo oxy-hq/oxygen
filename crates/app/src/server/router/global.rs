@@ -9,10 +9,8 @@ use axum::Router;
 use axum::middleware;
 
 use crate::api::admin;
-use crate::api::middlewares::{
-    app_scope_guard, org_context, oxy_owner_or_app_admin_guard, platform_cap_guard,
-    subscription_guard,
-};
+use crate::api::middlewares::{org_context, subscription_guard};
+use oxy_server_authz::{oxy_owner_or_app_admin_guard, platform_cap_guard};
 
 use oxy_shared::fleet_role::RouteRoleDecl;
 

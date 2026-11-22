@@ -47,9 +47,10 @@ use axum::middleware;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-use crate::server::api::middlewares::{oxy_owner_guard, platform_cap_guard};
+use crate::server::api::middlewares::oxy_owner_guard;
 use crate::server::authz::Action;
 use crate::server::router::{AdminSection, AppState};
+use oxy_server_authz::platform_cap_guard;
 
 /// Admin routes are flat under `/api/admin/*` after the 2026-04-28 redesign.
 /// Endpoints:

@@ -103,14 +103,13 @@ pub mod session {
 /// The CORS origin allowlist, for routes that gate on where a call came from.
 pub use crate::server::router::is_allowed_origin;
 
-/// The staff-console guards: the layers a surface stacks on its staff routes
-/// (`oxy_owner_or_app_admin_guard` admits an Oxy owner or an app admin;
-/// `platform_cap_guard::require(Action)` the capability the section is about;
-/// `app_scope_guard` which apps a bounded grant may touch). The surface names the
-/// stack; `oxy-app` owns what each layer decides.
+/// The staff-console guard a surface stacks on its staff routes that still
+/// resolves through `oxy-app`: `app_scope_guard`, which apps a bounded grant may
+/// touch. The door (`oxy_owner_or_app_admin_guard`) and the per-section
+/// capability (`platform_cap_guard::require(Action)`) are `oxy-server-authz`'s
+/// (decompose G2b, 2026-11-22); a surface takes them from there.
 pub mod guards {
-    pub use crate::server::api::middlewares::oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware;
-    pub use crate::server::api::middlewares::{app_scope_guard, platform_cap_guard};
+    pub use crate::server::api::middlewares::app_scope_guard;
 }
 
 /// The workspace middleware's role resolution: the role an API token's grant

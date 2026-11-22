@@ -26,8 +26,8 @@ use axum::middleware::Next;
 use axum::response::Response;
 use oxy_auth::types::AuthenticatedUser;
 
-use crate::server::api::middlewares::oxy_app_admin_guard::is_oxy_app_admin;
-use crate::server::authz::{Action, Caller, Resource, enforce, globals, loader};
+use crate::oxy_app_admin_guard::is_oxy_app_admin;
+use crate::{Action, Caller, Resource, enforce, globals, loader};
 
 type GuardFuture = Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>;
 
@@ -71,7 +71,7 @@ async fn enforce_cap(
     let is_owner = globals::is_global_owner(&caller);
     let legacy = is_owner || is_oxy_app_admin(&caller).await;
 
-    let facts = match oxy::database::client::establish_connection().await {
+    let facts = match oxy_platform::db::establish_connection().await {
         Ok(db) => loader::load_platform_facts(&db, &caller).await,
         Err(e) => {
             tracing::error!(

@@ -6,8 +6,8 @@
 //! Went down from `oxy-app`'s `server::api::middlewares` on 2026-11-22 (decompose
 //! G2); `oxy-app` re-exports each module at its old path. The staff console's
 //! legacy-term guards (`oxy_app_admin_guard`, `oxy_owner_or_app_admin_guard`,
-//! `platform_cap_guard`) stay in `oxy-app` for now: `authz_boundaries` allowlists
-//! them by path.
+//! `platform_cap_guard`) went to `oxy-server-authz` instead (G2b), where
+//! `authz_boundaries` allowlists them by path.
 
 pub mod app_scope_guard;
 pub mod org_context;

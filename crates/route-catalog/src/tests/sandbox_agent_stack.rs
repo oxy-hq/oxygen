@@ -288,9 +288,9 @@ fn the_console_mounts_the_layers_the_table_was_written_from() {
         );
     }
     assert_eq!(guarded.matches("platform_cap_guard::require(").count(), 1);
-    let door = source("app/src/server/api/middlewares/oxy_owner_or_app_admin_guard.rs");
+    let door = source("server-authz/src/oxy_owner_or_app_admin_guard.rs");
     assert!(
-        door.contains("crate::server::authz::Action::PlatformOps"),
+        door.contains("crate::Action::PlatformOps"),
         "the outer door no longer decides PlatformOps"
     );
 }

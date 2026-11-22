@@ -10,10 +10,10 @@
 //! custom-app registrations, owners manage org/billing/feature-flags
 //! and add/remove app admins.
 
-use oxy::database::client::establish_connection;
+use oxy_platform::db::establish_connection;
 
-use crate::server::authz::Caller;
-use crate::server::authz::globals::is_app_admin;
+use crate::Caller;
+use crate::globals::is_app_admin;
 
 /// Returns `true` when the caller holds a platform grant (`app_admins`), as the
 /// credential the request arrived with carries it — an API token without

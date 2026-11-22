@@ -11,7 +11,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use oxy_auth::types::AuthenticatedUser;
 
-use crate::server::api::middlewares::oxy_app_admin_guard::is_oxy_app_admin;
+use crate::oxy_app_admin_guard::is_oxy_app_admin;
 
 pub async fn oxy_owner_or_app_admin_guard_middleware(
     request: axum::http::Request<axum::body::Body>,
@@ -27,22 +27,21 @@ pub async fn oxy_owner_or_app_admin_guard_middleware(
     // for non-owners.
     //
     // Read for the CALLER, so an API token without platform standing is not staff.
-    let caller = crate::server::authz::Caller::of_request(request.extensions(), &user);
-    let legacy =
-        crate::server::authz::globals::is_global_owner(&caller) || is_oxy_app_admin(&caller).await;
+    let caller = crate::Caller::of_request(request.extensions(), &user);
+    let legacy = crate::globals::is_global_owner(&caller) || is_oxy_app_admin(&caller).await;
 
     // Platform tier through the shared model — see `Ring::GlobalAdminOrOwner` in
     // `oxy_authz`. `existing && unified`; the ring reads only the global flags.
-    let facts = match oxy::database::client::establish_connection().await {
-        Ok(db) => crate::server::authz::loader::load_platform_facts(&db, &caller).await,
+    let facts = match oxy_platform::db::establish_connection().await {
+        Ok(db) => crate::loader::load_platform_facts(&db, &caller).await,
         Err(_) => None,
     };
     let allowed = match facts {
-        Some(facts) => crate::server::authz::enforce(
+        Some(facts) => crate::enforce(
             "guard.oxy_owner_or_app_admin",
             &facts,
-            crate::server::authz::Action::PlatformOps,
-            &crate::server::authz::Resource::platform(),
+            crate::Action::PlatformOps,
+            &crate::Resource::platform(),
             legacy,
         ),
         // Fail-safe: unknown standing (no connection, or the lookup errored) defers to

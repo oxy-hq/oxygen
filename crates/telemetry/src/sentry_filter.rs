@@ -863,6 +863,34 @@ mod tests {
         }
     }
 
+    /// The staff console's three legacy-term guards (the `is_oxy_app_admin`
+    /// wrapper, the door and the per-section capability gate) went down on
+    /// 2026-11-22, out of `oxy_app::server::api::middlewares` into
+    /// `oxy_server_authz` (the decompose's G2b). Platform code there, kept and
+    /// not the data plane; pinned so here: a capability guard that cannot read
+    /// platform standing is real signal. (`platform_cap_guard`'s own refusals log
+    /// under the explicit `authz` target, which the move does not change.)
+    #[test]
+    fn the_legacy_term_guards_keep_their_sentry_lines_after_the_move() {
+        for module in [
+            "oxy_server_authz::oxy_app_admin_guard",
+            "oxy_server_authz::oxy_owner_or_app_admin_guard",
+            "oxy_server_authz::platform_cap_guard",
+            // The old paths, as they classified on main.
+            "oxy_app::server::api::middlewares::oxy_app_admin_guard",
+            "oxy_app::server::api::middlewares::oxy_owner_or_app_admin_guard",
+            "oxy_app::server::api::middlewares::platform_cap_guard",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]

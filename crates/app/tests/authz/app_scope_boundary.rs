@@ -915,7 +915,7 @@ fn count_pass_throughs(src: &str) -> usize {
 /// reverts shows up as a missing 500, and a NEW unfenced exit shows up in the count.
 #[test]
 fn the_capability_guard_refuses_on_unreadable_standing() {
-    let guard = read("crates/app/src/server/api/middlewares/platform_cap_guard.rs");
+    let guard = read("crates/server-authz/src/platform_cap_guard.rs");
 
     assert!(
         guard.contains("StatusCode::INTERNAL_SERVER_ERROR"),
