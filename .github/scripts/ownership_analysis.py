@@ -122,6 +122,10 @@ AREAS = [
     ("crates/app/src/agentic_wiring/preview_airhouse.rs", "Workspace runtime"),
     ("crates/app/src/agentic_wiring/preview_airhouse",    "Workspace runtime"),
     ("crates/app/src/server/previews/airhouse_duckdb.rs", "Workspace runtime"),
+    # W4, 2026-11-22: the project context and the compile dispatcher (the
+    # preagg executor shell keeps its history under the preagg runtime below).
+    ("crates/app/src/agentic_wiring/project_ctx",         "Workspace runtime"),
+    ("crates/app/src/agentic_wiring/compile_dispatcher.rs", "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

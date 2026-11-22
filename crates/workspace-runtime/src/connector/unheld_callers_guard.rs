@@ -1,13 +1,14 @@
 //! Only `OxyProjectContext` may reach a connector, config or credential that
 //! skips the preview write hold.
 //!
-//! These functions became `pub` when the connector half left `oxy-app` (W1b,
-//! 2026-11-22), only because `OxyProjectContext` (still in `oxy-app`) calls
-//! them and wraps the result in the hold itself. Every surface crate can
-//! depend on this crate, so `pub` would let one hand a workspace-preview
-//! request a connector that writes. This scan fails if any file outside the
-//! two allowed places names one. W4 moves `OxyProjectContext` down beside
-//! them; narrow them back to `pub(crate)` then, and delete this guard.
+//! These functions were `pub` from W1b until W4 (both 2026-11-22), only
+//! because `OxyProjectContext`, then still in `oxy-app`, called them and wraps
+//! the result in the hold itself. W4 moved it down beside them, so they are
+//! `pub(crate)` again and the compiler keeps every other crate out. This scan
+//! still pins them inside this crate: the rest of the agentic wiring (the
+//! preview runtime) is moving in too, and a module here could otherwise hand a
+//! workspace-preview request a connector that writes. It fails if any file
+//! outside the two allowed places names one.
 
 use std::path::{Path, PathBuf};
 
@@ -20,11 +21,13 @@ const UNHELD: &[&str] = &[
 ];
 
 /// Paths (relative to the repository's `crates/`) that may name them: this
-/// module, and `oxy-app`'s `project_ctx`, where `OxyProjectContext` lives.
+/// module, and `project_ctx`, where `OxyProjectContext` lives (`oxy-app`'s
+/// `agentic_wiring/project_ctx/` until W4).
 const ALLOWED: &[&str] = &[
     "workspace-runtime/src/connector.rs",
     "workspace-runtime/src/connector/",
-    "app/src/agentic_wiring/project_ctx/",
+    "workspace-runtime/src/project_ctx.rs",
+    "workspace-runtime/src/project_ctx/",
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -107,8 +110,7 @@ fn only_the_project_context_names_an_unheld_connector_door() {
 fn the_scan_sees_the_allowed_caller() {
     // Fails open otherwise: if `project_ctx` stopped naming these (or moved),
     // the allowlist would be pinning nothing.
-    let caller = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../app/src/agentic_wiring/project_ctx/project_context.rs");
+    let caller = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/project_ctx/project_context.rs");
     let text = std::fs::read_to_string(&caller).expect("project_context.rs");
     assert!(names(&text, "resolve_pre_built_airhouse"));
     assert!(!names("build_unheld_connector_x", "build_unheld_connector"));

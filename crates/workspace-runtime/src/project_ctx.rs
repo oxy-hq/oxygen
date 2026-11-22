@@ -31,17 +31,17 @@ mod monitor_scan;
 mod preview_hold;
 mod project_context;
 mod react_flag;
-pub(crate) mod revision_rebuild;
+pub mod revision_rebuild;
 mod workspace_context;
 
-use oxy_workspace_runtime::connector::CredentialUse;
-use oxy_workspace_runtime::connector::{
+use crate::connector::CredentialUse;
+use crate::connector::{
     airhouse_wire_params, build_unheld_connector, env_fallback, pg_wire_dsn,
     resolve_connector_impl, resolve_pre_built_airhouse,
 };
 // The connector half, `oxy-workspace-runtime`'s `connector` since 2026-11-22
 // (W1b): re-exported at its old paths.
-pub use oxy_workspace_runtime::connector::{
+pub use crate::connector::{
     build_connector_for_db, database_to_connector_config, try_database_to_connector_config,
 };
 
@@ -109,7 +109,7 @@ pub struct OxyProjectContext {
     /// stateless fleet holds a workspace *row* whose *directory* is on another
     /// machine. Set it on any path that builds a context away from an HTTP
     /// request — see `recovery::build_workspace_ctx`.
-    semantic_scan: Option<Arc<crate::agentic_wiring::scan_source::QueryScanSource>>,
+    semantic_scan: Option<Arc<crate::scan_source::QueryScanSource>>,
     /// Whether this context may fall back to the node's working copy when no
     /// scan was resolved. `true` for a reader that JUDGES the workspace rather
     /// than serving it — workspace health — where the working copy is whatever
@@ -231,34 +231,29 @@ impl OxyProjectContext {
     ///
     /// The `QueryScanSource` is held for the life of the context because a
     /// materialised scan is a tempdir that vanishes when its guard drops.
-    pub(crate) fn with_semantic_scan(
-        mut self,
-        scan: crate::agentic_wiring::scan_source::QueryScanSource,
-    ) -> Self {
+    pub fn with_semantic_scan(mut self, scan: crate::scan_source::QueryScanSource) -> Self {
         self.semantic_scan = Some(Arc::new(scan));
         self
     }
 
     /// [`Self::with_semantic_scan`] for a root that is already on disk.
-    pub(crate) fn with_semantic_scan_path(self, scan_path: PathBuf) -> Self {
-        self.with_semantic_scan(crate::agentic_wiring::scan_source::QueryScanSource::at(
-            scan_path,
-        ))
+    pub fn with_semantic_scan_path(self, scan_path: PathBuf) -> Self {
+        self.with_semantic_scan(crate::scan_source::QueryScanSource::at(scan_path))
     }
 
     /// Refuse the working-copy fallback: with no resolved scan, the metric-tree
     /// runners built from this context read nothing rather than reading this
     /// node's disk. Set by `recovery::build_workspace_ctx` for the
     /// workspace-health eval.
-    pub(crate) fn requiring_compiled_semantic_scan(mut self) -> Self {
+    pub fn requiring_compiled_semantic_scan(mut self) -> Self {
         self.semantic_scan_required = true;
         self
     }
 
     /// Where the metric-tree runners built from this context read the semantic
     /// model.
-    pub(crate) fn semantic_scan_root(&self) -> crate::agentic_wiring::metric_tree_runner::ScanRoot {
-        use crate::agentic_wiring::metric_tree_runner::ScanRoot;
+    pub(crate) fn semantic_scan_root(&self) -> crate::metric_tree_runner::ScanRoot {
+        use crate::metric_tree_runner::ScanRoot;
         match (&self.semantic_scan, self.semantic_scan_required) {
             (Some(scan), _) => ScanRoot::Compiled(scan.scan.clone()),
             (None, true) => ScanRoot::Unavailable,
@@ -279,10 +274,8 @@ impl OxyProjectContext {
     /// The threshold stays `None` when nothing explicitly set one, so the
     /// receiving context resolves it from the workspace config rather than
     /// inheriting a default that was never a decision.
-    pub fn preagg_cache_ctx(
-        &self,
-    ) -> crate::server::api::middlewares::workspace_context::PreaggCacheCtx {
-        crate::server::api::middlewares::workspace_context::PreaggCacheCtx {
+    pub fn preagg_cache_ctx(&self) -> oxy_app_core::preagg_cache_ctx::PreaggCacheCtx {
+        oxy_app_core::preagg_cache_ctx::PreaggCacheCtx {
             cache: self.preagg_cache.clone(),
             renewal_threshold_secs: self.preagg_renewal_threshold_secs,
         }
@@ -300,10 +293,7 @@ impl OxyProjectContext {
     /// A context with no cache resolves no rollup: every semantic query it runs
     /// compiles to warehouse SQL, which is always a correct answer and only a
     /// slower one.
-    pub fn with_preagg(
-        self,
-        preagg: &crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
-    ) -> Self {
+    pub fn with_preagg(self, preagg: &oxy_app_core::preagg_cache_ctx::PreaggCacheCtx) -> Self {
         let Some(cache) = preagg.cache.clone() else {
             return self;
         };
@@ -326,9 +316,9 @@ impl OxyProjectContext {
     /// config rather than a literal, same as `with_preagg`.
     pub(super) fn runner_preagg(
         &self,
-        freshness: crate::server::preagg_context::RollupFreshness,
-    ) -> crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
-        crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
+        freshness: oxy_app_core::preagg_context::RollupFreshness,
+    ) -> crate::metric_tree_runner::RunnerPreagg {
+        crate::metric_tree_runner::RunnerPreagg {
             cache: self.preagg_cache.clone(),
             renewal_threshold_secs: self
                 .preagg_cache_ctx()

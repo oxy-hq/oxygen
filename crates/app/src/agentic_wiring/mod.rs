@@ -14,9 +14,7 @@
 //! - [`preview_airhouse`] — the Airhouse connector a workspace preview run
 //!   sends everything through (verified, overlaid, on a scoped credential).
 
-pub mod compile_dispatcher;
 pub mod preview_ctx;
-pub mod project_ctx;
 
 // The leaves went down into `oxy-workspace-runtime` on 2026-11-21, re-exported
 // here so their paths did not change.
@@ -33,6 +31,10 @@ pub use oxy_workspace_runtime::{metric_tree_exec, metric_tree_runner, scan_sourc
 // The preview connector followed on 2026-11-22 (W3), with its DuckDB double
 // (re-exported at `server::previews::airhouse_duckdb`).
 pub use oxy_workspace_runtime::preview_airhouse;
+// The project context and the compile dispatcher it builds,
+// `oxy-workspace-runtime`'s since 2026-11-22 (W4): re-exported at their old
+// paths.
+pub use oxy_workspace_runtime::{compile_dispatcher, project_ctx};
 
 pub use metric_sink::OxyAnalyticsMetricSink;
 pub use metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};

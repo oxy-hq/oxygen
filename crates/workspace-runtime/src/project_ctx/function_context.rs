@@ -41,7 +41,7 @@ impl FunctionProjectContext for OxyProjectContext {
         app_slug: &str,
         schema: &str,
     ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
-        crate::agentic_wiring::app_airhouse::connector(self.workspace_id(), app_slug, schema).await
+        crate::app_airhouse::connector(self.workspace_id(), app_slug, schema).await
     }
 
     async fn build_app_airhouse_reader(
@@ -49,7 +49,7 @@ impl FunctionProjectContext for OxyProjectContext {
         app_slug: &str,
         schema: &str,
     ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
-        crate::agentic_wiring::app_airhouse::reader(self.workspace_id(), app_slug, schema).await
+        crate::app_airhouse::reader(self.workspace_id(), app_slug, schema).await
     }
 
     async fn start_airway_seed(

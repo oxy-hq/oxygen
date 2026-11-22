@@ -27,7 +27,7 @@
 use agentic_automation::{ContextRoot, WorkspaceContext};
 
 use super::OxyProjectContext;
-use crate::server::role_manifest::{Role, current_process_role};
+use oxy_app_core::pods::role_manifest::{Role, current_process_role};
 
 /// What a run does with its root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

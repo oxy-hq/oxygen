@@ -20,8 +20,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::preagg_workspace::build_workspace_manager;
-use crate::agentic_wiring::OxyProjectContext;
+use crate::preagg_workspace::build_workspace_manager;
+use crate::project_ctx::OxyProjectContext;
 use oxy_preagg::cycle::{CycleWorkspace, run_preagg_task};
 use oxy_preagg::manifest_lock::manifest_write_lock_for;
 use oxy_preagg::worker_config::PreaggWorkerConfig;
@@ -175,10 +175,9 @@ impl CycleWorkspace for OxyProjectContext {
         &self,
         database_override: Option<&str>,
     ) -> Result<Vec<(oxy_airlayer_compat::View, String)>, String> {
-        let scan =
-            crate::agentic_wiring::scan_source::resolve_query_scan_source(self.workspace_manager())
-                .await
-                .map_err(|e| e.message())?;
+        let scan = crate::scan_source::resolve_query_scan_source(self.workspace_manager())
+            .await
+            .map_err(|e| e.message())?;
         let scan = scan.scan.clone();
         let layer = tokio::task::spawn_blocking(move || scan.load_layer())
             .await

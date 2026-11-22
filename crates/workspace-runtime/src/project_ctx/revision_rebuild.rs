@@ -34,7 +34,7 @@ pub trait RevisionRebuilder: Send + Sync {
 impl OxyProjectContext {
     /// Let this context be re-resolved to the current promoted revision. Only
     /// the background driver sets this, on the contexts it caches.
-    pub(crate) fn with_revision_rebuilder(mut self, rebuilder: Arc<dyn RevisionRebuilder>) -> Self {
+    pub fn with_revision_rebuilder(mut self, rebuilder: Arc<dyn RevisionRebuilder>) -> Self {
         self.revision_rebuilder = Some(rebuilder);
         self
     }

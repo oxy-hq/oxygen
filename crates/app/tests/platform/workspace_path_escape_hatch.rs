@@ -32,13 +32,16 @@ use std::collections::BTreeMap;
 /// able to help, so each needs a reason a reviewer can disagree with.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "src/agentic_wiring/project_ctx/context_root.rs",
+        // `oxy-workspace-runtime`'s since 2026-11-22 (W4), was
+        // `src/agentic_wiring/project_ctx/context_root.rs`.
+        "../workspace-runtime/src/project_ctx/context_root.rs",
         "an agent run's context root on `Origin::Disk` (a draft branch in the \
          IDE, the CLI), or when a compiled revision holds no context. A \
          compiled origin materialises its rows instead, on every role.",
     ),
     (
-        "src/agentic_wiring/project_ctx/monitor_scan.rs",
+        // Likewise (was `src/agentic_wiring/project_ctx/monitor_scan.rs`).
+        "../workspace-runtime/src/project_ctx/monitor_scan.rs",
         "BACKLOG. Same shape as `oxy-api-metric-monitoring`'s \
          `metric_anomalies/scan.rs`: `.monitor.yml` is \
          compiled and materialised first; the working copy is the fallback \

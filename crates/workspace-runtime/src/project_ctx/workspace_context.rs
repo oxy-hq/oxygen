@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use oxy::config::model::IntegrationType;
 
 use super::{OxyProjectContext, validate_automation_ref_syntax};
-use crate::agentic_wiring::string_literal::string_literal_of;
+use crate::string_literal::string_literal_of;
 
 #[async_trait]
 impl WorkspaceContext for OxyProjectContext {
@@ -69,7 +69,7 @@ impl WorkspaceContext for OxyProjectContext {
     }
 
     fn preagg_blob(&self) -> Option<agentic_semantic::BlobConfig> {
-        crate::server::preagg_context::blob_config()
+        oxy_app_core::preagg_context::blob_config()
     }
 
     fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
@@ -288,8 +288,7 @@ impl WorkspaceContext for OxyProjectContext {
             );
             return false;
         }
-        crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(db, workspace_id)
-            .await;
+        oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(db, workspace_id).await;
         true
     }
 

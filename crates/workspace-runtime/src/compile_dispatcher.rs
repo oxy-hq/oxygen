@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::server::compile_worker;
+use oxy_compile_runtime::worker as compile_worker;
 
 pub struct OxyCompileDispatcher {
     db: Arc<DatabaseConnection>,

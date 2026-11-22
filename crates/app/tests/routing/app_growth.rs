@@ -58,9 +58,10 @@ const SERVER: &[&str] = &[
     // `rebuild`, `retract`) left for `oxy-preagg` on 2026-11-20, and the
     // post-promote nudge (`preagg_promote`, now `oxy_preagg::promote`,
     // re-exported in `server/mod.rs`) followed it the same day, and so did
-    // the cycle's body (`oxy_preagg::cycle`); `preagg_executor` keeps the
-    // executor shell and re-exports the request types.
-    "preagg_executor",
+    // the cycle's body (`oxy_preagg::cycle`). `preagg_executor`, the executor
+    // shell, left for `oxy-workspace-runtime` on 2026-11-22 (W4) with the
+    // `OxyProjectContext` its `CycleWorkspace` impl is for (re-exported in
+    // `server/mod.rs`).
     // `preagg_workspace` (the cycle's workspace manager) left for
     // `oxy-workspace-runtime` on 2026-11-22 (re-exported in `server/mod.rs`).
     "previews",

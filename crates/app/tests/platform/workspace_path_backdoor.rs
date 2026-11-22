@@ -56,7 +56,9 @@ const ALLOWED: &[(&str, &str)] = &[
          revision",
     ),
     (
-        "src/agentic_wiring/compile_dispatcher.rs",
+        // `oxy-workspace-runtime`'s since 2026-11-22 (W4), was
+        // `src/agentic_wiring/compile_dispatcher.rs`.
+        "../workspace-runtime/src/compile_dispatcher.rs",
         "the compile worker: compiling reads a working copy by definition, and the \
          worker refuses a Compile task on a node that owns none. A staging compile \
          resolves the BRANCH worktree (`effective_workspace_path`) before any \

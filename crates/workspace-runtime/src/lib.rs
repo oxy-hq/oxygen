@@ -51,20 +51,37 @@
 //! - `airhouse_duckdb`: the in-process DuckDB stand-in for every preview port,
 //!   a test double never wired into the server (hidden from the docs).
 //!
-//! The rest of `agentic_wiring` (the project context, the preview context)
-//! follows in later PRs.
+//! Then, on 2026-11-22 (W4), the core: the project context and what is keyed
+//! on it (`oxy-app` re-exports each at its old path:
+//! `agentic_wiring::{project_ctx, compile_dispatcher}`,
+//! `server::preagg_executor`, `server::router::workspace_cache`):
+//!
+//! - [`project_ctx`]: `OxyProjectContext`, the `ProjectContext` and
+//!   `WorkspaceContext` the agentic pipeline runs on.
+//! - [`compile_dispatcher`]: the `CompileDispatcher` a `TaskSpec::Compile`
+//!   runs through, into the compile worker.
+//! - [`preagg_executor`]: the `preagg_cycle` task executor, with the
+//!   `CycleWorkspace` impl for `OxyProjectContext` (the orphan rule keeps it
+//!   beside that type).
+//! - [`workspace_cache`]: `WorkspaceContextCache`, the recovery path's TTL
+//!   cache of built contexts.
+//!
+//! The rest of `agentic_wiring` (the preview context) follows in later PRs.
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
 pub mod airhouse_duckdb;
 pub mod airhouse_pool;
 pub mod app_airhouse;
+pub mod compile_dispatcher;
 pub mod connector;
 pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;
+pub mod preagg_executor;
 pub mod preagg_workspace;
 pub mod preview_airhouse;
+pub mod project_ctx;
 pub mod runtime_artifact;
 pub mod scan_source;
 pub mod sql_exec;
@@ -72,3 +89,4 @@ pub mod sql_http;
 pub mod string_literal;
 pub mod thread_owner;
 pub mod typed_stream;
+pub mod workspace_cache;

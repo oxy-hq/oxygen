@@ -56,13 +56,12 @@ where
 }
 
 /// Internal: bypasses the preview write hold; only `OxyProjectContext` may call.
-/// Pinned by `unheld_callers_guard` until W4 moves the context down and
-/// narrows it again.
+/// Crate-private again since W4 moved the context down beside it, and pinned
+/// to `project_ctx` inside the crate by `unheld_callers_guard`.
 ///
 /// [`build_connector_for_db`] without the preview hold: never handed out
 /// without asking whether the caller is a preview request.
-#[doc(hidden)]
-pub async fn build_unheld_connector<S: DiskSlot>(
+pub(crate) async fn build_unheld_connector<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     db_name: &str,
     subject: Option<uuid::Uuid>,
@@ -252,10 +251,9 @@ fn connection_port(
 }
 
 /// Internal: bypasses the preview write hold; only `OxyProjectContext` may call.
-/// Pinned by `unheld_callers_guard` until W4 moves the context down and
-/// narrows it again.
-#[doc(hidden)]
-pub async fn resolve_connector_impl(
+/// Crate-private again since W4 moved the context down beside it, and pinned
+/// to `project_ctx` inside the crate by `unheld_callers_guard`.
+pub(crate) async fn resolve_connector_impl(
     db_name: &str,
     workspace_manager: &WorkspaceManager<WorkingCopy>,
 ) -> Option<ConnectorConfig> {
@@ -698,10 +696,9 @@ where
 /// instead, which propagates the same errors so the user sees what's wrong.
 ///
 /// Internal: bypasses the preview write hold; only `OxyProjectContext` may call.
-/// Pinned by `unheld_callers_guard` until W4 moves the context down and
-/// narrows it again.
-#[doc(hidden)]
-pub async fn resolve_pre_built_airhouse(
+/// Crate-private again since W4 moved the context down beside it, and pinned
+/// to `project_ctx` inside the crate by `unheld_callers_guard`.
+pub(crate) async fn resolve_pre_built_airhouse(
     db_name: &str,
     workspace_manager: &WorkspaceManager<WorkingCopy>,
     subject: Option<uuid::Uuid>,
@@ -913,10 +910,10 @@ pub struct AirhouseWireParams {
 }
 
 /// Internal: bypasses the preview write hold (raw wire credentials); only
-/// `OxyProjectContext` may call. Pinned by `unheld_callers_guard` until W4
-/// narrows it again.
-#[doc(hidden)]
-pub async fn airhouse_wire_params<S>(
+/// `OxyProjectContext` may call. Crate-private again since W4 moved the
+/// context down beside it, and pinned to `project_ctx` inside the crate by
+/// `unheld_callers_guard`.
+pub(crate) async fn airhouse_wire_params<S>(
     db: &oxy::config::model::Database,
     workspace_manager: &WorkspaceManager<S>,
     subject: Option<uuid::Uuid>,

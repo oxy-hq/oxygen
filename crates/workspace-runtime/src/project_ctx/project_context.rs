@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use entity::workspace_members::WorkspaceRole;
 use oxy::config::model::DatabaseType;
 
-use crate::server::preagg_context::RollupFreshness;
+use oxy_app_core::preagg_context::RollupFreshness;
 
 use super::{
     CredentialUse, OxyProjectContext, airhouse_wire_params, pg_wire_dsn, resolve_connector_impl,
@@ -284,9 +284,7 @@ impl ProjectContext for OxyProjectContext {
         // returning `None` here keeps the pipeline hot path free of the
         // atomic load + tracing::warn on every query.
         oxy_observability::global::get_global()?;
-        Some(Arc::new(
-            super::super::metric_sink::OxyAnalyticsMetricSink::new(),
-        ))
+        Some(Arc::new(crate::metric_sink::OxyAnalyticsMetricSink::new()))
     }
 
     fn metric_tree_runner(&self) -> Option<Arc<dyn agentic_analytics::MetricTreeRunner>> {
@@ -295,7 +293,7 @@ impl ProjectContext for OxyProjectContext {
         // only expose the runner for HTTP-driven runs that carried them in.
         let user_id = self.subject?;
         let role = self.role.clone()?;
-        Some(super::super::metric_tree_runner::make_runner(
+        Some(crate::metric_tree_runner::make_runner(
             self.workspace_manager.clone(),
             user_id,
             role,
@@ -331,7 +329,7 @@ impl ProjectContext for OxyProjectContext {
         if self.holds_writes() {
             return None;
         }
-        Some(super::super::metric_tree_runner::make_runner(
+        Some(crate::metric_tree_runner::make_runner(
             self.workspace_manager.clone(),
             uuid::Uuid::nil(),
             WorkspaceRole::Owner,
@@ -374,7 +372,7 @@ impl ProjectContext for OxyProjectContext {
         }
         let db = self.db.clone()?;
         Some(std::sync::Arc::new(
-            crate::agentic_wiring::compile_dispatcher::OxyCompileDispatcher::new(db),
+            crate::compile_dispatcher::OxyCompileDispatcher::new(db),
         ))
     }
 

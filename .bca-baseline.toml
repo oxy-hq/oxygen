@@ -6729,52 +6729,10 @@ metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
-path = "crates/app/src/agentic_wiring/compile_dispatcher.rs"
-qualified = "OxyCompileDispatcher::dispatch"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
 path = "crates/app/src/agentic_wiring/preview_ctx/airhouse_writes.rs"
 qualified = "PreviewAirhouse::review"
 metric = "abc"
 value = 40.47221268969612
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 1412.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 2137.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "resolve_model_impl"
-metric = "abc"
-value = 40.24922359499622
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "resolve_model_impl"
-metric = "cognitive"
-value = 22.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/mod.rs"
-qualified = "resolve_model_impl"
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "crates/app/src/agentic_wiring/project_ctx/workspace_context.rs"
-qualified = "OxyProjectContext"
-metric = "nom"
-value = 35.0
 
 [[entry]]
 path = "crates/app/src/cli/commands/agentic_cli.rs"
@@ -8323,13 +8281,13 @@ value = 8.0
 path = "crates/core/src/execution_analytics/types.rs"
 qualified = "model_price_per_mtok"
 metric = "cognitive"
-value = 19.0
+value = 20.0
 
 [[entry]]
 path = "crates/core/src/execution_analytics/types.rs"
 qualified = "model_price_per_mtok"
 metric = "cyclomatic"
-value = 18.0
+value = 19.0
 
 [[entry]]
 path = "crates/core/src/github/client.rs"
@@ -10672,6 +10630,12 @@ metric = "cognitive"
 value = 26.0
 
 [[entry]]
+path = "crates/workspace-runtime/src/compile_dispatcher.rs"
+qualified = "OxyCompileDispatcher::dispatch"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
 path = "crates/workspace-runtime/src/connector.rs"
 qualified = "try_database_to_connector_config"
 metric = "abc"
@@ -10778,6 +10742,42 @@ path = "crates/workspace-runtime/src/preagg_workspace.rs"
 qualified = "seed_promoted_workspace"
 metric = "abc"
 value = 68.18357573492314
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 1412.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 2137.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx.rs"
+qualified = "resolve_model_impl"
+metric = "abc"
+value = 40.24922359499622
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx.rs"
+qualified = "resolve_model_impl"
+metric = "cognitive"
+value = 22.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx.rs"
+qualified = "resolve_model_impl"
+metric = "cyclomatic"
+value = 18.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/project_ctx/workspace_context.rs"
+qualified = "OxyProjectContext"
+metric = "nom"
+value = 35.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/typed_stream.rs"

@@ -53,9 +53,12 @@ const BASE: &[&str] = &[
     // (The LISTEN/NOTIFY settings a surface's listener rides,
     // `server::task_router_listener`, went down into `oxy-app-core::listener`
     // on 2026-11-22, decompose G3.)
-    // The workspace runtime: `OxyProjectContext` and the agentic wiring, and
-    // the workspace manager the global driver builds. Its own crate when it
-    // leaves (too big to share a rebuild with the rest).
+    // The workspace runtime: what is left of the agentic wiring here, the
+    // preview runtime (`preview_airhouse`, `preview_ctx`). Its own crate when it
+    // leaves (too big to share a rebuild with the rest). (`OxyProjectContext`,
+    // `project_ctx`, and the compile dispatcher went down into
+    // `oxy-workspace-runtime` on 2026-11-22, W4; `agentic_wiring/mod.rs`
+    // re-exports them.)
     "agentic_wiring",
     // (The workspace manager the global driver builds, `server::preagg_workspace`,
     // went down into `oxy-workspace-runtime` on 2026-11-22, W1b.)

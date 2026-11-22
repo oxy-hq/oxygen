@@ -38,7 +38,11 @@ pub mod http_cache;
 // installer that builds the real router, and the tests that run on it.
 pub use oxy_app_core::pods::ide_proxy;
 pub use oxy_app_core::preagg_context;
-pub mod preagg_executor;
+// The preagg cycle's task executor, `oxy-workspace-runtime`'s since
+// 2026-11-22 (W4): its `CycleWorkspace` impl for `OxyProjectContext` has to
+// live beside that type (the orphan rule). Re-exported so the recovery
+// path's registration keeps this path.
+pub use oxy_workspace_runtime::preagg_executor;
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
 // 2026-11-20; re-exported so the prelude keeps this path.
 pub use oxy_preagg::promote as preagg_promote;

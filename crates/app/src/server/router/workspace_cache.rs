@@ -3,27 +3,14 @@
 //! Re-exported here so existing `server::router::workspace_cache::*` paths are
 //! unchanged.
 //!
-//! `WorkspaceContextCache` stays in `oxy-app`: it is keyed on
-//! `agentic_wiring::OxyProjectContext` (the pipeline adapter, oxy-app-internal),
-//! and `AppState` does not carry it — only the scheduler recovery path
-//! (`recovery.rs`) uses it.
-
-use std::sync::Arc;
-use std::time::Duration;
+//! `WorkspaceContextCache`, keyed on `OxyProjectContext`, followed that type
+//! down into `oxy-workspace-runtime` on 2026-11-22 (decompose W4); `AppState`
+//! does not carry it — only the scheduler recovery path (`recovery.rs`) uses
+//! it. Re-exported here too.
 
 pub use oxy_app_core::workspace_cache::{
-    SemanticEngineCache, SemanticLayerCache, TtlCache, new_semantic_engine_cache,
-    new_semantic_layer_cache,
+    SemanticEngineCache, SemanticLayerCache, new_semantic_engine_cache, new_semantic_layer_cache,
 };
-
-use crate::agentic_wiring::OxyProjectContext;
-
-const DEFAULT_TTL: Duration = Duration::from_secs(600);
-
-#[doc(hidden)]
-pub type WorkspaceContextCache = TtlCache<OxyProjectContext>;
-
-#[doc(hidden)]
-pub fn new_workspace_context_cache() -> Arc<WorkspaceContextCache> {
-    TtlCache::with_ttl(DEFAULT_TTL)
-}
+pub use oxy_workspace_runtime::workspace_cache::{
+    WorkspaceContextCache, new_workspace_context_cache,
+};
