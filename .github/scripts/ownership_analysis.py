@@ -135,6 +135,14 @@ AREAS = [
     # semantic boundary.
     ("crates/app/src/server/api/custom_apps_gates.rs",    "Workspace runtime"),
     ("crates/app/src/server/api/projects/semantic_boundary.rs", "Workspace runtime"),
+    # W7, 2026-11-22: the workspace middleware, its extractor, the Factory-access
+    # gate and the preview read-only adapter (listed before
+    # crates/app/src/server/previews, so it wins).
+    ("crates/app/src/server/api/middlewares/workspace_context.rs", "Workspace runtime"),
+    ("crates/app/src/server/api/middlewares/workspace_extractor.rs", "Workspace runtime"),
+    ("crates/app/src/server/factory_access",              "Workspace runtime"),
+    ("crates/app/src/server/previews/read_only.rs",       "Workspace runtime"),
+    ("crates/app/src/server/previews/read_only_tests.rs", "Workspace runtime"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability

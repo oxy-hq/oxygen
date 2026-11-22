@@ -23,9 +23,11 @@ use entity::org_members::OrgRole;
 use entity::users::UserStatus;
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, users, workspace_factory_grants, workspaces};
-use oxy_app::server::api::middlewares::workspace_context::workspace_middleware;
-use oxy_app::server::factory_access::FactoryAccess;
 use oxy_auth::types::AuthenticatedUser;
+// `oxy-workspace-runtime`'s since 2026-11-22 (decompose W7), was
+// `oxy_app::server::{api::middlewares::workspace_context, factory_access}`.
+use oxy_workspace_runtime::request::factory_access::FactoryAccess;
+use oxy_workspace_runtime::request::workspace_context::workspace_middleware;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::{Value, json};
 use tower::ServiceExt;

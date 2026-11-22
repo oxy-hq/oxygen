@@ -8,7 +8,7 @@
  * global `ActingShell` subscribes to.
  *
  * Detection contract (stamped by the backend, see
- * `crates/app/src/server/api/middlewares/workspace_context.rs`):
+ * `crates/workspace-runtime/src/request/workspace_context.rs`):
  *   - a `403` carrying `x-oxy-assume-required: <org_id>`
  *   - body: `{ reason: "assume_role_required", org_id, org_name, message }`
  *

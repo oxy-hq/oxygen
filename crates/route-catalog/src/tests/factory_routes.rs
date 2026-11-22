@@ -3,7 +3,8 @@
 //! `previews_read_only`.
 //!
 //! A new route under `/api/{workspace_id}/…` must be put on
-//! `server::factory_access::routes::{CUSTOMER, FACTORY}`: the Factory's, refused to
+//! `server::factory_access::routes::{CUSTOMER, FACTORY}` (`oxy_workspace_runtime::request::factory_access`
+//! since 2026-11-22, re-exported there): the Factory's, refused to
 //! everyone but Oxy staff, the org's owners and admins and the members an operator
 //! granted the workspace to once
 //! enforcement is on, or a customer's, open to everyone with access. Without a
@@ -71,7 +72,7 @@ fn every_workspace_route_is_on_one_of_the_two_lists() {
         unlisted.is_empty(),
         "these workspace routes are on neither Factory list — put each on CUSTOMER (a \
          surface a customer reaches calls it) or FACTORY (it authors or operates the \
-         workspace) in `crates/app/src/server/factory_access/routes.rs`:\n  {}",
+         workspace) in `crates/workspace-runtime/src/request/factory_access/routes.rs`:\n  {}",
         unlisted.join("\n  ")
     );
     assert!(
@@ -250,7 +251,7 @@ fn every_customer_route_is_served_by_a_serve_pod() {
         "these routes are on CUSTOMER but only the Factory pod serves them, so a \
          customer's page needs the Factory. Make the handler read the compiled \
          revision and declare it FleetOk, or, if it authors the workspace, move it \
-         to FACTORY in `crates/app/src/server/factory_access/routes.rs`:\n  {}",
+         to FACTORY in `crates/workspace-runtime/src/request/factory_access/routes.rs`:\n  {}",
         on_the_factory.join("\n  ")
     );
 }

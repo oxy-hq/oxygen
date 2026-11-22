@@ -89,10 +89,13 @@
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
 pub use oxy_workspace_runtime::airhouse_duckdb;
-pub mod read_only;
 /// The run platform resolver, `oxy-workspace-runtime`'s `preview_runtime` since
 /// 2026-11-22 (W5), re-exported at its old path.
 pub use oxy_workspace_runtime::preview_runtime as runtime;
+/// The read-only guard's axum adapter (`check`, `refusal`, and the table it
+/// re-exports from `oxy_previews::read_only`), down with the workspace
+/// middleware into `oxy-workspace-runtime` (decompose W7, 2026-11-22).
+pub use oxy_workspace_runtime::request::preview_read_only as read_only;
 
 pub use oxy_previews::{
     ddl, ddl_airhouse, ddl_duckdb, namespace, pin, queue, registry, sources, sql_kind, store,

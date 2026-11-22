@@ -26,7 +26,9 @@ use std::path::PathBuf;
 /// the requirement in its type.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "src/server/api/middlewares/workspace_context.rs",
+        // `oxy-workspace-runtime`'s since 2026-11-22 (W7), was
+        // `src/server/api/middlewares/workspace_context.rs`.
+        "../workspace-runtime/src/request/workspace_context.rs",
         "the middleware that builds the manager — the path has to come from \
          somewhere before a manager exists",
     ),

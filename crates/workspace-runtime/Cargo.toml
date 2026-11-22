@@ -32,6 +32,9 @@ entity = { workspace = true }
 oxy = { workspace = true }
 # `config::airhouse_pool`: the live-connection ceiling's one source of truth.
 oxy-app-core = { workspace = true }
+# `request::workspace_context`: the authenticated caller the workspace
+# middleware authorizes, and the credential it arrived with.
+oxy-auth = { workspace = true }
 # `blob_store`: the runtime-artifact S3 mirror.
 oxy-compile = { workspace = true }
 # `scan_source`: a scan miss enqueues the lazy compile (`reconcile::enqueue`),
@@ -60,6 +63,9 @@ oxy-preagg = { workspace = true }
 oxy-previews = { workspace = true }
 # `metric_tree_exec`: the metric tree a projection validates against.
 oxy-semantic = { workspace = true }
+# `request`: the caller's workspace role and token ceiling
+# (`workspace_context`), and the Factory decision (`factory_access`).
+oxy-server-authz = { workspace = true }
 oxy-shared = { workspace = true }
 # `metric_tree_exec`: the world model's instance-scope rule.
 oxy-world-model = { workspace = true }

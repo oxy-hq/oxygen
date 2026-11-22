@@ -39,7 +39,7 @@
 //! Paths are relative to the workspace root, which is what the workspace middleware
 //! sees. A method of `"*"` matches any; an exact method beats it on the same path.
 
-use crate::server::role_manifest::{pattern_matches, specificity};
+use oxy_app_core::pods::role_manifest::{pattern_matches, specificity};
 
 /// Which side of the line a route is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

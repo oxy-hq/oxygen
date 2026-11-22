@@ -85,6 +85,10 @@
 //!   `build_caller_context`, which compose the data plane's `OxyProjectContext`.
 //! - [`semantic_boundary`]: the prelude the semantic-analysis twins (metric
 //!   tree, world model, cohort) enter by: the gate, the context and the scan.
+//!
+//! Then (decompose W7, 2026-11-22) the workspace request, [`request`]: the
+//! workspace middleware that builds an `OxyProjectContext` per request, the Factory-access
+//! gate it applies, and the preview read-only guard's axum adapter.
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
@@ -103,6 +107,7 @@ pub mod preview_airhouse;
 pub mod preview_ctx;
 pub mod preview_runtime;
 pub mod project_ctx;
+pub mod request;
 pub mod runtime_artifact;
 pub mod scan_source;
 pub mod semantic_boundary;

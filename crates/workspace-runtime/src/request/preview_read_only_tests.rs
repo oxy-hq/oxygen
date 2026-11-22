@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 // The table's own tests (`verdict`, `analytics_run_refusal`) went down with
 // it to `oxy-previews` (`crates/previews/src/read_only_tests.rs`); these two
-// drive the axum adapter that stays here.
+// drive the axum adapter, which went down with the workspace middleware
+// (decompose W7).
 
 #[tokio::test]
 async fn a_refusal_is_a_409_with_the_contracted_body_and_the_preview_header() {
@@ -22,7 +23,7 @@ async fn a_refusal_is_a_409_with_the_contracted_body_and_the_preview_header() {
     assert_eq!(
         response
             .headers()
-            .get(super::super::pin::RESPONSE_HEADER)
+            .get(oxy_previews::pin::RESPONSE_HEADER)
             .unwrap(),
         "feat/x@00000000-0000-0000-0000-000000000000"
     );

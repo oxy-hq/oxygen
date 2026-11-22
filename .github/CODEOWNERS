@@ -183,7 +183,10 @@ crates/app-core/                                   @luong-komorebi @haitrr
 # out of server/router/workspace_cache.rs; then (W5, the same day) the last of
 # the wiring, agentic_wiring/preview_ctx, and server/previews/runtime.rs; then
 # (W6a, the same day) server/api/custom_apps_gates.rs and
-# server/api/projects/semantic_boundary.rs.
+# server/api/projects/semantic_boundary.rs; then (W7, the same day) the
+# workspace request (`request`): server/api/middlewares/workspace_context.rs
+# and workspace_extractor.rs, server/factory_access/ and the preview read-only
+# adapter (server/previews/read_only.rs).
 crates/workspace-runtime/                          @luong-komorebi @NTtanh
 crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay

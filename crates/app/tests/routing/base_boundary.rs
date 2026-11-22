@@ -88,25 +88,15 @@ const BACKLOG: &[(&str, &str)] = &[
     // source, the project context and the compile cooldown call, cleared on
     // 2026-11-22: `compile_reconcile` went down to `oxy-compile-runtime` as
     // `reconcile`, decompose C3.)
-    // The workspace middleware: the Factory-access gate, preview pins and
-    // read-only holds. The largest knot: it is where request context meets
-    // every context that can refuse a request. (Its reach into
-    // `server::api::workspaces`, the detached-branch status, cleared on
-    // 2026-11-16: `unresolved_branch_status` moved beside its one caller, the
-    // middleware, before the workspaces surface left. Its reach into
-    // `server::compile_git`, the branch self-heal, cleared on 2026-11-21:
-    // `compile_git` went down to `oxy-compile-runtime`, and the enqueue
-    // section moved to `compile_reconcile::enqueue`. Its reach into
-    // `server::compile_reconcile`, that enqueue, cleared on 2026-11-22:
-    // `compile_reconcile` went down to `oxy-compile-runtime`, decompose C3.)
+    // (The workspace middleware's reach into `server::factory_access`, the
+    // Factory-access gate, and into `server::previews`, the read-only guard's
+    // axum adapter, cleared on 2026-11-22: the middleware, the gate and the
+    // adapter went down into `oxy-workspace-runtime::request` together,
+    // decompose W7. Its earlier reaches, into `server::api::workspaces`,
+    // `server::compile_git` and `server::compile_reconcile`, cleared
+    // 2026-11-16 to 2026-11-22.)
     // (The subscription guard's ask of billing, whether billing is switched
     // off, cleared on 2026-11-21: the gate moved down to `oxy_billing::gate`.)
-    ("server::api::middlewares", "server::factory_access"),
-    // Previews: the read-only guard's axum adapter (`previews::read_only::
-    // check`). The pin went down to `oxy-previews` on 2026-11-22, and the
-    // read-only table with it (P2); `check` buffers an axum body, so it
-    // stays beside the middleware and goes with it (W7).
-    ("server::api::middlewares", "server::previews"),
     // (`IdeState` and `FleetState`, which the middleware and `role_router`
     // reached in the router's `mod.rs`, cleared on 2026-11-22: the two went
     // down into `oxy-app-core::pods` beside `role_router`, decompose G3.)

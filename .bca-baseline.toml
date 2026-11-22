@@ -6855,66 +6855,6 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 1062.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1638.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "resolve_effective_role"
-metric = "abc"
-value = 56.10704055642215
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "try_attach_workspace_manager"
-metric = "abc"
-value = 64.41273166075166
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "try_attach_workspace_manager"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "try_attach_workspace_manager"
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "try_attach_workspace_manager"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "workspace_middleware"
-metric = "abc"
-value = 40.8656334834051
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "workspace_middleware"
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "crates/app/src/server/api/middlewares/workspace_context.rs"
-qualified = "workspace_middleware"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
 path = "crates/app/src/server/role_manifest_tests.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -10778,6 +10718,66 @@ path = "crates/workspace-runtime/src/project_ctx/workspace_context.rs"
 qualified = "OxyProjectContext"
 metric = "nom"
 value = 35.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 1062.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1638.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "resolve_effective_role"
+metric = "abc"
+value = 56.10704055642215
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "try_attach_workspace_manager"
+metric = "abc"
+value = 64.41273166075166
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "try_attach_workspace_manager"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "try_attach_workspace_manager"
+metric = "cyclomatic"
+value = 19.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "try_attach_workspace_manager"
+metric = "nargs"
+value = 10.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "workspace_middleware"
+metric = "abc"
+value = 40.8656334834051
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "workspace_middleware"
+metric = "cyclomatic"
+value = 19.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/request/workspace_context.rs"
+qualified = "workspace_middleware"
+metric = "nargs"
+value = 6.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/typed_stream.rs"

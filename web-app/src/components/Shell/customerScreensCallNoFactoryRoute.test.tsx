@@ -25,7 +25,7 @@ import { WorkspaceShell } from "./WorkspaceShell";
  * which hook is mounted where.
  *
  * The prefixes are the route table's Factory list
- * (`server/factory_access/routes.rs`) at its coarsest: a route the customer list
+ * (`crates/workspace-runtime/src/request/factory_access/routes.rs`) at its coarsest: a route the customer list
  * names exactly (`GET /databases`, `GET /status`, …) is not among them.
  */
 const FACTORY_PREFIXES = [

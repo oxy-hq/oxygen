@@ -1,5 +1,3 @@
-use crate::server::router::AppState;
-use crate::server::service::secret_manager::SecretManagerService;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 use axum::extract::{FromRequestParts, Path};
 use axum::extract::{Query, State};
@@ -17,6 +15,8 @@ use oxy::adapters::workspace::effective_workspace_path;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::{ReadOnly, WorkingCopy};
 use oxy::database::client::establish_connection;
+use oxy::service::secret_manager::SecretManagerService;
+use oxy_app_core::AppState;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::EntityTrait;
 use std::future::Future;
@@ -118,7 +118,7 @@ impl IntoResponse for WorkspaceManagerMissing {
                 // working copy and a replica is missing a revision is a difference
                 // the frontend has no use for.
                 response.headers_mut().insert(
-                    crate::server::ide_proxy::HEADER_UNAVAILABLE,
+                    oxy_app_core::pods::ide_proxy::HEADER_UNAVAILABLE,
                     axum::http::HeaderValue::from_static("workspace-materializing"),
                 );
                 response.headers_mut().insert(
@@ -289,7 +289,7 @@ pub use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 /// request. Call `get_or_load` for a cached layer, `invalidate` after writes.
 #[derive(Clone)]
 pub struct SemanticLayerCacheCtx {
-    pub cache: std::sync::Arc<crate::server::router::workspace_cache::SemanticLayerCache>,
+    pub cache: std::sync::Arc<oxy_app_core::workspace_cache::SemanticLayerCache>,
     pub workspace_id: Uuid,
     /// The engine cache, so a layer reload can drop the engines built from the
     /// layer it replaced.
@@ -300,7 +300,7 @@ pub struct SemanticLayerCacheCtx {
     /// handlers map compile failures to `None`, which renders an empty panel
     /// rather than an error. Holding the handle here is what lets one reload
     /// speak for both.
-    pub engine_cache: std::sync::Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
+    pub engine_cache: std::sync::Arc<oxy_app_core::workspace_cache::SemanticEngineCache>,
 }
 
 impl SemanticLayerCacheCtx {
@@ -401,7 +401,7 @@ where
 /// [`Self::scan_key`] according to what they read.
 #[derive(Clone)]
 pub struct SemanticEngineCacheCtx {
-    pub cache: std::sync::Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
+    pub cache: std::sync::Arc<oxy_app_core::workspace_cache::SemanticEngineCache>,
     pub workspace_id: Uuid,
 }
 
@@ -424,7 +424,7 @@ impl SemanticEngineCacheCtx {
     ///
     /// `source_revision` is what that scan actually read — `Some` only when it
     /// materialised the compiled revision. Get it from
-    /// [`crate::agentic_wiring::scan_source::QueryScanSource::source_revision`],
+    /// [`crate::scan_source::QueryScanSource::source_revision`],
     /// never from `ConfigManager::revision_id()`.
     pub fn scan_key(
         &self,
@@ -573,7 +573,7 @@ pub async fn workspace_middleware(
     // The Factory's routes are for Oxy staff, the org's owners and admins, and the
     // members an operator granted this workspace to. A no-op for every route a customer
     // reaches — see `server::factory_access`.
-    request = match crate::server::factory_access::gate(request).await {
+    request = match super::factory_access::gate(request).await {
         Ok(request) => request,
         Err(refusal) => return Ok(refusal),
     };
@@ -583,8 +583,7 @@ pub async fn workspace_middleware(
     // request — the IDE on the same branch included, which sends no header — is
     // untouched. See `server::previews::pin`.
     let (mut request, preview) =
-        crate::server::previews::pin::for_request(workspace_id, query.branch.as_deref(), request)
-            .await;
+        oxy_previews::pin::for_request(workspace_id, query.branch.as_deref(), request).await;
     // There is no working copy to read: the request is served from the
     // compiled revision whatever branch it names.
     let working_copy_branch: Option<String> = None;
@@ -598,7 +597,7 @@ pub async fn workspace_middleware(
     let pinned_revision = match preview_revision {
         Some(_) => None,
         None => {
-            crate::server::api::compiled_reader::resolve_request_revision(
+            oxy_app_core::compiled_reader::resolve_request_revision(
                 workspace_id,
                 working_copy_branch.as_deref(),
             )
@@ -619,7 +618,7 @@ pub async fn workspace_middleware(
     let serve = Box::pin(async move {
         // Read-only in a preview: refused before any handler work.
         if let Some(pin) = &preview {
-            request = match crate::server::previews::read_only::check(request, pin).await {
+            request = match super::preview_read_only::check(request, pin).await {
                 Ok(request) => request,
                 Err(refusal) => return Ok(refusal),
             };
@@ -659,8 +658,8 @@ pub async fn workspace_middleware(
         // whole point of an HA fleet. Loop-guarded; a no-op without
         // OXY_IDE_UPSTREAM (local / single-node), where the marker stays a 503.
         if request.extensions().get::<NeedsRecompileMarker>().is_some()
-            && let Some(upstream) = crate::server::ide_proxy::ide_upstream()
-            && !crate::server::ide_proxy::already_forwarded(&request)
+            && let Some(upstream) = oxy_app_core::pods::ide_proxy::ide_upstream()
+            && !oxy_app_core::pods::ide_proxy::already_forwarded(&request)
         {
             tracing::info!(
                 workspace_id = %workspace_id,
@@ -689,9 +688,7 @@ pub async fn workspace_middleware(
             )
             .await
         }
-        None => {
-            crate::server::api::compiled_reader::with_pinned_revision(pinned_revision, serve).await
-        }
+        None => oxy_app_core::compiled_reader::with_pinned_revision(pinned_revision, serve).await,
     }
 }
 
@@ -714,10 +711,10 @@ async fn forward_with_original_uri(
     {
         *request.uri_mut() = original;
     }
-    crate::server::ide_proxy::forward_to_ide(
+    oxy_app_core::pods::ide_proxy::forward_to_ide(
         upstream,
         request,
-        crate::server::ide_proxy::ForwardReason::FailSafe,
+        oxy_app_core::pods::ide_proxy::ForwardReason::FailSafe,
     )
     .await
 }
@@ -1035,7 +1032,7 @@ pub async fn resolve_effective_role(
 
 /// The lazy and import compile enqueue moved to `compile_reconcile::enqueue`
 /// (2026-11-21); the old path stays so no caller changes.
-pub use crate::server::compile_reconcile::enqueue::{enqueue_import_compile, enqueue_lazy_compile};
+pub use oxy_compile_runtime::reconcile::enqueue::{enqueue_import_compile, enqueue_lazy_compile};
 
 /// The status for a `?branch=` value the workspace middleware could not
 /// resolve. A well-formed detached label that no longer matches the working
@@ -1060,12 +1057,8 @@ async fn try_attach_workspace_manager(
     preagg_cache: Option<std::sync::Arc<std::sync::RwLock<RefreshKeyCache>>>,
     preagg_renewal_threshold_secs: Option<u64>,
     db: Option<std::sync::Arc<sea_orm::DatabaseConnection>>,
-    semantic_layer_cache: std::sync::Arc<
-        crate::server::router::workspace_cache::SemanticLayerCache,
-    >,
-    semantic_engine_cache: std::sync::Arc<
-        crate::server::router::workspace_cache::SemanticEngineCache,
-    >,
+    semantic_layer_cache: std::sync::Arc<oxy_app_core::workspace_cache::SemanticLayerCache>,
+    semantic_engine_cache: std::sync::Arc<oxy_app_core::workspace_cache::SemanticEngineCache>,
     request: &mut Request<axum::body::Body>,
 ) -> Result<(), StatusCode> {
     // Branch name is validated inside `effective_workspace_path`. The helper
@@ -1096,8 +1089,7 @@ async fn try_attach_workspace_manager(
     // contract every other compiled reader honours. On any miss (no promoted
     // revision, non-default branch, deserialise fails) we fall through to FS.
     let pinned_revision: Option<uuid::Uuid> =
-        crate::server::api::compiled_reader::resolve_request_revision(workspace_id, branch_name)
-            .await;
+        oxy_app_core::compiled_reader::resolve_request_revision(workspace_id, branch_name).await;
 
     // ── Stateless-fleet short-circuit ──────────────────────────────────────
     // A serve replica has no workspace working copy (emptyDir OXY_STATE_DIR,
@@ -1120,8 +1112,8 @@ async fn try_attach_workspace_manager(
     //
     // Regression context: oxy-hq/oxygen-internal#1619.
     if pinned_revision.is_none()
-        && crate::server::role_manifest::current_process_role()
-            == crate::server::role_manifest::Role::Serve
+        && oxy_app_core::pods::role_manifest::current_process_role()
+            == oxy_app_core::pods::role_manifest::Role::Serve
     {
         // Lazy self-heal: enqueue a (deduped) compile whenever the boundary
         // couldn't produce a usable config for a compilable workspace —
@@ -1204,8 +1196,8 @@ async fn try_attach_workspace_manager(
         }
     };
 
-    let mut ctx = crate::agentic_wiring::OxyProjectContext::new(workspace_manager.clone())
-        .with_subject(user_id);
+    let mut ctx =
+        crate::project_ctx::OxyProjectContext::new(workspace_manager.clone()).with_subject(user_id);
     // The effective role was inserted into extensions by `authorize_workspace`
     // a few lines up; thread it through so the airhouse_managed builder can
     // mint with the user's mapped airhouse role.
@@ -1297,342 +1289,5 @@ async fn try_attach_workspace_manager(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::http::StatusCode;
-    use axum::response::IntoResponse;
-
-    /// A stale label is a conflict with the workspace's state; a value that is not
-    /// a label at all is still a bad request. (Moved from
-    /// `api::workspaces::detached_tests` with the function, 2026-11-16.)
-    #[test]
-    fn only_a_well_formed_label_is_a_conflict() {
-        assert_eq!(
-            unresolved_branch_status(Some("HEAD@abc1234")),
-            StatusCode::CONFLICT
-        );
-        for value in [Some("HEAD@../../etc"), Some("has@symbol"), Some(""), None] {
-            assert_eq!(
-                unresolved_branch_status(value),
-                StatusCode::BAD_REQUEST,
-                "{value:?}"
-            );
-        }
-    }
-
-    /// The boundary-miss 503 has to speak the protocol the frontend listens on.
-    ///
-    /// `shouldRetryWorkspaceQuery` keys the 24-retry spinner off
-    /// `x-oxy-unavailable: workspace-materializing`. This response carried only
-    /// `x-oxy-needs-recompile`, which nothing in the frontend reads, so it took
-    /// the three-retry path and surfaced as a generic load failure — for a
-    /// workspace whose compile had already been enqueued.
-    #[test]
-    fn the_boundary_miss_503_asks_the_frontend_to_wait() {
-        let workspace_id = Uuid::new_v4();
-        let response = WorkspaceManagerMissing {
-            needs_recompile: Some(workspace_id),
-        }
-        .into_response();
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            response.headers().get("x-oxy-unavailable").unwrap(),
-            "workspace-materializing"
-        );
-        assert_eq!(response.headers().get("retry-after").unwrap(), "5");
-        assert_eq!(
-            response.headers().get("x-oxy-needs-recompile").unwrap(),
-            &workspace_id.to_string()
-        );
-    }
-
-    /// The other flavour is not transient — the workspace path or config.yml is
-    /// unreachable and retrying changes nothing. Asking for a spinner there
-    /// would hide a real fault behind two minutes of polling.
-    #[test]
-    fn the_unreachable_workspace_503_does_not_ask_the_frontend_to_wait() {
-        let response = WorkspaceManagerMissing {
-            needs_recompile: None,
-        }
-        .into_response();
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert!(response.headers().get("x-oxy-unavailable").is_none());
-        assert!(response.headers().get("retry-after").is_none());
-    }
-
-    /// EVERY middleware that publishes a workspace manager must publish BOTH
-    /// extensions. `WorkspaceManagerReadOnly` reads its own — deliberately, so
-    /// a pod can stop publishing the disk one — which means a middleware that
-    /// inserts only `WorkingCopy` leaves every read-only handler with nothing
-    /// to find, and its extractor answers a missing extension with 503.
-    ///
-    /// `local_context` did exactly that, and nothing in the type system or the
-    /// suite noticed: `--local` is the mode the agentic browser flows boot, so
-    /// the first sign was four of them failing in CI with 503s from the moment
-    /// the server came up. A source scan is crude, but it is the only thing
-    /// here that can see "this file publishes one and not the other".
-    #[test]
-    fn every_context_middleware_publishes_both_managers() {
-        for (name, src) in [
-            ("workspace_context.rs", include_str!("workspace_context.rs")),
-            ("local_context.rs", include_str!("local_context.rs")),
-        ] {
-            let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
-            assert!(
-                body.contains(".insert(workspace_manager)") || body.contains(".insert(manager)"),
-                "{name} should publish the WorkingCopy manager"
-            );
-            assert!(
-                body.contains("into_read_only()"),
-                "{name} publishes a `WorkspaceManager<WorkingCopy>` but no \
-                 `ReadOnly` one. The read-only extractor reads its OWN \
-                 extension rather than downgrading the disk one, so every \
-                 handler taking `WorkspaceManagerReadOnly` gets a 503 on this \
-                 surface — from the first request, with nothing in the type \
-                 system to say so."
-            );
-        }
-    }
-
-    /// The publish gate, which is the one change in this area that no compiler
-    /// checks: `workspace_middleware` inserts the `WorkingCopy` extension only
-    /// on a process that owns the files.
-    ///
-    /// Asserted on the extension map rather than through the extractor, because
-    /// the map IS the mechanism — `WorkspaceManagerWorkingCopy` ignores the
-    /// state it is handed and reads this one type. That the extractor rejects a
-    /// missing extension is covered by
-    /// `read_only_resolves_without_the_disk_manager` beside it.
-    #[tokio::test]
-    async fn a_diskless_process_publishes_no_working_copy_extension() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        tokio::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
-            .await
-            .expect("write config");
-        let manager = WorkspaceBuilder::new(Uuid::new_v4())
-            .with_working_copy(dir.path(), None, oxy::config::OnMissing::Empty)
-            .await
-            .expect("builder")
-            .build()
-            .await
-            .expect("manager");
-
-        // Exactly what the middleware does, both ways round.
-        let publish = |owns_files: bool| {
-            let mut ext = axum::http::Extensions::new();
-            ext.insert(manager.clone().into_read_only());
-            if owns_files {
-                ext.insert(manager.clone());
-            }
-            ext
-        };
-
-        let ide = publish(true);
-        assert!(
-            ide.get::<WorkspaceManager<WorkingCopy>>().is_some(),
-            "the ide owns its files, so a handler that requires them gets them"
-        );
-
-        let replica = publish(false);
-        assert!(
-            replica.get::<WorkspaceManager<ReadOnly>>().is_some(),
-            "a read-only handler keeps working — that is the whole point of the split"
-        );
-        assert!(
-            replica.get::<WorkspaceManager<WorkingCopy>>().is_none(),
-            "a handler that REQUIRES the files must be refused at the door, not \
-             handed a manager rooted at a directory that is not here"
-        );
-    }
-
-    /// The two extractors read two extensions, so a pod can publish the
-    /// capability-free manager without publishing the disk one. Until that
-    /// split existed, `WorkspaceManagerReadOnly` downgraded from `WorkingCopy` and would
-    /// have died with it — taking every handler that never needed a disk.
-    #[tokio::test]
-    async fn read_only_resolves_without_the_disk_manager() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        tokio::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
-            .await
-            .expect("write config");
-        let manager = WorkspaceBuilder::new(Uuid::new_v4())
-            .with_working_copy(dir.path(), None, oxy::config::OnMissing::Empty)
-            .await
-            .expect("builder")
-            .build()
-            .await
-            .expect("manager");
-
-        let mut parts = axum::http::Request::builder()
-            .body(())
-            .expect("request")
-            .into_parts()
-            .0;
-        parts.extensions.insert(manager.into_read_only());
-
-        assert!(
-            WorkspaceManagerReadOnly::from_request_parts(&mut parts, &())
-                .await
-                .is_ok(),
-            "the capability-free manager is all a read-only handler needs"
-        );
-        assert!(
-            WorkspaceManagerWorkingCopy::from_request_parts(
-                &mut parts,
-                &crate::server::router::IdeState(crate::server::router::bare_app_state()),
-            )
-            .await
-            .is_err(),
-            "a handler asking for a disk must be told there isn't one, not handed an empty one"
-        );
-    }
-
-    /// An ordinary status denial stays opaque — same bytes as before this
-    /// type existed, so nothing that mapped a bare code changes shape.
-    #[test]
-    fn access_error_status_passes_through_unchanged() {
-        let response = WorkspaceAccessError::Status(StatusCode::NOT_FOUND).into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert!(
-            response.headers().get("x-oxy-assume-required").is_none(),
-            "a plain status denial must not advertise assume-role"
-        );
-    }
-
-    /// The staff denial explains itself. This is the contract the FE keys off
-    /// to swap a dead 403 for the assume-role dialog — the header carries the
-    /// org that must be assumed, so the dialog opens pre-scoped.
-    #[test]
-    fn access_error_assume_required_advertises_org_to_assume() {
-        let workspace_id = Uuid::new_v4();
-        let org_id = Uuid::new_v4();
-        let response = WorkspaceAccessError::AssumeRequired {
-            workspace_id,
-            org_id,
-            org_name: Some("Pokehouse".to_string()),
-        }
-        .into_response();
-
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let header = response
-            .headers()
-            .get("x-oxy-assume-required")
-            .expect("assume-required denial must carry the org header")
-            .to_str()
-            .expect("header is ascii");
-        assert_eq!(
-            header,
-            org_id.to_string(),
-            "header must name the org to assume, not the workspace"
-        );
-    }
-
-    /// Generic 503 — no header, no workspace_id in the body — so legacy
-    /// behavior is preserved when the workspace genuinely has no path.
-    #[test]
-    fn rejection_not_available_has_no_recompile_header() {
-        let response = WorkspaceManagerMissing {
-            needs_recompile: None,
-        }
-        .into_response();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert!(
-            response.headers().get("x-oxy-needs-recompile").is_none(),
-            "legacy NotAvailable must not carry the recompile header"
-        );
-    }
-
-    /// Serve-mode short-circuit carries the `X-Oxy-Needs-Recompile`
-    /// header keyed by workspace_id so the FE can route the toast and
-    /// reload-after-compile UX accordingly.
-    #[test]
-    fn rejection_needs_recompile_carries_workspace_header() {
-        let workspace_id = Uuid::new_v4();
-        let response = WorkspaceManagerMissing {
-            needs_recompile: Some(workspace_id),
-        }
-        .into_response();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let header = response
-            .headers()
-            .get("x-oxy-needs-recompile")
-            .expect("NeedsRecompile rejection must set the header");
-        assert_eq!(header.to_str().unwrap(), workspace_id.to_string());
-    }
-
-    /// Collapse whitespace, and close the gap after an opening paren, so an
-    /// assertion about a call site reads the same however rustfmt broke it.
-    fn one_line(src: &str) -> String {
-        src.split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .replace("( ", "(")
-    }
-
-    /// Each handler family must keep naming the source that matches how it
-    /// resolves its scan root.
-    ///
-    /// `get_or_load`'s first argument is one autocomplete away from wrong at
-    /// every call site, and wrong there re-opens the collision the key closed —
-    /// *silently*, because the layer still loads; it is just the other root's.
-    /// So assert at the call site: a file-wide check could not tell "keyed
-    /// correctly" from "nobody mentioned it".
-    #[test]
-    fn layer_sources_match_the_handler_family() {
-        // The boundary readers key on the revision their resolver reports.
-        // A literal at one of their call sites cannot track the fallback arms
-        // (`materialise_semantic_entity` returning None for an unpromoted file,
-        // a `scan_dir` error), each of which yields a working-copy path while
-        // the manager is still pinned to a revision.
-        //
-        // The world-model family is one of them now: it scanned
-        // `semantics_scan_path()` unconditionally and so passed `None`, until
-        // its routes became `FleetOk` and its scan moved to
-        // `graph::source` (now `oxy-api-world-model`'s).
-        for (name, src) in [
-            // The semantic explorer and the pre-aggregation status and
-            // rebuild, lifted into `oxy-api-semantic` (2026-11-16).
-            (
-                "oxy-api-semantic semantic.rs",
-                include_str!("../../../../../api-semantic/src/semantic.rs"),
-            ),
-            (
-                "oxy-api-semantic preagg.rs",
-                include_str!("../../../../../api-semantic/src/preagg.rs"),
-            ),
-            // The IDE handlers, lifted into `oxy-api-world-model`.
-            (
-                "oxy-api-world-model graph/handlers.rs",
-                include_str!("../../../../../api-world-model/src/graph/handlers.rs"),
-            ),
-            // The graph cores, lowered into `oxy-world-model`: the IDE
-            // handlers above hand them the engine they keyed.
-            (
-                "oxy-world-model graph/query.rs",
-                include_str!("../../../../../world-model/src/graph/query.rs"),
-            ),
-            (
-                "oxy-world-model graph/instances.rs",
-                include_str!("../../../../../world-model/src/graph/instances.rs"),
-            ),
-            (
-                "oxy-world-model graph/breakdown.rs",
-                include_str!("../../../../../world-model/src/graph/breakdown.rs"),
-            ),
-            (
-                "oxy-api-world-model graph/source.rs",
-                include_str!("../../../../../api-world-model/src/graph/source.rs"),
-            ),
-        ] {
-            let flat = one_line(src);
-            assert!(
-                !flat.contains("get_or_load(None,"),
-                "{name} resolves its scan root through the compile boundary, so it must key \
-                 on what its resolver reports (scan_source_revision / \
-                 QueryScanSource::source_revision), not a literal"
-            );
-        }
-    }
-}
+#[path = "workspace_context_tests.rs"]
+mod tests;

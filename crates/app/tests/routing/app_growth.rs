@@ -47,7 +47,8 @@ const SERVER: &[&str] = &[
     // `compile_request` followed them on 2026-11-22 (as `request`), and
     // `compile_reconcile` the same day (as `reconcile`), and `compile_worker`
     // (with `compile_worker_tests`) the same day too (as `worker`).
-    "factory_access",
+    // The Factory-access gate left for `oxy-workspace-runtime::request` on
+    // 2026-11-22 (decompose W7), re-exported in `server/mod.rs`.
     "http_cache",
     // Pod placement (`ide_proxy`, `servability`, and `role_manifest`'s and
     // `role_middleware`'s code) left for `oxy-app-core::pods` on 2026-11-22,

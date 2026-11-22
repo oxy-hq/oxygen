@@ -27,7 +27,9 @@ use std::path::{Path, PathBuf};
 ///      wrote, and two decisions taken before there is anything to read from.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "src/server/api/middlewares/workspace_context.rs",
+        // `oxy-workspace-runtime`'s since 2026-11-22 (W7), was
+        // `src/server/api/middlewares/workspace_context.rs`.
+        "../workspace-runtime/src/request/workspace_context.rs",
         "Resolves the revision the whole request is pinned to, once, and stamps \
          it into `Origin`. This is the source of the answer every other read \
          uses.",

@@ -60,7 +60,7 @@ const ALLOWED: &[(&str, &str)] = &[
          and defers the engine build itself to `oxy_airlayer_compat`.",
     ),
     (
-        "crates/app/src/server/api/middlewares/workspace_context.rs",
+        "crates/workspace-runtime/src/request/workspace_context.rs",
         "`SemanticEngineCacheCtx::get_or_build` — the request-scoped handle \
          that supplies the key and the builder.",
     ),

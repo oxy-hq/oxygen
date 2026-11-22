@@ -26,7 +26,9 @@ pub use oxy_compile_runtime::request as compile_request;
 // reconcile keep this path.
 pub use oxy_app_core::default_branch;
 pub use oxy_compile_runtime::worker as compile_worker;
-pub mod factory_access;
+// The Factory-access gate went down into `oxy-workspace-runtime::request` beside
+// its one caller, the workspace middleware (decompose W7, 2026-11-22).
+pub use oxy_workspace_runtime::request::factory_access;
 // `feature_flags` (the flag routes: the staff console's list, patch and
 // evaluate, and the org member's read) is `oxy-api-admin`'s since 2026-11-21;
 // the runtime is `oxy-feature-flags`.
