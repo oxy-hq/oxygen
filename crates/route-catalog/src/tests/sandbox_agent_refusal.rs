@@ -10,7 +10,7 @@
 //! is in one of the two.
 
 use oxy_api_custom_apps::custom_apps_agent_refusal::{ENVIRONMENT_DECIDED, REFUSED_WRITES};
-use oxy_app::server::api::middlewares::app_grant_scope::SANDBOX_ALLOWED;
+use oxy_custom_apps::sandbox_reach::SANDBOX_ALLOWED;
 
 use super::app_grant_scope::shape_of;
 use crate::catalog;

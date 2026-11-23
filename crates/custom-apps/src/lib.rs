@@ -55,6 +55,10 @@
 //!   an app's `autoUpdate`, the `/fn` build handshake headers).
 //! - `automation_run`: an automation run's row state machine (`settle`: begin,
 //!   close, the orphan reconcile) and the failure classifier.
+//! - `sandbox_reach`: the route allow-list of a sandbox agent token (the
+//!   `app_sandbox` table, the public routes' answers, the matcher) and the
+//!   serve tree's fence, `serve_tree_refuses`; `oxy-app` keeps the `/api`
+//!   middleware that reads the table.
 
 // The usage sink's chained connector futures (`usage_airhouse`) exceed the
 // default type-layout query depth of 128, as the same code did in `oxy-app`.
@@ -93,6 +97,7 @@ pub mod reach;
 pub mod resolve;
 pub mod result_cache;
 pub mod sandbox_instance;
+pub mod sandbox_reach;
 pub mod secret_audit;
 pub mod secret_grants;
 pub mod secret_scope;

@@ -10,23 +10,17 @@
 //! repointed every surface at the crate that holds the code (`oxy-app-core`,
 //! `oxy-server-authz`, `oxy-workspace-runtime`, `oxy-compile-runtime`,
 //! `oxy-previews`, …) and deleted the entries nothing named any more. The
-//! remaining holders: `oxy-api-custom-apps` (the demo seed and the sandbox
-//! serve-tree fence in production; the router helpers in its tests), and the
-//! tests of the eight crates that keep `oxy-app` as a dev-dependency (the
-//! route-role installer that builds the real router, the demo seed, and
-//! `api_router`). These leave with the router-assembly lift and the CLI owners,
+//! remaining holders: `oxy-api-custom-apps` (the demo seed in production; the
+//! router helpers in its tests), and the tests of the eight crates that keep
+//! `oxy-app` as a dev-dependency (the route-role installer that builds the real
+//! router, the demo seed, and `api_router`). The sandbox serve-tree fence went
+//! down to `oxy_custom_apps::sandbox_reach` (decompose AG, 2026-11-23). These leave with the router-assembly lift and the CLI owners,
 //! not with another repoint.
 //!
 //! Add an item here only if it is platform runtime that cannot live lower yet.
 //! If it is someone's domain, lower it instead: a surface that needs another
 //! context reaches it through a domain crate below `oxy-app` (rule S3), and
 //! `tests/routing/surface_contract.rs` fails on any other `oxy_app::` path.
-
-/// The fence that keeps a sandbox agent token (`oxy_sbx_`) to the one shape it
-/// may reach on the `/customer-apps` serve tree. Asked before authentication by
-/// the serve route, which sits above this crate. Platform authz, not a tenant
-/// context: it reads the presented credential's prefix and nothing else.
-pub use crate::server::api::middlewares::app_grant_scope::serve_tree_refuses;
 
 /// What the demo seed knows that a surface seeding its own rows needs: which
 /// workspace the partner seed made for an org, and whether the database is one a

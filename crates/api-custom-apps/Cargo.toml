@@ -28,7 +28,7 @@ utoipa-axum = { workspace = true }
 indexmap = { workspace = true }  # `data_plane::query`: column order in a result row
 # What this surface still reaches into oxy-app for, all through the prelude
 # (`oxy_app::surface`, rule S4, `tests/routing/surface_contract.rs`): the demo
-# seed helpers (`surface::seed`), `serve_tree_refuses`, and, in tests, the router
+# seed helpers (`surface::seed`), and, in tests, the router
 # helpers (`install_route_declarations_for_tests_with`, `testing::{api_router,
 # external_auth_layers, flat_api_surface, app_publish_token_scope}`). Everything
 # else comes from the lower crates below. oxy-app never depends back on this

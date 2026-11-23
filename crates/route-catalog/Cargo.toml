@@ -17,9 +17,12 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # The tests build the real router to read its route declarations back
-# (`factory_routes`, the test installer) and read the grant-scope tables. Until
-# decompose RT moves those tests up into oxy-server.
+# (`factory_routes`, the test installer). Until decompose RT moves those tests
+# up into oxy-server.
 oxy-app = { path = "../app", default-features = false }
+# The sandbox agent token's route allow-list (`sandbox_reach`: `SANDBOX_ALLOWED`,
+# `PUBLIC_ROUTES`, `sandbox_admits`), walked against the generated table.
+oxy-custom-apps = { path = "../custom-apps" }
 # The sandbox-agent refusal tables the console owns (`custom_apps_agent_refusal`).
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 # The workspace-seam route roles the server composes (`oxy-server`

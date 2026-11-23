@@ -6,9 +6,7 @@
 //! would miss that.
 
 use axum::http::Method;
-use oxy_app::server::api::middlewares::app_grant_scope::{
-    PUBLIC_ROUTES, SANDBOX_ALLOWED, sandbox_admits,
-};
+use oxy_custom_apps::sandbox_reach::{PUBLIC_ROUTES, SANDBOX_ALLOWED, sandbox_admits};
 use uuid::Uuid;
 
 use crate::catalog;

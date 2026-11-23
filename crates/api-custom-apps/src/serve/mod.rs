@@ -136,7 +136,7 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
     // remember the kind exists. It is refused only for presenting the token,
     // so the refusal is in the token's one body: the `404` that `/fn` answers
     // for an app or a sandbox that is not its own.
-    if oxy_app::surface::serve_tree_refuses(&method, &headers, &path) {
+    if oxy_custom_apps::sandbox_reach::serve_tree_refuses(&method, &headers, &path) {
         return oxy_app_core::agent_body::Refusal::not_found().into_response();
     }
 

@@ -31,8 +31,9 @@
 //! and `oxy-previews` (the semantic boundary, the metric-tree executor, the
 //! queued-run machinery, the preview queue). From `oxy-app` it takes
 //! `oxy_app::surface` and nothing else (rule S4, `tests/routing/surface_contract.rs`),
-//! and only what still lives there: the demo seed, `serve_tree_refuses`, and the
-//! test router helpers.
+//! and only what still lives there: the demo seed and the test router helpers.
+//! The sandbox serve-tree fence (`serve_tree_refuses`) is
+//! `oxy_custom_apps::sandbox_reach`.
 //!
 //! Mounted by the `oxy-server` composition root through these seams:
 //!
