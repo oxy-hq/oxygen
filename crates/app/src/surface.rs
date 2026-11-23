@@ -6,321 +6,27 @@
 //! meaning "some surface happened to need it" and the contract between the
 //! platform runtime and the surfaces is one file you can read.
 //!
-//! What belongs here is **platform runtime** — the things every surface would
-//! otherwise reimplement: authz guards and the middleware that resolves org /
-//! workspace context, session and request helpers, route-role declarations,
-//! staff assume-role. What does **not** belong here is another bounded
-//! context's logic (custom apps, tenancy, the operating graph, …). A surface
-//! that needs one of those reaches it through a domain crate below `oxy-app`
-//! (rule S3); until that crate exists, the import is listed in the backlog of
-//! `tests/routing/surface_contract.rs`, which fails on any new one.
+//! What is left is what still lives in `oxy-app`. Decompose R1 (2026-11-23)
+//! repointed every surface at the crate that holds the code (`oxy-app-core`,
+//! `oxy-server-authz`, `oxy-workspace-runtime`, `oxy-compile-runtime`,
+//! `oxy-previews`, …) and deleted the entries nothing named any more. The
+//! remaining holders: `oxy-api-custom-apps` (the demo seed and the sandbox
+//! serve-tree fence in production; the router helpers in its tests), and the
+//! tests of the eight crates that keep `oxy-app` as a dev-dependency (the
+//! route-role installer that builds the real router, the demo seed, and
+//! `api_router`). These leave with the router-assembly lift and the CLI owners,
+//! not with another repoint.
 //!
-//! Add an item here only if it is platform. If it is someone's domain, lower
-//! it instead.
-//!
-//! Not every entry below is platform yet: some are context reaches filed here
-//! before their context left. Which entry goes down, up or sideways when
-//! `oxy-app` dissolves is the table under "End state" in
-//! `domain-boundaries.md`; the modules that go down are `BASE` in
-//! `tests/routing/base_boundary.rs`.
-
-/// Role guards — the axum extractors that decide access (`oxy-authz` rings).
-/// Take one in a handler instead of deciding by hand (see `crates/authz/CLAUDE.md`).
-pub use crate::server::api::middlewares::role_guards;
-
-/// Org-scoped request context: the middleware that resolves `{org_id}`, the
-/// extractor it leaves behind, and the same resolution for a route that names
-/// its org outside the path (`resolve_org_context`).
-pub use crate::server::api::middlewares::org_context::{
-    OrgContext, OrgContextExtractor, org_middleware, resolve_org_context,
-};
-
-/// Subscription gating for org-scoped routes.
-pub use crate::server::api::middlewares::subscription_guard::subscription_guard_middleware;
-
-/// Billing's base, which `oxy-app` reads as well as billing's surface
-/// (`oxy-api-billing`, since the admin split's PR 9): the one switch for the
-/// subsystem (`billing_service`, which the paywall's `billing_disabled` shares;
-/// `oxy_billing::gate` since decompose B1). The past-due dispatcher left for
-/// `oxy-api-billing` in decompose B2.
-pub mod billing {
-    pub use crate::server::api::billing::billing_service;
-}
-
-/// Workspace-scoped request context, as the workspace seam provides it.
-///
-/// `OrgMembershipExtractor` (the caller's org membership, for a workspace
-/// route that rules on it) and `WorkspaceGlobalOverride` (the request is a
-/// staff override, not a member) were added for `oxy-api-workspaces`' member
-/// and Oxy-access routes (2026-11-16).
-pub use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, OrgMembershipExtractor, PreaggCacheCtx, SemanticEngineCacheCtx,
-    SemanticLayerCacheCtx, WorkspaceGlobalOverride, WorkspaceManagerReadOnly,
-    WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_import_compile, enqueue_lazy_compile,
-};
-
-/// What a verified GitHub `push` delivery does: which workspaces it concerns
-/// and a deduped commit compile for each (`handle`, `PushEvent`, `Handled`).
-/// `oxy-api-github`'s webhook
-/// receiver (`POST /webhooks/github`) verifies the signature and hands the
-/// payload here; the compile runtime it queues into stays in `oxy-app`.
-pub use crate::server::compile_reconcile::push as compile_push;
-
-/// The workspace row the workspace middleware resolved (401 where it did not run).
-pub use crate::server::api::middlewares::workspace_extractor::WorkspaceExtractor;
+//! Add an item here only if it is platform runtime that cannot live lower yet.
+//! If it is someone's domain, lower it instead: a surface that needs another
+//! context reaches it through a domain crate below `oxy-app` (rule S3), and
+//! `tests/routing/surface_contract.rs` fails on any other `oxy_app::` path.
 
 /// The fence that keeps a sandbox agent token (`oxy_sbx_`) to the one shape it
 /// may reach on the `/customer-apps` serve tree. Asked before authentication by
 /// the serve route, which sits above this crate. Platform authz, not a tenant
 /// context: it reads the presented credential's prefix and nothing else.
 pub use crate::server::api::middlewares::app_grant_scope::serve_tree_refuses;
-
-/// The project context a workspace's agents run with: its configuration, its
-/// database secrets and the compiled revision, built the way the platform builds
-/// it for every data-plane call. The document library's answering agent runs
-/// against an org's workspace this way; it is not a custom app. The custom-app
-/// gate's decisions are in `oxy_custom_apps::gate`; this builder is the part
-/// that composes `OxyProjectContext`, which only `oxy-app` can name.
-pub use crate::server::api::custom_apps_gates::build_project_context;
-
-/// Session, token and request helpers shared by every sign-in path: the
-/// session JWT, the `oxy_session` cookie and its attributes, the login
-/// response and payload, a token session's response and hydration,
-/// `return_to` validation and the link bases. The sign-in routes themselves are
-/// `oxy-api-identity`'s; frontline's PIN sign-in mints the same session.
-pub mod session {
-    pub use crate::server::api::auth::{
-        AuthResponse, Claims, LOCAL_DEFAULT_BASE, OrgInfo, SESSION_TTL_SECS,
-        SessionCookieAttributes, UserInfo, build_session_cookie, build_session_cookie_with_max_age,
-        clear_session_cookie, create_auth_token, create_auth_token_with_ttl,
-        extract_base_url_from_headers, extract_link_base_for_authenticated_request, finalize_login,
-        hydrate_token_session, is_request_secure, login_response, origin_named_by_request,
-        pin_org_subdomain_to_app_host, render_session_cookie, session_cookie_attributes,
-        session_cookie_user_id, token_session_response, validate_return_to_url,
-    };
-}
-
-/// The CORS origin allowlist, for routes that gate on where a call came from.
-pub use crate::server::router::is_allowed_origin;
-
-/// The staff-console guard a surface stacks on its staff routes that still
-/// resolves through `oxy-app`: `app_scope_guard`, which apps a bounded grant may
-/// touch. The door (`oxy_owner_or_app_admin_guard`) and the per-section
-/// capability (`platform_cap_guard::require(Action)`) are `oxy-server-authz`'s
-/// (decompose G2b, 2026-11-22); a surface takes them from there.
-pub mod guards {
-    pub use crate::server::api::middlewares::app_scope_guard;
-}
-
-/// The workspace middleware's role resolution: the role an API token's grant
-/// caps a caller at in a workspace, as every workspace guard sees it.
-pub mod workspace_context {
-    pub use crate::server::api::middlewares::workspace_context::resolve_effective_role;
-}
-
-/// Pod placement: whether this process holds the working copy, and how a
-/// request that needs the Factory is relayed to it. `IdeState` is the router
-/// state a working-copy extractor resolves from: a surface that mounts one such
-/// handler on its (fleet-typed) seam router runs it on `IdeState` explicitly and
-/// declares the route IdeOnly — the two facts `route_ide` states inside `oxy-app`.
-pub mod fleet {
-    pub use crate::server::router::IdeState;
-    pub use crate::server::{ide_proxy, role_middleware, servability};
-}
-
-/// The workspace runtime a queued job or a handler rebuilds a workspace from:
-/// the project context the global driver builds for a workspace (the promoted
-/// revision's semantic model, never a working copy), the workspace manager
-/// behind it, the compile-boundary scan root, and the driver's tick interval.
-///
-/// [`resolve_query_scan_source`](workspace_runtime::resolve_query_scan_source)
-/// is the request-time resolution beside it: the compiled revision first, the
-/// working copy second where this node holds one, so an IDE branch that has not
-/// compiled yet still reads. With it, the `{ message }` envelope the semantic
-/// routes answer a refusal with.
-pub mod workspace_runtime {
-    pub use crate::agentic_wiring::OxyProjectContext;
-    /// A database's connector, built the way every warehouse read builds one
-    /// (config + `agentic-connector`, or the host-built path where Airhouse
-    /// lives; the preview write hold applied). The workspace's schema route
-    /// (`oxy-api-workspace-config`) introspects through it.
-    pub use crate::agentic_wiring::project_ctx::build_connector_for_db;
-    /// The revision a scan read, `None` for a working-copy read: what the
-    /// semantic surface's single-file reads key their layer cache on, as
-    /// `QueryScanSource::source_revision` does for the query reads. Added for
-    /// `oxy-api-semantic` (2026-11-16).
-    pub use crate::agentic_wiring::scan_source::scan_source_revision;
-    pub use crate::agentic_wiring::scan_source::{
-        ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
-        semantic_err,
-    };
-    pub use crate::agentic_wiring::string_literal::string_literal_of;
-    pub use crate::server::api::typed_stream::typed_stream_to_json_objects;
-    pub use crate::server::preagg_workspace::build_workspace_manager;
-    pub use crate::server::router::recovery::{
-        DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS, build_workspace_ctx,
-    };
-}
-
-/// The warehouse query executor the metric-tree surfaces run on, built the way
-/// the platform builds it for every metric-tree read: the connector pool, the
-/// pre-aggregation short-circuit (derived from the workspace manager, never the
-/// caller), and the request-scoped preview write hold. With it, the airlayer
-/// database configs a workspace declares, read through `dialect()` so a copy
-/// cannot drift on airhouse/motherduck. Platform runtime, not metric-tree
-/// logic: the metric-tree computation itself lives in `oxy-metric-monitoring`.
-pub mod metric_tree_exec {
-    pub use crate::agentic_wiring::metric_tree_runner::{
-        OxyMetricTreeRunner, RunnerPreagg, build_drill_query_executor, build_query_executor,
-    };
-    // What the customer-app twins (`oxy-api-custom-apps`' `data_plane::
-    // metric_tree*`) share with the IDE handlers (`oxy-api-metric-monitoring`),
-    // which may not import each other (S3): the error the analysis ops answer
-    // in, the scan and layer resolution, the engine and database builders, the
-    // tree query's shape, the one instance-scope rule (it reads the world
-    // model's entities, which `oxy-metric-monitoring` does not depend on), and
-    // the projection's executor-facing core.
-    pub use crate::agentic_wiring::metric_tree_exec::{
-        MetricTreeError, ProjectionExec, ProjectionOutcome, TreeQuery, baseline_scope_core,
-        build_engine, load_layer_at, resolve_scan, run_projection, workspace_databases,
-    };
-    /// Whether this request is a held preview — `build_query_executor`'s
-    /// `holds_writes`, read on the request's own task.
-    pub use oxy_app_core::write_hold::active as request_holds_writes;
-}
-
-/// The connector the platform builds for every Dev Portal query (the same
-/// builder, subject, role and preview hold), and the two ways a query runs on
-/// it. `oxy-api-world-model`'s `WorkspaceWarehouse` — the warehouse the World
-/// Model Graph cores (`oxy_world_model::graph`) run on — is built from these,
-/// and the IDE handlers' own fan-outs (filter counts, instance detail) use them
-/// directly. Platform runtime, not graph logic.
-pub mod world_model_exec {
-    pub use crate::agentic_wiring::sql_exec::{
-        SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
-        run_with_connector,
-    };
-}
-
-/// A Dev Portal SQL execute and its HTTP answer, as `oxy-api-semantic`'s `/sql`
-/// and `/semantic` handlers run it (2026-11-16): the executor and its result
-/// shapes (`world_model_exec` re-exports the same items for the World Model
-/// Graph), the error the executor fails with, the status and structured body a
-/// failure maps to (a preview's held write is `409 preview_read_only`), and
-/// the one call the `/sql` handlers make. Platform runtime: the connector, the
-/// 10k-row cap and `truncated`, and the preview write hold are all below.
-pub mod sql_exec {
-    pub use crate::agentic_wiring::sql_exec::{
-        ResultFormat, SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
-    };
-    pub use crate::agentic_wiring::sql_http::{
-        SqlErrorResponse, agentic_error_response, execute_sql_response,
-    };
-}
-
-/// What a custom app's semantic read does before it touches the model, as the
-/// data plane does it for every such read (`/projects/{project_id}/semantic/*`):
-/// the customer-app gate, the project context, the scan resolved compile
-/// boundary first (a stateless replica with nothing compiled answers the
-/// `503 semantic_needs_recompile` contract and queues a compile), the
-/// project-scoped result cache (`project_id` first, read after the gate,
-/// `?refresh` honoured), the `{ message, code }` envelope, and the versioned
-/// body parser the bundle SDK's POSTs go through. Platform runtime on the
-/// workspace runtime, not any one context's logic: `oxy-api-world-model`'s
-/// world-model and cohort twins use it, and so do `oxy-api-custom-apps`'
-/// metric-tree twins.
-pub mod custom_app_semantic {
-    pub use crate::server::api::custom_apps_gates::{
-        CustomAppContextExt, build_caller_context, build_project_context_with_fresh_workspace,
-        parse_versioned_body,
-    };
-    pub use crate::server::api::projects::semantic_boundary::{
-        SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code,
-        load_layer, wants_refresh,
-    };
-}
-
-/// Carry a request's Sentry hub across an SSE body, which axum polls after the
-/// handler (and the layer's `Hub::run`) has returned. The sentry-surface guard
-/// pairs every `async_stream::stream!` on the custom-app data plane with one.
-pub mod sentry_hub {
-    pub use crate::server::api::middlewares::sentry_surface::bind_hub_stream;
-}
-
-/// An analytics run started from the queue: the claim-safe attempt every
-/// executor of one shares (`queued_analytics`), and who a custom-app ask runs
-/// as when something other than its request drives it (`caller`). Both are
-/// `oxy_workspace_runtime::queued_analytics` since 2026-11-23, beside the chat
-/// executor; recovery stays here and uses both. A custom-app ask's start,
-/// cancel and executor are `oxy-api-custom-apps`'s.
-pub mod queued_runs {
-    pub use crate::server::queued_analytics::caller;
-    pub use crate::server::queued_analytics::{
-        INTERRUPTED_MESSAGE, SchemaCache, Settled, admission, attempt, beside_the_pipeline,
-        heartbeat,
-    };
-}
-
-/// The custom-app automation run's row: closed and begun by its state machine
-/// (`settle`), a preview-mode run's row settled from its finished preview run,
-/// the failure classifier. The state machine and the classifier are
-/// `oxy_custom_apps::automation_run` (2026-11-22), re-exported here; the
-/// preview settle stays in `oxy-app` beside the workspace-preview sweep that
-/// drives it. The handlers, the executor and the sweep are
-/// `oxy-api-custom-apps`' `automation_run`.
-pub mod automation_runs {
-    pub use crate::server::api::projects::automation_run::preview_settle::settle_custom_app_runs;
-    pub use crate::server::api::projects::automation_run::{
-        automation_error_to_code, owns_run, settle,
-    };
-}
-
-/// The S3 mirror of a runtime artifact (a chart image, a query result) written
-/// to one pod's disk, so a read on another pod finds it. The Slack bot mirrors
-/// the chart PNGs it renders; `oxy-api-threads`' chart and result-file routes
-/// read a local miss back through it (`fetch`), key result parquet files
-/// (`result_key`) and delete the mirrored copy with the local one (`remove`).
-pub mod runtime_artifact {
-    pub use crate::server::runtime_artifact::{chart_key, fetch, mirror, remove, result_key};
-}
-
-/// The sandbox companies staff registered for a workspace's Airway samples
-/// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
-/// only to one of them.
-pub mod previews {
-    // The lower half `oxy-api-previews` builds on (2026-11-14): the run
-    // platform and its DuckDB double stay below because the workspace runtime
-    // reads them. Whole modules: the surface is their one consumer above, and
-    // they move down together with the request base. (The rows — the registry
-    // and its DDL, the namespace, the sources, the pin and the run queue —
-    // went down to `oxy-previews` on 2026-11-22; the surface imports them
-    // from there.)
-    pub use crate::server::previews::{airhouse_duckdb, runtime};
-    // The preview platform a held run executes on, and the compile pieces
-    // create and refresh drive.
-    pub use crate::agentic_wiring::{preview_airhouse, preview_ctx};
-    pub use crate::server::compile_maintenance::REVISION_IN_USE;
-    pub use crate::server::compile_request;
-    /// The commit compile the staff console's "Run compile now" queues with
-    /// `"source": "git"` (`oxy-api-previews`' `admin::compiles`, admin split
-    /// PR 6): refuse a request that can never succeed, then queue it.
-    pub mod compile_git {
-        pub use crate::server::compile_git::{enqueue, validate_request};
-    }
-    pub use crate::server::preagg_promote::promoted_revision;
-    pub use crate::server::previews::namespace::preview_key;
-    pub use crate::server::previews::queue::run::{advance, runs_enabled};
-    pub use crate::server::previews::sources::list as list_sources;
-    pub use crate::server::previews::sql_kind::StatementKind;
-}
-
-/// The Postgres LISTEN/NOTIFY connection settings a surface's own listener
-/// rides, so it connects the way the task router does.
-pub mod listener {
-    pub use crate::server::task_router_listener::{
-        listener_factory_from_env, listener_tls_verification_from_env,
-    };
-}
 
 /// What the demo seed knows that a surface seeding its own rows needs: which
 /// workspace the partner seed made for an org, and whether the database is one a
@@ -334,94 +40,22 @@ pub mod seed {
     pub use crate::cli::commands::seed_platform_grants::unscoped_app_operator_email;
 }
 
-/// The seams a surface crate builds for the composition root to hand `oxy-app`
-/// (`SurfaceSeams`): the task executors, the background jobs, the demo seed's
-/// half, and the notifications surface's boot hooks with the task kinds
-/// `oxy-app` requires of it.
-pub mod seams {
-    pub use crate::server::router::{
-        ANOMALY_TASK_KINDS, BackgroundDeps, BackgroundSeam, ExampleAppsSeam, FleetJobDeps,
-        FleetJobSeam, GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS,
-        NotificationsSeam, TaskDeps, TaskSeam, TickPass,
-    };
-}
-
-/// What the integration tests of the surface crates drive: the data plane's
-/// handlers and the served router, which the custom-app tests exercise in a
-/// staging or sandbox environment, and the platform fixtures they stand up
-/// around them. Tests only; no surface's `src` takes anything from here.
+/// What the integration tests of the surface crates drive: the served router,
+/// which the custom-app tests exercise in a staging or sandbox environment, the
+/// external auth stack, and the publish-token scope middleware. Tests only; no
+/// surface's `src` takes anything from here.
 pub mod testing {
-    pub use crate::agentic_wiring;
-    pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
-    // `data` and `semantic` left with their handlers for `oxy-api-semantic`
-    // (2026-11-16); `projects` had no reader once `data`'s did not need it.
-    // `audit` (the staff console's audit log, for `oxy-api-identity`'s
-    // user-status read-back) left with `admin::audit` for `oxy-api-admin`
-    // (2026-11-20); those tests read the listing's scoped query directly.
-    pub use crate::server::api::{billing, compiled_reader, custom_apps_gates};
-    pub use crate::server::router::{
-        SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,
-    };
-    pub use crate::server::{compile_config_gate, compile_maintenance, compile_request, previews};
+    pub use crate::server::api::middlewares::app_publish_token_scope;
+    pub use crate::server::router::{api_router, external_auth_layers, flat_api_surface};
 
     /// The router module itself, for the items tests name beside the ones above.
     pub use crate::server::router;
 }
 
-/// Router state for tests that mount a single handler.
-pub use crate::server::router::bare_app_state;
-
-/// A staff-console section under `/api/admin`, and the capabilities one may
-/// name. `oxy-app` applies the capability guard; the surface only names it.
-pub use crate::server::authz::Action;
-/// A staff-console tree nested beside `/api/admin`'s router at
-/// `/api/admin{prefix}`, guarded on every path it mounts (an unmatched path is
-/// the outer 404). `oxy-app` applies the staff door, the refusal while acting
-/// and the capability it names.
-pub use crate::server::router::AdminNest;
-pub use crate::server::router::AdminSection;
-
-/// Route-role (pod placement) declarations and the classifier that reads them.
+/// Route-role (pod placement) declarations, as a test installs them: the real
+/// router's declarations plus the ones a surface crate hands in, so `classify`
+/// answers for the surface's routes too. Kept in `oxy-app` because it builds
+/// the router; the production half is `oxy_app_core::pods::role_manifest`.
 pub mod roles {
-    /// The installed declarations, as `(method, path, role)` rows: what
-    /// `oxy-api-admin`'s `/admin/routing-manifest` serves (admin split,
-    /// 2026-11-21, when it left `oxy-app`'s `api::admin::routing`).
-    pub use crate::server::role_manifest::dump_manifest;
-    /// Whether this process can claim a working-copy compile. The compile
-    /// console (`oxy-api-previews`' `admin::compiles`) queues one only where it
-    /// can, and otherwise refuses with `needs_working_copy`.
-    pub use crate::server::role_manifest::process_can_compile;
-    /// Whether this process owns the workspace files (`ide`, or `all` in
-    /// single-process mode). `oxy-api-workspaces`' details answer a missing
-    /// working copy with the transient 503 only where it does (2026-11-16).
-    pub use crate::server::role_manifest::process_is_fs_writable;
-    pub use crate::server::role_manifest::{
-        RouteRole, classify, current_process_role, declared_role_in, ensure_fs_writable,
-        init_process_role_from_env, install_route_declarations_for_tests_with,
-        role_runs_inprocess_workers,
-    };
-}
-
-/// Staff assume-role sessions — platform authz, not a tenant context: whether
-/// a staff member is acting inside an org right now, who may act
-/// (`may_act_as`), and the refusal of the staff console while acting. The
-/// `/api/assume` routes themselves are `oxy-api-admin`'s (admin split,
-/// 2026-11-20), which reach `may_act_as` through here.
-pub use crate::server::api::admin::assume;
-
-/// Staff-scope fencing: whether a bounded platform grant reaches this org.
-/// Platform authz, applied inside admin handlers where the org is known.
-/// `org_scope_clause` (the same fence as a SQL `ANY($n)` clause, for a
-/// cross-tenant listing narrowed in the query) joined the glob in the admin
-/// split, when it became `pub`. Both live in `oxy-server-authz` (`staff`) since
-/// the admin split's PR 3; this module re-exports them.
-pub mod admin_scope {
-    pub use oxy_server_authz::staff::org_filter::{scope_org_filter, scope_org_filter_checked};
-    pub use oxy_server_authz::staff::scope::*;
-}
-
-/// Whether the caller may open the Factory, as `/meta` reports it (the
-/// extractor), added for `oxy-api-workspaces` (2026-11-16).
-pub mod factory_access {
-    pub use crate::server::factory_access::FactoryAccess;
+    pub use crate::server::role_manifest::install_route_declarations_for_tests_with;
 }

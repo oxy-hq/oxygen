@@ -14,9 +14,9 @@
 //! ([`oxy_app_core::fleet_claim`]) and runs once per interval across them,
 //! however many start it.
 
-// The seam types are in `seams` (base): a surface crate names them, and this
+// The seam types are `oxy_app_core::seams`'s: a surface crate names them, and this
 // module, which starts `oxy-app`'s own audit anchor, is not base.
-use super::seams::{FleetJobDeps, FleetJobSeam};
+use oxy_app_core::seams::{FleetJobDeps, FleetJobSeam};
 
 /// `oxy-app`'s own fleet job: the hourly audit chain-head anchor (a no-op
 /// without `OXY_AUDIT_ANCHOR_S3_BUCKET`).

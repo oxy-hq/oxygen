@@ -11,7 +11,7 @@
 //! - [`artifacts`], [`chart`], [`result_files`]: what a run left behind for
 //!   the conversation to render — an artifact row, a legacy chart file and a
 //!   result parquet file. The two files are written to one pod's disk and
-//!   mirrored to S3, so any replica reads them (`surface::runtime_artifact`).
+//!   mirrored to S3, so any replica reads them (`oxy_workspace_runtime::runtime_artifact`).
 //!
 //! [`workspace_routes`] rides the workspace seam, merged INSIDE the
 //! `/api/{workspace_id}` nest, so it inherits the session auth stack, the
@@ -114,7 +114,7 @@ const ROUTE_ROLES: &[RouteRoleDecl] = &[
 /// (`chat_delivery_listener`, which `oxy-app` refuses to boot without).
 ///
 /// It rides the task router's connection settings — the same factory and TLS
-/// posture, built from the same environment (`surface::listener`). Two
+/// posture, built from the same environment (`oxy_app_core::listener`). Two
 /// people in one channel are routinely on different replicas, so an
 /// in-process bus would deliver a message to whoever happened to hit the
 /// replica that accepted the POST and to nobody else — invisible on a dev

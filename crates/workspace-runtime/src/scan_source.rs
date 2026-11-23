@@ -6,8 +6,8 @@
 //! (`project_ctx`), the metric-tree executor (`metric_tree_exec`), the
 //! pre-aggregation executor and the global driver's workspace-health context
 //! resolve their scan here, and so do the IDE's semantic and pre-aggregation
-//! handlers and `oxy-api-world-model` / `oxy-api-experiment` (through
-//! `oxy_app::surface::workspace_runtime`). It lived in `api::semantic` until
+//! handlers and `oxy-api-world-model` / `oxy-api-experiment` (through the
+//! prelude's `workspace_runtime` until decompose R1, directly since). It lived in `api::semantic` until
 //! 2026-11-16 and moved down so those handlers can leave `oxy-app` without
 //! taking the runtime's scan resolution with them; it was `oxy-app`'s
 //! `agentic_wiring::scan_source` until 2026-11-22 (re-exported there). With

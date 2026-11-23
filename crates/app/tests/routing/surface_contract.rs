@@ -3,8 +3,9 @@
 //!
 //! Rule S4 in `internal-docs/domain-boundaries.md`. `crates/app/src/surface.rs`
 //! is the contract between the platform runtime and the extracted HTTP surfaces
-//! (`crates/api-*`): guards, org/workspace context, session helpers, route
-//! roles. Anything else a surface takes from `oxy-app` is another bounded
+//! (`crates/api-*`); since decompose R1 it holds only what is still `oxy-app`'s
+//! (the demo seed, the serve-tree fence, the test router helpers and the
+//! route-role installer). Anything else a surface takes from `oxy-app` is another bounded
 //! context's logic, which rule S3 sends down into a domain crate instead.
 //!
 //! [`BACKLOG`] is the list of those reaches that predate the rule — it is a
@@ -39,7 +40,7 @@ const BACKLOG: &[(&str, &str)] = &[
     // tenancy (api-tenancy)
     // (billing seat sync when a member is added or removed — cleared
     // 2026-11-21: `billing_service` is billing's base, reached through the
-    // prelude's `surface::billing` since the admin split's PR 9.)
+    // prelude's `surface::billing` from the admin split's PR 9 until R1.)
     // (workspace context: schedule cleanup on delete, the directory read —
     // cleared 2026-11-16: the cleanup went down to
     // `agentic_pipeline::scheduler`, the read's test moved to

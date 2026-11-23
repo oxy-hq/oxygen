@@ -28,7 +28,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, TransactionTrait};
 use super::super::drive_policy::{IdeDeferral, drive_policy, drive_policy_for};
 use super::*;
 use crate::server::role_manifest::{Role, current_process_role};
-use crate::server::router::seams::CUSTOM_APP_TASK_KINDS;
+use oxy_app_core::seams::CUSTOM_APP_TASK_KINDS;
 
 /// The kind `oxy-api-custom-apps` queues a procedure run under — a persisted
 /// queue contract, so spelled out.

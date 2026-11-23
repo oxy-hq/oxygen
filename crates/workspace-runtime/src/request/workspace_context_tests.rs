@@ -184,30 +184,12 @@ async fn read_only_resolves_without_the_disk_manager() {
     assert!(
         WorkspaceManagerWorkingCopy::from_request_parts(
             &mut parts,
-            &oxy_app_core::pods::IdeState(bare_app_state()),
+            &oxy_app_core::pods::IdeState(oxy_app_core::app_state::bare_app_state()),
         )
         .await
         .is_err(),
         "a handler asking for a disk must be told there isn't one, not handed an empty one"
     );
-}
-
-/// An `AppState` carrying nothing but its caches: what oxy-app's
-/// `router::bare_app_state` builds, restated here because this test went
-/// down with the middleware (decompose W7) and the router stays above.
-fn bare_app_state() -> AppState {
-    AppState {
-        enterprise: false,
-        internal: false,
-        mode: oxy_app_core::serve_mode::ServeMode::Cloud,
-        observability: None,
-        startup_cwd: std::path::PathBuf::new(),
-        preagg_cache: None,
-        preagg_renewal_threshold_secs: None,
-        agentic_state: None,
-        semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
-        semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
-    }
 }
 
 /// An ordinary status denial stays opaque — same bytes as before this

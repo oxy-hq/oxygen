@@ -5,8 +5,8 @@
 //!
 //! The workspace runtime's half of the SQL surface. The IDE's SQL and semantic
 //! execute handlers (`oxy-api-semantic`'s `data` and `semantic`) run on it, and so does
-//! `oxy-api-world-model`'s `WorkspaceWarehouse` (through
-//! `oxy_app::surface::world_model_exec`). It lived in `api::data` until
+//! `oxy-api-world-model`'s `WorkspaceWarehouse` (through the
+//! prelude's `world_model_exec` until decompose R1, directly since). It lived in `api::data` until
 //! 2026-11-16 and moved down so those handlers can leave `oxy-app` without
 //! taking a sibling surface's executor with them. The HTTP shaping of a failure
 //! (`SqlErrorResponse`, `agentic_error_response`) stayed with the handlers until

@@ -16,8 +16,8 @@
 //!   console, through the prelude;
 //! * [`may_act_as`] and [`ActingAs`] — `org_context` and `workspace_context`
 //!   synthesize the acting member from them, and `oxy-api-documents`,
-//!   `oxy-api-tenancy` and the session routes read them through the prelude
-//!   (`oxy_app::surface::assume`);
+//!   `oxy-api-tenancy` and the session routes read them from here (through
+//!   the prelude's `assume` until decompose R1);
 //! * session liveness, re-exported from `oxy-server-authz` (`assume_liveness`), so
 //!   callers keep resolving `assume::…` unchanged.
 //!

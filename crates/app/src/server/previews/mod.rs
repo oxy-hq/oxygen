@@ -83,8 +83,9 @@
 //! `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
 //! `checks`, `compare`, `sample`, `drop`, `runs` and `maintenance` — is
 //! `oxy-api-previews`, mounted through `SurfaceSeams::previews`, `tasks` and
-//! `background`; it reads the rows from `oxy_previews` and the rest through
-//! `oxy_app::surface::previews`.
+//! `background`; it reads the rows from `oxy_previews` and the rest from
+//! `oxy-workspace-runtime` and `oxy-compile-runtime` (the prelude's
+//! `previews` until decompose R1).
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]

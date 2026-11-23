@@ -5,7 +5,7 @@
 //! A `Request` module of the app-core charter (`charter_tests.rs`), not a
 //! context: the sign-in routes themselves (magic link, OAuth, dev sign-in, the
 //! mobile app's sign-in, `/user` and `/logout`) are `oxy-api-identity`'s, and
-//! reach this through `oxy_app::surface::session`, beside frontline's PIN
+//! import this directly (the prelude's `session` until decompose R1), beside frontline's PIN
 //! sign-in and a token's browser sign-in, which mint the same session. Down from
 //! `oxy-app`'s `server::api::auth` on 2026-11-21, which re-exports it.
 //!

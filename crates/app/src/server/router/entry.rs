@@ -30,8 +30,8 @@ use super::protected::{
 };
 use super::public::build_public_routes;
 use super::recovery::{StartupPass, spawn_recovery, spawn_shutdown_hook};
-use super::seams::{SurfaceSeam, SurfaceSeams};
 use super::{AppState, build_cors_layer};
+use oxy_app_core::seams::{SurfaceSeam, SurfaceSeams};
 
 /// Builds the main API router (mounted under `/api`) and, alongside it, the
 /// external API router (`/external/api`). The external one is returned
@@ -138,7 +138,7 @@ pub async fn api_router(
     // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`), read by the
     // global driver each pass. Installed whether or not this process runs the
     // driver: the list is the composition's, not the role's.
-    super::seams::install_global_ticks(&global_ticks);
+    oxy_app_core::seams::install_global_ticks(&global_ticks);
 
     if disable_inprocess_workers {
         tracing::info!(
@@ -203,7 +203,7 @@ pub async fn api_router(
     // this process's memory or is a cheap idempotent sweep that every replica
     // runs.
     {
-        let deps = super::seams::BackgroundDeps {
+        let deps = oxy_app_core::seams::BackgroundDeps {
             db: &agentic_state.db,
             shutdown: &agentic_state.shutdown_token,
         };
@@ -221,7 +221,7 @@ pub async fn api_router(
     // interval in `fleet_job_claims`, so starting them on both is safe.
     super::fleet_jobs::start_fleet_jobs(
         &fleet_jobs,
-        &super::seams::FleetJobDeps {
+        &oxy_app_core::seams::FleetJobDeps {
             db: &agentic_state.db,
             shutdown: &agentic_state.shutdown_token,
         },
@@ -593,7 +593,7 @@ async fn new_agentic_state(
         crate::server::task_router_listener::listener_tls_verification_from_env()
             .map_err(|e| OxyError::RuntimeError(format!("listener tls mode: {e}")))?;
     // Chat's cross-replica delivery listener rides the same factory and TLS
-    // posture, built from the same environment (`surface::listener`). It is
+    // posture, built from the same environment (`oxy_app_core::listener`). It is
     // `oxy-api-threads`' since 2026-11-16 and starts with the surfaces'
     // background jobs in `api_router` (`chat_delivery_listener`, which
     // `SurfaceSeams::require_custom_apps` refuses to boot without).

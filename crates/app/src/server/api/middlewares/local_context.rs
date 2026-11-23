@@ -20,7 +20,6 @@ use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
 };
 use crate::server::router::AppState;
-use crate::server::service::secret_manager::SecretManagerService;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 use axum::extract::State;
 use axum::{
@@ -34,6 +33,7 @@ use entity::workspaces::{Model as WorkspaceModel, WorkspaceStatus};
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::resolve_local_workspace_path;
+use oxy::service::secret_manager::SecretManagerService;
 use oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
 use uuid::Uuid;
 

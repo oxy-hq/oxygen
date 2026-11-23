@@ -22,14 +22,12 @@ use crate::agentic_wiring::OxyProjectContext;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use crate::server::queued_analytics::caller::CallerRunResolver;
 // The driver's context builders, `oxy-workspace-runtime`'s `driver_ctx` since
-// decompose W6b (2026-11-23). `build_workspace_ctx` is re-exported so the
-// prelude (`surface::workspace_runtime`) keeps this path; `worker_ctx` so
-// `periodic` and `router::worker_project_ctx` do.
-pub use oxy_workspace_runtime::driver_ctx::build_workspace_ctx;
+// decompose W6b (2026-11-23). `worker_ctx` is re-exported so `periodic` and
+// `router::worker_project_ctx` keep this path.
 pub(crate) use oxy_workspace_runtime::driver_ctx::worker_ctx;
 use oxy_workspace_runtime::driver_ctx::{build_commit_compile_ctx, build_local_project_ctx};
 
-use super::seams::TaskSeam;
+use oxy_app_core::seams::TaskSeam;
 
 /// The custom-app task kinds the composition root handed in, shared by every
 /// driver loop this process runs.
@@ -264,8 +262,7 @@ pub async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Cancellatio
 /// election needed.
 pub const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
-// `oxy-workspace-runtime`'s `driver_ctx` since decompose R0 (2026-11-23);
-// re-exported so the prelude (`surface::workspace_runtime`) keeps this path.
+// `oxy-workspace-runtime`'s `driver_ctx` since decompose R0 (2026-11-23).
 pub use oxy_workspace_runtime::driver_ctx::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
 
 pub fn inproc_global_worker_enabled() -> bool {
@@ -581,7 +578,7 @@ pub fn spawn_recovery(
                     // emailed to the staff who want it. Claimed by a unique row
                     // per week and per address, throttled per process, so every
                     // driver running it writes and sends once between them.
-                    super::seams::run_loop_ticks(&db, chrono::Utc::now()).await;
+                    oxy_app_core::seams::run_loop_ticks(&db, chrono::Utc::now()).await;
                 }
             }
         }
@@ -758,7 +755,7 @@ async fn recover_local(
         // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
         // tick, which advances due runs). Each is exactly-once across replicas by
         // its own CAS, like the schedule ticks above.
-        super::seams::run_global_ticks(db, chrono::Utc::now()).await;
+        oxy_app_core::seams::run_global_ticks(db, chrono::Utc::now()).await;
         recovered + fired
     } else {
         // Local mode: the single workspace has no `workspaces` row, so skip the
@@ -1568,7 +1565,7 @@ mod experiment_tick_wiring_tests {
             .nth(1)
             .expect("the loop's periodic `run_recovery` call");
         assert!(
-            after_pass.contains("super::seams::run_loop_ticks(&db,"),
+            after_pass.contains("oxy_app_core::seams::run_loop_ticks(&db,"),
             "the global driver's loop must run the every-loop ticks after its pass \
              (the weekly usage report among them)"
         );

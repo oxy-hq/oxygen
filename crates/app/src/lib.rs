@@ -28,4 +28,4 @@ pub mod server;
 pub mod surface;
 
 // Re-export commonly used items
-pub use server::{api, service};
+pub use server::api;

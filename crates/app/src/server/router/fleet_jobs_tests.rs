@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use sea_orm::DatabaseConnection;
 use tokio_util::sync::CancellationToken;
 
-use super::super::seams::{CUSTOM_APP_FLEET_JOBS, require_fleet_jobs};
 use super::*;
+use oxy_app_core::seams::{CUSTOM_APP_FLEET_JOBS, require_fleet_jobs};
 
 /// What the fake jobs below saw: their name, per start.
 static STARTED: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());

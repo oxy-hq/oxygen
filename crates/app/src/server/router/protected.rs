@@ -32,8 +32,8 @@ use oxy_app_core::serve_mode::ServeMode;
 use super::AppState;
 use super::global::build_global_routes;
 use super::role_router::{Decl, RoleRouter};
-use super::seams::SurfaceSeam;
 use super::workspace::{build_external_workspace_routes, build_workspace_routes};
+use oxy_app_core::seams::SurfaceSeam;
 
 pub(super) fn build_protected_routes(
     app_state: AppState,

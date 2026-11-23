@@ -6,8 +6,8 @@
 //! - [`secrets`] — secret routes gated behind an admin-only middleware
 //! - [`protected`] — cloud/local composition of protected routes + middleware
 //! - [`entry`] — [`api_router`] / [`internal_api_router`] public entry points
-//! - [`seams`] — [`SurfaceSeams`], the named seams extracted surface crates mount through
-//!   (a re-export of `oxy_app_core::seams` since decompose R0)
+//! - [`SurfaceSeams`], the named seams extracted surface crates mount through, is
+//!   `oxy_app_core::seams`' (decompose R0), re-exported here
 //! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
 
 mod drive_policy;
@@ -22,7 +22,6 @@ pub(crate) mod recovery;
 // `oxy-app-core`'s `pods::role_router` since 2026-11-22 (decompose G3).
 pub(crate) use oxy_app_core::pods::role_router;
 pub mod run_retention;
-mod seams;
 mod workspace;
 pub(crate) mod workspace_cache;
 
@@ -34,8 +33,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 pub use entry::{api_router, internal_api_router};
 pub use fleet_jobs::start_fleet_jobs;
 pub use openapi::{build_openapi_doc, openapi_router};
-pub use protected::{api_auth_layers, external_auth_layers};
-pub use seams::{
+pub use oxy_app_core::seams::{
     ANOMALY_TASK_KINDS, AdminNest, AdminSection, BackgroundDeps, BackgroundSeam,
     CHAT_BACKGROUND_JOBS, CUSTOM_APP_BACKGROUND_JOBS, CUSTOM_APP_TASK_KINDS, ExampleAppsSeam,
     GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam,
@@ -43,7 +41,10 @@ pub use seams::{
     TaskSeam, TickPass, global_ticks, install_global_ticks, require_notifications,
     require_task_kinds,
 };
-pub use seams::{CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs};
+pub use oxy_app_core::seams::{
+    CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs,
+};
+pub use protected::{api_auth_layers, external_auth_layers};
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
 // can hold it without depending on `oxy-app`. Re-exported here so every existing
@@ -58,8 +59,7 @@ pub use recovery::worker_ctx::worker_project_ctx;
 pub use workspace_cache::{WorkspaceContextCache, new_workspace_context_cache};
 
 /// `oxy-app-core`'s `app_state::bare_app_state` since decompose R0
-/// (2026-11-23), re-exported so `router::bare_app_state` and the prelude's
-/// `surface::bare_app_state` keep resolving.
+/// (2026-11-23), re-exported so `router::bare_app_state` keeps resolving.
 pub use oxy_app_core::app_state::bare_app_state;
 
 /// The cloud **flat** routes behind the `/api` auth stack, merged with the

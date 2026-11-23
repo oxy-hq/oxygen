@@ -99,7 +99,7 @@ impl OrgAdmin {
     /// OAuth `state`, where `org_middleware` never ran and no guard can.
     ///
     /// `ctx` is that org resolved the way `org_middleware` resolves one
-    /// (`oxy_app::surface::resolve_org_context`). The decision is this guard's
+    /// (`oxy_app_core::guards::org_context::resolve_org_context`). The decision is this guard's
     /// own — same label, same action, same shipped check — taken through
     /// [`crate::enforce_for`], which is the call for a site holding a DB handle
     /// and the [`Caller`](crate::Caller) rather than the request's parts.
@@ -188,7 +188,7 @@ where
 impl<A: OrgAdminAction> OrgAdminFor<A> {
     /// This door for a request whose org is **not in its path**, as
     /// [`OrgAdmin::of`] is [`OrgAdmin`]'s: `ctx` is the org resolved the way
-    /// `org_middleware` resolves one (`oxy_app::surface::resolve_org_context`),
+    /// `org_middleware` resolves one (`org_context::resolve_org_context`),
     /// and the decision is the guard's own — `A`'s label and action, the same
     /// shipped check — taken through [`crate::enforce_for`].
     pub async fn of(

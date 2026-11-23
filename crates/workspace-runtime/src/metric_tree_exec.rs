@@ -8,8 +8,8 @@
 //! copy second), the layer and engine builders, the workspace's airlayer
 //! database configs, the one instance-scope rule, and the projection's
 //! validate-query-fit pipeline. Platform runtime, not metric-tree logic: the
-//! computation itself lives in `oxy-metric-monitoring`. Surfaces reach it
-//! through `oxy_app::surface::metric_tree_exec`.
+//! computation itself lives in `oxy-metric-monitoring`. Surfaces import it
+//! from here (through the prelude's `metric_tree_exec` until decompose R1).
 
 use std::collections::HashMap;
 

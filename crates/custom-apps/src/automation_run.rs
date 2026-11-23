@@ -12,7 +12,7 @@
 //! marks the preview run finished; it closes the row through this state
 //! machine, which is one thing whichever side writes it. Down from `oxy-app`'s
 //! `server::api::projects::automation_run` (2026-11-22), re-exported there and
-//! at `oxy_app::surface::automation_runs`.
+//! at the prelude's `automation_runs` until decompose R1 deleted both.
 //!
 //! **Sentry:** this path carries the `custom_apps` marker only because of the
 //! crate it lives in. `oxy_telemetry::sentry_filter` exempts it from the marker

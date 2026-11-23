@@ -9,9 +9,9 @@
 //! assigned to, so that decision is spelled out at every construction site.
 //!
 //! Down from `oxy-app`'s `server/router/seams.rs` (decompose R0, 2026-11-23), so
-//! a surface that fills a seam need not depend on `oxy-app`. That file is now a
-//! glob re-export of this module, so every `server::router::seams` and
-//! `surface::seams` path still resolves.
+//! a surface that fills a seam need not depend on `oxy-app`. That file was a glob
+//! re-export of this module until decompose R1, which repointed its users here
+//! and deleted it with the prelude's `surface::seams`.
 
 use std::future::Future;
 use std::pin::Pin;

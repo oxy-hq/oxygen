@@ -2,7 +2,7 @@
 //! compile for each.
 //!
 //! The receiver (`oxy-api-github`'s `webhook`, `POST /webhooks/github`, which
-//! reaches this module as `oxy_app::surface::compile_push`) verifies the
+//! imports this module directly; the prelude's `compile_push` until decompose R1) verifies the
 //! signature and hands the parsed payload here. Everything after that is the same path the periodic
 //! check takes: the head is compared with what the workspace serves
 //! ([`super::check::decide`]) and a compile is handed to the deduped enqueue,

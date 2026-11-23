@@ -76,8 +76,9 @@ const SERVER: &[&str] = &[
     "route_catalog",
     "router",
     // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
-    // 2026-11-21 (re-exported in `server/mod.rs`).
-    "service",
+    // 2026-11-21 (re-exported in `server/mod.rs` until R1). `service`, the
+    // re-exports of `oxy::service` and `oxy::types`, was deleted in R1 when
+    // its last caller imported `oxy::service` directly.
     "test_support",
     "token_usage_flush",
     // `worker_health`, `worker_metrics`, `worker_runtime` and

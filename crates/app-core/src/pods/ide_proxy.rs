@@ -60,7 +60,7 @@ const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
 /// pure drift risk. `forward_to_ide_opt` already WARNs with the failing `url`,
 /// which is the signal ops actually had.
 // `pub` (was `pub(crate)`) since 2026-11-16: `oxy-api-workspaces`' details
-// raise the "materializing" 503 with it, through `surface::fleet::ide_proxy`.
+// raise the "materializing" 503 with it (through the prelude's `fleet` until R1).
 pub const HEADER_UNAVAILABLE: &str = "x-oxy-unavailable";
 
 /// The caller-visible host, carried across the proxy hop because `Host` cannot

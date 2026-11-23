@@ -261,7 +261,7 @@ async fn tick_global(db: &DatabaseConnection) {
     }
     // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
     // tick). Exactly-once per item across replicas by each tick's own CAS.
-    super::seams::run_global_ticks(db, chrono::Utc::now()).await;
+    oxy_app_core::seams::run_global_ticks(db, chrono::Utc::now()).await;
     crate::server::compile_reconcile::tick(db).await;
 }
 

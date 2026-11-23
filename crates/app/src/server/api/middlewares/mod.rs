@@ -11,11 +11,9 @@ pub mod token_usage;
 
 // The workspace middleware and the extractor that reads its row went down into
 // `oxy-workspace-runtime::request` (decompose W7, 2026-11-22); re-exported at
-// their old paths so the router, the prelude and tests resolve unchanged.
+// their old paths so the router and tests resolve unchanged.
 pub use oxy_workspace_runtime::request::{workspace_context, workspace_extractor};
 
 // Went down into `oxy-app-core::guards` (decompose G2, 2026-11-22); re-exported at
-// their old paths so the router, the prelude and tests resolve unchanged.
-pub use oxy_app_core::guards::{
-    app_scope_guard, org_context, partner_authz, role_guards, subscription_guard,
-};
+// their old paths so the router and tests resolve unchanged.
+pub use oxy_app_core::guards::{org_context, partner_authz, subscription_guard};

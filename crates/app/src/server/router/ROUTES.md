@@ -68,8 +68,8 @@ through the `api`, `public`, `workspace` and `admin` seams (roles in its
 `/auth/magic-link/*`, `/auth/return-to/validate`, `/auth/dev-login`, the mobile
 app's `/auth/mobile/*`, `GET /user` (public seam) and `/logout` with
 `/auth/mobile/authorize` (api seam). The session they mint stays below, in
-`oxy_app_core::session` (2026-11-21; `server::api::auth` re-exports it), reached
-through `surface::session`.
+`oxy_app_core::session` (2026-11-21; `server::api::auth` re-exports it), which
+the surfaces import directly.
 
 The operating graph — `/work`, `/work/{id}` and
 `/orgs/{org_id}/{locations,roles,assignments}*` — is `oxy-api-operating-graph`'s

@@ -14,8 +14,8 @@
 //! reimplement (and drift on) the gate + boundary logic. Both sets of twins
 //! live in surface crates now — the world-model and cohort twins in
 //! `oxy-api-world-model`, the metric-tree twins in `oxy-api-custom-apps`
-//! (2026-11-14) — and take it through the prelude
-//! (`oxy_app::surface::custom_app_semantic`). It is not in a surface because it
+//! (2026-11-14) — and import it from here (through the prelude's
+//! `custom_app_semantic` until decompose R1). It is not in a surface because it
 //! builds an `OxyProjectContext`, and a surface may not import another surface.
 //!
 //! Down from `oxy-app`'s `server::api::projects::semantic_boundary` on
