@@ -28,7 +28,7 @@ use axum::routing::post;
 use entity::{revisions, workspace_compiled_configs};
 use oxy_api_custom_apps::agent_ask::caller::{CallerRunResolver, RUN_CALLER_KEY, RunCaller};
 use oxy_api_custom_apps::agent_ask::start_ask;
-use oxy_app::surface::bare_app_state;
+use oxy_app_core::app_state::bare_app_state;
 use oxy_workspace_runtime::custom_apps_gates::{
     CustomAppContext, CustomAppContextExt, check_custom_app_gates,
 };

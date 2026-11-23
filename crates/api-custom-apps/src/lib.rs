@@ -27,11 +27,12 @@
 //! What this crate takes from lower crates is in `oxy-custom-apps` (the serve
 //! resolver, the gate, the build store and its byte cache, the manifest, storage,
 //! the usage queue) and `oxy-app-core` (the agent-token body, the function seam
-//! traits), `oxy-workspace-runtime`, `oxy-compile-runtime` and `oxy-previews`
-//! (the semantic boundary, the metric-tree executor, the queued-run machinery, the
-//! preview queue). From `oxy-app` it takes `oxy_app::surface` and nothing else (rule
-//! S4, `tests/routing/surface_contract.rs`), and only what still lives there: the
-//! demo seed, `serve_tree_refuses`, the admin and seam types, and the test router.
+//! traits, the admin and seam types), `oxy-workspace-runtime`, `oxy-compile-runtime`
+//! and `oxy-previews` (the semantic boundary, the metric-tree executor, the
+//! queued-run machinery, the preview queue). From `oxy-app` it takes
+//! `oxy_app::surface` and nothing else (rule S4, `tests/routing/surface_contract.rs`),
+//! and only what still lives there: the demo seed, `serve_tree_refuses`, and the
+//! test router helpers.
 //!
 //! Mounted by the `oxy-server` composition root through these seams:
 //!
@@ -808,8 +809,8 @@ pub fn public_routes() -> Router<AppState> {
 /// `PlatformApps`, the capability `oxy-app`'s `admin::router` gave it before
 /// the admin split (PR 2) moved `admin::app_publish_tokens` here. It declares
 /// nothing: the console's `/{*rest}` FleetOk wildcard places it, as before.
-pub fn admin_sections() -> Vec<oxy_app::surface::AdminSection> {
-    vec![oxy_app::surface::AdminSection {
+pub fn admin_sections() -> Vec<oxy_app_core::seams::AdminSection> {
+    vec![oxy_app_core::seams::AdminSection {
         capability: oxy_server_authz::Action::PlatformApps,
         routes: admin_routes(),
         decls: vec![],

@@ -24,7 +24,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use oxy_api_custom_apps::agent_ask;
 use oxy_api_custom_apps::agent_run_stream;
-use oxy_app::surface::bare_app_state;
+use oxy_app_core::app_state::bare_app_state;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;

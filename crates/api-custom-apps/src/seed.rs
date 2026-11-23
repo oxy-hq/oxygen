@@ -5,7 +5,7 @@
 
 use airhouse::LOCAL_ORG_ID;
 use oxy::theme::StyledText;
-use oxy_app::surface::seams::ExampleAppsSeam;
+use oxy_app_core::seams::ExampleAppsSeam;
 use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;

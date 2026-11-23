@@ -406,8 +406,8 @@ pub(crate) async fn invocations(
 ///
 /// The jobs, task kinds, outer mount and function runtime `serve` also requires
 /// are not here: no test that routes a request through `oxy-app` reads them.
-pub(crate) fn surface_seams() -> oxy_app::surface::testing::SurfaceSeams {
-    use oxy_app::surface::testing::{SurfaceSeam, SurfaceSeams};
+pub(crate) fn surface_seams() -> oxy_app_core::seams::SurfaceSeams {
+    use oxy_app_core::seams::{SurfaceSeam, SurfaceSeams};
     SurfaceSeams {
         api: SurfaceSeam {
             routes: oxy_api_custom_apps::routes(),

@@ -31,7 +31,7 @@ use oxy_api_custom_apps::app_events::relay::RelayedEvent;
 use oxy_api_custom_apps::app_events::relay::testing::fan_out;
 use oxy_api_custom_apps::custom_apps_publish::{OrgRef, PublishInput, publish};
 use oxy_api_custom_apps::public_routes;
-use oxy_app::surface::bare_app_state;
+use oxy_app_core::app_state::bare_app_state;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
 use oxy_custom_apps::events::{OxyEvent, event_id, qualified_type};
 use sea_orm::{

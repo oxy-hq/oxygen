@@ -9,7 +9,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use oxy_api_custom_apps::appearance::{ColorMode, store};
 use oxy_api_custom_apps::public_routes;
-use oxy_app::surface::bare_app_state;
+use oxy_app_core::app_state::bare_app_state;
 use oxy_app_core::custom_app_env_request::{
     NoWorkspaceActions, WorkspaceActions, environment_guard_middleware,
 };
