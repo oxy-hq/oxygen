@@ -47,9 +47,9 @@ pub mod frontline_kiosk_mode;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{get, patch, post, put};
-use oxy_app::surface::org_middleware;
-use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
+use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The unauthenticated half: sign-in and the kiosk binding it requires.

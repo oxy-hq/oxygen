@@ -50,7 +50,7 @@ use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::parse;
 use super::service;
-use oxy_app::surface::session::{AuthResponse, token_session_response};
+use oxy_app_core::session::{AuthResponse, token_session_response};
 
 /// The web app's page that redeems a ticket. The ticket rides in the URL
 /// **fragment**, which a browser never sends: it reaches no access log and no

@@ -29,7 +29,7 @@ use super::dto::TokenDto;
 use super::error::TokenError;
 use super::handlers::{TokenList, token_id};
 use super::{service, view};
-use oxy_app::surface::admin_scope as scope;
+use oxy_server_authz::staff::scope;
 
 /// The most tokens one listing returns. A token lives a week at most, so this
 /// is far past what is live at once.

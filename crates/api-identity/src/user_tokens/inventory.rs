@@ -41,7 +41,7 @@ use uuid::Uuid;
 use super::dto::{self, OwnerDto};
 use super::error::TokenError;
 use super::policy_view;
-use oxy_app::surface::role_guards::WorkspaceAdmin;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct InventoryToken {

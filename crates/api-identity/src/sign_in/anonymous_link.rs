@@ -11,7 +11,7 @@
 use axum::http::HeaderMap;
 use url::Url;
 
-use oxy_app::surface::session::{
+use oxy_app_core::session::{
     LOCAL_DEFAULT_BASE, origin_named_by_request, pin_org_subdomain_to_app_host,
 };
 

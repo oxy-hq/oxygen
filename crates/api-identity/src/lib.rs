@@ -6,8 +6,8 @@
 //! - [`sign_in`]: magic link, OAuth (Google / Okta / GitHub), the OAuth state,
 //!   session hydration, the public auth config, `return_to` validation, the dev
 //!   sign-in bypass and the mobile app's sign-in. The session they mint (the
-//!   JWT, the `oxy_session` cookie, the login payload) is `oxy-app`'s, through
-//!   `oxy_app::surface::session`, shared with frontline's PIN sign-in;
+//!   JWT, the `oxy_session` cookie, the login payload) is `oxy-app-core`'s
+//!   (`oxy_app_core::session`), shared with frontline's PIN sign-in;
 //! - [`user`]: `GET /user` and `/logout`;
 //! - [`user_tokens`]: the caller's tokens, `oxyc login` (code and device), the
 //!   calling token about itself, the token's browser sign-in, leak response,
@@ -76,9 +76,12 @@ pub mod user_tokens;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, post};
+use oxy_app::surface::AdminSection;
 use oxy_app::surface::seams::{GlobalTickSeam, TickPass};
-use oxy_app::surface::{Action, AdminSection, org_middleware, subscription_guard_middleware};
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
+use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
+use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 use org_api_access::handlers as org_handlers;

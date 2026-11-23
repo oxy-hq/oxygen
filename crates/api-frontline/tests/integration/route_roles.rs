@@ -15,7 +15,8 @@
 //! deploy.
 
 use oxy_api_frontline::{public_route_roles, route_roles};
-use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
+use oxy_app::surface::roles::install_route_declarations_for_tests_with;
+use oxy_app_core::pods::role_manifest::{RouteRole, classify};
 
 const ORG: &str = "11111111-1111-1111-1111-111111111111";
 const DEVICE: &str = "33333333-3333-3333-3333-333333333333";

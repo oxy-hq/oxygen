@@ -11,11 +11,12 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# role guards, the org middlewares, the session plumbing every sign-in path
-# shares (the token, the cookie, the login response), the staff-scope fence, the admin audit row's wire
-# shape and the seam types. The lifecycle audit is oxy-identity's. oxy-app
-# never depends back on this crate. default-features off so a
+# What this surface still takes from oxy-app, through `oxy_app::surface`: the
+# seam types (`AdminSection`, `GlobalTickSeam`, `TickPass`), and in tests
+# `bare_app_state` and the demo seed's persona emails. The role guards, the
+# org middlewares, the session plumbing every sign-in path shares and the
+# staff-scope fence come from oxy-app-core and oxy-server-authz directly. The
+# lifecycle audit is oxy-identity's. oxy-app never depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState, the audit writer, the emails

@@ -53,7 +53,7 @@ pub(crate) mod trust_policies;
 use oxy_auth::extractor::{SESSION_REQUIRED, SessionAction};
 
 use crate::authz::Action;
-use oxy_app::surface::role_guards::{OrgAdminAction, OrgAdminFor};
+use oxy_server_authz::role_guards::{OrgAdminAction, OrgAdminFor};
 
 /// Create, edit, disable or delete a service account, and manage its tokens.
 pub struct ServiceAccounts;

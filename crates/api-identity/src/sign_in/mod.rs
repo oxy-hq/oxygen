@@ -13,8 +13,8 @@
 //! - [`mobile`]: the mobile app's authorize, exchange and refresh.
 //!
 //! The session plumbing every sign-in path shares (the cookie, the JWT, the
-//! login payload, a token session's hydration) is `oxy-app`'s, below the
-//! surfaces, and reached through `oxy_app::surface::session`: frontline's PIN
+//! login payload, a token session's hydration) is `oxy-app-core`'s, below the
+//! surfaces (`oxy_app_core::session`): frontline's PIN
 //! sign-in and a token's browser sign-in mint the same session.
 
 mod anonymous_link;

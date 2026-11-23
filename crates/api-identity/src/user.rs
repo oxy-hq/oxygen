@@ -7,8 +7,8 @@ use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::UserService;
 use serde::Serialize;
 
-use oxy_app::surface::session::clear_session_cookie;
 use oxy_app_core::custom_domain_host::CustomDomainCtx;
+use oxy_app_core::session::clear_session_cookie;
 use utoipa::ToSchema;
 
 /// Global profile fields returned by `GET /user`. Role and admin status are
@@ -196,7 +196,7 @@ async fn end_domain_session(request_headers: &HeaderMap, ctx: &CustomDomainCtx) 
 
 /// The host-only clear of a custom domain's `oxy_session` (no `Domain`).
 fn host_only_session_clear(request_headers: &HeaderMap) -> String {
-    let secure = if oxy_app::surface::session::is_request_secure(request_headers) {
+    let secure = if oxy_app_core::session::is_request_secure(request_headers) {
         "; Secure"
     } else {
         ""

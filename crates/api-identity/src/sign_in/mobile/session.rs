@@ -34,7 +34,7 @@ use uuid::Uuid;
 use super::cookie::SessionCookie;
 use super::error::MobileAuthError;
 use super::frontline;
-use oxy_app::surface::session::{Claims, SESSION_TTL_SECS, create_auth_token_with_ttl};
+use oxy_app_core::session::{Claims, SESSION_TTL_SECS, create_auth_token_with_ttl};
 
 /// The window a mobile sign-in gets: a browser login's thirty days.
 pub(super) const LOGIN_WINDOW_SECS: i64 = SESSION_TTL_SECS;

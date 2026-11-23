@@ -27,7 +27,7 @@ use oxy::database::errors::is_unique_violation;
 use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_shared::errors::OxyError;
 
-use oxy_app::surface::session::validate_return_to_url;
+use oxy_app_core::session::validate_return_to_url;
 
 use super::anonymous_link::SignInLink;
 use super::dto::*;

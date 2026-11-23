@@ -32,7 +32,7 @@ use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 use crate::frontline_grants::{self, GrantError};
-use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 #[derive(Debug, Serialize)]
 pub struct WorkerRow {

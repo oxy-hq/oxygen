@@ -90,7 +90,7 @@ async fn the_user_directory_routes_are_mounted_under_admin() {
 /// console's `/{*rest}` FleetOk wildcard places it, as on `main`).
 #[test]
 fn the_user_directory_takes_platform_users() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let found: Vec<_> = oxy_api_identity::admin_sections()
         .into_iter()
         .filter(|s| s.capability == Action::PlatformUsers)

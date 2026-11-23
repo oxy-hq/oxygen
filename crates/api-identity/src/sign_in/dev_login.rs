@@ -77,7 +77,7 @@ pub use peer::PeerAddr;
 
 use oxy::database::client::establish_connection;
 
-use oxy_app::surface::session::{AuthResponse, finalize_login, login_response};
+use oxy_app_core::session::{AuthResponse, finalize_login, login_response};
 
 use super::dto::DevLoginRequest;
 use super::ops::is_valid_email_format;

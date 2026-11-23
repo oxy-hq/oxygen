@@ -1,5 +1,5 @@
 //! The org's API access routes. Each handler names its door first — an
-//! [`OrgAdminFor`](oxy_app::surface::role_guards::OrgAdminFor)
+//! [`OrgAdminFor`](oxy_server_authz::role_guards::OrgAdminFor)
 //! extractor, so anyone but an org owner or admin gets 403 before anything is
 //! parsed or read — and every mutation then takes [`SessionOnly`], so a key or
 //! token gets 403 `session_required`.
@@ -39,7 +39,7 @@ use crate::token_activity::{ActivityQuery, ActivityResponse, page_size};
 use crate::user_tokens::dto::TokenDto;
 use crate::user_tokens::error::TokenError;
 use crate::user_tokens::handlers::{TokenList, TokenWithSecret, parse, token_id};
-use oxy_app::surface::role_guards::OrgAdminFor;
+use oxy_server_authz::role_guards::OrgAdminFor;
 
 type Session = SessionOnly<ManageApiAccess>;
 

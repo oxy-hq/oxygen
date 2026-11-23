@@ -14,7 +14,7 @@ use uuid::Uuid;
 use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_app_core::AppState;
 
-use oxy_app::surface::session::{
+use oxy_app_core::session::{
     AuthResponse, Claims, extract_base_url_from_headers, finalize_login, hydrate_token_session,
     login_response, validate_return_to_url,
 };
