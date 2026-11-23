@@ -1,13 +1,16 @@
 //! Moved from `oxy-app`'s `token_grant_scope_tests`: it checks the flat-route
 //! treatment of a token that reaches less than its bearer — grant-bound, or
 //! all-access and blocked by an org — against the generated route table.
+//! Up from `oxy-route-catalog`'s unit tests in decompose RT (2026-11-23): the
+//! tables are the middleware's, which goes up with the router, and only this
+//! crate depends on both it and the table.
 
 use oxy_app::server::api::middlewares::token_grant_scope::{
     Blocked, REFUSED, Treatment, WHEN_BLOCKED, refused_family, treatment, treatment_when_blocked,
     when_blocked,
 };
 
-use crate::catalog;
+use oxy_route_catalog::catalog;
 
 /// The flat routes of the protected surface, relative to `/api`: everything
 /// outside the org and workspace trees, whose middlewares check the path's id.

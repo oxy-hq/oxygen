@@ -148,6 +148,8 @@ AREAS = [
     ("crates/server/src/drivers",                         "HTTP router / fleet routing"),
     # The surfaces' route-role tests, up from their crates 2026-11-23.
     ("crates/server/tests/integration/route_roles",       "HTTP router / fleet routing"),
+    # The route catalog's router-building tests, up from crates/route-catalog 2026-11-23.
+    ("crates/server/tests/integration/route_catalog",     "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability
     # 2026-11-15; the old paths keep their history.

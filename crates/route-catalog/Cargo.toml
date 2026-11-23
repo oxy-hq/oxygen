@@ -16,31 +16,22 @@ serde = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The tests build the real router to read its route declarations back
-# (`factory_routes`, the test installer). Until decompose RT moves those tests
-# up into oxy-server.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app (decompose RT, 2026-11-23): the tests that build the real router
+# (`token_grant_scope`, `factory_routes`' two `served_declarations` tests and
+# `describe_reports_the_fleet_role`)
+# went up to oxy-server's integration group, and the rest read lower crates.
 # The sandbox agent token's route allow-list (`sandbox_reach`: `SANDBOX_ALLOWED`,
 # `PUBLIC_ROUTES`, `sandbox_admits`), walked against the generated table.
 oxy-custom-apps = { path = "../custom-apps" }
 # The sandbox-agent refusal tables the console owns (`custom_apps_agent_refusal`).
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
-# The workspace-seam route roles the server composes (`oxy-server`
-# `surface_seams`), so `factory_routes` can say which pod serves every
-# customer route, the surfaces' included.
-oxy-api-tenancy = { path = "../api-tenancy", default-features = false }
-oxy-api-airway = { path = "../api-airway", default-features = false }
-oxy-api-experiment = { path = "../api-experiment" }
-oxy-api-world-model = { path = "../api-world-model" }
-oxy-api-metric-monitoring = { path = "../api-metric-monitoring" }
-oxy-api-observability = { path = "../api-observability" }
-oxy-api-automations = { path = "../api-automations" }
-oxy-api-workspace-config = { path = "../api-workspace-config" }
-oxy-api-identity = { path = "../api-identity" }
-oxy-api-threads = { path = "../api-threads" }
-oxy-api-workspaces = { path = "../api-workspaces" }
-oxy-api-semantic = { path = "../api-semantic" }
-oxy-api-eval = { path = "../api-eval" }
+# The authority model the sandbox-agent stack tests ask (`allows`, re-exported
+# from oxy-authz), whose owner-or-app-admin door they also read as source.
+oxy-server-authz = { workspace = true }
+# The two Factory lists (`factory_access::routes`), walked against the table.
+oxy-workspace-runtime = { workspace = true }
+# The preview guard's two lists (`read_only::{ALLOWED, REFUSED}`).
+oxy-previews = { workspace = true }
 axum = { workspace = true }
 uuid = { workspace = true }
 

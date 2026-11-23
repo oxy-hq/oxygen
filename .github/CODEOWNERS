@@ -517,6 +517,9 @@ crates/server/src/drivers/                         @luong-komorebi @NTtanh
 # keeps the owner its old path had.
 crates/server/tests/integration/route_roles/       @luong-komorebi @NTtanh
 crates/server/tests/integration/route_roles/tenancy_onboarding.rs @nresh @luong-komorebi
+# `oxy-route-catalog`'s tests that build the real router, up from that crate
+# on 2026-11-23 (decompose RT): the route catalog's owners.
+crates/server/tests/integration/route_catalog/     @luong-komorebi @NTtanh
 
 # Brand & positioning copy — require brand/marketing sign-off before merge.
 # (owners are a placeholder; swap for a dedicated brand/marketing handle once one

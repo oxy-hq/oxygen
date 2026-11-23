@@ -13,7 +13,10 @@ mod previews_read_only;
 mod sandbox_agent_refusal;
 mod sandbox_agent_stack;
 mod sandbox_agent_staging_stack;
-mod token_grant_scope;
+// `token_grant_scope`, the half of `factory_routes` that composes the served
+// router's declarations, and `describe_reports_the_fleet_role` (it installs
+// the real router's declarations) went up to `oxy-server`'s integration group
+// (`route_catalog::`) in decompose RT: they need the real router.
 
 fn routes() -> &'static [GeneratedRoute] {
     catalog().routes
@@ -608,35 +611,6 @@ fn search_filters_by_any_searchable_field() {
         );
     }
     assert_eq!(search(None).len(), routes().len());
-}
-
-#[test]
-fn describe_reports_the_fleet_role() {
-    // `describe` asks `role_manifest::classify`, which reads the
-    // declarations the routers install at startup. A unit test builds no
-    // server, so without this the registry is empty and every route reports
-    // the FleetOk default — the assertion below would fail for the one
-    // reason that says nothing about the catalog.
-    //
-    // No route needs the ide any more (the GitHub import was the last), so to
-    // see `describe` report one this test declares a real catalog route
-    // IdeOnly itself; the label is what is under test, not the route.
-    oxy_app::server::role_manifest::install_route_declarations_for_tests_with(vec![(
-        "POST",
-        "/orgs/{org_id}/onboarding/github".to_string(),
-        oxy_app::server::role_manifest::RouteRole::IdeOnly,
-    )]);
-    let import = routes()
-        .iter()
-        .find(|r| r.method == "POST" && r.path == "/api/orgs/{org_id}/onboarding/github")
-        .expect("GitHub import route");
-    assert_eq!(describe(import).role, "ide-only");
-
-    let threads = routes()
-        .iter()
-        .find(|r| r.method == "GET" && r.path == "/api/{workspace_id}/threads")
-        .expect("threads listing route");
-    assert_eq!(describe(threads).role, "fleet-ok");
 }
 
 /// Every surface the catalog advertises has at least one route on it.

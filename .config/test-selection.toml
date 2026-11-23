@@ -52,7 +52,8 @@ mark-changed = ["oxy-route-catalog"]
 post-rule = "skip-rules"
 
 # ...and oxy-app's router and docs (`SOURCE_DIRS`/`DOC_DIRS`), which it reads
-# without a normal dependency since decompose RC (oxy-app is a dev-dependency).
+# with no dependency at all: none since decompose RC, and no dev-dependency
+# since decompose RT (its router-building tests went up to oxy-server).
 [[determinator.path-rule]]
 globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog"]

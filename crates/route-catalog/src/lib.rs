@@ -14,7 +14,9 @@
 //! (`internal-docs/domain-boundaries.md` S7).
 //!
 //! The completeness tests live here, beside the table they read; the
-//! handler's are `oxy-server`'s `catalog_tests`.
+//! handler's are `oxy-server`'s `catalog_tests`, and the ones that need the
+//! real router are in `oxy-server`'s integration group (`route_catalog::`,
+//! since decompose RT).
 
 mod route_catalog;
 

@@ -72,8 +72,9 @@ pub async fn token_grant_scope_middleware(
 /// The flat route families a grant-bound token is refused on, each with why
 /// filtering it by grant is not meaningful. Adding a flat route outside both
 /// this list and [`treatment`]'s honoured arms fails
-/// `every_flat_route_has_a_decided_treatment` in `oxy-route-catalog`, beside
-/// the generated table it walks — the decision is made here, not by a default
+/// `every_flat_route_has_a_decided_treatment` in `oxy-server`'s integration
+/// group (`route_catalog::token_grant_scope`), against the generated table it
+/// walks — the decision is made here, not by a default
 /// nobody looked at. Documentation for that test: [`treatment`] alone decides.
 pub const REFUSED: &[(&str, &str)] = &[
     (
@@ -162,7 +163,8 @@ pub enum Blocked {
 /// (relative to `/api`), with what a blocked all-access token gets there and
 /// how. A route added to one of those families fails
 /// `every_membership_keyed_route_decides_for_a_blocked_token` in
-/// `oxy-route-catalog` until it is listed here — and is refused to such a
+/// `oxy-server`'s integration group (`route_catalog::token_grant_scope`) until
+/// it is listed here — and is refused to such a
 /// token until then.
 pub const WHEN_BLOCKED: &[(&str, Blocked, &str)] = &[
     (

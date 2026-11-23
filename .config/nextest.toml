@@ -310,8 +310,11 @@ retries = 2
 # the server, not a schema. `route_roles` (the surfaces' route-role tests, moved
 # up from five surface crates in decompose TR) opens no database, so it is
 # carved out as it was in each surface's override: full parallelism, no retries.
+# `route_catalog` (`oxy-route-catalog`'s tests that build the real router, up
+# from that crate's unit tests in decompose RT) opens no database either, so it
+# is carved out the same way, as it ran there.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/)"
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/) & !test(/^route_catalog::/)"
 test-group = "db-per-test"
 retries = 2
 

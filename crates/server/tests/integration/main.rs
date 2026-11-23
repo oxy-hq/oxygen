@@ -35,6 +35,9 @@ mod notification_function_action;
 // the notifications surface delivers it, honours (or here, refuses) a mute and
 // renders it in the inbox.
 mod billing_past_due_notice;
+// `oxy-route-catalog`'s tests that build the real router (decompose RT): no
+// database, carved out of `db-per-test` in `.config/nextest.toml`.
+mod route_catalog;
 // The surfaces' route-role tests (decompose TR): the real router's declarations
 // beside each surface's, which only a crate depending on both can install.
 mod route_roles;

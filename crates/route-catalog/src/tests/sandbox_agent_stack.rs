@@ -12,11 +12,11 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use oxy_app::server::authz::{
+use oxy_custom_apps::sandbox_reach::SANDBOX_ALLOWED;
+use oxy_server_authz::{
     Action, EnvFacet, PlatformRole, PlatformStanding, PrincipalFacts, Resource, RoleCeiling,
     SandboxAgentReach, SandboxApp, Scope, TokenGrant, TokenReach, allows,
 };
-use oxy_custom_apps::sandbox_reach::SANDBOX_ALLOWED;
 use uuid::Uuid;
 
 const ORG: Uuid = Uuid::from_u128(0x0A);
