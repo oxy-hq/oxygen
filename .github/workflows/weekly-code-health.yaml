@@ -798,27 +798,93 @@ jobs:
         run: scripts/ci/install-bca.sh
 
       - name: Record what changed
+        id: change
+        env:
+          # The ranked function's file and its name. Passed through env rather
+          # than interpolated into the script, so the shell is never what parses
+          # them, and matched with `grep -F` below for the same reason.
+          TARGET: ${{ needs.propose.outputs.path }}
+          NAME: ${{ needs.propose.outputs.name }}
         run: |
           set -euo pipefail
-          # `brief.md` holds the before numbers and this is the after. Measured
-          # here rather than carried from `verify`, because text from a job that
-          # ran untrusted code would end up in a PR body the review bot reads.
-          # The brief is only usable at all because the step above matched it
-          # against a digest taken before the agent ran.
+          # Which of the two jobs the patch actually did, measured from the patch
+          # rather than taken from the item's kind — because the kind does not
+          # decide it. `write-tests` is tests-only, but `prove-coverage` (the
+          # commonest kind, since it covers every file the graph has not indexed)
+          # tells the agent to establish coverage and *then* refactor, falling
+          # back to writing a test only if nothing fails. So kind alone would
+          # title a real refactor `test:`, which is this PR's own bug inverted,
+          # and `test:` is the title the roadmap status waves through.
           #
-          # `after.txt` is still bca's output over the agent's source, so a
-          # function it *names* reaches the body. The paths are allow-listed and
-          # the names must be valid Rust or TypeScript identifiers, but backticks
-          # are stripped so nothing in them can close the code fence it is
-          # printed inside.
-          git diff --name-only HEAD | grep -E '\.(rs|ts|tsx)$' > changed.txt || true
-          after="No offender remains in the files this PR touches."
-          if [ -s changed.txt ]; then
-            changed=$(tr '\n' ' ' < changed.txt)
-            # shellcheck disable=SC2086
-            .tools/bin/bca check --no-fail --paths $changed > raw-after.txt 2>&1 || true
-            tr -d '`' < raw-after.txt > after.txt
-            [ -s after.txt ] && after=""
+          # Zero deleted lines is the signal, and it reads the same in both
+          # languages: new tests are purely additive, whether that is a new
+          # `*.test.tsx` or a `#[cfg(test)] mod tests` appended to a Rust `src`
+          # file, which no path pattern would catch. Any behaviour-preserving
+          # refactor rewrites or moves something, so it deletes lines. Anything
+          # unexpected falls to `refactor:`, which asks the review for more
+          # rather than less.
+          deleted=$(git diff --numstat HEAD | awk '{ d += $2 } END { print d + 0 }')
+          if [ "$deleted" = 0 ]; then
+            echo "type=test" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=refactor" >> "$GITHUB_OUTPUT"
+          fi
+          # What became of the one function the loop was pointed at. `brief.md`
+          # holds its before numbers; this is the after. Measured here rather
+          # than carried from `verify`, because text from a job that ran
+          # untrusted code would end up in a PR body the review bot reads. The
+          # brief is only usable at all because the step above matched it against
+          # a digest taken before the agent ran.
+          #
+          # A refactor has to be measured with the baseline OFF. Every ranked
+          # target is a `.bca-baseline.toml` entry by construction — that file is
+          # where the debt is recorded — and `verify` has already refused any
+          # patch that worsens one, so an ordinary `bca check` can never print
+          # the target. It would report silence about a function still many times
+          # over the limit, which is how this section came to tell #4409 that no
+          # offender remained in a function its own brief had forbidden it to
+          # touch. The baseline's `version` line is copied rather than written,
+          # so this does not pin a format that a future pinned bca may move.
+          #
+          # Backticks are stripped because a name bca prints reaches the body,
+          # and nothing in one should be able to close the fence it sits in.
+          measured=yes
+          if [ "$deleted" != 0 ]; then
+            grep -m1 '^version' .bca-baseline.toml > unbaselined.toml
+            # `--no-fail` exits 0 even with offenders, so a non-zero status here
+            # is a tool error — a rejected flag, an unreadable baseline — and it
+            # must not be swallowed. Reporting "no offender left" because the
+            # measurement never ran is how this section gets to lie again.
+            if .tools/bin/bca check --no-fail --baseline unbaselined.toml \
+                 --paths "$TARGET" > raw-after.txt 2>&1; then
+              # Printed as bca wrote it, and that is the whole design. Four
+              # rounds of review found four different bugs in this section and
+              # every one was the same mistake: deriving a verdict through a
+              # filter — the item's kind, then the baseline, then the function's
+              # name, then the row tag — and then reporting that filter's
+              # silence as good news in a body a person reads. bca's own words
+              # cannot be wrong about bca's own findings, so nothing is selected
+              # and no verdict is computed from a filter's emptiness.
+              #
+              # The tag was the last of those, and this repo had already paid
+              # for it: see the comment on ROW in
+              # `scripts/review/src/complexity.ts`, which records that the tag
+              # is `[new]` / `[regr …]`, that it is optional, and that it is
+              # absent entirely when no baseline is in play. A `[worse]` branch,
+              # which is what this had, could never have matched anything.
+              #
+              # Only bca's trailing "next steps" block is dropped, because it
+              # tells the reader to refresh `unbaselined.toml` — a file that
+              # exists for a second inside this job. If that marker ever moves,
+              # the block stays in: noise is the right direction to fail in
+              # here, and silence is the wrong one. Backticks go because bca
+              # prints them and nothing should be able to close the fence it
+              # sits in.
+              tr -d '`' < raw-after.txt | sed '/^--- next steps ---$/,$d' > after.txt
+            else
+              measured=no
+              : > after.txt
+            fi
           fi
           # Re-derived from the diff with the base commit's script, which is the
           # same input and the same code `verify` ran its tests from — so this
@@ -831,15 +897,36 @@ jobs:
             echo
             echo "## Shape after the change"
             echo
-            echo '```'
-            if [ -n "$after" ]; then echo "$after"; else head -30 after.txt; fi
-            echo '```'
+            if [ "$deleted" = 0 ]; then
+              # Nothing to measure, and saying so beats measuring the wrong
+              # thing: a tests-only patch leaves the function exactly as the
+              # brief ordered, and its numbers are in that brief above.
+              echo "Unchanged, as instructed. This PR adds tests and deletes no line, so"
+              echo "\`$TARGET\` still measures what the brief reports above. Reshaping it is"
+              echo "left for a later run, once these tests can catch a mistake in it."
+            elif [ "$measured" = no ]; then
+              echo "Not measured: bca could not run over \`$TARGET\` in this job. The"
+              echo "metric gate in \`verify\` is the binding check and it passed; this"
+              echo "section is only ever a report."
+            elif [ -s after.txt ]; then
+              echo "What bca reports for \`$TARGET\` after the change, verbatim, measured"
+              echo "with the baseline off so already-accepted debt shows too —"
+              echo "\`$NAME\` among it if the refactor left it over a limit:"
+              echo
+              echo '```'
+              head -40 after.txt
+              echo '```'
+            else
+              echo "bca printed nothing at all for \`$TARGET\`, which is what it does for a"
+              echo "file with no offenders. Its exit was clean and no filter was applied"
+              echo "to arrive at that silence."
+            fi
             echo
             echo "## Verified on a clean checkout"
             echo
-            echo "Three jobs: the agent ran on one runner, the gate and tests on a"
-            echo "second checked out from the base commit, and this PR was opened by a"
-            echo "third that compiled nothing. Every tool that judged the change is"
+            echo "The agent ran on one runner; the gate and tests ran on a second,"
+            echo "checked out from the base commit; and this PR was opened by a third"
+            echo "that compiled nothing. Every tool that judged the change is"
             echo "this repository's at \`${{ needs.propose.outputs.base }}\`, and no"
             echo "credential that can write here was ever in reach of the code that ran."
             echo
@@ -878,8 +965,29 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           branch: codehealth/${{ needs.propose.outputs.slug }}--${{ github.run_id }}
-          commit-message: "refactor: ${{ needs.propose.outputs.name }} in ${{ needs.propose.outputs.path }}"
-          title: "refactor: simplify ${{ needs.propose.outputs.name }}"
+          # Required, and the first real run failed without it: this job checks
+          # out `propose`'s base COMMIT so the patch re-applies to the exact tree
+          # it was built against, which leaves HEAD detached, and the action
+          # refuses that with "the 'base' input must be supplied". It is the ref
+          # that commit was taken from, so the PR always targets what the patch
+          # was actually built on — the default branch on the weekly schedule,
+          # and the dispatched branch when someone is testing this workflow.
+          base: ${{ github.ref_name }}
+          # The title states which of the two jobs the patch did, because they
+          # are not interchangeable: a tests-only patch called "refactor:
+          # simplify" describes work the brief refused to order, and a refactor
+          # called `test:` gets waved through a roadmap status that would have
+          # asked a `refactor:` title for a line. `change.outputs.type` is
+          # measured from the diff; the step above says how, and why the item's
+          # kind cannot answer it.
+          commit-message: >-
+            ${{ steps.change.outputs.type == 'test'
+            && format('test: pin {0} in {1}', needs.propose.outputs.name, needs.propose.outputs.path)
+            || format('refactor: {0} in {1}', needs.propose.outputs.name, needs.propose.outputs.path) }}
+          title: >-
+            ${{ steps.change.outputs.type == 'test'
+            && format('test: pin the behaviour of {0}', needs.propose.outputs.name)
+            || format('refactor: simplify {0}', needs.propose.outputs.name) }}
           body-path: pr-body.md
           # The three trees the allow-list permits, and nothing else. This job's
           # own scratch files all sit at the root.
