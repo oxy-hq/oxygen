@@ -194,7 +194,12 @@ pub async fn auth_middleware<T: Authenticator>(
     {
         Ok(pair) => pair,
         Err(err) => {
-            tracing::error!("Authentication failed: {}", err);
+            // No log line of our own. `mapped` goes through
+            // `From<OxyError> for StatusCode`, which logs this refusal once at
+            // `warn`; logging here too put the same 401 in the platform logs
+            // twice, both times at `error`. The one refusal `mapped` never
+            // sees — a removed legacy key, which `refusal` answers itself — is
+            // already logged at `info` by `token::dispatch`.
             return Ok(refusal(err, mapped));
         }
     };

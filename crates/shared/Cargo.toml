@@ -63,6 +63,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+# `sentry::test::with_captured_events`, so the test that an authentication
+# failure files no Sentry issue reads what the real client would have sent
+# instead of asking a predicate whether it would have.
+sentry = { workspace = true, features = ["test"] }
 
 [lints]
 workspace = true
