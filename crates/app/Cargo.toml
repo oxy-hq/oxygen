@@ -26,14 +26,8 @@ edition.workspace = true
 dev-tools = []
 
 [dependencies]
-handlebars = { workspace = true }
-df-interchange = { workspace = true, features = ["arrow_56", "arrow_57"] }
-libc = { workspace = true }
-
 # Core functionality
 oxy = { workspace = true }
-oxy-git = { workspace = true }
-oxy-llm = { workspace = true }
 oxy-observability = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
@@ -54,14 +48,9 @@ agentic-connector = { workspace = true, features = [
 # so the workspace test run builds airhouse with it and runs its I1 tests.
 # `import`: `oxy dev seed` loads the demo workspace's data files into its tenant.
 airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql", "preview-registry", "import"] }
-# `server::previews::sql_kind` classifies warehouse SQL per statement for the
-# workspace-preview hold. Same version as airhouse's `sql-rules`, whose
-# `is_read_only` it shares, so both read one AST.
-sqlparser = { workspace = true, features = ["visitor"] }
 oxy-oltp = { workspace = true }
 agentic-core = { workspace = true }
 agentic-http = { workspace = true }
-agentic-llm = { workspace = true }
 agentic-pipeline = { workspace = true }
 agentic-runtime = { workspace = true }
 agentic-semantic = { workspace = true }
@@ -71,7 +60,6 @@ oxy-auth = { workspace = true }
 oxy-app-core = { workspace = true }
 oxy-workspace-runtime = { workspace = true }
 oxy-tenancy = { workspace = true }
-oxy-identity = { workspace = true }
 oxy-custom-apps = { workspace = true }
 oxy-authz = { workspace = true }
 oxy-server-authz = { workspace = true }
@@ -89,7 +77,6 @@ oxy-preagg = { workspace = true }
 oxy-feature-flags = { workspace = true }
 oxy-project = { workspace = true }
 oxy-semantic = { workspace = true }
-oxy-world-model = { workspace = true }
 oxy-metric-monitoring = { workspace = true }
 entity = { workspace = true }
 
@@ -98,15 +85,6 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 async-stream = { workspace = true }
-dashmap = { workspace = true }
-async-openai = { workspace = true, features = [
-    "byot",
-    "chat-completion-types",
-    "response-types",
-    "_api",
-    "responses",
-    "chat-completion",
-] }
 
 # Serialization
 serde = { workspace = true }
@@ -114,21 +92,13 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 
 # Validation
-garde = { workspace = true, features = ["full"] }
 schemars = { workspace = true, features = ["derive", "impl_json_schema"] }
 
 # Error handling
-thiserror = { workspace = true }
 anyhow = { workspace = true }
 
 # Logging/Tracing
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = [
-    "env-filter",
-    "fmt",
-    "json",
-] }
-log = { workspace = true }
 
 # Web framework
 axum = { workspace = true, features = ["multipart"] }
@@ -137,81 +107,37 @@ tower-http = { workspace = true, features = ["cors", "trace", "timeout", "compre
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 utoipa-axum = { workspace = true }
 
-# HTTP client. `stream` was for the ide_proxy reverse-proxy, which went down to
-# oxy-app-core on 2026-11-22 (decompose G3, it declares the feature itself); kept
-# here so a pure move leaves this crate's feature set unchanged.
-reqwest = { workspace = true, features = ["stream", "form", "query", "json"] }
-
 # CLI
 clap = { workspace = true, features = ["derive", "env"] }
-colored = { workspace = true }
 
 # Database
 sea-orm = { workspace = true }
-clickhouse = { workspace = true, features = ["rustls-tls"] }
 
 # Data processing
-arrow = { workspace = true, features = ["json"] }
-parquet = { workspace = true }
 duckdb = { workspace = true }
 
 # Utilities
 uuid = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-chrono-tz = { workspace = true }
 tempfile = { workspace = true }
 minijinja = { workspace = true, features = ["loader"] }
-once_cell = { workspace = true }
-scopeguard = { workspace = true }
 tokio-util = { workspace = true }
 # Only for the AsyncMessage variant the chat listener matches on; the
 # connection itself is minted by agentic-runtime, which owns the TLS and IAM
 # decisions a listener must not make for itself.
 tokio-postgres = { workspace = true }
-tokio-stream = { workspace = true }
-xxhash-rust = { workspace = true, features = ["xxh3"] }
-constant_time_eq = { workspace = true }
-hmac = { workspace = true }
-sha2 = { workspace = true }
 rand = { workspace = true }
-aws-sdk-s3 = { workspace = true }
-# rayon: the metric-tree surfaces fan work across cores. (Build-time brotli for
-# bundle assets, with its own rayon fan-out, is `oxy-custom-apps::precompress`.)
-rayon = { workspace = true }
-parking_lot = { workspace = true }
-governor = { workspace = true }
 base64 = { workspace = true, features = ["std"] }
 regex = { workspace = true }
 glob = { workspace = true }
-home = { workspace = true }
-human-panic = { workspace = true }
-humantime = { workspace = true }
-indoc = { workspace = true }
-lazy_static = { workspace = true }
-email_address = { workspace = true }
-slugify = { workspace = true }
-syntect = { workspace = true }
-tabled = { workspace = true }
-terminal-light = { workspace = true }
-terminal_size = { workspace = true }
-secrecy = { workspace = true }
 url = { workspace = true }
-urlencoding = { workspace = true }
-rustls = { workspace = true, features = ["aws_lc_rs"] }
-tracing-appender = { workspace = true }
-tracing-log = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
-semver = { workspace = true }
-backoff = { workspace = true, features = ["tokio"] }
 sentry = { workspace = true }
-omni = { workspace = true }
 
 # Database migration
 migration = { workspace = true }
 
 # Other dependencies from core that might be needed
-dotenv = { workspace = true }
-dirs = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [build-dependencies]
@@ -238,14 +164,6 @@ tower = { workspace = true, features = ["util"] }
 # `sentry::test::with_captured_events` for the custom-app surface tag tests.
 sentry = { workspace = true, features = ["test"] }
 wiremock = { workspace = true }
-testcontainers = { workspace = true, features = [
-    "blocking",
-    "reusable-containers",
-] }
-testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
-# The OLTP provisioner tests connect *as the minted writer role* to prove the
-# DSN it hands back actually works and lands writes in the right schema — the
-# one thing asserting on the generated SQL cannot show.
 
 [lints]
 workspace = true
