@@ -11,12 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# oxy-app now holds only the tests' `bare_app_state` (`oxy_app::surface`);
-# the guards, extractors and middlewares come from the crates below it.
-# oxy-app never depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app: the guards, extractors and middlewares come from the crates
+# below it (R1, 2026-11-23).
 # The workspace-context and workspace extractors and the Factory-access
 # extractor.
 oxy-workspace-runtime = { workspace = true }

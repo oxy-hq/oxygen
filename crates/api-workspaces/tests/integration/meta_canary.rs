@@ -55,7 +55,7 @@ async fn the_meta_route_reads_no_filesystem_on_a_replica() {
     };
 
     let meta = oxy_api_workspaces::workspaces::get_workspace_meta(
-        axum::extract::State(oxy_app::surface::bare_app_state()),
+        axum::extract::State(oxy_app_core::app_state::bare_app_state()),
         oxy_auth::extractor::AuthenticatedUserExtractor(oxy_auth::types::AuthenticatedUser {
             id: uuid::Uuid::new_v4(),
             email: Some("canary@example.com".to_string()),

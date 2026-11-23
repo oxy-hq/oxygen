@@ -11,11 +11,7 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# oxy-app now holds only the tests' `bare_app_state` (`oxy_app::surface`).
-# oxy-app never depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app: everything comes from the crates below it (R1, 2026-11-23).
 oxy-server-authz = { workspace = true }  # the `WorkspaceAdmin` guard
 # The `WorkspaceManagerReadOnly` extractor (the automation listing reads the
 # compile boundary through it), and the tests' `OxyProjectContext`.

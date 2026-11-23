@@ -11,12 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# oxy-app now holds only the tests' `bare_app_state` and the demo seed
-# (`oxy_app::surface`); the rest comes from the crates below it. oxy-app never
-# depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app here: everything comes from the crates below it (R1,
+# 2026-11-23). It stays a dev-dependency for the demo seed below.
 oxy-server-authz = { workspace = true }      # the `WorkspaceAdmin` guard, EffectiveWorkspaceRole
 # The workspace-context extractors, and the connector builder the schema
 # route introspects through.
@@ -49,6 +45,10 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The demo seed (`oxy_app::surface::seed`, the CLI seed's tables) that
+# `tests/integration/tenant_secrets.rs` builds its org from. default-features
+# off so V8 stays out of the test build too.
+oxy-app = { path = "../app", default-features = false }
 # The integration group (`tests/integration/`) reuses oxy-app's per-test
 # database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
 # so it needs that harness's dependencies too. Dev-only: nothing here ships.

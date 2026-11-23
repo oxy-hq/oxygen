@@ -164,7 +164,7 @@ fn persisted_data_routes_are_declared_fleet_ok() {
 /// without running a handler.
 #[tokio::test]
 async fn every_workspace_route_is_mounted() {
-    let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+    let router = workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
     for uri in WORKSPACE_MOUNTED {
         assert_eq!(
             trace(&router, uri).await,
@@ -185,7 +185,7 @@ async fn every_workspace_route_is_mounted() {
 async fn every_org_route_is_mounted() {
     let router = Router::new()
         .nest("/orgs/{org_id}", org_handlers())
-        .with_state(oxy_app::surface::bare_app_state());
+        .with_state(oxy_app_core::app_state::bare_app_state());
     for uri in ORG_MOUNTED {
         assert_eq!(
             trace(&router, uri).await,

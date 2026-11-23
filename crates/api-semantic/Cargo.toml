@@ -11,11 +11,7 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Nothing here names oxy-app any more; the dependency goes in R1's second
-# phase. oxy-app never depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app: everything comes from the crates below it (R1, 2026-11-23).
 oxy-server-authz = { workspace = true }   # EffectiveWorkspaceRole
 # The workspace-context extractors, the scan resolution and its `{ message }`
 # envelope (`scan_source`), and the SQL execute and its HTTP answer
