@@ -4913,7 +4913,7 @@ async fn the_composition_carries_the_app_admins_section() {
         let got = section
             .routes
             .clone()
-            .with_state(oxy_app::surface::bare_app_state())
+            .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
                 Request::builder()
                     .method(Method::TRACE)
@@ -5134,7 +5134,7 @@ async fn the_admin_seam_mounts_the_usage_report_behind_the_staff_layers() {
 async fn the_composition_carries_assume_role_on_the_api_seam() {
     async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
-            .with_state(oxy_app::surface::bare_app_state())
+            .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
                 Request::builder()
                     .method(Method::TRACE)
@@ -5770,7 +5770,7 @@ async fn local_mode_drops_the_org_feature_flag_read() {
 async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
     async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
-            .with_state(oxy_app::surface::bare_app_state())
+            .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
                 Request::builder()
                     .method(Method::TRACE)
@@ -5819,7 +5819,7 @@ async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
 async fn the_composition_carries_the_routing_manifest_as_one_section() {
     async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
-            .with_state(oxy_app::surface::bare_app_state())
+            .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
                 Request::builder()
                     .method(Method::TRACE)
@@ -5855,7 +5855,7 @@ async fn the_composition_carries_the_routing_manifest_as_one_section() {
 async fn the_composition_carries_billing_on_its_three_seams() {
     async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
-            .with_state(oxy_app::surface::bare_app_state())
+            .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
                 Request::builder()
                     .method(Method::TRACE)
