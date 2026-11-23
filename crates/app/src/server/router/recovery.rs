@@ -264,7 +264,9 @@ pub async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Cancellatio
 /// election needed.
 pub const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
-pub const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
+// `oxy-workspace-runtime`'s `driver_ctx` since decompose R0 (2026-11-23);
+// re-exported so the prelude (`surface::workspace_runtime`) keeps this path.
+pub use oxy_workspace_runtime::driver_ctx::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
 
 pub fn inproc_global_worker_enabled() -> bool {
     // Explicit env override wins, in both directions.

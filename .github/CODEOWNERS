@@ -504,6 +504,9 @@ crates/app/src/server/role_manifest.rs             @luong-komorebi @NTtanh
 # The route roles, `RoleRouter` and the role middleware went down here on
 # 2026-11-22 (decompose G3); the oxy-app file above keeps the test installer.
 crates/app-core/src/pods/                          @luong-komorebi @NTtanh
+# The router's seams went down here on 2026-11-23 (decompose R0); the oxy-app
+# file under router/ below is a one-line re-export of it.
+crates/app-core/src/seams.rs                       @luong-komorebi @NTtanh
 crates/app/src/server/router/                      @luong-komorebi @NTtanh
 
 # Brand & positioning copy — require brand/marketing sign-off before merge.

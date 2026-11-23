@@ -20,6 +20,14 @@ use crate::project_ctx::OxyProjectContext;
 
 pub mod worker_ctx;
 
+/// The global driver's default tick interval, in seconds: how often
+/// `oxy-app`'s `router::recovery` loop runs when
+/// `OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS` is unset or invalid. Down from
+/// `recovery.rs` (decompose R0, 2026-11-23), which re-exports it, so a surface
+/// that reasons about the driver's cadence (the experiment status's staleness
+/// window) need not depend on `oxy-app`.
+pub const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
+
 pub async fn build_local_project_ctx(
     cwd: &std::path::Path,
     db: &DatabaseConnection,

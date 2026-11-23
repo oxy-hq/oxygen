@@ -87,6 +87,11 @@ sha2 = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+# `seams`: a background seam's shutdown token (`CancellationToken`) and the
+# surfaces' OpenAPI fragments (`SurfaceSeams::openapi`). Both already in the
+# graph through `oxy`.
+tokio-util = { workspace = true }
+utoipa = { workspace = true }
 urlencoding = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

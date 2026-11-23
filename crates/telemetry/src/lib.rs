@@ -91,6 +91,11 @@ mod sentry_filter_w7_pins_tests;
 #[cfg(test)]
 mod sentry_filter_w6b_pins_tests;
 
+// Sentry pins for decompose R0's move (the router seams into `oxy-app-core`),
+// kept out of the over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_r0_pins_tests;
+
 /// Framework crates whose `info`/`debug` output is wire-level chatter, not
 /// something an operator acts on: HTTP frames, raw SQL, TLS handshakes. Both
 /// the stderr layers and the OTLP layers append this to whatever level the

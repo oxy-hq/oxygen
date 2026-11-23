@@ -7,6 +7,7 @@
 //! - [`protected`] — cloud/local composition of protected routes + middleware
 //! - [`entry`] — [`api_router`] / [`internal_api_router`] public entry points
 //! - [`seams`] — [`SurfaceSeams`], the named seams extracted surface crates mount through
+//!   (a re-export of `oxy_app_core::seams` since decompose R0)
 //! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
 
 mod drive_policy;
@@ -56,24 +57,10 @@ pub use recovery::worker_ctx::worker_project_ctx;
 #[doc(hidden)]
 pub use workspace_cache::{WorkspaceContextCache, new_workspace_context_cache};
 
-/// An `AppState` carrying nothing but its caches. The router needs a state value
-/// to finish each route's handlers with, and a test that mounts one handler
-/// needs the same — the semantic caches are `pub(crate)`, so it cannot build one
-/// itself.
-pub fn bare_app_state() -> AppState {
-    AppState {
-        enterprise: false,
-        internal: false,
-        mode: oxy_app_core::serve_mode::ServeMode::Cloud,
-        observability: None,
-        startup_cwd: std::path::PathBuf::new(),
-        preagg_cache: None,
-        preagg_renewal_threshold_secs: None,
-        agentic_state: None,
-        semantic_layer_cache: workspace_cache::new_semantic_layer_cache(),
-        semantic_engine_cache: workspace_cache::new_semantic_engine_cache(),
-    }
-}
+/// `oxy-app-core`'s `app_state::bare_app_state` since decompose R0
+/// (2026-11-23), re-exported so `router::bare_app_state` and the prelude's
+/// `surface::bare_app_state` keep resolving.
+pub use oxy_app_core::app_state::bare_app_state;
 
 /// The cloud **flat** routes behind the `/api` auth stack, merged with the
 /// public tree: what `api_router` serves for every path outside

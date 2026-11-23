@@ -66,6 +66,26 @@ impl AppState {
     }
 }
 
+/// An `AppState` carrying nothing but its caches. The router needs a state value
+/// to finish each route's handlers with, and a test that mounts one handler
+/// needs the same — the semantic caches are `pub(crate)`, so it cannot build one
+/// itself. Down from `oxy-app`'s `server::router` (decompose R0, 2026-11-23),
+/// which re-exports it.
+pub fn bare_app_state() -> AppState {
+    AppState {
+        enterprise: false,
+        internal: false,
+        mode: ServeMode::Cloud,
+        observability: None,
+        startup_cwd: std::path::PathBuf::new(),
+        preagg_cache: None,
+        preagg_renewal_threshold_secs: None,
+        agentic_state: None,
+        semantic_layer_cache: crate::workspace_cache::new_semantic_layer_cache(),
+        semantic_engine_cache: crate::workspace_cache::new_semantic_engine_cache(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use oxy_observability::backends::clickhouse::ClickHouseObservabilityStorage;

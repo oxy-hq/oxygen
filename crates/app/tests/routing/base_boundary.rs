@@ -47,7 +47,10 @@ const BASE: &[&str] = &[
     // `oxy-app-core::assume` on 2026-11-22 with the request guards, decompose
     // G2. Staff scope, `admin::{scope, org_filter}`, went down to
     // `oxy-server-authz`'s `staff` in the admin split's PR 3.)
-    // The seam types surfaces fill, and the router's semantic caches.
+    // The seam types surfaces fill, and the router's semantic caches. (The
+    // seams themselves went down into `oxy-app-core::seams` on 2026-11-23,
+    // decompose R0; the row stays while `router/seams.rs` is its re-export,
+    // and leaves with that shim.)
     "server::router::seams",
     "server::router::workspace_cache",
     // (The LISTEN/NOTIFY settings a surface's listener rides,

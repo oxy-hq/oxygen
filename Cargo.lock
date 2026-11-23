@@ -10720,10 +10720,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
  "tower 0.5.3",
  "tracing",
  "url",
  "urlencoding",
+ "utoipa",
  "uuid",
  "workspace-hack",
 ]
