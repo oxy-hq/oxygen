@@ -38,7 +38,7 @@ fn every_route_is_declared_fleet_ok_exactly_once() {
 /// answer first.
 #[tokio::test]
 async fn every_declared_path_is_mounted() {
-    let state = oxy_app::surface::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let api = token_routes()
         .merge(session_routes())
         .merge(Router::new().nest("/orgs/{org_id}", org_api_access_routes()))

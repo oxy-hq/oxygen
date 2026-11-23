@@ -11,14 +11,10 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface still takes from oxy-app, through `oxy_app::surface`: the
-# seam types (`AdminSection`, `GlobalTickSeam`, `TickPass`), and in tests
-# `bare_app_state` and the demo seed's persona emails. The role guards, the
-# org middlewares, the session plumbing every sign-in path shares and the
-# staff-scope fence come from oxy-app-core and oxy-server-authz directly. The
-# lifecycle audit is oxy-identity's. oxy-app never depends back on this crate. default-features off so a
-# `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# oxy-app is only a dev-dependency (below). The role guards, the org
+# middlewares, the session plumbing every sign-in path shares, the staff-scope
+# fence and the seam types come from oxy-app-core and oxy-server-authz. The
+# lifecycle audit is oxy-identity's. oxy-app never depends back on this crate.
 oxy-app-core = { workspace = true }  # AppState, the audit writer, the emails
 oxy-feature-flags = { workspace = true }  # the reads `/auth/config` reports
 oxy-identity = { workspace = true }  # the token lifecycle audit
@@ -54,6 +50,10 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# Test-only: the demo seed's persona emails (`surface::seed`), which the dev
+# sign-in's persona test checks against. default-features off so a
+# `--no-default-features` build keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }

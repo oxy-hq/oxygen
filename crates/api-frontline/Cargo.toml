@@ -11,14 +11,11 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface still takes from oxy-app, through `oxy_app::surface`, is
-# test-only: `bare_app_state` and the real router's route declarations. The
-# OrgAdmin role guard, the org middlewares and the session-cookie + token
-# helpers come from oxy-server-authz and oxy-app-core. The operating-graph
-# assignment writes and reads are oxy-app-core's, the org_teams audit is
-# oxy-tenancy's. oxy-app never depends back on this crate. default-features
-# off so a `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# oxy-app is only a dev-dependency (below). The OrgAdmin role guard, the org
+# middlewares and the session-cookie + token helpers come from
+# oxy-server-authz and oxy-app-core. The operating-graph assignment writes and
+# reads are oxy-app-core's, the org_teams audit is oxy-tenancy's. oxy-app never
+# depends back on this crate.
 oxy-app-core = { workspace = true }  # AppState (router state) + the audit writer
 oxy-tenancy = { workspace = true }
 oxy-custom-apps = { workspace = true }  # invalidate_access_cache
@@ -44,6 +41,11 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# Test-only: the real router's route declarations
+# (`surface::roles::install_route_declarations_for_tests_with`), which the
+# route-role test classifies against. default-features off so a
+# `--no-default-features` build keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
 tower = { workspace = true, features = ["util"] }
 futures = { workspace = true }
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included

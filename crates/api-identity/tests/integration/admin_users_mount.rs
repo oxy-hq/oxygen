@@ -17,7 +17,7 @@ use tower::ServiceExt;
 fn admin_tree() -> Router {
     Router::new()
         .nest("/admin", oxy_api_identity::admin_users_routes())
-        .with_state(oxy_app::surface::bare_app_state())
+        .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
 async fn status(router: &Router, method: &str, path: &str) -> StatusCode {

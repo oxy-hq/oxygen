@@ -282,7 +282,7 @@ mod tests {
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
 
-        let state = oxy_app::surface::bare_app_state();
+        let state = oxy_app_core::app_state::bare_app_state();
         let public = public_routes().with_state(state.clone());
         let org = Router::new()
             .nest(org_prefix(), org_frontline_routes())
