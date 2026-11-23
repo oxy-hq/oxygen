@@ -166,8 +166,8 @@ fn upload_routes() -> Router<AppState> {
 /// fleet-wide operational config, a scoped grant is issued to staff, not
 /// tenants, and the save-confirmation gate previews the fleet-wide blast
 /// radius. If that stops holding, the per-org row is the direction to take.
-pub fn admin_sections() -> Vec<oxy_app::surface::AdminSection> {
-    vec![oxy_app::surface::AdminSection {
+pub fn admin_sections() -> Vec<oxy_app_core::seams::AdminSection> {
+    vec![oxy_app_core::seams::AdminSection {
         capability: oxy_server_authz::Action::PlatformOperate,
         routes: admin_routes(),
         decls: Vec::new(),

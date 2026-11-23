@@ -11,17 +11,13 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `oxy-app`, for the `admin/` section only (added 2026-11-16 with Admin →
-# Observability). The tenant handlers still take nothing of oxy-app's — they
-# read `AppState` (`oxy-app-core`) and the observability store it carries — but
-# a staff-console section cannot be oxy-app-free: `AdminSection` is oxy-app's
-# type, and the staff-scope fence (`admin_scope`) and the console's
-# connect-on-demand DB handle (`admin_db`) are oxy-app's too. Deciding a
-# bounded grant's reach by hand instead would violate the one rule authz has,
-# so this crate waits for oxy-app rather than reimplementing the fence. Nothing
-# depends back on this crate, so the catalog note above still holds.
-oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }            # AppState and its observability store
+# No oxy-app (decompose R1, 2026-11-23; it was a dependency from 2026-11-16 for
+# the `admin/` section). The `AdminSection` seam and the console's
+# connect-on-demand DB handle (`admin_db`) are oxy-app-core's, and the
+# staff-scope fence is oxy-server-authz's, so the section never decides a
+# bounded grant's reach by hand. Nothing depends back on this crate, so the
+# catalog note above still holds.
+oxy-app-core = { workspace = true }            # AppState and its observability store, seams::AdminSection, admin_db
 oxy-observability = { workspace = true }       # WorkspaceScope, the store's row types
 oxy = { workspace = true }                     # oxy::metrics / oxy::execution_analytics response shapes
 oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
@@ -31,7 +27,7 @@ oxy-server-authz = { workspace = true }        # Action, staff::scope (the admin
 # the one definition of what a GB-month is. The I/O is batched here (one
 # statement over the fleet rather than two per org); the arithmetic is not
 # re-implemented, because two copies would eventually disagree about an app
-# created mid-period. Free in the graph: `oxy-app`, already a dependency above,
+# created mid-period. Free in the graph: `oxy-usage-report`, below, already
 # pulls this crate.
 oxy-custom-apps = { workspace = true }
 oxy-usage-report = { workspace = true }   # `llm_usage`, the token columns and the rate table
@@ -50,9 +46,6 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# Tests only: `surface::bare_app_state` and `surface::roles::declared_role_in`.
-# default-features off so the test build does not drag V8 in either.
-oxy-app = { path = "../app", default-features = false }
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 # The integration group (`tests/integration/`, added with Admin → Metrics in the

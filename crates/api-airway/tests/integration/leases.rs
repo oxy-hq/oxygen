@@ -182,7 +182,7 @@ fn with_role(role: WorkspaceRole) -> Router {
     Router::new()
         .nest("/{workspace_id}", oxy_api_airway::routes())
         .layer(middleware::from_fn(inject))
-        .with_state(oxy_app::surface::bare_app_state())
+        .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
 async fn status(router: Router, method: &str, path: &str) -> StatusCode {

@@ -56,9 +56,9 @@ mod internal_jobs_rows;
 pub mod routing;
 
 use axum::Router;
-use oxy_app::surface::{AdminNest, AdminSection};
 use oxy_app_core::AppState;
 use oxy_app_core::pods::role_manifest::RouteRole;
+use oxy_app_core::seams::{AdminNest, AdminSection};
 use oxy_server_authz::Action;
 use oxy_shared::fleet_role::RouteRoleDecl;
 

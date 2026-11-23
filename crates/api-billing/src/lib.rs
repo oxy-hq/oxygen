@@ -49,9 +49,8 @@ pub mod usage_report;
 
 use axum::Router;
 use axum::routing::post;
-use oxy_app::surface::AdminSection;
-use oxy_app::surface::seams::{GlobalTickSeam, TickPass};
 use oxy_app_core::AppState;
+use oxy_app_core::seams::{AdminSection, GlobalTickSeam, TickPass};
 use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -253,7 +252,7 @@ mod tests {
             let router = section
                 .routes
                 .clone()
-                .with_state(oxy_app::surface::bare_app_state());
+                .with_state(oxy_app_core::app_state::bare_app_state());
             for (j, set) in paths.iter().enumerate() {
                 let want = if i == j {
                     StatusCode::METHOD_NOT_ALLOWED
@@ -290,7 +289,7 @@ mod tests {
     async fn the_tenant_router_mounts_the_five_billing_routes() {
         let router = Router::new()
             .nest("/billing", billing::router())
-            .with_state(oxy_app::surface::bare_app_state());
+            .with_state(oxy_app_core::app_state::bare_app_state());
         for path in [
             "/billing",
             "/billing/status",
@@ -320,7 +319,7 @@ mod tests {
     /// this crate's.
     #[tokio::test]
     async fn the_tenant_routes_run_behind_org_middleware() {
-        let router = routes().with_state(oxy_app::surface::bare_app_state());
+        let router = routes().with_state(oxy_app_core::app_state::bare_app_state());
         for path in [
             "/orgs/not-a-uuid/billing",
             "/orgs/not-a-uuid/billing/status",
@@ -382,7 +381,7 @@ mod tests {
     /// running the handler (which reads the environment and a database).
     #[tokio::test]
     async fn the_public_router_mounts_only_the_stripe_webhook() {
-        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = public_routes().with_state(oxy_app_core::app_state::bare_app_state());
         assert_eq!(
             trace(&router, "/webhooks/stripe").await,
             StatusCode::METHOD_NOT_ALLOWED

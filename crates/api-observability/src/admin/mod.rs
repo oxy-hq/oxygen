@@ -56,9 +56,9 @@ mod storage_rollup;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use oxy_app::surface::AdminSection;
 use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, error_body};
+use oxy_app_core::seams::AdminSection;
 use oxy_auth::AuthenticatedUser;
 use oxy_server_authz::Action;
 use oxy_shared::errors::OxyError;
@@ -230,7 +230,7 @@ mod tests {
     /// one, without running a handler.
     #[tokio::test]
     async fn every_route_is_mounted() {
-        let router = routes().with_state(oxy_app::surface::bare_app_state());
+        let router = routes().with_state(oxy_app_core::app_state::bare_app_state());
         for uri in MOUNTED {
             assert_eq!(
                 trace(&router, uri).await,

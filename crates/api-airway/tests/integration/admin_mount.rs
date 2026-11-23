@@ -16,7 +16,7 @@ use tower::ServiceExt;
 fn admin_tree() -> Router {
     Router::new()
         .nest("/admin", oxy_api_airway::admin_routes())
-        .with_state(oxy_app::surface::bare_app_state())
+        .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
 #[tokio::test]

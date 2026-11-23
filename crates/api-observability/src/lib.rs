@@ -17,7 +17,7 @@
 //! [`admin`] is the crate's other half, and a different audience: the staff
 //! console's **Admin → Observability**, per org — what an org costs us, and
 //! how its custom apps perform. It rides the `/api/admin` seam as an
-//! [`AdminSection`](oxy_app::surface::AdminSection) under `PlatformOperate`,
+//! [`AdminSection`](oxy_app_core::seams::AdminSection) under `PlatformOperate`,
 //! not the workspace seam, because its reads are cross-tenant and its gate is
 //! platform standing rather than a workspace session.
 //!
@@ -28,13 +28,13 @@
 //! working copy, which `oxy-app`'s `undeclared_mounts_stay_diskless` checks by
 //! scanning this crate.
 //!
-//! The **tenant** handlers take `AppState` (`oxy-app-core`) and nothing of
-//! `oxy-app`'s. [`admin`] cannot: `AdminSection` is oxy-app's type, and so are
-//! the staff-scope fence and the console's connect-on-demand DB handle. That
-//! is why this crate depends on `oxy-app` as of 2026-11-16, where it
-//! previously compiled beside it — deciding a bounded grant's reach by hand
-//! instead would break the one rule authz has. Nothing depends back on this
-//! crate, so a surface edit still does not rebuild oxy-app.
+//! Nothing here depends on `oxy-app`. The tenant handlers take `AppState`
+//! (`oxy-app-core`). [`admin`] takes the `AdminSection` seam and the console's
+//! connect-on-demand DB handle from `oxy-app-core` too, and the staff-scope
+//! fence from `oxy-server-authz`, never deciding a bounded grant's reach by
+//! hand. That dependency on `oxy-app` (2026-11-16) went away in decompose R1
+//! (2026-11-23). Nothing depends back on this crate, so a surface edit still
+//! does not rebuild oxy-app.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
@@ -188,7 +188,7 @@ mod tests {
     /// one, without running a handler.
     #[tokio::test]
     async fn every_route_is_mounted() {
-        let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for uri in MOUNTED {
             assert_eq!(
                 trace(&router, uri).await,

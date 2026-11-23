@@ -54,7 +54,7 @@ fn the_section_is_the_one_oxy_app_merged() {
 /// one, without running a handler or reaching a database.
 #[tokio::test]
 async fn every_audit_route_is_mounted() {
-    let router = audit::router().with_state(oxy_app::surface::bare_app_state());
+    let router = audit::router().with_state(oxy_app_core::app_state::bare_app_state());
     let org = "00000000-0000-0000-0000-000000000001";
     for (uri, want) in [
         ("/audit".to_string(), StatusCode::METHOD_NOT_ALLOWED),
@@ -92,7 +92,7 @@ async fn every_audit_route_is_mounted() {
 /// one, without running a handler or reaching a database.
 #[tokio::test]
 async fn every_app_admins_route_is_mounted() {
-    let router = app_admins::router().with_state(oxy_app::surface::bare_app_state());
+    let router = app_admins::router().with_state(oxy_app_core::app_state::bare_app_state());
     let id = "00000000-0000-0000-0000-000000000001";
     for (uri, want) in [
         ("/app-admins".to_string(), StatusCode::METHOD_NOT_ALLOWED),
@@ -124,7 +124,7 @@ async fn every_app_admins_route_is_mounted() {
 /// unmounted one, without running a handler or reaching a database.
 #[tokio::test]
 async fn every_feature_flag_console_route_is_mounted() {
-    let router = feature_flags::router().with_state(oxy_app::surface::bare_app_state());
+    let router = feature_flags::router().with_state(oxy_app_core::app_state::bare_app_state());
     let org = "00000000-0000-0000-0000-000000000001";
     for (uri, want) in [
         ("/feature-flags".to_string(), StatusCode::METHOD_NOT_ALLOWED),
@@ -166,7 +166,7 @@ async fn every_feature_flag_console_route_is_mounted() {
 /// one, without running a handler.
 #[tokio::test]
 async fn the_routing_manifest_is_mounted_in_its_own_section() {
-    let state = oxy_app::surface::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let trace = |uri: &'static str| {
         Request::builder()
             .method(Method::TRACE)
@@ -229,7 +229,7 @@ fn the_org_flag_read_is_declared_fleet_ok() {
 /// is asserted there.
 #[tokio::test]
 async fn the_api_seam_carries_the_org_flag_read_and_not_the_console() {
-    let router = routes().with_state(oxy_app::surface::bare_app_state());
+    let router = routes().with_state(oxy_app_core::app_state::bare_app_state());
     let org = "00000000-0000-0000-0000-000000000001";
     for (uri, mounted) in [
         (format!("/orgs/{org}/feature-flags"), true),
@@ -264,7 +264,7 @@ async fn the_api_seam_carries_the_org_flag_read_and_not_the_console() {
 /// running a handler or reaching a database.
 #[tokio::test]
 async fn every_assume_route_is_mounted() {
-    let router = routes().with_state(oxy_app::surface::bare_app_state());
+    let router = routes().with_state(oxy_app_core::app_state::bare_app_state());
     for (uri, want) in [
         ("/assume", StatusCode::METHOD_NOT_ALLOWED),
         ("/assume/current", StatusCode::METHOD_NOT_ALLOWED),
@@ -295,7 +295,7 @@ async fn every_assume_route_is_mounted() {
 /// exit behind the staff door and the refusal while acting.
 #[tokio::test]
 async fn assume_role_is_never_behind_the_staff_door() {
-    let state = oxy_app::surface::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let trees = admin_sections()
         .into_iter()
         .map(|s| s.routes)
@@ -325,7 +325,7 @@ async fn assume_role_is_never_behind_the_staff_door() {
 /// an unmounted one, without running a handler or reaching a database.
 #[tokio::test]
 async fn every_internal_jobs_route_is_mounted() {
-    let router = internal_jobs::router().with_state(oxy_app::surface::bare_app_state());
+    let router = internal_jobs::router().with_state(oxy_app_core::app_state::bare_app_state());
     let task = "task-0";
     for (uri, want) in [
         ("/queue-stats".to_string(), StatusCode::METHOD_NOT_ALLOWED),

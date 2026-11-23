@@ -11,15 +11,11 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
-# types (`AdminSection`, `seams::{GlobalTickSeam, TickPass}`), the capability
-# they name (`Action`), `org_middleware`, the org role guards, and billing's
-# base (`billing::billing_service`, which oxy-app reads too; `notify` moved here
-# in decompose B2). oxy-app never depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }     # AppState, admin_db, audit, emails::usage_report, the console's base url
+# No oxy-app (decompose R1, 2026-11-23). The seam types (`seams::{AdminSection,
+# GlobalTickSeam, TickPass}`) and `org_middleware` are oxy-app-core's, the
+# capability they name (`Action`) and the org role guards oxy-server-authz's,
+# and billing's base (`billing_service`) oxy-billing's.
+oxy-app-core = { workspace = true }     # AppState, admin_db, audit, emails::usage_report, the console's base url, seams, org_middleware
 oxy-usage-report = { workspace = true } # the report's domain half: period, collect, store, model, email, view
 oxy-auth = { workspace = true }         # the authenticated-user extractor
 oxy-feature-flags = { workspace = true } # the `billing` switch

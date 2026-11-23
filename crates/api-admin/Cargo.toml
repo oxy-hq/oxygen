@@ -11,16 +11,12 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the seam
-# types (`AdminNest`, `AdminSection`), the capability it names (`Action`), the pod
-# placement (`roles::RouteRole`), the route-role table the routing manifest
-# serves (`roles::{current_process_role, dump_manifest}`) and who may act as an
-# org (`assume::may_act_as`, which oxy-app's own org and workspace context call too). oxy-app never depends
-# back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }     # AppState, admin_db (connect, db_err, error_body), audit, pagination
+# No oxy-app (decompose R1, 2026-11-23). The seam types (`seams::{AdminNest,
+# AdminSection}`), the pod placement and the route-role table the routing
+# manifest serves (`pods::role_manifest`) and who may act as an org
+# (`assume::may_act_as`) are oxy-app-core's; the capability it names (`Action`)
+# is oxy-server-authz's.
+oxy-app-core = { workspace = true }     # AppState, admin_db (connect, db_err, error_body), audit, pagination, seams, pods::role_manifest, assume
 oxy = { workspace = true }              # database client (the audit log's and the grant table's connect)
 oxy-custom-apps = { workspace = true }  # storage::s3, the client the audit anchor is read with
 entity = { workspace = true }           # the audit_events row, the app_admins and app_admin_scope_orgs rows
