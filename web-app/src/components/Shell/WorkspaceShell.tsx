@@ -113,8 +113,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const core: RailItem = {
     key: "core",
     label: "Oxygen Nexus",
-    tooltip:
-      "Oxygen Nexus — the intelligence system behind your HQ: data sources, business model, agents, automations, and deployments",
     testId: "rail-core",
     icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),
@@ -128,7 +126,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const admin: RailItem = {
     key: "admin",
     label: "Admin",
-    tooltip: "Admin console — custom apps, tenants, feature flags, jobs",
     testId: "rail-admin",
     icon: <Shield className='h-4 w-4' />,
     active: path.startsWith("/admin"),
@@ -147,7 +144,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const openFactory: RailItem = {
     key: "open-factory",
     label: "Oxygen Nexus",
-    tooltip: currentOrg ? `Open ${currentOrg.name}'s Nexus` : "Open Nexus",
     testId: "rail-open-factory",
     icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),
@@ -182,7 +178,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const partner: RailItem = {
     key: "partner",
     label: "Partners",
-    tooltip: "Partner console — manage your partner's organizations, members, and apps",
     testId: "rail-partner",
     icon: <Handshake className='h-4 w-4' />,
     active: path.startsWith("/partners"),
@@ -219,9 +214,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const layout = (
     <div className='flex min-h-0 w-full flex-1'>
-      {/* Below `md` the rail gives way to ShellNavSheet: its labels are hover
-          tooltips, which a touch screen never shows, and its 48px is an eighth
-          of a phone's width. */}
+      {/* Below `md` the rail gives way to ShellNavSheet: its labels show only
+          when a pointer hovers it, which a touch screen never does, and its
+          48px is an eighth of a phone's width. */}
       {!hideRail && (
         <div className='hidden h-full md:flex'>
           <ShellRail

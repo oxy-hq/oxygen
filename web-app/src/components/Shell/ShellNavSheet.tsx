@@ -99,7 +99,7 @@ function Divider() {
 
 /** The rail's mobile form: a menu button (placed in the top bar) opening a
  *  left drawer of the same entries, each with its name. On a touch screen
- *  the rail's only labels are hover tooltips, which never show, so below `md`
+ *  the rail opens to its labels only on hover, which never happens, so below `md`
  *  the shell swaps the rail for this. Same props as `ShellRail`. */
 export function ShellNavSheet({
   title,
