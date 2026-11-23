@@ -7,7 +7,7 @@
 //! mobile app's sign-in, `/user` and `/logout`) are `oxy-api-identity`'s, and
 //! import this directly (the prelude's `session` until decompose R1), beside frontline's PIN
 //! sign-in and a token's browser sign-in, which mint the same session. Down from
-//! `oxy-app`'s `server::api::auth` on 2026-11-21, which re-exports it.
+//! `oxy-app`'s `server::api::auth` on 2026-11-21 (its re-export there went in decompose SHM).
 //!
 //! - [`dto`]: the session's own shapes (`AuthResponse`, `UserInfo`, `OrgInfo`,
 //!   the JWT `Claims`).

@@ -25,7 +25,6 @@ dev-tools = []
 oxy = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
-oxy-workspace-fs = { workspace = true }
 agentic-airway = { workspace = true }
 agentic-analytics = { workspace = true }
 agentic-connector = { workspace = true, features = [
@@ -62,9 +61,6 @@ oxy-compile = { workspace = true }
 # The compile boundary's runtime half (`git`, `config_gate`, `oltp`,
 # `maintenance`), re-exported at `server::compile_*`.
 oxy-compile-runtime = { workspace = true }
-# Workspace previews' rows (registry, DDL, namespace, sources, pin, run queue),
-# re-exported at `server::previews::*`.
-oxy-previews = { workspace = true }
 oxy-preagg = { workspace = true }
 # The feature-flag runtime's domain half; its HTTP half is `oxy-api-admin`'s.
 oxy-feature-flags = { workspace = true }

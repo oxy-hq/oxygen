@@ -8,7 +8,8 @@
 //! [`check`] buffers a run's body to read what it asks for, and [`refusal`]
 //! is the `409 preview_read_only` response. It went down with the workspace
 //! middleware into `oxy-workspace-runtime` (decompose W7, 2026-11-22), and
-//! oxy-app re-exports it at its old path, `server::previews::read_only`.
+//! oxy-app re-exported it at its old path, `server::previews::read_only`,
+//! until decompose SHM.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};

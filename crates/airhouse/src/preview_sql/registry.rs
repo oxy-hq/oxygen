@@ -13,7 +13,7 @@
 //!
 //! This lives in the `airhouse` crate, not beside the previews that first used
 //! it, so the custom-app surface can reach it without depending on `oxy-app`;
-//! `oxy-app`'s `server::previews::registry` re-exports it.
+//! `oxy-app`'s `server::previews::registry` re-exported it until decompose SHM.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 use uuid::Uuid;

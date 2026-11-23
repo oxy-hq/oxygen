@@ -84,7 +84,8 @@ const SERVER: &[&str] = &[
     // its last caller imported `oxy::service` directly.
     // `worker_health`, `worker_metrics`, `worker_runtime` and
     // `shared_state_check` moved up into `oxy-server` on 2026-11-22 (UP2).
-    "workspace_fs",
+    // `workspace_fs`, a re-export of `oxy-workspace-fs` with no caller left,
+    // was deleted on 2026-11-23 (decompose SHM).
 ];
 
 const SERVER_API: &[&str] = &[
@@ -102,7 +103,8 @@ const SERVER_API: &[&str] = &[
     "projects",
     // The typed-stream sinks left for `oxy-workspace-runtime` on 2026-11-21
     // (re-exported in `api/mod.rs`).
-    "workspace_org",
+    // `workspace_org`, a re-export of `oxy-app-core::workspace_org` with no
+    // caller left, was deleted on 2026-11-23 (decompose SHM).
 ];
 
 /// The module names a directory declares at its top level: `foo.rs` and `foo/`

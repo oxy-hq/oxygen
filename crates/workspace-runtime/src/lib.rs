@@ -43,8 +43,8 @@
 //!   revision first, the working copy second, a compile enqueued on a miss).
 //!
 //! Then, on 2026-11-22 (W3), the preview connector and its DuckDB double
-//! (`oxy-app` re-exports each at its old path: `agentic_wiring::preview_airhouse`,
-//! `server::previews::airhouse_duckdb`):
+//! (`oxy-app` re-exported each at its old path, `agentic_wiring::preview_airhouse`
+//! and `server::previews::airhouse_duckdb`, until decompose SHM):
 //!
 //! - [`preview_airhouse`]: the Airhouse connector a workspace preview run
 //!   sends everything through (verified, overlaid, on a scoped credential).
@@ -77,8 +77,8 @@
 //!   `RunPlatformResolver` that hands a preview-owned root that platform.
 //!
 //! Then, on 2026-11-22 (W6a), the custom-app data plane's composition root
-//! (`oxy-app` re-exports each at its old path: `server::api::custom_apps_gates`,
-//! `server::api::projects::semantic_boundary`):
+//! (`oxy-app` re-exports each at its old path for its `tests/`:
+//! `server::api::custom_apps_gates`, `server::api::projects::semantic_boundary`):
 //!
 //! - [`custom_apps_gates`]: the gate chain answered as a response,
 //!   `parse_versioned_body`, and `build_project_context*` /

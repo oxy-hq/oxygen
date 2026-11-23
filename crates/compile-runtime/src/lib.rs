@@ -3,7 +3,8 @@
 //!
 //! Out of `oxy-app`'s `server::compile_*` on 2026-11-21 (the decompose's C1),
 //! re-exported at the old paths (`oxy_app::server::{compile_git, compile_oltp,
-//! compile_config_gate, compile_maintenance}`), so no caller changed:
+//! compile_config_gate}`; `compile_maintenance`'s went in decompose SHM), so no
+//! caller changed:
 //!
 //! - [`git`]: fetch a commit as a tarball, unpack it safely and hand the
 //!   directory to the compiler (a compile with no working copy), the
@@ -27,7 +28,8 @@
 //!   what follows a promote (the OLTP settle, the health and pre-aggregation
 //!   schedule reconciles, the rollup nudge, the env pins and a preview's
 //!   checks) (was `server::compile_worker`, moved on 2026-11-22, the
-//!   decompose's C4; re-exported at `oxy_app::server::compile_worker`).
+//!   decompose's C4; its `oxy_app::server::compile_worker` re-export went in
+//!   decompose SHM).
 //!
 //! It is its own crate, not part of `oxy-compile`, because it needs
 //! `oxy-app-core` (the process role, the workspace's repository facts), and

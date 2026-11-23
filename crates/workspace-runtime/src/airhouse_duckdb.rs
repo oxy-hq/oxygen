@@ -165,8 +165,8 @@ impl PreviewAirhousePorts for DuckDbAirhouse {
 #[cfg(test)]
 mod tests {
     /// No server code names the stand-in: only this module and test files do,
-    /// here and in `oxy-app`, which it left on 2026-11-22 (W3) and which
-    /// re-exports it at `server::previews::airhouse_duckdb`.
+    /// here and in `oxy-app`, which it left on 2026-11-22 (W3); the
+    /// `server::previews::airhouse_duckdb` re-export went in decompose SHM.
     #[test]
     fn the_duckdb_stand_in_is_never_wired_into_the_server() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

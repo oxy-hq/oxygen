@@ -6,8 +6,8 @@
 //! it sits below `oxy-app` and every `api-*` surface, so a surface that needs
 //! custom-app behavior imports it from here rather than reaching into `oxy-app`.
 //! It holds no routes and no handlers. Built as pure relocations
-//! (S6 step 3); `oxy-app` keeps each module reachable at its old
-//! `server::api::custom_apps_*` path through a re-export.
+//! (S6 step 3). `oxy-app`'s `server::api::custom_apps_*` re-exports went in
+//! decompose SHM, all but `custom_apps_bundle_cache`.
 //!
 //! - `auth`: who may open an app, app and org roles, the access verdict cache.
 //! - `cache`: the bounded TTL caches of the serve chain and their invalidation.

@@ -19,7 +19,7 @@
 //!
 //! - [`cycle`] is one `preagg_cycle` task's body (`run_preagg_task`), its
 //!   request (`PreaggCycleRequest`, `RollupTarget`) and its rollup resolution.
-//!   `oxy-app` re-exports the request types at `server::preagg_executor`.
+//!   (`oxy-app`'s `server::preagg_executor` re-export went in decompose SHM.)
 //!
 //! The executor shell, `PreaggTaskExecutor` and `build_task_config`, stays in
 //! `oxy-app`'s `server::preagg_executor` for now: it builds an
