@@ -95,10 +95,6 @@ exclude = [
   "json-schemas",
   "semantics",
   "sdk",
-  # Dev-only dynamic-linking shim. Excluded (NOT a member) so `--workspace`
-  # test/lint/build never compile its ~1.4 GB dylib; it is built solely when
-  # `oxy-server` enables the `dev-dynamic` feature (a path dep pulls it in).
-  "crates/app-dylib",
 ]
 
 # The default build target is the binary crate (oxy-server), so `cargo build` /

@@ -59,17 +59,6 @@ RUN --mount=type=secret,id=gh_token \
     git config --global "url.https://x-access-token:$(cat /run/secrets/gh_token)@github.com/.insteadOf" "https://github.com/" && \
     git config --global --add "url.https://x-access-token:$(cat /run/secrets/gh_token)@github.com/.insteadOf" "git@github.com:"
 COPY --from=planner /app/recipe.json recipe.json
-# `crates/app-dylib` is EXCLUDED from the workspace (root Cargo.toml `exclude`),
-# so cargo-chef — which reconstructs a skeleton of workspace MEMBERS only — omits
-# it from recipe.json. But `crates/server` declares it as an optional path
-# dependency (`oxy-app-dylib = { path = "../app-dylib", optional = true }`), and
-# cargo must parse that manifest to resolve oxy-server even with the feature off.
-# `cook` runs before `COPY . .`, so without these two lines it dies with
-# "failed to read /app/crates/app-dylib/Cargo.toml". The crate is a handful of
-# lines and never built here (dev-dynamic is off), so copying it early costs
-# nothing and does not invalidate the dependency layer in practice.
-COPY crates/app-dylib/Cargo.toml crates/app-dylib/Cargo.toml
-COPY crates/app-dylib/src crates/app-dylib/src
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .

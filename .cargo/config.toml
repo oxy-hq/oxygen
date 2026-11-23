@@ -30,7 +30,7 @@ git-fetch-with-cli = true
 # `cf` checks the oxy-app library (where ~all code lives — the fastest inner
 # loop, no binary link). `bf`/`rf` build/run the `oxy` binary (now the
 # `oxy-server` crate); their `--no-default-features` drops V8 — every oxy-app
-# dependent in the binary's graph (oxy-server, oxy-api-github, oxy-app-dylib) sets
+# dependent in the binary's graph (oxy-server, oxy-api-github) sets
 # `default-features = false`, and oxy-server's own `custom-app-functions` feature
 # is the single switch that turns V8 back on for the default build. `bf`/`rf`
 # put `dev-tools` back (`oxy dev seed | compile | test`), which

@@ -29,8 +29,6 @@ crates/
                             #   per-crate review: internal-docs/domain-boundaries.md
   route-catalog/             # (oxy-route-catalog) generated GET /api/_catalog table; sits ABOVE oxy-app
                             #   so a surface edit doesn't rebuild oxy-app. oxy-server hands it in
-  app-dylib/                # (oxy-app-dylib) dev-only dynamic-linking shim, EXCLUDED from the
-                            #   workspace; built only by `--features dev-dynamic` (just dev-backend-dyn)
   app-core/                 # (oxy-app-core) What every surface needs, nothing a context owns:
                             #   request state, authz plumbing, audit, seams. Scoped (S9)
   tenancy/                  # (oxy-tenancy) Tenancy domain logic shared across contexts: org teams +

@@ -98,11 +98,6 @@ post-rule = "skip-rules"
 globs = ["demo_project/**"]
 mark-changed = ["oxy-project"]
 
-# The dev-only dylib shim is excluded from the workspace and never tested.
-[[determinator.path-rule]]
-globs = ["crates/app-dylib/**"]
-mark-changed = []
-
 # api-custom-apps checks these two docs against the code. The rest of
 # internal-docs/ is prose no test reads (`internal-docs/**` below), and most PRs
 # touch it.

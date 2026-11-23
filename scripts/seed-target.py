@@ -197,22 +197,6 @@ def has_artifacts(checkout, profile):
     return is_warm(checkout, profile)
 
 
-def has_dynamic(checkout, profile):
-    """True if this checkout has already built the dev-dynamic dylib
-    (`oxy-app-dylib`). Seeding from it carries the ~1.4 GB `liboxy_app_dylib.dylib`
-    via hardlink, so a `cargo build --features dev-dynamic` in the destination
-    reuses it instead of paying the ~20 min link. See `just build-backend-dyn`."""
-    # `.dylib` on macOS, `.so` on Linux — check both so `--dynamic` works on either.
-    # Under cargo 1.100 the dylib sits in its unit's out/. Not yet observed on a
-    # real tree (no checkout here had built dev-dynamic since the bump), so this
-    # path is derived from the layout rather than measured.
-    return any(
-        os.path.isfile(os.path.join(unit, "out", f"liboxy_app_dylib{ext}"))
-        for _pkg, unit in unit_dirs(checkout, profile, {"oxy-app-dylib"})
-        for ext in (".dylib", ".so")
-    )
-
-
 SEED_MARKER = ".seeded-from"
 
 
@@ -303,7 +287,7 @@ def first_party_differing(src, dst, rust_files):
     return n
 
 
-def pick_source(dest, members, profile, prefer_dynamic=False):
+def pick_source(dest, members, profile):
     """Choose the warm sibling closest on third-party deps, then on our own sources.
 
     Both axes matter and they are not interchangeable, so they are ranked
@@ -350,12 +334,7 @@ def pick_source(dest, members, profile, prefer_dynamic=False):
         # pick as one that built the whole graph.
         units = count_units(cand, profile)
         built = os.path.getmtime(os.path.join(cand, "target", profile, "build"))
-        # With --dynamic, prefer a source that already carries the dev-dynamic
-        # dylib — but only as a tie-break BELOW dep/source matching, which stays
-        # correctness-critical: the seeded dylib's fingerprint is reusable only
-        # when third-party deps AND oxy-app source already match.
-        dyn = 1 if (prefer_dynamic and has_dynamic(cand, profile)) else 0
-        ranked.append((shared, -differing, dyn, units, built, cand))
+        ranked.append((shared, -differing, units, built, cand))
     if not ranked:
         why = ""
         if old_layout:
@@ -371,7 +350,7 @@ def pick_source(dest, members, profile, prefer_dynamic=False):
         )
     ranked.sort(reverse=True)
     best = ranked[0][-1]
-    for shared, neg_differing, _dyn, units, _built, cand in ranked:
+    for shared, neg_differing, units, _built, cand in ranked:
         mark = "->" if cand == best else "  "
         print(
             f"  {mark} {os.path.basename(cand)}: {len(mine) - shared} third-party "
@@ -800,14 +779,6 @@ def main():
         "(see the warning this bypasses — it can produce a stale build). Not needed to "
         "re-seed a tree that only ever held seeded artifacts; that is automatic.",
     )
-    ap.add_argument(
-        "--dynamic",
-        action="store_true",
-        help="prefer a source that has the dev-dynamic dylib built, so a "
-        "`cargo build --features dev-dynamic` (`just build-backend-dyn`) in the destination "
-        "reuses the seeded ~1.4 GB dylib instead of paying the ~20 min link. Warns if the "
-        "chosen source lacks it. Only a tie-break — never seeds a worse dep/source match.",
-    )
     args = ap.parse_args()
 
     dst = checkout_root(args.dest)
@@ -872,16 +843,7 @@ def main():
             )
     else:
         print("scanning for a warm checkout to seed from:")
-        src = pick_source(dst, members, args.profile, prefer_dynamic=args.dynamic)
-
-    if args.dynamic and not has_dynamic(src, args.profile):
-        print(
-            f"WARNING: --dynamic requested but {os.path.basename(src)} has no dev-dynamic dylib "
-            f"(target/{args.profile}/build/oxy-app-dylib/<unit-id>/out/liboxy_app_dylib.dylib). Seeding static artifacts only — "
-            f"a `--features dev-dynamic` build here will still pay the ~20 min dylib link. Build one "
-            f"first with `just build-backend-dyn` in a warm worktree, then re-seed.",
-            file=sys.stderr,
-        )
+        src = pick_source(dst, members, args.profile)
 
     if src == dst:
         sys.exit("source and destination are the same checkout")

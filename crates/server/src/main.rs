@@ -9,14 +9,6 @@
 // default query depth since SeaORM 2.0 deepened its query types.
 #![recursion_limit = "256"]
 
-// Dev-only dynamic linking (see `oxy-app-dylib` + `just dev-backend-dyn`).
-// Forcing the dylib into the link (with `-C prefer-dynamic`) makes oxy-app's
-// symbols — and its ~1.4 GB of static deps — resolve dynamically from
-// liboxy_app_dylib.dylib instead of being re-linked into the binary every edit.
-// `as _` because we import it purely for the link edge, not to use its items.
-#[cfg(feature = "dev-dynamic")]
-extern crate oxy_app_dylib as _;
-
 use std::process::exit;
 
 use dotenv::dotenv;

@@ -10460,13 +10460,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-app-dylib"
-version = "0.0.0"
-dependencies = [
- "oxy-app",
-]
-
-[[package]]
 name = "oxy-auth"
 version = "0.5.161"
 dependencies = [
@@ -11091,7 +11084,6 @@ dependencies = [
  "oxy-api-world-model",
  "oxy-app",
  "oxy-app-core",
- "oxy-app-dylib",
  "oxy-auth",
  "oxy-authz",
  "oxy-billing",

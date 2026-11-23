@@ -28,12 +28,6 @@ default = ["custom-app-functions", "dev-tools"]
 # bf/rf.
 custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 
-# Dev-only fast build loop: link oxy-app dynamically (see `oxy-app-dylib` +
-# `just dev-backend-dyn`). Pulls in the dylib shim so `main.rs`'s guarded
-# `extern crate oxy_app_dylib` forces it into the link. NEVER enabled by
-# CI/release, so the ~1.4 GB dylib is never built there.
-dev-dynamic = ["dep:oxy-app-dylib"]
-
 # `oxy dev seed | compile | test` (and, for one release, the hidden top-level
 # `oxy seed` / `oxy test` aliases): dev tooling that writes demo rows straight
 # into a database. On by default, so debug builds, `just up`, CI's agentic job
@@ -109,8 +103,6 @@ oxy-api-semantic = { path = "../api-semantic" }
 # in every build, and `oxy dev test`, registered only with `dev-tools` (S10).
 oxy-api-eval = { path = "../api-eval" }
 oxy-cli-shim = { path = "../cli-shim" }
-# Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.
-oxy-app-dylib = { path = "../app-dylib", optional = true }
 oxy = { workspace = true }
 oxy-observability = { workspace = true }
 oxy-telemetry = { workspace = true }

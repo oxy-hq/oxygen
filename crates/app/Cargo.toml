@@ -9,11 +9,6 @@ edition.workspace = true
 
 # The `oxy` binary lives in the `oxy-server` crate (the composition root that
 # mounts the API surfaces); oxy-app is a library only.
-#
-# For the optional dev-dynamic-linking fast loop, oxy-app is NOT itself a dylib
-# (that would build a ~1.4 GB dylib on every release/CI build). Instead the thin
-# `oxy-app-dylib` crate re-exports it as a dylib, pulled in only by oxy-server's
-# `dev-dynamic` feature. See `just dev-backend-dyn`.
 
 # The V8-isolate runtime for Oxy Functions (`custom-app-functions`) is a feature
 # of `oxy-api-custom-apps` now, with the functions host; oxy-app links no V8.

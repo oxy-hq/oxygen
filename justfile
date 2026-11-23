@@ -58,15 +58,6 @@ install-hooks:
 seed-target source="":
     src={{ quote(source) }}; python3 scripts/seed-target.py ${src:+"$src"}
 
-# Seed for the DEV-DYNAMIC loop (`just build-backend-dyn`): prefers a source that
-# already built the dylib, so this checkout reuses the seeded ~1.4 GB
-# liboxy_app_dylib.dylib (cold start ~3 min) instead of the ~20 min link. Build
-# dynamic once in a warm "golden" worktree first (`just build-backend-dyn`), then
-# `just seed-dyn` (auto-picks it) — or `just seed-dyn <golden>` to name it. Warns
-# if no dynamic-capable source is found.
-seed-dyn source="":
-    src={{ quote(source) }}; python3 scripts/seed-target.py --dynamic ${src:+"$src"}
-
 # ── Build ──────────────────────────────────────────────────────────────────────
 
 # Heavy cargo recipes run under a machine-wide build lease, so agents in N
@@ -262,28 +253,6 @@ dev-backend:
 # build+run loop. Full debug info; Functions endpoints are inert.
 dev-backend-fast:
     cargo rf -- start
-
-# Start the API server with DYNAMIC LINKING (Phase 4, macOS). The ~1.4 GB of
-# heavy deps live in liboxy_app_dylib.dylib, linked ONCE (~20 min the first time,
-# a separate fingerprint from the static build). After that each surface edit
-# relinks in ~17s instead of ~52s. Baked rpaths (rustlib + @executable_path) let
-# ./target/debug/oxy find its dylibs with no DYLD_LIBRARY_PATH. `dev-dynamic`
-# is dev-only — CI/release never build the dylib. `just build-backend-dyn` to
-# build without running (e.g. to time it).
-_dyn-rustflags:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SYSROOT="$(rustc --print sysroot)"; HOST="$(rustc -vV | awk '/host:/{print $2}')"
-    printf -- '-C prefer-dynamic -C link-arg=-Wl,-rpath,%s/lib/rustlib/%s/lib -C link-arg=-Wl,-rpath,@executable_path -C link-arg=-Wl,-rpath,@executable_path/deps' "$SYSROOT" "$HOST"
-
-build-backend-dyn:
-    # Full output (no grep filter / `|| true`): this is the recipe most likely to
-    # fail at LINK, where the actionable part is the `ld: Undefined symbols …` notes
-    # under `error: linking with cc failed` — a grep for `^error` drops exactly those.
-    RUSTFLAGS="$(just _dyn-rustflags)" {{lease}} cargo build -p oxy-server --features dev-dynamic
-
-dev-backend-dyn *ARGS="start":
-    RUSTFLAGS="$(just _dyn-rustflags)" cargo run -p oxy-server --features dev-dynamic -- {{ ARGS }}
 
 # `oxy start` runs its OWN oxy-clickhouse container — don't also `just clickhouse-up` (both bind :8123).
 # Start the API server with ClickHouse observability + enterprise UI
