@@ -5,7 +5,7 @@
 //! These mirror the IDE's workspace-scoped `/semantic/metric-tree*`
 //! handlers (`oxy-api-metric-monitoring`'s `metric_tree`) but enter through the
 //! customer-app gate and load the semantic model from the compile boundary
-//! (`oxy_app::surface::custom_app_semantic`) rather than the workspace FS.
+//! (`oxy_workspace_runtime::semantic_boundary`) rather than the workspace FS.
 //! Request / response shapes are the exact same types the IDE endpoints use —
 //! `oxy_metric_monitoring::metric_tree_scenario` — so the SDK and the IDE
 //! never drift.
@@ -31,16 +31,18 @@ use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
 use uuid::Uuid;
 
-use oxy_app::surface::custom_app_semantic::{
-    SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
-    load_layer, parse_versioned_body, wants_refresh,
-};
-use oxy_app::surface::metric_tree_exec::{
-    OxyMetricTreeRunner, RunnerPreagg, TreeQuery, baseline_scope_core, build_query_executor,
-};
 use oxy_app_core::AppState;
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_app_core::preagg_context::RollupFreshness;
+use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
+use oxy_workspace_runtime::metric_tree_exec::{TreeQuery, baseline_scope_core};
+use oxy_workspace_runtime::metric_tree_runner::{
+    OxyMetricTreeRunner, RunnerPreagg, build_query_executor,
+};
+use oxy_workspace_runtime::semantic_boundary::{
+    SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
+    load_layer, wants_refresh,
+};
 // `BASELINE_TIMEOUT` is THE workspace handler's constant, not a copy of it:
 // both surfaces query the same warehouse, so the deadline is one number in
 // one place rather than two that can be tuned apart.

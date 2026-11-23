@@ -9,7 +9,7 @@
 //! - `/api/projects/{project_id}/semantic/metric-tree*` ([`metric_tree`],
 //!   [`metric_tree_projection`]) — the metric tree's analysis ops, the twins of
 //!   the IDE's workspace routes, entered through the semantic boundary
-//!   (`oxy_app::surface::custom_app_semantic`). Moved in on 2026-11-14.
+//!   (`oxy_workspace_runtime::semantic_boundary`). Moved in on 2026-11-14.
 //!
 //! Both sit behind the customer-app gate (`check_custom_app_gates`, inline: a
 //! session cookie or an API key), so they ride `SurfaceSeams::public` outside

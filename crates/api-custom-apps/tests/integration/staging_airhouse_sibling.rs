@@ -14,7 +14,7 @@ use agentic_connector::{DatabaseConnector, DuckDbConnector};
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::WorkingCopy;
 use oxy_api_custom_apps::custom_apps_functions::seam::FunctionProjectContext;
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use serde_json::json;
 
 use crate::staging_homes_fixture::{

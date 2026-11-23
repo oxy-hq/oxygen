@@ -41,9 +41,9 @@ use uuid::Uuid;
 
 use super::query::{QueryResponse, json_objects_to_table};
 use crate::custom_apps_gates::check_custom_app_gates;
-use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
-use oxy_app::surface::workspace_runtime::typed_stream_to_json_objects;
 use oxy_app_core::AppState;
+use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::typed_stream::typed_stream_to_json_objects;
 
 const MAX_ROWS: usize = 10_000;
 
@@ -316,7 +316,7 @@ pub async fn run_semantic_query(
     // diskless and fell straight through to a scan path that is not there.
     if materialised.is_none() && !proj_ctx.workspace_manager().config_manager.can_read_disk() {
         if let Ok(db) = oxy::database::client::establish_connection().await {
-            oxy_app::surface::enqueue_lazy_compile(&db, project_id).await;
+            oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(&db, project_id).await;
         }
         let mut response = err_with_code(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -381,7 +381,7 @@ pub async fn run_semantic_query(
     // carries no global value, matching what `workspace_context` does for the
     // IDE — the read side and the rebuild side must resolve one setting, or a
     // workspace configuring `10m` silently gets 120s on every query.
-    let preagg_ctx = oxy_app::surface::PreaggCacheCtx {
+    let preagg_ctx = oxy_app_core::preagg_cache_ctx::PreaggCacheCtx {
         cache: app_state.preagg_cache.clone(),
         renewal_threshold_secs: app_state.preagg_renewal_threshold_secs,
     };
@@ -416,7 +416,7 @@ pub async fn run_semantic_query(
     //     once, and only on a cache miss.
     let mut scoped_layer: Option<std::sync::Arc<oxy_airlayer_compat::SemanticLayer>> = None;
     if let Some(reach) = &viewer_reach {
-        let layers = oxy_app::surface::SemanticLayerCacheCtx {
+        let layers = oxy_workspace_runtime::request::workspace_context::SemanticLayerCacheCtx {
             cache: app_state.semantic_layer_cache.clone(),
             workspace_id: proj_ctx.workspace_manager().workspace_id,
             engine_cache: app_state.semantic_engine_cache.clone(),

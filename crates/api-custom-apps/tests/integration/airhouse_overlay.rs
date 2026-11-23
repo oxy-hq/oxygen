@@ -29,8 +29,8 @@ use oxy_api_custom_apps::custom_apps_planes::{AirhouseMode, PlaneSpec};
 use oxy_api_custom_apps::custom_apps_sandboxes::airhouse_overlay::{
     airhouse_diff_over, reset_airhouse_overlay, reset_airhouse_overlay_over,
 };
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 

@@ -36,7 +36,7 @@
 //! the fleet's — this process's role, the Factory upstream, the compile queue.
 //! The function handler asks one question after it has authorized the caller,
 //! and that is the whole of the custom-apps surface's dependency on any of it
-//! (reached through `oxy_app::surface::fleet`).
+//! (reached through `oxy_app_core::pods`).
 
 use axum::body::{Body, Bytes};
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode, Uri, header};
@@ -45,9 +45,9 @@ use futures::future::BoxFuture;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use oxy_app::surface::fleet::servability::{self, Servability};
-use oxy_app::surface::fleet::{ide_proxy, role_middleware};
-use oxy_app::surface::roles::current_process_role;
+use oxy_app_core::pods::role_manifest::current_process_role;
+use oxy_app_core::pods::servability::{self, Servability};
+use oxy_app_core::pods::{ide_proxy, role_middleware};
 
 /// The header a client retries on — the one `/api/projects/*` answers with
 /// when the boundary has nothing for a workspace.
@@ -133,7 +133,7 @@ async fn placed_elsewhere(
     // Only a workspace with nothing compiled reaches this line. Deduped across
     // replicas and backed off on repeated failure, so a hot function on an
     // uncompilable workspace does not queue a compile per call.
-    oxy_app::surface::enqueue_lazy_compile(db, project_id).await;
+    oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(db, project_id).await;
     tracing::info!(
         %project_id,
         ?placement,

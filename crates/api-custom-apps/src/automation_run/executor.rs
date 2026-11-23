@@ -52,7 +52,7 @@ use uuid::Uuid;
 use super::settle::{self, Guard};
 use super::task::ProcedureRunTask;
 use admission::{admit, begin};
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 
 mod admission;
 mod heartbeat;
@@ -138,7 +138,7 @@ pub async fn prepare(
         .await
         .map_err(|e| format!("workspace lookup failed: {e}"))?
         .ok_or_else(|| "the run's workspace no longer exists".to_string())?;
-    let context = oxy_app::surface::custom_app_semantic::build_caller_context(
+    let context = oxy_workspace_runtime::custom_apps_gates::build_caller_context(
         &workspace,
         task.user_id,
         task.workspace_id,

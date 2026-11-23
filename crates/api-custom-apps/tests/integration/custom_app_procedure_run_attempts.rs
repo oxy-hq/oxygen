@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use agentic_runtime::state::RuntimeState;
 use axum::Router;
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::json;
 

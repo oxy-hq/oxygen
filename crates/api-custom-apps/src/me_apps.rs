@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::workspace_custom_apps::{LauncherApp, app_access_resource, launcher_apps};
-use oxy_app::surface::session::extract_link_base_for_authenticated_request;
+use oxy_app_core::session::extract_link_base_for_authenticated_request;
 
 #[derive(Debug, Serialize)]
 pub struct MyAppsResponse {

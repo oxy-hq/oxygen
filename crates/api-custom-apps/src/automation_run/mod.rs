@@ -63,7 +63,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use entity::customer_app_procedure_runs as proc_run;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, ExprTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tracing::{error, instrument, warn};
@@ -77,10 +77,10 @@ use sea_orm::DatabaseConnection;
 
 use crate::agent_ask_staging::{non_production_app, refused, workspace_actions_mode};
 use crate::custom_apps_gates::check_custom_app_gates;
-use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
 use oxy_app_core::AppState;
+use oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile;
 use oxy_custom_apps::planes::WorkspaceActionsMode;
-use sea_orm::ExprTrait;
+use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
 
 /// The surface an automation run's held row is listed under, and its `mode`.
 const AUTOMATION_SURFACE: &str = "automation";
@@ -352,7 +352,7 @@ pub async fn start_automation_run(
         // a moment) is the fix.
         Lookup::NothingCompiled | Lookup::Failed => {
             if let Ok(db) = oxy::database::client::establish_connection().await {
-                oxy_app::surface::enqueue_lazy_compile(&db, project_id).await;
+                enqueue_lazy_compile(&db, project_id).await;
             }
             return err_with_code(
                 StatusCode::SERVICE_UNAVAILABLE,

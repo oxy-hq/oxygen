@@ -22,8 +22,8 @@ use oxy_api_custom_apps::custom_apps_functions::seam::{
     FunctionProjectContext, FunctionQueryExecutor,
 };
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use uuid::Uuid;
 
 /// The app every host here runs as; its Airhouse schema and staging's sibling.

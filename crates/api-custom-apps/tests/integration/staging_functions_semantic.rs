@@ -16,8 +16,8 @@ use entity::{app_builds, apps};
 use oxy_api_custom_apps::custom_apps_functions::seam::FunctionQueryExecutor;
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
-use oxy_app::surface::testing::workspace_context::PreaggCacheCtx;
 use oxy_compile::{CompileRequest, RevisionKind, compile_workspace, compiler_version};
+use oxy_workspace_runtime::request::workspace_context::PreaggCacheCtx;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use serde_json::json;
 use tower::ServiceExt;
@@ -75,7 +75,7 @@ fn semantic_workspace(label: &str, rollup: bool) -> tempfile::TempDir {
 
 /// Compile `root` as a `staging` revision of `workspace` — never promoted.
 async fn stage(t: &Tenant, workspace: Uuid, root: &std::path::Path) -> Uuid {
-    use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
+    use oxy_compile_runtime::config_gate::runtime_config_gate;
     let staged = compile_workspace(CompileRequest {
         db: &t.db,
         workspace_id: workspace,

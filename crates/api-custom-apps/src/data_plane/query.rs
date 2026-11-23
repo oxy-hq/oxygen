@@ -37,9 +37,9 @@ use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 use crate::custom_apps_gates::check_custom_app_gates;
-use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
-use oxy_app::surface::workspace_runtime::string_literal_of;
-use oxy_app::surface::workspace_runtime::typed_stream_to_json_objects;
+use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::string_literal::string_literal_of;
+use oxy_workspace_runtime::typed_stream::typed_stream_to_json_objects;
 use utoipa::ToSchema;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -443,7 +443,7 @@ impl FunctionQueryExecutor for DataPlaneQueryExecutor {
         role: Option<entity::workspace_members::WorkspaceRole>,
     ) -> Result<Arc<dyn FunctionProjectContext>, ()> {
         // The row the caller already read stands in for the revision lookup.
-        oxy_app::surface::custom_app_semantic::build_project_context_with_fresh_workspace(
+        oxy_workspace_runtime::custom_apps_gates::build_project_context_with_fresh_workspace(
             workspace, user_id, project_id, role,
         )
         .await

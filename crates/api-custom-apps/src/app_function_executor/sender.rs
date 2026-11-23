@@ -129,7 +129,7 @@ fn access_verdict(
 /// weeks later, never runs as a person past the latest end their session could
 /// have had.
 fn session_lapsed(sent: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> bool {
-    let ttl = chrono::Duration::seconds(oxy_app::surface::session::SESSION_TTL_SECS);
+    let ttl = chrono::Duration::seconds(oxy_app_core::session::SESSION_TTL_SECS);
     now.signed_duration_since(sent) >= ttl
 }
 

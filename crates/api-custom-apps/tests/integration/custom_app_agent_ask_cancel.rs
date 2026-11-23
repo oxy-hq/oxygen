@@ -23,7 +23,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::post;
 use oxy_api_custom_apps::agent_ask;
 use oxy_app::surface::bare_app_state;
-use oxy_app::surface::testing::agentic_wiring::thread_owner::OxyThreadOwnerLookup;
+use oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup;
 use sea_orm::ConnectionTrait;
 use serde_json::json;
 use tokio::sync::{mpsc, watch};

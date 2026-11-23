@@ -55,8 +55,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument};
 use uuid::Uuid;
 
-use oxy_app::surface::sentry_hub::bind_hub_stream;
 use oxy_app_core::AppState;
+use oxy_telemetry::sentry_surface::bind_hub_stream;
 
 use crate::custom_apps_gates::check_custom_app_gates;
 

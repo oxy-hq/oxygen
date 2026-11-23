@@ -452,7 +452,7 @@ async fn retention_keeps_a_revision_a_build_pins() {
     .await
     .unwrap();
 
-    oxy_app::surface::testing::compile_maintenance::prune_old_revisions(&db, 7).await;
+    oxy_compile_runtime::maintenance::prune_old_revisions(&db, 7).await;
 
     let exists = |id: Uuid| {
         let db = db.clone();

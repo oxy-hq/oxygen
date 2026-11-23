@@ -55,7 +55,7 @@ use super::{AUTOMATION_SURFACE, err, err_with_code, err_with_hint};
 mod cancel;
 
 pub(super) use cancel::may_cancel;
-use oxy_app::surface::previews as preview_runs;
+use oxy_previews::queue::run as preview_runs;
 
 /// The `mode` an automation run's held row carries when it ran as a preview.
 const PREVIEW_MODE: &str = "preview";
@@ -310,7 +310,7 @@ async fn insert_rows(
             run.run_id.to_string().into(),
             gate.project_id.into(),
             run.branch.clone().into(),
-            oxy_app::surface::previews::preview_key(gate.project_id, &run.branch).into(),
+            oxy_previews::namespace::preview_key(gate.project_id, &run.branch).into(),
             run.revision_id.into(),
             run.automation_path.into(),
             run.options(target).into(),

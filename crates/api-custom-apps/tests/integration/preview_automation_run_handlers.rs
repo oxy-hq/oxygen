@@ -22,12 +22,12 @@ use entity::customer_app_procedure_runs as proc_run;
 use oxy_api_custom_apps::automation_run::{
     cancel_automation_run, poll_automation_run, start_automation_run, sweep_terminal_runs,
 };
-use oxy_app::surface::testing::agentic_wiring::OxyThreadOwnerLookup;
-use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
-use oxy_app::surface::testing::previews::queue::sweep::sweep;
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, RevisionKind, compile_workspace, compiler_version};
+use oxy_compile_runtime::config_gate::runtime_config_gate;
+use oxy_previews::queue::sweep::sweep;
+use oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use serde_json::json;
 use std::sync::Arc;

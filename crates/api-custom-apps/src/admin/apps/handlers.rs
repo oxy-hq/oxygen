@@ -25,7 +25,7 @@ use super::ops::*;
 
 pub(crate) use super::dto::{CreateAppRequest, ListAppsQuery};
 pub(crate) use super::ops::validate_display_name;
-pub(crate) use oxy_app::surface::admin_scope::{scope_org_filter, scope_org_filter_checked};
+pub(crate) use oxy_server_authz::staff::org_filter::{scope_org_filter, scope_org_filter_checked};
 // `pub`: the extracted `oxy-api-partner-console` surface publishes/unpublishes a
 // client's app through these.
 pub use super::ops::{publish_one, unpublish_one};
@@ -197,7 +197,7 @@ pub async fn create_app(
     // the path-based guard can't see it. Without this a grant bounded to org A could
     // register an app in org B and then reach it legitimately ever after — scope would
     // be bypassable by creating your way in.
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &user, req.org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &user, req.org_id)
         .await
         .map_err(|s| api_err(s, "Organization not found."))?;
 
@@ -661,7 +661,7 @@ pub async fn get_app(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &user, row.org_id).await?;
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &user, row.org_id).await?;
     let org = Organizations::find_by_id(row.org_id)
         .one(&db)
         .await
@@ -728,7 +728,7 @@ pub async fn update_app(
         .map_err(internal)?
         .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "App not found."))?;
     let org_id = existing.org_id;
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &user, org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &user, org_id)
         .await
         // Status-aware so a 500 (unreadable grant) doesn't read as "App not
         // found." The 404 IS the intended scope-hiding answer for out-of-scope.
@@ -1344,7 +1344,7 @@ pub async fn delete_app(
         .await
         .map_err(internal)?
         .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "App not found."))?;
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor.user, row.org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &actor.user, row.org_id)
         .await
         // Status-aware so a 500 (unreadable grant) doesn't read as "App not
         // found." The 404 IS the intended scope-hiding answer for out-of-scope.

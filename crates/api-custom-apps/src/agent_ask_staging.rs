@@ -52,8 +52,8 @@ use oxy_custom_apps::thread_source::{
 };
 use oxy_custom_apps::write_record::{WriteRecord, plane_for_dialect};
 
-use oxy_app::surface::previews::StatementKind;
 use oxy_app_core::custom_app_env_request::{environment_refused, planes_unreadable};
+use oxy_app_core::sql_kind::StatementKind;
 use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
 pub(crate) use oxy_custom_apps::workspace_actions::non_production_app;
 

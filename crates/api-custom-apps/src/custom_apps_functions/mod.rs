@@ -2629,7 +2629,7 @@ async fn resolve_project_context(
         args.write_destinations.is_empty(),
     ) {
         let org_id = workspace.org_id.expect("checked by should_resolve_role");
-        oxy_app::surface::workspace_context::resolve_effective_role(
+        oxy_workspace_runtime::request::workspace_context::resolve_effective_role(
             args.db,
             workspace.id,
             org_id,

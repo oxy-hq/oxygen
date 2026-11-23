@@ -17,7 +17,7 @@ use oxy_api_custom_apps::custom_apps_functions::runtime::FunctionHost;
 use oxy_api_custom_apps::custom_apps_functions::seam::{
     FunctionProjectContext, FunctionQueryExecutor,
 };
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 

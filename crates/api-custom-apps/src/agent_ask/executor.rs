@@ -46,10 +46,12 @@ use tracing::Instrument;
 use super::caller::CallerContextError;
 use super::pipeline::ask_pipeline;
 use super::task::{self, QueuedAsk};
-use oxy_app::surface::queued_runs::{self as queued_analytics, Settled, admission, heartbeat};
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
+use oxy_workspace_runtime::queued_analytics::{
+    self as queued_analytics, Settled, admission, heartbeat,
+};
 
-pub use oxy_app::surface::queued_runs::{INTERRUPTED_MESSAGE, SchemaCache};
+pub use oxy_workspace_runtime::queued_analytics::{INTERRUPTED_MESSAGE, SchemaCache};
 
 pub struct AgentAskExecutor {
     pub db: DatabaseConnection,

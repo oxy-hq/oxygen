@@ -67,9 +67,9 @@ use axum::Router;
 use axum::middleware;
 use axum::routing::{get, post};
 
-use oxy_app::surface::assume::block_admin_while_acting;
-use oxy_app::surface::guards::app_scope_guard;
 use oxy_app_core::AppState;
+use oxy_app_core::assume::block_admin_while_acting;
+use oxy_app_core::guards::app_scope_guard;
 use oxy_server_authz::Action;
 use oxy_server_authz::oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware;
 use oxy_server_authz::platform_cap_guard;

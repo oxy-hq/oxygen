@@ -223,7 +223,7 @@ impl ProjectFunctionHost {
         }
         self.sandbox_companies
             .get_or_init(|| async {
-                let read = oxy_app::surface::previews::list_sources(&self.db, self.project_id)
+                let read = oxy_previews::sources::list(&self.db, self.project_id)
                     .await
                     .map(|items| items.into_iter().map(|i| i.overrides.realm_id).collect());
                 companies_from(read)

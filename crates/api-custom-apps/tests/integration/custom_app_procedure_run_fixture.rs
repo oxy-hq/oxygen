@@ -44,12 +44,12 @@ use oxy_api_custom_apps::automation_run::task::PROCEDURE_RUN_KIND;
 use oxy_api_custom_apps::automation_run::{
     cancel_automation_run, poll_automation_run, start_automation_run,
 };
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
-use oxy_app::surface::testing::agentic_wiring::thread_owner::OxyThreadOwnerLookup;
-use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};
+use oxy_compile_runtime::config_gate::runtime_config_gate;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
+use oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;

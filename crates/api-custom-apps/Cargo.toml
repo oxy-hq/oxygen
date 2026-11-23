@@ -31,6 +31,10 @@ indexmap = { workspace = true }  # `data_plane::query`: column order in a result
 # `tests/routing/surface_contract.rs`). oxy-app never depends back on this crate,
 # not even as a dev-dependency, so none of its test binaries links V8.
 oxy-app = { path = "../app", default-features = false }
+# What the prelude used to hand on, imported from the crates that own it:
+oxy-workspace-runtime = { workspace = true } # the semantic boundary, gates, metric-tree executor, queued runs
+oxy-compile-runtime = { workspace = true }   # the lazy compile enqueue
+oxy-previews = { workspace = true }          # the preview run queue, namespace and sources
 oxy-app-core = { workspace = true }       # AppState, the agent-token body, the function seam traits
 oxy-feature-flags = { workspace = true }  # `ctx.events.publish` asks the org's `app_events` flag first
 oxy-metric-monitoring = { workspace = true } # the metric-tree twins' request shapes, baseline reads and budget
