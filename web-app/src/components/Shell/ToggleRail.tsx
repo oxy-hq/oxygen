@@ -13,9 +13,8 @@ import { cn } from "@/libs/shadcn/utils";
 import { type RailItem, RailMark } from "./RailItem";
 
 /**
- * The rail, the reference design's: it opens and closes from
- * a toggle at its head and narrows the page while open, rather than opening on
- * hover over it (`ShellRail`, which stays as it is with the flag off).
+ * The rail, the reference design's: it opens and closes from a toggle at its
+ * head and narrows the page while open, rather than opening on hover.
  *
  * - Closed, 48px: marks only. Each names itself in a hint to its right on
  *   hover, and to a screen reader always (the name is in the row, hidden).
@@ -224,8 +223,13 @@ export function ToggleRail({
         DESIGN_REFERENCE,
         // `overflow-x-clip`, not `hidden`: the rows are cut while the width eases, and the
         // column does not become a scroll container of its own.
-        "group/rail h-full shrink-0 overflow-x-clip border-border-subtle border-r bg-sidebar transition-[width] duration-200 ease-out motion-reduce:transition-none",
-        open ? "w-56" : "w-12"
+        "group/rail h-full shrink-0 overflow-x-clip border-border-subtle border-r bg-sidebar transition-[width] motion-reduce:transition-none",
+        // Opening arrives (ease-out, base); closing departs, faster (ease-in, fast) — the
+        // pair the SDK rail eases on, off the shared motion tokens, so the rail moves the
+        // same way in the web-app and in every OxyShell app.
+        open
+          ? "w-56 duration-(--duration-base) ease-out"
+          : "w-12 duration-(--duration-fast) ease-in"
       )}
     >
       <div className={cn("flex h-full flex-col gap-1 py-2", open ? "px-2" : "px-1", align)}>

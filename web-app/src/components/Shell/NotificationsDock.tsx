@@ -49,8 +49,12 @@ export function NotificationsDock() {
       style={{ width: shown ? PANEL_PX : 0 }}
       className={cn(
         DESIGN_REFERENCE,
-        "flex h-full shrink-0 flex-col overflow-hidden bg-background transition-[width] duration-300 ease-out motion-reduce:transition-none",
-        shown ? "border-border-subtle border-l" : "pointer-events-none"
+        "flex h-full shrink-0 flex-col overflow-hidden bg-background transition-[width] motion-reduce:transition-none",
+        // As the rail: opening arrives, closing departs faster. A step up the scale from
+        // the rail's pair, because this panel traverses 440px to the rail's 176px.
+        shown
+          ? "border-border-subtle border-l duration-(--duration-slow) ease-out"
+          : "pointer-events-none duration-(--duration-base) ease-in"
       )}
     >
       {/* At its open width always, so the list never rewraps while the panel eases. */}
