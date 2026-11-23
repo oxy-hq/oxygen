@@ -263,14 +263,15 @@ plain link, with a footer link to Oxygen home. It is fetched the first time the
 panel opens (`GET /api/home/widgets?org=<slug>`) and a failure only shows
 "Couldn't load Today." in the panel. Nothing to configure; `shell.css` styles it.
 In the phone layout (`PHONE_LAYOUT_QUERY`) each top-bar control, the menu button,
-the clock, Ask and a button or link your `topBarExtra` puts directly in the bar,
+the clock and a button or link your `topBarExtra` puts directly in the bar,
 answers a tap within 44px of its centre; nothing drawn grows. A tablet and a desktop
 keep the bar exactly as it is. The reach is that control's `::before`, so in the phone
 layout the shell owns the `::before` of a button or link placed directly in the bar:
 put a badge on such a control in a child element, not in its `::before`.
-In the phone layout, Ask Oxygen opens as a full-screen layer over the app (the
-app keeps its width and is inert behind it) rather than docked beside it, and
-Back closes it; a tablet and a desktop keep the docked side panel.
+An `AskDock` an app mounts itself opens, in the phone layout, as a full-screen layer
+over the app (the app keeps its width and is inert behind it) rather than docked
+beside it, and Back closes it; a tablet and a desktop keep the docked side panel.
+(`OxyShell` mounts none since 2.34.0: it has no Ask entry.)
 In the phone layout an open Today panel also holds a history entry, as a
 `PhoneSheet` does, so the phone's Back closes it and the app stays; a row or the
 home link replaces that entry rather than leaving it behind. A tablet and a desktop
@@ -318,10 +319,9 @@ import "@oxy-hq/sdk/shell.css";
   `--card-border` (the frame line); the Ask button and the kit's chips, segments and
   secondary buttons on `--button-secondary-border` (the reference's secondary-button
   edge), while fields keep `--border`; the rail and bars sit on `--rail-bg` and
-  `--topbar-bg`; the top bar's Ask is the reference's secondary button, like the app
-  buttons beside it (`btnCompactSecondary`: filled `--btn-surface`, hover
-  `--btn-surface-hover`, full ink, its ⌘K hint on a `--muted` chip in the muted ink, at
-  its old size); the nav drawer's scrim is the theme's overlay (below); touch targets are
+  `--topbar-bg`; a button an app puts in the top bar is the reference's secondary button
+  (`btnCompactSecondary`: filled `--btn-surface`, hover `--btn-surface-hover`, full ink);
+  the nav drawer's scrim is the theme's overlay (below); touch targets are
   `--control-h-lg`; and the shell's type follows the kit's, `--font-sans`. Every focus
   ring is the theme's one ring (`--focus-ring-width`, `--focus-ring-color`: 1.5px, at full
   strength), and every focused control also draws a transparent outline, which is what

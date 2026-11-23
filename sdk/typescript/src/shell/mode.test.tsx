@@ -165,6 +165,17 @@ describe("OxyShell and the person's mode, with the theme", () => {
     expect($('[role="menu"]')).toBeNull();
   });
 
+  it('draws the switch as the "Appearance" row in the open rail, the one icon when closed', async () => {
+    localStorage.setItem("oxy.shell-rail.expanded", "true");
+    await render();
+    const row = $(".oxy-rail__bottom .oxy-modeswitch-row");
+    expect(row?.querySelector(".oxy-modeswitch-row__label")?.textContent).toBe("Appearance");
+    expect($(".oxy-rail__bottom .oxy-modeswitch")).toBeNull();
+    await click($('[data-testid="shell-rail-toggle"]'));
+    expect($(".oxy-rail__bottom .oxy-modeswitch-row")).toBeNull();
+    expect($(".oxy-rail__bottom .oxy-modeswitch")).not.toBeNull();
+  });
+
   it("puts the old mode back when the server refuses the write", async () => {
     putStatus = 403;
     await render();

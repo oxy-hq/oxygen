@@ -96,9 +96,6 @@ pub struct AuthConfigResponse {
     /// the org Billing settings tab and the admin Billing queue surfaces a
     /// "Billing is disabled" notice instead of a misleading empty state.
     pub billing_enabled: bool,
-    /// Mirror of the backend `home_v3` feature flag: the third apps-first home
-    /// (ask first, big apps, Today folded, simple and full views).
-    pub home_v3: bool,
     /// True when `OXY_DEV_LOGIN_EMAILS` is set, i.e. the dev sign-in bypass is
     /// available. Drives the "Dev sign-in" button on the login page — the one
     /// affordance a browser-automation tool can click without OAuth or email.

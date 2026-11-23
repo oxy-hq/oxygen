@@ -32,14 +32,25 @@ const OPTIONS: {
  */
 export function VisibilityChoice({
   value,
-  onChange
+  onChange,
+  reference = false
 }: {
   value: AppVisibility;
   onChange: (v: AppVisibility) => void;
+  /** The label as the reference design's capitalised section label (the home's dialog). */
+  reference?: boolean;
 }) {
   return (
     <fieldset className='flex flex-col gap-3'>
-      <legend className='mb-3 font-medium text-sm'>Visibility</legend>
+      <legend
+        className={
+          reference
+            ? "mb-3 font-semibold text-ref-xs text-subtle-foreground uppercase tracking-eyebrow"
+            : "mb-3 font-medium text-sm"
+        }
+      >
+        Visibility
+      </legend>
       <div className='grid gap-2 sm:grid-cols-2'>
         {OPTIONS.map((option) => {
           const selected = value === option.value;

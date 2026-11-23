@@ -1,12 +1,14 @@
-// The icon rail — sole chrome of the workspace shell. Ported from
-// web-app/src/components/Shell/ShellRail.tsx, which was written router-free
-// for exactly this move. Keep the two looking and behaving alike: the same
-// widths, the same toggle, the same remembered state (`RAIL_EXPANDED_KEY`).
+// The icon rail — sole chrome of the workspace shell. Keep it looking and behaving
+// like Oxygen's own rail (web-app/src/components/Shell/ToggleRail.tsx): the same
+// widths, the same toggle, the same remembered state (`RAIL_EXPANDED_KEY`), the
+// same square rows on the reference design's fills, and each app drawn as its grey
+// mark through the same cutter (`railGlyph.ts`).
 
 import { Fragment, type ReactNode, useState } from "react";
 import { cx } from "./cx";
 import { useNavSheetLayout } from "./navSheetQuery";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
+import { useRailGlyph } from "./railGlyph";
 import { ShellTooltip } from "./Tooltip";
 
 /** One rail entry. Provide `imageUrl` (custom app mark, falls back to
@@ -28,22 +30,37 @@ export type RailItem = {
   onSelect?: () => void;
 };
 
-/** An item's mark: the app image (falling back to its letter on a load
- *  error), else its icon, else its letter. Shared with `NavSheet`. */
-export function RailItemMark({ item }: { item: RailItem }) {
-  // Track the URL that failed (not a boolean) so a new imageUrl retries
-  // instead of latching the letter fallback forever.
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  if (item.imageUrl && failedUrl !== item.imageUrl) {
+/**
+ * An app's mark as Oxygen's rail draws it: no colour of its own, the row's text
+ * colour (grey, the current one darker) through the mark cut out of its icon
+ * (`railGlyph.ts`, the one cutter Oxygen's web-app copies). Nothing while the cut
+ * is made, so the coloured icon never flashes; the app's letter, in the same
+ * colour, when there is no mark to cut.
+ */
+function AppGlyph({ url, letter }: { url: string; letter?: string }) {
+  const mask = useRailGlyph(url);
+  if (mask === null) {
     return (
-      <img
-        src={item.imageUrl}
-        alt=''
-        onError={() => setFailedUrl(item.imageUrl ?? null)}
-        className='oxy-rail__item-img'
-      />
+      <span data-glyph='letter' className='oxy-rail__item-letter'>
+        {letter}
+      </span>
     );
   }
+  if (mask === undefined) return <span data-glyph='pending' className='oxy-rail__item-glyph' />;
+  const image = `url("${mask}")`;
+  return (
+    <span
+      data-glyph='mark'
+      className='oxy-rail__item-glyph oxy-rail__item-glyph--ready'
+      style={{ maskImage: image, WebkitMaskImage: image }}
+    />
+  );
+}
+
+/** An item's mark: an app as its grey mark (`AppGlyph`), else its icon, else its
+ *  letter. Shared with `NavSheet`. */
+export function RailItemMark({ item }: { item: RailItem }) {
+  if (item.imageUrl) return <AppGlyph url={item.imageUrl} letter={item.letter} />;
   return item.icon ?? <span className='oxy-rail__item-letter'>{item.letter}</span>;
 }
 
@@ -88,24 +105,13 @@ function useRailExpanded(): { expanded: boolean; narrow: boolean; toggle: () => 
   return { expanded: open && !narrow, narrow, toggle };
 }
 
-/** lucide "panel-left-close" (open) / "panel-left-open" (closed), inlined like the
- *  shell's other glyphs. */
-function SidebarIcon({ open }: { open: boolean }) {
+/** Phosphor's SidebarSimple at the regular weight, the toggle Oxygen's rail and the
+ *  reference design draw, the same open or closed (the SDK carries no icon library,
+ *  so its path is inlined). */
+function SidebarIcon(_props: { open: boolean }) {
   return (
-    <svg
-      width='16'
-      height='16'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-    >
-      <rect width='18' height='18' x='3' y='3' rx='2' />
-      <path d='M9 3v18' />
-      <path d={open ? "m16 15-3-3 3-3" : "m14 9 3 3-3 3"} />
+    <svg width='16' height='16' viewBox='0 0 256 256' fill='currentColor' aria-hidden='true'>
+      <path d='M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H80V200H40ZM216,200H96V56H216V200Z' />
     </svg>
   );
 }
@@ -251,6 +257,7 @@ export function ShellRail({
   top,
   title,
   groups,
+  groupTitles,
   footerItems,
   bottom,
   className
@@ -259,12 +266,19 @@ export function ShellRail({
   /** The name beside `top` in the head once the rail is open. */
   title?: string;
   groups: RailItem[][];
+  /** A title above each group, by index, shown while the rail is open (Oxygen's
+   *  rail titles its apps "Apps"); none for `undefined`. */
+  groupTitles?: (string | undefined)[];
   footerItems?: RailItem[];
-  bottom?: ReactNode;
+  /** The account slot at the foot. A function is told whether the rail is open, so
+   *  the slot can draw its open form (a row with its name) beside the entries. */
+  bottom?: ReactNode | ((expanded: boolean) => ReactNode);
   className?: string;
 }) {
   const { container, setContainer } = useShellPortalContainer();
   const { expanded, narrow, toggle } = useRailExpanded();
+  // No foot at all when the slot has nothing to draw, in either form.
+  const foot = typeof bottom === "function" ? bottom(expanded) : bottom;
   return (
     <ShellPortalContext.Provider value={container}>
       {/* A div with the navigation role, not a <nav>: an app's own `nav { … }` rule
@@ -282,6 +296,9 @@ export function ShellRail({
           {groups.map((group, i) => (
             <Fragment key={group[0]?.key ?? i}>
               {i > 0 && <RailDivider />}
+              {expanded && groupTitles?.[i] && (
+                <div className='oxy-rail__group-title'>{groupTitles[i]}</div>
+              )}
               {group.map((item) => (
                 <RailEntry key={item.key} item={item} expanded={expanded} />
               ))}
@@ -296,7 +313,7 @@ export function ShellRail({
             </div>
           )}
         </div>
-        {bottom && <div className='oxy-rail__bottom'>{bottom}</div>}
+        {foot && <div className='oxy-rail__bottom'>{foot}</div>}
       </div>
     </ShellPortalContext.Provider>
   );

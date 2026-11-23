@@ -135,7 +135,6 @@ pub async fn get_config(
 
     let observability_enabled = app_state.observability().is_some();
     let billing_enabled = oxy_feature_flags::is_enabled("billing");
-    let home_v3 = oxy_feature_flags::home_v3();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See
     // `dev_login::dev_login_reachable_by`.
@@ -152,7 +151,6 @@ pub async fn get_config(
             github: github_client_id.map(|client_id| GitHubAuthConfig { client_id }),
             mode: app_state.mode.label(),
             billing_enabled,
-            home_v3,
             dev_login,
         }));
     }
@@ -179,7 +177,6 @@ pub async fn get_config(
         github: github_client_id.map(|client_id| GitHubAuthConfig { client_id }),
         mode: app_state.mode.label(),
         billing_enabled,
-        home_v3,
         dev_login,
     };
 
@@ -516,7 +513,6 @@ mod mode_field_tests {
             github: None,
             mode: ServeMode::Local.label(),
             billing_enabled: false,
-            home_v3: false,
             dev_login: false,
         };
         let json = serde_json::to_value(&response).expect("serialize");
@@ -535,7 +531,6 @@ mod mode_field_tests {
             github: None,
             mode: ServeMode::Cloud.label(),
             billing_enabled: false,
-            home_v3: false,
             dev_login: false,
         };
         let json = serde_json::to_value(&response).expect("serialize");

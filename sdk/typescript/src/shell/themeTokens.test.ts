@@ -563,12 +563,16 @@ describe("shell.css follows the design system's own parts with the theme", () =>
     expect(shipped.get("--oxy-theme-contract")).toBe(String(contractJson.version));
   });
 
-  it("draws a focused rail tile, and so its ring, at full strength with the theme", () => {
-    // The tile rests at 0.6, which put the ring at 2.74:1; 0.6 stays the value without the theme.
-    expect(rule(".oxy-rail__item")).toMatch(/opacity: 0\.6;/);
-    expect(rule(".oxy-rail__item:focus-visible:not(:hover):not(.oxy-rail__item--active)")).toMatch(
-      /opacity: calc\(0\.6 \+ 0\.4 \* var\(--oxy-shell-themed, 0\)\);/
+  it("draws rail rows as Oxygen's rail does: grey, the row fills, never faded", () => {
+    // 2.34.0: the tile no longer rests at 0.6 (which put its focus ring at 2.74:1); it is
+    // the reference design's grey, filled on hover and when current, with no outline.
+    expect(rule(".oxy-rail__item")).not.toMatch(/opacity/);
+    expect(rule(".oxy-rail__item")).toMatch(/color: var\(--subtle-foreground, /);
+    expect(rule(".oxy-rail__item:hover")).toMatch(/background: var\(--row-hover, /);
+    expect(rule(".oxy-rail__item--active,\n.oxy-rail__item--active:hover")).toMatch(
+      /background: var\(--rail-item-active-bg, var\(--row-selected, /
     );
+    expect(rule(".oxy-rail__item--active,\n.oxy-rail__item--active:hover")).not.toMatch(/inset/);
   });
 
   it("lines a phone section's title up with the cards under it with the theme, 4px in without", () => {

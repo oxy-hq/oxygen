@@ -56,12 +56,6 @@ pub fn is_enabled_for(key: &'static str, ctx: &FlagContext) -> bool {
     registry::get(key).is_some_and(|def| eval.variant != def.off())
 }
 
-/// The third home: the ask box first, the apps
-/// big, Today folded to one line, two views (simple and full) and a top bar with
-/// no clock and a Today button. Off, the home is the one before it.
-/// Presentation only: the web app reads it from `GET /auth/config`.
-pub const HOME_V3: &str = "home_v3";
-
 /// App events, per org: an Oxy Function's `ctx.events.publish` and
 /// `tx.events.publish` put an event in the org's outbox only where this serves
 /// `on` (app events design §10, step 2). Read with [`is_enabled_for`] and the
@@ -81,8 +75,3 @@ pub const REACT_RUNTIME: &str = "react_runtime";
 /// the run on react). Read with [`is_enabled_for`] and the workspace's org
 /// (`OxyProjectContext::react_memory_enabled`).
 pub const REACT_MEMORY: &str = "react_memory";
-
-/// Whether [`HOME_V3`] is on.
-pub fn home_v3() -> bool {
-    is_enabled(HOME_V3)
-}

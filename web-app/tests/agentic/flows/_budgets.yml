@@ -94,7 +94,7 @@
 
 - flow: launcher-home
   # 3 cases covering the launcher's key surfaces. No streaming LLM run in
-  # fallback-home or rail-chat-and-home (just clicks + visibility checks).
+  # fallback-home or rail-toggle (just clicks + visibility checks).
   # ask-dock-roundtrip triggers a chat submit, waits for streaming_complete
   # in the dock, then promotes to the routed thread page — same cost profile
   # as chat-ask (one analytics run) plus one extra act. Cold dominated by the

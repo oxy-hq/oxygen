@@ -10,10 +10,7 @@ export { useNotificationSettings } from "./useNotificationSettings";
 export { useRemoveNotificationDevice } from "./useRemoveNotificationDevice";
 export { useReportThisDevice } from "./useReportThisDevice";
 export { useRunNotificationAction } from "./useRunNotificationAction";
-export {
-  useAppUnreadCounts,
-  useUnreadNotificationCount
-} from "./useUnreadNotificationCount";
+export { useUnreadNotificationCount } from "./useUnreadNotificationCount";
 export { useUpdateNotificationDevice } from "./useUpdateNotificationDevice";
 export { useUpdateNotificationSettings } from "./useUpdateNotificationSettings";
 export { useVapidPublicKey } from "./useVapidPublicKey";

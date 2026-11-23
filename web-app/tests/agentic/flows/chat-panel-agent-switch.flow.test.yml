@@ -24,8 +24,8 @@
 # something a flow can restore without unpublishing a seeded app (out of
 # scope — mutating the shared fleet workspace).
 #
-# The Ask dock ([data-testid=ask-dock], opened via
-# [data-testid=ask-oxygen-button] in the top bar) is the OTHER caller of the
+# The Ask dock ([data-testid=ask-dock], opened via the ControlOrMeta+k
+# shortcut; the top bar has no Ask button) is the OTHER caller of the
 # same composer — per this file's own header comment, "AskPanel and
 # AskForwardFallback both pass `hideAgentPicker`" — and the top bar renders
 # on every workspace page regardless of app count (`launcher-home`'s
@@ -58,14 +58,15 @@ cases:
     tags: [chat, regression]
     steps:
       # Universal chrome — present regardless of published-app count.
-      - wait_for: "selector:[data-testid=ask-oxygen-button]"
+      - wait_for: "selector:[data-testid=workspace-topbar]"
 
       # Verbatim from canonical-prompts.md § "Chat panel" > "Ask a question
       # via the Ask dock" (first step only) — cache_scope: shared so this
       # replays free once any flow using that prelude has recorded it.
       - act: |
-          browser_click [data-testid=ask-oxygen-button] in the top bar. The
-          right-side Ask dock ([data-testid=ask-dock]) opens with a composer.
+          browser_press_key ControlOrMeta+k (the Ask shortcut; there is no Ask
+          button in the top bar). The right-side Ask dock ([data-testid=ask-dock])
+          opens with a composer.
         cache_scope: shared
 
       - wait_for: "selector:[data-testid=ask-dock]"

@@ -1,8 +1,6 @@
-import useHomeV3 from "@/hooks/useHomeV3";
-import HomeV2 from "./HomeV2";
-import HomeV3 from "./HomeV3";
+import HomeV4 from "./HomeV4";
 
-/** The org's home: v3 behind `home_v3`, else v2. */
+/** The org's home: a greeting and the apps as preview cards (`HomeV4`). */
 export default function CustomerHome() {
-  return useHomeV3() ? <HomeV3 /> : <HomeV2 />;
+  return <HomeV4 />;
 }

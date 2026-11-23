@@ -1,3 +1,4 @@
+import { AppMark } from "@/components/apps/AppMark";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
 
@@ -13,6 +14,10 @@ import type { CustomApp } from "@/types/apps";
  * The slug line is the copy-pasteable identity — `acme/oxy-starter` is what appears in a
  * URL, in `oxyc` commands and in a Slack message, so it is rendered in mono and is
  * selectable rather than being decoration.
+ *
+ * The app's icon leads (its manifest `icon`, else its monogram, through `AppMark`):
+ * an operator scanning a long table finds an app by its picture before reading a
+ * name, the way the home and the rail show it.
  */
 export const AppIdentity = ({
   app,
@@ -20,28 +25,34 @@ export const AppIdentity = ({
   className,
   "data-testid": dataTestId
 }: {
-  app: Pick<CustomApp, "name" | "slug" | "org_slug">;
+  app: Pick<CustomApp, "name" | "slug" | "org_slug" | "icon_url">;
   /** `sm` for list rows, `lg` for the console header. */
   size?: "sm" | "lg";
   className?: string;
   "data-testid"?: string;
 }) => (
-  <span className={cn("flex min-w-0 flex-col gap-0.5", className)} data-testid={dataTestId}>
-    <span className='flex min-w-0 items-baseline gap-2'>
-      <span
-        className={cn(
-          "truncate font-semibold tracking-tight",
-          size === "lg" ? "text-xl" : "text-xs"
-        )}
-      >
-        {app.name}
-      </span>
-      {/* The org is a peer of the name, not a distant column. At `lg` it keeps the
+  <span
+    className={cn("flex min-w-0 items-center", size === "lg" ? "gap-3" : "gap-2.5", className)}
+    data-testid={dataTestId}
+  >
+    <AppMark iconUrl={app.icon_url} name={app.name} size={size === "lg" ? "xl" : "lg"} />
+    <span className='flex min-w-0 flex-col gap-0.5'>
+      <span className='flex min-w-0 items-baseline gap-2'>
+        <span
+          className={cn(
+            "truncate font-semibold tracking-tight",
+            size === "lg" ? "text-xl" : "text-xs"
+          )}
+        >
+          {app.name}
+        </span>
+        {/* The org is a peer of the name, not a distant column. At `lg` it keeps the
           smaller size on purpose — it qualifies the name rather than competing. */}
-      <span className='shrink-0 truncate text-muted-foreground text-xs'>{app.org_slug}</span>
-    </span>
-    <span className='truncate font-mono text-[10px] text-muted-foreground'>
-      {app.org_slug}/{app.slug}
+        <span className='shrink-0 truncate text-muted-foreground text-xs'>{app.org_slug}</span>
+      </span>
+      <span className='truncate font-mono text-[10px] text-muted-foreground'>
+        {app.org_slug}/{app.slug}
+      </span>
     </span>
   </span>
 );

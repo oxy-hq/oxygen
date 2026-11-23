@@ -133,11 +133,11 @@ async fn every_feature_flag_console_route_is_mounted() {
             StatusCode::METHOD_NOT_ALLOWED,
         ),
         (
-            "/feature-flags/home_v3".to_string(),
+            "/feature-flags/app_events".to_string(),
             StatusCode::METHOD_NOT_ALLOWED,
         ),
         (
-            "/feature-flags/home_v3/x".to_string(),
+            "/feature-flags/app_events/x".to_string(),
             StatusCode::NOT_FOUND,
         ),
         ("/feature-flagsx".to_string(), StatusCode::NOT_FOUND),

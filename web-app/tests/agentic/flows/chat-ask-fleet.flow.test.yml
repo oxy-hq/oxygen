@@ -156,11 +156,16 @@ cases:
   - name: ask a sales question and get a real numeric answer through the serve-to-ide proxy
     tags: [chat, fleet, compile-boundary, critical]
     steps:
+      # A key press does not wait for the page the way a click waits for its button:
+      # replayed from the cache it fired mid-redirect and the dock never opened. The
+      # shortcut is bound once the workspace's chrome is up.
+      - wait_for: "selector:[data-testid=workspace-topbar]"
+
       - act: |
-          browser_click [data-testid=ask-oxygen-button] in the top bar
-          (web-app/src/components/Shell/TopBar/index.tsx:16). The right-side
-          Ask dock ([data-testid=ask-dock]) opens with a ChatPanel composer
-          inside.
+          browser_press_key ControlOrMeta+k (the Ask shortcut,
+          web-app/src/App.tsx; there is no Ask button in the top bar). The
+          right-side Ask dock ([data-testid=ask-dock]) opens with a ChatPanel
+          composer inside.
 
       - wait_for: "selector:[data-testid=ask-dock]"
 

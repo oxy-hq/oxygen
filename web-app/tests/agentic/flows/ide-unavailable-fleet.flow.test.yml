@@ -46,17 +46,10 @@ cases:
     steps:
       # THE GLOBAL SIGNAL appears once the first ide-pinned request 502s (below),
       # so the page starts on the Chat landing page rather than on a surface that
-      # already needs the ide.
-      # data-testid='rail-chat' — web-app/src/components/Shell/WorkspaceShell.tsx:65.
-      # SPA navigation (React Router, not browser_navigate) to the workspace's
-      # /threads — the Chat landing page (composer + recent-threads history),
-      # so it resolves the org/workspace prefix correctly no matter how we
-      # got here.
-      - act: |
-          browser_click [data-testid=rail-chat] in the left icon rail. The
-          page navigates to the Chat landing page — a composer with a
-          "Recent threads" history below it.
-
+      # already needs the ide. The setup's `goto:/threads` (prefixed with the
+      # workspace) lands there: the Chat landing page (composer + recent-threads
+      # history). The rail has no Chat entry since #4385, so there is no SPA
+      # click to make here.
       - wait_for: "selector:textarea[name=question]"
 
       # READ ACCESS SURVIVES. data-testid='thread-history-list' —

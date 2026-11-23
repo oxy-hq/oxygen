@@ -46,16 +46,9 @@ vi.mock("@/hooks/api/users/useCurrentUser", () => ({
     }
   })
 }));
-// Unread per app, as the bell's poll reports it; what the hook was enabled with.
-let unreadByApp: Record<string, number> = {};
-const unreadEnabled = vi.fn();
-vi.mock("@/hooks/api/notifications", () => ({
-  useAppUnreadCounts: (enabled: boolean) => {
-    unreadEnabled(enabled);
-    return enabled ? unreadByApp : {};
-  }
-}));
 // The dialog itself is tested on its own; here only whether the rail opens it.
+// The notifications panel reads the inbox; it has tests of its own.
+vi.mock("./NotificationsDock", () => ({ NotificationsDock: () => null }));
 vi.mock("@/components/admin/OpenFactoryDialog", () => ({
   OpenFactoryDialog: ({
     open,
@@ -126,17 +119,6 @@ afterEach(() => {
   capabilities = ["operate_platform"];
   actingAs = null;
   memberOf = [];
-  unreadByApp = {};
-});
-
-describe("the rail's unread badges", () => {
-  it("puts each app's unread count on its mark", () => {
-    unreadByApp = { revenue: 3 };
-    renderAt("/acme/home");
-    expect(screen.getByTestId("rail-app-revenue-unread")).toHaveTextContent("3");
-    expect(screen.getByTestId("rail-app-revenue")).toHaveAccessibleName("revenue, 3 unread");
-    expect(screen.queryByTestId("rail-app-forecast-unread")).toBeNull();
-  });
 });
 
 describe("WorkspaceShell rail", () => {
@@ -168,8 +150,7 @@ describe("WorkspaceShell rail", () => {
 
   it("marks Home active on the org home", () => {
     renderAt("/acme/home");
-    expect(screen.getByTestId("rail-hq").className).toContain("bg-muted");
-    expect(screen.getByTestId("rail-chat").className).not.toContain("bg-muted");
+    expect(screen.getByTestId("rail-hq")).toHaveAttribute("aria-current", "page");
   });
 });
 
@@ -182,7 +163,7 @@ describe("WorkspaceShell rail, Home", () => {
 
   it("keeps Home lit on the read-only world model", () => {
     renderAt("/acme/world-model");
-    expect(screen.getByTestId("rail-hq").className).toContain("bg-muted");
+    expect(screen.getByTestId("rail-hq")).toHaveAttribute("aria-current", "page");
   });
 });
 

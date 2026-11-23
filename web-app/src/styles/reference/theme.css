@@ -1,0 +1,236 @@
+/* ============================================================================
+   The reference design language, scoped
+
+   The oxygen reference app's palette, type and geometry (oxy-hq/reference-app,
+   shipped as the SDK theme: `styles/shadcn/sdk-theme.css` is its byte-identical
+   copy), applied only to a subtree that carries the `design-reference` class.
+   The shell's rail, top bar and notifications panel and the home page carry it;
+   nothing else in the app changes.
+
+   Inside the subtree the shadcn tokens every existing component reads
+   (`--background`, `--card`, `--border`, `--muted-foreground`, ...) resolve to
+   the reference's values, so `bg-card`, `border` and `text-muted-foreground`
+   take the new look without being rewritten. The reference's own roles that
+   shadcn has no name for (`field`, `row-selected`, `dim-foreground`, `dot-*`,
+   ...) are added as utilities below.
+
+   The values are the SDK theme's, light and dark, so a theme change shows up
+   here: `theme.test.ts` fails when one drifts. The few that differ on purpose
+   are listed in that test with the reason.
+
+   Not the SDK theme itself: it is written on `:root`, so importing it would
+   restyle every page of the app at once.
+============================================================================ */
+
+/* The reference type scale under its own names: the app's global `text-sm` is
+   14px and the reference's is 13px, so reusing Tailwind's names would resize
+   every page. Sizes and line heights are the SDK's `oxy-ui-text-*` recipes. */
+@theme {
+  --text-ref-2xl: 2.25rem;
+  --text-ref-2xl--line-height: 1.25;
+  --text-ref-xl: 1.5rem;
+  --text-ref-xl--line-height: 1.25;
+  --text-ref-base: 1rem;
+  --text-ref-base--line-height: 1.375;
+  --text-ref-md: 0.875rem;
+  --text-ref-md--line-height: 1.4;
+  --text-ref-sm: 0.8125rem;
+  --text-ref-sm--line-height: 1.4;
+  --text-ref-xs: 0.75rem;
+  --text-ref-xs--line-height: 1.4;
+  --text-ref-2xs: 0.6875rem;
+  --text-ref-2xs--line-height: 1.4;
+  --tracking-eyebrow: 0.06em;
+}
+
+@theme inline {
+  --color-field: var(--field);
+  --color-row-hover: var(--row-hover);
+  --color-row-selected: var(--row-selected);
+  --color-segment-track: var(--segment-track);
+  --color-segment-selected: var(--segment-selected);
+  --color-btn-surface: var(--btn-surface);
+  --color-btn-surface-hover: var(--btn-surface-hover);
+  --color-dim-foreground: var(--dim-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-border-subtle: var(--border-subtle);
+  --color-field-border: var(--field-border);
+  --color-control-border: var(--control-border);
+  --color-link: var(--link);
+
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-info: var(--status-info);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+
+  --color-dot-success: var(--dot-success);
+  --color-dot-info: var(--dot-info);
+  --color-dot-warning: var(--dot-warning);
+  --color-dot-error: var(--dot-error);
+}
+
+/* ─── Light ──────────────────────────────────────────────────────────────── */
+.design-reference {
+  /* The reference's own roles. */
+  --field: #ffffff;
+  --row-hover: rgba(0, 0, 0, 0.04);
+  --row-selected: rgba(0, 0, 0, 0.09);
+  --segment-track: #ffffff;
+  --segment-selected: #e4e4e7;
+  --btn-surface: #dcdce0;
+  --btn-surface-hover: #d0d0d5;
+  --dim-foreground: #444448;
+  --subtle-foreground: #626269;
+  --disabled-foreground: #94949d;
+  --inverse-foreground: #ffffff;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.54);
+  --field-border: rgba(0, 0, 0, 0.42);
+  --brand: #3550ff;
+  --brand-hover: rgba(53, 80, 255, 0.9);
+  --link: #2a40cc;
+  --focus-ring-color: #5a5a60;
+
+  --status-success: #126932;
+  --status-warning: #865108;
+  --status-error: #b01b1b;
+  --status-info: #2a40cc;
+  --status-neutral: #444448;
+  --status-neutral-bg: rgba(0, 0, 0, 0.06);
+
+  --dot-success: #059341;
+  --dot-info: #3550ff;
+  --dot-warning: #a5770d;
+  --dot-error: #eb3c3e;
+
+  /* shadcn's names, resolved to the reference's values. */
+  --background: #f6f6f7;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-foreground: #ffffff;
+  --secondary: #dcdce0;
+  --secondary-foreground: #18181b;
+  --muted: #ececee;
+  --muted-foreground: #5a5a60;
+  --accent: rgba(0, 0, 0, 0.05);
+  --accent-foreground: #18181b;
+  --destructive: #b01b1b;
+  --destructive-foreground: #ffffff;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #444448;
+  --sidebar-accent: rgba(0, 0, 0, 0.06);
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: rgba(0, 0, 0, 0.14);
+
+  /* On purpose, not the SDK's (theme.test.ts lists why). */
+  /* shadcn's `border` is the hairline every card is drawn with; the SDK's `--border` is
+     the 3:1 interactive edge, which here is `--field-border`. */
+  --border: var(--border-subtle);
+  --input: var(--field-border);
+  --ring: var(--focus-ring-color);
+  /* The web app's rail and top bar read `--sidebar-background`, the SDK has only `--sidebar`. */
+  --sidebar-background: var(--sidebar);
+  /* A quiet control's edge (a select or a choice card in a dialog): muted from the 3:1
+     field edge, but plainly above a divider's hairline. */
+  --control-border: rgba(0, 0, 0, 0.2);
+  --radius: 0px;
+
+  color: var(--foreground);
+}
+
+/* ─── Zero radius, everywhere in the subtree ──────────────────────────────
+   The reference's corners are square. The existing components carry
+   `rounded-md`, `rounded-lg`, `rounded-xl`, and `@theme inline` bakes some of
+   those in as literals, so `--radius: 0` alone cannot reach them. Unlayered,
+   this outranks the utilities layer. Dots, avatars and unread badges are
+   `rounded-full` and stay round. */
+.design-reference,
+.design-reference *:not(.rounded-full) {
+  border-radius: 0;
+}
+
+/* ─── Dark ───────────────────────────────────────────────────────────────── */
+.dark .design-reference,
+.dark.design-reference {
+  --field: #252525;
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --row-selected: rgba(255, 255, 255, 0.09);
+  --segment-track: #252525;
+  --segment-selected: #000000;
+  --btn-surface: #3a3a41;
+  --btn-surface-hover: #45454e;
+  --dim-foreground: #babac5;
+  --subtle-foreground: #95959d;
+  --disabled-foreground: #626268;
+  --inverse-foreground: #ffffff;
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.46);
+  --field-border: rgba(255, 255, 255, 0.34);
+  --brand: #445dff;
+  --brand-hover: rgba(68, 93, 255, 0.9);
+  --link: #8696ff;
+  --focus-ring-color: #aaaab3;
+
+  --status-success: #22c55e;
+  --status-warning: #eab308;
+  --status-error: #fa8e8e;
+  --status-info: #93a2ff;
+  --status-neutral: #babac5;
+  --status-neutral-bg: rgba(255, 255, 255, 0.08);
+
+  --dot-success: #22c55e;
+  --dot-info: #5d73ff;
+  --dot-warning: #f5b000;
+  --dot-error: #ef4444;
+
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --card: #1a1a1a;
+  --card-foreground: #ededed;
+  --popover: #1a1a1a;
+  --popover-foreground: #ededed;
+  --primary: #ededed;
+  --primary-foreground: #0a0a0a;
+  --secondary: #3a3a41;
+  --secondary-foreground: #ededed;
+  --muted: #27272a;
+  --muted-foreground: #aaaab3;
+  --accent: rgba(255, 255, 255, 0.06);
+  --accent-foreground: #ededed;
+  --destructive: #fa8e8e;
+  --destructive-foreground: #0a0a0a;
+  --sidebar: #101010;
+  --sidebar-foreground: #babac5;
+  --sidebar-accent: rgba(255, 255, 255, 0.08);
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: rgba(255, 255, 255, 0.16);
+
+  --control-border: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── The native select's chevron ─────────────────────────────────────────
+   Drawn at 12x8, 12px in from the right edge: the compact select's inset. */
+.design-reference {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%235e5e64' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.dark .design-reference,
+.dark.design-reference {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%239797a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+@utility select-chevron {
+  appearance: none;
+  background-image: var(--select-chevron);
+  background-size: 12px 8px;
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}

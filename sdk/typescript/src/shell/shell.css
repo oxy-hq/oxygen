@@ -184,16 +184,16 @@
   background: var(--rail-bg, var(--oxy-shell-sidebar-bg));
 }
 
-/* Fixed 3rem so the logo cell matches the top bar height exactly — the two
-   bottom borders line up into one continuous divider. */
+/* The head is a 32px row 8px from the rail's top, with no rule under it, as Oxygen's rail
+   (web-app ToggleRail) and the reference design's Home rail draw it. */
 .oxy-rail__top {
   display: flex;
-  height: 3rem;
+  height: 2rem;
   flex-shrink: 0;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid var(--rail-border, var(--oxy-shell-border));
+  margin-top: 0.5rem;
   padding: 0 0.25rem;
 }
 
@@ -205,7 +205,7 @@
   align-items: center;
   gap: 0.25rem;
   overflow-y: auto;
-  padding: 0.5rem 0.25rem;
+  padding: 0.25rem 0.25rem 0.5rem;
 }
 
 .oxy-rail__divider {
@@ -213,7 +213,28 @@
   height: 1px;
   width: 1.25rem;
   flex-shrink: 0;
-  background: var(--oxy-shell-sidebar-border);
+  /* The theme's hairline where the theme is loaded; an app's own --border-subtle is not read
+     without it (the shell reads a name an app may also set only behind the switch). */
+  background: color-mix(
+    in srgb,
+    var(--border-subtle, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-shell-sidebar-border)
+  );
+}
+
+/* A group's title in the open rail ("Apps"): the reference design's small capitalised label. */
+.oxy-rail__group-title {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 0.5rem 0.375rem 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--disabled-foreground, var(--oxy-shell-muted-fg, currentColor));
 }
 
 .oxy-rail__footer {
@@ -390,7 +411,10 @@
     var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
-/* Rail entry — replicates the web-app ghost icon Button + itemClasses. */
+/* Rail entry — Oxygen's rail row (web-app ToggleRail): grey until hovered, the
+   current one on the selected fill, square under the theme. With the theme the
+   colours are the reference design's (--subtle-foreground, --row-hover,
+   --row-selected); without it the older shell tokens stand in. */
 .oxy-rail__item {
   display: inline-flex;
   height: 2rem;
@@ -401,22 +425,21 @@
   border: none;
   border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
-  color: var(--oxy-shell-foreground);
+  color: var(--subtle-foreground, var(--oxy-shell-foreground));
   padding: 0;
   margin: 0;
   cursor: pointer;
   text-decoration: none;
-  opacity: 0.6;
   outline: none;
   transition:
     color var(--oxy-duration-fast) var(--oxy-ease-out),
-    opacity var(--oxy-duration-fast) var(--oxy-ease-out),
+    background-color var(--oxy-duration-fast) var(--oxy-ease-out),
     box-shadow var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-rail__item:hover {
-  opacity: 1;
-  background: var(--oxy-shell-accent);
+  background: var(--row-hover, var(--oxy-shell-accent));
+  color: var(--foreground, var(--oxy-shell-foreground));
 }
 
 .oxy-rail__item:focus-visible {
@@ -425,38 +448,19 @@
     var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
-/* The tile rests at 0.6 opacity, and opacity takes its ring with it: the theme's ring measured
-   2.74:1 on the light rail and 3.65:1 on the dark one, against 6.85 and 8.25 at full strength.
-   With the theme a focused tile is drawn at full strength, as a hovered one is; 0.6 without it,
-   as 2.28 drew. Hovered and selected tiles are already at 1 and keep their own rules. */
-.oxy-rail__item:focus-visible:not(:hover):not(.oxy-rail__item--active) {
-  opacity: calc(0.6 + 0.4 * var(--oxy-shell-themed, 0));
-}
-
 .oxy-rail__item--active,
 .oxy-rail__item--active:hover {
-  opacity: 1;
-  /* Selected = an opaque --muted chip outlined in --border-strong, the same
-     neutral pair the product uses for selected cards. Both tokens step away
-     from the rail in either theme (#e4e4e7 on #fafafa, #27272a on #000), and
-     the outline is what separates selected from a plain hover fill — the
-     half-transparent sidebar-accent this replaced was nearly invisible over
-     the near-white light rail. Deliberately no edge bar: an inset shadow bows
-     around the tile's corners and reads as a parenthesis, and a colored one
-     would be the only brand hue in otherwise neutral chrome. The ring is an
-     inset shadow rather than a border so the tile stays 2rem without relying
-     on the host app's box-sizing. */
-  background: var(--rail-item-active-bg, var(--oxy-shell-muted));
-  color: var(--rail-item-active-fg, var(--oxy-shell-sidebar-accent-fg));
-  box-shadow: inset 0 0 0 1px var(--oxy-shell-border-strong);
+  /* Selected = the reference design's selected fill, as Oxygen's rail draws it:
+     no outline, the text at full strength and medium weight. `--rail-item-active-*`
+     still override it for an app that set them. */
+  background: var(--rail-item-active-bg, var(--row-selected, var(--oxy-shell-muted)));
+  color: var(--rail-item-active-fg, var(--foreground, var(--oxy-shell-sidebar-accent-fg)));
+  font-weight: 500;
 }
 
-/* Focus ring still wins over the selected outline. */
 .oxy-rail__item--active:focus-visible {
   outline: 2px solid transparent;
-  box-shadow:
-    inset 0 0 0 1px var(--oxy-shell-border-strong),
-    0 0 0 var(--focus-ring-width, 3px)
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
     var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
@@ -479,11 +483,31 @@
   object-fit: contain;
 }
 
+/* An app's mark: its icon cut to a mask (`railGlyph.ts`), filled with the row's own
+   colour. Empty while the cut is made. The mask carries the glyph's own margin, so it fills
+   its 20px cell, as the design draws a glyph (`size-5`). */
+.oxy-rail__item-glyph {
+  display: block;
+  height: 1.25rem;
+  width: 1.25rem;
+  flex-shrink: 0;
+}
+
+.oxy-rail__item-glyph--ready {
+  background: currentColor;
+  mask-size: 100%;
+  -webkit-mask-size: 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+
 .oxy-rail__item-letter {
   font-size: 12px;
   line-height: 1;
   font-weight: 600;
-  color: var(--oxy-shell-primary);
+  color: currentColor;
 }
 
 /* A rail still showing on a phone on its side (`hideTopBar` leaves the nav sheet
@@ -537,7 +561,7 @@
   justify-content: flex-start;
   gap: 0.5rem;
   overflow: hidden;
-  padding: 0 0.5rem;
+  padding: 0 0.5rem 0 0.75rem;
 }
 
 .oxy-rail__title {
@@ -574,10 +598,26 @@
   margin: 0.25rem 0.375rem;
 }
 
-/* The bottom slot is the host's: its controls keep their size and sit at the left. */
+/* The bottom slot is the host's. Open, it takes the rail's width, so a row (the mode switch's
+   "Appearance" row) lines up with the entries above it, as Oxygen's account row does. */
 .oxy-rail--expanded .oxy-rail__bottom {
-  align-items: flex-start;
+  align-items: stretch;
   padding: 0.5rem;
+}
+
+/* The "Appearance" row in the open rail: a desk's 32px options rather than the sheet's 44px
+   touch ones, so the label keeps its whole word in 14rem. */
+.oxy-rail__bottom .oxy-modeswitch-row {
+  gap: 0.5rem;
+}
+
+.oxy-rail__bottom .oxy-modeswitch-row__label {
+  padding-left: 0.375rem;
+}
+
+.oxy-rail__bottom .oxy-modeswitch-seg__option {
+  width: 2rem;
+  min-height: 2rem;
 }
 
 .oxy-rail__item-mark {
@@ -663,6 +703,14 @@
 
 .oxy-workspace-tile--logo {
   background: transparent;
+}
+
+/* In the rail's head the org's logo is 28px, open or closed, as Oxygen's rail draws it: a
+   customer's logo is usually a badge with its own margin, so at the design mark's 20px it read
+   much smaller than the mark does. */
+.oxy-rail__top .oxy-workspace-tile {
+  height: 1.75rem;
+  width: 1.75rem;
 }
 
 .oxy-workspace-tile__img {
@@ -831,7 +879,7 @@
   border: none;
   border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
-  color: var(--oxy-shell-foreground);
+  color: var(--subtle-foreground, var(--oxy-shell-foreground));
   padding: 0 0.75rem;
   margin: 0;
   font: inherit;
@@ -842,15 +890,15 @@
 }
 
 .oxy-navsheet__row:hover {
-  background: var(--oxy-shell-accent);
+  background: var(--row-hover, var(--oxy-shell-accent));
+  color: var(--foreground, var(--oxy-shell-foreground));
 }
 
 /* Same selected recipe as `.oxy-rail__item--active`. */
 .oxy-navsheet__row--active,
 .oxy-navsheet__row--active:hover {
-  background: var(--oxy-shell-muted);
-  color: var(--oxy-shell-sidebar-accent-fg);
-  box-shadow: inset 0 0 0 1px var(--oxy-shell-border-strong);
+  background: var(--row-selected, var(--oxy-shell-muted));
+  color: var(--foreground, var(--oxy-shell-sidebar-accent-fg));
   font-weight: 500;
 }
 

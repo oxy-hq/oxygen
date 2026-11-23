@@ -401,8 +401,9 @@ await ctx.oxygen.sourceUploads.report({ file, fileName, pipeline: "ubereats_tran
   with `reachOf`).
 
 **The dock.** Wrap the app in `<OxyShell>` (every `create-oxy-app` template
-does) so it shows Oxygen's rail: HQ, Chat and the viewer's other apps, each
-opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its
+does) so it shows Oxygen's rail: Home and the viewer's apps, each drawn as its
+grey mark, opening in this tab and warmed on hover. From SDK 2.34.0 the shell has no
+Chat entry and no Ask (no top-bar button, no ⌘K), as Oxygen's own chrome has none. Pass `hideTopBar` if the app draws its
 own header. From SDK 2.33.0 the viewer opens and closes the rail from its
 toggle, and the app's column narrows by 176px while it is open: lay screens out
 to shrink (`min-width: 0` on flex children), never for a fixed width. Link to another app with a plain `<a href>`, never `target="_blank"`;
@@ -471,9 +472,9 @@ Six rules of the design system go beyond the reference:
   reduced transparency). A modal `<dialog>` gets the blur from the theme on its own; give
   its `::backdrop` the colour `var(--scrim)`. On any other scrim (a fixed div, a Radix or
   shadcn overlay) put the class `oxy-scrim` and remove its own `bg-*`.
-- **The top bar's Ask Oxygen is the reference's secondary button**, so a button the app
-  puts beside it (`topBarExtra`) is the secondary too (`btnCompactSecondary`: the
-  `--btn-surface` fill, `--border-subtle` edge, full ink, `--btn-surface-hover` on hover).
+- **A button the app puts in the top bar (`topBarExtra`) is the reference's secondary**
+  (`btnCompactSecondary`: the `--btn-surface` fill, `--border-subtle` edge, full ink,
+  `--btn-surface-hover` on hover).
 - **An attention strip on a page whose ground is not the card** insets its label 13px (a
   tile's 1px frame + `--padding-sm-x`, 12px), so it lines up with the tiles below rather than
   sitting on the box's edge; the SDK's `AlertStrip` draws it so.

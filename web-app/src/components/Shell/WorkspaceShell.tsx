@@ -1,214 +1,43 @@
-import { Handshake, House, MessagesSquare, Shield } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import type { ReactNode } from "react";
 import { AskDock } from "@/components/Ask/AskDock";
 import { OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
-import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { PreviewBar } from "@/components/PreviewBar";
-import { useOptionalAuth } from "@/contexts/AuthContext";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
-import { useAppUnreadCounts } from "@/hooks/api/notifications";
-import useCurrentUser from "@/hooks/api/users/useCurrentUser";
-import { useOpensFactoryDirectly, useOperatesPlatform } from "@/hooks/useStaffFactory";
-import { canUseFactory } from "@/libs/utils/factoryAccess";
-import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
+import { NotificationsDock } from "./NotificationsDock";
 import { RailUserMenu } from "./RailUserMenu";
 import { RailWorkspaceTile } from "./RailWorkspaceTile";
 import { ShellNavSheet } from "./ShellNavSheet";
-import { type RailItem, ShellRail } from "./ShellRail";
+import { ToggleRail, useRailOpen } from "./ToggleRail";
 import { TopBar } from "./TopBar";
+import { useFooterItems, useOpenFactoryEntry, useRailGroups, useShellPlace } from "./useShellNav";
 
 /** The workspace chrome: icon rail + universal top bar + content column + Ask
  *  dock. Wraps every workspace route. The rail, top bar, and dock hide inside
  *  Oxygen Factory / the IDE (it has its own chrome) and on the setup wizard
  *  (`/<org>/setup`; local mode's old `/onboarding` too); the content column is identical everywhere so pages never re-layout
- *  between routes. */
+ *  between routes. The entries themselves come from `useShellNav`. */
 export function WorkspaceShell({ children }: { children: ReactNode }) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { workspace } = useCurrentWorkspace();
-  const wsId = workspace?.id ?? "";
-  const org = ROUTES.ORG(orgSlug);
-  const ws = org.WORKSPACE();
-
+  const currentOrg = useCurrentOrg((s) => s.org);
+  const { hideRail, isHome } = useShellPlace();
+  const [railOpen, toggleRail] = useRailOpen();
   // The rail's app marks are the org's: every app the person can open across its
   // workspaces, the same list the org home's grid shows.
-  const { apps: customApps } = useOrgCustomApps(wsId);
-  // Each app's unread count as a badge on its mark, like a dock. The bell's own
-  // poll, so it costs no request; legacy local mode has nobody to notify.
-  const localMode = useOptionalAuth()?.isLocalMode === true;
-  const unreadByApp = useAppUnreadCounts(!localMode);
-  const { data: profile } = useCurrentUser();
-  // Global Owners (`OXY_OWNER`) and Global Admins (`app_admins` table) get a
-  // one-click hop into the admin console. Tenant-internal org roles never do —
-  // this mirrors the gate on the admin routes themselves.
-  const isOperator = !!(profile?.is_owner || profile?.is_app_admin);
-  // The Factory admits staff by `operate_platform` (`Ring::Factory`), which an App
-  // Operator does not hold although `is_app_admin` is true for one.
-  const operatesPlatform = useOperatesPlatform();
-  const opensFactoryDirectly = useOpensFactoryDirectly();
-  // Partner admins (users who administer ≥1 partner) get a console hop. The
-  // server enforces scope; this only decides whether to show the entry.
-  const isPartnerAdmin = !!profile?.partner_memberships?.length;
-  const [openFactoryOpen, setOpenFactoryOpen] = useState(false);
-  const currentOrg = useCurrentOrg((s) => s.org);
+  const { apps } = useOrgCustomApps(workspace?.id ?? "");
+  const groups = useRailGroups(apps);
+  const factory = useOpenFactoryEntry();
+  const footerItems = useFooterItems(factory);
 
-  const path = location.pathname;
-  const inIde = /\/ide(\/|$)/.test(path);
-  // The setup wizard owns the screen. Matched against its own address rather
-  // than any `/setup` segment, which an id or a name in another page's address
-  // could carry.
-  const onSetup = [ws.ONBOARDING, "/onboarding"].some(
-    (p) => path === p || path.startsWith(`${p}/`)
-  );
-  const hideRail = inIde || onSetup;
-
-  // In local mode ws.ROOT is "" — the index route is "/".
-  const isHome = path === org.HOME || path === ws.HOME || path === (ws.ROOT || "/");
-  // The read-only world model is opened from the home's card and has no rail entry
-  // of its own, so Home stays lit there.
-  const onWorldModel = path === ws.WORLD_MODEL;
-
-  // Conceptual groups (divided in the rail): Home + Chat · Apps. (World Model
-  // moved into Oxygen Factory as its own IDE sidebar surface.)
-  const hq: RailItem = {
-    key: "hq",
-    label: "Home",
-    testId: "rail-hq",
-    icon: <House className='h-4 w-4' />,
-    active: isHome || onWorldModel,
-    onSelect: () => {
-      navigate(org.HOME);
-    }
-  };
-  // The Chat landing (composer + recent threads) reached at /threads. Replaces
-  // the old "Threads" list item; "Automations" was removed from the rail.
-  const chat: RailItem = {
-    key: "chat",
-    label: "Chat",
-    testId: "rail-chat",
-    icon: <MessagesSquare className='h-4 w-4' />,
-    active: path.startsWith(ws.THREADS),
-    onSelect: () => {
-      navigate(ws.THREADS);
-    }
-  };
-  // A tile navigates this tab to the app, which owns the address bar and draws
-  // the same rail (`OxyShell`), so moving between HQ and apps reads as one
-  // product. Never hosted inside HQ: apps-first-shell.md § 4.1.
-  const appItems: RailItem[] = customApps.map((app) => ({
-    key: app.id,
-    label: app.name,
-    testId: `rail-app-${app.slug}`,
-    letter: app.name.slice(0, 1).toUpperCase(),
-    imageUrl: app.icon_url,
-    href: app.url,
-    badge: unreadByApp[app.id]
-  }));
-  // System: the intelligence substrate powering the HQ. Pinned at the
-  // bottom of the nav, distinct from the operator apps above.
-  const core: RailItem = {
-    key: "core",
-    label: "Oxygen Nexus",
-    testId: "rail-core",
-    icon: <OxygenFactoryMark className='h-6 w-6' />,
-    active: path.startsWith(ws.IDE.ROOT),
-    onSelect: () => {
-      navigate(ws.IDE.ROOT);
-    }
-  };
-  // Admin console entry — pinned directly beneath Oxygen Factory in the system
-  // zone, visible only to operators. Full-page-ish SPA nav to the customer-apps
-  // console (the default admin landing).
-  const admin: RailItem = {
-    key: "admin",
-    label: "Admin",
-    testId: "rail-admin",
-    icon: <Shield className='h-4 w-4' />,
-    active: path.startsWith("/admin"),
-    onSelect: () => {
-      navigate("/admin/apps");
-    }
-  };
-
-  // The staff Factory entry (apps-first, staff who operate the platform only): this
-  // workspace's Factory in one click, like everyone else's entry. Moving to another
-  // workspace or organization happens in the Factory's own top bar.
-  // Only an org that needs an assumed session first (staff who are neither a member
-  // nor acting as it) opens the Open Factory flow, at this workspace's reason, with
-  // Back to the org's other workspaces and every organization. Decided before
-  // anything is drawn: a dialog that opened only to close again read as a glitch.
-  const openFactory: RailItem = {
-    key: "open-factory",
-    label: "Oxygen Nexus",
-    testId: "rail-open-factory",
-    icon: <OxygenFactoryMark className='h-6 w-6' />,
-    active: path.startsWith(ws.IDE.ROOT),
-    onSelect: () => {
-      if (currentOrg && wsId && opensFactoryDirectly(currentOrg.id)) {
-        navigate(ws.IDE.ROOT);
-        return;
-      }
-      setOpenFactoryOpen(true);
-    }
-  };
-  const staffFactory = operatesPlatform;
-  // Stable, so the dialog does not start over on every render while it is open.
-  const factoryScope = useMemo(
-    () =>
-      currentOrg
-        ? { orgId: currentOrg.id, orgSlug: currentOrg.slug, orgName: currentOrg.name }
-        : null,
-    [currentOrg]
-  );
-  const workspaceName = workspace?.name;
-  const factoryTarget = useMemo(
-    () =>
-      factoryScope && wsId && workspaceName
-        ? { ...factoryScope, workspaceId: wsId, workspaceName }
-        : null,
-    [factoryScope, wsId, workspaceName]
-  );
-
-  // Partner console entry — shown to partner admins (non-operators reach it
-  // here; the server enforces scope on every call).
-  const partner: RailItem = {
-    key: "partner",
-    label: "Partners",
-    testId: "rail-partner",
-    icon: <Handshake className='h-4 w-4' />,
-    active: path.startsWith("/partners"),
-    onSelect: () => {
-      navigate("/partners");
-    }
-  };
-
-  // Home + Chat share one block (no divider — both are primary HQ nav); apps get
-  // their own divided group when the workspace has any.
-  const groups: RailItem[][] = appItems.length ? [[hq, chat], appItems] : [[hq, chat]];
-  // System zone: Oxygen Factory, then the Partner console (if any) and the
-  // operator-only Admin hop below it.
-  // The Factory is for Oxy staff, the org's owners and admins, and the members an
-  // operator granted it to. The
-  // server says (`factory_access` on the workspace); this only decides whether to
-  // show the entry — the routes refuse everyone else on their own.
-  const footerItems: RailItem[] = staffFactory
-    ? [openFactory]
-    : canUseFactory(workspace)
-      ? [core]
-      : [];
-  if (isPartnerAdmin) footerItems.push(partner);
-  if (isOperator) footerItems.push(admin);
-
-  const bottom = (
+  // The account menu: a row with the person's name in the open rail and the sheet (which
+  // always shows names), the avatar alone in the closed rail.
+  const bottom = (open: boolean) => (
     <>
       {/* No workspace switcher: the home lists every app across the org, and
           Oxy engineers move between workspaces and organizations in the
           Factory's top bar. */}
-      <RailUserMenu />
+      <RailUserMenu open={open} />
     </>
   );
 
@@ -220,12 +49,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           content column beside it rather than covering it. */}
       {!hideRail && (
         <div className='hidden h-full md:flex'>
-          <ShellRail
-            top={<RailWorkspaceTile />}
-            title={workspace?.name}
+          <ToggleRail
+            open={railOpen}
+            onToggle={toggleRail}
+            logo={<RailWorkspaceTile className='size-7' />}
+            name={currentOrg?.name ?? workspace?.name ?? ""}
             groups={groups}
+            groupTitles={[undefined, "Apps"]}
             footerItems={footerItems}
-            bottom={bottom}
+            bottom={bottom(railOpen)}
           />
         </div>
       )}
@@ -235,14 +67,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className='flex h-full min-w-0 flex-1 flex-col'>
         {!hideRail && (
           <TopBar
+            bellOnPage={isHome}
             leading={
               <div className='flex md:hidden'>
                 <ShellNavSheet
-                  title={workspace?.name ?? ""}
-                  top={<RailWorkspaceTile />}
+                  title={currentOrg?.name ?? workspace?.name ?? ""}
+                  top={<RailWorkspaceTile className='size-7' />}
                   groups={groups}
+                  groupTitles={[undefined, "Apps"]}
                   footerItems={footerItems}
-                  bottom={bottom}
+                  bottom={bottom(true)}
                 />
               </div>
             }
@@ -259,6 +93,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               hosted here: it opens in this tab and draws its own dock and Ask
               (`OxyShell`). */}
           {!hideRail && <AskDock />}
+          {/* The notifications panel, on the same edge; one of the two at a time. */}
+          {!hideRail && <NotificationsDock />}
         </div>
       </div>
     </div>
@@ -271,12 +107,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     <div className='flex h-full w-full flex-col'>
       <PreviewBar />
       {layout}
-      {staffFactory && (
+      {factory.staff && (
         <OpenFactoryDialog
-          open={openFactoryOpen}
-          onOpenChange={setOpenFactoryOpen}
-          initialTarget={factoryTarget}
-          initialScope={factoryScope}
+          open={factory.open}
+          onOpenChange={factory.setOpen}
+          initialTarget={factory.target}
+          initialScope={factory.scope}
         />
       )}
     </div>

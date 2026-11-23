@@ -1,6 +1,14 @@
-import { Menu } from "lucide-react";
+import { List } from "@phosphor-icons/react";
 import { Fragment, type MouseEvent, type ReactNode, useEffect, useRef } from "react";
 import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
+import {
+  DESIGN_REFERENCE,
+  focusRing,
+  iconControl,
+  sectionLinkOff,
+  sectionLinkOn,
+  textXs
+} from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Sheet,
@@ -10,15 +18,17 @@ import {
   SheetTrigger
 } from "@/components/ui/shadcn/sheet";
 import { cn } from "@/libs/shadcn/utils";
-import { type RailItem, RailItemIcon } from "./ShellRail";
+import { type RailItem, RailMark } from "./RailItem";
 import { useDrawerBackEntry } from "./useDrawerBackEntry";
 
 const rowClasses = (active?: boolean) =>
   cn(
-    // h-11: a 44px touch target. Full opacity, unlike the rail's faded idle
-    // tiles — the label carries the hierarchy here, not the fade.
-    "flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm",
-    active ? "border border-border-strong bg-muted font-medium" : "hover:bg-muted"
+    // The open rail's row (`ToggleRail`), square, in the reference design's colours:
+    // the current one on the selected fill, the rest grey until hovered. h-11: a
+    // 44px touch target.
+    "flex h-11 w-full items-center gap-3 px-3 text-left text-sm transition-colors",
+    active ? sectionLinkOn : sectionLinkOff,
+    focusRing
   );
 
 /** Where a plain click on a row's link leaves for, if it unloads this document. A
@@ -45,8 +55,8 @@ function NavRow({
     <>
       {/* Decorative: the label names the row, and a letter mark would be read
           into it ("BBookkeeping"). */}
-      <span aria-hidden='true' className='flex h-6 w-6 shrink-0 items-center justify-center'>
-        <RailItemIcon item={item} />
+      <span aria-hidden='true' className='flex size-5 shrink-0 items-center justify-center'>
+        <RailMark item={item} />
       </span>
       <span className='truncate'>{item.label}</span>
       {!!item.badge && (
@@ -94,23 +104,26 @@ function NavRow({
 }
 
 function Divider() {
-  return <div className='mx-3 my-2 h-px bg-sidebar-border' />;
+  return <div className='mx-3 my-2 h-px bg-border-subtle' />;
 }
 
-/** The rail's mobile form: a menu button (placed in the top bar) opening a
- *  left drawer of the same entries, each with its name. On a touch screen
- *  the rail opens to its labels only on hover, which never happens, so below `md`
- *  the shell swaps the rail for this. Same props as `ShellRail`. */
+/** The rail's phone form: a menu button (placed in the top bar) opening a left
+ *  drawer of the same entries, drawn as the open rail draws them (`ToggleRail`):
+ *  the org's logo and name at the head, square rows, the apps under their title as
+ *  grey marks. Below `md` the shell swaps the rail for this. */
 export function ShellNavSheet({
   title,
   top,
   groups,
+  groupTitles,
   footerItems,
   bottom
 }: {
   title: string;
   top?: ReactNode;
   groups: RailItem[][];
+  /** A title above each group, by index; none for `undefined`. */
+  groupTitles?: (string | undefined)[];
   footerItems?: RailItem[];
   bottom?: ReactNode;
 }) {
@@ -157,7 +170,7 @@ export function ShellNavSheet({
           data-testid='nav-sheet-trigger'
           aria-label='Open navigation'
         >
-          <Menu className='h-5 w-5' />
+          <List className={iconControl} />
         </Button>
       </SheetTrigger>
       <SheetContent
@@ -165,16 +178,22 @@ export function ShellNavSheet({
         // No description: the title names the drawer and the rows are labeled.
         aria-describedby={undefined}
         data-testid='nav-sheet'
-        className='w-3/4 max-w-72 gap-0 bg-sidebar-background p-0'
+        // Portalled out of the shell, so it carries the reference scope itself.
+        className={cn(DESIGN_REFERENCE, "w-3/4 max-w-72 gap-0 border-border-subtle bg-sidebar p-0")}
       >
-        <div className='flex h-12 shrink-0 items-center gap-3 border-b px-3 pr-10'>
+        <div className='flex h-12 shrink-0 items-center gap-2 border-border-subtle border-b px-3 pr-10'>
           {top}
-          <SheetTitle className='truncate text-sm'>{title}</SheetTitle>
+          <SheetTitle className='truncate font-medium text-foreground text-sm'>{title}</SheetTitle>
         </div>
         <nav className='flex min-h-0 flex-1 flex-col overflow-y-auto p-2'>
           {groups.map((group, i) => (
             <Fragment key={group[0]?.key ?? i}>
               {i > 0 && <Divider />}
+              {groupTitles?.[i] && (
+                <div className={cn(textXs, "truncate px-3 pt-2 pb-1 text-disabled-foreground")}>
+                  {groupTitles[i]}
+                </div>
+              )}
               {group.map(row)}
             </Fragment>
           ))}
@@ -186,7 +205,9 @@ export function ShellNavSheet({
           )}
         </nav>
         {bottom && (
-          <div className='flex shrink-0 items-center gap-2 border-t px-3 py-2'>{bottom}</div>
+          <div className='flex shrink-0 items-center gap-2 border-border-subtle border-t px-3 py-2'>
+            {bottom}
+          </div>
         )}
       </SheetContent>
     </Sheet>

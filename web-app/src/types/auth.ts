@@ -165,11 +165,6 @@ export interface AuthConfigResponse {
    */
   billing_enabled: boolean;
   /**
-   * Mirror of the backend `home_v3` feature flag (global): the third home. Read
-   * it through `useHomeV3`. Absent (an older server) reads as off.
-   */
-  home_v3?: boolean;
-  /**
    * Whether the dev-only sign-in bypass is reachable **by this caller** — the
    * server computes it per request, not once per process. An allow-list
    * inferred from the staff roster (debug builds, no `OXY_DEV_LOGIN_EMAILS`)

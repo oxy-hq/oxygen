@@ -119,7 +119,7 @@ describe("ShellRail opening and closing", () => {
     const labels = [...document.querySelectorAll(".oxy-rail__item-label")].map(
       (l) => l.textContent
     );
-    expect(labels).toEqual(["HQ", "Chat", "Bookings", "Command Center"]);
+    expect(labels).toEqual(["Home", "Bookings", "Command Center"]);
 
     await click(toggle());
     expect(rail().hasAttribute("data-expanded")).toBe(false);

@@ -91,24 +91,6 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
-        key: super::HOME_V3,
-        description: "Home page v3, for every org at once. When on: the ask box comes first, \
-                      the apps follow, bigger, and Today folds to one line under them; \
-                      a Simple/Full switch (members start on Simple, owners and admins \
-                      on Full; Full adds recent questions and the world model); the \
-                      top bar loses its clock and gains a Today button. When off, the \
-                      home is as before (greeting, Today beside the apps). \
-                      Presentation only: nothing is refused either way.",
-        default_enabled: false,
-        variants: BOOLEAN,
-        unit: Unit::Org,
-        // Read from `GET /auth/config`, which has no org.
-        per_org: false,
-        client: false,
-        kind: FlagKind::Product,
-        sunset: None,
-    },
-    FlagDef {
         key: super::APP_EVENTS,
         description: "App events for an org: its apps' Oxy Functions may publish typed events \
                       (ctx.events.publish, tx.events.publish) into the org's OLTP outbox. Off, \

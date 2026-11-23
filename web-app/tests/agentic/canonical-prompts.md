@@ -34,7 +34,7 @@ default scope is `flow` (private to that flow file/case/step index).
 ### Ask a question via the Ask dock
 
 The Ask dock ([data-testid=ask-dock]) is the universal ask surface: the
-top-bar "Ask Oxygen" button ([data-testid=ask-oxygen-button]) opens it, and
+Ask shortcut (ControlOrMeta+k, `App.tsx`; the top bar has no Ask button) opens it, and
 submitting streams the answer inside the dock in place (the URL stays put).
 The dock header's "Full view" control ([data-testid=ask-dock-full]) promotes
 the in-dock thread to the routed `/threads/<id>` page.
@@ -45,8 +45,9 @@ agent-picker step is needed.
 
 ```yaml
 - act: |
-    browser_click [data-testid=ask-oxygen-button] in the top bar. The
-    right-side Ask dock ([data-testid=ask-dock]) opens with a composer.
+    browser_press_key ControlOrMeta+k (the Ask shortcut; there is no Ask
+    button in the top bar). The right-side Ask dock ([data-testid=ask-dock])
+    opens with a composer.
 
 - wait_for: "selector:[data-testid=ask-dock]"
 

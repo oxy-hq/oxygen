@@ -4,82 +4,49 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./index";
 
-/** The top bar is the home's menu bar. */
+/**
+ * The top bar is the reference design's: the breadcrumb, then the status items
+ * (only while something is wrong) and the bell. No Ask button (⌘K opens Ask), no
+ * Today, no clock.
+ */
 
-let homeV3 = false;
-vi.mock("@/hooks/useHomeV3", () => ({ default: () => homeV3 }));
 vi.mock("./Breadcrumb", () => ({ Breadcrumb: () => null }));
-vi.mock("./NotificationsBell", () => ({
-  NotificationsBell: () => <span data-testid='notifications-bell' />
-}));
-vi.mock("./WorkspaceClock", () => ({
-  WorkspaceClock: ({ withDate }: { withDate?: boolean }) => (
-    <span data-testid='topbar-clock' data-with-date={String(!!withDate)} />
-  )
+vi.mock("./NotificationsBell/DockBell", () => ({
+  DockBell: () => <span data-testid='dock-bell' />
 }));
 vi.mock("./MenuBar/AppHealthItem", () => ({
   AppHealthItem: () => <span data-testid='menubar-health' />
-}));
-vi.mock("./TodayButton", () => ({
-  TodayButton: () => <span data-testid='topbar-today-button' />
 }));
 let online = true;
 vi.mock("@/hooks/useOnlineStatus", () => ({ default: () => online }));
 
 afterEach(() => {
   cleanup();
-  homeV3 = false;
   online = true;
 });
 
 const order = () =>
-  Array.from(screen.getByTestId("menubar-status").children).map((el) =>
-    el.getAttribute("data-testid")
+  Array.from(screen.getByTestId("menubar-status").children).map(
+    (el) => el.getAttribute("data-testid") ?? el.firstElementChild?.getAttribute("data-testid")
   );
 
 describe("the top bar", () => {
-  it("is a menu bar, the day and time last", () => {
+  it("has the status items and the bell: no Ask button, no Today, no clock", () => {
     render(<TopBar />);
     expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
-    expect(screen.queryByTestId("topbar-today-button")).toBeNull();
-    expect(order()).toEqual([
-      "menubar-health",
-      "ask-oxygen-button",
-      "notifications-bell",
-      "topbar-clock"
-    ]);
-    expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "true");
-  });
-
-  it("is minimal with home v3 on: Ask, Today and the bell, no clock, no connection while online", () => {
-    homeV3 = true;
-    render(<TopBar />);
-    expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
-    expect(screen.queryByTestId("topbar-clock")).toBeNull();
-    expect(order()).toEqual([
-      "menubar-health",
-      "ask-oxygen-button",
-      "topbar-today-button",
-      "notifications-bell"
-    ]);
-  });
-
-  it("says nothing about the connection while online", () => {
-    render(<TopBar />);
-    expect(screen.queryByTestId("menubar-connection")).toBeNull();
+    expect(order()).toEqual(["menubar-health", "dock-bell"]);
+    expect(screen.queryByTestId("ask-oxygen-button")).toBeNull();
   });
 
   it("says Offline when the browser is offline", () => {
     online = false;
-    homeV3 = true;
     render(<TopBar />);
     expect(screen.getByTestId("menubar-connection")).toHaveAccessibleName("Offline");
-    expect(order()).toEqual([
-      "menubar-health",
-      "menubar-connection",
-      "ask-oxygen-button",
-      "topbar-today-button",
-      "notifications-bell"
-    ]);
+    expect(order()).toEqual(["menubar-health", "menubar-connection", "dock-bell"]);
+  });
+
+  it("hides its bell on a phone when the page draws its own", () => {
+    render(<TopBar bellOnPage />);
+    expect(screen.getByTestId("dock-bell").parentElement?.className).toContain("max-md:hidden");
   });
 });

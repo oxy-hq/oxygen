@@ -61,7 +61,7 @@ describe("OxyShell nav sheet", () => {
     expect(sheet()).toBeNull();
     await click(trigger());
     const labels = [...document.querySelectorAll(".oxy-navsheet__label")];
-    expect(labels.map((l) => l.textContent)).toEqual(["HQ", "Chat", "Bookings", "Command Center"]);
+    expect(labels.map((l) => l.textContent)).toEqual(["Home", "Bookings", "Command Center"]);
     const current = $('[data-testid="nav-sheet-rail-app-bookings"]');
     expect(current?.getAttribute("aria-current")).toBe("page");
     expect(current?.getAttribute("href")).toBe("/customer-apps/acme/bookings/");
@@ -73,7 +73,7 @@ describe("OxyShell nav sheet", () => {
   it("closes on a pick, on the overlay, and on Escape", async () => {
     await render();
     await click(trigger());
-    await click($('[data-testid="nav-sheet-rail-chat"]'));
+    await click($('[data-testid="nav-sheet-rail-hq"]'));
     expect(sheet()).toBeNull();
 
     await click(trigger());

@@ -1,23 +1,22 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
-# Smoke tests for the apps-first shell. Chrome is a narrow left icon rail
-# ([data-testid=shell-rail]) plus a universal top bar
+# Smoke tests for the apps-first shell. Chrome is a left rail
+# ([data-testid=shell-rail]) that opens and closes from its toggle
+# ([data-testid=shell-rail-toggle]) plus a universal top bar
 # ([data-testid=workspace-topbar]) on every workspace page outside /ide and
 # /onboarding:
 #   - rail-hq returns to the org home ([data-testid=customer-home]),
-#   - rail-chat opens the Chat page (/threads),
 #   - rail-core opens Oxygen Nexus (the IDE).
-# The top bar's breadcrumb shows the current page name ("Home" on the home,
-# "Chat" on /threads). "Ask Oxygen" ([data-testid=ask-oxygen-button]) opens the
-# right-side Ask dock ([data-testid=ask-dock]); ⌘K toggles it too.
+# The rail has no Chat entry and the top bar no Ask button (#4385): ⌘K / Ctrl+K
+# (App.tsx) toggles the right-side Ask dock ([data-testid=ask-dock]).
 #
-#   home-chrome         — the customer home + rail (Home / Chat / Oxygen
-#                         Factory) + top bar visible.
-#   ask-dock-roundtrip  — ask-oxygen-button opens the ask-dock; submitting
+#   home-chrome         — the customer home + rail (Home / Oxygen Nexus) + top
+#                         bar visible, no Chat entry and no Ask button.
+#   ask-dock-roundtrip  — ControlOrMeta+k opens the ask-dock; submitting
 #                         streams in the dock; "Full view" promotes to
 #                         /threads/<id>.
-#   rail-chat-and-home  — rail-chat navigates to the Chat page (breadcrumb
-#                         "Chat"); rail-hq returns to the home.
+#   rail-toggle         — the toggle opens the rail to show the org's name;
+#                         rail-hq is the current page.
 #
 # The home is the customer home whatever the workspace holds: the HQ launcher and
 # its zero-apps greeting went with the `apps_first_experience` flag, and with them
@@ -68,28 +67,27 @@ cases:
       - act: |
           Verify the chrome is present without clicking anything —
           browser_snapshot and check for [data-testid=shell-rail],
-          [data-testid=rail-hq], [data-testid=rail-chat],
-          [data-testid=rail-core], the top bar [data-testid=workspace-topbar],
-          and [data-testid=ask-oxygen-button] inside it.
+          [data-testid=rail-hq], [data-testid=rail-core] and the top bar
+          [data-testid=workspace-topbar].
 
     expect:
       - assert: "selector [data-testid=customer-home] is visible"
       - assert: "selector [data-testid=shell-rail] is visible"
       - assert: "selector [data-testid=rail-hq] is visible"
-      - assert: "selector [data-testid=rail-chat] is visible"
       - assert: "selector [data-testid=rail-core] is visible"
       - assert: "selector [data-testid=workspace-topbar] is visible"
-      - assert: "selector [data-testid=ask-oxygen-button] is visible"
+      - assert: "selector [data-testid=rail-chat] is not visible"
+      - assert: "selector [data-testid=ask-oxygen-button] is not visible"
 
   - name: ask-dock-roundtrip submits into the dock and promotes to full view
     tags: [launcher, chat, critical]
     steps:
-      - wait_for: "selector:[data-testid=ask-oxygen-button]"
+      - wait_for: "selector:[data-testid=customer-home]"
 
       - act: |
-          browser_click [data-testid=ask-oxygen-button] in the top bar. The
-          right-side Ask dock ([data-testid=ask-dock]) opens with a ChatPanel
-          composer inside.
+          browser_press_key ControlOrMeta+k (the Ask shortcut, App.tsx; there is
+          no Ask button in the top bar). The right-side Ask dock
+          ([data-testid=ask-dock]) opens with a ChatPanel composer inside.
 
       - wait_for: "selector:[data-testid=ask-dock]"
 
@@ -124,25 +122,21 @@ cases:
           figures as a table, chart, or written summary. No error banner is
           visible and the run is not suspended awaiting a clarifying question.
 
-  - name: rail-chat-and-home navigates the Chat page and back via the rail
+  - name: rail-toggle opens the rail to name the org, with Home current
     tags: [launcher, regression]
     steps:
-      - wait_for: "selector:[data-testid=rail-chat]"
+      - wait_for: "selector:[data-testid=shell-rail-toggle]"
 
       - act: |
-          browser_click [data-testid=rail-chat]. The app navigates to the
-          Chat page (/threads); the top-bar breadcrumb page name becomes
-          "Chat" and the rail stays on the left edge.
+          browser_click [data-testid=shell-rail-toggle] at the top of the left
+          rail. The rail opens to 224px and narrows the page; its head shows
+          the org's name ([data-testid=shell-rail-name]) and each entry shows
+          its name beside its mark.
 
-      - wait_for: "selector:text=Chat"
-
-      - act: |
-          browser_click [data-testid=rail-hq]. The app returns to the org
-          home; the breadcrumb page name becomes "Home" and the customer home
-          renders.
-
-      - wait_for: "selector:[data-testid=customer-home]"
+      - wait_for: "selector:[data-testid=shell-rail-name]"
 
     expect:
-      - assert: "selector [data-testid=shell-rail] is visible"
+      - assert: "selector [data-testid=shell-rail] has attribute data-open=true"
+      - assert: "selector [data-testid=shell-rail-name] is visible"
+      - assert: "selector [data-testid=rail-hq] has attribute aria-current=page"
       - assert: "selector [data-testid=customer-home] is visible"

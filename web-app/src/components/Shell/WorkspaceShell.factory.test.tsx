@@ -18,7 +18,8 @@ vi.mock("@/components/PreviewBar", () => ({ PreviewBar: () => null }));
 vi.mock("./RailUserMenu", () => ({ RailUserMenu: () => null }));
 vi.mock("./RailWorkspaceTile", () => ({ RailWorkspaceTile: () => null }));
 vi.mock("./TopBar", () => ({ TopBar: () => null }));
-vi.mock("@/hooks/api/notifications", () => ({ useAppUnreadCounts: () => ({}) }));
+// The notifications panel reads the inbox; it has tests of its own.
+vi.mock("./NotificationsDock", () => ({ NotificationsDock: () => null }));
 vi.mock("@/hooks/api/customApps/useCustomApps", () => ({
   useCustomApps: () => ({ data: [] })
 }));

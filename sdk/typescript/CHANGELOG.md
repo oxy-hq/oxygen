@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.34.0] - 2026-11-23
+
+### Changed
+
+**The shell inside an app looks like Oxygen's own chrome** (oxygen-internal#4385, where
+Oxygen's home, rail and top bar took the reference design):
+
+- **No Chat entry and no Ask.** The rail is Home, then the apps. The top bar has no Ask Oxygen
+  button, ⌘K / Ctrl+K no longer opens anything, and `OxyShell` mounts no Ask dock, even for an
+  app whose manifest binds an agent. The shortcut is the app's to use. `askHotkey` is still
+  accepted and does nothing. `AskDock` is still exported for an app that mounts its own.
+- **Each app is drawn as its mark in the rail's grey**, cut out of its manifest icon
+  (`railGlyph.ts`, the one cutter Oxygen's web-app copies byte for byte): a tile the icon sits
+  on, opaque or translucent, is keyed out with any frame. The current app's mark is darker. An
+  icon that cannot be cut shows the app's letter. The apps are listed A to Z.
+- **Rows are Oxygen's**: grey (`--subtle-foreground`) until hovered, `--row-hover` on hover,
+  `--row-selected` and medium weight for the current one, no outline and no 0.6 fade, in the
+  rail and the phone's nav sheet alike. `--rail-item-active-bg` / `-fg` still override.
+- Home is "Home" (was "HQ"), with Phosphor's House, as Oxygen's rail.
+- **The head and foot are Oxygen's too**: the toggle is Phosphor's SidebarSimple (open or
+  closed), the head is a 32px row 8px from the top with no rule under it, the open rail titles
+  the apps "Apps" (`ShellRail`'s new `groupTitles`), and the open rail draws the mode switch as
+  the nav sheet's "Appearance" row (desk-sized options), where Oxygen's rail draws the account
+  row. `ShellRail`'s `bottom` may be a function of whether the rail is open.
+  The org's logo in the head is 28px, as in Oxygen's rail (it filled the 32px cell).
+- **An app's mark is drawn the size the design draws a glyph**: cut from the design's app mark,
+  it keeps the glyph's own box (the middle 56% of the tile) and fills its 20px cell; cut from an
+  icon on nothing, it gets a Phosphor glyph's margin. It was cropped tight and drawn at 80%.
+
 ## [2.33.0] - 2026-11-23
 
 ### Changed

@@ -1,6 +1,8 @@
 import { Check, LogOut, Plus, Settings, Shield } from "lucide-react";
+import { type ComponentPropsWithoutRef, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserAvatar } from "@/components/UserAvatar";
+import { focusRing, sectionLinkOff } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -77,8 +79,64 @@ function OrgSwitcherGroup() {
   );
 }
 
-/** Rail-bottom user menu: org switcher (cloud), Settings, Admin, Log out. */
-export function RailUserMenu() {
+type Profile = { name?: string | null; email?: string | null; picture?: string | null };
+
+/** The menu's trigger. `open`: the rail shows names, so it is a row like the entries above
+ *  it (Oxygen Nexus, Admin): the avatar in the marks' 20px column, then the person's name.
+ *  Closed, the avatar alone. Forwards the trigger's props and ref (Radix `asChild`). */
+const AccountTrigger = forwardRef<
+  HTMLButtonElement,
+  { open: boolean; profile?: Profile } & ComponentPropsWithoutRef<"button">
+>(function AccountTrigger({ open, profile, ...props }, ref) {
+  const avatar = (className: string) => (
+    <UserAvatar
+      name={profile?.name ?? ""}
+      email={profile?.email ?? ""}
+      picture={profile?.picture ?? undefined}
+      className={className}
+    />
+  );
+  if (!open) {
+    return (
+      <Button
+        ref={ref}
+        variant='ghost'
+        size='icon'
+        className='h-8 w-8 rounded-full'
+        data-testid='rail-user-menu'
+        aria-label='User menu'
+        {...props}
+      >
+        {avatar("h-7 w-7 rounded-full")}
+      </Button>
+    );
+  }
+  return (
+    <button
+      ref={ref}
+      type='button'
+      className={cn(
+        "flex h-8 w-full shrink-0 items-center gap-2 px-1.5 text-left transition-colors",
+        sectionLinkOff,
+        focusRing
+      )}
+      data-testid='rail-user-menu'
+      aria-label='User menu'
+      {...props}
+    >
+      <span className='flex size-5 shrink-0 items-center justify-center'>
+        {avatar("size-5 rounded-full text-[10px]")}
+      </span>
+      <span className='min-w-0 flex-1 truncate text-sm'>
+        {profile?.name || profile?.email || "Account"}
+      </span>
+    </button>
+  );
+});
+
+/** Rail-bottom user menu: org switcher (cloud), Settings, Admin, Log out. `open`: drawn as
+ *  a row with the person's name (`AccountTrigger`). */
+export function RailUserMenu({ open = false }: { open?: boolean } = {}) {
   const navigate = useNavigate();
   const { isLocalMode, logout } = useAuth();
   const { data: profile } = useCurrentUser();
@@ -88,20 +146,7 @@ export function RailUserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant='ghost'
-          size='icon'
-          className='h-8 w-8 rounded-full'
-          data-testid='rail-user-menu'
-          aria-label='User menu'
-        >
-          <UserAvatar
-            name={profile?.name ?? ""}
-            email={profile?.email ?? ""}
-            picture={profile?.picture}
-            className='h-7 w-7 rounded-full'
-          />
-        </Button>
+        <AccountTrigger open={open} profile={profile ?? undefined} />
       </DropdownMenuTrigger>
       <DropdownMenuContent side='right' align='end' className='min-w-48'>
         {!isLocalMode && <OrgSwitcherGroup />}

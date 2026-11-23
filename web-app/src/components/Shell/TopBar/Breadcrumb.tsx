@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import useHomeV3 from "@/hooks/useHomeV3";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -22,9 +21,6 @@ export function Breadcrumb() {
 
   // Org name in cloud; workspace name as a fallback; plain label in local mode.
   const workspaceName = orgName || workspace?.name || "Workspace";
-  // On home v3 the org's name is the whole crumb: "/ Home" says nothing.
-  const homeV3 = useHomeV3();
-  const atHome = homeV3 && pageName === "Home";
 
   return (
     <div className='flex min-w-0 items-center gap-2 text-sm'>
@@ -35,12 +31,8 @@ export function Breadcrumb() {
       >
         {workspaceName}
       </Link>
-      {!atHome && (
-        <>
-          <span className='shrink-0 text-muted-foreground/40'>/</span>
-          <span className='shrink-0 text-muted-foreground'>{pageName}</span>
-        </>
-      )}
+      <span className='shrink-0 text-muted-foreground/40'>/</span>
+      <span className='shrink-0 text-muted-foreground'>{pageName}</span>
     </div>
   );
 }

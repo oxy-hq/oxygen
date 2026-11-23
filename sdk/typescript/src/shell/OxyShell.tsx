@@ -13,9 +13,8 @@
 // bootstrap request is in flight the frame renders with placeholders; if it
 // fails (older server, unauthenticated viewer), the children render bare.
 
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useOxyApp, useResolvedManifest } from "../custom-app/react";
-import { AskDock } from "./AskDock";
 import { cx } from "./cx";
 import { useDockPrefetch } from "./dockPrefetch";
 import { ModeSwitch } from "./ModeSwitch";
@@ -32,42 +31,12 @@ import { useOxyTouchTargets } from "./touch";
 import { UpdatePill } from "./UpdatePill";
 import { WorkspaceTile } from "./WorkspaceTile";
 
-/** Home/HQ glyph (lucide "house" outline, inlined). */
+/** Home's glyph: Phosphor's House at the regular weight, the one Oxygen's rail
+ *  draws (the SDK carries no icon library, so its path is inlined). */
 function HouseIcon() {
   return (
-    <svg
-      width='16'
-      height='16'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-    >
-      <path d='M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' />
-      <path d='M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' />
-    </svg>
-  );
-}
-
-/** Chat glyph (lucide "messages-square" outline, inlined). */
-function MessagesIcon() {
-  return (
-    <svg
-      width='16'
-      height='16'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-    >
-      <path d='M16 10a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z' />
-      <path d='M20 9a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1' />
+    <svg width='16' height='16' viewBox='0 0 256 256' fill='currentColor' aria-hidden='true'>
+      <path d='M219.31,108.68l-80-80a16,16,0,0,0-22.62,0l-80,80A15.87,15.87,0,0,0,32,120v96a8,8,0,0,0,8,8h64a8,8,0,0,0,8-8V160h32v56a8,8,0,0,0,8,8h64a8,8,0,0,0,8-8V120A15.87,15.87,0,0,0,219.31,108.68ZM208,208H160V152a8,8,0,0,0-8-8H104a8,8,0,0,0-8,8v56H48V120l80-80,80,80Z' />
     </svg>
   );
 }
@@ -82,7 +51,7 @@ export interface OxyShellProps {
    *  so the app never loses its header by adopting the shell. */
   topBarLeft?: ReactNode;
   /** Extra right-side top bar content, rendered after the status cluster
-   *  (Sys · clock) and before the Ask Oxygen button. */
+   *  (Sys · clock). */
   topBarExtra?: ReactNode;
   /** Rail bottom slot content. The shell adds no built-in entries here —
    *  a bundle that wants a Settings link supplies its own. */
@@ -94,8 +63,9 @@ export interface OxyShellProps {
    *  that is not one person's, such as a store's shared tablet, where the
    *  viewer's widgets have no place. Default false: the clock opens Today. */
   plainClock?: boolean;
-  /** Bind ⌘K / Ctrl+K to toggle the Ask dock (default true). Set false
-   *  when the host app owns that shortcut; the top-bar button still works. */
+  /** No effect since 2.34.0, kept so an app that passes it still builds: the
+   *  shell has no Ask entry any more (no top-bar button, no ⌘K / Ctrl+K, no
+   *  dock), as Oxygen's own chrome has none. The shortcut is the app's to use. */
   askHotkey?: boolean;
   /** Origin of the Oxygen product (e.g. `https://app.oxygen-hq.com`).
    *  shell-context returns product links as relative paths, which resolve
@@ -151,19 +121,13 @@ function buildRailGroups(
   currentAppSlug: string | undefined,
   abs: (url?: string | null) => string | undefined
 ): RailItem[][] {
+  // Home, then the apps; no Chat entry, as in Oxygen's own rail.
   const hq: RailItem = {
     key: "hq",
-    label: "HQ",
+    label: "Home",
     testId: "rail-hq",
     icon: <HouseIcon />,
     href: abs(data.links.home)
-  };
-  const chat: RailItem = {
-    key: "chat",
-    label: "Chat",
-    testId: "rail-chat",
-    icon: <MessagesIcon />,
-    href: abs(data.links.threads)
   };
   const appItems: RailItem[] = data.apps.map((app) => ({
     key: app.id,
@@ -178,7 +142,9 @@ function buildRailGroups(
     active: app.slug === currentAppSlug,
     href: abs(app.url)
   }));
-  return appItems.length ? [[hq, chat], appItems] : [[hq, chat]];
+  // A to Z, as Oxygen's rail lists them.
+  appItems.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  return appItems.length ? [[hq], appItems] : [[hq]];
 }
 
 /** What the rail and the nav sheet share: the entries, the workspace mark (the Oxygen mark while
@@ -221,7 +187,6 @@ export function OxyShell({
   railBottom,
   hideTopBar,
   plainClock = false,
-  askHotkey = true,
   productBaseUrl,
   className,
   chromeBackground,
@@ -274,26 +239,6 @@ export function OxyShell({
   const { groups, workspaceTile, workspaceLabel } = railParts(data, effectiveSlug, abs);
   const page = pageLabel ?? currentApp?.name ?? manifest.name ?? effectiveSlug ?? "";
 
-  // Ask Oxygen: available when this app's manifest binds an agent
-  // (`ask.agent`, surfaced by shell-context as `default_agent`). The dock
-  // stays mounted once available so its transcript survives close/reopen;
-  // ⌘K / Ctrl+K toggles it, same binding as the main web-app.
-  const askAgent = currentApp?.default_agent ?? manifest.ask?.agent ?? undefined;
-  const askSuggestions = currentApp?.suggested_questions?.length
-    ? currentApp.suggested_questions
-    : (manifest.ask?.suggestedQuestions ?? []);
-  const [askOpen, setAskOpen] = useState(false);
-  useEffect(() => {
-    if (!askAgent || !askHotkey) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
-      e.preventDefault();
-      setAskOpen((o) => !o);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [askAgent, askHotkey]);
-
   // Bottom rail slot: the host app's custom content, then the mode switch,
   // where Oxygen keeps its user menu. The built-in Settings link was removed —
   // a bundle that wants one can supply it via `railBottom`. Without the switch
@@ -308,7 +253,6 @@ export function OxyShell({
     ) : (
       railBottom
     );
-  const bottom = modeSwitch("rail");
 
   // Below 768px, and on a phone on its side (NAV_SHEET_QUERY), the rail gives
   // way to NavSheet, whose menu button lives in the top bar — so only when
@@ -333,7 +277,15 @@ export function OxyShell({
           style={chromeStyle}
         >
           {!degraded && (
-            <ShellRail top={workspaceTile} title={workspaceLabel} groups={groups} bottom={bottom} />
+            <ShellRail
+              top={workspaceTile}
+              title={workspaceLabel}
+              groups={groups}
+              groupTitles={[undefined, "Apps"]}
+              // Open, the mode switch is the sheet's "Appearance" row, as Oxygen's rail
+              // draws its account menu as a row with its name; closed, the one icon.
+              bottom={(open: boolean) => modeSwitch(open ? "sheet" : "rail")}
+            />
           )}
           <div className='oxy-shell__content-col'>
             {/* The top bar renders in degraded mode too when the host passed
@@ -370,18 +322,6 @@ export function OxyShell({
                       <WorkspaceClock />
                     )}
                     {topBarExtra}
-                    {askAgent && !degraded && (
-                      <button
-                        type='button'
-                        data-testid='ask-oxygen-button'
-                        onClick={() => setAskOpen((o) => !o)}
-                        className={cx("oxy-askbtn", askOpen && "oxy-askbtn--open")}
-                      >
-                        <OxyMark className='oxy-askbtn__mark' />
-                        <span className='oxy-askbtn__label'>Ask Oxygen</span>
-                        <kbd className='oxy-askbtn__kbd'>⌘K</kbd>
-                      </button>
-                    )}
                   </>
                 }
               />
@@ -390,19 +330,6 @@ export function OxyShell({
               its own main landmark (the scaffolded template does). */}
             <div className='oxy-shell__main'>{children}</div>
           </div>
-          {/* Flex sibling of the content column — opening the dock compacts
-            the app (Cursor-style) rather than floating over it, matching
-            the web-app AskDock. */}
-          {askAgent && !degraded && (
-            <AskDock
-              agentId={askAgent}
-              open={askOpen}
-              onClose={() => setAskOpen(false)}
-              workspaceName={data?.workspace.name}
-              suggestions={askSuggestions}
-              threadsHref={abs(data?.links.threads)}
-            />
-          )}
           {navSheet && (
             <NavSheetPanel
               sheet={sheet}

@@ -8,7 +8,7 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
  *  name initial otherwise. Pure branding. No `title`: the name is beside it
  *  wherever it is drawn open (the rail's head, the nav sheet's), and closed it
  *  is the rail's toggle, whose own hint would sit under a native tooltip. */
-export function RailWorkspaceTile() {
+export function RailWorkspaceTile({ className }: { className?: string } = {}) {
   const { workspace } = useCurrentWorkspace();
   const orgUpdatedAt = useCurrentOrg((s) => s.org?.updated_at);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -23,7 +23,8 @@ export function RailWorkspaceTile() {
       // PNG) sits on its own, so the fill would show through as a grey square.
       className={cn(
         "flex h-8 w-8 items-center justify-center overflow-hidden rounded-md",
-        !showLogo && "bg-primary/10"
+        !showLogo && "bg-primary/10",
+        className
       )}
     >
       {showLogo && workspace ? (

@@ -3,8 +3,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createBrowserRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RailItem } from "./RailItem";
 import { ShellNavSheet } from "./ShellNavSheet";
-import type { RailItem } from "./ShellRail";
 
 afterEach(cleanup);
 

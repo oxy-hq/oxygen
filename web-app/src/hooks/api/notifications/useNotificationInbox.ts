@@ -6,11 +6,13 @@ import queryKeys from "../queryKey";
 export const INBOX_LIMIT = 50;
 
 /**
- * The inbox list. Mount it only while the inbox is open: it reads the store of
+ * The inbox list. Read it only while the inbox is open: it reads the store of
  * every org on the page, which the badge (`useUnreadNotificationCount`) never does.
+ * A list that stays mounted while shut (the docked panel) passes `enabled`.
  */
-export const useNotificationInbox = () =>
+export const useNotificationInbox = (enabled = true) =>
   useQuery({
     queryKey: queryKeys.notifications.inbox(),
-    queryFn: () => NotificationsService.inbox({ unreadOnly: false, limit: INBOX_LIMIT })
+    queryFn: () => NotificationsService.inbox({ unreadOnly: false, limit: INBOX_LIMIT }),
+    enabled
   });
