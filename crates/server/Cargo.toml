@@ -105,6 +105,7 @@ airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "pr
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }
+mime_guess = { workspace = true }
 oxy-auth = { workspace = true }
 oxy-shared = { workspace = true }
 sea-orm = { workspace = true }

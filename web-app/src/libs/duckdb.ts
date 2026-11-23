@@ -1,14 +1,5 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
-import eh_worker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
-import mvp_worker from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
-import duckdb_wasm_eh from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import duckdb_wasm from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import { encodeBase64 } from "@/libs/encoding";
-
-const isLocalhost = () => {
-  if (typeof window === "undefined") return false;
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-};
 
 enum InitState {
   Uninitialized,
@@ -29,18 +20,23 @@ const init = async () => {
         console.debug("Initializing DuckDB");
         let bundle: duckdb.DuckDBBundle;
         let worker: Worker;
-        if (isLocalhost()) {
-          // Use manual bundles for localhost
-          bundle = await duckdb.selectBundle({
-            mvp: {
-              mainModule: duckdb_wasm,
-              mainWorker: mvp_worker
-            },
-            eh: {
-              mainModule: duckdb_wasm_eh,
-              mainWorker: eh_worker
-            }
-          });
+        // Dev server: the bundles Vite serves out of node_modules, so a dev
+        // loop needs no network and gets a wasm that matches the installed
+        // `@duckdb/duckdb-wasm` exactly.
+        //
+        // Every build but the dev server's takes the jsDelivr path below —
+        // including a production binary on `localhost` (`oxy start`,
+        // `oxy serve`, the CLI release). This used to branch on
+        // `window.location.hostname`, which made one binary behave two ways
+        // depending on the host it answered on: exactly the dev-vs-prod
+        // heuristic CLAUDE.md rules out, and the reason 71.7 MiB of wasm was
+        // embedded in every binary to serve a case that only arises on a
+        // laptop. Self-hosted installs on a real domain have always loaded
+        // DuckDB from jsDelivr; local runs now do the same, so a run with no
+        // route to jsDelivr can no longer render a result table.
+        if (import.meta.env.DEV) {
+          const { localBundles } = await import("@/libs/duckdb-local-bundles");
+          bundle = await duckdb.selectBundle(localBundles);
           worker = new Worker(bundle.mainWorker!, { type: "module" });
         } else {
           // Use CDN bundles for cloud

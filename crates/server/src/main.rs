@@ -33,6 +33,7 @@ mod served_router_tests;
 #[cfg(test)]
 mod shared_state_boot_tests;
 mod shared_state_check;
+mod static_assets;
 mod worker_health;
 mod worker_metrics;
 mod worker_runtime;

@@ -892,6 +892,10 @@ lazy_static = "1.5.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
 libc = "0.2"
 lru = "0.18"
+# Already in the graph via `tower-serve-static`; declared so the static handler
+# can name an asset's media type from the ORIGINAL path when it serves that
+# path's `.br` sibling.
+mime_guess = "2"
 once_cell = "1.21.4"
 parking_lot = "0.12"
 # Must match `arrow` exactly; see the note there for why 58 is the ceiling.

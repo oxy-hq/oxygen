@@ -17,5 +17,12 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "tests/**/*.ts"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "tests/**/*.ts",
+    // vite.config.ts pulls the plugin in anyway; naming the directory is what
+    // also typechecks its tests, which nothing else imports.
+    "vite-plugins/**/*.ts"
+  ]
 }

@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { precompress } from "./vite-plugins/precompress";
 
 // One identifier per build: baked into the bundle as `__APP_VERSION__` and
 // emitted to /version.json so a long-lived tab can detect that a newer build
@@ -261,7 +262,12 @@ export default defineConfig(({ mode }) => {
             `[sentry-vite-plugin] sourcemap upload failed; the build continues: ${err.message}`
           );
         }
-      })
+      }),
+      // Last in the list, and that is load-bearing: `closeBundle` hooks run in
+      // plugin order, and the Sentry plugin deletes the sourcemaps it uploaded
+      // in its own. Compressing before that would leave `.map.br` orphans in
+      // every binary. Anything that writes into dist/ belongs above this line.
+      precompress()
     ],
     publicDir: "public",
     clearScreen: false,

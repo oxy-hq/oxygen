@@ -2,8 +2,8 @@
  * Tests for getDuckDB() initialization and the CDN init race condition.
  *
  * The tests run in the Node environment (the default in vitest.config.ts).
- * Because `window` is undefined in Node, `isLocalhost()` inside duckdb.ts
- * returns false, so the CDN init path is exercised.
+ * `beforeEach` stubs `import.meta.env.DEV` to false, which is what a
+ * production build compiles to, so the CDN init path is exercised.
  *
  * Module-level state (`duckDB` and `initPromise`) is reset between tests via
  * `vi.resetModules()` + per-test `vi.doMock()` + dynamic `import()`.
@@ -11,18 +11,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ── Vite ?url imports ─────────────────────────────────────────────────────────
-// Vite transforms these to file URLs at build time; in tests we return plain
-// placeholder strings so the module loads without a real WASM bundle.
-// These vi.mock calls are hoisted and survive vi.resetModules() between tests.
-vi.mock("@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url", () => ({
-  default: "eh-worker.js"
+// The same-origin DuckDB bundles live behind `await import()` under
+// `import.meta.env.DEV` (see duckdb-local-bundles.ts), so a DEV=false run never
+// reaches their `?url` imports and they need no mock here. Spied on below to
+// assert exactly that.
+vi.mock("@/libs/duckdb-local-bundles", () => ({
+  localBundles: { mvp: { mainModule: "mvp.wasm", mainWorker: "mvp-worker.js" } }
 }));
-vi.mock("@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url", () => ({
-  default: "mvp-worker.js"
-}));
-vi.mock("@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url", () => ({ default: "eh.wasm" }));
-vi.mock("@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url", () => ({ default: "mvp.wasm" }));
 vi.mock("@/libs/encoding", () => ({
   encodeBase64: (s: string) => Buffer.from(s).toString("base64")
 }));
@@ -33,6 +28,9 @@ vi.mock("@/libs/encoding", () => ({
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
+  // What a production build compiles to. Vitest runs with DEV=true, which
+  // would take the dev-server bundle path these tests are not about.
+  vi.stubEnv("DEV", false);
   // Fresh module → duckDB = null and initPromise = null for each test.
   vi.resetModules();
   // Worker is a browser API absent from Node. Must be a real constructor
@@ -46,6 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -203,5 +202,62 @@ describe("getDuckDB – CDN init path", () => {
     const { getDuckDB } = await import("@/libs/duckdb");
 
     await expect(getDuckDB()).rejects.toThrow("WASM load failed");
+  });
+});
+
+/**
+ * Which bundle set init reaches for, per build.
+ *
+ * This is the guard on 71.7 MiB. The same-origin wasm is pulled in by four
+ * `?url` imports, and a `?url` import emits its asset into `dist/` whether or
+ * not the code runs — so the only thing keeping `duckdb-mvp.wasm` out of every
+ * `oxy` binary is that a non-DEV build never reaches
+ * `@/libs/duckdb-local-bundles` at all. A change that makes a production build
+ * touch it (a static import "for convenience", a runtime host check) puts the
+ * bytes straight back, silently, and fails here instead.
+ */
+describe("init bundle source", () => {
+  const mockDuckdb = () => {
+    const selectBundle = vi.fn().mockResolvedValue({
+      mainModule: "m",
+      mainWorker: "w",
+      pthreadWorker: undefined
+    });
+    const getJsDelivrBundles = vi.fn().mockReturnValue({ jsdelivr: true });
+    vi.doMock("@duckdb/duckdb-wasm", () => ({
+      AsyncDuckDB: class {
+        instantiate = vi.fn().mockResolvedValue(undefined);
+        connect = vi.fn().mockResolvedValue({ close: vi.fn() });
+      },
+      ConsoleLogger: class {},
+      selectBundle,
+      getJsDelivrBundles
+    }));
+    return { selectBundle, getJsDelivrBundles };
+  };
+
+  it("takes the jsDelivr bundles in a production build", async () => {
+    // beforeEach already stubbed DEV=false; named here because it is the
+    // subject of the test, not incidental setup.
+    vi.stubEnv("DEV", false);
+    const { selectBundle, getJsDelivrBundles } = mockDuckdb();
+
+    const { getDuckDB } = await import("@/libs/duckdb");
+    await getDuckDB();
+
+    expect(getJsDelivrBundles).toHaveBeenCalled();
+    expect(selectBundle).toHaveBeenCalledWith({ jsdelivr: true });
+  });
+
+  it("takes the same-origin bundles on the dev server", async () => {
+    vi.stubEnv("DEV", true);
+    const { selectBundle, getJsDelivrBundles } = mockDuckdb();
+    const { localBundles } = await import("@/libs/duckdb-local-bundles");
+
+    const { getDuckDB } = await import("@/libs/duckdb");
+    await getDuckDB();
+
+    expect(selectBundle).toHaveBeenCalledWith(localBundles);
+    expect(getJsDelivrBundles).not.toHaveBeenCalled();
   });
 });
