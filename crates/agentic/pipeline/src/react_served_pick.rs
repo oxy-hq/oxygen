@@ -151,7 +151,8 @@ pub(crate) async fn serves_react(
 /// checked: `semantic_only` with no semantic model, a react-only key an FSM
 /// agent does not set.
 pub(crate) async fn cannot_serve(check: ServeCheck<'_>) -> Option<String> {
-    let ctx = super::build_context(check.platform, check.config, check.inputs.clone());
+    let inputs = super::read_only_inputs(check.platform, check.inputs.clone()).await;
+    let ctx = super::build_context(check.platform, check.config, inputs);
     crate::react_run::preflight(check.config, &ctx).await.err()
 }
 

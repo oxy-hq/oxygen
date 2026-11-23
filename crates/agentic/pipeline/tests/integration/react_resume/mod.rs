@@ -14,6 +14,7 @@
 
 mod host;
 mod prior_turns;
+mod read_only_swap;
 mod readiness;
 mod redrive;
 

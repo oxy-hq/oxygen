@@ -53,6 +53,7 @@ pub(super) fn cred(role: &str, write_schemas: Option<Vec<String>>) -> EphemeralC
         write_schemas,
         shared_session: false,
         uncached_reads: false,
+        read_only: false,
     }
 }
 

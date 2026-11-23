@@ -21,6 +21,7 @@ const UNHELD: &[&str] = &[
     "resolve_connector_impl",
     "resolve_pre_built_airhouse",
     "airhouse_wire_params",
+    "resolve_read_only_airhouse",
 ];
 
 /// Paths (relative to the repository's `crates/`) that may name them: this

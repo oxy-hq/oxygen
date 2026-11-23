@@ -122,6 +122,7 @@ pub mod preview_ctx;
 pub mod preview_runtime;
 pub mod project_ctx;
 pub mod queued_analytics;
+mod read_only_airhouse;
 pub mod request;
 pub mod runtime_artifact;
 pub mod scan_source;

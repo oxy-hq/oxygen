@@ -401,6 +401,21 @@ impl ProjectContext for OxyProjectContext {
         self.org_flag(oxy_feature_flags::REACT_MEMORY).await
     }
 
+    /// `None` while holding writes, like every unheld connector; else the
+    /// read-only Airhouse connector for an `airhouse_managed` database.
+    async fn read_only_connector(&self, db_name: &str) -> Option<Arc<dyn DatabaseConnector>> {
+        if self.holds_writes() {
+            return None;
+        }
+        crate::connector::resolve_read_only_airhouse(
+            db_name,
+            &self.workspace_manager,
+            self.subject,
+            self.role.clone(),
+        )
+        .await
+    }
+
     /// The sandbox whose ask this context holds for; `None` for staging's.
     fn sandbox_environment(&self) -> Option<String> {
         let scope = self.hold_scope()?;

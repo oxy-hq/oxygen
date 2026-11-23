@@ -10715,6 +10715,12 @@ metric = "cyclomatic"
 value = 18.0
 
 [[entry]]
+path = "crates/workspace-runtime/src/project_ctx/project_context.rs"
+qualified = "OxyProjectContext"
+metric = "nom"
+value = 31.0
+
+[[entry]]
 path = "crates/workspace-runtime/src/project_ctx/workspace_context.rs"
 qualified = "OxyProjectContext"
 metric = "nom"

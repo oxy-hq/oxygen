@@ -171,6 +171,14 @@ impl ProjectContext for PreviewPlatformContext {
         false
     }
 
+    /// `None`: a preview never runs react, and its connectors are held.
+    async fn read_only_connector(
+        &self,
+        _db_name: &str,
+    ) -> Option<Arc<dyn agentic_connector::DatabaseConnector>> {
+        None
+    }
+
     /// `None`: a preview runs the agent's configured model; the scripted
     /// engine seam is for tests only.
     fn react_engine(&self) -> Option<Box<dyn agentic_core::react::Engine>> {

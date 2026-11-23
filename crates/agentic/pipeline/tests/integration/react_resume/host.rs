@@ -108,6 +108,23 @@ impl DatabaseConnector for ReadOnly {
     }
 }
 
+/// A warehouse connection with no read-only path, as an `airhouse_managed`
+/// one is until the platform swaps in a read-only credential.
+struct Writable;
+
+#[async_trait]
+impl DatabaseConnector for Writable {
+    fn dialect(&self) -> SqlDialect {
+        SqlDialect::DuckDb
+    }
+
+    async fn execute_query(&self, _: &str, _: u64) -> Result<ExecutionResult, ConnectorError> {
+        Err(ConnectorError::Other(
+            "react must query the read-only replacement".into(),
+        ))
+    }
+}
+
 // ── The host ────────────────────────────────────────────────────────────────
 
 /// One process's platform: the agent (`agent`: [`REACT_AGENT`] unless a test
@@ -122,6 +139,10 @@ pub(super) struct Host {
     /// The connector `warehouse` resolves to; `None`: the scripted
     /// [`ReadOnly`] one.
     pub connector: Option<Arc<dyn DatabaseConnector>>,
+    /// The warehouse is like an `airhouse_managed` one: the pre-built
+    /// connector has no read-only path ([`Writable`]), and only
+    /// `read_only_connector` gives one ([`ReadOnly`]).
+    pub airhouse_like: bool,
     pub agent: &'static str,
     pub script: Script,
     pub engines_built: AtomicUsize,
@@ -142,6 +163,7 @@ impl Host {
             flag,
             warehouse: true,
             connector: None,
+            airhouse_like: false,
             agent: REACT_AGENT,
             script: Script {
                 decisions: Arc::new(Mutex::new(script.into())),
@@ -167,7 +189,14 @@ impl agentic_pipeline::platform::ProjectContext for Host {
         if !self.warehouse || name != "warehouse" {
             return None;
         }
+        if self.airhouse_like {
+            return Some(Arc::new(Writable));
+        }
         Some(self.connector.clone().unwrap_or_else(|| Arc::new(ReadOnly)))
+    }
+
+    async fn read_only_connector(&self, name: &str) -> Option<Arc<dyn DatabaseConnector>> {
+        (self.airhouse_like && name == "warehouse").then(|| Arc::new(ReadOnly) as _)
     }
 
     /// A model at an address nothing listens on: a run that falls back to

@@ -41,6 +41,27 @@ struct MintTokenRequest<'a> {
     shared_session: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     uncached_reads: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    read_only: bool,
+}
+
+/// The claims a mint asks Airhouse for, beyond the role. Each one is left off
+/// the wire when unset, so a mint that asks for none is byte-identical to one
+/// from before the claim existed. Airhouse echoes each claim it honored
+/// ([`EphemeralCredential`]); one that predates a claim ignores it silently.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MintClaims<'a> {
+    /// Confine a Writer's writes to these schemas.
+    pub write_schemas: Option<&'a [String]>,
+    /// The credential's connection serves more than one requester, so
+    /// Airhouse refuses statements that change session state.
+    pub shared_session: bool,
+    /// Every read runs: none is answered from a pod's result cache, which
+    /// hides a commit made through another pod until the entry expires.
+    pub uncached_reads: bool,
+    /// The credential may only read (Airhouse 2026-11-22, #256). Accepted
+    /// only with role Reader and no `write_schemas`.
+    pub read_only: bool,
 }
 
 /// Wire shape of the create-SA response. Flattens
@@ -416,19 +437,7 @@ impl AirhouseAdminClient {
     /// bound to `tenant_id`, its `max_role` must cover the requested `role`,
     /// and its `max_ttl_secs` must cover `ttl_secs`.
     ///
-    /// `write_schemas` asks Airhouse to confine a Writer's writes to those
-    /// schemas. Omitted from the request when `None`, so an unscoped mint is
-    /// byte-identical to one from before the field existed.
-    ///
-    /// `shared_session` tells Airhouse the credential's connection serves more
-    /// than one requester, so it refuses statements that change session state.
-    /// Omitted when `false`, for the same reason.
-    ///
-    /// `uncached_reads` tells Airhouse every read on the credential's
-    /// connections must run: none is answered from a pod's result cache, which
-    /// hides a commit made through another pod until the entry expires.
-    /// Omitted when `false`, for the same reason.
-    #[allow(clippy::too_many_arguments)]
+    /// `claims` are the claims beyond the role ([`MintClaims`]).
     pub async fn mint_token(
         &self,
         tenant_id: &str,
@@ -436,9 +445,7 @@ impl AirhouseAdminClient {
         subject: &str,
         role: UserRole,
         ttl_secs: i32,
-        write_schemas: Option<&[String]>,
-        shared_session: bool,
-        uncached_reads: bool,
+        claims: MintClaims<'_>,
     ) -> Result<EphemeralCredential, AirhouseError> {
         let resp = self
             .client
@@ -448,9 +455,10 @@ impl AirhouseAdminClient {
                 subject,
                 role: &role,
                 ttl_secs,
-                write_schemas,
-                shared_session,
-                uncached_reads,
+                write_schemas: claims.write_schemas,
+                shared_session: claims.shared_session,
+                uncached_reads: claims.uncached_reads,
+                read_only: claims.read_only,
             })
             .send()
             .await?;
@@ -515,6 +523,8 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+
+    mod mint_tests;
 
     fn tenant_json() -> serde_json::Value {
         json!({
@@ -795,277 +805,6 @@ mod tests {
     }
 
     // ── Token mint + revoke ───────────────────────────────────────────────────
-
-    fn mint_response_json() -> serde_json::Value {
-        json!({
-            "username": "eph_a1b2c3d4ef98",
-            "password": "tk_3e8b1f4d2c5a6b7e8d9f0a1b2c3d4e5f",
-            "tenant": "acme",
-            "role": "reader",
-            "expires_at": "2026-05-05T12:15:00Z",
-            "service_account_id": "sa_8f2a8c10ab12cd34"
-        })
-    }
-
-    #[tokio::test]
-    async fn test_mint_token_success() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&mint_response_json()))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let cred = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "user_alice",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap();
-        assert!(cred.username.starts_with("eph_"));
-        assert!(cred.password.starts_with("tk_"));
-        assert_eq!(cred.tenant, "acme");
-        assert_eq!(cred.service_account_id, "sa_8f2a8c10ab12cd34");
-    }
-
-    /// `shared_session` goes on the wire only when asked for, so an ordinary
-    /// mint is byte-identical to one from before the claim existed; the echo
-    /// comes back on the credential.
-    #[tokio::test]
-    async fn test_mint_token_sends_shared_session_only_when_asked() {
-        let server = MockServer::start().await;
-        let mut echoed = mint_response_json();
-        echoed["shared_session"] = json!(true);
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .and(wiremock::matchers::body_partial_json(
-                json!({"shared_session": true}),
-            ))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&echoed))
-            .mount(&server)
-            .await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&mint_response_json()))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let shared = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "pool",
-                UserRole::Reader,
-                900,
-                None,
-                true,
-                false,
-            )
-            .await
-            .unwrap();
-        assert!(shared.shared_session);
-        let plain = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "alice",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap();
-        assert!(!plain.shared_session);
-
-        let bodies: Vec<serde_json::Value> = server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).unwrap())
-            .collect();
-        assert_eq!(bodies[0]["shared_session"], json!(true));
-        assert!(bodies[1].get("shared_session").is_none(), "{}", bodies[1]);
-    }
-
-    /// `uncached_reads` goes on the wire only when asked for, and its echo comes
-    /// back on the credential.
-    #[tokio::test]
-    async fn test_mint_token_sends_uncached_reads_only_when_asked() {
-        let server = MockServer::start().await;
-        let mut echoed = mint_response_json();
-        echoed["uncached_reads"] = json!(true);
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .and(wiremock::matchers::body_partial_json(
-                json!({"uncached_reads": true}),
-            ))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&echoed))
-            .mount(&server)
-            .await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&mint_response_json()))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let watch = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "watch",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                true,
-            )
-            .await
-            .unwrap();
-        assert!(watch.uncached_reads);
-        let plain = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "alice",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap();
-        assert!(!plain.uncached_reads);
-
-        let bodies: Vec<serde_json::Value> = server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).unwrap())
-            .collect();
-        assert_eq!(bodies[0]["uncached_reads"], json!(true));
-        assert!(bodies[1].get("uncached_reads").is_none(), "{}", bodies[1]);
-    }
-
-    #[tokio::test]
-    async fn test_mint_token_429_maps_to_rate_limited() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(429).set_body_string("mint rate limit exceeded"))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let err = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "user_alice",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(err, AirhouseError::RateLimited(_)));
-    }
-
-    #[tokio::test]
-    async fn test_mint_token_403_maps_to_forbidden() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(403).set_body_string(
-                "requested ttl_secs 7200 exceeds service-account max_ttl_secs 3600",
-            ))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let err = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "user_alice",
-                UserRole::Admin,
-                7200,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(err, AirhouseError::Forbidden(_)));
-    }
-
-    #[tokio::test]
-    async fn test_mint_token_401_maps_to_unauthorized() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let err = client
-            .mint_token(
-                "acme",
-                "ahsa_revoked",
-                "user_alice",
-                UserRole::Reader,
-                900,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(err, AirhouseError::Unauthorized(_)));
-    }
-
-    #[tokio::test]
-    async fn test_mint_token_400_maps_to_invalid_input() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/admin/v1/tenants/acme/tokens"))
-            .respond_with(ResponseTemplate::new(400).set_body_string("ttl_secs must be positive"))
-            .mount(&server)
-            .await;
-
-        let client = AirhouseAdminClient::new(server.uri(), "tok");
-        let err = client
-            .mint_token(
-                "acme",
-                "ahsa_secret",
-                "user_alice",
-                UserRole::Reader,
-                0,
-                None,
-                false,
-                false,
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(err, AirhouseError::InvalidInput(_)));
-    }
 
     #[tokio::test]
     async fn test_revoke_token_204_returns_true() {

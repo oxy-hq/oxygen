@@ -334,3 +334,91 @@ async fn an_agent_react_cannot_serve_runs_on_the_fsm() {
         );
     }
 }
+
+/// [`NoPlatform`] whose `read_only_connector` gives a read-only connector for
+/// one database name, as the host does for an `airhouse_managed` database.
+struct ReadOnlyFor(&'static str);
+
+#[async_trait::async_trait]
+impl crate::platform::ProjectContext for ReadOnlyFor {
+    async fn resolve_connector(&self, _: &str) -> Option<agentic_connector::ConnectorConfig> {
+        None
+    }
+    async fn resolve_model(
+        &self,
+        _: Option<&str>,
+        _: bool,
+    ) -> Option<agentic_analytics::config::ResolvedModelInfo> {
+        None
+    }
+    async fn resolve_secret(&self, _: &str) -> Option<String> {
+        None
+    }
+    async fn read_only_connector(&self, name: &str) -> Option<Arc<dyn DatabaseConnector>> {
+        (name == self.0).then(|| Arc::new(crate::react_run::tests::Five) as _)
+    }
+}
+
+#[async_trait::async_trait]
+impl agentic_automation::WorkspaceContext for ReadOnlyFor {
+    fn workspace_path(&self) -> Option<&std::path::Path> {
+        None
+    }
+    fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
+        vec![]
+    }
+    async fn get_connector(&self, name: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
+        Err(format!("no connector {name}"))
+    }
+    async fn get_integration(
+        &self,
+        name: &str,
+    ) -> Result<agentic_automation::workspace::IntegrationConfig, String> {
+        Err(format!("no integration {name}"))
+    }
+    async fn list_automation_files(&self) -> Result<Vec<std::path::PathBuf>, String> {
+        Ok(vec![])
+    }
+    async fn resolve_automation_yaml(&self, _: &str) -> Result<String, crate::WorkspaceReadError> {
+        Err("unused".into())
+    }
+}
+
+/// A database with no read-only path is served when the platform has a
+/// read-only connector for it (an `airhouse_managed` warehouse over a
+/// read-only credential), and only that one is swapped: one it has none for
+/// still keeps the agent on the FSM. The swap leaves read-only ones alone.
+#[tokio::test]
+async fn a_read_only_replacement_lets_react_serve_the_agent() {
+    let config = AgentConfig::from_yaml("instructions: hi\n").unwrap();
+    let inputs = ServedInputs {
+        connectors: HashMap::from([(
+            "wh".to_string(),
+            Arc::new(NoBackstop) as Arc<dyn DatabaseConnector>,
+        )]),
+        ..inputs(ThinkingMode::Auto)
+    };
+    let served = |platform: &'static dyn crate::platform::PlatformContext| {
+        let (config, inputs) = (&config, &inputs);
+        async move {
+            let check = ServeCheck {
+                platform,
+                config,
+                inputs,
+            };
+            cannot_serve(check).await
+        }
+    };
+    assert_eq!(served(&ReadOnlyFor("wh")).await, None, "swapped, so served");
+    let why = served(&ReadOnlyFor("other"))
+        .await
+        .expect("no replacement for wh");
+    assert!(why.contains("wh"), "{why}");
+
+    let swapped = super::read_only_inputs(&ReadOnlyFor("wh"), inputs.clone()).await;
+    assert!(swapped.connectors["wh"].supports_read_only());
+    assert!(
+        !inputs.connectors["wh"].supports_read_only(),
+        "the original is untouched"
+    );
+}

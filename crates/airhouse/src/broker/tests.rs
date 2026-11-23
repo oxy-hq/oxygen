@@ -203,5 +203,6 @@ fn mock_cred(expires_at: DateTime<Utc>) -> EphemeralCredential {
         write_schemas: None,
         shared_session: false,
         uncached_reads: false,
+        read_only: false,
     }
 }

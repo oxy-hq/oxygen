@@ -126,6 +126,30 @@ pub(crate) async fn start(
     }
 }
 
+/// `inputs` with each connector that has no read-only path replaced by the
+/// platform's read-only one for that database, where it has one
+/// ([`PlatformContext::read_only_connector`]: an `airhouse_managed` database
+/// over a credential Airhouse confirmed read-only). React queries only
+/// through these; the FSM keeps the originals. Every react entry runs it: the
+/// start's check ([`pick::cannot_serve`]) and the start and resume builds
+/// ([`build_served`]).
+pub(crate) async fn read_only_inputs(
+    platform: &dyn PlatformContext,
+    mut inputs: ServedInputs,
+) -> ServedInputs {
+    let mut names: Vec<String> = inputs.connectors.keys().cloned().collect();
+    names.sort_unstable();
+    for name in names {
+        if inputs.connectors[&name].supports_read_only() {
+            continue;
+        }
+        if let Some(read_only) = platform.read_only_connector(&name).await {
+            inputs.connectors.insert(name, read_only);
+        }
+    }
+    inputs
+}
+
 /// The react run a served start or resume runs, with the requesting user's
 /// memory ([`memory::served_memory`]).
 pub(crate) async fn build_served(
@@ -135,6 +159,7 @@ pub(crate) async fn build_served(
     inputs: ServedInputs,
     base_dir: &Path,
 ) -> Result<ReactRun, String> {
+    let inputs = read_only_inputs(platform, inputs).await;
     let (workspace_id, agent_id) = (inputs.workspace_id, inputs.agent_id.clone());
     let ctx = build_context(platform, config, inputs);
     let built = build_react_run(platform, config, ctx, base_dir).await?;

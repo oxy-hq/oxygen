@@ -23,6 +23,12 @@ use oxy::config::model::{BigQueryKey, DatabaseType, DuckDBOptions, SnowflakeAuth
 use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use oxy_shared::errors::OxyError;
 
+mod airhouse_mint;
+mod read_only;
+pub use airhouse_mint::CredentialUse;
+use airhouse_mint::mint_airhouse_managed_creds;
+pub(crate) use read_only::resolve_read_only_airhouse;
+
 /// Build a connector for one database, on either capability.
 ///
 /// The three arms that need a disk go through `try_resolve_file`
@@ -84,7 +90,13 @@ where
     // propagation. Other types go through the config + dispatcher path.
     match &db.database_type {
         DatabaseType::Airhouse(_) | DatabaseType::AirhouseManaged(_) => {
-            build_airhouse_connector(&db, workspace_manager, subject, role).await
+            build_airhouse_connector(
+                &db,
+                workspace_manager,
+                (subject, role),
+                CredentialUse::SharedPool,
+            )
+            .await
         }
         // DuckDB Local: use the process-wide pool so CSV/Parquet files are
         // loaded only once and subsequent calls get a cheap try_clone().
@@ -714,7 +726,14 @@ pub(crate) async fn resolve_pre_built_airhouse(
     ) {
         return None;
     }
-    match build_airhouse_connector(&db, workspace_manager, subject, role).await {
+    match build_airhouse_connector(
+        &db,
+        workspace_manager,
+        (subject, role),
+        CredentialUse::SharedPool,
+    )
+    .await
+    {
         Ok(conn) => Some(conn),
         Err(e) => {
             tracing::warn!(db = %db.name, "airhouse connector build failed: {e}");
@@ -734,23 +753,34 @@ pub(crate) async fn resolve_pre_built_airhouse(
 /// (and a fresh server-side DuckLake session) per warehouse query. On a warm
 /// hit no credential is minted and no connection is opened; the closure below
 /// runs only on a miss or dead-connection rebuild.
-async fn build_airhouse_connector<S: DiskSlot>(
+pub(crate) async fn build_airhouse_connector<S: DiskSlot>(
     db: &oxy::config::model::Database,
     workspace_manager: &WorkspaceManager<S>,
-    subject: Option<uuid::Uuid>,
-    role: Option<WorkspaceRole>,
+    (subject, role): (Option<uuid::Uuid>, Option<WorkspaceRole>),
+    credential: CredentialUse,
 ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
     let is_managed = matches!(db.database_type, DatabaseType::AirhouseManaged(_));
-    let key = airhouse_pool_key(
-        is_managed,
-        workspace_manager.workspace_id,
-        subject,
-        role.as_ref(),
-        &db.name,
-    );
+    let read_only = credential == CredentialUse::ReadOnly;
+    if read_only && !is_managed {
+        return Err(OxyError::ConfigurationError(format!(
+            "{}: a static airhouse database has no read-only credential to mint",
+            db.name
+        )));
+    }
+    let key = match read_only {
+        // Its own pool: a read-only connection never serves a role's queries.
+        true => format!("mgd:{}:read-only", workspace_manager.workspace_id),
+        false => airhouse_pool_key(
+            is_managed,
+            workspace_manager.workspace_id,
+            subject,
+            role.as_ref(),
+            &db.name,
+        ),
+    };
 
     let pool_key = key.clone();
-    crate::airhouse_pool::get_or_build(key, || async {
+    let conn = crate::airhouse_pool::get_or_build(key, || async {
         // This credential goes into the pool below, so it is minted for the
         // pool rather than for whoever happens to open it.
         let AirhouseWireParams {
@@ -760,14 +790,7 @@ async fn build_airhouse_connector<S: DiskSlot>(
             password,
             database,
             expires_at,
-        } = airhouse_wire_params(
-            db,
-            workspace_manager,
-            subject,
-            role.clone(),
-            CredentialUse::SharedPool,
-        )
-        .await?;
+        } = airhouse_wire_params(db, workspace_manager, subject, role.clone(), credential).await?;
 
         // Route query workloads — analytics agent, Data-App, SQL-IDE: everything
         // funneled through build_airhouse_connector — to the dedicated analytics
@@ -817,7 +840,11 @@ async fn build_airhouse_connector<S: DiskSlot>(
         };
         Ok(Arc::new(conn))
     })
-    .await
+    .await?;
+    Ok(match read_only {
+        true => Arc::new(crate::read_only_airhouse::ReadOnlyAirhouse::confirmed(conn)),
+        false => conn,
+    })
 }
 
 /// Logical pool identity for an airhouse connector. Deliberately *not* the
@@ -952,120 +979,6 @@ pub(crate) async fn airhouse_wire_params<S>(
     };
 
     Ok(params)
-}
-
-/// Whether the credential a mint returns will be **shared** with other
-/// requesters or belongs to **one** request. The caller knows; this function
-/// cannot tell, and the answer decides whether naming the requesting user on
-/// the credential is true or false.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CredentialUse {
-    /// Handed to [`airhouse_pool`](crate::airhouse_pool), so
-    /// the connection it opens is reused by every other requester at the same
-    /// role. Minted for [`airhouse::SystemPurpose::SharedQuery`] — a per-user
-    /// mint here would stamp whoever opened the connection onto queries other
-    /// people ran.
-    SharedPool,
-    /// A DSN for one consumer that opens its own connection and pools nothing
-    /// (the airway destination resolver,
-    /// `project_context::resolve_pipeline_destination`). Nobody else uses it,
-    /// so the requester is minted by name and the audit row is exact.
-    PerRequest,
-}
-
-/// Mint an ephemeral wire-protocol credential for an `airhouse_managed`
-/// database via the SA-backed broker. Returns the
-/// (host, port, username, password, dbname) tuple ready for the connector
-/// constructor.
-///
-/// HTTP-handled paths arrive here with both `subject` (the requesting user
-/// id, threaded by the workspace middleware) and `role` (the effective
-/// workspace role) populated. Background paths (scheduler, schema crawl,
-/// agentic background runs) leave `subject = None` and get
-/// `AgenticBackground` at Admin.
-///
-/// **`sharing` decides whose name goes on the credential, and the caller must
-/// say.** It is not a detail of this function: it follows from what the caller
-/// does with the result, so getting it wrong writes a false audit row. See
-/// [`CredentialUse`].
-async fn mint_airhouse_managed_creds<S>(
-    workspace_manager: &WorkspaceManager<S>,
-    subject: Option<uuid::Uuid>,
-    role: Option<WorkspaceRole>,
-    sharing: CredentialUse,
-) -> Result<AirhouseWireParams, OxyError> {
-    let workspace_id = workspace_manager.workspace_id;
-    let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
-        OxyError::ConfigurationError(
-            "airhouse_managed: AIRHOUSE_WIRE_HOST is not configured; the airhouse \
-             integration must be enabled (set AIRHOUSE_BASE_URL, AIRHOUSE_ADMIN_TOKEN, \
-             AIRHOUSE_WIRE_HOST, AIRHOUSE_WIRE_PORT)"
-                .into(),
-        )
-    })?;
-    let broker = airhouse::token_broker().ok_or_else(|| {
-        OxyError::ConfigurationError(
-            "airhouse_managed: token broker not initialised; check the airhouse env \
-             vars (AIRHOUSE_BASE_URL / AIRHOUSE_ADMIN_TOKEN / AIRHOUSE_WIRE_HOST)"
-                .into(),
-        )
-    })?;
-
-    let cred = match subject {
-        Some(uid) => {
-            let airhouse_role = role
-                .map(airhouse::airhouse_role_for)
-                // No effective role in scope (e.g. handler that didn't extract
-                // EffectiveWorkspaceRole). Default to reader — least-privilege.
-                .unwrap_or(airhouse::UserRole::Reader);
-            // The role is the requester's either way, so neither arm grants
-            // more than the other. Only the NAME on the credential differs,
-            // and it follows who will use the connection.
-            match sharing {
-                CredentialUse::SharedPool => broker
-                    .mint_for_system(
-                        workspace_id,
-                        airhouse::SystemPurpose::SharedQuery,
-                        airhouse_role,
-                        airhouse::DEFAULT_INTERNAL_TTL,
-                    )
-                    .await
-                    .map_err(OxyError::from)?,
-                CredentialUse::PerRequest => broker
-                    .mint_for_user(
-                        workspace_id,
-                        uid,
-                        airhouse_role,
-                        airhouse::DEFAULT_INTERNAL_TTL,
-                    )
-                    .await
-                    .map_err(OxyError::from)?,
-            }
-        }
-        None => broker
-            .mint_for_system(
-                workspace_id,
-                airhouse::SystemPurpose::AgenticBackground,
-                airhouse::UserRole::Admin,
-                airhouse::DEFAULT_INTERNAL_TTL,
-            )
-            .await
-            .map_err(OxyError::from)?,
-    };
-
-    Ok(AirhouseWireParams {
-        host: endpoint.host,
-        port: endpoint.port,
-        user: cred.username,
-        password: cred.password,
-        database: cred.tenant,
-        // Carried, not dropped: airhouse closes a session whose credential has
-        // lapsed, so this deadline is the only thing that lets the pool replace
-        // the connection on its own schedule instead of being hung up on
-        // mid-request. `expires_at` is UTC; negative is impossible but clamp
-        // rather than wrap.
-        expires_at: Some(cred.expires_at.timestamp().max(0) as u64),
-    })
 }
 
 #[cfg(test)]

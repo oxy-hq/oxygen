@@ -52,7 +52,9 @@ use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use crate::admin::{AirhouseAdminClient, AirhouseError, EphemeralCredential, TokenAuth, UserRole};
+use crate::admin::{
+    AirhouseAdminClient, AirhouseError, EphemeralCredential, MintClaims, TokenAuth, UserRole,
+};
 use crate::entity::Tenants as AirhouseTenants;
 use crate::entity::tenants::{self as airhouse_tenants};
 
@@ -60,6 +62,7 @@ use crate::entity::tenants::{self as airhouse_tenants};
 /// [`AirhouseTokenBroker::mint_for_preview`].
 #[cfg(feature = "preview-sql")]
 mod preview;
+mod read_only;
 
 /// Refresh a cached credential when it's within this many seconds of its
 /// `expires_at`. Picked so a slow caller (60s+ between checking cache and
@@ -95,6 +98,17 @@ pub enum BrokerError {
     Crypto(Uuid, String),
     #[error("airhouse mint rate limit exceeded after {0} retries")]
     RateLimitExceeded(usize),
+    /// A read-only credential was asked for and Airhouse did not echo the
+    /// claim: it predates read-only credentials (#256), so the credential it
+    /// minted is an ordinary Reader. It is revoked, not used.
+    #[error(
+        "this Airhouse does not mint read-only credentials (it predates airhouse #256), so \
+         react cannot query it yet"
+    )]
+    ReadOnlyUnsupported,
+    /// A read-only credential may only be a Reader.
+    #[error("a read-only airhouse credential must be a Reader, not {0}")]
+    ReadOnlyRole(String),
     #[error("database error: {0}")]
     Db(#[from] sea_orm::DbErr),
     #[error("airhouse error: {0}")]
@@ -238,6 +252,12 @@ pub enum SystemPurpose {
     /// pruning it (a Writer; the schema's DDL runs as Admin under the same
     /// purpose). Its own audit segment.
     EventLog,
+    /// A react run's queries: model-written SQL that must not write. Always a
+    /// Reader with the `read_only` claim, which Airhouse enforces on every
+    /// statement (#256), and the `shared_session` claim, because its
+    /// connection is pooled. Refused unless Airhouse echoes `read_only`
+    /// ([`AirhouseTokenBroker::mint_read_only`]).
+    ReadOnlyQuery,
 }
 
 impl SystemPurpose {
@@ -256,6 +276,7 @@ impl SystemPurpose {
             SystemPurpose::SharedQuery => "shared-query",
             SystemPurpose::TableWatch => "table-watch",
             SystemPurpose::EventLog => "event-log",
+            SystemPurpose::ReadOnlyQuery => "read-only-query",
         }
     }
 }
@@ -306,7 +327,19 @@ impl BrokerSubject {
         matches!(
             self,
             BrokerSubject::System {
-                purpose: SystemPurpose::SharedQuery,
+                purpose: SystemPurpose::SharedQuery | SystemPurpose::ReadOnlyQuery,
+                ..
+            }
+        )
+    }
+
+    /// Whether a mint for this subject asks for the `read_only` claim. Only
+    /// [`SystemPurpose::ReadOnlyQuery`] does.
+    fn read_only(&self) -> bool {
+        matches!(
+            self,
+            BrokerSubject::System {
+                purpose: SystemPurpose::ReadOnlyQuery,
                 ..
             }
         )
@@ -404,6 +437,8 @@ pub struct AirhouseTokenBroker {
     /// Whether this deployment's Airhouse scopes Writers (`preview`).
     #[cfg(feature = "preview-sql")]
     scoped_writers: preview::ScopedWriters,
+    /// When Airhouse last ignored the `read_only` claim (`read_only`).
+    read_only_refused: read_only::ReadOnlyRefused,
 }
 
 impl AirhouseTokenBroker {
@@ -413,6 +448,7 @@ impl AirhouseTokenBroker {
             cache: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "preview-sql")]
             scoped_writers: preview::ScopedWriters::default(),
+            read_only_refused: read_only::ReadOnlyRefused::default(),
         }
     }
 
@@ -625,6 +661,12 @@ impl AirhouseTokenBroker {
         if matches!(subject, BrokerSubject::Preview { .. }) {
             return self.mint_preview(workspace_id, &subject, role, ttl).await;
         }
+        if subject.read_only() {
+            // Every read-only mint checks the echo, whichever entry built it.
+            return self
+                .mint_read_only_checked(workspace_id, &subject, role, ttl)
+                .await;
+        }
         self.mint_or_cached(workspace_id, &subject, role, ttl).await
     }
 
@@ -686,21 +728,18 @@ impl AirhouseTokenBroker {
         let write_schemas = subject.write_schemas(role);
         let shared_session = subject.shared_session();
         let uncached_reads = subject.uncached_reads();
+        let claims = MintClaims {
+            write_schemas: write_schemas.as_deref(),
+            shared_session,
+            uncached_reads,
+            read_only: subject.read_only(),
+        };
 
         let mut attempt = 0;
         loop {
             match self
                 .client
-                .mint_token(
-                    tenant_id,
-                    sa_bearer,
-                    &subject_str,
-                    role,
-                    ttl_secs,
-                    write_schemas.as_deref(),
-                    shared_session,
-                    uncached_reads,
-                )
+                .mint_token(tenant_id, sa_bearer, &subject_str, role, ttl_secs, claims)
                 .await
             {
                 Ok(cred) => {

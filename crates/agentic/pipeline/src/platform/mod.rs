@@ -333,6 +333,17 @@ pub trait ProjectContext: Send + Sync {
         false
     }
 
+    /// A connector for `db_name` whose database refuses every write, for a
+    /// react run, when the platform can build one where
+    /// [`Self::resolve_pre_built_connector`] gives a connector with no
+    /// read-only path: an `airhouse_managed` database, over a credential
+    /// Airhouse confirmed read-only. `None`, the default and the answer of
+    /// any host that cannot (a preview, a context holding writes), leaves the
+    /// database as it is, and react keeps such an agent on the FSM.
+    async fn read_only_connector(&self, _db_name: &str) -> Option<Arc<dyn DatabaseConnector>> {
+        None
+    }
+
     /// The engine a react run decides with in place of the agent's model.
     /// `None`, the default and every production host's answer, builds the
     /// agent's own `LlmEngine`. A test host returns a scripted engine here,

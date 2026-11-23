@@ -152,6 +152,11 @@ pub struct EphemeralCredential {
     /// asked for and when the Airhouse predates the claim and ignored it.
     #[serde(default)]
     pub uncached_reads: bool,
+    /// Echo of the `read_only` mint claim. `false` both when it was not asked
+    /// for and when the Airhouse predates the claim and ignored it, which is
+    /// why a caller that asked must refuse a credential without it.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Auth selector for the per-token revoke endpoint.
