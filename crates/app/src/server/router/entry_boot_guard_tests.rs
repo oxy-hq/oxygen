@@ -8,8 +8,10 @@
 //!
 //! What stays and is not flagged: `new_agentic_state` (the task-router listener,
 //! the reaper and the boot cleanup), which the routes need the state for and
-//! which leaves with the router-assembly lift; and the dead
-//! `spawn_billing_reconciler`, which no builder calls.
+//! which leaves with the router-assembly lift. The dead
+//! `spawn_billing_reconciler` left `entry.rs` for `oxy-server`'s
+//! `drivers::billing_reconciler` in decompose BL1; its needle stays below, so a
+//! builder that called one again would still fail.
 
 /// `entry.rs` up to its first column-0 `#[cfg(test)]`, so this file's own
 /// needles are never read as calls, with whole-line comments dropped: a comment

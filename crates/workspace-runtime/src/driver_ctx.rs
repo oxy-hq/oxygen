@@ -1,5 +1,5 @@
 //! The background driver's workspace context: what the run drivers
-//! (`oxy-app`'s `router::recovery` and `router::periodic`), the workspace-health
+//! (`oxy-server`'s `drivers::recovery` and `drivers::periodic`), the workspace-health
 //! and reconciliation sweeps and a queued run's requester build an
 //! `OxyProjectContext` from when no request is there to build it. Down from
 //! `oxy-app`'s `server/router/recovery.rs` (decompose W6b, 2026-11-23), which
@@ -21,7 +21,7 @@ use crate::project_ctx::OxyProjectContext;
 pub mod worker_ctx;
 
 /// The global driver's default tick interval, in seconds: how often
-/// `oxy-app`'s `router::recovery` loop runs when
+/// `oxy-server`'s `drivers::recovery` loop runs when
 /// `OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS` is unset or invalid. Down from
 /// `recovery.rs` (decompose R0, 2026-11-23), which re-exports it, so a surface
 /// that reasons about the driver's cadence (the experiment status's staleness

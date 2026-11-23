@@ -508,6 +508,11 @@ crates/app-core/src/pods/                          @luong-komorebi @NTtanh
 # file under router/ below is a one-line re-export of it.
 crates/app-core/src/seams.rs                       @luong-komorebi @NTtanh
 crates/app/src/server/router/                      @luong-komorebi @NTtanh
+# The run drivers and the periodic tick moved up out of router/ above into the
+# binary on 2026-11-23 (decompose BL1), with the audit anchor loop and the
+# token-usage flush (which had no row of their own) and the dead billing
+# reconciler (out of router/entry.rs).
+crates/server/src/drivers/                         @luong-komorebi @NTtanh
 
 # Brand & positioning copy — require brand/marketing sign-off before merge.
 # (owners are a placeholder; swap for a dedicated brand/marketing handle once one

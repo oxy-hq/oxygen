@@ -1,7 +1,7 @@
 //! `ProcedureRunExecutor`: runs a queued custom-app procedure run
 //! (`TaskSpec::Custom { kind: "custom_app_procedure_run" }`) on whichever
 //! process claimed it. Registered into the `CustomTaskRegistry` by
-//! `server::router::recovery`; `PipelineTaskExecutor` delegates the kind here.
+//! `drivers::recovery`; `PipelineTaskExecutor` delegates the kind here.
 //!
 //! The work itself is unchanged — the same
 //! `run_inline_automation_with_render_context` the handler used to spawn. What

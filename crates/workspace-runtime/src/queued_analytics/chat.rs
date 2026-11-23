@@ -1,7 +1,7 @@
 //! `ChatRunExecutor`: drives a queued chat run
 //! (`TaskSpec::Custom { kind: "analytics_chat_run" }`) on whichever process
 //! claimed it. Registered into the `CustomTaskRegistry` by
-//! `server::router::recovery`; `PipelineTaskExecutor` delegates the kind here.
+//! `drivers::recovery`; `PipelineTaskExecutor` delegates the kind here.
 //!
 //! Every plain chat reaches it: `agentic-http`'s `create_run` queues the kind
 //! (`queue_chat`). It was registered a release ahead of that start, so no

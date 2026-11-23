@@ -2,7 +2,7 @@
 //!
 //! `serve` cancels the shutdown token, lets the HTTP listener finish in-flight
 //! requests for at most [`GRACEFUL_DRAIN_DEADLINE`], then awaits the shutdown
-//! hooks (bounded separately, in `router/recovery.rs`). Anything that flushes
+//! hooks (bounded separately, in `drivers/recovery.rs`). Anything that flushes
 //! this process's memory on shutdown — the custom-app usage drain — has to keep
 //! going for the whole drain window, because the handlers still running in it
 //! still produce work. It reads the deadline from here rather than keeping its

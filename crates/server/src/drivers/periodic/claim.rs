@@ -176,3 +176,9 @@ pub(super) async fn record_reconciled(
         );
     }
 }
+
+// Against a real Postgres: `oxy-app`'s `tests/platform/periodic_claim.rs` until
+// decompose BL1 (2026-11-23).
+#[cfg(test)]
+#[path = "claim_db_tests.rs"]
+mod db_tests;

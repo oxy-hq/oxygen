@@ -18,7 +18,7 @@ use super::{ListPage, PutOptions, StorageError, StoredObject};
 /// path-style addressing — identical to the build store's client.
 ///
 /// `pub(crate)` so `retention` (bucket-lifecycle calls) and
-/// `server::audit_anchor` (the Object Lock anchors) share the same endpoint
+/// `drivers::audit_anchor` (the Object Lock anchors) share the same endpoint
 /// configuration; a second client builder would be one more place for the
 /// MinIO path-style flag to be forgotten.
 pub async fn client() -> S3Client {

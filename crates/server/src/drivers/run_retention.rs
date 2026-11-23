@@ -251,3 +251,9 @@ mod tests {
         }
     }
 }
+
+// Against a real schema: `oxy-app`'s `tests/platform/run_retention.rs` until
+// decompose BL1 (2026-11-23).
+#[cfg(test)]
+#[path = "run_retention_db_tests.rs"]
+mod db_tests;

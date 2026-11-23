@@ -528,7 +528,7 @@ mod tests {
     /// `TaskSpec::Compile` runs through an `OxyProjectContext`, and
     /// `compile_dispatcher()` only resolves when `db` is wired. The HTTP
     /// workspace middleware sets it; the in-process global driver
-    /// (`server::router::recovery`) once did NOT, so every queued compile
+    /// (`drivers::recovery`) once did NOT, so every queued compile
     /// failed with "compile_dispatcher() returned None". This asserts the
     /// invariant both ways so a future refactor can't silently drop `db`
     /// from a compile-executing path again.

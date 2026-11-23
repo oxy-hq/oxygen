@@ -2,7 +2,7 @@
 //! request drives it as that caller:
 //! `POST /api/projects/{id}/agents/{aid}/asks` writes the caller onto the run
 //! in the insert that creates it, and `CallerRunResolver` — the resolver
-//! `router::recovery` hands every recovery entry point — rebuilds the context
+//! `drivers::recovery` hands every recovery entry point — rebuilds the context
 //! the handler had from that record.
 //!
 //! The comparison is against the context the gate builds for the same
@@ -384,13 +384,13 @@ async fn a_platform_the_inner_resolver_substitutes_is_kept() {
 /// Recovery is handed this resolver at every entry point, or a recorded ask
 /// is driven as the tick on the one that was missed. Comments are dropped
 /// before counting, so a mention cannot stand in for a call. The periodic
-/// tick's entry point lives in `router/periodic/mod.rs` since the cloud tick
+/// tick's entry point lives in `drivers/periodic/mod.rs` since the cloud tick
 /// moved out of `recovery.rs`, so both files are read.
 #[test]
 fn every_recovery_entry_point_is_handed_the_caller_resolver() {
     let code: String = [
-        "crates/app/src/server/router/recovery.rs",
-        "crates/app/src/server/router/periodic/mod.rs",
+        "crates/server/src/drivers/recovery.rs",
+        "crates/server/src/drivers/periodic/mod.rs",
     ]
     .iter()
     .map(|path| read_repo_file(path))

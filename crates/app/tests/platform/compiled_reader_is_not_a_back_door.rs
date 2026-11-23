@@ -258,15 +258,12 @@ fn source_files() -> Vec<(String, String)> {
     // crate, since none of it names `compiled_reader`.
     let tenancy = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-tenancy/src");
     walk(&tenancy, &tenancy, "../api-tenancy/src/", &mut out);
-    // `oxy-server`'s `core_routes`: the health probes and route discovery
-    // moved UP there from `src/server/api` on 2026-11-16.
-    let core_routes = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../server/src/core_routes");
-    walk(
-        &core_routes,
-        &core_routes,
-        "../server/src/core_routes/",
-        &mut out,
-    );
+    // `oxy-server`, the whole crate: the health probes and route discovery
+    // (`core_routes`) moved UP there from `src/server/api` on 2026-11-16, and
+    // the run drivers and the periodic tick (`drivers`) from `src/server/router`
+    // on 2026-11-23 (decompose BL1). None of it names `compiled_reader`.
+    let server = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../server/src");
+    walk(&server, &server, "../server/src/", &mut out);
     // `oxy-api-threads`: the conversation surface moved there from
     // `src/server/api` on 2026-11-16. The whole crate.
     let threads = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-threads/src");

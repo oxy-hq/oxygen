@@ -8,7 +8,7 @@
 //! optional k8s probe port.
 //!
 //! **The worker drives runs (Phase 1).** It runs the same loops `oxy serve`
-//! does — `server::router::recovery`'s latency worker and periodic
+//! does — `drivers::recovery`'s latency worker and periodic
 //! stranded-run tick — so scheduler-seeded and orphaned work executes on a
 //! worker pod rather than on the node serving HTTP. It is an *additional*
 //! driver: the request-time direct-drive still executes interactive submits
@@ -47,9 +47,9 @@ use super::serve;
 // Aliased: this module already has a `spawn_recovery` (the reaper pre-pass
 // loop below), and the two are genuinely different jobs — one reaps stale
 // queue rows, the other drives runs.
+use crate::drivers::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
 use crate::worker_health::{self, WorkerHealthState};
 use crate::worker_runtime::WorkerRuntime;
-use oxy_app::host::router::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
 use oxy_app::host::worker::PreaggCacheCtx;
 
 /// Default cadence for the standalone-worker recovery loop. Same default the
@@ -475,13 +475,13 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     // now, and each claims its interval in `fleet_job_claims`, so the fleet runs
     // each once per interval. Same gate as the run drivers above, so
     // `OXY_INPROC_GLOBAL_WORKER=0` stops both.
-    oxy_app::host::router::start_fleet_jobs(
+    crate::drivers::fleet_jobs::start_fleet_jobs(
         &fleet_jobs,
         &oxy_app::host::router::FleetJobDeps {
             db: &runtime.db,
             shutdown: &shutdown,
         },
-        oxy_app::host::router::recovery::inproc_global_worker_enabled(),
+        crate::drivers::recovery::inproc_global_worker_enabled(),
     );
 
     // Optional health probe + Prometheus metrics server (off unless
@@ -747,7 +747,7 @@ async fn release_queue_claims(db: &sea_orm::DatabaseConnection) {
 
 /// Periodic reaper tick. **Not** the run driver — that is
 /// `spawn_run_drivers` in [`run_worker`], which spawns
-/// `server::router::recovery`'s loops. This one exists only to run
+/// `drivers::recovery`'s loops. This one exists only to run
 /// `run_reaper` faster than the background reaper's own cadence when an
 /// operator asks for it, and no-ops otherwise; see [`tick_once`].
 ///

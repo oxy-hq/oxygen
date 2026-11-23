@@ -17,7 +17,7 @@
 //!
 //! **Driver.** Run now enqueues a `TaskScope::Global` `app_function` task that
 //! no request drives. The test drains it through `recover_pending_global_runs`
-//! (the entry point `router::recovery::drive_pending` calls) and the production
+//! (the entry point `drivers::recovery::drive_pending` calls) and the production
 //! `AppFunctionTaskExecutor`, but registered in the test's own
 //! `CustomTaskRegistry`: production's `build_custom_task_registry` is private,
 //! and the source scan guards its registration instead. The loop around it is

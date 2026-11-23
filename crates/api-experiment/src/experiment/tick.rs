@@ -1,5 +1,5 @@
 //! The experiment clock (C7). Runs on every node that runs the global driver
-//! (`router/recovery.rs`); a run is advanced by exactly one of them per slot,
+//! (`drivers/recovery.rs`); a run is advanced by exactly one of them per slot,
 //! because each claims it by CAS on `next_check_at` — the way `tick_schedules`
 //! claims a schedule on `next_run_at`. Database-only: warehouse reads are the
 //! `experiment_check` job's. Never errors the caller.

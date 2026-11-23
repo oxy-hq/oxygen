@@ -28,7 +28,7 @@ pub fn router() -> Router<AppState> {
         // one org's chain in seq order and recomputes every link.
         .route("/audit/verify/{org_id}", get(verify_audit_chain))
         // The chain checked against something the database cannot rewrite:
-        // the latest S3 Object Lock anchor (`server::audit_anchor`).
+        // the latest S3 Object Lock anchor (`drivers::audit_anchor`).
         .route("/audit/anchor/{org_id}", get(verify_audit_anchor))
 }
 

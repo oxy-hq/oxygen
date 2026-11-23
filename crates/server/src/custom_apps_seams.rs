@@ -306,7 +306,7 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
 /// The custom-app jobs whose answer is global rather than per replica. Every
 /// process that runs singleton work starts them — each `oxy worker`, and an
 /// `all`/`ide` serve — and each claims its interval in `fleet_job_claims`, so
-/// the fleet runs it once per interval (`oxy_app::server::router::fleet_jobs`).
+/// the fleet runs it once per interval (`crate::drivers::fleet_jobs`).
 pub(crate) fn fleet_jobs() -> Vec<FleetJobSeam> {
     vec![
         // Verify that the asset bucket enforces the TTL classes this binary

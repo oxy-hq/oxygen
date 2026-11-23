@@ -52,7 +52,7 @@ pub async fn build_workspace_manager(
         .ok_or_else(|| format!("workspace {workspace_id} has no path"))?;
 
     // The cycle always targets the default branch, so resolve its promoted
-    // revision here (branch hint `None`), the way `router::recovery` does. The
+    // revision here (branch hint `None`), the way `drivers::recovery` does. The
     // builder does NOT do this for us: a `None` revision means `Origin::Disk`,
     // and on a worker — no working copy — the semantic scan then finds nothing
     // and enqueues a lazy self-heal compile. That compile succeeds, so the

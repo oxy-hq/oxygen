@@ -37,7 +37,10 @@ const SRC: &[&str] = &[
 
 const SERVER: &[&str] = &[
     "api",
-    "audit_anchor",
+    // `audit_anchor` and `token_usage_flush` moved up into `oxy-server`'s
+    // `drivers` with the run drivers on 2026-11-23 (decompose BL1), and with
+    // them `test_support`, the in-source DB harness shim they were the last
+    // callers of.
     "auth_provider_check",
     "authz",
     "build_identity",
@@ -79,8 +82,6 @@ const SERVER: &[&str] = &[
     // 2026-11-21 (re-exported in `server/mod.rs` until R1). `service`, the
     // re-exports of `oxy::service` and `oxy::types`, was deleted in R1 when
     // its last caller imported `oxy::service` directly.
-    "test_support",
-    "token_usage_flush",
     // `worker_health`, `worker_metrics`, `worker_runtime` and
     // `shared_state_check` moved up into `oxy-server` on 2026-11-22 (UP2).
     "workspace_fs",

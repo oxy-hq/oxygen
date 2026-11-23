@@ -1,6 +1,6 @@
 //! Runs a queued staging migration ([`super::staging_task`]) on the worker
 //! fleet. Registered for [`STAGING_MIGRATIONS_KIND`] by
-//! `server::router::recovery::build_custom_task_registry`.
+//! `drivers::recovery::build_custom_task_registry`.
 //!
 //! Each store keeps the bounds and the lock its apply always had:
 //!

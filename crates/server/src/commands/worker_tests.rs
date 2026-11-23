@@ -293,7 +293,7 @@ fn require_database_url_rejects_unknown_auth_mode() {
 
 /// The kill switch the run-driving comment in `run_worker` promises.
 ///
-/// `oxy worker` drives runs by spawning `server::router::recovery`'s loops,
+/// `oxy worker` drives runs by spawning `drivers::recovery`'s loops,
 /// and both of them are gated on `inproc_global_worker_enabled()`. That gate
 /// derives from `OXY_ROLE` by default — and `worker` derives to ON, which is
 /// what we want — but an operator putting a fleet back to reaper-only
@@ -302,7 +302,7 @@ fn require_database_url_rejects_unknown_auth_mode() {
 /// rather than trusting the derivation to keep an escape hatch.
 #[test]
 fn inproc_global_worker_env_override_wins_in_both_directions() {
-    use oxy_app::host::router::recovery::{INPROC_GLOBAL_WORKER_ENV, inproc_global_worker_enabled};
+    use crate::drivers::recovery::{INPROC_GLOBAL_WORKER_ENV, inproc_global_worker_enabled};
 
     let _g = ENV_LOCK.lock().unwrap();
     let prev = std::env::var(INPROC_GLOBAL_WORKER_ENV).ok();

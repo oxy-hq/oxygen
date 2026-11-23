@@ -1,7 +1,6 @@
 //! HTTP server and API endpoints
 
 pub mod api;
-pub mod audit_anchor;
 pub mod auth_provider_check;
 pub mod authz;
 pub mod build_identity;
@@ -59,9 +58,6 @@ pub mod route_catalog;
 pub mod router;
 // The task router's LISTEN settings, `oxy-app-core`'s `listener` since 2026-11-22.
 pub use oxy_app_core::listener as task_router_listener;
-#[cfg(test)]
-pub(crate) mod test_support;
-pub(crate) mod token_usage_flush;
 pub mod workspace_fs;
 pub use oxy_app_core::workspace_repo_facts;
 

@@ -27,7 +27,7 @@
 //!   SAY so, which is the brief's one hard requirement on the reason text.
 //! - **`backlog:`** — work that outlives the request or belongs on exactly one pod.
 //!   These are the entries that should disappear, each as a `TaskSpec` with an
-//!   executor registered in `router/recovery.rs` and a line in
+//!   executor registered in `drivers/recovery.rs` and a line in
 //!   `internal-docs/task-spec-registry.md`; the list going up is the signal.
 //!
 //! Adding an entry means editing this file and writing the reason down. That is the
@@ -710,7 +710,7 @@ fn handlers_do_not_spawn_outside_the_allowlist() {
          took the request, runs once per replica when it was meant to run once, and \
          nothing can poll or retry it. Invoke the `oxy-task-spec-default` skill \
          (`crates/app/.claude/skills/`): add the kind, its executor (registered in \
-         `router/recovery.rs`), an idempotency key, and its line in \
+         `drivers/recovery.rs`), an idempotency key, and its line in \
          `internal-docs/task-spec-registry.md`, then enqueue from the handler.\n\n\
          A spawn that only drives this request's own SSE stream — feeds the response's \
          channel, persists nothing, ends when the queries do — is admitted, but its \

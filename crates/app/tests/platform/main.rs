@@ -106,13 +106,13 @@ mod oltp_env_branches_cap;
 mod oltp_env_branches_recut;
 mod oltp_env_branches_stale;
 mod oltp_provisioner;
-mod periodic_claim;
+// `periodic_claim` and `run_retention` moved into `oxy-server` with the drivers
+// (in-source `db_tests` beside the code, decompose BL1, 2026-11-23).
 mod preagg_promote_nudge;
 mod queued_chat_run;
 mod revision_miss_not_from_disk;
 mod rollout_gates;
 mod run;
-mod run_retention;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 // `shared_state_boot` moved to `oxy-server` (a unit-test module of the

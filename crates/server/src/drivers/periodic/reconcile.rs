@@ -90,10 +90,10 @@ pub(super) async fn reconcile_workspace(db: &DatabaseConnection, ws: &Claimed) {
         "periodic tick: reconciling schedules from the compiled revision"
     );
     let health =
-        crate::server::compile_worker::reconcile_health_from_compiled(db, ws.workspace_id).await;
+        oxy_compile_runtime::worker::reconcile_health_from_compiled(db, ws.workspace_id).await;
     // The resolved opt-in is the promote path's business, not the tick's:
     // this backfills cadences, it does not seed ticks.
-    let preagg = crate::server::compile_worker::reconcile_preagg_from_compiled(db, ws.workspace_id)
+    let preagg = oxy_compile_runtime::worker::reconcile_preagg_from_compiled(db, ws.workspace_id)
         .await
         .settled();
     let monitors =

@@ -1,7 +1,7 @@
 //! `workspace_periodic_ticks` — when each workspace is next due to be driven
 //! by the periodic global driver, and which compiled revision its schedule
 //! rows were last reconciled from. Written by the driver's cloud tick
-//! (`oxy-app`'s `server::router::periodic`); `next_tick_at` is its
+//! (`oxy-server`'s `drivers::periodic`); `next_tick_at` is its
 //! `FOR UPDATE SKIP LOCKED` claim.
 
 use sea_orm::entity::prelude::*;

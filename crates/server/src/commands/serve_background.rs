@@ -20,26 +20,28 @@
 //!
 //! `new_agentic_state` — the task-router listener, the reaper and the boot
 //! cleanup — still runs inside the builders: the routes need the state, and it
-//! leaves with the router-assembly lift. The drivers this calls move up into
-//! `oxy-server` next (BL1).
+//! leaves with the router-assembly lift. The drivers this calls are
+//! `crate::drivers`, up from `oxy-app` since decompose BL1.
 
 use std::sync::Arc;
 
 use agentic_http::AgenticState;
 use axum::Router;
-use oxy_app::host::router::recovery::{
-    StartupPass, inproc_global_worker_enabled, register_shutdown_hook, spawn_recovery,
-    spawn_shutdown_hook,
-};
 use oxy_app::host::router::{
     ApiRouterArgs, FleetJobSeam, GlobalTickSeam, SurfaceSeams, TaskSeam, api_router_with_state,
-    internal_api_router, start_fleet_jobs,
+    internal_api_router,
 };
 use oxy_app::host::worker::PreaggCacheCtx;
 use oxy_app_core::seams::BackgroundSeam;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_shared::errors::OxyError;
 use tokio_util::sync::CancellationToken;
+
+use crate::drivers::fleet_jobs::start_fleet_jobs;
+use crate::drivers::recovery::{
+    StartupPass, inproc_global_worker_enabled, register_shutdown_hook, spawn_recovery,
+    spawn_shutdown_hook,
+};
 
 /// The seams' jobs, taken off them before the router consumes the rest.
 struct SeamJobs {
@@ -166,7 +168,7 @@ impl ServeBoot {
         // Per-token usage: counted in memory by `token_usage_middleware`, written
         // here once a minute, and once more when the shutdown token is cancelled —
         // registered as a shutdown hook so the last partial minute is not lost.
-        register_shutdown_hook(oxy_app::host::token_usage_flush::spawn_token_usage_flush(
+        register_shutdown_hook(crate::drivers::token_usage_flush::spawn_token_usage_flush(
             self.agentic_state.shutdown_token.clone(),
         ));
     }

@@ -1,6 +1,6 @@
 //! Background startup recovery for in-flight agentic runs.
 //!
-//! [`cleanup_stale_runs`] (called from [`super::entry::new_agentic_state`])
+//! [`cleanup_stale_runs`] (called from `oxy-app`'s `new_agentic_state`)
 //! only transitions interrupted runs to `task_status = "needs_resume"`. The
 //! runs themselves are not re-driven until [`recover_active_runs`] rebuilds a
 //! `PlatformContext` per workspace, and hands it to the
@@ -18,12 +18,12 @@ use agentic_pipeline::recovery::{recover_active_runs, recover_stranded_runs};
 use agentic_runtime::state::RuntimeState;
 use sea_orm::{DatabaseConnection, EntityTrait};
 
-use crate::agentic_wiring::OxyProjectContext;
-use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::queued_analytics::caller::CallerRunResolver;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
+use oxy_workspace_runtime::queued_analytics::caller::CallerRunResolver;
 // The driver's context builders, `oxy-workspace-runtime`'s `driver_ctx` since
-// decompose W6b (2026-11-23). `worker_ctx` is re-exported so `periodic` and
-// `router::worker_project_ctx` keep this path.
+// decompose W6b (2026-11-23). `worker_ctx` is re-exported so `periodic` keeps
+// this path.
 pub(crate) use oxy_workspace_runtime::driver_ctx::worker_ctx;
 use oxy_workspace_runtime::driver_ctx::{build_commit_compile_ctx, build_local_project_ctx};
 
@@ -265,7 +265,7 @@ pub async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Cancellatio
 pub const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
 // `oxy-workspace-runtime`'s `driver_ctx` since decompose R0 (2026-11-23).
-pub use oxy_workspace_runtime::driver_ctx::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
+use oxy_workspace_runtime::driver_ctx::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
 
 pub fn inproc_global_worker_enabled() -> bool {
     // Explicit env override wins, in both directions.
@@ -275,8 +275,8 @@ pub fn inproc_global_worker_enabled() -> bool {
     // Otherwise derive from the process role: only the stateless serve replica
     // skips the periodic driver (it offloads to the worker fleet). Single source
     // of truth so a single `OXY_ROLE=all` instance always drains its own queue.
-    crate::server::role_manifest::role_runs_inprocess_workers(
-        crate::server::role_manifest::current_process_role(),
+    oxy_app_core::pods::role_manifest::role_runs_inprocess_workers(
+        oxy_app_core::pods::role_manifest::current_process_role(),
     )
 }
 
@@ -410,7 +410,7 @@ pub fn spawn_recovery(
     // worker per workspace.
     if inproc_global_worker_enabled() {
         super::drive_policy::announce(policy);
-        crate::server::compile_reconcile::announce();
+        oxy_compile_runtime::reconcile::announce();
         spawn_airhouse_tenant_sweeper(db.clone(), shutdown.clone());
         super::run_retention::spawn(db.clone(), shutdown.clone());
         spawn_latency_worker(
@@ -568,7 +568,7 @@ pub fn spawn_recovery(
                     // Held workspace-preview runs: finish those whose run is
                     // terminal, then start each workspace's next queued one.
                     // Row writes only — the runs themselves are queue work.
-                    crate::server::previews::queue::sweep::sweep(&db).await;
+                    oxy_previews::queue::sweep::sweep(&db).await;
                     // Token hygiene (spent OIDC jtis, long-expired `ci`
                     // tokens, expiry notices, unused tokens) is
                     // `oxy-api-identity`'s tick, run with the other surfaces'
@@ -1170,7 +1170,7 @@ async fn tick_cloud(
         tracing::debug!(
             target: "recovery",
             count = declined.len(),
-            role = crate::server::role_manifest::current_process_role().as_str(),
+            role = oxy_app_core::pods::role_manifest::current_process_role().as_str(),
             policy = ?policy,
             "latency worker: leaving runs this node declines for one that takes them"
         );
@@ -1373,9 +1373,9 @@ pub(super) fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
     preagg: &PreaggCacheCtx,
     tasks: &[TaskSeam],
-    schema_cache: Option<crate::server::queued_analytics::SchemaCache>,
+    schema_cache: Option<oxy_workspace_runtime::queued_analytics::SchemaCache>,
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
-    use crate::server::preagg_executor::PreaggTaskExecutor;
+    use oxy_workspace_runtime::preagg_executor::PreaggTaskExecutor;
     let mut reg = agentic_runtime::worker::CustomTaskRegistry::new();
     // Insights delivery (`anomaly_notify`, queued after a monitor scan whose
     // `.monitor.yml` has a `notify:` block) is `oxy-api-metric-monitoring`'s
@@ -1390,10 +1390,12 @@ pub(super) fn build_custom_task_registry(
     // `tasks` below, with the same schema cache.)
     reg.register(
         agentic_pipeline::queued_run::CHAT_RUN_KIND,
-        Arc::new(crate::server::queued_analytics::chat::ChatRunExecutor {
-            db: db.clone(),
-            schema_cache: schema_cache.clone(),
-        }),
+        Arc::new(
+            oxy_workspace_runtime::queued_analytics::chat::ChatRunExecutor {
+                db: db.clone(),
+                schema_cache: schema_cache.clone(),
+            },
+        ),
     );
     // Same shape as health eval: one executor instance, workspace context
     // rebuilt fresh per task from `workspace_id` in the payload. See
@@ -1420,7 +1422,7 @@ pub(super) fn build_custom_task_registry(
     // process without the custom-app, notification, health, anomaly and
     // preview ones, and
     // `oxy-server`'s own test holds the experiment ones to the composition.
-    let deps = crate::server::router::TaskDeps {
+    let deps = oxy_app_core::seams::TaskDeps {
         db,
         preagg,
         schema_cache: schema_cache.as_ref(),

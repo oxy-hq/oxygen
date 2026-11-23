@@ -62,7 +62,7 @@
 //! be handing it rows: it exits once the queue has been empty for one whole
 //! HTTP drain window (`oxy_app_core::shutdown::GRACEFUL_DRAIN_DEADLINE`, 5 s,
 //! read from there rather than copied), or at the latest two of them after the
-//! signal (10 s — the hooks' own budget in `router/recovery.rs`). Then the
+//! signal (10 s — the hooks' own budget in `drivers/recovery.rs`). Then the
 //! hook's handle completes, `await_shutdown_hooks` returns, and every row a
 //! finishing handler queued is in the database. A crash still loses at most
 //! one [`FLUSH_INTERVAL`] of rows, which is the trade stated above; writing

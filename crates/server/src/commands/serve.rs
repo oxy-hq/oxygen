@@ -1108,7 +1108,7 @@ async fn serve_application(
     // is also after `shutdown_token` was cancelled — so the shutdown hooks
     // are already running. Wait for them (bounded) rather than letting
     // process exit race the claim release they perform.
-    oxy_app::host::router::recovery::await_shutdown_hooks(&shutdown_observer).await;
+    crate::drivers::recovery::await_shutdown_hooks(&shutdown_observer).await;
 
     result
 }

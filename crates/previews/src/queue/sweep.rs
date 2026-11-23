@@ -1,5 +1,5 @@
 //! The held preview runs' per-pass step, run by the global driver on every
-//! pass (`router::recovery`): retire runs past the wall-clock ceiling
+//! pass (`drivers::recovery`): retire runs past the wall-clock ceiling
 //! ([`super::ceiling`]), finish rows whose run is terminal, settle a custom
 //! app's preview-mode automation run, queue the compare under each finished
 //! transform build ([`super::compare`]) and start each workspace's next queued

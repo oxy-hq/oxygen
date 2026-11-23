@@ -134,7 +134,7 @@ impl CallerRunResolver {
     }
 
     /// The resolver every recovery entry point is handed
-    /// (`router::recovery`): a preview-owned root on its preview platform, a
+    /// (`drivers::recovery`): a preview-owned root on its preview platform, a
     /// custom-app ask as its caller, a run a workspace request started as its
     /// requester, everything else on the tick's.
     pub fn shared(db: &DatabaseConnection) -> Arc<dyn RunPlatformResolver> {

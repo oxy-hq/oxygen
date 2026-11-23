@@ -413,7 +413,7 @@ pub const COMPILE_GIT_SOURCE_TYPE: &str = "compile_git";
 /// mirror-image gate: `compile` is declined by nodes that *cannot* run it,
 /// `airway` is declined by the `ide` node that *can* — so that a memory-heavy
 /// pipeline lands on a worker instead of the IDE singleton. See
-/// `oxy_app::server::router::drive_policy::drive_policy_for`.
+/// `oxy-server`'s `drivers::drive_policy::drive_policy_for`.
 ///
 /// Same caveat: this does not make a rename safe on its own, since a
 /// hand-spelled literal still compiles and silently disarms the gate. It buys

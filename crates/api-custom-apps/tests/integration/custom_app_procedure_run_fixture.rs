@@ -10,9 +10,9 @@
 //!
 //! **Driver.** Nothing in a replica drives a run. [`spawn_driver`] drains the
 //! queue through `recover_pending_global_runs` (what
-//! `router::recovery::drive_pending` calls) with the production
+//! `drivers::recovery::drive_pending` calls) with the production
 //! `ProcedureRunExecutor`, in a `CustomTaskRegistry` and loop of its own:
-//! production's registry is private, and `router::recovery`'s own tests cover
+//! production's registry is private, and `drivers::recovery`'s own tests cover
 //! the per-role drive policy and a drive through `drive_pending` of the kind
 //! handed in as a seam (`oxy-server` hands in this executor; the kind is a
 //! required one). The driver's base platform ([`driver_platform`]) is a

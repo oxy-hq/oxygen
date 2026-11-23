@@ -1,7 +1,7 @@
 //! Which runs a process takes off the Global queue, and when.
 //!
 //! One typed policy, one predicate. The host decides the policy once per
-//! process (for Oxy: `oxy_app::server::router::drive_policy`); everything that
+//! process (for Oxy: `oxy-server`'s `drivers::drive_policy`); everything that
 //! selects Global work — the latency worker's probe, the gate in
 //! [`recover_pending_global_runs`](crate::recovery::recover_pending_global_runs)
 //! the periodic stranded tick

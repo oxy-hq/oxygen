@@ -97,7 +97,7 @@ fn the_production_registry_registers_the_app_function_executor_and_the_driver_us
         "`surface_seams` no longer fills `SurfaceSeams::tasks` from `custom_apps_seams::tasks()`"
     );
 
-    let src = code("crates/app/src/server/router/recovery.rs");
+    let src = code("crates/server/src/drivers/recovery.rs");
     assert!(
         fn_body(&src, "build_custom_task_registry")
             .contains("forseamintasks{reg.register(seam.kind,(seam.build)(&deps));}"),

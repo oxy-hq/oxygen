@@ -2,12 +2,12 @@ use super::{
     FACTORY_ONLY_KINDS, IDE_DEFER_AIRWAY_ENV, IDE_DEFER_QUEUE_WORK_ENV, IdeDeferral,
     drive_policy_for,
 };
-use crate::server::role_manifest::Role;
 use agentic_pipeline::backfill_task::AIRWAY_BACKFILL_RANGE_KIND;
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS, may_drive};
 use agentic_runtime::coordinator::{
     AIRWAY_SOURCE_TYPE, COMPILE_GIT_SOURCE_TYPE, COMPILE_SOURCE_TYPE,
 };
+use oxy_app_core::pods::role_manifest::Role;
 
 const NEITHER: IdeDeferral = IdeDeferral {
     airway: false,

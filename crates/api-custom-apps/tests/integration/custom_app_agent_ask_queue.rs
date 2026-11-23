@@ -5,7 +5,7 @@
 //! the run the way the start handler will once it does — the run row with its
 //! caller record, the analytics extension row, one `queued` Global entry — and
 //! either hands the claim to the executor directly, or lets a latency-worker
-//! pass (`recover_pending_global_runs`, with the resolver `router::recovery`
+//! pass (`recover_pending_global_runs`, with the resolver `drivers::recovery`
 //! injects) find it.
 //!
 //! No LLM is reachable from a test, and the fixture's workspace configures no
@@ -217,7 +217,7 @@ async fn a_latency_pass_drives_a_queued_ask_to_a_terminal_event() {
             db.clone(),
             state.clone(),
             platform,
-            // The resolver `router::recovery` hands every recovery entry
+            // The resolver `drivers::recovery` hands every recovery entry
             // point, over the identity resolver in place of the preview one.
             Arc::new(CallerRunResolver::new(
                 db.clone(),

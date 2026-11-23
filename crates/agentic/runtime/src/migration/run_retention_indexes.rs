@@ -1,4 +1,4 @@
-//! Indexes for the run-retention prune (oxy-app's `server::router::run_retention`).
+//! Indexes for the run-retention prune (oxy-server's `drivers::run_retention`).
 //!
 //! * [`RUN_RETENTION_INDEX_SQL`]: finished root runs by age. The prune walks
 //!   them oldest first; without it, every pass read the whole table to find

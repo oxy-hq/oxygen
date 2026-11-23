@@ -20,6 +20,7 @@ mod core_routes;
 mod custom_apps_seams;
 #[cfg(feature = "dev-tools")]
 mod dev;
+mod drivers;
 #[cfg(test)]
 mod healthcheck_tests;
 mod logging;

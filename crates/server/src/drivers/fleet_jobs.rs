@@ -2,7 +2,7 @@
 //! replica — re-measure every app's asset silo, queue the usage backfills,
 //! check the asset bucket's lifecycle rules, anchor the audit chain heads.
 //!
-//! They used to be [`BackgroundSeam`](super::BackgroundSeam)s gated on
+//! They used to be [`BackgroundSeam`](oxy_app_core::seams::BackgroundSeam)s gated on
 //! `inproc_global_worker_enabled()`, which in a split fleet is true on exactly
 //! one pod: the `ide` StatefulSet. Prod scaled that to zero, the serve replicas
 //! answer false (`--no-workers`, no `OXY_INPROC_GLOBAL_WORKER`), and `oxy worker`
@@ -26,7 +26,7 @@ const OWN_FLEET_JOBS: [FleetJobSeam; 1] = [FleetJobSeam {
 }];
 
 fn start_audit_anchor(deps: &FleetJobDeps<'_>) {
-    crate::server::audit_anchor::spawn_audit_anchor_loop(deps.db.clone(), deps.shutdown.clone())
+    super::audit_anchor::spawn_audit_anchor_loop(deps.db.clone(), deps.shutdown.clone())
 }
 
 /// Start `oxy-app`'s fleet jobs and the surfaces' when this process runs

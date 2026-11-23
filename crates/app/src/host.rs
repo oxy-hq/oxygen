@@ -55,27 +55,11 @@ pub mod router {
         ApiRouterArgs, FleetJobDeps, FleetJobSeam, GlobalTickSeam, NotificationsSeam, SurfaceSeams,
         TaskSeam, TickPass, api_router, api_router_with_state, build_cors_layer, build_openapi_doc,
         install_global_ticks, internal_api_router, require_fleet_jobs, require_notifications,
-        require_task_kinds, start_fleet_jobs,
+        require_task_kinds,
     };
-
-    /// The run drivers: the startup recovery pass, the periodic one, and the
-    /// shutdown hooks `serve` spawns, registers and waits on.
-    /// `OXY_INPROC_GLOBAL_WORKER` is the kill switch that turns driving off on a
-    /// worker. `spawn_shutdown_hook` and `register_shutdown_hook` are here for
-    /// `serve`'s boot (decompose BL-W) until the drivers move up (BL1).
-    pub mod recovery {
-        pub use crate::server::router::recovery::{
-            INPROC_GLOBAL_WORKER_ENV, StartupPass, await_shutdown_hooks,
-            inproc_global_worker_enabled, register_shutdown_hook, spawn_recovery,
-            spawn_shutdown_hook,
-        };
-    }
-}
-
-/// The per-token usage flush `serve`'s boot starts (decompose BL-W), until it
-/// moves up with the drivers (BL1).
-pub mod token_usage_flush {
-    pub use crate::server::token_usage_flush::spawn_token_usage_flush;
+    // The run drivers (`recovery`, `start_fleet_jobs`), the token-usage flush and
+    // the periodic tick's metrics are `oxy-server`'s `drivers` since decompose
+    // BL1 (2026-11-23).
 }
 
 /// The layers `serve` wraps the router in.
@@ -97,13 +81,6 @@ pub mod http_cache {
 /// 2026-11-22 (decompose UP2).
 pub mod worker {
     pub use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-}
-
-/// The periodic driver's tick counters in Prometheus text, which the worker's
-/// `GET /metrics` (`oxy-server`'s `worker_metrics`) appends. The tick that
-/// increments them stays here.
-pub mod periodic_metrics {
-    pub use crate::server::router::periodic::metrics::push_prometheus;
 }
 
 /// The custom-app bundle cache's byte budget, sized at boot.

@@ -146,6 +146,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The health probes and route discovery, `oxy-server`'s `core_routes`
         // since 2026-11-16.
         manifest.join("../server/src/core_routes"),
+        // The run drivers and the periodic tick, `oxy-server`'s `drivers`
+        // since 2026-11-23 (decompose BL1, out of `src/server/router`).
+        manifest.join("../server/src/drivers"),
         // The conversation surface, `oxy-api-threads` since 2026-11-16.
         manifest.join("../api-threads/src"),
         // The workspaces surface, `oxy-api-workspaces` since 2026-11-16.

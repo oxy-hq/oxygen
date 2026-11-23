@@ -590,7 +590,7 @@ async fn clear_run_error_nulls_error_but_preserves_answer_and_driver_lease() {
 // ── Which selections a WORKER process may safely run ────────────────────────
 //
 // `oxy worker` now runs the same driving loops `oxy serve` does
-// (`crates/app/src/server/router/recovery.rs`), which makes it a second driver
+// (`crates/server/src/drivers/recovery.rs`), which makes it a second driver
 // alongside the request-time direct-drive. Phase 2 removed that direct-drive
 // from the *airway submit* path (it enqueues `Global` now), but NOT from
 // analytics, builder, or the deleted `oxy airway run` CLI — so a live run with no
@@ -688,7 +688,7 @@ async fn a_live_direct_driven_run_is_excluded_by_the_queue_gated_selections_only
         run.driver_id.is_none(),
         "direct-drive does not acquire the driver lease; if this ever becomes \
          Some, the whole reason oxy worker skips the one-shot startup pass has \
-         changed — see StartupPass in server/router/recovery.rs"
+         changed — see StartupPass in crates/server/src/drivers/recovery.rs"
     );
     let resumable = crud::get_resumable_root_runs(&db, Some(uuid::Uuid::nil()))
         .await

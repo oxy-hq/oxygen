@@ -6885,7 +6885,7 @@ metric = "loc.ploc"
 value = 655.0
 
 [[entry]]
-path = "crates/app/src/server/router/periodic/monitors.rs"
+path = "crates/server/src/drivers/periodic/monitors.rs"
 qualified = "create_schedule"
 metric = "nargs"
 value = 6.0
@@ -6897,73 +6897,73 @@ metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "<file>"
 metric = "loc.ploc"
 value = 1232.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "<file>"
 metric = "loc.sloc"
 value = 1963.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "drive_pending"
 metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "recover_all_workspaces"
 metric = "nargs"
 value = 8.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "recover_local"
 metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "run_recovery"
 metric = "nargs"
 value = 10.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "spawn_latency_worker"
 metric = "nargs"
 value = 10.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "spawn_recovery"
 metric = "abc"
 value = 48.2078831727758
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "tick_cloud"
 metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "tick_cloud"
 metric = "nargs"
 value = 8.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery.rs"
+path = "crates/server/src/drivers/recovery.rs"
 qualified = "tick_local"
 metric = "nargs"
 value = 8.0
 
 [[entry]]
-path = "crates/app/src/server/router/recovery/procedure_run_tests.rs"
+path = "crates/server/src/drivers/recovery/procedure_run_tests.rs"
 qualified = "a_single_process_executes_the_run_it_queued"
 metric = "abc"
 value = 51.633322573702344

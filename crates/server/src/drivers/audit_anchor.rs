@@ -28,7 +28,7 @@ pub fn spawn_audit_anchor_loop(
         return;
     };
     tokio::spawn(async move {
-        let s3 = crate::server::api::custom_apps_storage::s3::client().await;
+        let s3 = oxy_custom_apps::storage::s3::client().await;
         let interval = cfg.interval;
         let (pass_db, cfg, s3) = (
             db.clone(),

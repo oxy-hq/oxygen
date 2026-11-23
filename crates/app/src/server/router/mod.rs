@@ -10,18 +10,16 @@
 //!   `oxy_app_core::seams`' (decompose R0), re-exported here
 //! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
 
-mod drive_policy;
 mod entry;
-mod fleet_jobs;
 mod global;
 mod openapi;
-pub mod periodic;
 mod protected;
 mod public;
-pub(crate) mod recovery;
+// The background drivers (`recovery`, `periodic`, `drive_policy`,
+// `run_retention`, `fleet_jobs`) are `oxy-server`'s `drivers` since decompose
+// BL1 (2026-11-23).
 // `oxy-app-core`'s `pods::role_router` since 2026-11-22 (decompose G3).
 pub(crate) use oxy_app_core::pods::role_router;
-pub mod run_retention;
 mod workspace;
 pub(crate) mod workspace_cache;
 
@@ -31,7 +29,6 @@ use axum::http::{HeaderMap, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{ApiRouterArgs, api_router, api_router_with_state, internal_api_router};
-pub use fleet_jobs::start_fleet_jobs;
 pub use openapi::{build_openapi_doc, openapi_router};
 pub use oxy_app_core::seams::{
     ANOMALY_TASK_KINDS, AdminNest, AdminSection, BackgroundDeps, BackgroundSeam,
@@ -51,10 +48,12 @@ pub use protected::{api_auth_layers, external_auth_layers};
 // `crate::server::router::AppState` call site (~52 files) is unchanged.
 pub use oxy_app_core::AppState;
 
-/// The background driver's context cache, reached the way its ticks reach it.
-/// Exposed only for `tests/platform/worker_ctx_follows_promote.rs`.
+/// The background driver's context cache, reached the way its ticks reach it
+/// (`oxy-workspace-runtime`'s `driver_ctx::worker_ctx`; the drivers are
+/// `oxy-server`'s since decompose BL1). Exposed only for
+/// `tests/platform/worker_ctx_follows_promote.rs`.
 #[doc(hidden)]
-pub use recovery::worker_ctx::worker_project_ctx;
+pub use oxy_workspace_runtime::driver_ctx::worker_ctx::worker_project_ctx;
 #[doc(hidden)]
 pub use workspace_cache::{WorkspaceContextCache, new_workspace_context_cache};
 

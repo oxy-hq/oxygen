@@ -1,4 +1,4 @@
-//! `router::recovery` as the driver of a queued custom-app ask.
+//! `drivers::recovery` as the driver of a queued custom-app ask.
 //!
 //! Every live ask is queued (`oxy-api-custom-apps`'s `agent_ask::start`), so
 //! every driver must take the kind and none may decline it for ever. The
@@ -11,7 +11,7 @@ use agentic_pipeline::recovery::{STRANDED_GRACE_SECS, may_drive};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy_for};
 use super::*;
-use crate::server::role_manifest::Role;
+use oxy_app_core::pods::role_manifest::Role;
 
 /// The `source_type` a queued ask's run carries, and so what the placement
 /// gate matches on: the start inserts it as an analytics run. Not

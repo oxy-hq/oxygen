@@ -11,7 +11,7 @@ use agentic_pipeline::backfill_task::AIRWAY_BACKFILL_RANGE_KIND;
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS};
 use agentic_runtime::coordinator::{AIRWAY_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
 
-use crate::server::role_manifest::{Role, current_process_role};
+use oxy_app_core::pods::role_manifest::{Role, current_process_role};
 
 /// Opt-in: make the `ide` singleton hand **airway** runs to the worker fleet
 /// instead of driving them itself. Narrow on purpose — see

@@ -1,6 +1,6 @@
 //! Runs a queued sandbox teardown ([`super::teardown`]) on the worker fleet.
 //! Registered for `SANDBOX_TEARDOWN_KIND` by
-//! `server::router::recovery::build_custom_task_registry`.
+//! `drivers::recovery::build_custom_task_registry`.
 //!
 //! The outcome is the record: `Done` with what was removed, or `Failed` with
 //! why not — and then the sandbox's row is still there, still `deleting`.

@@ -3,7 +3,7 @@
 //! still does its work once per interval across all of them.
 //!
 //! The same shape as the periodic driver's workspace claim
-//! (`oxy-app`'s `router/periodic/claim.rs`): every statement uses the
+//! (`oxy-server`'s `drivers/periodic/claim.rs`): every statement uses the
 //! database's clock, never this process's, and the claim is one statement, so
 //! there is no leader to elect and no lease to renew. The upsert's `WHERE`
 //! runs against the row as the winner left it — Postgres locks the conflicting

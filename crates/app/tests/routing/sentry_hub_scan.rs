@@ -490,10 +490,15 @@ const GATE_ENTRY_POINTS: [&str; 3] = [
 /// walk). The standalone worker's runtime, health listener and metrics, and
 /// the boot-time shared-state check, `oxy-server`'s since 2026-11-22 (was
 /// `src/server/{worker_runtime,worker_health,worker_metrics,
-/// shared_state_check}.rs`, inside the same walk). None is on the data plane;
-/// walked so a gate call added there is seen.
+/// shared_state_check}.rs`, inside the same walk). The run drivers and the
+/// periodic tick, `oxy-server`'s `drivers` since 2026-11-23 (decompose BL1, was
+/// `src/server/router/{recovery,periodic,drive_policy,run_retention,
+/// fleet_jobs}` and `src/server/{audit_anchor,token_usage_flush}.rs`, inside the
+/// same walk). None is on the data plane; walked so a gate call added there is
+/// seen.
 fn oxy_server_sources(crate_root: &Path, files: &mut Vec<PathBuf>) {
     rust_files(&crate_root.join("../server/src/core_routes"), files);
+    rust_files(&crate_root.join("../server/src/drivers"), files);
     for file in [
         "worker_runtime.rs",
         "worker_health.rs",

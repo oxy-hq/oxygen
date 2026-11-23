@@ -57,6 +57,17 @@ oxy-workspace-runtime = { workspace = true }
 # compile-boundary maintenance, started by `serve` since decompose BL-W.
 oxy-cameras = { workspace = true }
 oxy-compile-runtime = { workspace = true }
+# The background drivers (`src/drivers`, up from `oxy-app` in decompose BL1):
+# the periodic tick's claim and monitor bootstrap read `entity` rows and stamp
+# `chrono` times, the global driver sweeps the preview queue (`oxy-previews`),
+# the monitor bootstrap is `oxy-metric-monitoring`'s, the audit anchor writes to
+# S3, and the dead Stripe seat reconciler calls `oxy-billing`.
+entity = { workspace = true }
+chrono = { workspace = true }
+oxy-previews = { workspace = true }
+oxy-metric-monitoring = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+oxy-billing = { workspace = true }
 # The feature-flag cache `serve` and `worker` load at boot.
 oxy-feature-flags = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
@@ -136,11 +147,12 @@ sentry = { workspace = true, features = ["test"] }
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
 oxy-authz = { workspace = true }
 oxy-oltp = { workspace = true }
-oxy-billing = { workspace = true }
 agentic-core = { workspace = true }
-entity = { workspace = true }
 migration = { workspace = true }
-chrono = { workspace = true }
+# The drivers' in-source tests: the stub task executors (`async-trait`) and the
+# monitor config parses (`serde_yaml`).
+async-trait = { workspace = true }
+serde_yaml = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }

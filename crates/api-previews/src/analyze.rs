@@ -174,7 +174,7 @@ async fn live_read<'a>(
 }
 
 /// Runs a `preview_analyze` task. Registered in
-/// `router::recovery::build_custom_task_registry`. `airhouse` answers
+/// `drivers::recovery::build_custom_task_registry`. `airhouse` answers
 /// whether this deployment can take a preview's writes: builds are queued
 /// only where it can.
 pub struct PreviewAnalyzeExecutor {

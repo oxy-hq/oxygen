@@ -1,14 +1,36 @@
-//! Run retention (`server::router::run_retention`) against a real schema: what goes,
+//! Run retention (`drivers::run_retention`) against a real schema: what goes,
 //! what a live reference keeps, and that a backlog drains across passes.
-//! Database-backed (`Schema::All`): the guards read tables from four domains.
+//! Database-backed: the guards read tables from four domains, all of them the
+//! central chain's, and `agentic_runs` is also the runtime migrator's.
+//!
+//! Each test owns a fresh database on the test server (testcontainers, or the
+//! server `OXY_DATABASE_URL` names): `prune` is unscoped by design, so its
+//! counts hold only on a database nothing else writes. They were `oxy-app`'s
+//! `tests/platform/run_retention.rs` (`fresh_db(Schema::All)`) until the drivers
+//! moved up into `oxy-server` (decompose BL1, 2026-11-23); the assertions are
+//! unchanged.
 
 use std::time::Duration;
 
-use oxy_app::server::router::run_retention::{Pruned, prune};
+use migration::MigratorTrait;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use uuid::Uuid;
 
-use crate::common::{Schema, fresh_db};
+use super::{Pruned, prune};
+
+/// A database of this test's own, migrated the way `oxy serve` starts: the
+/// central chain, then the runtime migrator.
+async fn migrated_db() -> DatabaseConnection {
+    let url = oxy_test_utils::containers::fresh_db_url("oxytest_run_retention").await;
+    let db = oxy_test_utils::containers::connect(&url).await;
+    migration::Migrator::up(&db, None)
+        .await
+        .expect("run central migrations");
+    agentic_runtime::migration::RuntimeMigrator::up(&db, None)
+        .await
+        .expect("run runtime migrations");
+    db
+}
 
 const DAYS: u32 = 90;
 
@@ -29,7 +51,7 @@ struct World {
 
 impl World {
     async fn new() -> Self {
-        let (db, _) = fresh_db(Schema::All).await;
+        let db = migrated_db().await;
         let workspace = Uuid::new_v4();
         exec(
             &db,

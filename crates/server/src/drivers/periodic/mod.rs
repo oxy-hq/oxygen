@@ -58,9 +58,9 @@ use agentic_pipeline::recovery::{DrivePolicy, recover_stranded_runs};
 use agentic_runtime::state::RuntimeState;
 use sea_orm::DatabaseConnection;
 
-use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::queued_analytics::SchemaCache;
-use crate::server::queued_analytics::caller::CallerRunResolver;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_workspace_runtime::queued_analytics::SchemaCache;
+use oxy_workspace_runtime::queued_analytics::caller::CallerRunResolver;
 
 use super::recovery::{self, CustomTasks};
 use super::workspace_cache::WorkspaceContextCache;
@@ -262,7 +262,7 @@ async fn tick_global(db: &DatabaseConnection) {
     // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
     // tick). Exactly-once per item across replicas by each tick's own CAS.
     oxy_app_core::seams::run_global_ticks(db, chrono::Utc::now()).await;
-    crate::server::compile_reconcile::tick(db).await;
+    oxy_compile_runtime::reconcile::tick(db).await;
 }
 
 #[cfg(test)]

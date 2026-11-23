@@ -502,7 +502,7 @@ pub struct SurfaceSeams {
     /// Started by every process that runs singleton work — each `oxy worker`,
     /// and an `all`/`ide` serve — and each claims its interval in
     /// `fleet_job_claims`, so the fleet runs it once per interval
-    /// (`router/fleet_jobs.rs` starts them).
+    /// (`drivers/fleet_jobs.rs` starts them).
     pub fleet_jobs: Vec<FleetJobSeam>,
     /// Singleton work the global driver runs each pass for an extracted surface
     /// (the experiment tick). Installed process-wide by `serve`'s boot and

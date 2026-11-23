@@ -226,7 +226,8 @@ pub async fn api_router_with_state(
             // when Stripe isn't configured (STRIPE_SECRET_KEY absent), so the
             // spawn is always safe. Spawning once at router construction keeps
             // it tied to server lifetime without adding a separate hook.
-            // Disabled for now; will re-enable later.
+            // Disabled for now; will re-enable later. (The reconciler is
+            // `oxy-server`'s `drivers::billing_reconciler` since decompose BL1.)
             // spawn_billing_reconciler().await;
             //
             // Surface crates mounted by the composition root (`oxy-server`) —
@@ -337,34 +338,6 @@ pub async fn api_router_with_state(
         preagg,
         agentic_state,
     ))
-}
-
-/// 6-hour background loop that reconciles Stripe seat quantity for every
-/// paid org, catching any drift between member counts and what we last sent
-/// to Stripe. Idempotent; silently does nothing if Stripe isn't configured.
-#[allow(dead_code)] // Disabled for now; will re-enable later.
-async fn spawn_billing_reconciler() {
-    static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    if STARTED.set(()).is_err() {
-        // Already spawned (e.g. tests or duplicated router builds).
-        return;
-    }
-    let Ok(svc) = oxy_billing::billing_service().await else {
-        tracing::debug!("billing reconciler not spawned — Stripe isn't configured");
-        return;
-    };
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
-        // Skip the immediate tick — reconciliation at boot is redundant with
-        // the live sync that just fired during any recent member change.
-        ticker.tick().await;
-        loop {
-            ticker.tick().await;
-            if let Err(e) = svc.reconcile_all_seats().await {
-                tracing::warn!(?e, "billing seat reconciliation failed");
-            }
-        }
-    });
 }
 
 pub async fn internal_api_router(

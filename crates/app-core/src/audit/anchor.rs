@@ -27,8 +27,9 @@
 //! Down from `oxy-app`'s `server::audit_anchor` in the admin split's PR 3, so
 //! the console's verifier (`GET /admin/audit/anchor/{org_id}`) can leave
 //! `oxy-app` with `admin::audit` (it did, for `oxy-api-admin`, on
-//! 2026-11-20). The hourly loop that writes anchors stays in
-//! `oxy-app` (`server::audit_anchor`): it builds the custom-app store's S3
+//! 2026-11-20). The hourly loop that writes anchors stayed in `oxy-app`
+//! (`server::audit_anchor`), and is `oxy-server`'s `drivers::audit_anchor`
+//! since decompose BL1 (2026-11-23): it builds the custom-app store's S3
 //! client, which lives above this crate.
 
 use std::time::Duration;

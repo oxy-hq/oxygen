@@ -1,5 +1,5 @@
 //! Periodic token hygiene, driven by the global singleton worker's tick
-//! (`router::recovery`, `OXY_INPROC_GLOBAL_WORKER`) — beside the schedules and
+//! (`drivers::recovery`, `OXY_INPROC_GLOBAL_WORKER`) — beside the schedules and
 //! the preview sweep, not in a loop of its own and never from a request.
 //!
 //! What a pass does, each step idempotent so any number of drivers can run it

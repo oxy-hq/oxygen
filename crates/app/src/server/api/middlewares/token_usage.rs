@@ -12,7 +12,7 @@
 //! The IP is the address the load balancer saw (`forwarded::client_ip`), not
 //! the `X-Forwarded-For` hop the caller wrote.
 //! Recording is one map update under a mutex; the write happens once a minute
-//! in `server::token_usage_flush`.
+//! in `oxy-server`'s `drivers::token_usage_flush`.
 
 use axum::body::Body;
 use axum::extract::MatchedPath;

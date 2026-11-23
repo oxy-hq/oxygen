@@ -640,12 +640,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_IDE_DEFER_AIRWAY",
-        "crates/app/src/server/router/drive_policy.rs",
+        "crates/server/src/drivers/drive_policy.rs",
         "the ide's queue-selection rollout gates; make them `Rollout` registry flags when next touched (worker-fleet.md)",
     ),
     (
         "OXY_IDE_DEFER_QUEUE_WORK",
-        "crates/app/src/server/router/drive_policy.rs",
+        "crates/server/src/drivers/drive_policy.rs",
         "the ide's queue-selection rollout gates; make them `Rollout` registry flags when next touched (worker-fleet.md)",
     ),
     (
@@ -660,17 +660,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_INPROC_GLOBAL_WORKER",
-        "crates/app/src/server/router/recovery.rs",
+        "crates/server/src/drivers/recovery.rs",
         "#3990 edits this file: migrate with it",
     ),
     (
         "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS",
-        "crates/app/src/server/router/recovery.rs",
+        "crates/server/src/drivers/recovery.rs",
         "#3990 edits this file: migrate with it",
     ),
     (
         "OXY_LATENCY_WORKER_INTERVAL_MS",
-        "crates/app/src/server/router/recovery.rs",
+        "crates/server/src/drivers/recovery.rs",
         "#3990 edits this file: migrate with it",
     ),
     (
@@ -1045,7 +1045,7 @@ pub const ALLOWED_PENDING_PREFIXES: &[(&str, &str)] = &[
         "#3989: the rate limiter; migrate with it",
     ),
     (
-        "crates/app/src/server/router/periodic/",
+        "crates/server/src/drivers/periodic/",
         "#3990: the periodic driver; migrate with it",
     ),
 ];

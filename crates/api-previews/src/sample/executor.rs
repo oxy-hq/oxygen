@@ -17,7 +17,7 @@ use oxy_workspace_runtime::preview_airhouse::{PreviewAirhousePorts, WorkspaceAir
 use oxy_workspace_runtime::preview_ctx::PreviewPlatformContext;
 
 /// Runs a `preview_airway_sample` task. Registered in
-/// `router::recovery::build_custom_task_registry`; a pod without it fails the
+/// `drivers::recovery::build_custom_task_registry`; a pod without it fails the
 /// task (unknown kind) rather than running anything.
 pub struct PreviewAirwaySampleExecutor {
     pub db: DatabaseConnection,

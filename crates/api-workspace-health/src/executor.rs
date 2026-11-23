@@ -1,7 +1,7 @@
 //! `HealthEvalTaskExecutor`: runs a per-workspace `health_eval_workspace`
 //! `TaskSpec::Custom` on the global-run fleet. Registered into the
 //! `CustomTaskRegistry` by the in-process driver
-//! (`server::router::recovery`); `PipelineTaskExecutor` delegates the
+//! (`drivers::recovery`); `PipelineTaskExecutor` delegates the
 //! `health_eval_workspace` kind here. The actual evaluation is the unchanged
 //! [`run_eval_pass_single`]. The registry mechanism is
 //! `internal-docs/agentic-runtime-integration.md` ("One-shot queue work:

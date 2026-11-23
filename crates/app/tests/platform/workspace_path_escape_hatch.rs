@@ -133,9 +133,10 @@ fn server_files() -> Vec<(String, String)> {
     // `oxy test`'s event handler, reporters and engine (2026-11-20), out of
     // `src/server/service/eval.rs` and `src/integrations/eval/`.
     walk(&manifest.join("../api-eval/src"), &mut out);
-    // The health probes and route discovery (2026-11-16), served by the
-    // binary from `oxy-server`'s `core_routes`.
-    walk(&manifest.join("../server/src/core_routes"), &mut out);
+    // `oxy-server`, the whole crate: the health probes and route discovery
+    // (2026-11-16, its `core_routes`) and the run drivers and the periodic tick
+    // (2026-11-23, decompose BL1, its `drivers`, out of `src/server/router`).
+    walk(&manifest.join("../server/src"), &mut out);
     // The conversation surface (2026-11-16), served by this binary from
     // `oxy-api-threads`.
     walk(&manifest.join("../api-threads/src"), &mut out);

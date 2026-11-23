@@ -1,5 +1,5 @@
-//! The periodic driver's workspace claim
-//! (`oxy_app::server::router::periodic::claim`), against a real Postgres.
+//! The periodic driver's workspace claim (`drivers::periodic::claim`), against
+//! a real Postgres.
 //!
 //! This SQL decides which node drives which workspace each interval, so it
 //! gates every schedule and monitor scan the Cloud fleet fires. What is worth
@@ -8,19 +8,37 @@
 //! `next_tick_at` into the past, which is what the passage of an interval
 //! does.
 //!
+//! Each test owns a fresh database on the test server (testcontainers, or the
+//! server `OXY_DATABASE_URL` names), migrated by the central chain: the claim
+//! is unscoped by design, so these counts hold only on a database nothing else
+//! writes. They were `oxy-app`'s `tests/platform/periodic_claim.rs`
+//! (`Schema::Central`) until the drivers moved up into `oxy-server` (decompose
+//! BL1, 2026-11-23); the assertions are unchanged.
+//!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(periodic_claim)'`
+//! `cargo nextest run -p oxy-server --bin oxy -E 'test(/drivers::periodic::claim::db_tests/)'`
 
 use std::collections::BTreeSet;
 
 use chrono::Utc;
 use entity::workspaces::WorkspaceStatus;
 use entity::{workspace_periodic_ticks, workspaces};
-use oxy_app::server::router::periodic::claim::{claim, due_backlog, seed};
+use migration::MigratorTrait;
 use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
-use crate::common::{Schema, test_db_with};
+use super::{Claimed, claim, due_backlog, seed};
+
+/// A database of this test's own, with the central chain applied: what
+/// `oxy-app`'s `test_db_with(Schema::Central)` gave these tests.
+async fn central_db() -> DatabaseConnection {
+    let url = oxy_test_utils::containers::fresh_db_url("oxytest_periodic_claim").await;
+    let db = oxy_test_utils::containers::connect(&url).await;
+    migration::Migrator::up(&db, None)
+        .await
+        .expect("run central migrations");
+    db
+}
 
 /// The driver interval the claim advances a row by.
 const INTERVAL_SECS: i64 = 30;
@@ -63,13 +81,13 @@ async fn an_interval_passes(db: &DatabaseConnection) {
     .expect("make ticks due");
 }
 
-fn ids(claimed: &[oxy_app::server::router::periodic::claim::Claimed]) -> BTreeSet<Uuid> {
+fn ids(claimed: &[Claimed]) -> BTreeSet<Uuid> {
     claimed.iter().map(|c| c.workspace_id).collect()
 }
 
 #[tokio::test]
 async fn concurrent_claims_take_disjoint_workspaces_once_per_interval() {
-    let db = test_db_with(Schema::Central).await;
+    let db = central_db().await;
     let a = seed_workspace(&db, "a").await;
     let b = seed_workspace(&db, "b").await;
 
@@ -144,7 +162,7 @@ async fn concurrent_claims_take_disjoint_workspaces_once_per_interval() {
 
 #[tokio::test]
 async fn a_batch_bounds_one_claim_and_leaves_the_rest_due() {
-    let db = test_db_with(Schema::Central).await;
+    let db = central_db().await;
     for name in ["a", "b", "c"] {
         seed_workspace(&db, name).await;
     }

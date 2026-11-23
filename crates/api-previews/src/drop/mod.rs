@@ -88,7 +88,7 @@ impl DropReport {
 }
 
 /// Runs a `preview_schema_drop` task. Registered in
-/// `router::recovery::build_custom_task_registry` with Airhouse droppers.
+/// `drivers::recovery::build_custom_task_registry` with Airhouse droppers.
 pub struct PreviewSchemaDropExecutor {
     pub db: DatabaseConnection,
     pub droppers: Arc<dyn OpenSchemaDropper>,

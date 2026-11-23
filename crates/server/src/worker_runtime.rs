@@ -112,7 +112,7 @@ impl WorkerRuntime {
     }
 
     /// Build the `AgenticState` the run-driving loops in
-    /// [`oxy_app::host::router::recovery`] take, reusing the DB handle and
+    /// [`crate::drivers::recovery`] take, reusing the DB handle and
     /// router this runtime already owns.
     ///
     /// This is `new_agentic_state`'s tail, and deliberately only its tail. The
@@ -128,7 +128,7 @@ impl WorkerRuntime {
     ///   that died. A worker restart carries no such premise: the IDE node may
     ///   be mid-run, and stamping its runs `needs_resume` would put a red
     ///   banner over live work. Same asymmetry that makes the worker pass
-    ///   [`StartupPass::Skip`](oxy_app::host::router::recovery::StartupPass).
+    ///   [`StartupPass::Skip`](crate::drivers::recovery::StartupPass).
     ///
     /// `shutdown` must be the same umbrella token passed to [`Self::start`], so
     /// the driver loops exit with the router and the reaper rather than

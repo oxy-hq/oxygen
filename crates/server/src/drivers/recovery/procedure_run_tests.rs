@@ -1,4 +1,4 @@
-//! `router::recovery` as the driver of a custom-app procedure run.
+//! `drivers::recovery` as the driver of a custom-app procedure run.
 //!
 //! The run's start handler enqueues `TaskScope::Global` and drives nothing, so
 //! whether a procedure ever executes is decided here: by which roles leave the
@@ -27,7 +27,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, TransactionTrait};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy, drive_policy_for};
 use super::*;
-use crate::server::role_manifest::{Role, current_process_role};
+use oxy_app_core::pods::role_manifest::{Role, current_process_role};
 use oxy_app_core::seams::CUSTOM_APP_TASK_KINDS;
 
 /// The kind `oxy-api-custom-apps` queues a procedure run under — a persisted
@@ -165,7 +165,7 @@ impl TaskExecutor for Stub {
 /// `.config/nextest.toml` pins this test into `serial-db` with those builders.
 #[tokio::test]
 async fn a_single_process_executes_the_run_it_queued() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = super::super::test_support::test_db().await else {
         return;
     };
     assert_eq!(

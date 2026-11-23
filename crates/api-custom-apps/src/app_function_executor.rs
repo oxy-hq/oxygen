@@ -1,6 +1,6 @@
 //! `AppFunctionTaskExecutor`: runs a **scheduled** custom-app Oxy Function as a
 //! `TaskSpec::Custom { kind: "app_function" }` on the global-run fleet. Registered
-//! into the `CustomTaskRegistry` by `server::router::recovery`;
+//! into the `CustomTaskRegistry` by `drivers::recovery`;
 //! `PipelineTaskExecutor` delegates the `app_function` kind here. The actual run
 //! is `custom_apps_functions::run_scheduled_function` (org-owner identity,
 //! `mode="schedule"` invocation record). See

@@ -313,6 +313,16 @@ filter = "kind(test) & package(=oxy-server) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 
+# The drivers' two database tests, `oxy-app`'s `platform` binary's
+# `periodic_claim` and `run_retention` until the drivers moved up into
+# `oxy-server` (decompose BL1, 2026-11-23): unit tests of the binary now, each
+# owning a fresh database (`oxy_test_utils::containers::fresh_db_url`), so they
+# keep the group and retries they had under `platform`.
+[[profile.default.overrides]]
+filter = "package(=oxy-server) & kind(bin) & test(/^drivers::(periodic::claim|run_retention)::db_tests::/)"
+test-group = "db-per-test"
+retries = 2
+
 # The frontline tests that moved out of oxy-app's `platform` binary with the
 # `oxy-api-frontline` extraction. They `#[path]`-include the same
 # `tests/common/mod.rs` harness (own database per test, cloned from the per-run
@@ -483,8 +493,10 @@ filter = "package(=oxy-app) & kind(lib) & test(/^server::router::router_split_te
 test-group = "serial-db"
 retries = 2
 
-# The other side of the writers above: `oxy-app`'s one lib test that owns
-# `agentic_runs` rows on the shared `OXY_DATABASE_URL`. It queues a Global
+# The other side of the writers above: the one in-source test that owns
+# `agentic_runs` rows on the shared `OXY_DATABASE_URL` (`oxy-app`'s until the
+# drivers moved up into `oxy-server`, decompose BL1, 2026-11-23; a unit test of
+# the binary now, which `shared_db_registry.rs` does not scan either). It queues a Global
 # procedure run in its own workspace and drives it with a stub executor, so
 # anything else that drives or rewrites that row makes it fail at its deadline
 # with "the run was never executed". Every test that builds `api_router(..)`
@@ -496,5 +508,5 @@ retries = 2
 # booted 26 ms into it. Pinned by exact name, with no `retries`, because a
 # retry would hide the next unscoped writer instead of naming it.
 [[profile.default.overrides]]
-filter = "package(=oxy-app) & kind(lib) & test(=server::router::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
+filter = "package(=oxy-server) & kind(bin) & test(=drivers::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
 test-group = "serial-db"
