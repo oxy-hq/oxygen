@@ -217,7 +217,7 @@ async fn grade_ex(
 }
 
 async fn resolve_conn(
-    project_ctx: &oxy_app::surface::workspace_runtime::OxyProjectContext,
+    project_ctx: &oxy_workspace_runtime::project_ctx::OxyProjectContext,
     database: &str,
 ) -> Result<Box<dyn DatabaseConnector>, OxyError> {
     let cfg = project_ctx

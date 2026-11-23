@@ -7,8 +7,8 @@ use axum::response::Response;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::WorkingCopy;
 use oxy::connector::load_result;
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
@@ -57,12 +57,16 @@ pub async fn store_result_file(
     // file via GET /{ws}/results/files/{id} (round-robin fleet). Best-effort;
     // no-op when no bucket (dev/single-node). See oxy_workspace_runtime::runtime_artifact.
     if let Ok(bytes) = tokio::fs::read(&dest_path).await {
-        let key = oxy_app::surface::runtime_artifact::result_key(
+        let key = oxy_workspace_runtime::runtime_artifact::result_key(
             workspace_manager.workspace_id,
             &file_name,
         );
-        oxy_app::surface::runtime_artifact::mirror(&key, bytes, "application/vnd.apache.parquet")
-            .await;
+        oxy_workspace_runtime::runtime_artifact::mirror(
+            &key,
+            bytes,
+            "application/vnd.apache.parquet",
+        )
+        .await;
     }
 
     let _ = tokio::fs::remove_file(temp_file_path).await;
@@ -135,11 +139,11 @@ pub async fn get_result_file(
     // back to the S3 mirror before 404ing. No-op store + always-miss fetch in
     // dev (no bucket) means this collapses to the old "404 on local miss".
     if !file_path.exists() {
-        let key = oxy_app::surface::runtime_artifact::result_key(
+        let key = oxy_workspace_runtime::runtime_artifact::result_key(
             workspace_manager.workspace_id,
             &file_name,
         );
-        if let Some(bytes) = oxy_app::surface::runtime_artifact::fetch(&key).await {
+        if let Some(bytes) = oxy_workspace_runtime::runtime_artifact::fetch(&key).await {
             let len = bytes.len() as u64;
             return Response::builder()
                 .status(StatusCode::OK)
@@ -224,8 +228,8 @@ pub async fn delete_result_file(
     // Removal comes first and is unconditional, because the node handling the
     // DELETE is often not the node holding the local copy. Gating it behind the
     // local unlink would leave the durable copy undeletable from anywhere else.
-    let mirror_removed = oxy_app::surface::runtime_artifact::remove(
-        &oxy_app::surface::runtime_artifact::result_key(_workspace_id, &file_id),
+    let mirror_removed = oxy_workspace_runtime::runtime_artifact::remove(
+        &oxy_workspace_runtime::runtime_artifact::result_key(_workspace_id, &file_id),
     )
     .await;
 

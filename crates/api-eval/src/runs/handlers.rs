@@ -7,8 +7,9 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use oxy::config::test_config::TestFileConfig;
 use oxy::config::{ArtifactError, ConfigManager, DiskSlot, EvalTest, EvalTests};
-use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceManagerReadOnly};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
 use serde::Serialize;
 use uuid::Uuid;
@@ -239,7 +240,7 @@ async fn connect() -> Result<DatabaseConnection, ApiError> {
 /// throttled per workspace).
 async fn not_compiled(workspace_id: Uuid) -> ApiError {
     if let Ok(db) = connect().await {
-        oxy_app::surface::enqueue_lazy_compile(&db, workspace_id).await;
+        oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile(&db, workspace_id).await;
     }
     (
         StatusCode::SERVICE_UNAVAILABLE,

@@ -103,8 +103,8 @@ pub async fn write_chart_json(
     // guarantee a hit. Mirroring here makes every chart readable from any
     // replica the moment it exists, which is what lets that route serve from the
     // fleet. No-op when no blob bucket is configured.
-    oxy_app::surface::runtime_artifact::mirror(
-        &oxy_app::surface::runtime_artifact::chart_key(workspace_id, filename),
+    oxy_workspace_runtime::runtime_artifact::mirror(
+        &oxy_workspace_runtime::runtime_artifact::chart_key(workspace_id, filename),
         bytes,
         "application/json",
     )

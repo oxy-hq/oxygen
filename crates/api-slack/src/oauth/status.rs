@@ -1,7 +1,7 @@
 use crate::services::installations::InstallationsService;
 use axum::Json;
 use axum::http::StatusCode;
-use oxy_app::surface::OrgContextExtractor;
+use oxy_server_authz::org_context::OrgContextExtractor;
 use serde::Serialize;
 
 #[derive(Serialize)]

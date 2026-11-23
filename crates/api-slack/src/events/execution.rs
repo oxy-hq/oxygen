@@ -229,7 +229,7 @@ async fn run_agentic_for_slack(
     // compiles every semantic query to warehouse SQL rather than reading a
     // rollup, so an absent cache is a slowdown and never a wrong result.
     let project_ctx = Arc::new(
-        oxy_app::surface::workspace_runtime::OxyProjectContext::new(workspace_manager)
+        oxy_workspace_runtime::project_ctx::OxyProjectContext::new(workspace_manager)
             .with_preagg(&preagg),
     );
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx;

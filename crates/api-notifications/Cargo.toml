@@ -66,6 +66,7 @@ aws-lc-rs = { workspace = true }
 migration = { workspace = true }
 airhouse = { workspace = true }
 agentic-http = { workspace = true }
+oxy-workspace-runtime = { workspace = true } # OxyThreadOwnerLookup in `ask_finished`
 # `platform_notices::ask_finished` drives the analytics router, which takes a
 # `PlatformContext` stub built from these.
 agentic-analytics = { workspace = true }

@@ -19,7 +19,6 @@ use sea_orm::DatabaseConnection;
 
 use oxy::config::model::ToastAnalyticsIntegration;
 use oxy::service::secret_manager::SecretManagerService;
-use oxy_app::surface::workspace_runtime::{OxyProjectContext, build_workspace_ctx};
 use oxy_workspace_health::reconcile::config::{
     ExternalKey, ExternalSpec, GroupByPlan, Operand, OperandKind, ReconcileCheck,
     parse_reconcile_config,
@@ -36,6 +35,7 @@ use oxy_workspace_health::reconcile::{
     DriftVerdict, ReconcileRunner, ResolvedWindow, VerdictMeta, compare, error_verdict,
     unreachable_verdict,
 };
+use oxy_workspace_runtime::{driver_ctx::build_workspace_ctx, project_ctx::OxyProjectContext};
 
 /// Which slot of a check an operand fills.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

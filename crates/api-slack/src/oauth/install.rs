@@ -3,8 +3,8 @@ use crate::oauth::state::{CreateInstallState, OauthStateService};
 use crate::scopes;
 use axum::Json;
 use axum::http::StatusCode;
-use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::role_guards::OrgAdmin;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

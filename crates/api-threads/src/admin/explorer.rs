@@ -16,7 +16,7 @@
 //! inside the `COUNT(*) OVER()` window, so neither a page nor the total includes a
 //! row from an org the grant does not name. A thread or run whose workspace has no
 //! org (or that has no workspace) is platform-level: unbounded grants and the Global
-//! Owner only. See `oxy_app::surface::admin_scope::list_scope`.
+//! Owner only. See `oxy_server_authz::staff::scope::list_scope`.
 //!
 //! Results are paginated (`page`, `page_size`, 1-indexed) and can be narrowed
 //! with `status` and `source_type` filters on top of the free-text `search`.
@@ -45,10 +45,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use axum::response::{IntoResponse, Response};
-use oxy_app::surface::admin_scope::{list_scope, org_scope_clause};
 use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, db_err};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::staff::scope::{list_scope, org_scope_clause};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

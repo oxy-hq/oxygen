@@ -2,7 +2,7 @@
 //! run against their `.agentic.yml` targets.
 //!
 //! It moved out of `oxy-app` in two steps, top down, because the engine builds
-//! its runs on `OxyProjectContext`, which only `oxy-app` can name, so this
+//! its runs on `OxyProjectContext`, which only `oxy-app` could name then, so this
 //! crate sits above it and `oxy-app` can never call back:
 //!
 //! - **First (PR 1):** the `oxy test` command (`test_command`), its event

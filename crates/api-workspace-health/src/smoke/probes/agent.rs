@@ -18,7 +18,7 @@ use agentic_pipeline::HeadlessError;
 use agentic_pipeline::platform::PlatformContext;
 
 use super::ProbeFailure;
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 
 pub(crate) async fn ask(
     ctx: &Arc<OxyProjectContext>,

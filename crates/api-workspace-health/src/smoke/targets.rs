@@ -12,8 +12,8 @@ use std::sync::Arc;
 use oxy::config::health_check::{SemanticProbeConfig, SmokeTestConfig};
 
 use super::probes::{self, SemanticTarget};
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
 use oxy_workspace_health::smoke::{SmokeProbeKind, SmokeVerdict, failed, note, unavailable};
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 
 /// One thing to probe. `kind`/`label` drive the verdict's identity, so they are
 /// derived here rather than threaded through every probe.

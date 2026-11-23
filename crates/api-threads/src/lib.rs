@@ -126,7 +126,7 @@ pub fn background() -> Vec<BackgroundSeam> {
     vec![BackgroundSeam {
         name: "chat_delivery_listener",
         start: |deps| {
-            use oxy_app::surface::listener::{
+            use oxy_app_core::listener::{
                 listener_factory_from_env, listener_tls_verification_from_env,
             };
             match (

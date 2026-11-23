@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use minijinja::Value;
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 

@@ -11,7 +11,8 @@
 
 pub mod explorer;
 
-use oxy_app::surface::{Action, AdminSection};
+use oxy_app::surface::AdminSection;
+use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The capability that admits a caller: `PlatformExplorer` (`view_tenants`),
@@ -97,7 +98,7 @@ mod tests {
     /// once prefixed the way the served router prefixes it.
     #[test]
     fn every_route_is_declared_fleet_ok_exactly_once() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let declared = route_roles();
         assert_eq!(declared.len(), MOUNTED.len(), "one row per mounted route");
         let decls: Vec<_> = declared

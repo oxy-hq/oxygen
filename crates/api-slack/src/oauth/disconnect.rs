@@ -1,7 +1,7 @@
 use crate::client::SlackClient;
 use crate::services::installations::InstallationsService;
 use axum::http::StatusCode;
-use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 /// Disconnecting an org's Slack install is an org-admin action, so it takes the
 /// [`OrgAdmin`] extractor rather than restating the ring — the guard's own check is

@@ -5,7 +5,7 @@
 //! panel's agent selector — remains here, serving the agentic-only world.
 
 use axum::{extract, http::StatusCode};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

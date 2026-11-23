@@ -8,11 +8,14 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The only oxy-app dependency, through `oxy_app::surface` only: the engine builds
-# its runs on `surface::workspace_runtime::OxyProjectContext`. oxy-app never
-# depends back on this crate. default-features off so a
+# What this crate still takes from oxy-app, through `oxy_app::surface` only: the
+# task seam. oxy-app never depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+# The engine builds its runs on `oxy_workspace_runtime::project_ctx::OxyProjectContext`.
+oxy-workspace-runtime = { workspace = true }
+oxy-compile-runtime = { workspace = true }  # the lazy compile a run enqueues
+oxy-server-authz = { workspace = true }     # EffectiveWorkspaceRole
 oxy-app-core = { workspace = true }        # AppState
 oxy = { workspace = true }
 oxy-auth = { workspace = true }            # AuthenticatedUserExtractor

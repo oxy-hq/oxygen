@@ -15,7 +15,7 @@ use oxy_airlayer_compat::engine::query::QueryRequest;
 
 use super::ProbeFailure;
 use oxy::config::CompiledArtifact;
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 
 /// One topic and the fully-qualified `view.measure` references chosen to
 /// exercise it. Never empty — a target with nothing to query is a `MissingTopic`.

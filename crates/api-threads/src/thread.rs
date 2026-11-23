@@ -11,9 +11,9 @@ use oxy::{
     database::client::establish_connection,
     exec_types::{ReferenceKind, event::SandboxInfo},
 };
-use oxy_app::surface::role_guards::WorkspaceEditor;
-use oxy_app::surface::{WorkspaceExtractor, WorkspaceManagerReadOnly};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_extractor::WorkspaceExtractor;
 use sea_orm::ExprTrait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Condition, EntityTrait, PaginatorTrait,
@@ -527,7 +527,7 @@ fn remove_all_files_in_dir<P: AsRef<std::path::Path>>(dir: P) {
     tag = "Threads"
 )]
 pub async fn delete_all_threads(
-    _: WorkspaceEditor,
+    _: oxy_server_authz::role_guards::WorkspaceEditor,
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     WorkspaceExtractor(project): WorkspaceExtractor,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
@@ -688,7 +688,7 @@ pub struct BulkDeleteThreadsRequest {
     tag = "Threads"
 )]
 pub async fn bulk_delete_threads(
-    _: WorkspaceEditor,
+    _: oxy_server_authz::role_guards::WorkspaceEditor,
     WorkspaceExtractor(project): WorkspaceExtractor,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     extract::Json(request): extract::Json<BulkDeleteThreadsRequest>,

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use super::ProbeFailure;
-use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 
 pub(crate) async fn ping(ctx: &Arc<OxyProjectContext>, db_name: &str) -> Result<(), ProbeFailure> {
     // A connector we can't even build is a config/secret problem on our side,

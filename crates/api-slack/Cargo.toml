@@ -11,12 +11,13 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# OrgAdmin role guard, the org middlewares, the workspace runtime
-# (`OxyProjectContext`) and the runtime-artifact S3 mirror. oxy-app never
-# depends back on this crate. default-features off so a `--no-default-features`
-# build of oxy-server keeps dropping V8.
+# Nothing in this crate names oxy-app any more; the dependency goes with the
+# R1 decompose's second phase. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+oxy-server-authz = { workspace = true }       # the OrgAdmin role guard, OrgContextExtractor
+# The workspace runtime (`OxyProjectContext`) and the runtime-artifact S3 mirror.
+oxy-workspace-runtime = { workspace = true }
 oxy-app-core = { workspace = true }  # AppState, compiled_reader, PreaggCacheCtx
 oxy-slack = { workspace = true }     # config, installations, user links (shared with notifications)
 oxy-slack-client = { workspace = true }

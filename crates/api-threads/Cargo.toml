@@ -11,12 +11,14 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# `WorkspaceEditor` guard, the workspace-context extractors, and the runtime
-# artifact mirror the chart and result-file reads fall back to. oxy-app never
+# What this surface still takes from oxy-app, through `oxy_app::surface`: the
+# admin and background seams, and `bare_app_state` in tests. oxy-app never
 # depends back on this crate. default-features off so a `--no-default-features`
 # build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+# The workspace-context extractors and the runtime artifact mirror the chart and
+# result-file reads fall back to.
+oxy-workspace-runtime = { workspace = true }
 oxy-app-core = { workspace = true }      # AppState
 oxy-shared = { workspace = true }        # fleet_role::RouteRoleDecl
 oxy-auth = { workspace = true }          # AuthenticatedUserExtractor

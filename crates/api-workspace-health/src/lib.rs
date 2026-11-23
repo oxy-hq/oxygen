@@ -17,7 +17,7 @@
 //!   now") and refuses to start without.
 //! - The live runners, [`reconcile_runner::LiveReconcileRunner`] and
 //!   [`smoke::LiveSmokeRunner`], build the workspace's project context
-//!   (`oxy_app::surface::workspace_runtime`) and fill the domain's
+//!   (`oxy_workspace_runtime`) and fill the domain's
 //!   `ReconcileRunner` / `SmokeRunner` seams.
 
 // The live runners' futures nest deep enough to need it, as `oxy-app`'s do.
@@ -43,7 +43,7 @@ pub mod smoke;
 /// `oxy-app`. No route declarations: the console is FleetOk wholesale.
 pub fn admin_sections() -> Vec<AdminSection> {
     vec![AdminSection {
-        capability: oxy_app::surface::Action::PlatformOperate,
+        capability: oxy_server_authz::Action::PlatformOperate,
         routes: admin_routes(),
         decls: Vec::new(),
     }]

@@ -13,12 +13,12 @@ use futures::StreamExt;
 use oxy::config::health_check::SmokeTestConfig;
 use sea_orm::DatabaseConnection;
 
-use oxy_app::surface::workspace_runtime::{OxyProjectContext, build_workspace_ctx};
 use oxy_workspace_health::smoke::config::SmokeLimits;
 use oxy_workspace_health::smoke::{
     SmokeProbeKind, SmokeRunner, SmokeSettings, SmokeVerdict, failed, passed, timed_out,
     unavailable,
 };
+use oxy_workspace_runtime::{driver_ctx::build_workspace_ctx, project_ctx::OxyProjectContext};
 
 use probes::ProbeFailure;
 use targets::{Target, collect_targets};

@@ -1,7 +1,7 @@
 use axum::extract::{self, Path};
 use axum::http::StatusCode;
-use oxy_app::surface::WorkspaceManagerReadOnly;
-use oxy_app::surface::runtime_artifact;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::runtime_artifact;
 use uuid::Uuid;
 
 /// Serve a legacy visualize-task chart file (the `:chart{chart_src=NAME}`

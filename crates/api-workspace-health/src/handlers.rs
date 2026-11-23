@@ -11,9 +11,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::Utc;
-use oxy_app::surface::admin_scope as scope;
 use oxy_app_core::admin_db::{connect, db_err, error_body};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::staff::scope;
 use oxy_workspace_health::history::{HealthHistory, history_of, window_days};
 use oxy_workspace_health::{WorkspaceHealthResponse, health_rollup};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
