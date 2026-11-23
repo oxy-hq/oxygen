@@ -91,7 +91,7 @@ fn the_production_registry_registers_the_app_function_executor_and_the_driver_us
          webhook jobs) would stay queued, and `custom_app_functions_manual_run` would not \
          notice: it registers its own executor."
     );
-    let main = code("crates/server/src/main.rs");
+    let main = code("crates/server/src/lib.rs");
     assert!(
         fn_body(&main, "surface_seams").contains("tasks:custom_apps_seams::tasks()"),
         "`surface_seams` no longer fills `SurfaceSeams::tasks` from `custom_apps_seams::tasks()`"
@@ -160,7 +160,7 @@ fn the_admin_app_mount_wears_the_one_stack_the_manual_run_tests_call() {
         "the `/customer-apps` nest of `oxy_api_custom_apps::routes()` is no longer \
          `admin::apps::guarded(admin::apps::router()…)`"
     );
-    let main = code("crates/server/src/main.rs");
+    let main = code("crates/server/src/lib.rs");
     // Merged bare, or with the seams the composition root layers onto it (the
     // semantic pin port): either way `routes()` is the merged router.
     let seam_body = fn_body(&main, "api_seam_routes");
@@ -200,7 +200,7 @@ fn the_serve_mount_the_functions_fixture_copies_still_matches_production() {
          off by name; re-check that each omission still holds for what the end-to-end tests \
          send, then update both sides."
     );
-    let main = code("crates/server/src/main.rs");
+    let main = code("crates/server/src/lib.rs");
     assert!(
         fn_body(&main, "surface_seams").contains("outer:Some(custom_apps_seams::outer)"),
         "`surface_seams` no longer hands `custom_apps_seams::outer` to `SurfaceSeams::outer`"

@@ -89,8 +89,9 @@ fn workspace() -> PathBuf {
         .expect("the workspace root is two levels above crates/server")
 }
 
-/// Every crate root that must declare it: each `crates/api-*` library, and this
-/// binary, which is its own crate root and composes them all.
+/// Every crate root that must declare it: each `crates/api-*` library, this
+/// crate's library, which composes them all, and the `oxy` binary, which is its
+/// own crate root and lays out the library's futures.
 fn surface_roots(workspace: &Path) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = std::fs::read_dir(workspace.join("crates"))
         .expect("crates/ is readable")
@@ -99,6 +100,7 @@ fn surface_roots(workspace: &Path) -> Vec<PathBuf> {
         .filter(|entry| entry.path().is_dir())
         .map(|entry| entry.path().join("src/lib.rs"))
         .collect();
+    roots.push(workspace.join("crates/server/src/lib.rs"));
     roots.push(workspace.join("crates/server/src/main.rs"));
     roots.sort();
     roots

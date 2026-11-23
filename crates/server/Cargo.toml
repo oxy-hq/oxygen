@@ -7,6 +7,15 @@ documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
 
+# Everything the binary runs, as `oxy_server` (decompose LT, 2026-11-23): an
+# integration test cannot import a bin, so the code a test outside this crate
+# must build lives in the library, behind a thin `main.rs`. `doctest = false`
+# keeps the doc comments uncompiled, as they were in the binary.
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+# The command name and the artifact stay `oxy`.
 [[bin]]
 name = "oxy"
 path = "src/main.rs"

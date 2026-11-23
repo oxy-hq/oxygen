@@ -38,7 +38,7 @@ use super::{Fixture, call};
 /// The flat tree as `oxy-server` serves it: `oxy-app`'s global routes plus the
 /// surfaces its `api` and `public` seams merge in and its staff-console sections
 /// — the same crates, in the same order, as `api_seam_routes` and
-/// `public_seam_routes` in `main.rs`.
+/// `public_seam_routes` in `lib.rs`.
 pub(crate) fn flat_api() -> Router {
     let api_seam = oxy_api_github::routes()
         .merge(oxy_api_tenancy::routes())

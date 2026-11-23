@@ -4,9 +4,11 @@
 //! `sentry_filter.rs` rather than inside it: that file is over its size
 //! budget, and these tests read only its public API.
 //!
-//! The binary's crate ident is `oxy`, the same as the core library's, so the
-//! new path reads `oxy::commands::serve_background`. It must not read as the
-//! data plane (`oxy::connector`) or as custom-app code (`oxy::app_function`).
+//! The new path read `oxy::commands::serve_background` in the binary and reads
+//! `oxy_server::commands::serve_background` since decompose LT gave the crate a
+//! library (`sentry_filter_lt_pins_tests` pins the two alike). Neither may read
+//! as the data plane (`oxy::connector`) or as custom-app code
+//! (`oxy::app_function`).
 
 use tracing::Level;
 
@@ -17,7 +19,7 @@ use crate::sentry_filter::{Disposition, drop_log, is_data_plane_module, sentry_d
 /// the move does not touch.
 const MOVED: &[(&str, &str)] = &[(
     "oxy_app::server::router::entry",
-    "oxy::commands::serve_background",
+    "oxy_server::commands::serve_background",
 )];
 
 /// Platform code: kept (an `error` is an event, nothing is dropped) and not

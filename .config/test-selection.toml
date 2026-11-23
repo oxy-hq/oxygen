@@ -30,10 +30,11 @@ always-test = [
 # `post-rule = "skip-rules"`: mark the reader, then still mark the package that
 # owns the file.
 
-# oxy-app's observability_boot tests include_str! main.rs (the first matching
-# rule wins, so this one also carries the next rule's readers).
+# oxy-app's guards read main.rs and lib.rs, the composition root (env_reads,
+# app_scope_boundary; the first matching rule wins, so this one also carries the
+# next rule's readers).
 [[determinator.path-rule]]
-globs = ["crates/server/src/main.rs"]
+globs = ["crates/server/src/main.rs", "crates/server/src/lib.rs"]
 mark-changed = ["oxy-app", "oxy-api-custom-apps", "oxy-route-catalog"]
 post-rule = "skip-rules"
 

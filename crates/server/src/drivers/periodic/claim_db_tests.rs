@@ -16,7 +16,7 @@
 //! BL1, 2026-11-23); the assertions are unchanged.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-server --bin oxy -E 'test(/drivers::periodic::claim::db_tests/)'`
+//! `cargo nextest run -p oxy-server --lib -E 'test(/drivers::periodic::claim::db_tests/)'`
 
 use std::collections::BTreeSet;
 

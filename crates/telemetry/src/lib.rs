@@ -106,6 +106,11 @@ mod sentry_filter_blw_pins_tests;
 #[cfg(test)]
 mod sentry_filter_bl1_pins_tests;
 
+// Sentry pins for decompose LT (`oxy-server`'s modules log as `oxy_server::`,
+// not the binary's `oxy::`), kept out of the over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_lt_pins_tests;
+
 /// Framework crates whose `info`/`debug` output is wire-level chatter, not
 /// something an operator acts on: HTTP frames, raw SQL, TLS handshakes. Both
 /// the stderr layers and the OTLP layers append this to whatever level the

@@ -315,11 +315,12 @@ retries = 2
 
 # The drivers' two database tests, `oxy-app`'s `platform` binary's
 # `periodic_claim` and `run_retention` until the drivers moved up into
-# `oxy-server` (decompose BL1, 2026-11-23): unit tests of the binary now, each
+# `oxy-server` (decompose BL1, 2026-11-23): unit tests of its library now (a bin
+# until decompose LT gave it one: `kind(lib)`, not `kind(bin)`), each
 # owning a fresh database (`oxy_test_utils::containers::fresh_db_url`), so they
 # keep the group and retries they had under `platform`.
 [[profile.default.overrides]]
-filter = "package(=oxy-server) & kind(bin) & test(/^drivers::(periodic::claim|run_retention)::db_tests::/)"
+filter = "package(=oxy-server) & kind(lib) & test(/^drivers::(periodic::claim|run_retention)::db_tests::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -453,11 +454,11 @@ retries = 2
 # `oxy-server`'s `served_router_tests` build `api_router(..)` from the real
 # surface seams (whether cloud mode serves `/orgs` is only visible there), so
 # they are the same unscoped `cleanup_stale_runs` writer as `local_mode_router`
-# above. Unit tests in a binary, which
+# above. Unit tests in `oxy-server`'s library (its binary's until decompose LT), which
 # `shared_db_registry.rs` (integration groups only) does not scan: this entry is
 # the only thing that serializes them.
 [[profile.default.overrides]]
-filter = "package(=oxy-server) & kind(bin) & test(/^served_router_tests::/)"
+filter = "package(=oxy-server) & kind(lib) & test(/^served_router_tests::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -468,7 +469,7 @@ retries = 2
 # `served_router_tests` in decompose BL-W, when `api_router` stopped starting
 # the boot jobs; pinned for the reason that module is.
 [[profile.default.overrides]]
-filter = "package(=oxy-server) & kind(bin) & test(/^commands::serve_background::tests::/)"
+filter = "package(=oxy-server) & kind(lib) & test(/^commands::serve_background::tests::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -496,7 +497,7 @@ retries = 2
 # The other side of the writers above: the one in-source test that owns
 # `agentic_runs` rows on the shared `OXY_DATABASE_URL` (`oxy-app`'s until the
 # drivers moved up into `oxy-server`, decompose BL1, 2026-11-23; a unit test of
-# the binary now, which `shared_db_registry.rs` does not scan either). It queues a Global
+# its library now, since decompose LT, which `shared_db_registry.rs` does not scan either). It queues a Global
 # procedure run in its own workspace and drives it with a stub executor, so
 # anything else that drives or rewrites that row makes it fail at its deadline
 # with "the run was never executed". Every test that builds `api_router(..)`
@@ -508,5 +509,5 @@ retries = 2
 # booted 26 ms into it. Pinned by exact name, with no `retries`, because a
 # retry would hide the next unscoped writer instead of naming it.
 [[profile.default.overrides]]
-filter = "package(=oxy-server) & kind(bin) & test(=drivers::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
+filter = "package(=oxy-server) & kind(lib) & test(=drivers::recovery::procedure_run_tests::a_single_process_executes_the_run_it_queued)"
 test-group = "serial-db"

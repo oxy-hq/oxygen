@@ -979,7 +979,7 @@ fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
     // the crate's sections onto the admin seam, and `admin::router` no longer
     // mounts its own copy beside it.
     assert!(
-        read("crates/server/src/main.rs").contains(".chain(oxy_api_admin::admin_sections())"),
+        read("crates/server/src/lib.rs").contains(".chain(oxy_api_admin::admin_sections())"),
         "oxy-server no longer chains oxy-api-admin's sections onto the admin seam"
     );
     assert!(

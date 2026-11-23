@@ -10186,6 +10186,12 @@ metric = "abc"
 value = 93.1074647920348
 
 [[entry]]
+path = "crates/server/src/lib.rs"
+qualified = "surface_seams"
+metric = "abc"
+value = 162.0
+
+[[entry]]
 path = "crates/server/src/logging.rs"
 qualified = "init"
 metric = "abc"
@@ -10220,12 +10226,6 @@ path = "crates/server/src/main.rs"
 qualified = "main"
 metric = "cyclomatic"
 value = 20.0
-
-[[entry]]
-path = "crates/server/src/main.rs"
-qualified = "surface_seams"
-metric = "abc"
-value = 162.0
 
 [[entry]]
 path = "crates/server/src/served_router_tests.rs"

@@ -1,6 +1,7 @@
-//! `main.rs`'s own unit tests, lifted out of an inline `mod tests` on
-//! 2026-11-22 (decompose UP2) so the crate root stays inside its size
-//! budget as modules move up into it. The test paths are unchanged.
+//! The crate root's own unit tests, lifted out of an inline `mod tests` in
+//! `main.rs` on 2026-11-22 (decompose UP2) so the crate root stays inside its
+//! size budget as modules move up into it. The test paths are unchanged; the
+//! composition they test is `lib.rs`'s since decompose LT.
 
 use super::*;
 

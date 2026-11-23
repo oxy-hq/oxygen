@@ -689,21 +689,21 @@ mod tests {
     /// (`oxy-server`) on 2026-11-21 (decompose UP1): the span store's boot
     /// bridge and its retry, the Prometheus listener and admission control.
     /// They were platform code there, kept and not the data plane, and are
-    /// pinned so here. The binary's crate ident is `oxy`, the same as the core
-    /// library's, so each new path is also checked against its old one: none
-    /// may read as `oxy::connector` (data plane) or `oxy::app_function`.
+    /// pinned so here, as `oxy_server::` since decompose LT (`oxy::` before it):
+    /// none may read as `oxy::connector` (data plane) or `oxy::app_function`.
     #[test]
     fn the_boot_modules_keep_their_sentry_lines_after_moving_up() {
         for (old, new) in [
-            ("oxy_app::observability_boot", "oxy::observability_boot"),
+            ("oxy_app::observability_boot", "observability_boot"),
+            ("oxy_app::server::metrics_server", "metrics_server"),
+            ("oxy_app::server::admission", "admission"),
             (
                 "oxy_app::observability_boot::retry",
-                "oxy::observability_boot::retry",
+                "observability_boot::retry",
             ),
-            ("oxy_app::server::metrics_server", "oxy::metrics_server"),
-            ("oxy_app::server::admission", "oxy::admission"),
         ] {
-            for module in [old, new] {
+            let new = format!("oxy_server::{new}");
+            for module in [old, new.as_str()] {
                 assert_eq!(
                     sentry_disposition(module, &Level::ERROR),
                     Disposition::Event,
@@ -1109,13 +1109,13 @@ mod tests {
         assert!(!drop_log(Some("oxy_api_github::webhook")));
         assert!(!drop_log(Some("oxy_api_world_model::toast_webhook")));
         // So are the leaves that left on 2026-11-16 (the core routes' Wave
-        // A). The health probes live in the `oxy` BINARY now, whose crate
-        // ident is `oxy`, the same as the core library's: `oxy::core_routes`
-        // must not read as `oxy::connector` (data plane) or
-        // `oxy::app_function` (custom-app code).
+        // A). The health probes live in `oxy-server` now, `oxy::core_routes`
+        // until decompose LT and `oxy_server::core_routes` since: neither may
+        // read as `oxy::connector` (data plane) or `oxy::app_function`
+        // (custom-app code).
         for module in [
-            "oxy::core_routes::healthcheck",
-            "oxy::core_routes::catalog",
+            "oxy_server::core_routes::healthcheck",
+            "oxy_server::core_routes::catalog",
             "oxy_api_tenancy::org_subdomain",
             "oxy_api_tenancy::workspace_logo",
             "oxy_api_tenancy::partner_publish_consent",
@@ -1687,12 +1687,12 @@ mod tests {
             // HMAC check and a feed append, no warehouse.
             "oxy_api_world_model::toast_webhook",
             // The leaves that left `oxy-app` on 2026-11-16: the health probes
-            // and route discovery (up into the `oxy` binary, whose crate
-            // ident collides with the core library's), the tenancy reads, the
+            // and route discovery (up into `oxy-server`, `oxy_server::` since
+            // decompose LT), the tenancy reads, the
             // Looker listing and the staging compile. None runs a warehouse
             // query.
-            "oxy::core_routes::healthcheck",
-            "oxy::core_routes::catalog",
+            "oxy_server::core_routes::healthcheck",
+            "oxy_server::core_routes::catalog",
             "oxy_api_tenancy::org_subdomain",
             "oxy_api_tenancy::workspace_logo",
             "oxy_api_tenancy::partner_publish_consent",

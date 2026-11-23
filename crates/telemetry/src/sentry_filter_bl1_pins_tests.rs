@@ -6,10 +6,11 @@
 //! `sentry_filter.rs` rather than inside it: that file is over its size budget,
 //! and these tests read only its public API.
 //!
-//! The binary's crate ident is `oxy`, the same as the core library's, so the
-//! new paths read `oxy::drivers::…`. None may read as the data plane
-//! (`oxy::connector`) or as custom-app code (`oxy::app_function`); the match is
-//! segment-aware, and `drivers` is neither.
+//! The new paths read `oxy::drivers::…` in the binary and `oxy_server::drivers::…`
+//! since decompose LT gave the crate a library (`sentry_filter_lt_pins_tests`
+//! pins the two alike). None may read as the data plane (`oxy::connector`) or
+//! as custom-app code (`oxy::app_function`); the match is segment-aware, and
+//! `drivers` is neither.
 
 use tracing::Level;
 
@@ -33,18 +34,18 @@ fn moved_pairs() -> Vec<(String, String)> {
     ] {
         pairs.push((
             format!("oxy_app::server::router::{module}"),
-            format!("oxy::drivers::{module}"),
+            format!("oxy_server::drivers::{module}"),
         ));
     }
     for module in ["audit_anchor", "token_usage_flush"] {
         pairs.push((
             format!("oxy_app::server::{module}"),
-            format!("oxy::drivers::{module}"),
+            format!("oxy_server::drivers::{module}"),
         ));
     }
     pairs.push((
         "oxy_app::server::router::entry".to_string(),
-        "oxy::drivers::billing_reconciler".to_string(),
+        "oxy_server::drivers::billing_reconciler".to_string(),
     ));
     pairs
 }

@@ -76,7 +76,7 @@ own schedule ticks.
 
 ## Key entry points
 
-- `cli::run` / `cli::prepare` — oxy-app's subcommands (`cli::SubCommand`), registered with the `oxy-cli-shim` parser by `crates/server/src/main.rs`, which owns argv parsing and `--version` (S10 in `internal-docs/domain-boundaries.md`); log format auto-detects local vs cloud (JSON).
+- `cli::run` / `cli::prepare` — oxy-app's subcommands (`cli::SubCommand`), registered with the `oxy-cli-shim` parser by `crates/server/src/lib.rs` (`cli_owners`), whose thin `main.rs` owns argv parsing and `--version` (S10 in `internal-docs/domain-boundaries.md`); log format auto-detects local vs cloud (JSON).
 - `oxy serve` (`crates/server/src/commands/serve.rs`) — production HTTP path; `--enterprise` is the default
   shape for tests/demos, `--local` is the single-user/no-auth laptop mode only.
 - `server/router/entry.rs` — top-level router assembly.
