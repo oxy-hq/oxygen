@@ -14,13 +14,13 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use super::WorkspaceWarehouse;
 use oxy::utils::create_sse_stream;
-use oxy_app::surface::workspace_runtime::ErrorResponse;
-use oxy_app::surface::world_model_exec::{build_connector, run_with_connector};
-use oxy_app::surface::{
-    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerReadOnly, WorkspacePath,
-};
 use oxy_app_core::AppState;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::{
+    SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath,
+};
+use oxy_workspace_runtime::scan_source::ErrorResponse;
+use oxy_workspace_runtime::sql_exec::{build_connector, run_with_connector};
 
 use super::source::*;
 use oxy_world_model::graph::query::*;

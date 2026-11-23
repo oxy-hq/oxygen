@@ -12,7 +12,7 @@ use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use oxy_world_model::graph::{GraphConnection, GraphWarehouse};
 use uuid::Uuid;
 
-use oxy_app::surface::world_model_exec::{
+use oxy_workspace_runtime::sql_exec::{
     SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
     run_with_connector,
 };

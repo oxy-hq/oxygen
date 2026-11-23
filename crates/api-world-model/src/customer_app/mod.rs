@@ -11,7 +11,7 @@
 //! `oxy-app`'s public tree. Every read is scoped to the viewer's reach. The
 //! gate, the project context, the compile-boundary scan, the project-scoped
 //! result cache and the error envelope are the data plane's
-//! (`oxy_app::surface::custom_app_semantic`), shared with the metric-tree
+//! (`oxy_workspace_runtime::{custom_apps_gates, semantic_boundary}`), shared with the metric-tree
 //! twins in `oxy-api-custom-apps`.
 
 pub mod cohort;

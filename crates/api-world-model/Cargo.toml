@@ -11,12 +11,17 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# workspace extractors and the background seam type. oxy-app never depends back
-# on this crate. default-features off so a `--no-default-features` build of
-# oxy-server keeps dropping V8.
+# What this surface still takes from oxy-app, through `oxy_app::surface`: the
+# background seam type and the test router state (`bare_app_state`), until both
+# move to oxy-app-core. oxy-app never depends back on this crate.
+# default-features off so a `--no-default-features` build of oxy-server keeps
+# dropping V8.
 oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }     # AppState
+oxy-app-core = { workspace = true }     # AppState, PreaggCacheCtx, servability, the write hold
+# The workspace extractors and caches, the scan source, the semantic boundary,
+# the SQL and metric-tree executors the graph and cohort reads run on.
+oxy-workspace-runtime = { workspace = true }
+oxy-server-authz = { workspace = true } # EffectiveWorkspaceRole
 oxy-world-model = { workspace = true }  # the live feed's write half; the graph + cohort cores
 oxy-custom-apps = { workspace = true }  # the customer-app twins: the viewer's reach (`reach::reach_for_viewer`)
 oxy-airlayer-compat = { workspace = true }
@@ -61,6 +66,7 @@ oxy-oltp = { workspace = true }
 url = { workspace = true }
 tempfile = { workspace = true }
 oxy-compile = { workspace = true }       # world_model_diskless compiles a workspace, then deletes it
+oxy-compile-runtime = { workspace = true }  # diskless_fixture's runtime config gate
 oxy-test-utils = { workspace = true }    # tests/common takes its Postgres from here
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }  # the public twins' mount test drives the router

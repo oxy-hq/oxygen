@@ -355,7 +355,7 @@ mod tests {
     /// `role_manifest_tests` held, which would now pass on the default.)
     #[test]
     fn the_camera_and_weather_routes_are_declared_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let declared = workspace_route_roles();
         for path in [
             "/world-model/cameras",
@@ -392,7 +392,7 @@ mod tests {
     /// the classifier matches the live URI against it rather than the default.
     #[test]
     fn the_toast_webhook_is_declared_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let declared = public_route_roles();
         let found: Vec<_> = declared
             .iter()

@@ -4,7 +4,7 @@
 //! Customer-app-gated variants of the IDE's workspace-scoped
 //! `/semantic/world-model*` handlers. They enter through the customer-app
 //! gate and load the semantic model from the compile boundary (via
-//! `oxy_app::surface::custom_app_semantic`) so they run on the stateless serve fleet.
+//! `oxy_workspace_runtime::semantic_boundary`) so they run on the stateless serve fleet.
 //! The graph-assembly, instance-listing and breakdown cores are shared with
 //! the workspace handlers in [`crate::graph`]
 //! (both answer from `oxy_world_model::graph`) — only the layer/path
@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::graph::WorkspaceWarehouse;
 use agentic_semantic::config::{SemanticFilter, SemanticFilterType};
-use oxy_app::surface::custom_app_semantic::{
+use oxy_workspace_runtime::semantic_boundary::{
     cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code, load_layer,
     wants_refresh,
 };

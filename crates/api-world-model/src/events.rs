@@ -65,7 +65,7 @@ use std::sync::OnceLock;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use oxy_app::surface::WorkspaceExtractor;
+use oxy_workspace_runtime::request::workspace_extractor::WorkspaceExtractor;
 
 /// How long a published event stays readable. Long enough that a viewer opening
 /// the dashboard mid-shift sees a populated panel; short enough that the table

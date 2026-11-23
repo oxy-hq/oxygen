@@ -26,7 +26,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, OnceCell};
 
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 const BESTTIME_LIVE_URL: &str = "https://besttime.app/api/v1/forecasts/live";
 // `/radar/filter` serves BestTime's web UI (HTML). The JSON equivalent

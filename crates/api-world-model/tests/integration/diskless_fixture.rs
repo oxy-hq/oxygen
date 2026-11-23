@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use entity::{organizations, workspaces};
 use oxy::workspace_fs_probe::{reset_leaks, set_process_owns_workspace_files};
-use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
 use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};
+use oxy_compile_runtime::config_gate::runtime_config_gate;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
 };

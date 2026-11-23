@@ -66,12 +66,14 @@ use oxy_airlayer_compat::{DatabaseConfig, SemanticEngine, SemanticLayer};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
-use oxy_app::surface::metric_tree_exec::{
-    RunnerPreagg, build_query_executor, request_holds_writes, workspace_databases,
-};
-use oxy_app::surface::workspace_runtime::resolve_query_scan_source;
-use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_app_core::preagg_context::RollupFreshness;
+use oxy_app_core::write_hold::active as request_holds_writes;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::metric_tree_exec::workspace_databases;
+use oxy_workspace_runtime::metric_tree_runner::{RunnerPreagg, build_query_executor};
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::scan_source::resolve_query_scan_source;
 
 /// `POST /api/{workspace_id}/semantic/cohort` — peer-cohort comparison for the
 /// IDE's World Model panel.

@@ -35,12 +35,12 @@ use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter};
 // One definition of the contract, shared with the IDE surface so the two
 // cannot drift. `COHORT_TIMEOUT` is THE deadline, not a copy of it: both
 // surfaces query the same warehouse.
-use oxy_app::surface::custom_app_semantic::parse_versioned_body;
-use oxy_app::surface::custom_app_semantic::{
-    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
-};
 use oxy_app_core::AppState;
 use oxy_app_core::operating_graph::binding::NO_REACH_SENTINEL;
+use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
+use oxy_workspace_runtime::semantic_boundary::{
+    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
+};
 use oxy_world_model::cohort::{
     COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
     resolve_cohort_name,
@@ -292,7 +292,8 @@ pub async fn post_cohort(
 
     // ── Executor ────────────────────────────────────────────────────────
     let workspace_manager = boundary.proj_ctx.workspace_manager().clone();
-    let databases = oxy_app::surface::metric_tree_exec::workspace_databases(&workspace_manager);
+    let databases =
+        oxy_workspace_runtime::metric_tree_exec::workspace_databases(&workspace_manager);
     let dialects = oxy_airlayer_compat::DatasourceDialectMap::from_config_databases(&databases);
     let engine =
         match oxy_airlayer_compat::SemanticEngine::from_semantic_layer(augmented.clone(), dialects)
@@ -307,21 +308,21 @@ pub async fn post_cohort(
             }
         };
 
-    let preagg_ctx = oxy_app::surface::PreaggCacheCtx {
+    let preagg_ctx = oxy_app_core::preagg_cache_ctx::PreaggCacheCtx {
         cache: app_state.preagg_cache.clone(),
         renewal_threshold_secs: app_state.preagg_renewal_threshold_secs,
     };
     let renewal_threshold_secs =
         preagg_ctx.renewal_threshold_secs_or(&workspace_manager.config_manager);
 
-    let inner = oxy_app::surface::metric_tree_exec::build_query_executor(
+    let inner = oxy_workspace_runtime::metric_tree_runner::build_query_executor(
         engine,
         databases,
         workspace_manager.into_read_only(),
         boundary.app.user.id,
         entity::workspace_members::WorkspaceRole::Viewer,
         tokio::runtime::Handle::current(),
-        oxy_app::surface::metric_tree_exec::RunnerPreagg {
+        oxy_workspace_runtime::metric_tree_runner::RunnerPreagg {
             cache: preagg_ctx.cache,
             renewal_threshold_secs,
             // A read surface, same as `/semantic-query` and `ctx.semantic`.

@@ -78,7 +78,9 @@ use axum::http::StatusCode;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use uuid::Uuid;
 
-use oxy_app::surface::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
+use oxy_workspace_runtime::request::workspace_context::{
+    SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath,
+};
 // Renamed for the reader: the customer-app handler
 // `customer_app::world_model::get_world_model` has the same name. (It was
 // `sentry_surface`'s gate-entry check, matching calls by name, that needed

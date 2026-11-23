@@ -9,7 +9,7 @@
 //! the instance listing, the measure breakdown and the SQL/traversal helpers —
 //! are `oxy_world_model::graph`. What is here:
 //! - `warehouse` — [`WorkspaceWarehouse`], the `GraphWarehouse` the cores run
-//!   on, built on the platform's connector (`oxy_app::surface::world_model_exec`).
+//!   on, built on the platform's connector (`oxy_workspace_runtime::sql_exec`).
 //! - `source` — where the model is read from (compile boundary first), and
 //!   which databases a pod with no working copy refuses.
 //! - `handlers` — the six HTTP handlers.
