@@ -10003,7 +10003,6 @@ dependencies = [
  "migration",
  "oxy",
  "oxy-airlayer-compat",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-cameras",

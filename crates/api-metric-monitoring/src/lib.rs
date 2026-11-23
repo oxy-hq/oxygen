@@ -274,7 +274,7 @@ mod tests {
     /// one, without running a handler.
     #[tokio::test]
     async fn every_declared_route_is_mounted() {
-        let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for decl in workspace_route_roles() {
             let uri = decl
                 .path
@@ -308,7 +308,7 @@ mod tests {
     /// tree is `served_router_tests`' business.)
     #[tokio::test]
     async fn the_external_tree_carries_the_full_anomaly_inbox() {
-        let router = external_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = external_routes().with_state(oxy_app_core::app_state::bare_app_state());
         let id = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
         for path in [
             "/semantic/anomalies".to_string(),

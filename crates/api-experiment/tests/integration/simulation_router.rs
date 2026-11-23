@@ -89,12 +89,12 @@ async fn no_simulation_route_fails_on_its_own_extractors() {
             // The simulation routes arrive through the workspace seam now, as
             // `oxy-server` mounts them; an empty seam set would make every case
             // below the unmounted 404 this test exists to distinguish.
-            oxy_app::surface::testing::SurfaceSeams {
-                workspace: oxy_app::surface::testing::SurfaceSeam {
+            oxy_app_core::seams::SurfaceSeams {
+                workspace: oxy_app_core::seams::SurfaceSeam {
                     routes: oxy_api_experiment::workspace_routes(),
                     decls: oxy_api_experiment::workspace_route_roles().to_vec(),
                 },
-                ..oxy_app::surface::testing::SurfaceSeams::empty()
+                ..oxy_app_core::seams::SurfaceSeams::empty()
             },
         )
         .await

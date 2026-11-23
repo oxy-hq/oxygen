@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use oxy_app::surface::seams::TaskSeam;
+use oxy_app_core::seams::TaskSeam;
 use oxy_metric_monitoring::notify::ANOMALY_NOTIFY_KIND;
 
 pub mod executor;
@@ -47,6 +47,6 @@ mod tests {
     #[test]
     fn the_task_kind_is_the_one_oxy_app_requires() {
         let kinds: Vec<&str> = super::tasks().iter().map(|t| t.kind).collect();
-        assert_eq!(kinds, oxy_app::surface::seams::ANOMALY_TASK_KINDS);
+        assert_eq!(kinds, oxy_app_core::seams::ANOMALY_TASK_KINDS);
     }
 }

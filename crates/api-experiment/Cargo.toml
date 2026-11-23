@@ -11,14 +11,10 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Imported through `oxy_app::surface` (the S4 prelude) only, for the seams
-# and the global-worker interval until they move down; this crate has no
-# backlog row in `crates/app/tests/routing/surface_contract.rs`. oxy-app never
-# depends back on this crate. default-features off so a
-# `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No normal oxy-app dependency (decompose R1, 2026-11-23); only the tests take
+# it, below. oxy-app never depends back on this crate.
 oxy-workspace-runtime = { workspace = true } # workspace extractors, the metric-tree executor, the project-context and workspace-manager builders, the scan resolver
-oxy-app-core = { workspace = true }         # AppState (router state), the semantic-engine cache
+oxy-app-core = { workspace = true }         # AppState (router state), the semantic-engine cache, the seams
 oxy = { workspace = true }                  # database client, config
 oxy-experiment = { workspace = true }       # the file, its refusals and the calendar
 oxy-simulation = { path = "../simulation" } # the declared-world loop
@@ -79,6 +75,11 @@ agentic-automation = { workspace = true }
 agentic-connector = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
+# The integration tests build the real router (`surface::testing::api_router`)
+# and install its route declarations beside this crate's
+# (`surface::roles::install_route_declarations_for_tests_with`). Dev-only;
+# default-features off, as the normal dependency had it.
+oxy-app = { path = "../app", default-features = false }
 
 [lints]
 workspace = true

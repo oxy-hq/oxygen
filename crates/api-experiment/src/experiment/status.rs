@@ -29,7 +29,7 @@ use super::store::{self, GuardrailStatus};
 pub use super::summary::ExperimentStatus;
 use super::summary::next_switch;
 use super::tick::flip_facts;
-use oxy_app::surface::workspace_runtime::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
+use oxy_workspace_runtime::driver_ctx::DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS;
 
 impl From<RunState> for ExperimentStatus {
     fn from(s: RunState) -> Self {

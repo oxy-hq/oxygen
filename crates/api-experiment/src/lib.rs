@@ -31,8 +31,8 @@
 //! and workspace-manager builders, the compile-boundary scan resolver, and
 //! `metric_tree_runner` — the warehouse executor built from Oxy's connector
 //! pool, with the workspace's database configs — from
-//! `oxy-workspace-runtime`. It reaches `oxy-app` through `oxy_app::surface`
-//! only, for the seams and the global-worker interval. The metric-tree logic it
+//! `oxy-workspace-runtime`; the seams from `oxy-app-core`. It has no normal
+//! dependency on `oxy-app` (only its tests do). The metric-tree logic it
 //! uses comes from `oxy-metric-monitoring`; it has no `BACKLOG` row in
 //! `crates/app/tests/routing/surface_contract.rs`. `oxy-app` never depends
 //! back on it.
@@ -50,8 +50,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::{GlobalTickSeam, TaskSeam, TickPass};
 use oxy_app_core::AppState;
+use oxy_app_core::seams::{GlobalTickSeam, TaskSeam, TickPass};
 use oxy_shared::fleet_role::RouteRoleDecl;
 
 // The handler modules under the names the route table names them by: the
@@ -251,7 +251,8 @@ mod tests {
     /// eagerly on `.route`, which would otherwise surface only as a boot panic.
     #[test]
     fn the_workspace_routes_compose() {
-        let _: Router<()> = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        let _: Router<()> =
+            workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
     }
 
     /// Every route is mounted — the half of "declared by a mount" that the
@@ -269,7 +270,7 @@ mod tests {
 
         let router: Router<()> = Router::new()
             .nest("/{workspace_id}", workspace_routes())
-            .with_state(oxy_app::surface::bare_app_state());
+            .with_state(oxy_app_core::app_state::bare_app_state());
         let ws = uuid::Uuid::nil();
         let id = uuid::Uuid::nil();
         for (method, path) in [
