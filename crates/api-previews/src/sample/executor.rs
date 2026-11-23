@@ -13,8 +13,8 @@ use serde_json::Value;
 
 use super::outcome::{Watched, watch};
 use super::{PREVIEW_AIRWAY_SAMPLE_KIND, RUN_KIND, SampleOptions, deadline, max_secs, remaining};
-use oxy_app::surface::previews::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
-use oxy_app::surface::previews::preview_ctx::PreviewPlatformContext;
+use oxy_workspace_runtime::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
+use oxy_workspace_runtime::preview_ctx::PreviewPlatformContext;
 
 /// Runs a `preview_airway_sample` task. Registered in
 /// `router::recovery::build_custom_task_registry`; a pod without it fails the

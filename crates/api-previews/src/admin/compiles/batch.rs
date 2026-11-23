@@ -107,7 +107,7 @@ async fn run_one_compile(
             StatusCode::NOT_FOUND => format!("workspace {workspace_id} not found"),
             _ => "platform grant could not be read".to_string(),
         })?;
-    let owns = oxy_app::surface::roles::process_can_compile();
+    let owns = oxy_app_core::pods::role_manifest::process_can_compile();
     enqueue_main(db, workspace_id, None, None, promote, owns)
         .await
         .map_err(|e| {

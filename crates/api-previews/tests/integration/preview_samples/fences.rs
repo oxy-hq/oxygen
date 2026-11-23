@@ -8,7 +8,7 @@ use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::TaskExecutor;
 use axum::http::StatusCode;
 use oxy_api_previews::sample::{PREVIEW_AIRWAY_SAMPLE_KIND, PreviewAirwaySampleExecutor};
-use oxy_app::surface::testing::previews::airhouse_duckdb::DuckDbAirhouse;
+use oxy_workspace_runtime::airhouse_duckdb::DuckDbAirhouse;
 use serde_json::json;
 
 use super::{count, submit, world};

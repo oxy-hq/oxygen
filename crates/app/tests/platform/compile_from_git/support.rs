@@ -19,8 +19,8 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::workspace_fs_probe::reset_leaks;
-use oxy_app::agentic_wiring::OxyProjectContext;
-use oxy_app::server::previews::runtime::PreviewRunResolver;
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 

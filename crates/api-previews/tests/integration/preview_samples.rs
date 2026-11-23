@@ -17,7 +17,7 @@ use axum::http::StatusCode;
 use oxy_api_previews::sample::{
     PREVIEW_AIRWAY_SAMPLE_KIND, PreviewAirwaySampleExecutor, Recorded, record_sample,
 };
-use oxy_app::surface::testing::previews::airhouse_duckdb::DuckDbAirhouse;
+use oxy_workspace_runtime::airhouse_duckdb::DuckDbAirhouse;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 

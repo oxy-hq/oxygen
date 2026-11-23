@@ -11,7 +11,7 @@ use super::transforms::detect;
 use super::*;
 use crate::runs;
 use crate::test_support::{SKIP_MSG, test_db};
-use oxy_app::surface::previews::airhouse_duckdb::DuckDbAirhouse;
+use oxy_workspace_runtime::airhouse_duckdb::DuckDbAirhouse;
 
 #[test]
 fn an_airhouse_with_its_own_credentials_or_an_unknown_database_is_manual() {

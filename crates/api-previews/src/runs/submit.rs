@@ -124,7 +124,7 @@ async fn ready_revision(
     let preview = oxy_previews::store::find(db, workspace_id, branch)
         .await?
         .ok_or_else(|| RunRequestError::PreviewNotFound(branch.to_string()))?;
-    let staged = oxy_app::surface::previews::compile_request::status(
+    let staged = oxy_compile_runtime::request::status(
         db,
         workspace_id,
         &preview.git_sha,

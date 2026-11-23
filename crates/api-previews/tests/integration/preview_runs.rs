@@ -19,7 +19,7 @@ use agentic_automation::preview_names::scoped;
 use agentic_pipeline::platform::{PlatformContext, RunPlatformResolver};
 use axum::http::StatusCode;
 use oxy_api_previews::runs::advance;
-use oxy_app::surface::testing::previews::runtime::PreviewRunResolver;
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;

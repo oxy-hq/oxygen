@@ -13,8 +13,8 @@ use agentic_runtime::state::RuntimeState;
 use agentic_runtime::worker::CustomTaskRegistry;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy_api_previews::analyze::{PREVIEW_ANALYZE_KIND, PreviewAnalyzeExecutor};
-use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
-use oxy_app::surface::testing::previews::runtime::PreviewRunResolver;
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use tokio::task::JoinHandle;
 
 use super::fixture::Fx;

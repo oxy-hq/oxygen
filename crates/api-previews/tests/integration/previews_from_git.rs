@@ -4,7 +4,7 @@
 //! Creating or refreshing a preview needed the one pod that holds workspace
 //! files for one thing: finding the branch head in `.git` and compiling its
 //! worktree. A branch that is on GitHub is now looked up there and compiled
-//! from the commit GitHub has (`oxy_app::surface::testing::compile_request`), so these
+//! from the commit GitHub has (`oxy_compile_runtime::request`), so these
 //! routes are `FleetOk`.
 //!
 //! Every test runs as `OXY_ROLE=serve` over the real handlers behind the

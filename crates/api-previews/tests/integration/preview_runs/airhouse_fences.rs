@@ -3,8 +3,8 @@
 //! scope echo fails, and a copy a crash recorded but never made.
 
 use agentic_pipeline::platform::PlatformContext;
-use oxy_app::surface::testing::previews::airhouse_duckdb::{DuckDbAirhouse, UNCONFINED_ECHO};
 use oxy_previews::namespace::preview_key;
+use oxy_workspace_runtime::airhouse_duckdb::{DuckDbAirhouse, UNCONFINED_ECHO};
 use serde_json::json;
 use std::sync::Arc;
 

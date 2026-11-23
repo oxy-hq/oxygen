@@ -47,7 +47,7 @@ pub use table::{
 };
 pub use view::{CompareView, for_run};
 
-use oxy_app::surface::previews::preview_airhouse::{PreviewAirhousePorts, connector_on};
+use oxy_workspace_runtime::preview_airhouse::{PreviewAirhousePorts, connector_on};
 
 /// Always said: live was built earlier than the build's reads.
 pub const FRESHNESS_CAVEAT: &str = "live tables were built by production at their own time, and \

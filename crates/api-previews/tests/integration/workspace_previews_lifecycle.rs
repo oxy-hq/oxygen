@@ -169,7 +169,7 @@ async fn setup() -> Fx {
 
 fn api(user: AuthenticatedUser) -> Router {
     use oxy_api_previews::handlers as h;
-    use oxy_app::surface::testing::workspace_context::workspace_access_middleware;
+    use oxy_workspace_runtime::request::workspace_context::workspace_access_middleware;
     let previews = Router::new()
         .route(
             "/",

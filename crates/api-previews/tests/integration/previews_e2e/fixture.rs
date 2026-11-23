@@ -18,8 +18,9 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, workspaces};
-use oxy_app::surface::testing::agentic_wiring::compile_dispatcher::OxyCompileDispatcher;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_workspace_runtime::compile_dispatcher::OxyCompileDispatcher;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -259,7 +260,7 @@ pub(super) fn enable_runs(on: bool) -> EnvGuard {
 /// preview pin in the middleware, which this answers from exactly as the real
 /// list does (`config_manager.list_databases()`).
 async fn database_names(
-    oxy_app::surface::WorkspaceManagerReadOnly(workspace): oxy_app::surface::WorkspaceManagerReadOnly,
+    WorkspaceManagerReadOnly(workspace): WorkspaceManagerReadOnly,
     _user: oxy_auth::extractor::AuthenticatedUserExtractor,
 ) -> axum::Json<Vec<Value>> {
     axum::Json(
@@ -277,11 +278,11 @@ async fn database_names(
 /// page load makes, here [`database_names`]) and its POST the write.
 fn app(user: AuthenticatedUser) -> Router {
     use oxy_api_previews::handlers as p;
-    use oxy_app::surface::testing::workspace_context::{
+    use oxy_workspace_runtime::request::workspace_context::{
         workspace_access_middleware, workspace_middleware,
     };
     let state = oxy_app::surface::testing::router::bare_app_state();
-    let previews: Router = Router::<oxy_app::surface::testing::router::IdeState>::new()
+    let previews: Router = Router::<oxy_app_core::pods::IdeState>::new()
         .route(
             "/",
             post(p::create_preview)
@@ -293,10 +294,9 @@ fn app(user: AuthenticatedUser) -> Router {
         .route("/runs", post(p::start_run).get(p::list_runs))
         .route("/runs/{run_id}", get(p::get_run))
         .route("/sources", get(p::list_sources).put(p::put_source))
-        .with_state(oxy_app::surface::testing::router::IdeState(state.clone()))
+        .with_state(oxy_app_core::pods::IdeState(state.clone()))
         .layer(middleware::from_fn(workspace_access_middleware));
-    let databases = get(database_names)
-        .with_state(oxy_app::surface::testing::router::FleetState(state.clone()));
+    let databases = get(database_names).with_state(oxy_app_core::pods::FleetState(state.clone()));
     // A write the preview refuses before any handler runs: the stub answers
     // only if the read-only check let it through.
     let rebuild = post(|| async { StatusCode::IM_A_TEAPOT });

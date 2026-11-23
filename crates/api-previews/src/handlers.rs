@@ -40,8 +40,8 @@ use serde::{Deserialize, Serialize};
 use crate::checks::ChecksResponse;
 use crate::runs::{self as runs, RunDetail, RunRequestError, RunSummary, SubmitRun, Submitted};
 use crate::service::{self, PreviewItem, PreviewRequest, PreviewRequestError};
-use oxy_app::surface::role_guards::WorkspacePreviewer;
 use oxy_previews::sources::{self, PutSource, SourceItem, SourceRequestError};
+use oxy_server_authz::role_guards::WorkspacePreviewer;
 
 #[derive(Serialize)]
 pub struct PreviewList {

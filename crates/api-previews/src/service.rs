@@ -13,7 +13,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::checks::{CheckSummary, ChecksResponse};
-use oxy_app::surface::previews::compile_request::{self, CompileState, Refusal, Target};
+use oxy_compile_runtime::request::{self as compile_request, CompileState, Refusal, Target};
 
 /// Why a preview request was refused. `InvalidBranch`, `DefaultBranch` and
 /// `UnknownBranch` are the contract's 400s; `CannotCompile` is the staging

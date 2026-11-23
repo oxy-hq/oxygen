@@ -75,7 +75,7 @@ pub use transforms::{Build, TransformReport, classify, database_types, detect};
 use agentic_airway::DestinationSpec;
 use evaluate::{LiveRead, Prepared};
 
-use oxy_app::surface::previews::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
+use oxy_workspace_runtime::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
 
 pub use oxy_previews::queue::analyze::PREVIEW_ANALYZE_KIND;
 
@@ -86,7 +86,7 @@ pub async fn analyze(
     run: &entity::workspace_preview_runs::Model,
     live: &dyn LiveTables,
 ) -> Result<AnalyzeReport, DbErr> {
-    let promoted = oxy_app::surface::previews::promoted_revision(db, run.workspace_id).await?;
+    let promoted = oxy_preagg::promote::promoted_revision(db, run.workspace_id).await?;
     let changed = changed_pipelines(db, run.revision_id, promoted).await?;
     let prepared = evaluate::prepare_all(changed.clone()).await;
     let managed = match promoted {

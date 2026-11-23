@@ -11,10 +11,10 @@ use agentic_runtime::worker::TaskExecutor;
 use axum::http::StatusCode;
 use oxy_api_previews::analyze::{PREVIEW_ANALYZE_KIND, PreviewAnalyzeExecutor};
 use oxy_api_previews::compare::{PREVIEW_COMPARE_KIND, PreviewCompareExecutor};
-use oxy_app::surface::testing::agentic_wiring::preview_airhouse::PreviewAirhousePorts;
-use oxy_app::surface::testing::previews::airhouse_duckdb::DuckDbAirhouse;
-use oxy_app::surface::testing::previews::runtime::PreviewRunResolver;
 use oxy_previews::namespace::preview_key;
+use oxy_workspace_runtime::airhouse_duckdb::DuckDbAirhouse;
+use oxy_workspace_runtime::preview_airhouse::PreviewAirhousePorts;
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 

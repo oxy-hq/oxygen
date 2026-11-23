@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{PREVIEW_COMPARE_KIND, compare, enqueue};
-use oxy_app::surface::previews::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
+use oxy_workspace_runtime::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
 
 /// Runs a `preview_compare` task. Registered in
 /// `router::recovery::build_custom_task_registry`.

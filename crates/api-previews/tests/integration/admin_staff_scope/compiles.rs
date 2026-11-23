@@ -400,7 +400,7 @@ async fn run_compile_now_queues_the_commit_github_has_when_it_can_serve_the_bran
 #[tokio::test]
 async fn a_compile_nothing_here_can_claim_is_refused_not_queued() {
     use oxy_api_previews::admin::compiles::source::enqueue_main;
-    use oxy_app::surface::previews::compile_request::Refusal;
+    use oxy_compile_runtime::request::Refusal;
     let w = world().await;
     let (_github, ws) = github_workspace(&w, false).await;
 

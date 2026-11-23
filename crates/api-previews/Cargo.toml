@@ -9,18 +9,26 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# preview platform the runs execute on, the staff guard and the seam types.
+# What this surface still takes from oxy-app, through `oxy_app::surface`: the
+# seam types (`AdminNest`, `BackgroundSeam`, `TaskSeam`) and the tests'
+# `bare_app_state`, until they move down to oxy-app-core (decompose R0).
 # oxy-app never depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
+# The preview platform the runs execute on (the preview Airhouse and context,
+# the run resolver, the workspace middleware and SQL execution).
+oxy-workspace-runtime = { workspace = true }
+# The compile request, the commit compile and the revision-in-use clause.
+oxy-compile-runtime = { workspace = true }
+# The promoted revision the change check compares against.
+oxy-preagg = { workspace = true }
 # The previews' rows (registry, DDL, namespace, sources, pin, the run queue),
 # below oxy-app since 2026-11-22.
 oxy-previews = { workspace = true }
-oxy-app-core = { workspace = true }     # AppState, default_branch
+oxy-app-core = { workspace = true }     # AppState, default_branch, the role manifest
 oxy = { workspace = true }
 oxy-auth = { workspace = true }
-oxy-server-authz = { workspace = true } # staff::scope, the compile console's grant fences
+oxy-server-authz = { workspace = true } # staff::scope, the compile console's grant fences, role guards, Action
 oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl
 oxy-compile = { workspace = true }
 oxy-git = { workspace = true }

@@ -8,9 +8,9 @@
 use std::sync::{Arc, Mutex};
 
 use agentic_pipeline::platform::RunPlatformResolver;
-use oxy_app::surface::testing::previews::airhouse_duckdb::DuckDbAirhouse;
-use oxy_app::surface::testing::previews::runtime::PreviewRunResolver;
 use oxy_previews::namespace::preview_key;
+use oxy_workspace_runtime::airhouse_duckdb::DuckDbAirhouse;
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 

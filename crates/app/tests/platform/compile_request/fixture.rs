@@ -6,9 +6,9 @@ use std::path::Path;
 use chrono::Utc;
 use entity::{revisions, workspaces};
 use oxy::workspace_fs_probe::{process_owns_workspace_files, reset_leaks};
-use oxy_app::server::compile_request::{self, CompileState, Refusal, Target};
-use oxy_app::server::role_manifest::init_process_role_from_env;
+use oxy_app_core::pods::role_manifest::init_process_role_from_env;
 use oxy_compile::RevisionKind;
+use oxy_compile_runtime::request::{self as compile_request, CompileState, Refusal, Target};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, Statement,

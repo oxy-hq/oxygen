@@ -9,8 +9,9 @@
 
 pub mod compiles;
 
-use oxy_app::surface::roles::RouteRole;
-use oxy_app::surface::{Action, AdminNest};
+use oxy_app::surface::AdminNest;
+use oxy_app_core::pods::role_manifest::RouteRole;
+use oxy_server_authz::Action;
 
 /// The compile operator surface, nested at `/api/admin/compiles` behind the
 /// staff door, the refusal while acting and `PlatformOperate` — compile history

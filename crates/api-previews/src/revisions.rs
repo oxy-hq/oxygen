@@ -27,7 +27,7 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 use uuid::Uuid;
 
-use oxy_app::surface::previews::REVISION_IN_USE;
+use oxy_compile_runtime::maintenance::REVISION_IN_USE;
 
 /// What keeps a staging revision of a preview's commit alive beyond the
 /// retention rule. A SQL predicate over `revisions r`.

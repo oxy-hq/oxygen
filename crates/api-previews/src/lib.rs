@@ -22,12 +22,14 @@
 //!   ([`admin`], `/api/admin/compiles/*`), nested beside `/admin` through
 //!   `SurfaceSeams::admin_nests` ([`admin_nests`]).
 //!
-//! The lower half stays in `oxy-app` (`oxy_app::surface::previews`), because the
-//! workspace runtime and the middleware below this crate read it: the registry
-//! and its DDL, the namespace, the sources, the pin and read-only guard, the
-//! run platform (`runtime`) and the run queue (`queue`: the queue step, the
+//! The lower half sits below this crate, because the workspace runtime and the
+//! middleware read it: the registry and its DDL, the namespace, the sources,
+//! the pin and the run queue in `oxy-previews` (`queue`: the queue step, the
 //! change-check enqueue the compile worker calls, the run lifecycle, and the
-//! per-pass sweep the global driver runs inline — rows only, all of it).
+//! per-pass sweep the global driver runs inline — rows only, all of it); the
+//! read-only guard, the run platform (`preview_runtime`) and the preview
+//! Airhouse in `oxy-workspace-runtime`; the compile request in
+//! `oxy-compile-runtime`.
 //! Nothing below may name this crate; `oxy-app` refuses to start without its
 //! task kinds and its maintenance job (`PREVIEW_TASK_KINDS`,
 //! `PREVIEW_BACKGROUND_JOBS`).
@@ -277,7 +279,7 @@ mod tests {
     /// method, and classify that way.
     #[test]
     fn compiling_a_branch_for_a_staging_build_is_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
         let decls: Vec<_> = workspace_route_roles()
             .iter()

@@ -22,6 +22,8 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::{WorkspaceManagerReadOnly, WorkspacePath};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -42,8 +44,8 @@ pub(super) fn branch_files() -> Vec<(&'static str, String)> {
 
 /// Mounted beside the fixture's `/databases` behind the real workspace
 /// middleware, as `build_protected_routes` mounts them.
-pub(super) fn routes(state: &oxy_app::surface::testing::router::AppState) -> Router {
-    use oxy_app::surface::testing::router::FleetState;
+pub(super) fn routes(state: &oxy_app_core::AppState) -> Router {
+    use oxy_app_core::pods::FleetState;
     Router::new()
         .route(
             "/sql/query",
@@ -65,25 +67,28 @@ pub(super) fn routes(state: &oxy_app::surface::testing::router::AppState) -> Rou
 /// preview_read_only`. Both handlers were mounted from `oxy-app` until the
 /// semantic surface left it (2026-11-16); this crate may not depend on that
 /// sibling (S3), so it mounts their body, which stayed in the platform
-/// (`oxy_app::surface::sql_exec`). What is under test is unchanged: the
+/// (`oxy_workspace_runtime::sql_http`). What is under test is unchanged: the
 /// platform's hold, behind the real workspace middleware.
 async fn sql_execute(
-    oxy_app::surface::WorkspaceManagerReadOnly(workspace_manager): oxy_app::surface::WorkspaceManagerReadOnly,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
-    oxy_app::surface::EffectiveWorkspaceRole(role): oxy_app::surface::EffectiveWorkspaceRole,
-    axum::extract::Path(oxy_app::surface::WorkspacePath { .. }): axum::extract::Path<
-        oxy_app::surface::WorkspacePath,
-    >,
-    Json(payload): Json<oxy_app::surface::sql_exec::SQLParams>,
+    EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
+    axum::extract::Path(WorkspacePath { .. }): axum::extract::Path<WorkspacePath>,
+    Json(payload): Json<oxy_workspace_runtime::sql_exec::SQLParams>,
 ) -> Result<
-    Json<oxy_app::surface::sql_exec::SemanticQueryResponse>,
+    Json<oxy_workspace_runtime::sql_exec::SemanticQueryResponse>,
     (
         StatusCode,
-        Json<oxy_app::surface::sql_exec::SqlErrorResponse>,
+        Json<oxy_workspace_runtime::sql_http::SqlErrorResponse>,
     ),
 > {
-    oxy_app::surface::sql_exec::execute_sql_response(&workspace_manager, user.id, role, &payload)
-        .await
+    oxy_workspace_runtime::sql_http::execute_sql_response(
+        &workspace_manager,
+        user.id,
+        role,
+        &payload,
+    )
+    .await
 }
 
 /// The platform the middleware installs is the one `POST /analytics/runs`
