@@ -27,10 +27,11 @@ use oxy::database::client::establish_connection;
 use oxy::github::app_auth::GitHubInstallation;
 use oxy::github::client::GitHubClient;
 use oxy::shared::errors::OxyError;
-use oxy_app::surface::role_guards::OrgAdmin;
-use oxy_app::surface::{OrgContext, resolve_org_context};
+use oxy_app_core::guards::org_context::resolve_org_context;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_server_authz::Caller;
+use oxy_server_authz::org_context::OrgContext;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 /// The `code` of the refusal a caller with no usable GitHub account gets.
 pub const GITHUB_ACCOUNT_NOT_CONNECTED: &str = "github_account_not_connected";

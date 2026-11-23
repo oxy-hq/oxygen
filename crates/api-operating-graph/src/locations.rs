@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use super::dto::{LocationRow, SetExternalId, UpdateLocation, is_location_status};
 use super::{is_unique_violation, json_error};
-use oxy_app::surface::role_guards::{OrgAdmin, OrgMemberStrict};
+use oxy_server_authz::role_guards::{OrgAdmin, OrgMemberStrict};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocationError {

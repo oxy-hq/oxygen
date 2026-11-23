@@ -11,13 +11,15 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# OrgAdmin / OrgMemberStrict role guards and the org middlewares. The pure half
-# of the graph (DTOs, readers, the assignment writes, reach, the binding) is
-# oxy-app-core's. oxy-app never depends back on this crate. default-features off
-# so a `--no-default-features` build of oxy-server keeps dropping V8.
+# Production code no longer imports oxy-app (decompose R1 S10): the role
+# guards are oxy-server-authz's and the org middlewares oxy-app-core's. Only the
+# route_roles test still installs oxy-app's real router declarations; this entry
+# moves to [dev-dependencies] in the next step. oxy-app never depends back on
+# this crate. default-features off so a `--no-default-features` build of
+# oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }  # AppState (router state), the audit writer, the graph's pure half
+oxy-app-core = { workspace = true }  # AppState (router state), the audit writer, the graph's pure half, org middlewares
+oxy-server-authz = { workspace = true }  # OrgAdmin / OrgMemberStrict role guards
 oxy = { workspace = true }           # database client
 oxy-auth = { workspace = true }      # AuthenticatedUserExtractor
 oxy-shared = { workspace = true }    # fleet_role::RouteRoleDecl

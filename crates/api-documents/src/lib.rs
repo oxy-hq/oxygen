@@ -44,10 +44,12 @@
 //! # Where it mounts
 //!
 //! A sibling crate of `oxy-app`, mounted by the `oxy-server` composition root
-//! through the `extra_api_routes` seam ([`routes`] + [`route_roles`]). It
-//! depends on `oxy-app` for the helpers it shares (org middlewares, `OrgAdmin`,
-//! the assume-role check, the custom-app storage bucket and presigner, the
-//! project-context builder); `oxy-app` never depends back on it.
+//! through the `extra_api_routes` seam ([`routes`] + [`route_roles`]). The
+//! helpers it shares come from the crates below `oxy-app`: the org middlewares
+//! and the assume-role check from `oxy-app-core`, `OrgAdmin` from
+//! `oxy-server-authz`, the project-context builder from
+//! `oxy-workspace-runtime`, the custom-app storage bucket and presigner from
+//! `oxy-custom-apps`. `oxy-app` never depends back on it.
 
 // Laying out `ask`'s future takes 110 of rustc's default query depth of 128 at
 // opt-level 3 (measured in #3476), and the `--release` build that produces the

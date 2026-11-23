@@ -25,9 +25,9 @@ use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, post};
 
-use oxy_app::surface::org_middleware;
-use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
+use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 pub mod account;
@@ -118,7 +118,7 @@ mod tests {
     /// and the classifier matches a live URI against it.
     #[test]
     fn the_webhook_is_declared_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let declared = public_route_roles();
         assert_eq!(declared.len(), 1);
         assert_eq!(declared[0].method, "*");

@@ -12,8 +12,8 @@ use oxy::database::client::establish_connection;
 use oxy::github::client::GitHubClient;
 use oxy::github::github_token_for_namespace;
 use oxy::github::types::{GitHubBranch, GitHubRepository};
-use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 use oxy_server_authz::org_context::OrgContextExtractor;
 

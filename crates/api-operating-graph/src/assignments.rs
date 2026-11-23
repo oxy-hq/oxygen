@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use super::dto::{AssignmentRow, AssignmentsQuery, CreateAssignment};
 use super::json_error;
-use oxy_app::surface::role_guards::{OrgAdmin, OrgMemberStrict};
+use oxy_server_authz::role_guards::{OrgAdmin, OrgMemberStrict};
 
 // The writes — standing, target validation, `assign`, enrolment's roster and
 // `remove` — live in `oxy_app_core::operating_graph::assignments`, which

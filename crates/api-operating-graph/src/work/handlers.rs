@@ -15,7 +15,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::dto::*;
-use oxy_app::surface::role_guards::{OrgAdmin, OrgMemberStrict};
+use oxy_server_authz::role_guards::{OrgAdmin, OrgMemberStrict};
 
 /// Every role the caller holds, as `(role_id, location_id)`.
 ///

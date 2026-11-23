@@ -72,15 +72,17 @@ impl DocumentAgent {
         let workspace = org_workspace(db, org_id).await?;
         let project_id = workspace.id;
 
-        let ctx = oxy_app::surface::build_project_context(&workspace, caller, project_id)
-            .await
-            .map_err(|resp| {
-                warn!(
-                    %org_id, %project_id, status = %resp.status(),
-                    "could not build a project context to answer from"
-                );
-            })
-            .ok()?;
+        let ctx = oxy_workspace_runtime::custom_apps_gates::build_project_context(
+            &workspace, caller, project_id,
+        )
+        .await
+        .map_err(|resp| {
+            warn!(
+                %org_id, %project_id, status = %resp.status(),
+                "could not build a project context to answer from"
+            );
+        })
+        .ok()?;
 
         let agent_ref =
             std::env::var(AGENT_REF_ENV).unwrap_or_else(|_| AGENT_REF_DEFAULT.to_string());

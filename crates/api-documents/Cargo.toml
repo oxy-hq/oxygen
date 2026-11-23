@@ -11,19 +11,20 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The only oxy-app dependency: the helpers this surface still shares with it —
-# the org middlewares + `OrgAdmin` guard, the assume-role liveness check, and the
-# project-context builder (`surface::build_project_context`) for the ask agent.
-# (The custom-app storage bucket + S3 presigner, which documents sign into under
-# `org-documents/`, come from `oxy-custom-apps`.) oxy-app never depends back on
-# this crate. default-features off so a
+# Production code no longer imports oxy-app (decompose R1 S10): the org
+# middlewares + assume-role check are oxy-app-core's, `OrgAdmin` is
+# oxy-server-authz's, the project-context builder is oxy-workspace-runtime's.
+# Only the route_roles test still installs oxy-app's real router declarations
+# (`install_route_declarations_for_tests_with`); this entry moves to
+# [dev-dependencies] in the next step. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }       # AppState (router state) + pagination
 oxy-custom-apps = { workspace = true }    # the custom-app S3 silo (bucket, presigner)
 oxy = { workspace = true }                # database client
 oxy-auth = { workspace = true }           # AuthenticatedUserExtractor
-oxy-server-authz = { workspace = true }   # Caller: the reader with the credential they used
+oxy-server-authz = { workspace = true }   # Caller + the OrgAdmin guard
+oxy-workspace-runtime = { workspace = true } # build_project_context (the ask agent)
 oxy-shared = { workspace = true }         # OxyError + fleet_role::RouteRoleDecl
 agentic-pipeline = { workspace = true }   # run_agentic_answer + PlatformContext (ask)
 entity = { workspace = true }

@@ -8,8 +8,9 @@
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, put};
-use oxy_app::surface::{org_middleware, subscription_guard_middleware};
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
+use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 use crate::{assignments, locations, positions, work};

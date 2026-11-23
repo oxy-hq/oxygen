@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use super::dto::UpdateRole;
 use super::{is_unique_violation, json_error};
-use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RoleError {

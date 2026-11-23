@@ -28,8 +28,9 @@
 //! (a frontline worker holds no org membership, and `org_middleware` would
 //! refuse exactly the people work is routed to), and the registry under
 //! `/orgs/{org_id}` with `org_middleware` + the subscription guard re-applied.
-//! It reaches `oxy-app` through `oxy_app::surface` only; the pure half of the
-//! graph (DTOs, readers, the assignment writes, reach, the semantic binding) is
+//! Its guards come from `oxy-server-authz` and its middlewares from
+//! `oxy-app-core`, not `oxy-app`; the pure half of the graph (DTOs, readers,
+//! the assignment writes, reach, the semantic binding) is
 //! `oxy_app_core::operating_graph`, re-exported below.
 //!
 //! # Fleet role
