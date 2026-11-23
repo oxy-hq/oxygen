@@ -11,14 +11,9 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface` plus the
-# Slack backlog rows `crates/app/tests/routing/surface_contract.rs` lists (the
-# Slack DM channel links a person by email and reads the org's installation,
-# until Slack leaves oxy-app). The write path every source shares, the email
-# renderer and the mailer are oxy-app-core's. oxy-app never depends back on this
-# crate. default-features off so a `--no-default-features` build of oxy-server
-# keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app dependency: everything comes from the crates below it, and
+# oxy-server mounts this crate. The write path every source shares, the email
+# renderer and the mailer are oxy-app-core's.
 oxy-app-core = { workspace = true }        # AppState, the notification write path, emails
 oxy-custom-apps = { workspace = true }     # an app's environments and live build
 oxy-oltp = { workspace = true }            # the org's inbox store

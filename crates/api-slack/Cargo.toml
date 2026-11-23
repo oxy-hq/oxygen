@@ -11,10 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Nothing in this crate names oxy-app any more; the dependency goes with the
-# R1 decompose's second phase. default-features off so a
-# `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app dependency: everything comes from the crates below it, and
+# oxy-server mounts this crate.
 oxy-server-authz = { workspace = true }       # the OrgAdmin role guard, OrgContextExtractor
 # The workspace runtime (`OxyProjectContext`) and the runtime-artifact S3 mirror.
 oxy-workspace-runtime = { workspace = true }

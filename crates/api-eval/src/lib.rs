@@ -24,8 +24,9 @@
 //!   `oxy dev`, step 13, decision 2026-11-22), because the BIRD harness
 //!   (`evals/bird`) runs a local workspace no deployment holds.
 //!
-//! It sits above `oxy-app`, reaching it through `oxy_app::surface` only (held
-//! by `surface_contract`).
+//! It no longer depends on `oxy-app`: since the R1 decompose it imports
+//! from the crates below it (`oxy-app-core`, `oxy-workspace-runtime`,
+//! `oxy-compile-runtime`, `oxy-server-authz`).
 #![recursion_limit = "256"]
 
 // The engine. `pub` as its types were when `oxy-app` re-exported them
@@ -40,8 +41,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::TaskSeam;
 use oxy_app_core::AppState;
+use oxy_app_core::seams::TaskSeam;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The workspace seam's share, merged inside `/api/{workspace_id}`: the eval

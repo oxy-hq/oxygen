@@ -11,7 +11,7 @@
 
 pub mod explorer;
 
-use oxy_app::surface::AdminSection;
+use oxy_app_core::seams::AdminSection;
 use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -77,7 +77,7 @@ mod tests {
     /// without running a handler.
     #[tokio::test]
     async fn every_route_is_mounted() {
-        let router = crate::admin_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = crate::admin_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for uri in MOUNTED {
             assert_eq!(
                 trace(&router, uri).await,

@@ -11,11 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface still takes from oxy-app, through `oxy_app::surface`: the
-# admin and task seams. oxy-app never depends back on this crate.
-# default-features off so a `--no-default-features` build of oxy-server keeps
-# dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app dependency: everything comes from the crates below it, and
+# oxy-server mounts this crate.
 oxy-server-authz = { workspace = true }       # the admin scope fence, `Action`
 oxy-workspace-runtime = { workspace = true }  # the project context the live runners build
 oxy-app-core = { workspace = true }        # AppState

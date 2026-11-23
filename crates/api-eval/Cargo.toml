@@ -8,10 +8,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this crate still takes from oxy-app, through `oxy_app::surface` only: the
-# task seam. oxy-app never depends back on this crate. default-features off so a
-# `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app dependency: everything comes from the crates below it, and
+# oxy-server registers this crate.
 # The engine builds its runs on `oxy_workspace_runtime::project_ctx::OxyProjectContext`.
 oxy-workspace-runtime = { workspace = true }
 oxy-compile-runtime = { workspace = true }  # the lazy compile a run enqueues

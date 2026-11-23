@@ -49,8 +49,8 @@ pub mod thread;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::BackgroundSeam;
 use oxy_app_core::AppState;
+use oxy_app_core::seams::BackgroundSeam;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The staff-console section this crate contributes under `/api/admin`, for

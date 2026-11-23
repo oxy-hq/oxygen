@@ -123,7 +123,7 @@ fn persisted_data_reads_are_declared_fleet_ok() {
 /// without running a handler.
 #[tokio::test]
 async fn every_workspace_route_is_mounted() {
-    let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+    let router = workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
     for uri in WORKSPACE_MOUNTED {
         assert_eq!(
             trace(&router, uri).await,
@@ -216,7 +216,7 @@ fn every_chat_route_is_declared_fleet_ok_exactly_once() {
 
 #[tokio::test]
 async fn every_chat_route_is_mounted() {
-    let router = routes().with_state(oxy_app::surface::bare_app_state());
+    let router = routes().with_state(oxy_app_core::app_state::bare_app_state());
     for uri in CHAT_MOUNTED {
         assert_eq!(
             trace(&router, uri).await,

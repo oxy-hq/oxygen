@@ -63,8 +63,8 @@
 //!
 //! A sibling surface crate (`internal-docs/domain-boundaries.md`, S1–S8), moved
 //! out of `oxy-app`'s `server::api::notifications` with its paths, roles and
-//! guards unchanged. It reaches `oxy-app` only through `oxy_app::surface`, and
-//! `oxy-app` never names it; `oxy-server` mounts it:
+//! guards unchanged. It does not depend on `oxy-app`, and `oxy-app` never
+//! names it; `oxy-server` mounts it:
 //!
 //! - [`routes`] rides `SurfaceSeams::api`, merged at the `/api` root behind the
 //!   standard auth stack, exactly where `build_global_routes` had it. No org
@@ -125,9 +125,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, patch, post};
-use oxy_app::surface::seams::{NotificationsSeam, TaskSeam};
 use oxy_app_core::AppState;
 use oxy_app_core::notifications::catalog::live_kinds::{KindSummary, LiveKinds};
+use oxy_app_core::seams::{NotificationsSeam, TaskSeam};
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The notification routes, relative to the `/api` root — moved out of
@@ -361,7 +361,7 @@ mod surface_tests {
     #[test]
     fn task_kinds_are_the_ones_oxy_app_requires() {
         let kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
-        assert_eq!(kinds, oxy_app::surface::seams::NOTIFICATION_TASK_KINDS);
+        assert_eq!(kinds, oxy_app_core::seams::NOTIFICATION_TASK_KINDS);
     }
 
     /// What the staff console's app test lists: moved here from

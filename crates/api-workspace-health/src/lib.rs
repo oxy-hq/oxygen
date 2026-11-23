@@ -27,9 +27,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::AdminSection;
-use oxy_app::surface::seams::TaskSeam;
 use oxy_app_core::AppState;
+use oxy_app_core::seams::AdminSection;
+use oxy_app_core::seams::TaskSeam;
 use oxy_workspace_health::eval_pass::EvalRunners;
 use sea_orm::DatabaseConnection;
 
@@ -114,6 +114,6 @@ mod tests {
     #[test]
     fn the_task_kind_is_the_one_oxy_app_requires() {
         let kinds: Vec<&str> = super::tasks().iter().map(|t| t.kind).collect();
-        assert_eq!(kinds, oxy_app::surface::seams::HEALTH_TASK_KINDS);
+        assert_eq!(kinds, oxy_app_core::seams::HEALTH_TASK_KINDS);
     }
 }

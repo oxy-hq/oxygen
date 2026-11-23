@@ -39,7 +39,7 @@ fn build_router(role: WorkspaceRole) -> Router {
         .route("/threads/bulk-delete", post(bulk_delete_threads))
         .layer(middleware::from_fn(inject_role(role)))
         .with_state(oxy_app_core::pods::IdeState(
-            oxy_app::surface::bare_app_state(),
+            oxy_app_core::app_state::bare_app_state(),
         ))
 }
 
