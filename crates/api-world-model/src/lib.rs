@@ -67,8 +67,8 @@ pub mod video;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::BackgroundSeam;
 use oxy_app_core::AppState;
+use oxy_app_core::seams::BackgroundSeam;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The seven routes both trees serve, relative to `/{workspace_id}`.
@@ -420,7 +420,7 @@ mod tests {
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
 
-        let state = oxy_app::surface::bare_app_state();
+        let state = oxy_app_core::app_state::bare_app_state();
         for (tree, router) in [
             ("workspace", workspace_routes().with_state(state.clone())),
             ("external", external_routes().with_state(state)),
@@ -492,7 +492,7 @@ mod tests {
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
 
-        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = public_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for decl in public_route_roles() {
             let uri = decl
                 .path

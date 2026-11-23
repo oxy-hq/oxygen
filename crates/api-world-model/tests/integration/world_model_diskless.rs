@@ -33,8 +33,8 @@ use oxy_api_world_model::graph::{
     get_world_model, get_world_model_instance_detail, get_world_model_instances,
     get_world_model_measure_breakdown, post_world_model_filter_counts,
 };
-use oxy_app::surface::testing::router::bare_app_state;
 use oxy_app_core::AppState;
+use oxy_app_core::app_state::bare_app_state;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
