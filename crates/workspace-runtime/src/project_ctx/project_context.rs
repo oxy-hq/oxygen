@@ -395,6 +395,12 @@ impl ProjectContext for OxyProjectContext {
         self.react_runtime_flag().await
     }
 
+    /// The `react_memory` flag for the workspace's org; `false` when the org
+    /// cannot be read.
+    async fn react_memory_enabled(&self) -> bool {
+        self.org_flag(oxy_feature_flags::REACT_MEMORY).await
+    }
+
     /// The sandbox whose ask this context holds for; `None` for staging's.
     fn sandbox_environment(&self) -> Option<String> {
         let scope = self.hold_scope()?;

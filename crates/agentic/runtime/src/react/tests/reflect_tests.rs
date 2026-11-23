@@ -38,6 +38,7 @@ fn setup(store: Arc<VecStore>) -> (Toolset, LoopConfig) {
             after_calls: 3,
             prompt: "REFLECT?".into(),
             gate,
+            quiet: false,
         }),
     };
     (toolset, cfg)
@@ -218,4 +219,52 @@ async fn a_remember_call_while_answering_is_refused_and_saves_nothing() {
         .map(|(_, p)| p.clone())
         .unwrap();
     assert_eq!(refused["is_error"], true);
+}
+
+/// A served chat reads the answer as the text after the last tool call, and a
+/// resume rebuilds the transcript from the log, so a quiet reflection writes
+/// only its usage: the log still ends on the answer's turn, and the note is
+/// saved.
+#[tokio::test]
+async fn a_quiet_reflection_writes_only_its_usage() {
+    let store = Arc::new(VecStore::default());
+    let mut script = echoes(3);
+    script.push(reply("the answer"));
+    script.push(call_tools(vec![call(
+        "m1",
+        "remember",
+        json!({"text": "echo answers it"}),
+    )]));
+    let e = ScriptedEngine::new(script);
+    let (toolset, mut cfg) = setup(store.clone());
+    cfg.reflect.as_mut().unwrap().quiet = true;
+    let (out, rows) = drive(&e, &(toolset, cfg)).await;
+
+    assert_eq!(answer_text(&out), "the answer");
+    assert_eq!(store.0.lock().unwrap().len(), 1, "the note is saved");
+    let answered = (rows.iter())
+        .rposition(|(t, _)| t == "react_turn")
+        .expect("a turn row");
+    assert_eq!(
+        rows[answered].1["turn"]["text"], "the answer",
+        "the last turn logged is the answer"
+    );
+    let after: Vec<&str> = rows[answered + 1..]
+        .iter()
+        .map(|(t, _)| t.as_str())
+        .collect();
+    assert_eq!(
+        after,
+        ["llm_end", "done"],
+        "only the reflection's usage follows the answer"
+    );
+    let states: Vec<&str> = (rows.iter())
+        .filter(|(t, _)| t == "llm_end")
+        .filter_map(|(_, p)| p["state"].as_str())
+        .collect();
+    assert_eq!(
+        states.last(),
+        Some(&REFLECT_STATE),
+        "its cost is still counted"
+    );
 }

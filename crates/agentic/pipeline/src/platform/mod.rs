@@ -323,6 +323,14 @@ pub trait ProjectContext: Send + Sync {
         false
     }
 
+    /// Whether the per-org `react_memory` flag is on for this workspace's
+    /// org. With it on, a served react run reads and writes the requesting
+    /// user's notes. `false`, the default and the answer of any host that
+    /// cannot tell (a preview included), runs with no memory.
+    async fn react_memory_enabled(&self) -> bool {
+        false
+    }
+
     /// The engine a react run decides with in place of the agent's model.
     /// `None`, the default and every production host's answer, builds the
     /// agent's own `LlmEngine`. A test host returns a scripted engine here,

@@ -47,6 +47,8 @@ pub(crate) struct RowHandle {
     pub join: tokio::task::JoinHandle<()>,
 }
 
+#[path = "react_memory_served.rs"]
+mod memory;
 #[path = "react_served_pick.rs"]
 mod pick;
 pub(crate) use pick::{PickInput, decide, stamp_runtime};
@@ -99,8 +101,7 @@ pub(crate) async fn start(
             serve(refused, run_id.clone(), prior, question)
         }
         Ok(log) => {
-            let ctx = build_context(platform, config, inputs);
-            let built = build_react_run(platform, config, ctx, base_dir).await;
+            let built = build_served(platform, db, config, inputs, base_dir).await;
             if crate::react_resume::continues(&log) {
                 // A re-driven start (a released or reaped claim): the log
                 // already holds an attempt, so it is continued.
@@ -122,6 +123,21 @@ pub(crate) async fn start(
         inner: ErasedHandle::React(handle),
         starting_driver: None,
     }
+}
+
+/// The react run a served start or resume runs, with the requesting user's
+/// memory ([`memory::served_memory`]).
+pub(crate) async fn build_served(
+    platform: &dyn PlatformContext,
+    db: &DatabaseConnection,
+    config: &AgentConfig,
+    inputs: ServedInputs,
+    base_dir: &Path,
+) -> Result<ReactRun, String> {
+    let workspace_id = inputs.workspace_id;
+    let ctx = build_context(platform, config, inputs);
+    let built = build_react_run(platform, config, ctx, base_dir).await?;
+    Ok(built.with_memory(memory::served_memory(platform, db, workspace_id).await))
 }
 
 /// The FSM solver's build context, from the same resolved inputs (the

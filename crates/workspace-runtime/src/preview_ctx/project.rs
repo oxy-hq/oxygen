@@ -165,6 +165,12 @@ impl ProjectContext for PreviewPlatformContext {
         false
     }
 
+    /// `false`: a preview never runs react, and its runs read and write no
+    /// memory, whatever the org's `react_memory` flag says.
+    async fn react_memory_enabled(&self) -> bool {
+        false
+    }
+
     /// `None`: a preview runs the agent's configured model; the scripted
     /// engine seam is for tests only.
     fn react_engine(&self) -> Option<Box<dyn agentic_core::react::Engine>> {

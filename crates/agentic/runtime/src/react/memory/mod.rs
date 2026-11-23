@@ -3,13 +3,13 @@
 //!
 //! A note is a fact log, not a row to update: every write appends a
 //! [`NoteFact`], and the notes are the latest fact per `note_id` that is not a
-//! delete ([`latest`]). That is the shape an Airhouse table needs (DuckLake has
-//! no keys), so the served store can keep it. Design:
-//! `internal-docs/agent-engine-runtime.md`, "Memory per user".
+//! delete ([`latest`]). Design: `internal-docs/agent-engine-runtime.md`,
+//! "Memory per user".
 //!
-//! Only the eval harness uses memory today ([`FileMemoryStore`]); a served run
-//! has none.
+//! The eval keeps notes in a file ([`FileMemoryStore`]); a served run keeps one
+//! user's notes in one workspace in Oxy's Postgres ([`DbMemoryStore`]).
 
+mod db;
 mod file;
 mod merge;
 mod reflect;
@@ -21,6 +21,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub use db::{DbMemoryStore, NoteOwner};
 pub use file::FileMemoryStore;
 pub use merge::{MergeError, MergeReport, merge_notes};
 pub(super) use reflect::reflect;
@@ -70,6 +71,8 @@ pub enum MemoryError {
     Io(#[from] std::io::Error),
     #[error("memory store: bad row: {0}")]
     Parse(#[from] serde_json::Error),
+    #[error("memory store: database: {0}")]
+    Db(String),
 }
 
 /// Where notes live. Appends only: a correction or a delete is a new fact.
@@ -135,6 +138,9 @@ fn section(notes: &[Note]) -> (String, usize) {
 pub struct RunMemory {
     pub notes: Vec<Note>,
     pub writes: Option<Arc<dyn MemoryStore>>,
+    /// Keep the reflection turn out of the run's UI stream
+    /// ([`Reflect::quiet`]): `true` for a served chat.
+    pub quiet: bool,
 }
 
 #[cfg(test)]

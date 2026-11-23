@@ -75,6 +75,13 @@ pub const APP_EVENTS: &str = "app_events";
 /// on the FSM.
 pub const REACT_RUNTIME: &str = "react_runtime";
 
+/// Per-user memory for react runs, per org: a served react run reads the
+/// requesting user's notes for the workspace and may save new ones in a
+/// reflection turn, only where this serves `on` (and [`REACT_RUNTIME`] put
+/// the run on react). Read with [`is_enabled_for`] and the workspace's org
+/// (`OxyProjectContext::react_memory_enabled`).
+pub const REACT_MEMORY: &str = "react_memory";
+
 /// Whether [`HOME_V3`] is on.
 pub fn home_v3() -> bool {
     is_enabled(HOME_V3)

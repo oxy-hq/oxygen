@@ -3,7 +3,7 @@
 //! already holds an attempt (a claim a deploy released or the reaper
 //! requeued). The run's event log is the source of truth, so nothing in
 //! memory survives from the start: the toolset and engine are rebuilt from
-//! the agent's config (`build_react_run`, with a start's refusals) and the
+//! the agent's config (`build_served`, with a start's refusals) and the
 //! transcript from the log (`resume_loop` over a [`DbTranscriptStore`]).
 //!
 //! What routes a resume here is only what the run persisted: a suspension
@@ -31,9 +31,9 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::platform::PlatformContext;
-use crate::react_run::{ReactRun, build_react_run, loop_config};
+use crate::react_run::{ReactRun, loop_config};
 use crate::react_served::{
-    REACT, RUNTIME_KEY, RowHandle, ServedInputs, ServedRun, build_context, prior_turns, serve_with,
+    REACT, RUNTIME_KEY, RowHandle, ServedInputs, ServedRun, build_served, prior_turns, serve_with,
 };
 use crate::{ErasedHandle, StartedPipeline, ThinkingMode};
 
@@ -109,8 +109,7 @@ pub(crate) async fn resume(
     run: ServedRun<'_>,
     input: ResumeInput,
 ) -> StartedPipeline {
-    let ctx = build_context(platform, config, inputs);
-    let built = build_react_run(platform, config, ctx, base_dir).await;
+    let built = build_served(platform, db, config, inputs, base_dir).await;
     let prior = match run.thread_id {
         Some(tid) => prior_turns(db, tid, run.run_id).await,
         None => Vec::new(),

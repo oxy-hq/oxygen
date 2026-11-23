@@ -138,6 +138,21 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
+        key: super::REACT_MEMORY,
+        description: "Give react runs per-user memory: the user's notes for the workspace in \
+                      the prompt, and a reflection turn that may save new ones (one extra \
+                      model turn after an answer that took 3+ queries). Needs react_runtime. \
+                      Internal and benchmark orgs only.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // Read by the served react build with the workspace's org (`is_enabled_for`).
+        per_org: true,
+        client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
         key: super::rollout::COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
         description: "Fail, instead of warn on, a compile whose config.yml reads a key file \
                       from the repository (BigQuery key_path, Snowflake private-key path) on \
@@ -276,6 +291,14 @@ mod tests {
             !flag.default_enabled,
             "the pilot is off until an org is opted in"
         );
+        assert!(!flag.client, "server-only");
+    }
+
+    #[test]
+    fn react_memory_flag_is_registered_per_org_and_off() {
+        let flag = get(super::super::REACT_MEMORY).expect("react_memory is declared");
+        assert!(flag.per_org, "read with the workspace's org");
+        assert!(!flag.default_enabled, "off until an org is opted in");
         assert!(!flag.client, "server-only");
     }
 

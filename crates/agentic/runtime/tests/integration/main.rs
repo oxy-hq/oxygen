@@ -16,6 +16,7 @@ mod duplicate_delegation_test;
 mod eviction_safety_test;
 mod integration_tests;
 mod late_child_and_recovery_status_test;
+mod memory_store_test;
 mod orphaned_chat_selection_test;
 mod pending_resume_test;
 mod react_store_test;

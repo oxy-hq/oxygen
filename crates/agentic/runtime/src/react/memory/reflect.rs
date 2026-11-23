@@ -41,7 +41,18 @@ pub struct Reflect {
     pub prompt: String,
     /// Opened while the turn's memory calls run; shut otherwise.
     pub gate: MemoryGate,
+    /// Keep the turn out of the run's log: only its usage (`llm_end`)
+    /// reaches the sink. A chat reads the answer as the text after the last
+    /// tool call, so a streamed "no" or a `remember` call would replace it,
+    /// and a resume would take the reflection's turn for the answer. A note
+    /// it saved is in the store (with the run's id); a resume finishes on
+    /// the answer and never reflects twice. The eval keeps every row (`false`).
+    pub quiet: bool,
 }
+
+/// The rows a quiet reflection still writes: its usage, nothing a reader or
+/// a resume would take for part of the answer.
+const QUIET_ROWS: &[&str] = &["llm_end"];
 
 impl Reflect {
     fn due(&self, transcript: &Transcript) -> bool {
@@ -67,6 +78,35 @@ pub(crate) async fn reflect(
     let Some(r) = cx.cfg.reflect.as_ref().filter(|r| r.due(transcript)) else {
         return;
     };
+    if !r.quiet {
+        return reflect_in(run, cx, r, transcript, answer).await;
+    }
+    let outer = cx.ev;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let work = async move {
+        let quiet = DispatchCx { ev: &tx, ..cx };
+        reflect_in(run, quiet, r, transcript, answer).await;
+        drop(tx);
+    };
+    // Forwarded in the same task: a spawn would need a Sentry hub of its own.
+    let forward = async {
+        while let Some(row) = rx.recv().await {
+            if QUIET_ROWS.contains(&row.0.as_str()) && outer.send(row).await.is_err() {
+                tracing::warn!("react: event sink closed; row dropped");
+            }
+        }
+    };
+    tokio::join!(work, forward);
+}
+
+/// [`reflect`]'s turn, bracketed by its state, writing to `cx.ev`.
+async fn reflect_in(
+    run: (&dyn Engine, &Toolset),
+    cx: DispatchCx<'_>,
+    r: &Reflect,
+    transcript: &Transcript,
+    answer: &Turn,
+) {
     let (ev, trace_id) = (cx.ev, cx.cfg.run_id.clone());
     let state = REFLECT_STATE.to_string();
     let (revision, sub_spec_index) = (0, None);

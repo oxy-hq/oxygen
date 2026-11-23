@@ -39,7 +39,12 @@ impl EvalMemory {
         };
         let writes =
             (self.write.clone()).map(|p| Arc::new(FileMemoryStore::new(p)) as Arc<dyn MemoryStore>);
-        Ok(RunMemory { notes, writes })
+        let quiet = false;
+        Ok(RunMemory {
+            notes,
+            writes,
+            quiet,
+        })
     }
 }
 

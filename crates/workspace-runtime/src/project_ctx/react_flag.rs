@@ -1,4 +1,5 @@
-//! The per-org `react_runtime` flag, read for this context's workspace.
+//! The per-org react flags (`react_runtime`, `react_memory`), read for this
+//! context's workspace.
 
 use sea_orm::EntityTrait;
 use uuid::Uuid;
@@ -8,19 +9,21 @@ use oxy_feature_flags::{FlagContext, REACT_RUNTIME, is_enabled_for};
 use super::OxyProjectContext;
 
 impl OxyProjectContext {
-    /// Whether `react_runtime` is on for the workspace's org. Fails closed: a
-    /// context with no database, a workspace with no org, or a failed lookup
-    /// reads `false`, with a warning, and the run stays on the FSM.
+    /// Whether `react_runtime` is on for the workspace's org; off (failing
+    /// closed included), the run stays on the FSM.
     pub(super) async fn react_runtime_flag(&self) -> bool {
+        self.org_flag(REACT_RUNTIME).await
+    }
+
+    /// Whether the per-org flag `key` is on for the workspace's org. Fails
+    /// closed: a context with no database, a workspace with no org, or a
+    /// failed lookup reads `false`, with a warning.
+    pub(super) async fn org_flag(&self, key: &'static str) -> bool {
         let workspace_id = self.workspace_manager.workspace_id;
         match self.workspace_org(workspace_id).await {
-            Ok(org_id) => is_enabled_for(REACT_RUNTIME, &FlagContext::org(org_id)),
+            Ok(org_id) => is_enabled_for(key, &FlagContext::org(org_id)),
             Err(reason) => {
-                tracing::warn!(
-                    %workspace_id,
-                    reason,
-                    "react_runtime: no org to read the flag for; the run stays on the fsm"
-                );
+                tracing::warn!(%workspace_id, reason, flag = key, "no org to read the flag for; it reads off");
                 false
             }
         }

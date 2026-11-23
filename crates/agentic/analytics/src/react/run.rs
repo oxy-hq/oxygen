@@ -118,6 +118,7 @@ impl ReactAnalytics {
                 after_calls: REFLECT_AFTER_QUERIES,
                 prompt: REFLECT_PROMPT.into(),
                 gate,
+                quiet: memory.quiet,
             });
         }
         self

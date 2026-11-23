@@ -200,7 +200,8 @@ fn react_resume_keeps_the_started_thinking_mode() {
         domain_docs: None,
         thinking_mode: recorded_thinking_mode(Some(&extended)),
     };
-    let ctx = build_context(&crate::react_run::tests::NoPlatform, &config, inputs);
+    let ctx =
+        crate::react_served::build_context(&crate::react_run::tests::NoPlatform, &config, inputs);
     assert_eq!(ctx.model_override.as_deref(), Some("deep"));
 }
 

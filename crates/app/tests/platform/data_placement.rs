@@ -55,6 +55,14 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("agent_definitions", Control("compiled .agentic.yml")),
     (
+        "agent_memory_notes",
+        Backlog {
+            holds: "a user's react memory notes per workspace, learned from their chats",
+            belongs: "org OLTP, with the conversation content (agentic_runs, threads); \
+                      an exception decided 2026-11-23: most orgs have no OLTP store",
+        },
+    ),
+    (
         "agentic_run_events",
         Backlog {
             holds: "run event log with payloads: LLM output, tool and SQL results",
