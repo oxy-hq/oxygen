@@ -71,7 +71,7 @@ pub(super) async fn another_session(
     prefix: &str,
 ) -> (users::Model, String) {
     let user = seed_user(db, prefix).await;
-    let jwt = oxy_app::surface::session::create_auth_token(user.clone())
+    let jwt = oxy_app_core::session::create_auth_token(user.clone())
         .await
         .expect("mint a session");
     (user, format!("oxy_session={jwt}"))

@@ -256,7 +256,7 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
         BackgroundSeam {
             name: "custom_app_tail_listener",
             start: |deps| {
-                use oxy_app::surface::listener::{
+                use oxy_app_core::listener::{
                     listener_factory_from_env, listener_tls_verification_from_env,
                 };
                 match (

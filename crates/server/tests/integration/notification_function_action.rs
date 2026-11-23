@@ -160,7 +160,7 @@ async fn person(db: &DatabaseConnection) -> (AuthenticatedUser, String) {
         .await
         .expect("query user")
         .expect("seeded");
-    let jwt = oxy_app::surface::session::create_auth_token(row.clone())
+    let jwt = oxy_app_core::session::create_auth_token(row.clone())
         .await
         .expect("mint a session");
     let user = AuthenticatedUser {

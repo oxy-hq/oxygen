@@ -1311,8 +1311,8 @@ fn the_composition_carries_the_identity_surface() {
     assert!(ticks.contains(&"token_sweep"), "{ticks:?}");
     let caps: Vec<_> = seams.admin.iter().map(|s| s.capability).collect();
     for cap in [
-        oxy_app::surface::Action::PlatformOperate,
-        oxy_app::surface::Action::PlatformGrants,
+        oxy_server_authz::Action::PlatformOperate,
+        oxy_server_authz::Action::PlatformGrants,
     ] {
         assert!(caps.contains(&cap), "no section behind {cap:?}");
     }
@@ -2387,7 +2387,7 @@ async fn the_admin_seam_mounts_the_first_split_sections_behind_the_staff_layers(
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue};
 
     let router = served(ServeMode::Cloud).await;
@@ -2529,7 +2529,7 @@ async fn the_admin_seam_mounts_the_first_split_sections_behind_the_staff_layers(
 /// capability `admin::router` gave it in `oxy-app`.
 #[test]
 fn the_composition_carries_the_first_split_sections() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     let section_of = |path: &str| {
         seams
@@ -2621,7 +2621,7 @@ async fn the_admin_seam_mounts_the_second_split_sections_behind_the_staff_layers
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
     let router = served(ServeMode::Cloud).await;
@@ -2809,7 +2809,7 @@ async fn the_admin_seam_mounts_the_second_split_sections_behind_the_staff_layers
 /// is found by capability: exactly one section each.
 #[test]
 fn the_composition_carries_the_second_split_sections() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     for capability in [Action::PlatformPartners, Action::PlatformApps] {
         let sections: Vec<_> = seams
@@ -2914,7 +2914,7 @@ async fn the_admin_seam_mounts_the_fourth_split_sections_behind_the_staff_layers
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
     let router = served(ServeMode::Cloud).await;
@@ -3167,7 +3167,7 @@ async fn the_admin_seam_mounts_the_fourth_split_sections_behind_the_staff_layers
 /// is found by capability: exactly one section each.
 #[test]
 fn the_composition_carries_the_fourth_split_sections() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     for capability in [Action::PlatformOltp, Action::PlatformAirhouse] {
         let sections: Vec<_> = seams
@@ -3305,7 +3305,7 @@ async fn the_admin_seam_mounts_the_fifth_split_section_behind_the_staff_layers()
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 
     let router = served(ServeMode::Cloud).await;
@@ -3620,7 +3620,7 @@ async fn the_admin_seam_mounts_the_fifth_split_section_behind_the_staff_layers()
 /// declares nothing (the console's `/{*rest}` FleetOk wildcard places it).
 #[test]
 fn the_composition_carries_the_fifth_split_section() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     let sections: Vec<_> = seams
         .admin
@@ -3928,7 +3928,7 @@ async fn the_admin_nests_answer_what_main_did_behind_the_staff_layers() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
     let router = served(ServeMode::Cloud).await;
@@ -4223,8 +4223,8 @@ async fn the_admin_nests_answer_what_main_did_behind_the_staff_layers() {
 /// the route-role table's (internal jobs, then compiles, as on `main`).
 #[test]
 fn the_composition_carries_the_compile_console_nest() {
-    use oxy_app::surface::Action;
-    use oxy_app::surface::roles::RouteRole;
+    use oxy_app_core::pods::role_manifest::RouteRole;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     let nests: Vec<_> = seams
         .admin_nests
@@ -4305,7 +4305,7 @@ async fn the_admin_seam_mounts_the_audit_section_behind_the_staff_layers() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 
     let router = served(ServeMode::Cloud).await;
@@ -4454,7 +4454,7 @@ async fn the_admin_seam_mounts_the_audit_section_behind_the_staff_layers() {
 /// (the console's `/{*rest}` FleetOk wildcard places it).
 #[test]
 fn the_composition_carries_the_audit_section() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let seams = surface_seams();
     let sections: Vec<_> = seams
         .admin
@@ -4686,7 +4686,7 @@ async fn the_admin_seam_mounts_the_app_admins_section_behind_the_staff_layers() 
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 
     let router = served(ServeMode::Cloud).await;
@@ -4930,7 +4930,7 @@ async fn the_composition_carries_the_app_admins_section() {
     }
     assert_eq!(
         carrying,
-        vec![(oxy_app::surface::Action::PlatformGrants, 0)],
+        vec![(oxy_server_authz::Action::PlatformGrants, 0)],
         "the sections mounting /app-admins"
     );
 }
@@ -4996,7 +4996,7 @@ async fn the_admin_seam_mounts_the_usage_report_behind_the_staff_layers() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 
     let router = served(ServeMode::Cloud).await;
@@ -5254,7 +5254,7 @@ async fn the_api_seam_mounts_assume_role_outside_the_staff_console() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
     use serde_json::json;
 
@@ -5476,7 +5476,7 @@ async fn the_admin_seam_mounts_the_billing_queue_behind_the_owner_guard() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 
     let router = served(ServeMode::Cloud).await;
@@ -5631,7 +5631,7 @@ async fn cloud_mode_mounts_the_tenant_billing_routes() {
         return;
     }
     assert_cloud_mounts(tenant_billing_routes()).await;
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     for (m, p) in tenant_billing_routes() {
         let uri = format!(
             "/api{}",
@@ -5663,7 +5663,7 @@ async fn both_modes_mount_the_stripe_webhook() {
     if db_unavailable() {
         return;
     }
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     for mode in [ServeMode::Cloud, ServeMode::Local] {
         let router = served(mode).await;
         assert_eq!(
@@ -5691,7 +5691,7 @@ async fn both_modes_mount_the_stripe_webhook() {
 /// `local_router_has_its_public_tree`), which probe the public seam now.
 #[tokio::test]
 async fn both_modes_mount_the_oauth_callbacks() {
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     let seams = surface_seams();
     for path in ["/quickbooks/oauth/callback", "/oauth/{provider}/callback"] {
         assert!(
@@ -5741,7 +5741,7 @@ async fn cloud_mode_mounts_the_org_feature_flag_read() {
         return;
     }
     assert_cloud_mounts(org_feature_flag_routes()).await;
-    use oxy_app::surface::roles::{RouteRole, classify};
+    use oxy_app_core::pods::role_manifest::{RouteRole, classify};
     assert_eq!(
         classify(
             "GET",
@@ -5791,7 +5791,7 @@ async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
     }
     assert_eq!(
         console,
-        vec![oxy_app::surface::Action::PlatformOperate],
+        vec![oxy_server_authz::Action::PlatformOperate],
         "one section mounts the flag console, behind PlatformOperate"
     );
     assert_eq!(
@@ -5840,7 +5840,7 @@ async fn the_composition_carries_the_routing_manifest_as_one_section() {
     }
     assert_eq!(
         console,
-        vec![(oxy_app::surface::Action::PlatformOperate, 0)],
+        vec![(oxy_server_authz::Action::PlatformOperate, 0)],
         "one section mounts the route-role table, behind PlatformOperate, declaring nothing"
     );
 }
@@ -5871,7 +5871,7 @@ async fn the_composition_carries_billing_on_its_three_seams() {
     let owner_only: Vec<_> = seams
         .admin
         .iter()
-        .filter(|s| s.capability == oxy_app::surface::Action::PlatformOwnerOnly)
+        .filter(|s| s.capability == oxy_server_authz::Action::PlatformOwnerOnly)
         .collect();
     assert_eq!(
         owner_only.len(),

@@ -252,7 +252,7 @@ async fn crew(fx: &Fixture) -> (Uuid, String) {
     .insert(&fx.db)
     .await
     .expect("enrol the worker");
-    let jwt = oxy_app::surface::session::create_auth_token_with_ttl(user, Duration::hours(12))
+    let jwt = oxy_app_core::session::create_auth_token_with_ttl(user, Duration::hours(12))
         .await
         .expect("mint a shift session");
     (id, format!("oxy_session={jwt}"))
