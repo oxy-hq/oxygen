@@ -12,4 +12,3 @@ mod common;
 
 mod admin_mount;
 mod leases;
-mod route_roles;

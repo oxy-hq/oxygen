@@ -10,10 +10,11 @@
 //! `#[path]` below — the same file the `oxy-app` groups include — so every test
 //! gets its own database cloned from a per-run template. That puts this binary
 //! in nextest's `db-per-test` group (`.config/nextest.toml`), exactly as the
-//! `platform` binary was, with two carve-outs: `route_roles` opens no database,
-//! and `simulation_router` builds `api_router(..)`, which runs the unscoped
-//! `cleanup_stale_runs` on the ambient `OXY_DATABASE_URL`, so it stays in
-//! `serial-db` as it did under `platform`.
+//! `platform` binary was, with one carve-out: `simulation_router` builds
+//! `api_router(..)`, which runs the unscoped `cleanup_stale_runs` on the
+//! ambient `OXY_DATABASE_URL`, so it stays in `serial-db` as it did under
+//! `platform`. The route-role test moved up to `oxy-server`'s group
+//! (decompose TR).
 //!
 //! `experiment_pricing` and `fixture_layer` `set_current_dir` — the fixture's
 //! view SQL reads its CSVs by relative path, and cwd is process-global — so
@@ -33,7 +34,6 @@ mod experiment_results;
 mod experiment_routes;
 mod experiment_runner;
 mod fixture_layer;
-mod route_roles;
 mod simulation_lifecycle;
 mod simulation_router;
 mod simulation_routes;

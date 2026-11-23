@@ -12,9 +12,7 @@ mod common;
 
 mod admin_data_plane_mount;
 mod admin_factory_access;
-mod admin_route_roles;
 mod admin_staff_scope_directories;
-mod onboarding_route_roles;
 mod onboarding_write_guards;
 mod one_workspace_per_org;
 mod org_default_workspace;

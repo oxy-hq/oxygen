@@ -13,8 +13,8 @@ edition.workspace = true
 [dependencies]
 # No oxy-app in the shipped graph (decompose R1, 2026-11-23): the guards come
 # from oxy-server-authz, the workspace extractor from oxy-workspace-runtime, and
-# the AdminSection seam and pod roles from oxy-app-core. It stays a
-# dev-dependency below for one test helper.
+# the AdminSection seam and pod roles from oxy-app-core. Its route-role test
+# moved up to oxy-server (decompose TR), so not even a dev-dependency remains.
 oxy-app-core = { workspace = true }  # AppState (the router state type), seams::AdminSection, pods::role_manifest
 oxy-server-authz = { workspace = true }  # Action, role_guards, staff::{scope, org_filter}, workspace_role
 oxy-workspace-runtime = { workspace = true }  # request::workspace_context::WorkspaceManagerReadOnly
@@ -45,11 +45,6 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# Tests only: `route_roles` installs oxy-app's real router declarations beside
-# this crate's (`surface::roles::install_route_declarations_for_tests_with`), so
-# it proves this crate's rows win against the real router's.
-# default-features off so the test build does not drag V8 in either.
-oxy-app = { path = "../app", default-features = false }
 # The in-source DB tests' harness (`oxy_test_utils::db`) takes the runtime
 # migrator from here; nothing in `src/` needs it since `oxy airway` left.
 # `migration` is for the integration group's per-test harness below.

@@ -217,7 +217,6 @@ mod public_routes;
 mod publish_attempts;
 mod publish_audit;
 mod release_timeline;
-mod route_roles;
 mod sandbox_agent_token;
 mod sandbox_create_from_build;
 mod sandbox_environments;

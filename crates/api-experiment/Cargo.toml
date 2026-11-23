@@ -75,9 +75,8 @@ agentic-automation = { workspace = true }
 agentic-connector = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
-# The integration tests build the real router (`surface::testing::api_router`)
-# and install its route declarations beside this crate's
-# (`surface::roles::install_route_declarations_for_tests_with`). Dev-only;
+# `simulation_router` builds the real router (`surface::testing::api_router`);
+# the route-role test moved up to oxy-server (decompose TR). Dev-only;
 # default-features off, as the normal dependency had it.
 oxy-app = { path = "../app", default-features = false }
 

@@ -11,11 +11,10 @@
 //! sweep, and a second copy would drift from both. Each test gets its own
 //! database cloned from the template, so this binary sits in nextest's
 //! `db-per-test` group (`.config/nextest.toml`), as the `platform` binary did.
-//! `route_roles` opens no database.
+//! The route-role test moved up to `oxy-server`'s group (decompose TR).
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
 
 mod operating_graph;
-mod route_roles;
 mod work_item_gates;

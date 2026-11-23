@@ -12,8 +12,8 @@ edition.workspace = true
 
 [dependencies]
 # No oxy-app here (decompose R1 S10): the role guards are oxy-server-authz's
-# and the org middlewares oxy-app-core's. Only the route_roles test reaches
-# oxy-app (see [dev-dependencies]).
+# and the org middlewares oxy-app-core's. Its route-role test moved up to
+# oxy-server (decompose TR), so not even a dev-dependency remains.
 oxy-app-core = { workspace = true }  # AppState (router state), the audit writer, the graph's pure half, org middlewares
 oxy-server-authz = { workspace = true }  # OrgAdmin / OrgMemberStrict role guards
 oxy = { workspace = true }           # database client
@@ -33,10 +33,6 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The route_roles test installs oxy-app's real router declarations beside this
-# crate's (`install_route_declarations_for_tests_with`), so it proves these
-# routes win against the router's patterns. default-features off so V8 stays out.
-oxy-app = { path = "../app", default-features = false }
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
 # from crates/app/tests/common), which clones a per-run template database and
 # needs every migrator `Schema::All` can apply.

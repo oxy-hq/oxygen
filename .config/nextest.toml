@@ -157,11 +157,12 @@ retries = 2
 
 # `oxy-api-custom-apps`' integration group (the custom-app tests, which were oxy-app's
 # `custom_apps` binary). The coarse rule is kept: the whole binary is `db-per-test`
-# but the modules that do not use a per-test database, excluded here. `route_roles`
-# keeps full parallelism; `public_routes`, `custom_app_functions_fixture` and
-# `staging_preview_cookie_retired` are serialized below.
+# but the modules that do not use a per-test database, excluded here:
+# `public_routes`, `custom_app_functions_fixture` and
+# `staging_preview_cookie_retired` are serialized below. (`route_roles` moved up
+# to `oxy-server`'s group in decompose TR and is carved out there.)
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-custom-apps) & binary(=integration) & !test(/^(route_roles|public_routes|custom_app_functions_fixture|staging_preview_cookie_retired)::/)"
+filter = "kind(test) & package(=oxy-api-custom-apps) & binary(=integration) & !test(/^(public_routes|custom_app_functions_fixture|staging_preview_cookie_retired)::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -176,13 +177,12 @@ test-group = "db-per-test"
 retries = 2
 
 # `oxy-api-experiment`'s integration group moved out of oxy-app's `platform`
-# binary with the experiments context — same harness, same group. `route_roles`
-# opens no database and is carved out like frontline's; `simulation_router`
-# builds `api_router(..)` (the unscoped `cleanup_stale_runs` writer, see the
-# `local_mode_router` note below) and keeps the `serial-db` seat it had under
-# `platform`, in its own override further down.
+# binary with the experiments context — same harness, same group.
+# `simulation_router` builds `api_router(..)` (the unscoped `cleanup_stale_runs`
+# writer, see the `local_mode_router` note below) and keeps the `serial-db` seat
+# it had under `platform`, in its own override further down.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & !test(/^(route_roles|simulation_router)::/)"
+filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & !test(/^simulation_router::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -307,9 +307,11 @@ retries = 2
 # `oxy-server`'s integration binary: the API-token suite (`token_auth`), which
 # drives the served flat tree and owns a database cloned from the per-run
 # template (`common::test_db`, `oxy-app`'s harness by path), so it contends for
-# the server, not a schema.
+# the server, not a schema. `route_roles` (the surfaces' route-role tests, moved
+# up from five surface crates in decompose TR) opens no database, so it is
+# carved out as it was in each surface's override: full parallelism, no retries.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-server) & binary(=integration)"
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -327,28 +329,26 @@ retries = 2
 # The frontline tests that moved out of oxy-app's `platform` binary with the
 # `oxy-api-frontline` extraction. They `#[path]`-include the same
 # `tests/common/mod.rs` harness (own database per test, cloned from the per-run
-# template), so they keep the group they had. `route_roles` and
-# `frontline_device_guards` open no database (route classification and the
-# role guards, in-process), so they are carved out the way the `platform`
-# override above carves out its modules: run at full parallelism, no retries.
+# template), so they keep the group they had. `frontline_device_guards` opens
+# no database (the role guards, in-process), so it is carved out the way the
+# `platform` override above carves out its modules: run at full parallelism,
+# no retries.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-frontline) & !test(/^(route_roles|frontline_device_guards)::/)"
+filter = "kind(test) & package(=oxy-api-frontline) & !test(/^frontline_device_guards::/)"
 test-group = "db-per-test"
 retries = 2
 
 # The operating-graph and work-item tests that moved out of oxy-app's `platform`
-# binary with `oxy-api-operating-graph` (2026-11-14). Same harness, same group;
-# `route_roles` opens no database and is carved out like frontline's.
+# binary with `oxy-api-operating-graph` (2026-11-14). Same harness, same group.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-operating-graph) & binary(=integration) & !test(/^route_roles::/)"
+filter = "kind(test) & package(=oxy-api-operating-graph) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 
 # The tenancy tests that moved out of oxy-app's `platform` binary with the
-# `oxy-api-tenancy` move — same harness, same group. The two `*_route_roles`
-# modules open no database and are carved out like frontline's `route_roles`.
+# `oxy-api-tenancy` move — same harness, same group.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration) & !test(/^(onboarding_route_roles|admin_route_roles)::/)"
+filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 

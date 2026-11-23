@@ -11,9 +11,7 @@
 //! gets its own database cloned from a per-run template. That puts this binary
 //! in nextest's `db-per-test` group (`.config/nextest.toml`), exactly as the
 //! `platform` binary was. None of it touches the shared `OXY_DATABASE_URL`.
-//!
-//! `route_roles` installs a process-wide declaration registry; nextest's
-//! process-per-test model keeps that from leaking between tests.
+//! The route-role test moved up to `oxy-server`'s group (decompose TR).
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
@@ -25,4 +23,3 @@ mod document_search;
 mod document_shelf;
 mod document_storage;
 mod documents;
-mod route_roles;

@@ -50,20 +50,20 @@ fn org_reads_stay_on_the_fleet() {
 // The custom-app serve route (`/customer-apps/{*path}`, bundle bytes and
 // `POST …/fn/<name>` both FleetOk) and the health, logs and errors reads moved to
 // the `oxy-api-custom-apps` sibling crate, and their guard moved with them
-// (`crates/api-custom-apps/tests/integration/route_roles.rs`). Not assertable
+// (`crates/server/tests/integration/route_roles/custom_apps.rs`). Not assertable
 // here: the declaration set this harness installs no longer contains them, so
 // `classify` would answer with the FleetOk default and pass for the wrong reason.
 
 // The two document-library cases (`/documents/ask` on the ide, its search and
 // session store on the fleet) moved to the `oxy-api-documents` sibling crate with
-// the routes: `crates/api-documents/tests/integration/route_roles.rs`. They cannot
+// the routes: `crates/server/tests/integration/route_roles/documents.rs`. They cannot
 // be asserted here — `oxy-app` does not depend on that crate, so the declaration
 // set this helper installs does not contain `/documents/ask` and `classify` would
 // answer with the FleetOk default.
 
 // The kiosk and worker routes (`/orgs/{org_id}/frontline/*`) and the frontline
 // sign-in moved to the `oxy-api-frontline` sibling crate, and their FleetOk guard
-// moved with them (`crates/api-frontline/tests/integration/route_roles.rs`). Not
+// moved with them (`crates/server/tests/integration/route_roles/frontline.rs`). Not
 // assertable here for the reason given above for onboarding: the declaration set
 // this harness installs no longer contains them, so `classify` would answer with
 // the FleetOk default and pass for the wrong reason.

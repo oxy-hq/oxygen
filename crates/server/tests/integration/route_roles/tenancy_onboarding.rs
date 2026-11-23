@@ -6,11 +6,12 @@
 //! here rather than in `oxy-app`'s `global_route_roles.rs`, which is where the
 //! org-scoped routes used to live.
 //!
-//! They moved because the routes did. `oxy-app` cannot depend on this crate
-//! (the dependency runs the other way), so its test harness builds a
-//! declaration set that does not contain them: `classify` would answer with the
-//! FleetOk default and the assertion would fail for the wrong reason. The guard
-//! belongs where both halves are visible, which is here.
+//! They moved because the routes did. `oxy-app` cannot depend on
+//! `oxy-api-tenancy` (the dependency runs the other way), so its test harness
+//! builds a declaration set that does not contain them: `classify` would answer
+//! with the FleetOk default and the assertion would fail for the wrong reason.
+//! The guard belongs where both halves are visible: `oxy-api-tenancy`'s tests
+//! until decompose TR (2026-11-23), `oxy-server`'s since.
 //!
 //! Neither automatic mechanism reaches these. `route_role_derivation` parses
 //! `oxy-app`'s `router/workspace.rs` and nothing else. The type gate does not

@@ -9,10 +9,12 @@
 //! never reads a handler body. The other half of what the types proved — that
 //! no FleetOk handler reaches for the working copy — is held by the source scan
 //! in `crates/app/tests/routing/undeclared_mounts_stay_diskless.rs`, which
-//! covers this crate. `oxy-app` cannot depend on this crate, so the
+//! covers `oxy-api-experiment`. `oxy-app` cannot depend on that crate, so the
 //! declaration set its own harness installs no longer contains the route:
 //! `classify` would answer with the FleetOk default and the assertion would
-//! fail for the wrong reason. The guard belongs where both halves are visible.
+//! fail for the wrong reason. The guard belongs where both halves are visible:
+//! `oxy-api-experiment`'s own tests until decompose TR (2026-11-23),
+//! `oxy-server`'s since.
 //!
 //! Only one test installs: the declaration registry is a process-wide
 //! once-cell, installed once per test process.

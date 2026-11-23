@@ -256,7 +256,8 @@ mod tests {
     }
 
     /// Every route is mounted — the half of "declared by a mount" that the
-    /// classification test in `tests/integration/route_roles.rs` cannot see (an
+    /// classification test (`oxy-server`'s
+    /// `tests/integration/route_roles/experiment.rs`) cannot see (an
     /// unmounted path classifies FleetOk by default). Driven through the router
     /// nested at `/{workspace_id}` as `oxy-server` nests it, with no middleware
     /// and no database: whatever each route answers — an extractor rejection, a

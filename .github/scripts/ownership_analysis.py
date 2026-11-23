@@ -146,6 +146,8 @@ AREAS = [
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     # The run drivers and the periodic tick, out of server/router 2026-11-23.
     ("crates/server/src/drivers",                         "HTTP router / fleet routing"),
+    # The surfaces' route-role tests, up from their crates 2026-11-23.
+    ("crates/server/tests/integration/route_roles",       "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability
     # 2026-11-15; the old paths keep their history.

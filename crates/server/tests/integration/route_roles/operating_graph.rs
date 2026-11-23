@@ -1,7 +1,9 @@
 //! Every operating-graph route answers from any replica.
 //!
 //! These were `route_fleet` in `oxy-app`'s `build_global_routes`, whose state
-//! type stated FleetOk. `oxy-app` cannot depend on this crate, so here both
+//! type stated FleetOk. `oxy-app` cannot depend on `oxy-api-operating-graph`,
+//! so its own tests held this until decompose TR (2026-11-23) moved it up
+//! here, to `oxy-server`, which depends on both. Here both
 //! halves are visible: the declarations are installed the way `oxy-server`
 //! installs them, then asked through the same `classify` the request path uses.
 //!

@@ -53,11 +53,8 @@ utoipa-axum = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The route-role tests only: `install_route_declarations_for_tests_with` installs
-# the real router's declarations beside this crate's, so a precedence overlap
-# shows. Nothing in src reaches oxy-app; oxy-app never depends back on this
-# crate. default-features off so V8 stays out of the test build too.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app, not even here: the route-role tests moved up to oxy-server
+# (decompose TR).
 tower = { workspace = true, features = ["util"] }
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
 # from crates/app/tests/common), which clones a per-run template database and

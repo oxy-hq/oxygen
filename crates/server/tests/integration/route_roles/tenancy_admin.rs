@@ -2,7 +2,8 @@
 //! creating an org included: a new org gets no workspace until its repository
 //! is connected, so `POST /admin/orgs` writes only Postgres. Its declarations
 //! arrive through `SurfaceSeams::admin`, which `oxy-app`'s harness does not
-//! build, so the guard lives here.
+//! build, so the guard lived in `oxy-api-tenancy`'s tests, and since decompose
+//! TR (2026-11-23) lives here, in `oxy-server`, which depends on both.
 
 use oxy_api_tenancy::admin_sections;
 use oxy_app::surface::roles::install_route_declarations_for_tests_with;

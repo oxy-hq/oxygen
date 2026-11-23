@@ -6,7 +6,9 @@
 //! rest of tenancy is `oxy-api-tenancy`'s), behind the one `/api` auth stack.
 //! Only this crate depends on both — which is also why the notification tests
 //! that span the custom-app and notifications surfaces live here, and billing's
-//! past-due notice, which spans billing's and notifications'.
+//! past-due notice, which spans billing's and notifications'. So are the
+//! surfaces' route-role tests (`route_roles`), which install the real router's
+//! declarations beside each surface's own.
 //!
 //! `token_auth` owns a database cloned from the per-run template, using
 //! `oxy-app`'s harness included by path rather than copied (it owns the
@@ -33,4 +35,7 @@ mod notification_function_action;
 // the notifications surface delivers it, honours (or here, refuses) a mute and
 // renders it in the inbox.
 mod billing_past_due_notice;
+// The surfaces' route-role tests (decompose TR): the real router's declarations
+// beside each surface's, which only a crate depending on both can install.
+mod route_roles;
 mod token_auth;

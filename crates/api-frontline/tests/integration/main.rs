@@ -10,7 +10,8 @@
 //! oxy-app binaries it serves, it requires nextest's process-per-test mode; the
 //! `db-per-test` group in `.config/nextest.toml` covers this binary too.
 //!
-//! `frontline_device_guards` and `route_roles` open no database.
+//! `frontline_device_guards` opens no database. The route-role test moved up
+//! to `oxy-server`'s group (decompose TR).
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
@@ -23,4 +24,3 @@ mod frontline_kiosk_mode;
 mod frontline_kiosk_probe;
 mod frontline_kiosk_signin;
 mod frontline_roster;
-mod route_roles;

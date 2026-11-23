@@ -4,7 +4,9 @@
 //! It moved because the route did. `oxy-app` cannot depend on this crate, so
 //! its harness builds a declaration set without this route, and `classify`
 //! would answer FleetOk by default: the assertion would pass for the wrong
-//! reason. The guard belongs where both halves are visible, which is here.
+//! reason. The guard belongs where both halves are visible: `oxy-api-airway`'s
+//! own tests until decompose TR (2026-11-23), `oxy-server`'s since, which
+//! depends on both.
 
 use oxy_api_airway::route_roles;
 use oxy_app::surface::roles::install_route_declarations_for_tests_with;

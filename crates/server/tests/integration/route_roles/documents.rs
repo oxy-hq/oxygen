@@ -1,12 +1,13 @@
 //! The whole document library, answering included, is served by the fleet.
 //!
-//! Moved here from `oxy-app`'s `tests/routing/global_route_roles.rs` with the
-//! routes. `oxy-app` cannot depend on this crate, so the declaration set its
-//! harness installs does not contain this crate's routes. The guard belongs
-//! where the declarations are visible, which is here.
+//! Moved to `oxy-api-documents` from `oxy-app`'s
+//! `tests/routing/global_route_roles.rs` with the routes, then up here
+//! (decompose TR, 2026-11-23). `oxy-app` cannot depend on that crate, so the
+//! declaration set its harness installs does not contain its routes. The guard
+//! belongs where the declarations are visible, which is here.
 //!
 //! Only one test installs: the declaration registry is a process-wide
-//! once-cell, installed once per test process.
+//! once-cell, installed once per test process (nextest gives each its own).
 
 use oxy_api_documents::route_roles;
 use oxy_app::surface::roles::install_route_declarations_for_tests_with;

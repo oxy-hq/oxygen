@@ -1,7 +1,9 @@
 //! Every route this crate serves answers from any replica.
 //!
-//! Moved here from `oxy-app`'s `tests/routing/global_route_roles.rs` with the
-//! routes. `oxy-app` cannot depend on this crate, so the declaration set its
+//! Moved to `oxy-api-custom-apps` from `oxy-app`'s
+//! `tests/routing/global_route_roles.rs` with the routes, then up here with the
+//! other surfaces' route-role tests (decompose TR, 2026-11-23). `oxy-app` cannot
+//! depend on that crate, so the declaration set its
 //! harness installs no longer contains them, and `classify` there would answer
 //! with the FleetOk default — a pass that says nothing about the product. Here
 //! the declarations are the ones `oxy-server` hands in, asked through the same

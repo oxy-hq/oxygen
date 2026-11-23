@@ -101,13 +101,13 @@ fn ide_routes_classify_against_live_uri() {
     // the FleetOk default for an undeclared path, which proves nothing; that
     // crate's `the_installed_declarations_classify_fleet_ok` holds it.
     // The `/onboarding/*` routes moved to the `oxy-api-onboarding` sibling
-    // crate, which declares them and asserts them in its own
-    // `tests/route_roles.rs`. They cannot be checked here: `oxy-app` does not
+    // crate, which declares them; `oxy-server`'s
+    // `tests/integration/route_roles/` asserts them. They cannot be checked here: `oxy-app` does not
     // depend on that crate, so its declarations are absent from the set this
     // test installs and `classify` would answer with the FleetOk default —
     // a failure that says nothing about the product.
     // `/orgs/{id}/onboarding/github` moved with the rest of the onboarding
-    // surface — asserted in `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
+    // surface — asserted in `crates/server/tests/integration/route_roles/tenancy_onboarding.rs`.
     // The workspace's metadata (`GET /meta`), deletion and the sibling LIST
     // (`/orgs/{org_id}/workspaces`, DELETE and GET) left for
     // `oxy-api-workspaces` (2026-11-16), whose
@@ -393,7 +393,7 @@ fn workspace_health_eval_is_fleet_ok() {
 // (2026-11-08), and their declaration tests went with them: this crate cannot
 // depend on that one, so a test here can no longer see its mounts — an
 // unmounted path classifies FleetOk by default, which is the pass that means
-// nothing. `crates/api-experiment/tests/integration/route_roles.rs` installs
+// nothing. `crates/server/tests/integration/route_roles/experiment.rs` installs
 // the surface's declarations and classifies every route (write-back apply
 // IdeOnly, the rest FleetOk); `every_route_is_mounted` in that crate's
 // `lib.rs` holds the "declared by a mount" half; and
@@ -509,8 +509,8 @@ fn org_subdomain_routes_are_fleet_ok() {
     }
 }
 
-// `admin_create_org_reaches_the_ide_…` moved to `oxy-api-tenancy`
-// (`tests/integration/admin_route_roles.rs`) with the org section, whose
+// `admin_create_org_reaches_the_ide_…` moved to `oxy-api-tenancy` with the org
+// section (now `crates/server/tests/integration/route_roles/tenancy_admin.rs`), whose
 // declaration this harness can no longer see.
 
 #[test]
@@ -717,7 +717,7 @@ fn custom_app_run_state_routes_are_fleet_ok() {
 // The whole customer-app data plane is FleetOk. Its last routes here, the
 // metric tree's twins (`/api/projects/{id}/semantic/metric-tree*`), moved to
 // `oxy-api-custom-apps` on 2026-11-14, and this test went with them
-// (`crates/api-custom-apps/tests/integration/route_roles.rs`,
+// (`crates/server/tests/integration/route_roles/custom_apps.rs`,
 // `the_metric_tree_twins_are_declared_fleet_ok`): asserted here, `classify`
 // would answer with the FleetOk default and pass for the wrong reason. The
 // SQL-executing half used to be IdeOnly because it built a connector from the
@@ -727,7 +727,7 @@ fn custom_app_run_state_routes_are_fleet_ok() {
 // The custom-app serve route and its function entry (`/customer-apps/{*path}`,
 // `…/fn/{name}`) are FleetOk, and so is the external health read. Both moved to
 // the `oxy-api-custom-apps` sibling crate with the routes, and their guards moved
-// with them (`crates/api-custom-apps/tests/integration/route_roles.rs`). They
+// with them (`crates/server/tests/integration/route_roles/custom_apps.rs`). They
 // cannot be asserted here: `oxy-app` does not declare them any more, so
 // `classify` would answer with the FleetOk default and pass for the wrong reason.
 

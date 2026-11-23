@@ -1,7 +1,8 @@
 //! Every frontline route answers from any replica.
 //!
-//! Moved here from `oxy-app`'s `tests/routing/global_route_roles.rs` with the
-//! routes. `oxy-app` cannot depend on this crate, so the declaration set its
+//! Moved to `oxy-api-frontline` from `oxy-app`'s
+//! `tests/routing/global_route_roles.rs` with the routes, then up here
+//! (decompose TR, 2026-11-23). `oxy-app` cannot depend on that crate, so the declaration set its
 //! harness installs no longer contains them, and `classify` there would answer
 //! with the FleetOk default — a pass that says nothing about the product. Here
 //! both halves are visible: the declarations are installed the way `oxy-server`

@@ -11,7 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# oxy-app is only a dev-dependency (below). The OrgAdmin role guard, the org
+# No oxy-app, not even as a dev-dependency (its route-role test moved up to
+# oxy-server in decompose TR). The OrgAdmin role guard, the org
 # middlewares and the session-cookie + token helpers come from
 # oxy-server-authz and oxy-app-core. The operating-graph assignment writes and
 # reads are oxy-app-core's, the org_teams audit is oxy-tenancy's. oxy-app never
@@ -41,11 +42,6 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# Test-only: the real router's route declarations
-# (`surface::roles::install_route_declarations_for_tests_with`), which the
-# route-role test classifies against. default-features off so a
-# `--no-default-features` build keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
 tower = { workspace = true, features = ["util"] }
 futures = { workspace = true }
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included

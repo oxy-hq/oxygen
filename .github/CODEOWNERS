@@ -394,7 +394,6 @@ crates/infrastructure/llm/                         @hotay @luong-komorebi
 
 # Workspace onboarding (feature owner; files also churned by high-volume committers)
 crates/api-tenancy/src/onboarding/                 @nresh @luong-komorebi
-crates/api-tenancy/tests/integration/onboarding_route_roles.rs @nresh @luong-komorebi
 web-app/src/pages/onboarding/                      @nresh @luong-komorebi
 
 # Agentic browser test suite + skill
@@ -513,6 +512,11 @@ crates/app/src/server/router/                      @luong-komorebi @NTtanh
 # token-usage flush (which had no row of their own) and the dead billing
 # reconciler (out of router/entry.rs).
 crates/server/src/drivers/                         @luong-komorebi @NTtanh
+# The surfaces' route-role tests, moved up from their crates on 2026-11-23
+# (decompose TR): route classification, so the router's owners; onboarding's
+# keeps the owner its old path had.
+crates/server/tests/integration/route_roles/       @luong-komorebi @NTtanh
+crates/server/tests/integration/route_roles/tenancy_onboarding.rs @nresh @luong-komorebi
 
 # Brand & positioning copy — require brand/marketing sign-off before merge.
 # (owners are a placeholder; swap for a dedicated brand/marketing handle once one
