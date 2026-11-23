@@ -11,14 +11,10 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Production code no longer imports oxy-app (decompose R1 S10): the org
-# middlewares + assume-role check are oxy-app-core's, `OrgAdmin` is
-# oxy-server-authz's, the project-context builder is oxy-workspace-runtime's.
-# Only the route_roles test still installs oxy-app's real router declarations
-# (`install_route_declarations_for_tests_with`); this entry moves to
-# [dev-dependencies] in the next step. default-features off so a
-# `--no-default-features` build of oxy-server keeps dropping V8.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app here (decompose R1 S10): the org middlewares + assume-role check
+# are oxy-app-core's, `OrgAdmin` is oxy-server-authz's, the project-context
+# builder is oxy-workspace-runtime's. Only the route_roles test reaches oxy-app
+# (see [dev-dependencies]).
 oxy-app-core = { workspace = true }       # AppState (router state) + pagination
 oxy-custom-apps = { workspace = true }    # the custom-app S3 silo (bucket, presigner)
 oxy = { workspace = true }                # database client
@@ -41,6 +37,10 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The route_roles test installs oxy-app's real router declarations beside this
+# crate's (`install_route_declarations_for_tests_with`), so it proves these
+# routes win against the router's patterns. default-features off so V8 stays out.
+oxy-app = { path = "../app", default-features = false }
 # The integration group (`tests/integration/`) reuses oxy-app's per-test
 # database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
 # so it needs that harness's dependencies too. Dev-only: nothing here ships.

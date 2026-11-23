@@ -214,7 +214,7 @@ pub async fn github_answers(github: &MockServer, token: &str, response: Response
 fn routes_as(user: &AuthenticatedUser) -> Router {
     oxy_api_github::routes()
         .layer(Extension(user.clone()))
-        .with_state(oxy_app::surface::bare_app_state())
+        .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
 pub async fn call(user: &AuthenticatedUser, req: Request<Body>) -> (StatusCode, Value) {

@@ -143,7 +143,7 @@ mod tests {
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
 
-        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = public_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for (uri, want) in [
             ("/webhooks/github", StatusCode::METHOD_NOT_ALLOWED),
             ("/webhooks/nothing-mounts-this", StatusCode::NOT_FOUND),

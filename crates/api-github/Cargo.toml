@@ -11,21 +11,11 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Production code no longer imports oxy-app (decompose R1 S10): the route
-# mount's org-scoped inner middleware (org_middleware + subscription_guard) is
-# oxy-app-core's, and the webhook hands a verified push to
-# oxy-compile-runtime's `reconcile::push`. Auth is inherited from the seam's
-# apply_middleware, not re-applied here. Only the tests still reach oxy-app
-# (`bare_app_state`); this entry goes once that lands in oxy-app-core (R0).
-# oxy-app never depends back on this crate.
-#
-# default-features off (github doesn't use custom-app-functions/V8): so a
-# `--no-default-features` build of oxy-server actually drops V8, github no longer
-# forces it on via resolver-v2 unification. oxy-server's own
-# `custom-app-functions` feature is the single switch that turns it back on for
-# the default build. In a `--workspace` build oxy-server (default) unifies V8 on,
-# so github still builds there.
-oxy-app = { path = "../app", default-features = false }
+# No oxy-app dependency, normal or dev (decompose R1 S10): the route mount's
+# org-scoped inner middleware (org_middleware + subscription_guard) and the
+# test router state (`bare_app_state`) are oxy-app-core's, and the webhook hands
+# a verified push to oxy-compile-runtime's `reconcile::push`. Auth is inherited
+# from the seam's apply_middleware, not re-applied here.
 oxy-app-core = { workspace = true }     # AppState (the router state type), org middlewares
 oxy-compile-runtime = { workspace = true } # reconcile::push: the webhook's compile hand-off
 oxy-server-authz = { workspace = true } # enforce_for, Action, Resource, OrgContextExtractor

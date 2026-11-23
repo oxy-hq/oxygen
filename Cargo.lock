@@ -9917,7 +9917,6 @@ dependencies = [
  "hmac 0.13.0",
  "migration",
  "oxy",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-cameras",

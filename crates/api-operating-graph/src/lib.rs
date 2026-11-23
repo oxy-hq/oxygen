@@ -40,7 +40,7 @@
 //! state type refused a working-copy extractor at compile time; across the
 //! crate line `undeclared_mounts_stay_diskless` is the check that is left.
 
-// Handlers here await `oxy-app`'s futures, which can pass rustc's default query
+// Handlers here await deep futures (oxy-app-core's guards and readers), which can pass rustc's default query
 // depth in the optimized build (`oxy-server`'s `recursion_limit_guard`).
 #![recursion_limit = "256"]
 
