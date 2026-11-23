@@ -23,6 +23,11 @@ function morph(direction: "open" | "close", update: () => void) {
     if (html.dataset.appLaunch === direction) delete html.dataset.appLaunch;
   };
   const transition = document.startViewTransition(update);
+  // The browser skips the animation when the tab is hidden (a press that
+  // navigates away does exactly that) and rejects `ready` to say so. `update`
+  // still runs and `finished` still settles, so there is nothing to report:
+  // unhandled, it reached Sentry as an error (as `useTodayHint`'s once did).
+  transition.ready.catch(() => undefined);
   transition.finished.then(done, done);
   return transition;
 }
