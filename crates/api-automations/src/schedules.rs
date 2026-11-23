@@ -44,7 +44,7 @@ use agentic_runtime::lifecycle::crud::runs::{
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use tokio::sync::{mpsc, watch};
 
-use oxy_app::surface::role_guards::WorkspaceAdmin;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 
 fn map_err(e: ScheduleError) -> Response {
     match e {

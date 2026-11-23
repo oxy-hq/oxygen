@@ -36,9 +36,9 @@ use axum::{
 };
 use oxy::semantic::render::{RenderedFile, is_syncable, render_databases};
 use oxy::service::sync::SyncFilter;
-use oxy_app::surface::WorkspaceManagerReadOnly;
-use oxy_app::surface::role_guards::WorkspaceAdmin;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 use oxy_shared::errors::OxyError;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

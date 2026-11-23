@@ -31,19 +31,18 @@ use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::model::ConnectionOverrides;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
+use crate::{SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly};
 use oxy::config::scan::{self, ScanDir, SemanticEntity, SemanticTarget};
 use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
-use oxy_app::surface::sql_exec::{
-    ResultFormat, SQLParams, SemanticQueryResponse, SqlErrorResponse, SqlExecuteError,
-    agentic_error_response, run_via_agentic_connector,
-};
-use oxy_app::surface::workspace_runtime::{
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::scan_source::{
     ErrorResponse, resolve_query_scan_source, scan_source_revision, semantic_err,
 };
-use oxy_app::surface::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerReadOnly,
+use oxy_workspace_runtime::sql_exec::{
+    ResultFormat, SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
 };
+use oxy_workspace_runtime::sql_http::{SqlErrorResponse, agentic_error_response};
 
 #[derive(Deserialize)]
 pub struct ViewPath {

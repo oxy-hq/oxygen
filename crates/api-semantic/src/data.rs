@@ -1,7 +1,7 @@
-use oxy_app::surface::sql_exec::{
-    SQLParams, SemanticQueryResponse, SqlErrorResponse, execute_sql_response,
-};
-use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath};
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::{WorkspaceManagerReadOnly, WorkspacePath};
+use oxy_workspace_runtime::sql_exec::{SQLParams, SemanticQueryResponse};
+use oxy_workspace_runtime::sql_http::{SqlErrorResponse, execute_sql_response};
 
 use axum::extract::{self, Path};
 use axum::http::StatusCode;

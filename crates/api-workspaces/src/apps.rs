@@ -16,7 +16,7 @@ use oxy::config::model::{Integration, IntegrationType};
 use serde::Serialize;
 use uuid::Uuid;
 
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// Subset of the integration entry returned to the settings UI. Never
 /// includes resolved secret values — only the `*_var` reference so the

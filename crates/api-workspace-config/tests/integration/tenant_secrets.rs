@@ -26,11 +26,11 @@ use entity::users::UserStatus;
 use entity::workspace_members::WorkspaceRole;
 use oxy::service::secret_manager::{CreateSecretParams, SecretManagerService};
 use oxy_api_workspace_config::secrets;
-use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::{AuthenticatedUser, Identity};
 use oxy_auth::user::{LOCAL_GUEST_EMAIL, UserService};
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

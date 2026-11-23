@@ -1,4 +1,4 @@
-use oxy_app::surface::roles::declared_role_in;
+use oxy_app_core::pods::role_manifest::declared_role_in;
 use oxy_shared::fleet_role::RouteRole;
 
 use super::*;

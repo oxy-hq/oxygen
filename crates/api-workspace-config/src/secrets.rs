@@ -8,10 +8,10 @@ use oxy::database::client::establish_connection;
 use oxy::service::secret_manager::{
     CreateSecretParams, SecretInfo, SecretManagerService, UpdateSecretParams,
 };
-use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_custom_apps::secret_audit::{ProjectSecretWrite, audit_if_app_secret};
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 // Lowered out of this file on 2026-11-15: the custom-app secrets listing
 // shares it, and S3 keeps that surface out of this one.
 use oxy_identity::user_labels::resolve_user_emails;

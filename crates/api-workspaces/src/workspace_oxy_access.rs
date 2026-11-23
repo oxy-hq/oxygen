@@ -27,8 +27,9 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilt
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceGlobalOverride};
 use oxy_custom_apps::auth::invalidate_access_cache;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceGlobalOverride;
 
 /// Status payload. `locked` is always present; the audit fields are only
 /// meaningful when `locked` is true. `can_manage` tells the UI whether THIS

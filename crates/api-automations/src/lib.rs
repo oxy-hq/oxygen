@@ -161,7 +161,7 @@ mod tests {
     /// live URI. Every mounted route must match a declaration, not the default.
     #[test]
     fn every_mounted_route_classifies_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let decls: Vec<_> = workspace_route_roles()
             .iter()
             .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))

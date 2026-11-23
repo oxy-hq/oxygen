@@ -285,7 +285,7 @@ mod tests {
     /// as the served router installs them, so a dropped row fails.
     #[test]
     fn every_database_secret_and_integration_route_classifies_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let decls: Vec<_> = workspace_route_roles()
             .iter()
             .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))
@@ -359,7 +359,7 @@ mod tests {
         use axum::extract::Request;
         use axum::middleware::{self, Next};
         use entity::workspace_members::WorkspaceRole;
-        use oxy_app::surface::EffectiveWorkspaceRole;
+        use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 
         for role in [WorkspaceRole::Member, WorkspaceRole::Viewer] {
             let injected = role.clone();
@@ -416,7 +416,7 @@ mod tests {
     /// code with the vendor and write the workspace's secrets: Postgres only.
     #[test]
     fn every_public_route_classifies_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let decls: Vec<_> = public_route_roles()
             .iter()
             .map(|d| (d.method, format!("/api{}", d.path), d.role))

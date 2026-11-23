@@ -70,7 +70,7 @@ async fn the_meta_route_reads_no_filesystem_on_a_replica() {
         axum::extract::Extension(row),
         axum::extract::Path(workspace_id),
         // The stub passes `true`: this test is about the working copy, not Factory access.
-        oxy_app::surface::factory_access::FactoryAccess(true),
+        oxy_workspace_runtime::request::factory_access::FactoryAccess(true),
     )
     .await
     .expect("meta needs no working copy, so it cannot fail for want of one");

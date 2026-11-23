@@ -11,12 +11,16 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# `WorkspaceAdmin` guard, the workspace-context extractors, and the connector
-# builder the schema route introspects through. oxy-app never depends back on
-# this crate. default-features off so a `--no-default-features` build of
-# oxy-server keeps dropping V8. The secrets half needs none of it.
+# oxy-app now holds only the tests' `bare_app_state` and the demo seed
+# (`oxy_app::surface`); the rest comes from the crates below it. oxy-app never
+# depends back on this crate.
+# default-features off so a `--no-default-features` build of oxy-server keeps
+# dropping V8.
 oxy-app = { path = "../app", default-features = false }
+oxy-server-authz = { workspace = true }      # the `WorkspaceAdmin` guard, EffectiveWorkspaceRole
+# The workspace-context extractors, and the connector builder the schema
+# route introspects through.
+oxy-workspace-runtime = { workspace = true }
 oxy-app-core = { workspace = true }      # AppState, RequestActor
 oxy-shared = { workspace = true }        # fleet_role::RouteRoleDecl, OxyError
 oxy = { workspace = true }               # SecretManagerService, the database inspector

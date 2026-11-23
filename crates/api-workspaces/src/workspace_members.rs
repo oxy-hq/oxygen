@@ -14,8 +14,8 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilt
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::OrgMembershipExtractor;
-use oxy_app::surface::WorkspaceExtractor;
+use oxy_workspace_runtime::request::workspace_context::OrgMembershipExtractor;
+use oxy_workspace_runtime::request::workspace_extractor::WorkspaceExtractor;
 
 // Request / Response types
 

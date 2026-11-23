@@ -9,12 +9,12 @@ use crate::authz;
 use oxy::api_types::{BranchOrigin, BranchType, ProjectBranch};
 use oxy::config::ConfigBuilder;
 use oxy::github::default_git_client;
-use oxy_app::surface::EffectiveWorkspaceRole;
-use oxy_app::surface::OrgContextExtractor;
-use oxy_app::surface::role_guards::{OrgAdmin, ensure_org_admin_or_workspace_creator};
 use oxy_app_core::AppState;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_git::GitClient;
+use oxy_server_authz::org_context::OrgContextExtractor;
+use oxy_server_authz::role_guards::{OrgAdmin, ensure_org_admin_or_workspace_creator};
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 
 use super::detached::active_head;
 use super::dto::*;
@@ -63,7 +63,7 @@ pub async fn get_workspace_meta(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     project: Extension<entity::workspaces::Model>,
     path: Path<Uuid>,
-    oxy_app::surface::factory_access::FactoryAccess(factory_access): oxy_app::surface::factory_access::FactoryAccess,
+    oxy_workspace_runtime::request::factory_access::FactoryAccess(factory_access): oxy_workspace_runtime::request::factory_access::FactoryAccess,
 ) -> Result<ResponseJson<WorkspaceMetaResponse>, Response> {
     // Local mode keeps the delegation. Both of the fields that can only be
     // answered from disk — `requires_local_setup` and `workspace_error` — are
@@ -231,7 +231,7 @@ pub async fn get_workspace(
     // is false there in normal operation; answering 503 would turn a benign
     // degraded page into an unusable one.
     let missing_copy_is_transient =
-        !app_state.mode.is_local() && oxy_app::surface::roles::process_is_fs_writable();
+        !app_state.mode.is_local() && oxy_app_core::pods::role_manifest::process_is_fs_writable();
 
     build_workspace_details_response(
         workspace_id,
@@ -283,7 +283,7 @@ fn workspace_materializing_response(workspace_root: &std::path::Path) -> Respons
         StatusCode::SERVICE_UNAVAILABLE,
         [
             (
-                oxy_app::surface::fleet::ide_proxy::HEADER_UNAVAILABLE,
+                oxy_app_core::pods::ide_proxy::HEADER_UNAVAILABLE,
                 "workspace-materializing",
             ),
             (
@@ -462,7 +462,7 @@ pub async fn build_workspace_details_response(
     )
 )]
 pub async fn list_workspaces(
-    oxy_app::surface::OrgContextExtractor(ctx): oxy_app::surface::OrgContextExtractor,
+    oxy_server_authz::org_context::OrgContextExtractor(ctx): oxy_server_authz::org_context::OrgContextExtractor,
     caller: authz::Caller,
     State(_app_state): State<AppState>,
 ) -> Result<ResponseJson<Vec<WorkspaceSummary>>, StatusCode> {

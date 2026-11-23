@@ -10,9 +10,10 @@ use oxy::semantic::inspector::{
     InspectEvent, InspectionResult, SchemaListResult, SchemaTablesResult, inspect_database,
     inspect_schema_tables, inspect_schemas,
 };
-use oxy_app::surface::role_guards::WorkspaceAdmin;
-use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::{WorkspaceManagerReadOnly, WorkspacePath};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -77,7 +78,7 @@ pub async fn get_database_schema(
     // construction sites, while this handler needs no disk. A database that
     // does — a local DuckDB file, a BigQuery key — still says so, through
     // `try_resolve_file`.
-    let connector = oxy_app::surface::workspace_runtime::build_connector_for_db(
+    let connector = oxy_workspace_runtime::connector::build_connector_for_db(
         &workspace_manager,
         &database_name,
         Some(user.id),

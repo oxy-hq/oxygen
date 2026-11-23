@@ -17,7 +17,7 @@ use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, users, workspaces};
 use oxy_api_workspaces::workspaces::list_workspaces;
 use oxy_app::surface::bare_app_state;
-use oxy_app::surface::{OrgContext, OrgContextExtractor};
+use oxy_server_authz::org_context::{OrgContext, OrgContextExtractor};
 use sea_orm::{ActiveModelTrait, ActiveValue};
 use uuid::Uuid;
 

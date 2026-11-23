@@ -11,13 +11,15 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# org and role guards, the org and workspace-context extractors and
-# middlewares, the Factory-access extractor, the process's fs-writability and
-# the ide relay's header. oxy-app never depends back on this crate.
+# oxy-app now holds only the tests' `bare_app_state` (`oxy_app::surface`);
+# the guards, extractors and middlewares come from the crates below it.
+# oxy-app never depends back on this crate.
 # default-features off so a `--no-default-features` build of oxy-server keeps
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
+# The workspace-context and workspace extractors and the Factory-access
+# extractor.
+oxy-workspace-runtime = { workspace = true }
 oxy-app-core = { workspace = true }      # AppState, the audit writer and RequestActor
 oxy-shared = { workspace = true }        # fleet_role::RouteRoleDecl
 oxy-auth = { workspace = true }          # AuthenticatedUserExtractor

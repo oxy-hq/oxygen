@@ -5,7 +5,7 @@
 use super::*;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use oxy_app::surface::roles::declared_role_in;
+use oxy_app_core::pods::role_manifest::declared_role_in;
 use tower::ServiceExt;
 
 /// Every concrete workspace route, with path parameters filled.

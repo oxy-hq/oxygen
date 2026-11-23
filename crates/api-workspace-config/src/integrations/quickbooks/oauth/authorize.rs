@@ -8,9 +8,9 @@
 use crate::integrations::quickbooks::oauth::state::{CreateState, QuickbooksOauthStateService};
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode, header};
-use oxy_app::surface::WorkspaceManagerReadOnly;
-use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 use serde::{Deserialize, Serialize};
 
 use crate::integrations::oauth_provider::{self, Provider};

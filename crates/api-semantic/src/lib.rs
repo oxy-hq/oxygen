@@ -20,7 +20,7 @@
 //! Every route is FleetOk, as `route_fleet` declared each of them in `oxy-app`
 //! (method `*`). Every handler takes `WorkspaceManagerReadOnly`, so none can
 //! reach for the working copy: the scan resolves through the compile boundary
-//! first ([`oxy_app::surface::workspace_runtime::resolve_query_scan_source`]),
+//! first ([`oxy_workspace_runtime::scan_source::resolve_query_scan_source`]),
 //! the revision reads are compiled rows, and the pre-aggregation cache is
 //! keyed on the workspace id with a cross-node read-through from the blob
 //! bucket. `WorkspaceManagerWorkingCopy` resolves only from `IdeState`, so a
@@ -28,11 +28,10 @@
 //! type gate `route_fleet` gave survives the move.
 //!
 //! The SQL execution itself (the connector, the 10k-row cap and `truncated`,
-//! the preview write hold) and the error shaping of an execute are `oxy-app`'s
-//! workspace runtime (`agentic_wiring::sql_exec`), reached through
-//! [`oxy_app::surface::world_model_exec`]; the scan resolution is
-//! `oxy_workspace_runtime::scan_source`, reached through
-//! [`oxy_app::surface::workspace_runtime`]. The pre-aggregation context a
+//! the preview write hold) and the error shaping of an execute are the
+//! workspace runtime's ([`oxy_workspace_runtime::sql_exec`] and
+//! [`oxy_workspace_runtime::sql_http`]); the scan resolution is
+//! [`oxy_workspace_runtime::scan_source`]. The pre-aggregation context a
 //! semantic execute reads rollups through is `oxy_app_core::preagg_context`
 //! (display posture: `ServeStale`), and the ledger of rollups this node
 //! rebuilt to zero rows is `oxy_compile::preagg_ledger`.
@@ -54,6 +53,12 @@ use axum::Router;
 use axum::routing::{get, post};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+// The workspace-context extractors the handler modules take, imported once
+// here so each module names them as `crate::…`.
+use oxy_workspace_runtime::request::workspace_context::{
+    SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath,
+};
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`, where
 /// `oxy-app`'s `build_workspace_routes` mounted each of these with

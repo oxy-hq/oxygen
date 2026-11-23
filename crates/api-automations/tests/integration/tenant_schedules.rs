@@ -23,9 +23,9 @@ use axum::http::StatusCode;
 use entity::users::UserStatus;
 use entity::workspace_members::WorkspaceRole;
 use oxy_api_automations::schedules;
-use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -84,7 +84,7 @@ async fn platform() -> (Arc<dyn PlatformContext>, tempfile::TempDir) {
         .await
         .expect("workspace manager");
     (
-        Arc::new(oxy_app::surface::workspace_runtime::OxyProjectContext::new(
+        Arc::new(oxy_workspace_runtime::project_ctx::OxyProjectContext::new(
             manager,
         )),
         root,

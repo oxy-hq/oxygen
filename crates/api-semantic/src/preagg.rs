@@ -24,8 +24,8 @@ use utoipa::ToSchema;
 
 use oxy_app_core::app_state::AppState;
 
-use oxy_app::surface::workspace_runtime::{ErrorResponse, resolve_query_scan_source, semantic_err};
-use oxy_app::surface::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
+use crate::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
+use oxy_workspace_runtime::scan_source::{ErrorResponse, resolve_query_scan_source, semantic_err};
 
 // ── Preagg status ─────────────────────────────────────────────────────────────
 //
