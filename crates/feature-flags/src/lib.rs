@@ -62,11 +62,13 @@ pub fn is_enabled_for(key: &'static str, ctx: &FlagContext) -> bool {
 /// publishing app's org; everywhere else a publish is refused `EventsNotEnabled`.
 pub const APP_EVENTS: &str = "app_events";
 
-/// The react analytics pilot, per org: a served chat of an agent that opts in
-/// (`runtime: react`) runs on the react runtime only where this serves `on`.
+/// The react analytics pilot, per org, and its only switch: where this serves
+/// `on`, a served analytics chat runs on the react runtime (an agent react
+/// cannot serve, with no read-only database or a key react does not honor,
+/// stays on the FSM). An agent's `runtime:` key is read by `oxy test` alone.
 /// Read with [`is_enabled_for`] and the workspace's org
-/// (`OxyProjectContext::react_runtime_enabled`); off, every such agent answers
-/// on the FSM.
+/// (`OxyProjectContext::react_runtime_enabled`); off, every chat answers on the
+/// FSM, with no pull request needed.
 pub const REACT_RUNTIME: &str = "react_runtime";
 
 /// Per-user memory for react runs, per org: a served react run reads the

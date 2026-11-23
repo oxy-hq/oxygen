@@ -150,4 +150,4 @@ pub(crate) async fn dynamic_hint(
 
 #[cfg(test)]
 #[path = "react_config_tests.rs"]
-mod tests;
+pub(crate) mod tests;

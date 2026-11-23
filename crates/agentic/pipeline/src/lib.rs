@@ -519,7 +519,6 @@ impl PipelineBuilder {
         let pick = react_served::decide(react_served::PickInput {
             platform: self.platform.as_ref(),
             db,
-            config: &config,
             agent_id,
             run_id,
             can_ask: self.human_input.is_none(),
@@ -564,47 +563,38 @@ impl PipelineBuilder {
             .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
             .await;
 
-        // Resolve databases + connectors.
-        //
-        // Effective set = `agent.databases` ∪ databases referenced from the
-        // agent's `context:` glob. No fallback to "everything in
-        // config.yml" — an agent only gets connector access to what it
-        // explicitly declares. The previous auto-fill (f7c474080) was
-        // unwound because a misparsed agent (e.g. classic `.agent.yml`
-        // shape silently dropped to defaults) would otherwise inherit
-        // the whole workspace's database surface and start chasing SQL
-        // it has no business running.
-        let mut effective_databases: Vec<String> = config.databases.clone();
-        if let Ok(resolved) = config.resolve_context(base_dir) {
-            for db_name in resolved.referenced_databases {
-                if !effective_databases.contains(&db_name) {
-                    effective_databases.push(db_name);
-                }
-            }
-        }
-        let resolved = platform::resolve_connectors(&effective_databases, &*self.platform).await;
-        let mut connectors = agentic_connector::build_named_connectors(resolved.configs).await;
-        connectors.extend(resolved.pre_built);
+        let (effective_databases, connectors) =
+            platform::agent_connectors(&*self.platform, &config, base_dir).await;
 
         if pick.react {
+            // Clones: the FSM path below keeps the originals if react
+            // cannot serve this agent.
             let inputs = react_served::ServedInputs {
                 agent_id: agent_id.to_string(),
                 workspace_id: self.workspace_id,
-                connectors,
-                databases: effective_databases,
-                project_model,
-                domain_docs,
+                connectors: connectors.clone(),
+                databases: effective_databases.clone(),
+                project_model: project_model.clone(),
+                domain_docs: domain_docs.clone(),
                 thinking_mode: self.thinking_mode,
             };
-            let run = react_served::ServedRun {
-                run_id,
-                thread_id: self.thread_id,
-                question: self.question,
-            };
             let platform = self.platform.as_ref();
-            let log = pick.log.unwrap_or_else(|| Ok(Vec::new()));
-            let started = react_served::start(platform, db, &config, inputs, base_dir, run, log);
-            return Ok(started.await);
+            let check = react_served::ServeCheck {
+                platform,
+                config: &config,
+                inputs: &inputs,
+            };
+            if react_served::serves_react(db, run_id, &pick, check).await {
+                let run = react_served::ServedRun {
+                    run_id,
+                    thread_id: self.thread_id,
+                    question: self.question,
+                };
+                let log = pick.log.unwrap_or_else(|| Ok(Vec::new()));
+                let started =
+                    react_served::start(platform, db, &config, inputs, base_dir, run, log);
+                return Ok(started.await);
+            }
         }
 
         // Automation runner.
@@ -735,27 +725,8 @@ impl PipelineBuilder {
             .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
             .await;
 
-        // Resolve databases + connectors.
-        //
-        // Effective set = `agent.databases` ∪ databases referenced from the
-        // agent's `context:` glob. No fallback to "everything in
-        // config.yml" — an agent only gets connector access to what it
-        // explicitly declares. The previous auto-fill (f7c474080) was
-        // unwound because a misparsed agent (e.g. classic `.agent.yml`
-        // shape silently dropped to defaults) would otherwise inherit
-        // the whole workspace's database surface and start chasing SQL
-        // it has no business running.
-        let mut effective_databases: Vec<String> = config.databases.clone();
-        if let Ok(resolved) = config.resolve_context(base_dir) {
-            for db_name in resolved.referenced_databases {
-                if !effective_databases.contains(&db_name) {
-                    effective_databases.push(db_name);
-                }
-            }
-        }
-        let resolved = platform::resolve_connectors(&effective_databases, &*self.platform).await;
-        let mut connectors = agentic_connector::build_named_connectors(resolved.configs).await;
-        connectors.extend(resolved.pre_built);
+        let (effective_databases, connectors) =
+            platform::agent_connectors(&*self.platform, &config, base_dir).await;
 
         // A react run resumes on react, decided by what the run persisted
         // (`react_resume`), never by the agent's `runtime:` key or the flag.

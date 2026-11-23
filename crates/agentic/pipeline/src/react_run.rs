@@ -100,6 +100,21 @@ pub(crate) fn picks_react(config: &AgentConfig, policy: ReactPolicy, agent_ref: 
     }
 }
 
+/// The refusals a react build makes before any model work: a key react does
+/// not honor, no database, or a database with no read-only path (or one whose
+/// login role the path refuses). The served pick runs the same function on
+/// the same context, so an agent it lets through never fails here
+/// (`react_served::serves_react`).
+pub(crate) async fn preflight(config: &AgentConfig, ctx: &BuildContext) -> Result<(), String> {
+    let fail = |e: ConfigError| format!("failed to build agentic solver: {e}");
+    refuse_unsupported(config, ctx).map_err(fail)?;
+    if ctx.extra_connectors.is_empty() {
+        return Err(fail(ConfigError::NoDatabases));
+    }
+    require_read_only(ctx)?;
+    require_read_only_ready(ctx).await
+}
+
 /// Assembles a react run from the same inputs the FSM's solver build reads:
 /// the context globs, the injected connectors, the semantic files, and the
 /// agent's model, thinking and timezone.
@@ -110,12 +125,7 @@ pub(crate) async fn build_react_run(
     base_dir: &Path,
 ) -> Result<ReactRun, String> {
     let fail = |e: ConfigError| format!("failed to build agentic solver: {e}");
-    refuse_unsupported(config, &ctx).map_err(fail)?;
-    if ctx.extra_connectors.is_empty() {
-        return Err(fail(ConfigError::NoDatabases));
-    }
-    require_read_only(&ctx)?;
-    require_read_only_ready(&ctx).await?;
+    preflight(config, &ctx).await?;
     fill_workspace_id(platform, &mut ctx);
     let catalog = load_catalog(config, &ctx, base_dir).map_err(fail)?;
     if config.semantic_only && catalog.is_none() {

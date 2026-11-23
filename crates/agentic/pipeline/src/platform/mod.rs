@@ -11,11 +11,13 @@
 //! - [`PlatformContext`] — supertrait combining [`ProjectContext`] and
 //!   [`agentic_automation::WorkspaceContext`]. The full platform handle.
 
+mod agent_connectors;
 pub mod preview;
 pub mod preview_stamp;
 
 use std::sync::Arc;
 
+pub(crate) use agent_connectors::agent_connectors;
 pub use preview::{AirwayStepMode, IdentityResolver, PreviewScope, RunPlatformResolver};
 
 use agentic_analytics::config::{LlmVendor, ResolvedModelInfo};
@@ -316,8 +318,8 @@ pub trait ProjectContext: Send + Sync {
     }
 
     /// Whether the per-org `react_runtime` flag is on for this workspace's
-    /// org. With it on, a served chat of an agent that opts in
-    /// (`runtime: react`) runs on the react runtime. `false`, the default and
+    /// org. With it on, a served chat runs on the react runtime, whatever the
+    /// agent's `runtime:` key says. `false`, the default and
     /// the answer of any host that cannot tell, keeps it on the FSM.
     async fn react_runtime_enabled(&self) -> bool {
         false

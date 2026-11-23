@@ -108,8 +108,10 @@ pub static FLAGS: &[FlagDef] = &[
     },
     FlagDef {
         key: super::REACT_RUNTIME,
-        description: "Run opted-in analytics agents (runtime: react) on the react runtime. \
-                      Internal and benchmark orgs only.",
+        description: "Run served analytics chats on the react runtime. An agent react \
+                      cannot serve (no read-only database) stays on the FSM. The agent's \
+                      runtime: key is ignored here; only oxy test reads it. Internal and \
+                      benchmark orgs only.",
         default_enabled: false,
         variants: BOOLEAN,
         unit: Unit::Org,

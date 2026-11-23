@@ -88,22 +88,20 @@ fn count(rows: &[(String, Value)], t: &str) -> usize {
     rows.iter().filter(|(et, _)| et == t).count()
 }
 
-/// Flag off, a `runtime: react` agent runs on the FSM; flag on, its served
-/// run starts on react (`runtime_selected`, then the loop's `react_turn`)
-/// and its run row says so.
+/// The org's flag is the only switch: flag off, every agent runs on the FSM;
+/// flag on, a served run starts on react (`runtime_selected`, then the loop's
+/// `react_turn`) whatever the agent's `runtime:` key says, and its run row
+/// says so.
 #[tokio::test]
-async fn react_start_requires_the_flag() {
-    let react = AgentConfig::from_yaml("runtime: react\n").unwrap();
-    let fsm = AgentConfig::from_yaml("instructions: hi\n").unwrap();
-    assert!(!picks_served(&Flagged(false), &react, "a", true).await);
+async fn react_start_follows_the_flag_alone() {
+    assert!(!picks_served(&Flagged(false), "a", true).await);
     assert!(
-        !picks_served(&NoPlatform, &react, "a", true).await,
+        !picks_served(&NoPlatform, "a", true).await,
         "the trait default is off"
     );
-    assert!(picks_served(&Flagged(true), &react, "a", true).await);
-    assert!(!picks_served(&Flagged(true), &fsm, "a", true).await);
+    assert!(picks_served(&Flagged(true), "a", true).await);
     assert!(
-        !picks_served(&Flagged(true), &react, "a", false).await,
+        !picks_served(&Flagged(true), "a", false).await,
         "a run that cannot put a question to a person stays on the fsm"
     );
 
@@ -119,8 +117,18 @@ async fn react_start_requires_the_flag() {
     );
 
     let mut metadata = json!({ "agent_id": "a" });
-    stamp_runtime(&mut metadata, &runtime_patch(&react, true).unwrap());
+    stamp_runtime(&mut metadata, &runtime_patch(true, false).unwrap());
     assert_eq!(metadata, json!({ "agent_id": "a", "runtime": "react" }));
+    assert_eq!(
+        runtime_patch(false, false),
+        None,
+        "a fresh fsm run carries no key"
+    );
+    assert_eq!(
+        runtime_patch(false, true),
+        Some(json!({ "runtime": "fsm" })),
+        "a re-driven row is re-stamped"
+    );
 }
 
 /// A suspend writes the FSM's `awaiting_input` row and no terminal row, and
@@ -160,9 +168,8 @@ async fn react_suspend_writes_awaiting_input() {
     assert_eq!(resume_data.original_input, "q");
     assert_eq!(trace_id, RUN_ID);
 
-    let react = AgentConfig::from_yaml("runtime: react\n").unwrap();
     let mut metadata = json!({});
-    stamp_runtime(&mut metadata, &runtime_patch(&react, true).unwrap());
+    stamp_runtime(&mut metadata, &runtime_patch(true, false).unwrap());
     assert_eq!(metadata["runtime"], "react");
 }
 
@@ -275,20 +282,55 @@ fn react_build_context_follows_the_extended_thinking_toggle() {
     assert!(ctx.model_override.is_none() && ctx.thinking_override.is_none());
 }
 
-/// The `runtime` key names the runtime of the latest attempt: a re-driven
-/// run of an opted-in agent that now runs on the FSM is re-stamped `fsm`;
-/// an agent that never opted in is left alone.
-#[test]
-fn react_runtime_stamp_names_the_latest_attempt() {
-    let react = AgentConfig::from_yaml("runtime: react\n").unwrap();
-    let fsm = AgentConfig::from_yaml("instructions: hi\n").unwrap();
-    assert_eq!(
-        runtime_patch(&react, true),
-        Some(json!({ "runtime": "react" }))
-    );
-    assert_eq!(
-        runtime_patch(&react, false),
-        Some(json!({ "runtime": "fsm" }))
-    );
-    assert_eq!(runtime_patch(&fsm, false), None);
+/// With the flag the only switch, an agent the react build would refuse
+/// falls back to the FSM instead of failing, for every refusal the build
+/// makes: no database (a brief agent), a database with no read-only path, a
+/// read-only path whose login role it refuses, and a key react does not
+/// honor. An agent react can serve has no reason.
+#[tokio::test]
+async fn an_agent_react_cannot_serve_runs_on_the_fsm() {
+    use crate::react_config::tests::NotReady;
+    use crate::react_run::tests::Five;
+    let with = |dbs: Vec<(&str, Arc<dyn DatabaseConnector>)>| ServedInputs {
+        connectors: dbs.into_iter().map(|(n, c)| (n.to_string(), c)).collect(),
+        ..inputs(ThinkingMode::Auto)
+    };
+    async fn why(config: &AgentConfig, inputs: &ServedInputs) -> Option<String> {
+        let check = ServeCheck {
+            platform: &NoPlatform,
+            config,
+            inputs,
+        };
+        cannot_serve(check).await
+    }
+    let plain = || AgentConfig::from_yaml("instructions: hi\n").unwrap();
+    let five = || Arc::new(Five) as Arc<dyn DatabaseConnector>;
+    assert_eq!(why(&plain(), &with(vec![("pg", five())])).await, None);
+    let cases: Vec<(AgentConfig, ServedInputs, &str)> = vec![
+        (plain(), with(vec![]), "no database"),
+        (
+            plain(),
+            with(vec![("pg", five()), ("wh", Arc::new(NoBackstop))]),
+            "wh",
+        ),
+        (
+            plain(),
+            with(vec![("pg", Arc::new(NotReady))]),
+            "least-privilege",
+        ),
+        (
+            AgentConfig::from_yaml("validation: {}\n").unwrap(),
+            with(vec![("pg", five())]),
+            "validation",
+        ),
+    ];
+    for (config, inputs, expected) in cases {
+        let reason = why(&config, &inputs)
+            .await
+            .unwrap_or_else(|| panic!("{expected}: no reason"));
+        assert!(
+            reason.to_lowercase().contains(&expected.to_lowercase()),
+            "{expected}: {reason}"
+        );
+    }
 }

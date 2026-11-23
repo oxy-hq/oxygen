@@ -1,5 +1,5 @@
-//! Analytics on the react runtime, served: a chat run of an agent that opts
-//! in (`runtime: react`) on an org where the `react_runtime` flag is on.
+//! Analytics on the react runtime, served: a chat run on an org where the
+//! `react_runtime` flag is on, the only switch (`pick::picks_served`).
 //!
 //! The run is built inside `start_analytics` (the context root it reads dies
 //! when the start returns) and the loop runs on its own task behind a
@@ -51,11 +51,12 @@ pub(crate) struct RowHandle {
 mod memory;
 #[path = "react_served_pick.rs"]
 mod pick;
-pub(crate) use pick::{PickInput, decide, stamp_runtime};
+pub(crate) use pick::{PickInput, ServeCheck, decide, serves_react, stamp_runtime};
 #[cfg(test)]
-pub(crate) use pick::{picks_served, runtime_patch};
+pub(crate) use pick::{cannot_serve, picks_served, runtime_patch};
 
 /// What `start_analytics` resolved for the FSM, handed to the react build.
+#[derive(Clone)]
 pub(crate) struct ServedInputs {
     pub agent_id: String,
     pub workspace_id: uuid::Uuid,

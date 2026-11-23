@@ -170,12 +170,24 @@ impl agentic_pipeline::platform::ProjectContext for Host {
         Some(self.connector.clone().unwrap_or_else(|| Arc::new(ReadOnly)))
     }
 
+    /// A model at an address nothing listens on: a run that falls back to
+    /// the FSM fails its first model call at once, and no test can reach a
+    /// live model whatever key the environment holds. React runs use the
+    /// script ([`Self::react_engine`]).
     async fn resolve_model(
         &self,
         _: Option<&str>,
         _: bool,
     ) -> Option<agentic_analytics::config::ResolvedModelInfo> {
-        None
+        Some(agentic_analytics::config::ResolvedModelInfo {
+            model: "test-model".into(),
+            vendor: agentic_analytics::config::LlmVendor::Anthropic,
+            api_key: Some("test-key".into()),
+            base_url: Some("http://127.0.0.1:9".into()),
+            azure_deployment_id: None,
+            azure_api_version: None,
+            headers: None,
+        })
     }
 
     async fn resolve_agent(

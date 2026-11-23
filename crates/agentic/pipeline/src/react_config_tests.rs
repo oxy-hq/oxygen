@@ -259,7 +259,7 @@ async fn build_refuses_a_database_without_read_only() {
 
 /// A read-only path whose connection refuses every query, as a Postgres
 /// superuser login does.
-struct NotReady;
+pub(crate) struct NotReady;
 
 #[async_trait::async_trait]
 impl DatabaseConnector for NotReady {
