@@ -52,21 +52,30 @@ pub mod route_catalog {
 /// The router `serve` mounts, and the seams `oxy-server` composes into it.
 pub mod router {
     pub use crate::server::router::{
-        FleetJobDeps, FleetJobSeam, GlobalTickSeam, NotificationsSeam, SurfaceSeams, TaskSeam,
-        TickPass, api_router, build_cors_layer, build_openapi_doc, install_global_ticks,
-        internal_api_router, require_fleet_jobs, require_notifications, require_task_kinds,
-        start_fleet_jobs,
+        ApiRouterArgs, FleetJobDeps, FleetJobSeam, GlobalTickSeam, NotificationsSeam, SurfaceSeams,
+        TaskSeam, TickPass, api_router, api_router_with_state, build_cors_layer, build_openapi_doc,
+        install_global_ticks, internal_api_router, require_fleet_jobs, require_notifications,
+        require_task_kinds, start_fleet_jobs,
     };
 
     /// The run drivers: the startup recovery pass, the periodic one, and the
-    /// shutdown hooks `serve` waits on. `OXY_INPROC_GLOBAL_WORKER` is the kill
-    /// switch that turns driving off on a worker.
+    /// shutdown hooks `serve` spawns, registers and waits on.
+    /// `OXY_INPROC_GLOBAL_WORKER` is the kill switch that turns driving off on a
+    /// worker. `spawn_shutdown_hook` and `register_shutdown_hook` are here for
+    /// `serve`'s boot (decompose BL-W) until the drivers move up (BL1).
     pub mod recovery {
         pub use crate::server::router::recovery::{
             INPROC_GLOBAL_WORKER_ENV, StartupPass, await_shutdown_hooks,
-            inproc_global_worker_enabled, spawn_recovery,
+            inproc_global_worker_enabled, register_shutdown_hook, spawn_recovery,
+            spawn_shutdown_hook,
         };
     }
+}
+
+/// The per-token usage flush `serve`'s boot starts (decompose BL-W), until it
+/// moves up with the drivers (BL1).
+pub mod token_usage_flush {
+    pub use crate::server::token_usage_flush::spawn_token_usage_flush;
 }
 
 /// The layers `serve` wraps the router in.

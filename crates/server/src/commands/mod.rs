@@ -5,6 +5,7 @@
 
 pub mod args;
 pub mod serve;
+pub(crate) mod serve_background;
 mod start;
 mod worker;
 

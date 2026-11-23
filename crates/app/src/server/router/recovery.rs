@@ -44,7 +44,9 @@ use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
 /// owns the shutdown wait — never sees the `AgenticState` the hook is built
 /// from. Threading a third element through would be six signature changes to
 /// move a value whose lifetime is the process anyway, which is exactly what
-/// the shutdown token itself already is.
+/// the shutdown token itself already is. (Since decompose BL-W the hooks are
+/// spawned and registered by `serve`'s boot, `oxy-server`'s
+/// `commands::serve_background`, not by the router builders.)
 static SHUTDOWN_HOOKS: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>> =
     std::sync::Mutex::new(Vec::new());
 
@@ -78,7 +80,7 @@ const DIRECT_DRIVE_UNWIND_WAIT: std::time::Duration = std::time::Duration::from_
 /// The handle is registered in [`SHUTDOWN_HOOKS`]; call
 /// [`await_shutdown_hooks`] on the way out of `serve` so the release
 /// actually lands instead of racing process exit.
-pub(super) fn spawn_shutdown_hook(agentic_state: Arc<AgenticState>) {
+pub fn spawn_shutdown_hook(agentic_state: Arc<AgenticState>) {
     let token = agentic_state.shutdown_token.clone();
     let runtime = agentic_state.runtime.clone();
     let db = agentic_state.db.clone();
@@ -197,7 +199,7 @@ pub(super) fn spawn_shutdown_hook(agentic_state: Arc<AgenticState>) {
 /// Register a task the serve command should wait for (bounded) before the
 /// process exits — work that must happen once the shutdown token is cancelled,
 /// like the final token-usage flush.
-pub(crate) fn register_shutdown_hook(handle: tokio::task::JoinHandle<()>) {
+pub fn register_shutdown_hook(handle: tokio::task::JoinHandle<()>) {
     SHUTDOWN_HOOKS
         .lock()
         .unwrap_or_else(|e| e.into_inner())

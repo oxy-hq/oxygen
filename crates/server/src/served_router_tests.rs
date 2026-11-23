@@ -1950,38 +1950,6 @@ fn the_composition_starts_the_chat_delivery_listener() {
     assert_eq!(seams.require_custom_apps(), Ok(()));
 }
 
-/// The listener `api_router` starts through the seam really attaches. A NOTIFY
-/// never wakes the posting process directly (`announce` deliberately skips the
-/// local bus), so a wake on this process's subscriber can only have come back
-/// through the `LISTEN` connection the `chat_delivery_listener` job opened. The
-/// announce repeats until the listener has attached (it connects in the
-/// background), within a deadline.
-#[tokio::test]
-async fn the_served_router_starts_the_chat_delivery_listener() {
-    if db_unavailable() {
-        return;
-    }
-    let _router = served(ServeMode::Cloud).await;
-    let channel = uuid::Uuid::new_v4();
-    let mut rx = oxy_api_threads::chat::delivery::subscribe(channel);
-    let db = oxy::database::client::establish_connection()
-        .await
-        .expect("database");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        oxy_api_threads::chat::delivery::announce(&db, channel).await;
-        match tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await {
-            Ok(Ok(())) => break,
-            Ok(Err(e)) => panic!("the chat bus closed: {e}"),
-            Err(_) => assert!(
-                std::time::Instant::now() < deadline,
-                "no wake within 10s: the chat delivery listener never attached, so \
-                 a message posted on another replica would reach nobody here"
-            ),
-        }
-    }
-}
-
 /// `oxy-api-workspaces`' workspace routes under `/{workspace_id}`, probed with
 /// TRACE as above.
 fn workspaces_workspace_routes() -> Vec<&'static str> {

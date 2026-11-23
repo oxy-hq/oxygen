@@ -279,7 +279,7 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
         },
         // The automation runs' TTL sweep: terminal rows out after a day, a
         // cross-replica cancel reconciled, a row its driver abandoned closed.
-        // Every replica runs it, as it ran in `api_router` before (idempotent
+        // Every replica runs it, as it did inside `api_router` (idempotent
         // update-many and delete-many every 10 minutes).
         BackgroundSeam {
             name: "custom_app_automation_run_sweep",

@@ -61,7 +61,7 @@ pub mod router;
 pub use oxy_app_core::listener as task_router_listener;
 #[cfg(test)]
 pub(crate) mod test_support;
-mod token_usage_flush;
+pub(crate) mod token_usage_flush;
 pub mod workspace_fs;
 pub use oxy_app_core::workspace_repo_facts;
 

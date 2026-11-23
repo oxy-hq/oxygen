@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Spawn the flusher. The returned handle finishes after the final flush, so
 /// the serve command can wait for it on the way out.
-pub(crate) fn spawn_token_usage_flush(shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
+pub fn spawn_token_usage_flush(shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(usage::FLUSH_INTERVAL);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);

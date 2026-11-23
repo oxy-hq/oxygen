@@ -451,6 +451,17 @@ filter = "package(=oxy-server) & kind(bin) & test(/^served_router_tests::/)"
 test-group = "serial-db"
 retries = 2
 
+# `oxy-server`'s `commands::serve_background::tests` run `serve`'s boot for real:
+# the same router build as `served_router_tests` (the unscoped
+# `cleanup_stale_runs`), plus the startup recovery pass and the latency worker
+# over every workspace. The chat-listener test moved here from
+# `served_router_tests` in decompose BL-W, when `api_router` stopped starting
+# the boot jobs; pinned for the reason that module is.
+[[profile.default.overrides]]
+filter = "package(=oxy-server) & kind(bin) & test(/^commands::serve_background::tests::/)"
+test-group = "serial-db"
+retries = 2
+
 # `oxy-app`'s own unit tests hold the same caller: three of
 # `server::router::router_split_tests` build `api_router(..)` (the two local-mode
 # checks and the external router's fallback), so each runs the unscoped

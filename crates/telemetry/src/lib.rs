@@ -96,6 +96,11 @@ mod sentry_filter_w6b_pins_tests;
 #[cfg(test)]
 mod sentry_filter_r0_pins_tests;
 
+// Sentry pins for decompose BL-W's move (`oxy serve`'s boot jobs out of
+// `oxy-app`'s `api_router`), kept out of the over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_blw_pins_tests;
+
 /// Framework crates whose `info`/`debug` output is wire-level chatter, not
 /// something an operator acts on: HTTP frames, raw SQL, TLS handshakes. Both
 /// the stderr layers and the OTLP layers append this to whatever level the

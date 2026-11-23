@@ -11388,6 +11388,7 @@ dependencies = [
  "oxy-billing",
  "oxy-cameras",
  "oxy-cli-shim",
+ "oxy-compile-runtime",
  "oxy-custom-apps",
  "oxy-feature-flags",
  "oxy-observability",

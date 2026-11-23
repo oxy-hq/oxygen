@@ -3,6 +3,11 @@
 //! [`api_router`] is the user-facing API (cloud or local, driven by
 //! [`ServeMode`]). [`internal_api_router`] is the internal port — always
 //! cloud-shape, protected by an API-key-only middleware.
+//!
+//! The builders only build. The background work a serve process runs — the
+//! run drivers, the shutdown hooks, the surfaces' jobs — is started by `oxy
+//! serve` from the [`AgenticState`] they hand back (decompose BL-W,
+//! 2026-11-23); `boot_guard_tests` fails if a builder starts any of it again.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,7 +34,6 @@ use super::protected::{
     build_local_protected_routes, build_protected_routes,
 };
 use super::public::build_public_routes;
-use super::recovery::{StartupPass, spawn_recovery, spawn_shutdown_hook};
 use super::{AppState, build_cors_layer};
 use oxy_app_core::seams::{SurfaceSeam, SurfaceSeams};
 
@@ -37,6 +41,9 @@ use oxy_app_core::seams::{SurfaceSeam, SurfaceSeams};
 /// external API router (`/external/api`). The external one is returned
 /// separately so the caller can mount it OUTSIDE the global CORS layer; see
 /// [`build_external_api_router`].
+///
+/// Starts no background work: [`api_router_with_state`] without the state.
+/// `oxy serve` calls that one and starts the boot jobs from the state.
 pub async fn api_router(
     mode: ServeMode,
     enterprise: bool,
@@ -44,14 +51,57 @@ pub async fn api_router(
     startup_cwd: std::path::PathBuf,
     shutdown_token: CancellationToken,
     disable_inprocess_workers: bool,
-    // Surface routes composed by the caller (the top `oxy-server` crate), by
-    // which side of the auth stack each lands on — see [`SurfaceSeams`]. The
-    // api seam joins the protected tree BEFORE `apply_middleware` (cloud mode
-    // only: local mode never mounts the org/global tree and drops it); the
-    // workspace seam goes INSIDE the `/{workspace_id}` nest; the public seam
-    // merges beside `build_public_routes` in BOTH modes, with no auth layer.
     seams: SurfaceSeams,
 ) -> Result<(Router, Router, PreaggCacheCtx), OxyError> {
+    let (router, external_router, preagg, _agentic_state) = api_router_with_state(ApiRouterArgs {
+        mode,
+        enterprise,
+        observability,
+        startup_cwd,
+        shutdown_token,
+        disable_inprocess_workers,
+        seams,
+    })
+    .await?;
+    Ok((router, external_router, preagg))
+}
+
+/// [`api_router`]'s arguments, gathered into one value for
+/// [`api_router_with_state`].
+pub struct ApiRouterArgs {
+    pub mode: ServeMode,
+    pub enterprise: bool,
+    pub observability: Option<std::sync::Arc<dyn oxy_observability::ObservabilityStore>>,
+    pub startup_cwd: std::path::PathBuf,
+    pub shutdown_token: CancellationToken,
+    /// `--no-workers`: skips the boot cleanup in `new_agentic_state` here, and
+    /// the startup pass and global driver in `serve`'s boot.
+    pub disable_inprocess_workers: bool,
+    /// Surface routes composed by the caller (the top `oxy-server` crate), by
+    /// which side of the auth stack each lands on — see [`SurfaceSeams`]. The
+    /// api seam joins the protected tree BEFORE `apply_middleware` (cloud mode
+    /// only: local mode never mounts the org/global tree and drops it); the
+    /// workspace seam goes INSIDE the `/{workspace_id}` nest; the public seam
+    /// merges beside `build_public_routes` in BOTH modes, with no auth layer.
+    pub seams: SurfaceSeams,
+}
+
+/// The router [`api_router`] builds, plus the [`AgenticState`] it was built
+/// over, which `oxy serve` starts its boot jobs from (the run drivers, the
+/// shutdown hook, the surfaces' background and fleet jobs). Like
+/// [`api_router`], it starts none of them.
+pub async fn api_router_with_state(
+    args: ApiRouterArgs,
+) -> Result<(Router, Router, PreaggCacheCtx, Arc<AgenticState>), OxyError> {
+    let ApiRouterArgs {
+        mode,
+        enterprise,
+        observability,
+        startup_cwd,
+        shutdown_token,
+        disable_inprocess_workers,
+        seams,
+    } = args;
     let SurfaceSeams {
         api:
             SurfaceSeam {
@@ -77,10 +127,12 @@ pub async fn api_router(
         catalog,
         admin,
         admin_nests,
-        tasks,
-        background,
-        fleet_jobs,
-        global_ticks,
+        // Started by `serve`'s boot (`oxy-server`'s `commands::serve_background`),
+        // which takes them off the seams before handing them here.
+        tasks: _,
+        background: _,
+        fleet_jobs: _,
+        global_ticks: _,
         // Merged by `serve`, which takes it before handing the seams here.
         outer: _,
         outer_decls,
@@ -135,150 +187,12 @@ pub async fn api_router(
         (None, None)
     };
 
-    // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`), read by the
-    // global driver each pass. Installed whether or not this process runs the
-    // driver: the list is the composition's, not the role's.
-    oxy_app_core::seams::install_global_ticks(&global_ticks);
-
-    if disable_inprocess_workers {
-        tracing::info!(
-            "serve: --no-workers / OXY_DISABLE_INPROCESS_WORKERS active; skipping \
-             startup recovery and global driver loop. A separate `oxy worker` \
-             fleet must drive the agentic_task_queue."
-        );
-    } else {
-        // `StartupPass::Run`: this process hosts the request-time coordinators
-        // (and their direct-drives), so anything left resumable in the DB at
-        // boot was orphaned by the process this one replaces. `oxy worker`
-        // cannot make that claim and passes `Skip` — see [`StartupPass`].
-        //
-        // The preagg cache is the same `Arc` the request path uses, so queued
-        // work — scheduled monitor scans, automations, agentic runs — resolves
-        // rollups on the tier its request-driven twin does.
-        spawn_recovery(
-            agentic_state.clone(),
-            mode,
-            PreaggCacheCtx {
-                cache: preagg_cache.clone(),
-                renewal_threshold_secs: preagg_renewal_threshold_secs,
-            },
-            std::sync::Arc::from(tasks),
-            StartupPass::Run,
-        );
-    }
-    spawn_shutdown_hook(agentic_state.clone());
-    // The custom-app automation runs' TTL sweep is `oxy-api-custom-apps`' and
-    // starts with the surface jobs below (`custom_app_automation_run_sweep`).
-
-    // Compile-boundary maintenance: reap stuck `compiling` revisions (crashed
-    // compiles) + prune old non-current revisions so the `*_definitions`
-    // tables stay bounded. Pure DB sweeps — runs regardless of --no-workers,
-    // idempotent across replicas.
-    crate::server::compile_maintenance::spawn_compile_maintenance(
-        crate::server::compile_maintenance::CompileMaintenanceConfig::from_env(),
-    );
-
-    // Workspace previews' TTL sweep is `oxy-api-previews`'s
-    // (`preview_maintenance`), started with the surfaces' background jobs.
-
-    // Audit retention: the log is write-heavy, so keep a rolling 30-day window.
-    // Idempotent daily sweep; verification anchors on the oldest retained event so a
-    // prune doesn't report a false chain break.
-    oxy_app_core::audit::spawn_audit_prune_loop();
-
-    // Per-token usage: counted in memory by `token_usage_middleware`, written
-    // here once a minute, and once more when the shutdown token is cancelled —
-    // registered as a shutdown hook so the last partial minute is not lost.
-    super::recovery::register_shutdown_hook(
-        crate::server::token_usage_flush::spawn_token_usage_flush(
-            agentic_state.shutdown_token.clone(),
-        ),
-    );
-
-    // The jobs the composition root hands in for custom apps (`SurfaceSeams::
-    // background`): the usage drain that batch-inserts page-view and beacon
-    // rows, sandbox expiry, usage retention. A job that flushes its memory on
-    // shutdown returns its handle; it is registered as a shutdown hook like the
-    // token-usage flush above. Each is in-process, not a `TaskSpec`: it acts on
-    // this process's memory or is a cheap idempotent sweep that every replica
-    // runs.
-    {
-        let deps = oxy_app_core::seams::BackgroundDeps {
-            db: &agentic_state.db,
-            shutdown: &agentic_state.shutdown_token,
-        };
-        for job in &background {
-            if let Some(handle) = (job.start)(&deps) {
-                super::recovery::register_shutdown_hook(handle);
-            }
-        }
-    }
-
-    // Fleet jobs (the storage sweeper, the usage-backfill sweep, the bucket
-    // lifecycle check, the hourly audit chain-head anchor): started here only
-    // where this serve runs singleton work (`all` / `ide`). On a split fleet
-    // that is false and `oxy worker` starts them; either way each claims its
-    // interval in `fleet_job_claims`, so starting them on both is safe.
-    super::fleet_jobs::start_fleet_jobs(
-        &fleet_jobs,
-        &oxy_app_core::seams::FleetJobDeps {
-            db: &agentic_state.db,
-            shutdown: &agentic_state.shutdown_token,
-        },
-        super::recovery::inproc_global_worker_enabled(),
-    );
-
-    // Camera fleet stale-checker: flips edge_boxes.status to 'offline'
-    // when last_seen_at goes silent past STALE_THRESHOLD. Bound to the
-    // same shutdown token as the rest of the agentic state so it exits
-    // cleanly on SIGTERM. The inverse transition (offline → active) is
-    // handled by the auth middleware on the next /control/* call from
-    // the box, so this loop is one-way only.
-    oxy_cameras::service::stale::spawn(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
-    );
-
-    // Camera fleet log retention sweep (IoT Phase 6a). DELETEs old
-    // rows from `oxy_cam_device_logs` per the configured policy
-    // (default: info/debug 7d, warn+ 30d). Honors
-    // OXY_CAMERA_LOG_SWEEP_INTERVAL_HOURS=0 to disable it; this loop
-    // is the only sweep (the `oxy cameras sweep-logs` CLI was deleted).
-    oxy_cameras::service::log_retention::spawn(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
-    );
-
-    // OTA rollout supervisor (P1 OTA #3). Advances `camera_rollout_plans`
-    // rows through pending → canary → promoting → complete, auto-aborts
-    // when canary failure rate exceeds threshold. Same shutdown token
-    // as the other camera-domain loops.
-    oxy_cameras::service::rollouts::spawn(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
-    );
-
-    // Camera health → Slack alerter (P1 #2). Polls camera_health
-    // summary every 60s per workspace, diffs against the previous
-    // tick, emits a Slack message on transitions to/from `ok` with
-    // a 30-min per-camera cooldown. No-op when no workspace has a
-    // Slack installation.
-    oxy_cameras::service::alerts::spawn(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
-    );
-
-    // Camera ingest write-coalescing flusher: buffers high-frequency
-    // events/health and flushes one batched INSERT per (tenant, stream) per
-    // window, so airhouse sees ~one DuckLake commit/window instead of one per
-    // edge POST. No-op (synchronous writes) under
-    // OXY_CAMERAS_INGEST_BUFFER_DISABLED. Same shutdown token as the other
-    // camera loops (final-drains on SIGTERM).
-    oxy_cameras::service::ingest_buffer::spawn(agentic_state.shutdown_token.clone());
-
-    // The world-model live feed's tailer and reaper, and the bridge that puts
-    // camera domain events on it, are `oxy-api-world-model`'s: started above
-    // with the other surface jobs (`SurfaceSeams::background`).
+    // The boot jobs — the global ticks, the run drivers, the shutdown hook,
+    // compile maintenance, the audit prune, the token-usage flush, the
+    // surfaces' background and fleet jobs and the camera loops — are not
+    // started here. `oxy serve` starts them once this returns, from the state it
+    // hands back (`oxy-server`'s `commands::serve_background`), so a router
+    // build boots nothing; `boot_guard_tests` holds the line.
 
     let app_state = AppState {
         enterprise,
@@ -402,7 +316,7 @@ pub async fn api_router(
     // lets its own permissive CORS govern preflight for these routes.
     let external_router = build_external_api_router(
         app_state.clone(),
-        agentic_state,
+        agentic_state.clone(),
         mode,
         extra_external_routes,
     );
@@ -421,6 +335,7 @@ pub async fn api_router(
         finalize_router(app_routes, app_state),
         external_router,
         preagg,
+        agentic_state,
     ))
 }
 
@@ -462,7 +377,7 @@ pub async fn internal_api_router(
     // consumes and this build discards): the primary router owns the
     // declaration registry, and installing a second one from here would race it.
     seams: SurfaceSeams,
-) -> Result<Router, OxyError> {
+) -> Result<(Router, Arc<AgenticState>), OxyError> {
     let SurfaceSeams {
         api:
             SurfaceSeam {
@@ -518,11 +433,11 @@ pub async fn internal_api_router(
         semantic_layer_cache: super::workspace_cache::new_semantic_layer_cache(),
         semantic_engine_cache: super::workspace_cache::new_semantic_engine_cache(),
     };
-    // `api_router` owns startup cleanup + recovery for the whole process;
-    // the internal router shares the same database state, so it skips both
-    // to avoid racing with the primary recovery task on the same runs.
+    // `api_router` owns startup cleanup, and `serve`'s boot recovery, for the
+    // whole process; the internal router shares the same database state, so it
+    // skips both to avoid racing with the primary recovery task on the same
+    // runs. Its shutdown hook is `serve`'s to spawn, from the state returned.
     let agentic_state = new_agentic_state(shutdown_token, false).await?;
-    spawn_shutdown_hook(agentic_state.clone());
 
     // The internal API is an internal-auth MIRROR of the main app, so it mounts
     // the SAME extracted surface crates (via the seams) that `api_router` does.
@@ -535,7 +450,7 @@ pub async fn internal_api_router(
     // discards its copy rather than racing to install a second one.
     let (protected_routes, _decls) = build_protected_routes(
         app_state.clone(),
-        agentic_state,
+        agentic_state.clone(),
         extra_workspace_routes,
         extra_workspace_decls,
         preview_routes,
@@ -554,7 +469,7 @@ pub async fn internal_api_router(
         .merge(extra_public_routes)
         .merge(protected_routes);
 
-    Ok(finalize_router(app_routes, app_state))
+    Ok((finalize_router(app_routes, app_state), agentic_state))
 }
 
 async fn new_agentic_state(
@@ -686,3 +601,7 @@ fn finalize_router(app_routes: Router<AppState>, app_state: AppState) -> Router 
         .layer(global_timeout)
         .layer(ServiceBuilder::new().layer(NewSentryLayer::<Request<Body>>::new_from_top()))
 }
+
+#[cfg(test)]
+#[path = "entry_boot_guard_tests.rs"]
+mod boot_guard_tests;

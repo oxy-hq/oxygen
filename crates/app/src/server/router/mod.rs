@@ -30,7 +30,7 @@ use axum::http::header::{HeaderName, HeaderValue};
 use axum::http::{HeaderMap, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-pub use entry::{api_router, internal_api_router};
+pub use entry::{ApiRouterArgs, api_router, api_router_with_state, internal_api_router};
 pub use fleet_jobs::start_fleet_jobs;
 pub use openapi::{build_openapi_doc, openapi_router};
 pub use oxy_app_core::seams::{

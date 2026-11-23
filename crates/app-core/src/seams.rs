@@ -494,7 +494,8 @@ pub struct SurfaceSeams {
     /// `CustomTaskRegistry` (`serve`'s in-process driver and `oxy worker`).
     pub tasks: Vec<TaskSeam>,
     /// Process-lifetime jobs a serve process starts for custom apps, started
-    /// by `api_router`. One-shot per-request spawns stay with their handlers.
+    /// by `serve`'s boot (`oxy-server`'s `commands::serve_background`). One-shot
+    /// per-request spawns stay with their handlers.
     pub background: Vec<BackgroundSeam>,
     /// Jobs whose answer is global rather than per replica (the storage
     /// sweeper, the usage-backfill sweep, the asset-bucket lifecycle check).
@@ -504,7 +505,7 @@ pub struct SurfaceSeams {
     /// (`router/fleet_jobs.rs` starts them).
     pub fleet_jobs: Vec<FleetJobSeam>,
     /// Singleton work the global driver runs each pass for an extracted surface
-    /// (the experiment tick). Installed process-wide by `api_router` and
+    /// (the experiment tick). Installed process-wide by `serve`'s boot and
     /// `oxy worker` through [`install_global_ticks`]; the driver reads them
     /// beside its own schedule ticks.
     pub global_ticks: Vec<GlobalTickSeam>,

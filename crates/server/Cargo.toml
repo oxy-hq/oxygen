@@ -53,6 +53,10 @@ oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-custom-apps = { workspace = true }
 oxy-app-core = { workspace = true }
 oxy-workspace-runtime = { workspace = true }
+# `serve`'s boot jobs (`commands::serve_background`): the camera-fleet loops and
+# compile-boundary maintenance, started by `serve` since decompose BL-W.
+oxy-cameras = { workspace = true }
+oxy-compile-runtime = { workspace = true }
 # The feature-flag cache `serve` and `worker` load at boot.
 oxy-feature-flags = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
@@ -133,7 +137,6 @@ sentry = { workspace = true, features = ["test"] }
 oxy-authz = { workspace = true }
 oxy-oltp = { workspace = true }
 oxy-billing = { workspace = true }
-oxy-cameras = { workspace = true }
 agentic-core = { workspace = true }
 entity = { workspace = true }
 migration = { workspace = true }

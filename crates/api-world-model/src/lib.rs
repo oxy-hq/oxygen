@@ -518,7 +518,7 @@ mod tests {
     }
 }
 
-/// The live feed's process-lifetime jobs, started by `api_router` on every
+/// The live feed's process-lifetime jobs, started by `serve`'s boot on every
 /// serve process (not singleton-gated: each pod fills its own buses).
 ///
 /// One seam rather than three because they are one feature: without the tailer

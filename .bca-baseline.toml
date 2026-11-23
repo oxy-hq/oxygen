@@ -6868,7 +6868,7 @@ value = 1340.0
 
 [[entry]]
 path = "crates/app/src/server/router/entry.rs"
-qualified = "api_router"
+qualified = "api_router_with_state"
 metric = "abc"
 value = 87.25823743349392
 

@@ -451,17 +451,17 @@ async fn create_web_application(
     let outer = seams.outer.ok_or_else(|| {
         OxyError::RuntimeError("the surface seams hand in no outer mount".to_string())
     })?;
-    let (api_router, external_api_router, preagg_ctx) = oxy_app::host::router::api_router(
-        mode,
-        enterprise,
-        observability,
-        startup_cwd,
-        shutdown_token,
-        disable_inprocess_workers,
-        seams,
-    )
-    .await
-    .map_err(|e| OxyError::RuntimeError(format!("Failed to create API router: {}", e)))?;
+    let (api_router, external_api_router, preagg_ctx) =
+        super::serve_background::api_router_and_boot(oxy_app::host::router::ApiRouterArgs {
+            mode,
+            enterprise,
+            observability,
+            startup_cwd,
+            shutdown_token,
+            disable_inprocess_workers,
+            seams,
+        })
+        .await?;
     // Assembled by `router::openapi` so `oxyc openapi` serves the exact
     // same document offline — one spec, two consumers.
     let openapi_doc = oxy_app::host::router::build_openapi_doc(surface_openapi).await;
@@ -604,7 +604,7 @@ async fn create_internal_application(
     shutdown_token: CancellationToken,
     seams: oxy_app::host::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
-    let internal_router = oxy_app::host::router::internal_api_router(
+    let internal_router = super::serve_background::internal_api_router_with_hook(
         enterprise,
         observability,
         shutdown_token,

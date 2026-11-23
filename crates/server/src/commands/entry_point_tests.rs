@@ -120,6 +120,79 @@ fn the_worker_requires_and_starts_the_fleet_jobs() {
     );
 }
 
+/// `oxy serve` starts its boot jobs itself, from the state the router builders
+/// hand back (decompose BL-W, 2026-11-23). The builders' half — that none of
+/// them starts anything — is `oxy-app`'s `boot_guard_tests`; this is the other
+/// half: serve still starts every job, after the router that owns the state is
+/// built, in the order the builders started them.
+#[test]
+fn serve_starts_the_boot_jobs_after_building_the_router() {
+    let serve = include_str!("serve.rs");
+    let boot = include_str!("serve_background.rs");
+    let body =
+        |src: &str, sig: &str| fn_body(src, sig).unwrap_or_else(|| panic!("`{sig}` not found"));
+    assert!(
+        body(serve, "async fn create_web_application(")
+            .contains("serve_background::api_router_and_boot("),
+        "`serve` must build its main router through `api_router_and_boot`, which \
+         starts the boot jobs; `api_router` alone starts none"
+    );
+    assert!(
+        body(serve, "async fn create_internal_application(")
+            .contains("serve_background::internal_api_router_with_hook("),
+        "`serve` must build its internal router through \
+         `internal_api_router_with_hook`, which spawns its shutdown hook"
+    );
+    let in_order = |sig: &str, calls: &[&str]| {
+        let text = body(boot, sig);
+        let at: Vec<usize> = calls
+            .iter()
+            .map(|c| {
+                text.find(c)
+                    .unwrap_or_else(|| panic!("`{c}` not in `{sig}`"))
+            })
+            .collect();
+        assert!(
+            at.windows(2).all(|w| w[0] < w[1]),
+            "`{sig}` must call {calls:?} in that order"
+        );
+    };
+    in_order(
+        "pub(crate) async fn api_router_and_boot(",
+        &[
+            "SeamJobs::take(",
+            "api_router_with_state(",
+            "boot.start(jobs)",
+        ],
+    );
+    in_order(
+        "pub(crate) async fn internal_api_router_with_hook(",
+        &["internal_api_router(", "spawn_shutdown_hook(agentic_state)"],
+    );
+    in_order(
+        "impl ServeBoot {",
+        &[
+            "self.start_drivers(",
+            "self.start_maintenance(",
+            "self.start_surface_jobs(",
+            "self.start_camera_loops(",
+            "install_global_ticks(",
+            "spawn_recovery(",
+            "spawn_shutdown_hook(",
+            "spawn_compile_maintenance(",
+            "spawn_audit_prune_loop(",
+            "spawn_token_usage_flush(",
+            "(job.start)(",
+            "start_fleet_jobs(",
+            "stale::spawn(",
+            "log_retention::spawn(",
+            "rollouts::spawn(",
+            "alerts::spawn(",
+            "ingest_buffer::spawn(",
+        ],
+    );
+}
+
 /// The commands `server_command` matches, sorted: the string literals of its
 /// `matches!(*a, "serve" | …)`.
 fn server_commands(main_rs: &str) -> Vec<String> {
