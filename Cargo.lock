@@ -10183,7 +10183,6 @@ dependencies = [
  "futures",
  "migration",
  "oxy",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-cameras",

@@ -58,8 +58,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use oxy_app::surface::seams::{BackgroundSeam, TaskSeam};
 use oxy_app_core::AppState;
+use oxy_app_core::seams::{BackgroundSeam, TaskSeam};
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 pub use admin::admin_nests;
@@ -315,7 +315,7 @@ mod tests {
         use axum::body::Body;
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
-        let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        let router = workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for (uri, want) in [
             ("/compile/staging", StatusCode::METHOD_NOT_ALLOWED),
             ("/compile/staging/status", StatusCode::METHOD_NOT_ALLOWED),

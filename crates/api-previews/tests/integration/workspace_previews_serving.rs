@@ -253,7 +253,7 @@ async fn action() -> Json<Value> {
 }
 
 fn app(user: AuthenticatedUser) -> Router {
-    let state = oxy_app::surface::testing::router::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let inner = Router::new()
         .route("/probe", get(probe))
         .route("/spawn-probe", get(spawn_probe))

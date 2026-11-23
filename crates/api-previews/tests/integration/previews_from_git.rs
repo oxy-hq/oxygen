@@ -15,7 +15,7 @@
 //! the queued compile, as in [`super::compile_from_git`].
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(previews_from_git)'`
+//! `cargo nextest run -p oxy-api-previews --test integration -E 'test(previews_from_git)'`
 
 mod fixture;
 

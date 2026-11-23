@@ -10,8 +10,7 @@
 //!     Where that compile stands: `ready` + the revision id once it has
 //!     compiled.
 //!
-//! Both are the HTTP face of `oxy-app`'s `server::compile_request` (through
-//! `oxy_compile_runtime::request`), which says where the commit comes from
+//! Both are the HTTP face of `oxy-compile-runtime`'s `request`, which says where the commit comes from
 //! (GitHub, or the working copy for a branch GitHub does not have) and is
 //! shared with the staff previews API ([`crate::service`]). They left
 //! `oxy-app` for this crate on 2026-11-16, and ride the workspace seam

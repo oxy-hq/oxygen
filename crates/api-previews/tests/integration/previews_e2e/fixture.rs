@@ -281,7 +281,7 @@ fn app(user: AuthenticatedUser) -> Router {
     use oxy_workspace_runtime::request::workspace_context::{
         workspace_access_middleware, workspace_middleware,
     };
-    let state = oxy_app::surface::testing::router::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let previews: Router = Router::<oxy_app_core::pods::IdeState>::new()
         .route(
             "/",
