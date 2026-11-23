@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::{ApiError, connect, internal};
 use crate::experiment::summary::{Proposal, list_proposal_views};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// `GET /experiments/{name}/proposals` — every candidate ever priced for this
 /// experiment, newest first, whatever its status: `pending` while the job runs,

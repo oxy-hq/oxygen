@@ -18,7 +18,7 @@ use serde::Serialize;
 
 use oxy_simulation::SimulationSpec;
 
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// `{ ok: true }`, or `{ ok: false, error: "<why>" }` — never a 4xx. The body
 /// is a draft a person is still typing, not a resource the caller claims

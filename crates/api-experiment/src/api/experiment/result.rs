@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::connect;
 use crate::experiment::results_api::{ResultError, ResultResponse, read_result};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 pub async fn get_result(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,

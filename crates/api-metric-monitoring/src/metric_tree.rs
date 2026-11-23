@@ -23,15 +23,17 @@ use oxy_airlayer_compat::engine::metric_tree_fit::apply_fitted_coefficients;
 use oxy_airlayer_compat::engine::metric_tree_ops::{ExplainConfig, ExplainResult};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
-use oxy_app::surface::metric_tree_exec::{
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::metric_tree_exec::{
     MetricTreeError, baseline_scope_core, build_engine, load_layer_at, resolve_scan,
     workspace_databases,
 };
-use oxy_app::surface::metric_tree_exec::{
+use oxy_workspace_runtime::metric_tree_runner::{
     OxyMetricTreeRunner, build_drill_query_executor, build_query_executor,
 };
-use oxy_app::surface::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, WorkspaceManagerReadOnly,
+use oxy_workspace_runtime::request::workspace_context::{
+    SemanticEngineCacheCtx, WorkspaceManagerReadOnly,
 };
 
 /// Build the metric tree from an already-resolved scan.
@@ -42,7 +44,7 @@ fn load_tree_at(scan: &oxy::config::ScanDir) -> Result<MetricTree, MetricTreeErr
 
 // ── Pure ops: tree, sensitivity, predict ────────────────────────────────────
 
-pub use oxy_app::surface::metric_tree_exec::TreeQuery;
+pub use oxy_workspace_runtime::metric_tree_exec::TreeQuery;
 
 /// `GET .../semantic/metric-tree` — the full tree, or `?root=<id>` subtree.
 pub async fn get_metric_tree(
@@ -250,7 +252,7 @@ pub async fn post_opportunity(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
+    let preagg = oxy_workspace_runtime::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
@@ -356,7 +358,7 @@ async fn run_baseline_query(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
+    let preagg = oxy_workspace_runtime::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
@@ -526,7 +528,7 @@ pub async fn post_opportunity_drill(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
+    let preagg = oxy_workspace_runtime::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),

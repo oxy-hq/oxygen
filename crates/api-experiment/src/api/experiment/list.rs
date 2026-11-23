@@ -3,7 +3,7 @@ use axum::Json;
 use super::{ApiError, connect, internal};
 use crate::experiment::list::list_items;
 use crate::experiment::summary::ExperimentListItem;
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// `GET /experiments` — the workspace's experiments, each with its status, the
 /// version it shows, its latest proposal and how many were drawn.

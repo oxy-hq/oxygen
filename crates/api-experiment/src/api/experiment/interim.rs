@@ -12,8 +12,8 @@ use super::connect;
 use crate::experiment::interim::read::{
     InterimError, InterimResponse, read_interim, request_interim,
 };
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_server_authz::role_guards::ExperimentPricer;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 pub async fn get_interim(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,

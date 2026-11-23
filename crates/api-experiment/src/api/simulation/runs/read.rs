@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use super::super::{ApiError, connect, internal};
 use super::limits::RunPage;
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// `GET /simulations/runs?limit=&offset=` — this workspace's runs, newest
 /// first by enqueue time.

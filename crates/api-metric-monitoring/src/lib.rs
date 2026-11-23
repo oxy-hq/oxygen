@@ -30,8 +30,8 @@
 //!
 //! What stays below, in `oxy-workspace-runtime` (`oxy-app`'s `agentic_wiring`
 //! until 2026-11-22): the executor (`metric_tree_runner`), the executor-facing
-//! core the customer-app twins share (`metric_tree_exec`, reached through
-//! `oxy_app::surface::metric_tree_exec`).
+//! core the customer-app twins share (`metric_tree_exec`), both imported from
+//! there directly.
 //!
 //! Insights delivery is split by layer: the enqueue a scan calls is
 //! `oxy_metric_monitoring::notify::enqueue_if_due`, and its task's executor is
@@ -242,7 +242,7 @@ mod tests {
     /// scan and the metric tree are the two rows with outages behind them.
     #[test]
     fn the_installed_declarations_classify_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let decls: Vec<_> = workspace_route_roles()
             .iter()
             .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))

@@ -11,13 +11,15 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface takes from oxy-app, all through `oxy_app::surface`: the
-# workspace extractors, the metric-tree executor and the core the customer-app
-# twins share (`metric_tree_exec`), and the task seam the insights delivery's
-# executor rides (`seams::TaskSeam`). oxy-app never depends back on this crate. default-features
-# off so a `--no-default-features` build of oxy-server keeps dropping V8.
+# What this surface still takes from oxy-app, through `oxy_app::surface`: the
+# task seam the insights delivery's executor rides (`seams::TaskSeam`), until
+# the seams move down to oxy-app-core. oxy-app never depends back on this crate.
+# default-features off so a `--no-default-features` build of oxy-server keeps
+# dropping V8.
 oxy-app = { path = "../app", default-features = false }
-oxy-app-core = { workspace = true }            # AppState, write_hold, preagg_context
+oxy-app-core = { workspace = true }            # AppState, write_hold, preagg_context, PreaggCacheCtx
+oxy-server-authz = { workspace = true }        # EffectiveWorkspaceRole
+oxy-workspace-runtime = { workspace = true }   # the workspace extractors, the metric-tree executor and the core the customer-app twins share
 oxy-metric-monitoring = { workspace = true }   # the computation: detection, scan, the tree's pure half
 oxy-airlayer-compat = { workspace = true }
 oxy-semantic = { workspace = true }

@@ -8,8 +8,8 @@ use uuid::Uuid;
 use super::{ApiError, connect, internal};
 use crate::experiment::enqueue::{StartError, StartInput, start_price};
 use crate::experiment::request::PriceBody;
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_server_authz::role_guards::ExperimentPricer;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// Index C5's `PriceResponse`.
 #[derive(Debug, Serialize)]

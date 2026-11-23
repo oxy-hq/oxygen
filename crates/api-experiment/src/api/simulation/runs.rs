@@ -24,7 +24,7 @@ use super::worlds::resolve_world;
 use super::{ApiError, connect, internal};
 use crate::simulation::store::{self, NewRun};
 use crate::simulation::{SIMULATION_RUN_KIND, SimulationRunPayload};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 mod limits;
 mod queued;

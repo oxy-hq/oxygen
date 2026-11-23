@@ -18,8 +18,8 @@ use super::{ApiError, connect, internal};
 use crate::experiment::adopt::{AdoptError, adopt_proposal};
 use crate::experiment::design_store::{self, Design, DesignError, Edit};
 use crate::experiment::register::{RegisterError, register};
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_server_authz::role_guards::{ExperimentAuthorGuard, ExperimentRegisterGuard};
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// The experiment's design, as every route here returns it.
 #[derive(Debug, Serialize)]

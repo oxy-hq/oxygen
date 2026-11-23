@@ -24,7 +24,7 @@ use crate::experiment::jobs::CHECK_KIND;
 use crate::experiment::panel::PanelContext;
 use crate::experiment::source::WorkspacePanelSource;
 use crate::experiment::store;
-use oxy_app::surface::workspace_runtime::build_workspace_ctx;
+use oxy_workspace_runtime::driver_ctx::build_workspace_ctx;
 
 pub struct ExperimentCheckExecutor {
     pub db: DatabaseConnection,

@@ -26,11 +26,13 @@
 //!   the singleton global driver runs each pass beside the schedule ticks;
 //!   exactly-once across replicas by the CAS on `experiment_runs.next_check_at`.
 //!
-//! Reaches `oxy-app` through `oxy_app::surface` only (platform runtime: the
-//! role guards, the workspace context extractors, the project-context and
-//! workspace-manager builders, the compile-boundary scan resolver, and
-//! `metric_tree_exec` — the warehouse executor built from Oxy's connector
-//! pool, with the workspace's database configs). The metric-tree logic it
+//! Platform runtime comes from the crates that hold it: the role guards from
+//! `oxy-server-authz`; the workspace context extractors, the project-context
+//! and workspace-manager builders, the compile-boundary scan resolver, and
+//! `metric_tree_runner` — the warehouse executor built from Oxy's connector
+//! pool, with the workspace's database configs — from
+//! `oxy-workspace-runtime`. It reaches `oxy-app` through `oxy_app::surface`
+//! only, for the seams and the global-worker interval. The metric-tree logic it
 //! uses comes from `oxy-metric-monitoring`; it has no `BACKLOG` row in
 //! `crates/app/tests/routing/surface_contract.rs`. `oxy-app` never depends
 //! back on it.

@@ -13,8 +13,8 @@ use uuid::Uuid;
 use super::designs::{RegisterBody, Registered, experiment_or_404, registered};
 use super::{ApiError, connect};
 use crate::experiment::retrospective::create;
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_server_authz::role_guards::ExperimentRegisterGuard;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 pub async fn post_retrospective(
     _: ExperimentRegisterGuard,

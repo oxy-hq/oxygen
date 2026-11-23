@@ -18,7 +18,8 @@
 //! once-cell, installed once per test process.
 
 use oxy_api_experiment::workspace_route_roles;
-use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
+use oxy_app::surface::roles::install_route_declarations_for_tests_with;
+use oxy_app_core::pods::role_manifest::{RouteRole, classify};
 
 const WS: &str = "11111111-1111-1111-1111-111111111111";
 

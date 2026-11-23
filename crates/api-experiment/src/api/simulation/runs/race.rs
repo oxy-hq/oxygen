@@ -140,7 +140,7 @@ use uuid::Uuid;
 use oxy_simulation::PolicyKind;
 
 use super::super::{ApiError, connect, internal};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// `?baseline=&horizon=` on `GET /simulations/{name}/race`.
 #[derive(Debug, Deserialize, Default)]

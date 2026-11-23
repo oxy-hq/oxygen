@@ -1,7 +1,7 @@
 //! Building a workspace's semantic layer, engine and query executor for one
 //! panel query. Nothing here is pricing-specific; it is the recipe
 //! `run_baseline_query` (`oxy-api-metric-monitoring`'s `metric_tree`) uses,
-//! minus the HTTP request: the executor through `oxy_app::surface::metric_tree_exec`,
+//! minus the HTTP request: the executor through `oxy_workspace_runtime::metric_tree_runner`,
 //! the layer straight from the scan.
 
 use std::sync::{Arc, LazyLock};
@@ -16,11 +16,12 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use super::panel::{PanelContext, PanelRefusal, check_revision};
-use oxy_app::surface::SemanticEngineCacheCtx;
-use oxy_app::surface::metric_tree_exec::{RunnerPreagg, build_query_executor, workspace_databases};
-use oxy_app::surface::workspace_runtime::build_workspace_manager;
-use oxy_app::surface::workspace_runtime::resolve_compiled_scan_source;
 use oxy_app_core::workspace_cache::{SemanticEngineCache, new_semantic_engine_cache};
+use oxy_workspace_runtime::metric_tree_exec::workspace_databases;
+use oxy_workspace_runtime::metric_tree_runner::{RunnerPreagg, build_query_executor};
+use oxy_workspace_runtime::preagg_workspace::build_workspace_manager;
+use oxy_workspace_runtime::request::workspace_context::SemanticEngineCacheCtx;
+use oxy_workspace_runtime::scan_source::resolve_compiled_scan_source;
 
 /// One cache for the process's price jobs. A worker has no `AppState` to carry
 /// the request path's cache (see the note in `crates/server/src/commands/worker.rs`), and the

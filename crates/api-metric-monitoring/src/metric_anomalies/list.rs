@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use super::cap::cap_buckets_per_event;
 use super::error::AnomalyError;
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ListQuery {

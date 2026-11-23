@@ -10,20 +10,22 @@
 use axum::extract::Json;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
-use oxy_app::surface::metric_tree_exec::{load_layer_at, resolve_scan};
-use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::metric_tree_exec::{load_layer_at, resolve_scan};
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 // The executor-facing core both surfaces share (`ProjectionExec`,
 // `run_projection`, the error) is `oxy_workspace_runtime::metric_tree_exec`; the pure
 // half — wire shapes, validation, seasonality, the per-view read and the fit —
 // lives in `oxy-metric-monitoring`. Both re-exported so every
 // `metric_tree_projection::` path holds.
-pub use oxy_app::surface::metric_tree_exec::{
-    MetricTreeError, ProjectionExec, ProjectionOutcome, run_projection,
-};
 pub use oxy_metric_monitoring::metric_tree_projection::{
     ForecastPoint, HistoryPoint, MAX_PROJECTION_HORIZON, MeasureProjection, ProjectionRefusal,
     ProjectionRequest, ProjectionResponse, parse_series,
+};
+pub use oxy_workspace_runtime::metric_tree_exec::{
+    MetricTreeError, ProjectionExec, ProjectionOutcome, run_projection,
 };
 
 /// `POST .../semantic/metric-tree/projection` — history and forward curve for

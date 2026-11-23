@@ -14,8 +14,8 @@ use super::{ApiError, connect, internal};
 use crate::experiment::status::{
     AbortOutcome, OwnerAbort, RunStatusBody, request_abort, run_status,
 };
-use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_server_authz::role_guards::ExperimentAbortGuard;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 pub async fn get_run(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,

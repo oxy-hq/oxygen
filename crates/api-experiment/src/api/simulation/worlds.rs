@@ -19,7 +19,7 @@ use oxy::config::{ArtifactError, ConfigManager, DiskSlot};
 use serde::Serialize;
 
 use super::{ApiError, internal};
-use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// One declared world, as the workspace compiled it.
 #[derive(Debug, Serialize)]
