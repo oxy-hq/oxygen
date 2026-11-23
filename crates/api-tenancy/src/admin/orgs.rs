@@ -34,8 +34,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::admin_scope as scope;
 use oxy_app_core::AppState;
+use oxy_server_authz::staff::scope;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -276,8 +276,7 @@ pub async fn create_org(
     // token are already the source of truth, so a send failure never fails
     // the request). Seeded owners get no email by design.
     if let Some((to_email, token)) = pending_invite {
-        let base_url =
-            oxy_app::surface::session::extract_link_base_for_authenticated_request(&headers);
+        let base_url = oxy_app_core::session::extract_link_base_for_authenticated_request(&headers);
         let inviter_name = actor.name.clone();
         // The inviter's ADDRESS, not their display label — this is the
         // reply-to an invitation carries. Empty when the actor has none, which

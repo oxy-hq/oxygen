@@ -14,10 +14,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::surface::OrgContextExtractor;
-use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
 use oxy_app_core::member_authz;
+use oxy_server_authz::org_context::OrgContextExtractor;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 use super::dto::*;
 
@@ -365,7 +365,7 @@ pub async fn remove_member(
 
     // Sync Stripe seat quantity (decrement). Same best-effort pattern as
     // accept_invitation — reconciliation catches any failure.
-    if let Ok(svc) = oxy_app::surface::billing::billing_service().await {
+    if let Ok(svc) = oxy_billing::billing_service().await {
         let org_id_bg = ctx.org.id;
         tokio::spawn(async move {
             if let Err(e) = svc.sync_seats(org_id_bg).await {

@@ -19,8 +19,8 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::EffectiveWorkspaceRole;
 use oxy_app_core::org_host_dispatch;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 
 #[derive(Serialize)]
 pub struct OrgSubdomainStatus {

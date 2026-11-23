@@ -13,8 +13,8 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::surface::OrgContextExtractor;
-use oxy_app::surface::role_guards::{OrgAdmin, OrgOwner};
+use oxy_server_authz::org_context::OrgContextExtractor;
+use oxy_server_authz::role_guards::{OrgAdmin, OrgOwner};
 
 use super::dto::*;
 use super::ops::*;
@@ -85,7 +85,7 @@ pub async fn list_orgs(
     // closed while acting (`assume::block_admin_while_acting`), which is what
     // broke this. Making the list honest is better than punching a hole in the
     // block: the truth is that you have this org right now.
-    let assumed: Vec<Uuid> = oxy_app::surface::assume::live_sessions_for(&db, &caller)
+    let assumed: Vec<Uuid> = oxy_app_core::assume::live_sessions_for(&db, &caller)
         .await
         .into_iter()
         .map(|s| s.org_id)
@@ -134,7 +134,7 @@ pub async fn list_orgs(
         oxy_server_authz::cap_org_role(role, ceiling)
     };
     for org_id in &assumed {
-        if let Some(authority) = oxy_app::surface::assume::may_act_as(&db, &caller, *org_id).await {
+        if let Some(authority) = oxy_app_core::assume::may_act_as(&db, &caller, *org_id).await {
             assumed_role.insert(*org_id, authority.org_role());
         }
     }
@@ -185,7 +185,7 @@ pub async fn list_orgs(
 async fn may_provision_workspace(
     db: &sea_orm::DatabaseConnection,
     user: &oxy_auth::types::AuthenticatedUser,
-    ctx: &oxy_app::surface::OrgContext,
+    ctx: &oxy_server_authz::org_context::OrgContext,
 ) -> bool {
     let caller = oxy_server_authz::Caller::from_user(user);
     oxy_server_authz::workspace_provision_orgs(

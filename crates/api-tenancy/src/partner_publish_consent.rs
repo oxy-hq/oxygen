@@ -21,8 +21,8 @@ use oxy::database::client::establish_connection;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 
-use oxy_app::surface::role_guards::{OrgAdmin, OrgAdminStrict};
 use oxy_app_core::audit::{self, AuditEntry};
+use oxy_server_authz::role_guards::{OrgAdmin, OrgAdminStrict};
 
 #[derive(Serialize)]
 pub struct ConsentStatus {

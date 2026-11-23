@@ -30,11 +30,11 @@ use entity::{
 };
 use oxy_api_tenancy::onboarding::workspace_routes;
 use oxy_app::surface::bare_app_state;
-use oxy_app::surface::testing::workspace_context::workspace_middleware;
 use oxy_auth::token::{CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{RoleCeiling, TokenGrant};
 use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+use oxy_workspace_runtime::request::workspace_context::workspace_middleware;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::Value;
 use tower::ServiceExt;

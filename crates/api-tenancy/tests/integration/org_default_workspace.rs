@@ -97,7 +97,7 @@ async fn a_serve_replica_creates_an_org() {
     let staff = seed_owner(&db).await;
     // SAFETY: process-per-test; the role is read once, into a once-cell.
     unsafe { std::env::set_var("OXY_ROLE", "serve") };
-    oxy_app::surface::roles::init_process_role_from_env();
+    oxy_app_core::pods::role_manifest::init_process_role_from_env();
 
     let slug = fresh_slug();
     let Json(created) = create_org(actor(&staff), HeaderMap::new(), body(&staff, &slug))

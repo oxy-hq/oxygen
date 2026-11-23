@@ -5,7 +5,8 @@
 //! build, so the guard lives here.
 
 use oxy_api_tenancy::admin_sections;
-use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
+use oxy_app::surface::roles::install_route_declarations_for_tests_with;
+use oxy_app_core::pods::role_manifest::{RouteRole, classify};
 
 /// Install the sections' declarations the way the admin seam does — under
 /// `/admin` — then ask the same `classify` the request path asks.

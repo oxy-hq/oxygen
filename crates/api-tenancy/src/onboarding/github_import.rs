@@ -165,7 +165,13 @@ pub(super) async fn connect(
         info!(%workspace_id, "import superseded before it settled; nothing queued");
         return Ok(());
     }
-    oxy_app::surface::enqueue_import_compile(&db, workspace_id, head, branch).await;
+    oxy_compile_runtime::reconcile::enqueue::enqueue_import_compile(
+        &db,
+        workspace_id,
+        head,
+        branch,
+    )
+    .await;
     // Tell whoever is waiting on it. Best-effort: the workspace is connected
     // either way, and the setup screen polls until it compiles.
     if let Err(e) = oxy_app_core::notifications::platform::workspace_ready::notify_workspace_ready(

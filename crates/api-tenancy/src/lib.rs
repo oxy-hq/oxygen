@@ -42,8 +42,10 @@ pub mod workspace_provisioning;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, post, put};
-use oxy_app::surface::{AdminSection, org_middleware, subscription_guard_middleware};
+use oxy_app::surface::AdminSection;
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
+use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The [`Caller`](oxy_server_authz::Caller) behind a request's actor: its user
@@ -199,22 +201,22 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
 pub fn admin_sections() -> Vec<AdminSection> {
     vec![
         AdminSection {
-            capability: oxy_app::surface::Action::PlatformOrgs,
+            capability: oxy_server_authz::Action::PlatformOrgs,
             routes: admin_routes(),
             decls: vec![],
         },
         AdminSection {
-            capability: oxy_app::surface::Action::PlatformPartners,
+            capability: oxy_server_authz::Action::PlatformPartners,
             routes: admin_partner_routes(),
             decls: vec![],
         },
         AdminSection {
-            capability: oxy_app::surface::Action::PlatformOltp,
+            capability: oxy_server_authz::Action::PlatformOltp,
             routes: admin_oltp_routes(),
             decls: vec![],
         },
         AdminSection {
-            capability: oxy_app::surface::Action::PlatformAirhouse,
+            capability: oxy_server_authz::Action::PlatformAirhouse,
             routes: admin_airhouse_routes(),
             decls: vec![],
         },
@@ -336,7 +338,7 @@ mod tests {
     /// consent switch are held the same way.
     #[test]
     fn the_leaves_classify_fleet_ok_against_their_declarations() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let id = "d9830be4-c6a4";
         let api: Vec<_> = super::route_roles()
             .iter()

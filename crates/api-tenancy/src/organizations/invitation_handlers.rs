@@ -19,9 +19,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
 use oxy_app_core::member_authz;
+use oxy_server_authz::role_guards::OrgAdmin;
 
 use super::dto::*;
 use super::ops::*;
@@ -163,7 +163,7 @@ pub async fn create_invitation(
             tracing::error!("Failed to lookup inviter: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let base_url = oxy_app::surface::session::extract_link_base_for_authenticated_request(&headers);
+    let base_url = oxy_app_core::session::extract_link_base_for_authenticated_request(&headers);
     let inviter_name = inviter
         .as_ref()
         .map(|u| u.name.clone())
@@ -321,7 +321,7 @@ pub async fn create_bulk_invitations(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let base_url = oxy_app::surface::session::extract_link_base_for_authenticated_request(&headers);
+    let base_url = oxy_app_core::session::extract_link_base_for_authenticated_request(&headers);
     let inviter_name = inviter
         .as_ref()
         .map(|u| u.name.clone())
@@ -637,7 +637,7 @@ pub async fn accept_invitation(
     // Sync the Stripe seat quantity to reflect the newly added member. Spawned
     // so the user-facing request doesn't block on Stripe; the reconciliation
     // loop is the safety net if this fails.
-    if let Ok(svc) = oxy_app::surface::billing::billing_service().await {
+    if let Ok(svc) = oxy_billing::billing_service().await {
         let org_id_bg = invitation.org_id;
         tokio::spawn(async move {
             if let Err(e) = svc.sync_seats(org_id_bg).await {

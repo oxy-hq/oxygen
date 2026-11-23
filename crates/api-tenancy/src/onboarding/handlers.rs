@@ -9,9 +9,9 @@ use oxy::service::secret_manager::SecretManagerService;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use tracing::error;
 
-use oxy_app::surface::role_guards::{OrgWorkspaceProvisioner, WorkspaceAdmin};
-use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
+use oxy_server_authz::role_guards::{OrgWorkspaceProvisioner, WorkspaceAdmin};
+use oxy_workspace_runtime::request::workspace_context::{WorkspaceManagerReadOnly, WorkspacePath};
 
 use super::dto::*;
 use super::github_import::{ImportRequest, connect, place_import, resolve_import_head};

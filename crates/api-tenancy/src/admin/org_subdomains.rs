@@ -128,7 +128,7 @@ async fn deny_out_of_scope(
     actor: &oxy_auth::types::AuthenticatedUser,
     org_id: Uuid,
 ) -> Result<(), ApiError> {
-    oxy_app::surface::admin_scope::deny_out_of_scope(db, actor, org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(db, actor, org_id)
         .await
         // 404 stays 404: the message is generic on purpose, so an out-of-scope caller
         // learns nothing the status doesn't already say.

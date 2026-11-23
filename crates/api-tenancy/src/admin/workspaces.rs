@@ -22,9 +22,9 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::admin_scope as scope;
 use oxy_app_core::AppState;
 use oxy_app_core::audit::{self, RequestActor};
+use oxy_server_authz::staff::scope;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

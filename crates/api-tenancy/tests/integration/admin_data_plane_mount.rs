@@ -153,7 +153,7 @@ async fn airhouse_admin_routes_are_mounted_on_the_real_router() {
 /// provision a billable database — so both are pinned, each on its own routes.
 #[test]
 fn the_data_plane_sections_take_their_own_capabilities() {
-    use oxy_app::surface::Action;
+    use oxy_server_authz::Action;
     let sections = oxy_api_tenancy::admin_sections();
     for capability in [Action::PlatformOltp, Action::PlatformAirhouse] {
         let found: Vec<_> = sections
