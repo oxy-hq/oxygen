@@ -25,9 +25,9 @@ pub use dispatch::DispatchCx as LoopCx;
 pub use driver::{Budgets, LoopConfig, LoopOutcome, run_loop};
 pub use events::ReactEvent;
 pub use memory::{
-    FileMemoryStore, MAX_NOTE_CHARS, MEMORY_TOOLS, MemoryError, MemoryGate, MemoryStore, Note,
-    NoteFact, NoteOp, REFLECT_PROMPT, REFLECT_STATE, Reflect, RunMemory, latest, memory_tools,
-    notes_section,
+    FileMemoryStore, MAX_NOTE_CHARS, MEMORY_TOOLS, MemoryError, MemoryGate, MemoryStore,
+    MergeError, MergeReport, Note, NoteFact, NoteOp, REFLECT_PROMPT, REFLECT_STATE, Reflect,
+    RunMemory, latest, memory_tools, merge_notes, notes_section,
 };
 pub use nudge::Nudge;
 pub use results::{DEFAULT_PREVIEW_ROWS, Preview, ResultStore, StoredResult};

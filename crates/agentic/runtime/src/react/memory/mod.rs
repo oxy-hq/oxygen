@@ -11,6 +11,7 @@
 //! has none.
 
 mod file;
+mod merge;
 mod reflect;
 mod tools;
 
@@ -21,6 +22,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub use file::FileMemoryStore;
+pub use merge::{MergeError, MergeReport, merge_notes};
 pub(super) use reflect::reflect;
 pub use reflect::{REFLECT_PROMPT, REFLECT_STATE, Reflect};
 pub use tools::{MemoryGate, memory_tools};
@@ -100,6 +102,17 @@ pub fn latest(facts: Vec<NoteFact>) -> Vec<Note> {
 /// The system prompt section for `notes` (newest first), capped at
 /// [`MAX_PROMPT_NOTES`] and [`MAX_PROMPT_CHARS`]. `None` when there are none.
 pub fn notes_section(notes: &[Note]) -> Option<String> {
+    let (out, listed) = section(notes);
+    (listed > 0).then_some(out)
+}
+
+/// Whether the prompt lists every one of `notes`, none cut by the caps.
+pub fn fits(notes: &[Note]) -> bool {
+    section(notes).1 == notes.len()
+}
+
+/// The section's text and how many notes it lists.
+fn section(notes: &[Note]) -> (String, usize) {
     let mut out = String::from(
         "What you learned in earlier runs (how to answer here, not answers; check a note \
          against the files when it matters):\n",
@@ -113,7 +126,7 @@ pub fn notes_section(notes: &[Note]) -> Option<String> {
         out.push_str(&line);
         listed += 1;
     }
-    (listed > 0).then_some(out)
+    (out, listed)
 }
 
 /// One run's memory: the notes its prompt lists, and where its writes go.

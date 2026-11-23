@@ -140,7 +140,12 @@ async fn run_one_eval(
             refuse_regrade_unless_execution(&eval.metrics)?;
             regrade::load(source)?
         }
-        None => run_generator(&eval_context, eval.kind, target, eval.concurrency).await?,
+        None => {
+            let ran = run_generator(&eval_context, eval.kind, target.clone(), eval.concurrency);
+            let ran = ran.await?;
+            super::memory_merge::after_pass(&eval_context, &target).await;
+            ran
+        }
     };
 
     let answered = outputs.len();

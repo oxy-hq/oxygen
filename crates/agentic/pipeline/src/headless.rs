@@ -25,6 +25,7 @@ pub use crate::react_run::memory::EvalMemory;
 use crate::react_run::{
     self, EVAL_ENTRY_REACT, HARNESS_ENTRY_REACT, ReactPolicy, STREAMING_ENTRY_REACT,
 };
+pub use memory_merge::merge_eval_notes;
 
 /// What to do with each `Event<AnalyticsEvent>` the pipeline emits during a
 /// headless run. `Drain` discards them (eval / fire-and-forget); `Forward`
@@ -409,3 +410,6 @@ fn orchestrator_error_text(e: OrchestratorError<AnalyticsDomain>) -> String {
 #[cfg(test)]
 #[path = "headless_tests.rs"]
 mod tests;
+
+#[path = "react_memory_merge.rs"]
+mod memory_merge;

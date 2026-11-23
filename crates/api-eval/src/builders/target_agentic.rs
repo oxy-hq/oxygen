@@ -91,7 +91,7 @@ pub(super) async fn run_target(
 /// [`eval_memory`] for `oxy test` (`working_copy`) only: an eval the server
 /// runs reads a shared context and never gets memory, whatever its env says,
 /// so no org's notes land in a local file.
-fn target_memory(
+pub(super) fn target_memory(
     working_copy: bool,
     var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> agentic_pipeline::EvalMemory {

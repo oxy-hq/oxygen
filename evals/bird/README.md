@@ -118,6 +118,15 @@ OXY_EVAL_MEMORY_READ=$OUT/financial.a.jsonl oxy test financial.semantic.half-b.t
 
 Half files are generated. Do not commit them.
 
+**Merge step.** After a pass that wrote notes, `oxy test` merges the file once when the prompt
+cannot list every note (it lists at most 40 notes and 4,000 characters, newest first). One
+call on the agent's model rewrites the live notes into a shorter list, aiming at 3,000
+characters. The code rejects a reply that overflows the prompt or has a note over 600
+characters, tells the model why, and asks again, up to three replies. If all three fail, it
+writes nothing. Each merge is recorded in `<notes>.merges.jsonl` beside the notes, with its
+tokens and cost, apart from the answers' cost. To merge an existing file without running
+questions, point the write variable at a copy and run a test file with `cases: []`.
+
 ## Regrade without re-running the agent
 
 A change to the grader (judge prompt, gold-SQL timeout, SKIP rule) is applied to an execution-graded
