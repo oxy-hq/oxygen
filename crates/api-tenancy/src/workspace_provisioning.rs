@@ -15,10 +15,9 @@
 //! the data-release staging pointer, not workspaces
 //! (`internal-docs/2026-11-10-org-vs-workspace-grain.md`).
 //!
-//! Lives in `oxy-app` rather than `oxy-project`: registering a workspace seeds
-//! its health schedule through `agentic_pipeline`, and a platform crate may
-//! never import an agentic one. Both sibling surface crates already depend on
-//! `oxy-app`, and `oxy-app` depends on neither.
+//! Lives in this surface crate (it came from `oxy-app`) rather than
+//! `oxy-project`: registering a workspace seeds its health schedule through
+//! `agentic_pipeline`, and a platform crate may never import an agentic one.
 //!
 //! Everything here writes node-local disk, so every route that reaches it is
 //! IdeOnly.

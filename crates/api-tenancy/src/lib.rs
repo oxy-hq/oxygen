@@ -42,10 +42,10 @@ pub mod workspace_provisioning;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, post, put};
-use oxy_app::surface::AdminSection;
 use oxy_app_core::AppState;
 use oxy_app_core::guards::org_context::org_middleware;
 use oxy_app_core::guards::subscription_guard::subscription_guard_middleware;
+use oxy_app_core::seams::AdminSection;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The [`Caller`](oxy_server_authz::Caller) behind a request's actor: its user
@@ -272,7 +272,7 @@ mod tests {
     /// handles the write. Moved from `oxy-app`'s router tests with the route.
     #[tokio::test]
     async fn self_serve_org_creation_is_not_mounted() {
-        let router = super::routes().with_state(oxy_app::surface::bare_app_state());
+        let router = super::routes().with_state(oxy_app_core::app_state::bare_app_state());
         let req = Request::builder()
             .method("POST")
             .uri("/orgs")
@@ -382,7 +382,8 @@ mod tests {
     /// probed through the served router in `oxy-server` instead.
     #[tokio::test]
     async fn the_workspace_routes_are_mounted() {
-        let router = super::workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        let router =
+            super::workspace_routes().with_state(oxy_app_core::app_state::bare_app_state());
         for uri in ["/org-subdomain", "/logo"] {
             assert_eq!(
                 trace(&router, uri).await,

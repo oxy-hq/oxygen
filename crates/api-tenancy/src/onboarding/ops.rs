@@ -36,7 +36,7 @@ pub(super) fn parse_subdir(raw: &str) -> Result<Option<std::path::PathBuf>, (Sta
     Ok(Some(path.to_path_buf()))
 }
 
-// The two helpers below are thin adapters over `oxy_app`'s
+// The two helpers below are thin adapters over this crate's
 // `workspace_provisioning` — the one implementation of creating a workspace,
 // shared with the org-creation doors — kept so `setup_github`
 // read the same as before. See that module for the behavior.

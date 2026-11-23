@@ -23,7 +23,7 @@ fn admin_tree() -> Router {
             "/admin",
             oxy_api_tenancy::admin_oltp_routes().merge(oxy_api_tenancy::admin_airhouse_routes()),
         )
-        .with_state(oxy_app::surface::bare_app_state())
+        .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
 /// The same guard for the per-org OLTP routes, which shipped 404ing.

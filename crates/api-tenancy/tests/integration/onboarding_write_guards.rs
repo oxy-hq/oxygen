@@ -29,7 +29,7 @@ use entity::{
     org_members, organizations, users, workspace_factory_grants, workspace_members, workspaces,
 };
 use oxy_api_tenancy::onboarding::workspace_routes;
-use oxy_app::surface::bare_app_state;
+use oxy_app_core::app_state::bare_app_state;
 use oxy_auth::token::{CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{RoleCeiling, TokenGrant};
