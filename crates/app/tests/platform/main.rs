@@ -26,10 +26,10 @@
 //!   `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
-//! * `local_mode_router` calls `api_router(..)`, which
-//!   reaches the *shared* `OXY_DATABASE_URL` and runs `cleanup_stale_runs` — an
-//!   unscoped UPDATE over `agentic_runs`. It is excluded from `db-per-test`
-//!   and pinned into `serial-db` with the other shared-schema tests.
+//! * (`local_mode_router`, which calls `api_router(..)` and so reaches the
+//!   *shared* `OXY_DATABASE_URL`, went up into `oxy-server`'s integration group
+//!   with the router in decompose LIFT, 2026-11-23, and its `serial-db` pin
+//!   with it.)
 //! * everything else is in-process, but NOT ungrouped: that override matches
 //!   `binary(=platform)`, so every module here except those exclusions runs
 //!   under `db-per-test` (`max-threads = 4`, `retries = 2`) whether or not it
@@ -90,7 +90,6 @@ mod file_credentials_at_compile;
 mod fleet_claim;
 mod frontline_app_grant;
 mod frontline_pin;
-mod local_mode_router;
 mod master_key_kms;
 mod metric_tree_fit_panel;
 mod migration_rollback_safety;

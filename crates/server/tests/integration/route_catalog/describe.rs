@@ -20,10 +20,10 @@ fn describe_reports_the_fleet_role() {
     // No route needs the ide any more (the GitHub import was the last), so to
     // see `describe` report one this test declares a real catalog route
     // IdeOnly itself; the label is what is under test, not the route.
-    oxy_app::server::role_manifest::install_route_declarations_for_tests_with(vec![(
+    oxy_server::role_manifest::install_route_declarations_for_tests_with(vec![(
         "POST",
         "/orgs/{org_id}/onboarding/github".to_string(),
-        oxy_app::server::role_manifest::RouteRole::IdeOnly,
+        oxy_server::role_manifest::RouteRole::IdeOnly,
     )]);
     let import = catalog()
         .routes

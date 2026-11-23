@@ -8,7 +8,9 @@
 //! still `crates/app` in this binary, so every walked root (`src/server`,
 //! `../api-*`, `../agentic`) and every path the walks compare against reads
 //! exactly as it did there. The `sentry_surface.rs` filename filter in
-//! [`server_sources`] still leaves out that module, now a re-export.
+//! [`server_sources`] left out that module while it was a re-export; the
+//! re-export went with the router in decompose LIFT (2026-11-23), and the
+//! filter stays so the name cannot come back into the walk.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -494,16 +496,27 @@ const GATE_ENTRY_POINTS: [&str; 3] = [
 /// periodic tick, `oxy-server`'s `drivers` since 2026-11-23 (decompose BL1, was
 /// `src/server/router/{recovery,periodic,drive_policy,run_retention,
 /// fleet_jobs}` and `src/server/{audit_anchor,token_usage_flush}.rs`, inside the
-/// same walk). None is on the data plane; walked so a gate call added there is
-/// seen.
+/// same walk). The router assembly, its middlewares, the admin console shell,
+/// the route-role installer and the boot's auth-provider check, `oxy-server`'s
+/// since 2026-11-23 (decompose LIFT, was `src/server/{router,api/middlewares,
+/// api/admin,api/local_setup.rs,role_manifest.rs,role_middleware.rs,
+/// auth_provider_check.rs}`, inside the same walk). None is on the data plane;
+/// walked so a gate call added there is seen.
 fn oxy_server_sources(crate_root: &Path, files: &mut Vec<PathBuf>) {
     rust_files(&crate_root.join("../server/src/core_routes"), files);
     rust_files(&crate_root.join("../server/src/drivers"), files);
+    rust_files(&crate_root.join("../server/src/router"), files);
+    rust_files(&crate_root.join("../server/src/admin"), files);
     for file in [
         "worker_runtime.rs",
         "worker_health.rs",
         "worker_metrics.rs",
         "shared_state_check.rs",
+        "role_manifest.rs",
+        "role_manifest_tests.rs",
+        "role_middleware.rs",
+        "role_middleware_tests.rs",
+        "auth_provider_check.rs",
     ] {
         files.push(crate_root.join("../server/src").join(file));
     }

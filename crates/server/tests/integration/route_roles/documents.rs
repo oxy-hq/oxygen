@@ -10,8 +10,8 @@
 //! once-cell, installed once per test process (nextest gives each its own).
 
 use oxy_api_documents::route_roles;
-use oxy_app::surface::roles::install_route_declarations_for_tests_with;
 use oxy_app_core::pods::role_manifest::{RouteRole, classify};
+use oxy_server::role_manifest::install_route_declarations_for_tests_with;
 
 const ORG: &str = "11111111-1111-1111-1111-111111111111";
 const DOC: &str = "22222222-2222-2222-2222-222222222222";

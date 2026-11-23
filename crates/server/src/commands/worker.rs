@@ -201,20 +201,20 @@ pub struct WorkerArgs {
 /// not handed the rest.
 pub struct WorkerSeams {
     /// The custom-app task kinds this worker can run (`SurfaceSeams::tasks`).
-    pub tasks: Vec<oxy_app::host::router::TaskSeam>,
+    pub tasks: Vec<crate::router::TaskSeam>,
     /// The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this
     /// process runs the global driver when its role says so, and the driver
     /// reads them.
-    pub global_ticks: Vec<oxy_app::host::router::GlobalTickSeam>,
+    pub global_ticks: Vec<crate::router::GlobalTickSeam>,
     /// The jobs whose answer is global rather than per replica
     /// (`SurfaceSeams::fleet_jobs`): on a split fleet the workers are the only
     /// processes that run singleton work, so they start them, and each job
     /// claims its interval so the fleet runs it once.
-    pub fleet_jobs: Vec<oxy_app::host::router::FleetJobSeam>,
+    pub fleet_jobs: Vec<crate::router::FleetJobSeam>,
     /// The notifications surface's boot hooks (`SurfaceSeams::notifications`):
     /// a worker both raises and delivers notifications, so it refuses to start
     /// without them.
-    pub notifications: Option<oxy_app::host::router::NotificationsSeam>,
+    pub notifications: Option<crate::router::NotificationsSeam>,
 }
 
 /// Entry point for `oxy worker`.
@@ -230,13 +230,12 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     } = seams;
     // Before anything is built: a worker without an executor for a kind
     // `oxy-app` queues would claim those tasks and fail them as unknown.
-    oxy_app::host::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
-    oxy_app::host::router::install_global_ticks(&global_ticks);
-    oxy_app::host::router::require_notifications(notifications.as_ref())
-        .map_err(OxyError::RuntimeError)?;
+    crate::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
+    crate::router::install_global_ticks(&global_ticks);
+    crate::router::require_notifications(notifications.as_ref()).map_err(OxyError::RuntimeError)?;
     // Nothing else on a split fleet runs these, so a worker without them is a
     // composition error, not a smaller worker.
-    oxy_app::host::router::require_fleet_jobs(&fleet_jobs).map_err(OxyError::RuntimeError)?;
+    crate::router::require_fleet_jobs(&fleet_jobs).map_err(OxyError::RuntimeError)?;
 
     // The worker is a separate PROCESS, so `start_server_and_web_app`'s
     // registration does not reach it — and background work is where `notify`
@@ -274,8 +273,8 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     // anyway. An explicit `OXY_ROLE` still wins.
     oxy_app_core::config::BootConfig::init()
         .map_err(|e| OxyError::ConfigurationError(format!("worker: {e}")))?;
-    let role = oxy_app::host::role_manifest::init_process_role_from_env_with_default(
-        oxy_app::host::role_manifest::Role::Worker,
+    let role = crate::role_manifest::init_process_role_from_env_with_default(
+        crate::role_manifest::Role::Worker,
     );
 
     require_database_url()?;
@@ -284,10 +283,10 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     crate::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // And it is never the guest-mode single process either: refuse without a
     // sign-in provider, as `serve` does for its fleet roles.
-    oxy_app::host::auth_provider_check::check(
+    crate::auth_provider_check::check(
         role,
         false,
-        oxy_app::host::auth_provider_check::provider_configured(),
+        crate::auth_provider_check::provider_configured(),
     )
     .map_err(OxyError::RuntimeError)?;
 
@@ -477,7 +476,7 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     // `OXY_INPROC_GLOBAL_WORKER=0` stops both.
     crate::drivers::fleet_jobs::start_fleet_jobs(
         &fleet_jobs,
-        &oxy_app::host::router::FleetJobDeps {
+        &crate::router::FleetJobDeps {
             db: &runtime.db,
             shutdown: &shutdown,
         },

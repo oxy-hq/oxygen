@@ -1,4 +1,5 @@
-pub mod admin;
+// `admin` (the console shell that merges every surface's `AdminSection`) went
+// up into `oxy-server` with the router (decompose LIFT, 2026-11-23).
 /// The session plumbing every sign-in path shares moved down to `oxy-app-core`
 /// (2026-11-21); the old path stays so no call site changes.
 pub use oxy_app_core::session as auth;
@@ -78,7 +79,8 @@ pub use oxy_workspace_runtime::custom_apps_gates;
 // its listener started through `SurfaceSeams::background`.
 // `integration` (the Looker listing, `/integrations/looker`) moved to
 // `oxy-api-workspace-config` (2026-11-16), mounted on the workspace seam.
-pub mod local_setup;
+// `local_setup` (the legacy `--local` `/setup` handlers) went up into
+// `oxy-server`'s `router` with the tree that mounts it (decompose LIFT).
 // Lowered into the domain crate; re-exported so every `server::api::` path holds.
 pub use oxy_metric_monitoring::{metric_tree_baseline, metric_tree_groups, metric_tree_inputs};
 pub mod middlewares;

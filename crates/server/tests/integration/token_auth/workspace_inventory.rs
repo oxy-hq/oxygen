@@ -27,7 +27,7 @@ fn inventory_api() -> Router {
     let workspace = Router::new()
         .route("/api-tokens", get(list_workspace_tokens))
         .layer(middleware::from_fn(workspace_access_middleware));
-    oxy_app::server::router::api_auth_layers(Router::new().nest("/{workspace_id}", workspace))
+    oxy_server::router::api_auth_layers(Router::new().nest("/{workspace_id}", workspace))
 }
 
 /// The ids the workspace's inventory lists, as its admin.

@@ -142,16 +142,12 @@ retries = 2
 # `tests/authz/shared_db_registry.rs` scans it along with the rest and fails the
 # build the day that stops being true.
 #
-# The exclusion is NOT in that category: `local_mode_router` calls
-# `api_router(..)`, which builds `new_agentic_state`,
-# which calls `establish_connection()` on the ambient `OXY_DATABASE_URL` and then
-# `cleanup_stale_runs(&db)` — an UNSCOPED write that flips every
-# `waiting_on_child*` row in `agentic_runs` to `failed`. It belongs with the
-# shared-schema tests below, not here. Test groups are independent semaphores, so
-# leaving it in `db-per-test` bounds it against the others and not at all
-# against the `agentic-runtime`/`agentic-pipeline` tests that own those rows.
+# (The exclusion this override carried, `local_mode_router`, went up into
+# `oxy-server`'s integration group with the router in decompose LIFT,
+# 2026-11-23, and its exclusion and `serial-db` pin with it: see the
+# `oxy-server` overrides below.)
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=airhouse) | binary(=platform)) & !test(/^(local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=airhouse) | binary(=platform))"
 test-group = "db-per-test"
 retries = 2
 
@@ -312,10 +308,30 @@ retries = 2
 # carved out as it was in each surface's override: full parallelism, no retries.
 # `route_catalog` (`oxy-route-catalog`'s tests that build the real router, up
 # from that crate's unit tests in decompose RT) opens no database either, so it
-# is carved out the same way, as it ran there.
+# is carved out the same way, as it ran there. So is `routing` (`oxy-app`'s
+# routing tests that build the real router, up with it in decompose LIFT),
+# which ran ungrouped in `oxy-app`'s `routing` binary. `local_mode_router` is
+# excluded for the opposite reason: it reaches the SHARED database (below).
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/) & !test(/^route_catalog::/)"
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & !test(/^route_roles::/) & !test(/^route_catalog::/) & !test(/^routing::/) & !test(/^local_mode_router::/)"
 test-group = "db-per-test"
+retries = 2
+
+# `local_mode_router`, `oxy-app`'s `platform` binary's until the router went
+# up into `oxy-server` (decompose LIFT, 2026-11-23): it calls `api_router(..)`,
+# which builds `new_agentic_state`, which calls `establish_connection()` on the
+# ambient `OXY_DATABASE_URL` and then `cleanup_stale_runs(&db)` — an UNSCOPED
+# write that flips every `waiting_on_child*` row in `agentic_runs` to
+# `failed`. It belongs with the shared-schema tests (see the `serial-db` note
+# below), not in `db-per-test`: test groups are independent semaphores, so
+# `db-per-test` would bound it against the others and not at all against the
+# `agentic-runtime`/`agentic-pipeline` tests that own those rows.
+# `tests/authz/shared_db_registry.rs` reads this alternation as oxy-server's
+# list of shared-database modules (the first `package(=oxy-server)` override
+# with one), so keep it the only one.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-server) & binary(=integration) & test(/^(local_mode_router)::/)"
+test-group = "serial-db"
 retries = 2
 
 # The drivers' two database tests, `oxy-app`'s `platform` binary's
@@ -408,7 +424,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|audit_append_only|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|audit_append_only)::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -476,8 +492,9 @@ filter = "package(=oxy-server) & kind(lib) & test(/^commands::serve_background::
 test-group = "serial-db"
 retries = 2
 
-# `oxy-app`'s own unit tests hold the same caller: three of
-# `server::router::router_split_tests` build `api_router(..)` (the two local-mode
+# The router's own unit tests (`oxy-app`'s until the router went up into
+# `oxy-server`, decompose LIFT, 2026-11-23) hold the same caller: three of
+# `router::router_split_tests` build `api_router(..)` (the two local-mode
 # checks and the external router's fallback), so each runs the unscoped
 # `cleanup_stale_runs` against the shared `OXY_DATABASE_URL`. They were left
 # ungrouped when their `/orgs` siblings moved to `oxy-server`, free to rewrite
@@ -490,10 +507,10 @@ retries = 2
 # serializing its two in-process tests, which run in milliseconds.
 #
 # Written without a parenthesised alternation on purpose: `shared_db_registry.rs`
-# reads the first `package(=oxy-app)` override carrying one as the list of
+# reads the first `package(=oxy-server)` override carrying one as the list of
 # integration MODULES to check, and this is not that list.
 [[profile.default.overrides]]
-filter = "package(=oxy-app) & kind(lib) & test(/^server::router::router_split_tests::/)"
+filter = "package(=oxy-server) & kind(lib) & test(/^router::router_split_tests::/)"
 test-group = "serial-db"
 retries = 2
 

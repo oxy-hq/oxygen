@@ -35,7 +35,9 @@
 //!
 //! ## Scope and precision
 //!
-//! The walk covers `crates/app/src/server/api/**`, every `crates/api-*/src/**`
+//! The walk covers `crates/app/src/server/api/**` (and the part of it that went up
+//! into `oxy-server` with the router: `server/src/{admin,router/middlewares}/**`
+//! and `server/src/router/local_setup.rs`), every `crates/api-*/src/**`
 //! (`crates/app/src/integrations/**` too, until its last request path, the OAuth
 //! connects, left for `oxy-api-workspace-config` on 2026-11-21), and the request-path
 //! cores in `crates/world-model/src/{graph,cohort}/**` that the World Model handlers
@@ -482,6 +484,12 @@ fn scan_roots() -> Vec<PathBuf> {
     // 2026-11-21), each covered as an `api-*` crate below. The directory is gone.
     let mut roots = vec![
         crates.join("app/src/server/api"),
+        // What of `app/src/server/api` went up into `oxy-server` with the router
+        // (decompose LIFT, 2026-11-23): the console shell and the router-only
+        // middlewares, with `local_setup.rs` (see `scanned_files`). Not the
+        // rest of `router/`: route assembly was never this rule's layer.
+        crates.join("server/src/admin"),
+        crates.join("server/src/router/middlewares"),
         // The World Model graph and cohort cores, lowered out of oxy-app's
         // handlers into `oxy-world-model`: still request paths, so still this
         // rule's. The rest of that crate (the live-feed outbox writer) is
@@ -605,6 +613,9 @@ fn scanned_files() -> Vec<PathBuf> {
     for root in scan_roots() {
         rust_sources(&root, &mut files);
     }
+    // The legacy `/setup` handlers, `app/src/server/api/local_setup.rs` until
+    // decompose LIFT: one file, beside the router assembly that is not walked.
+    files.push(crates_root().join("server/src/router/local_setup.rs"));
     files.retain(|f| !is_test_file(&rel_of(f)));
     files.sort();
     files

@@ -61,7 +61,7 @@ impl Fx {
             std::env::set_var("GITHUB_API_URL", github.uri());
             std::env::remove_var("OXY_COMPILE_BLOB_S3_BUCKET");
         }
-        oxy_app::server::role_manifest::init_process_role_from_env();
+        oxy_app_core::pods::role_manifest::init_process_role_from_env();
         let ws = seed_workspace(&db, None).await;
         Self { db, ws, github }
     }

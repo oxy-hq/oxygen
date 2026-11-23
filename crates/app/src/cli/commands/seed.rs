@@ -33,7 +33,7 @@ use oxy_auth::types::Identity;
 use oxy_auth::user::UserService;
 use oxy_shared::errors::OxyError;
 
-use crate::server::router::ExampleAppsSeam;
+use oxy_app_core::seams::ExampleAppsSeam;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
 };

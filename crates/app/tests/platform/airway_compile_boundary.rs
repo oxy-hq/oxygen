@@ -204,7 +204,7 @@ pub(super) async fn worker_context_without_working_copy(
     unsafe {
         std::env::set_var("OXY_ROLE", "worker");
     }
-    oxy_app::server::role_manifest::init_process_role_from_env();
+    oxy_app_core::pods::role_manifest::init_process_role_from_env();
 
     let absent = PathBuf::from(format!("/nonexistent-oxy-workspace/{}", Uuid::new_v4()));
     assert!(!absent.exists(), "precondition: no working copy on disk");

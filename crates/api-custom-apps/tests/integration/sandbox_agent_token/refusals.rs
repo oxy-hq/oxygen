@@ -334,7 +334,7 @@ async fn the_public_reads_are_closed(s: &Scene) {
         let (status, body) = s.agent.get(&read).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "GET {read}: {body}");
     }
-    let external = oxy_app::surface::testing::external_auth_layers(axum::Router::new().route(
+    let external = oxy_server::router::external_auth_layers(axum::Router::new().route(
         "/probe",
         axum::routing::get(|| async { StatusCode::NO_CONTENT }),
     ));

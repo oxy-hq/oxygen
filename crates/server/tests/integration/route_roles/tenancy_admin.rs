@@ -6,8 +6,8 @@
 //! TR (2026-11-23) lives here, in `oxy-server`, which depends on both.
 
 use oxy_api_tenancy::admin_sections;
-use oxy_app::surface::roles::install_route_declarations_for_tests_with;
 use oxy_app_core::pods::role_manifest::{RouteRole, classify};
+use oxy_server::role_manifest::install_route_declarations_for_tests_with;
 
 /// Install the sections' declarations the way the admin seam does — under
 /// `/admin` — then ask the same `classify` the request path asks.

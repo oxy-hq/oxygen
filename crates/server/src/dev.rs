@@ -9,7 +9,7 @@
 //! The old top-level `oxy seed` and `oxy test` still run for one release, in
 //! dev-tools builds only, and print the new spelling first (on stderr).
 
-use oxy_app::host::router::SurfaceSeams;
+use crate::router::SurfaceSeams;
 use oxy_cli_shim::RunResult;
 
 // The `dev` group, its own owner in `oxy-cli-shim`. A plain comment, not `///`:

@@ -300,7 +300,7 @@ jobs:
               - "crates/app/src/server/api/custom_apps*"
               - "crates/app/src/server/api/custom_apps*/**"
               - "crates/app/src/server/api/admin/apps/**"
-              - "crates/app/src/server/router/**"
+              - "crates/server/src/router/**"
               - "crates/app-core/**"
               - "crates/auth/**"
               - "crates/agentic/connector/**"

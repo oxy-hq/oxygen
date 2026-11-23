@@ -57,7 +57,7 @@ const NOT_ON_SERVE_YET: &[(&str, &str)] = &[];
 /// list is set once, and another test in this binary may already have set it
 /// without the surfaces.
 fn served_declarations() -> Vec<(&'static str, String, RouteRole)> {
-    let mut decls = oxy_app::server::router::route_declarations();
+    let mut decls = oxy_server::router::route_declarations();
     let workspace_seam = oxy_api_tenancy::onboarding::workspace_route_roles()
         .iter()
         .chain(oxy_api_tenancy::workspace_route_roles())

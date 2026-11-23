@@ -149,6 +149,11 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The run drivers and the periodic tick, `oxy-server`'s `drivers`
         // since 2026-11-23 (decompose BL1, out of `src/server/router`).
         manifest.join("../server/src/drivers"),
+        // The router assembly, its middlewares and the local `/setup` handlers,
+        // and the admin console shell, `oxy-server`'s since 2026-11-23
+        // (decompose LIFT, out of `src/server/{router,api}`, walked above).
+        manifest.join("../server/src/router"),
+        manifest.join("../server/src/admin"),
         // The conversation surface, `oxy-api-threads` since 2026-11-16.
         manifest.join("../api-threads/src"),
         // The workspaces surface, `oxy-api-workspaces` since 2026-11-16.

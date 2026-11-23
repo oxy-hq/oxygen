@@ -1,7 +1,6 @@
 //! HTTP server and API endpoints
 
 pub mod api;
-pub mod auth_provider_check;
 pub mod authz;
 pub mod build_identity;
 // The compile boundary's runtime leaves, `oxy-compile-runtime`'s since
@@ -32,10 +31,12 @@ pub use oxy_workspace_runtime::request::factory_access;
 // the runtime is `oxy-feature-flags`.
 pub mod http_cache;
 // Pod placement (the Factory relay, the role middleware, servability and the
-// route roles) is `oxy-app-core`'s `pods` since 2026-11-22 (decompose G3);
-// re-exported so the router and `host` keep these paths.
-// `role_manifest` and `role_middleware` stay files here: they hold the test
-// installer that builds the real router, and the tests that run on it.
+// route roles) is `oxy-app-core`'s `pods` since 2026-11-22 (decompose G3).
+// The router assembly (`router`), the files that held the route-role test
+// installer and the tests on the real router (`role_manifest`,
+// `role_middleware`) and `serve`'s boot refusal (`auth_provider_check`) went
+// up into `oxy-server` (decompose LIFT, 2026-11-23); import
+// `oxy_app_core::pods::{role_manifest, role_middleware}` for the production half.
 pub use oxy_app_core::pods::ide_proxy;
 pub use oxy_app_core::preagg_context;
 // The preagg cycle's task executor, `oxy-workspace-runtime`'s since
@@ -52,12 +53,7 @@ pub mod previews;
 // decompose W6b (2026-11-23); re-exported so recovery, `periodic` and
 // `tests/platform` keep this path.
 pub use oxy_workspace_runtime::queued_analytics;
-pub mod role_manifest;
-pub mod role_middleware;
-pub mod router;
 // The task router's LISTEN settings, `oxy-app-core`'s `listener` since 2026-11-22.
 pub use oxy_app_core::listener as task_router_listener;
 pub mod workspace_fs;
 pub use oxy_app_core::workspace_repo_facts;
-
-pub use router::{AppState, WorkspaceExtractor, api_router, openapi_router};

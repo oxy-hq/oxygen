@@ -18,7 +18,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 pub async fn start_server_and_web_app(
     args: ServeArgs,
-    seams: oxy_app::host::router::SurfaceSeams,
+    seams: crate::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
     // Every deployment variable the app layer reads, parsed once and validated:
     // a value the process cannot use refuses the boot here, naming the variable,
@@ -27,7 +27,7 @@ pub async fn start_server_and_web_app(
         .map_err(|e| OxyError::ConfigurationError(format!("serve: {e}")))?;
     // OXY_ROLE → ide | serve | worker | all (default). Read once so the
     // routing middleware can enforce the FS-routing boundary.
-    let role = oxy_app::host::role_manifest::init_process_role_from_env();
+    let role = crate::role_manifest::init_process_role_from_env();
 
     // Any role but `all` shares state with other nodes, and these settings are
     // what make the state shareable. Refuse here, before anything is built,
@@ -35,10 +35,10 @@ pub async fn start_server_and_web_app(
     crate::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // Same reason for sign-in: a fleet process with no provider would serve
     // every request as the guest user.
-    oxy_app::host::auth_provider_check::check(
+    crate::auth_provider_check::check(
         role,
         args.local,
-        oxy_app::host::auth_provider_check::provider_configured(),
+        crate::auth_provider_check::provider_configured(),
     )
     .map_err(OxyError::RuntimeError)?;
 
@@ -72,8 +72,7 @@ pub async fn start_server_and_web_app(
     // log line at startup rather than being inferred from the absence of
     // notifications.
     let notifications = seams.notifications;
-    oxy_app::host::router::require_notifications(notifications.as_ref())
-        .map_err(OxyError::RuntimeError)?;
+    crate::router::require_notifications(notifications.as_ref()).map_err(OxyError::RuntimeError)?;
     if let Some(hooks) = notifications
         && !(hooks.install)()
     {
@@ -196,8 +195,7 @@ pub async fn start_server_and_web_app(
     // this override they'd reject the implicit local-guest session and the
     // bundle's data hooks would 401 in `oxy start --local`.
     {
-        let yaml_provider =
-            !args.local && oxy_app::host::auth_provider_check::provider_configured();
+        let yaml_provider = !args.local && crate::auth_provider_check::provider_configured();
         oxy_auth::built_in::set_auth_configured(yaml_provider);
     }
 
@@ -272,7 +270,7 @@ pub async fn start_server_and_web_app(
 
     let disable_inprocess_workers = args.workers_disabled();
     tracing::info!(
-        role = oxy_app::host::role_manifest::current_process_role().as_str(),
+        role = crate::role_manifest::current_process_role().as_str(),
         in_process_workers = !disable_inprocess_workers,
         "serve: fleet config derived from OXY_ROLE (workers + global driver run \
          in-process for every role except `serve`; override with --no-workers / \
@@ -284,7 +282,7 @@ pub async fn start_server_and_web_app(
     // `serve` replica in a fleet; a mistake for a lone instance.
     if disable_inprocess_workers {
         tracing::warn!(
-            role = oxy_app::host::role_manifest::current_process_role().as_str(),
+            role = crate::role_manifest::current_process_role().as_str(),
             "serve: this node will NOT drain the agentic_task_queue — scheduled \
              and manual jobs, ELT, and compiles will NOT execute here. Correct \
              for a stateless `serve` replica when another OXY_ROLE=all/ide/worker \
@@ -430,7 +428,7 @@ async fn create_web_application(
     startup_cwd: std::path::PathBuf,
     shutdown_token: CancellationToken,
     disable_inprocess_workers: bool,
-    seams: oxy_app::host::router::SurfaceSeams,
+    seams: crate::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
     // Taken before `api_router` consumes the seams: the document is assembled below.
     let surface_openapi = seams.openapi.clone();
@@ -438,7 +436,7 @@ async fn create_web_application(
         OxyError::RuntimeError("the surface seams hand in no outer mount".to_string())
     })?;
     let (api_router, external_api_router, preagg_ctx) =
-        super::serve_background::api_router_and_boot(oxy_app::host::router::ApiRouterArgs {
+        super::serve_background::api_router_and_boot(crate::router::ApiRouterArgs {
             mode,
             enterprise,
             observability,
@@ -450,7 +448,7 @@ async fn create_web_application(
         .await?;
     // Assembled by `router::openapi` so `oxyc openapi` serves the exact
     // same document offline — one spec, two consumers.
-    let openapi_doc = oxy_app::host::router::build_openapi_doc(surface_openapi).await;
+    let openapi_doc = crate::router::build_openapi_doc(surface_openapi).await;
     println!("create_web_application: openapi_router done, assembling final router");
     let static_service = service_fn(handle_static_files);
 
@@ -487,13 +485,13 @@ async fn create_web_application(
         // prefix from a bundle SDK produced a CORS-less 404 from the
         // static fallback, which the browser surfaces as a misleading
         // "CORS error" instead of the real 404. See
-        // `crates/app/src/server/router/mod.rs::build_cors_layer`.
+        // `crates/server/src/router/mod.rs::build_cors_layer`.
         // role_middleware lives on the OUTER router so it covers the static
         // `/ide*` SPA fallback in addition to `/api/*`. Compares the request
         // URI segment-by-segment to the role manifest; no-op when OXY_ROLE is
         // unset. Stamps X-Oxy-Served-By on every response.
         .layer(axum::middleware::from_fn(
-            oxy_app::host::middleware::enforce_role,
+            crate::role_middleware::enforce_role,
         ))
         // Admission control sits OUTSIDE enforce_role (sheds before routing /
         // proxy work) but INSIDE CORS (so the 503 still carries CORS headers).
@@ -502,7 +500,7 @@ async fn create_web_application(
         .layer(axum::middleware::from_fn(
             crate::admission::admission_control,
         ))
-        .layer(oxy_app::host::router::build_cors_layer())
+        .layer(crate::router::build_cors_layer())
         // Innermost of the trace pair: the request span must be current when
         // it records a failed response's own message as `error.message`.
         .layer(axum::middleware::from_fn(
@@ -557,7 +555,7 @@ async fn create_web_application(
                 // `_external`: inside this nest the prefix is already stripped,
                 // and both the classification and the forward need it back.
                 .layer(axum::middleware::from_fn(
-                    oxy_app::host::middleware::enforce_role_external,
+                    crate::role_middleware::enforce_role_external,
                 ))
                 .layer(axum::middleware::from_fn(
                     oxy_telemetry::http_trace::record_error_body,
@@ -579,7 +577,7 @@ async fn create_web_application(
         // preflight, a shed 503 and a static-fallback 404 all carry the header,
         // none of which reach a handler that could stamp it.
         .layer(axum::middleware::from_fn(
-            oxy_app::host::middleware::request_id_middleware,
+            crate::router::middlewares::request_id::request_id_middleware,
         ));
     Ok(router)
 }
@@ -588,7 +586,7 @@ async fn create_internal_application(
     enterprise: bool,
     observability: Option<std::sync::Arc<dyn oxy_observability::ObservabilityStore>>,
     shutdown_token: CancellationToken,
-    seams: oxy_app::host::router::SurfaceSeams,
+    seams: crate::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
     let internal_router = super::serve_background::internal_api_router_with_hook(
         enterprise,
@@ -620,7 +618,9 @@ async fn create_internal_application(
 /// OUTSIDE this layer (it is the outermost layer of the top router), so the
 /// id is already on the request when the span is made.
 fn create_trace_layer() -> oxy_telemetry::http_trace::OxyTraceLayer {
-    oxy_telemetry::http_trace::trace_layer(oxy_app::host::middleware::REQUEST_ID_HEADER)
+    oxy_telemetry::http_trace::trace_layer(
+        crate::router::middlewares::request_id::REQUEST_ID_HEADER,
+    )
 }
 
 // How long in-flight requests get after the shutdown signal, and why:
@@ -1011,7 +1011,7 @@ fn wrap_outer_service(
             oxy_app_core::org_host_dispatch::org_host_dispatch_middleware,
         ))
         .layer(axum::middleware::from_fn(
-            oxy_app::host::middleware::tag_custom_app_surface,
+            oxy_telemetry::sentry_surface::tag_custom_app_surface,
         ))
         .service(main)
 }
@@ -1230,8 +1230,8 @@ mod tests {
     /// produce this same canonical path.
     #[tokio::test]
     async fn a_function_call_on_an_app_subdomain_is_classified_by_its_canonical_path() {
-        use oxy_app::host::role_manifest::{RouteRole, classify};
-        oxy_app::host::role_manifest::install_route_declarations_for_tests();
+        use crate::role_manifest::{RouteRole, classify};
+        crate::role_manifest::install_route_declarations_for_tests();
 
         let routed = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
         let seen = routed.clone();

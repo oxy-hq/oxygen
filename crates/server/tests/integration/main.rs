@@ -41,4 +41,11 @@ mod route_catalog;
 // The surfaces' route-role tests (decompose TR): the real router's declarations
 // beside each surface's, which only a crate depending on both can install.
 mod route_roles;
+// `oxy-app`'s routing tests that build the real router, up with it (decompose
+// LIFT): no database, carved out of `db-per-test` like the two above.
+mod routing;
+// Local mode's router (decompose LIFT, from `oxy-app`'s `platform` group): it
+// builds `api_router(..)`, the unscoped `cleanup_stale_runs` writer, so it is
+// pinned into `serial-db` and out of `db-per-test`.
+mod local_mode_router;
 mod token_auth;

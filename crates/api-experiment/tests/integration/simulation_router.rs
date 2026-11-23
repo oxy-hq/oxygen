@@ -22,8 +22,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use oxy_app::surface::testing::api_router;
 use oxy_app_core::serve_mode::ServeMode;
+use oxy_server::router::api_router;
 use tower::ServiceExt;
 
 /// Stand up a per-test database and point the process at it.

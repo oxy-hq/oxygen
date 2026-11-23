@@ -53,7 +53,7 @@
 #
 # ── The route table (scripts/fleet-routes.tsv) ──────────────────────────────
 # Its rows are declaration tuples out of
-# `oxy_app::server::router::route_declarations()` — see that file's header for
+# `oxy_server::router::route_declarations()` — see that file's header for
 # the recipe (a temporary #[test], run once, deleted) and for how far the table
 # currently is from that function's output. This script does not hand-maintain
 # a route list; it reads that file, buckets every row (Now / Fixture / Destr /
@@ -64,7 +64,7 @@
 # route_declarations() without a row is invisible here. (This comment used to
 # promise a "declared but not in the catalog" listing; no phase ever printed
 # one.) What does hold the rows to the code is
-# `crates/app/tests/routing/fleet_routes_table.rs`.
+# `crates/server/tests/integration/routing/fleet_routes_table.rs`.
 #
 set -uo pipefail
 
@@ -727,7 +727,7 @@ role_for_tpl() { # tpl -> prints the catalog role, or "unknown"
 # a given request can be higher, and one rule raises it: a non-empty `branch`
 # query parameter promotes FleetOk to IdeOnly, because serving a named branch
 # means reading a working copy parked on it. See `escalate_for_branch` in
-# crates/app/src/server/role_middleware.rs — this mirrors it exactly, including
+# crates/app-core/src/pods/role_middleware.rs — this mirrors it exactly, including
 # that an already-IdeOnly route is unaffected and that `branch=` with an empty
 # value does NOT escalate.
 #

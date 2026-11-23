@@ -19,8 +19,8 @@
 
 use oxy_api_custom_apps::public_route_roles;
 use oxy_api_custom_apps::serve::serve_dispatch_roles;
-use oxy_app::surface::roles::install_route_declarations_for_tests_with;
 use oxy_app_core::pods::role_manifest::{RouteRole, classify};
+use oxy_server::role_manifest::install_route_declarations_for_tests_with;
 
 const ORG: &str = "acme";
 const APP: &str = "dash";

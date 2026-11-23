@@ -15,7 +15,15 @@
 #![recursion_limit = "256"]
 
 mod admission;
+// The admin console shell (`/admin`, every surface's `AdminSection` merged),
+// the router's dependencies (`router`, `role_manifest`, `role_middleware`) and
+// `serve`'s boot refusal (`auth_provider_check`): up from `oxy-app` in
+// decompose LIFT (2026-11-23). Public, as they were there: tests outside this
+// crate build the real router (`token_auth`, the surfaces' route roles, the
+// custom-app and experiment suites).
+pub mod admin;
 mod app_platform;
+pub mod auth_provider_check;
 #[cfg(test)]
 mod catalog_tests;
 mod commands;
@@ -31,6 +39,9 @@ mod metrics_server;
 mod observability_boot;
 #[cfg(test)]
 mod recursion_limit_guard;
+pub mod role_manifest;
+pub mod role_middleware;
+pub mod router;
 #[cfg(test)]
 mod served_router_tests;
 #[cfg(test)]
@@ -41,14 +52,14 @@ mod worker_health;
 mod worker_metrics;
 mod worker_runtime;
 
-use oxy_app::server::router::{SurfaceSeam, SurfaceSeams};
+use router::{SurfaceSeam, SurfaceSeams};
 
 /// What `main.rs` calls besides the composition below: the subscriber it
 /// installs before anything logs, and the span store's drain at exit.
 pub use logging::init as init_logging;
 pub use observability_boot::shutdown as shutdown_observability;
 
-type SeamRouter = axum::Router<oxy_app::server::router::AppState>;
+type SeamRouter = axum::Router<router::AppState>;
 
 /// The sibling crates merged at the protected-tree root. A function rather
 /// than inline in `main` so the test below builds the SAME composition boot

@@ -79,7 +79,7 @@ fn every_context_middleware_publishes_both_managers() {
         ("workspace_context.rs", include_str!("workspace_context.rs")),
         (
             "local_context.rs",
-            include_str!("../../../app/src/server/api/middlewares/local_context.rs"),
+            include_str!("../../../server/src/router/middlewares/local_context.rs"),
         ),
     ] {
         let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];

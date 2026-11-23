@@ -297,7 +297,7 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 | `oxy-scaling-design` | multi-instance / worker fleet / lease table / `OXY_ROLE` / stateless serve | code-first is sacred; git is source of truth; task-claim ≠ workspace-ownership (two leases) |
 | `oxy-task-spec-default` ¹ | background work in `crates/app/src/server/` (`tokio::spawn`, periodic loops, LLM calls, clones >5s) | new long-running work is a `TaskSpec` in `agentic_task_queue`, **not** a spawn in an HTTP handler |
 | `oxy-compile-boundary` | new `.foo.yml` file type, or any per-request read that walks the workspace FS | every workspace artifact is a `*_definitions` Postgres row keyed by `revision_id`, not an FS read |
-| `oxy-route-classification` ¹ | add/move a route under `server/router/`, or a handler touching disk/`.git`/state dir | FS-touching routes MUST be `IdeOnly` in `role_manifest.rs`; persisted-data reads MUST stay `FleetOk` |
+| `oxy-route-classification` ² | add/move a route under `crates/server/src/router/`, or a handler touching disk/`.git`/state dir | FS-touching routes MUST be `IdeOnly` in `role_manifest.rs`; persisted-data reads MUST stay `FleetOk` |
 | `oxy-customer-apps-perf` ¹ | add/move a `/customer-apps/**` route or custom-app data endpoint; any per-request read on that hot path | serving routes need Cache-Control + SSE-safe compression; result caches keyed `project_id`-first, read after auth gates, honor `?refresh` |
 | `oxy-run-and-verify` | verify a change in the running app, seed data, sign in as a persona, screenshot a feature or reproduce a UI bug; sign a browser in to dev / staging / prod | never `--local`; `just up`, not hand-started servers; sign in by persona (`/dev-login?as=`), never by editing env; on a deployment, `oxyc login-link`, never the provider's page |
 | `oxy-data-placement` | a new table or migration, a webhook/ingest that stores org data, a custom-app data surface, a failing `data_placement` test | org data never in Oxy's Postgres; the shape picks the store (facts → Airhouse, records → org OLTP, files → storage); customer warehouses read-only; OLTP store provisioning stays manual (an app environment's branch of it is lifecycle-managed) |
@@ -311,6 +311,10 @@ relevant `crates/app` file before reaching for it; it is invoked as `/crates/app
 Area-only skills live next to their area this way (`web-app/.claude/skills/` too) so they cost
 no context elsewhere. The platform skills in `sdk/cli/skills/` are symlinked the same way into
 the crates that implement them — see `internal-docs/platform-skills.md`.
+
+² **Scoped to `crates/server/`** (`crates/server/.claude/skills/`), the same way: it moved there
+with the router assembly (decompose LIFT, 2026-11-23), so read a `crates/server` file first; it
+is invoked as `/crates/server:oxy-route-classification`.
 
 ## Docs
 

@@ -79,6 +79,17 @@ aws-sdk-s3 = { workspace = true }
 oxy-billing = { workspace = true }
 # The feature-flag cache `serve` and `worker` load at boot.
 oxy-feature-flags = { workspace = true }
+# The router assembly (`src/router`, `src/admin`, `role_manifest`,
+# `role_middleware`), up from `oxy-app` in decompose LIFT: the OLTP and
+# Airhouse mounts (`oxy-oltp`), the capability guards and `Caller`
+# (`oxy-server-authz`), local mode's refresh-key cache (`agentic-semantic`) and
+# its `/setup` writes (`oxy-project`), and the route-declaration stubs
+# (`async-trait`).
+oxy-oltp = { workspace = true }
+oxy-server-authz = { workspace = true }
+agentic-semantic = { workspace = true }
+oxy-project = { workspace = true }
+async-trait = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
 oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }
@@ -139,8 +150,10 @@ rustls = { workspace = true }
 sentry = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
-# The custom-app mount's compression layer (`custom_apps_seams`).
-tower-http = { workspace = true, features = ["compression-br", "compression-gzip"] }
+# The custom-app mount's compression layer (`custom_apps_seams`), and the
+# router's CORS and timeout layers (`router`; `trace` came with them from
+# oxy-app's declaration, which this replaces).
+tower-http = { workspace = true, features = ["cors", "trace", "timeout", "compression-br", "compression-gzip"] }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -156,12 +169,9 @@ sentry = { workspace = true, features = ["test"] }
 # crates/app/tests/common), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
 oxy-authz = { workspace = true }
-oxy-oltp = { workspace = true }
 agentic-core = { workspace = true }
 migration = { workspace = true }
-# The drivers' in-source tests: the stub task executors (`async-trait`) and the
-# monitor config parses (`serde_yaml`).
-async-trait = { workspace = true }
+# The drivers' in-source tests: the monitor config parses (`serde_yaml`).
 serde_yaml = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 tempfile = { workspace = true }
@@ -174,7 +184,9 @@ oxy-test-utils = { workspace = true }      # tests/common takes its Postgres fro
 futures = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
-oxy-server-authz = { workspace = true }
+# `routing::fleet_canary` (up from oxy-app's `tests/routing` in decompose LIFT)
+# serializes the cases that flip the process-global workspace-fs probe.
+serial_test = { workspace = true }
 
 [lints]
 workspace = true

@@ -24,8 +24,8 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::routing::get;
 use oxy_api_custom_apps::custom_apps_debug;
-use oxy_app::surface::testing::api_router;
 use oxy_app_core::serve_mode::ServeMode;
+use oxy_server::router::api_router;
 use tower::ServiceExt;
 
 use crate::app_environments_phase_1b::{

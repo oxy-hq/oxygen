@@ -4,7 +4,7 @@
 # Columns: method, path, role, bucket, notes  (tab-separated)
 #
 # Provenance: method/path/role come verbatim from
-#   oxy_app::server::router::route_declarations() (crates/app/src/server/router/mod.rs).
+#   oxy_server::router::route_declarations() (crates/server/src/router/mod.rs).
 # bucket/notes were carried over from a 2026-08-25 route-coverage inventory (retired from
 # internal-docs once this table superseded it; git history has it), built the same way
 # -- cross-checked 1:1 against a route_declarations() dump when it was built
@@ -20,17 +20,17 @@
 # re-nested). The agentic-airway rows were rebuilt from a fresh dump after #3451, and the
 # analytics rows when its coordinator routes were declared one by one.
 #
-# What holds the rows to the code: crates/app/tests/routing/fleet_routes_table.rs fails
+# What holds the rows to the code: crates/server/tests/integration/routing/fleet_routes_table.rs fails
 #   when a row states a role other than the one declared for its method + path, when the
 #   agentic-airway or analytics rows are not exactly agentic_http::airway_router_roles() /
 #   router_roles(), or when a row is not five tab-separated columns. It does NOT fail when a route is added elsewhere
 #   without a row -- nothing does; fleet-assert.sh reports coverage of the rows it is given.
 #
 # To regenerate the method/path/role columns: add a temporary #[test] to
-#   crates/app/tests/routing/route_role_derivation.rs that calls
-#   oxy_app::server::router::route_declarations(), formats each (method, path, role)
+#   crates/server/tests/integration/routing/route_role_derivation.rs that calls
+#   oxy_server::router::route_declarations(), formats each (method, path, role)
 #   tuple sorted+deduped, and writes it to a scratch file. Run it with:
-#   cargo nextest run -p oxy-app --test routing -E 'test(zzz_dump...)'
+#   cargo nextest run -p oxy-server --test integration -E 'test(/^routing::route_role_derivation::zzz_dump/)'
 #   then delete the temporary test (git diff against the test file must come back
 #   empty). This is the recipe this file's rows came from.
 #
@@ -164,7 +164,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/semantic/world-model/instance-detail	fleet-ok	Fixture	needs a real instance id from `/instances`; a replica refuses a workspace-local database by name (503)
 *	/api/{workspace_id}/semantic/world-model/instances	fleet-ok	Fixture	needs a real entity name from `/semantic/world-model`; a replica refuses a workspace-local database by name (503)
 *	/api/{workspace_id}/semantic/world-model/measure-breakdown	fleet-ok	Fixture	same discovery chain; a replica refuses a workspace-local database by name (503)
-*	/api/{workspace_id}/setup/demo	fleet-ok	Ext	**only mounted in `--local` mode** (`include_local_setup`, `crates/app/src/server/router/workspace.rs:344-348`) — the split fleet always runs `--enterprise`, so this 404s here by construction, not by fixture gap
+*	/api/{workspace_id}/setup/demo	fleet-ok	Ext	**only mounted in `--local` mode** (`include_local_setup`, `crates/server/src/router/workspace.rs:156-160`) — the split fleet always runs `--enterprise`, so this 404s here by construction, not by fixture gap
 *	/api/{workspace_id}/setup/empty	fleet-ok	Ext	same — unreachable in this deployment
 *	/api/{workspace_id}/source-uploads	fleet-ok	Struct	404 verified live — bare prefix
 *	/api/{workspace_id}/source-uploads/{*rest}	fleet-ok	Ext	RESOLVED: not a fixture gap. `POST .../reports` (crates/app/src/server/api/source_upload.rs:542-644) validates every multipart field first, then calls `zone()` (source_upload.rs:100-119), which reads env var `OXY_SOURCE_UPLOAD_ZONE` (format `s3://bucket/prefix`) and hard-503s `"report uploads require OXY_SOURCE_UPLOAD_ZONE"` if unset. Confirmed absent from docker-compose.fleet.yml; only commented out in `.env.example:107`. Uniform across every node (no S3 bucket configured anywhere in this fleet), so this is a missing external credential, not a diskless-replica differential -- moved out of Fixture into Ext.

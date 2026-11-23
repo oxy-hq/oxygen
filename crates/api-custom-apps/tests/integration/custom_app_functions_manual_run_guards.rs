@@ -171,13 +171,13 @@ fn the_admin_app_mount_wears_the_one_stack_the_manual_run_tests_call() {
         "`api_seam_routes` no longer merges `oxy_api_custom_apps::routes()` (bare, or with \
          `.layer(…)` on it), the only mount of the admin app handlers"
     );
-    let global = code("crates/app/src/server/router/global.rs");
+    let global = code("crates/server/src/router/global.rs");
     assert!(
         !global.contains("\"/admin/apps\"") && !global.contains("\"/customer-apps\""),
         "`router/global.rs` mounts `/admin/apps` or `/customer-apps` again: \
          `oxy_api_custom_apps::routes()` is the only mount of the admin app handlers"
     );
-    let admin = code("crates/app/src/server/api/admin/mod.rs");
+    let admin = code("crates/server/src/admin/mod.rs");
     assert!(
         !fn_body(&admin, "router").contains("apps::router()"),
         "`admin::router()` registers the app handlers again; they are mounted once, in this crate's `routes()`"

@@ -1,5 +1,5 @@
 //! The custom-app work this composition root hands `oxy-app` through
-//! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the task kinds
+//! [`SurfaceSeams`](crate::router::SurfaceSeams): the task kinds
 //! the worker fleet runs, the process-lifetime background jobs, the outer
 //! `/customer-apps/{*path}` mount, the function runtime for the `oxy-app`
 //! handlers that run a function, and the `oxy migrate` and `oxy dev seed` halves.
@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use crate::router::{BackgroundSeam, FleetJobSeam, TaskSeam};
 use axum::Router;
 use axum::routing::any;
 use oxy_api_custom_apps::app_events::relay as app_events_relay;
@@ -32,7 +33,6 @@ use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
-use oxy_app::server::router::{BackgroundSeam, FleetJobSeam, TaskSeam};
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
 use oxy_app_core::semantic_pin_seam::SemanticPinner;
 use oxy_custom_apps::storage::{retention, sweeper};
@@ -208,7 +208,7 @@ pub(crate) fn semantic_pinner() -> Arc<dyn SemanticPinner> {
 }
 
 /// What `oxy migrate` prints after the migrations: the functions preflight.
-pub(crate) fn post_migrate() -> oxy_app::server::router::MigrateReport {
+pub(crate) fn post_migrate() -> crate::router::MigrateReport {
     |build| {
         Box::pin(oxy_api_custom_apps::custom_apps_functions::preflight::run(
             build,
@@ -530,10 +530,7 @@ mod tests {
     #[test]
     fn the_fleet_jobs_are_exactly_what_oxy_app_requires() {
         let names: Vec<&str> = fleet_jobs().iter().map(|j| j.name).collect();
-        assert_eq!(names, oxy_app::server::router::CUSTOM_APP_FLEET_JOBS);
-        assert_eq!(
-            oxy_app::server::router::require_fleet_jobs(&fleet_jobs()),
-            Ok(())
-        );
+        assert_eq!(names, crate::router::CUSTOM_APP_FLEET_JOBS);
+        assert_eq!(crate::router::require_fleet_jobs(&fleet_jobs()), Ok(()));
     }
 }

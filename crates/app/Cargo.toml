@@ -28,7 +28,6 @@ dev-tools = []
 [dependencies]
 # Core functionality
 oxy = { workspace = true }
-oxy-observability = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 oxy-workspace-fs = { workspace = true }
@@ -53,7 +52,6 @@ agentic-core = { workspace = true }
 agentic-http = { workspace = true }
 agentic-pipeline = { workspace = true }
 agentic-runtime = { workspace = true }
-agentic-semantic = { workspace = true }
 agentic-automation = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 oxy-auth = { workspace = true }
@@ -103,9 +101,7 @@ tracing = { workspace = true }
 # Web framework
 axum = { workspace = true, features = ["multipart"] }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["cors", "trace", "timeout", "compression-br", "compression-gzip"] }
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
-utoipa-axum = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["derive", "env"] }

@@ -1,7 +1,7 @@
 //! Build-time extraction of the Oxy HTTP route table.
 //!
 //! Axum exposes no route table at runtime (see the note on
-//! `every_workspace_mount_is_classified` in `server/role_manifest.rs`), so the
+//! `every_workspace_mount_is_classified` in `crates/server/src/role_manifest_tests.rs`), so the
 //! only way to hand `oxyc routes` a *complete* and *never-stale* list of
 //! endpoints is to read it out of the router source at compile time.
 //!
@@ -45,7 +45,7 @@ pub struct Route {
 struct RouterFn {
     /// Function name, e.g. `build_workspace_routes`.
     name: String,
-    /// Module path segments, e.g. `["oxy_app", "server", "router", "workspace"]`.
+    /// Module path segments, e.g. `["oxy_server", "router", "workspace"]`.
     module: Vec<String>,
     /// Comment-stripped function body (including the outer braces).
     body: String,
@@ -116,7 +116,7 @@ struct Seed {
     function: &'static str,
 }
 
-/// Roots of the live HTTP surface, mirroring `server/router/entry.rs`.
+/// Roots of the live HTTP surface, mirroring `crates/server/src/router/entry.rs`.
 ///
 /// `build_public_routes` / `build_global_routes` / `build_protected_routes` are
 /// merged into one router that `crates/server/src/commands/serve.rs` nests under `/api`;
@@ -751,6 +751,9 @@ const SEEDS: &[Seed] = &[
 /// The other entries are free: `oxy-app` already depends on those crates.
 const DOC_DIRS: &[&str] = &[
     "crates/app/src",
+    // `oxy-server`: `core_routes` (2026-11-16), the router and the admin shell (decompose
+    // LIFT, 2026-11-23); here, where `crates/app/src`'s walk met the router (same order).
+    "crates/server/src",
     "crates/agentic/http/src",
     "crates/cameras/src",
     "crates/airhouse/src",
@@ -779,10 +782,6 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-workspaces/src",
     "crates/api-semantic/src",
     "crates/api-eval/src",
-    // The health probes and route discovery, `oxy-server`'s since
-    // 2026-11-16. The one directory, not the binary's `src`: that would
-    // pull `serve`'s Swagger mount and the test routers into the walk.
-    "crates/server/src/core_routes",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -799,7 +798,8 @@ const DOC_DIRS: &[&str] = &[
 /// real surface. `route_catalog`'s `every_route_tree_is_scanned` test fails if
 /// a tree declaring routes is missing from here.
 pub const SOURCE_DIRS: &[&str] = &[
-    "crates/app/src/server/router",
+    // `oxy-server`'s router since decompose LIFT (was `crates/app/src/server/router`).
+    "crates/server/src/router",
     // `crates/app/src/server/api` left on 2026-11-21: its last mount, the
     // console's `routing::router()`, moved to `oxy-api-admin` (seeded above),
     // and `admin::router` now merges only the sections surfaces hand in.
@@ -1289,8 +1289,8 @@ fn truncate_chars(s: &str, max: usize) -> String {
 
 /// Module path for a source file: the crate ident followed by the directory
 /// segments below `src/`. `mod.rs` / `lib.rs` collapse into their directory,
-/// so `crates/app/src/server/api/admin/mod.rs` becomes
-/// `["oxy_app", "server", "api", "admin"]`.
+/// so `crates/server/src/admin/mod.rs` becomes
+/// `["oxy_server", "admin"]`.
 fn module_segments(
     path: &Path,
     repo_root: &Path,

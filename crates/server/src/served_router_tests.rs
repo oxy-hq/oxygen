@@ -32,10 +32,10 @@
 //! unscoped `cleanup_stale_runs` over `agentic_runs` — so these skip without a
 //! database, and `.config/nextest.toml` pins this module into `serial-db`.
 
+use crate::router::api_router;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use oxy_app::server::router::api_router;
 use oxy_app_core::serve_mode::ServeMode;
 use tower::ServiceExt;
 
@@ -279,12 +279,9 @@ async fn local_mode_drops_the_notification_routes() {
 fn the_composition_carries_the_notifications_surface() {
     let seams = surface_seams();
     assert_eq!(seams.require_notifications(), Ok(()));
-    assert_eq!(
-        oxy_app::server::router::require_task_kinds(&seams.tasks),
-        Ok(())
-    );
+    assert_eq!(crate::router::require_task_kinds(&seams.tasks), Ok(()));
     let kinds: Vec<&str> = seams.tasks.iter().map(|t| t.kind).collect();
-    for kind in oxy_app::server::router::NOTIFICATION_TASK_KINDS {
+    for kind in crate::router::NOTIFICATION_TASK_KINDS {
         assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
     }
 }
@@ -293,7 +290,7 @@ fn the_composition_carries_the_notifications_surface() {
 #[test]
 fn the_composition_carries_the_health_eval() {
     let kinds: Vec<&str> = surface_seams().tasks.iter().map(|t| t.kind).collect();
-    for kind in oxy_app::server::router::HEALTH_TASK_KINDS {
+    for kind in crate::router::HEALTH_TASK_KINDS {
         assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
     }
 }
@@ -305,13 +302,10 @@ fn the_composition_carries_the_health_eval() {
 fn the_composition_carries_the_insights_delivery() {
     let seams = surface_seams();
     let kinds: Vec<&str> = seams.tasks.iter().map(|t| t.kind).collect();
-    for kind in oxy_app::server::router::ANOMALY_TASK_KINDS {
+    for kind in crate::router::ANOMALY_TASK_KINDS {
         assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
     }
-    assert_eq!(
-        oxy_app::server::router::require_task_kinds(&seams.tasks),
-        Ok(())
-    );
+    assert_eq!(crate::router::require_task_kinds(&seams.tasks), Ok(()));
 }
 
 /// One request with an optional API key and JSON body, for the world-model
@@ -1944,7 +1938,7 @@ fn the_composition_starts_the_chat_delivery_listener() {
         Some(&"chat_delivery_listener"),
         "chat's listener must start first, as `new_agentic_state` started it: {names:?}"
     );
-    for name in oxy_app::server::router::CHAT_BACKGROUND_JOBS {
+    for name in crate::router::CHAT_BACKGROUND_JOBS {
         assert!(names.contains(&name), "no job `{name}`: {names:?}");
     }
     assert_eq!(seams.require_custom_apps(), Ok(()));
@@ -5100,7 +5094,7 @@ async fn the_admin_seam_mounts_the_usage_report_behind_the_staff_layers() {
 /// acting. Undeclared, as it was: the FleetOk default places it.
 #[tokio::test]
 async fn the_composition_carries_assume_role_on_the_api_seam() {
-    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+    async fn trace(tree: &Router<crate::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
             .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
@@ -5736,7 +5730,7 @@ async fn local_mode_drops_the_org_feature_flag_read() {
 /// `route_fleet` declared it. No database.
 #[tokio::test]
 async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
-    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+    async fn trace(tree: &Router<crate::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
             .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
@@ -5785,7 +5779,7 @@ async fn the_composition_carries_the_feature_flag_routes_on_two_seams() {
 /// assume-role test's `/admin/routing-manifest` probes.)
 #[tokio::test]
 async fn the_composition_carries_the_routing_manifest_as_one_section() {
-    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+    async fn trace(tree: &Router<crate::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
             .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(
@@ -5821,7 +5815,7 @@ async fn the_composition_carries_the_routing_manifest_as_one_section() {
 /// `nest_all` and `route_fleet` made in-tree. No database.
 #[tokio::test]
 async fn the_composition_carries_billing_on_its_three_seams() {
-    async fn trace(tree: &Router<oxy_app::server::router::AppState>, uri: &str) -> StatusCode {
+    async fn trace(tree: &Router<crate::router::AppState>, uri: &str) -> StatusCode {
         tree.clone()
             .with_state(oxy_app_core::app_state::bare_app_state())
             .oneshot(

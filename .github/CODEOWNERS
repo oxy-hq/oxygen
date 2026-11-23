@@ -53,7 +53,7 @@ internal-docs/custom-app*.md                       @luong-komorebi @NTtanh
 crates/app/.claude/skills/oxy-customer-apps-perf/             @luong-komorebi @NTtanh
 
 # Admin & staff surfaces (workspace-health carve-out is re-owned by Hai below)
-crates/app/src/server/api/admin/                   @luong-komorebi @haitrr
+crates/server/src/admin/                           @luong-komorebi @haitrr
 web-app/src/pages/admin/                           @luong-komorebi @haitrr
 internal-docs/admin-surfaces.md                    @luong-komorebi @haitrr
 # Airhouse fleet console (override: carved out of admin/ above — Luong built the
@@ -194,7 +194,7 @@ internal-docs/multi-instance-fleet.md              @luong-komorebi @NTtanh
 internal-docs/compile-boundary.md                  @luong-komorebi @NTtanh
 internal-docs/architecture-review-checklist.md     @luong-komorebi @NTtanh
 .claude/skills/oxy-scaling-design/                 @luong-komorebi @NTtanh
-crates/app/.claude/skills/oxy-route-classification/           @luong-komorebi @NTtanh
+crates/server/.claude/skills/oxy-route-classification/        @luong-komorebi @NTtanh
 .claude/skills/oxy-compile-boundary/               @luong-komorebi @NTtanh
 
 # Customer-facing observability (traces console)
@@ -498,15 +498,25 @@ sdk/vite-plugin/                                   @luong-komorebi @NTtanh
 
 # Split-fleet route classification. A new route that touches the workspace FS
 # must be classified IdeOnly in role_manifest.rs or it 404s/421s on the serve
-# fleet. See crates/app/.claude/skills/oxy-route-classification/SKILL.md.
-crates/app/src/server/role_manifest.rs             @luong-komorebi @NTtanh
+# fleet. See crates/server/.claude/skills/oxy-route-classification/SKILL.md.
+# The test installer and the tests on the real router went up into oxy-server
+# with the router on 2026-11-23 (decompose LIFT).
+crates/server/src/role_manifest.rs                 @luong-komorebi @NTtanh
+crates/server/src/role_manifest_tests.rs           @luong-komorebi @NTtanh
+crates/server/src/role_middleware.rs               @luong-komorebi @NTtanh
+crates/server/src/role_middleware_tests.rs         @luong-komorebi @NTtanh
 # The route roles, `RoleRouter` and the role middleware went down here on
 # 2026-11-22 (decompose G3); the oxy-app file above keeps the test installer.
 crates/app-core/src/pods/                          @luong-komorebi @NTtanh
-# The router's seams went down here on 2026-11-23 (decompose R0); the oxy-app
-# file under router/ below is a one-line re-export of it.
+# The router's seams went down here on 2026-11-23 (decompose R0); the router
+# below re-exports them.
 crates/app-core/src/seams.rs                       @luong-komorebi @NTtanh
-crates/app/src/server/router/                      @luong-komorebi @NTtanh
+# The router assembly, its middlewares and the local `/setup` handlers, up from
+# crates/app/src/server/{router,api/middlewares,api/local_setup.rs} into the
+# binary on 2026-11-23 (decompose LIFT), with the routing tests that build it.
+crates/server/src/router/                          @luong-komorebi @NTtanh
+crates/server/tests/integration/routing/           @luong-komorebi @NTtanh
+crates/server/tests/integration/local_mode_router.rs @luong-komorebi @NTtanh
 # The run drivers and the periodic tick moved up out of router/ above into the
 # binary on 2026-11-23 (decompose BL1), with the audit anchor loop and the
 # token-usage flush (which had no row of their own) and the dead billing

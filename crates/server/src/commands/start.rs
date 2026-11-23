@@ -7,7 +7,7 @@ use oxy_shared::errors::OxyError;
 
 pub async fn start_database_and_server(
     args: StartArgs,
-    seams: oxy_app::host::router::SurfaceSeams,
+    seams: crate::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
     println!(
         "{}",

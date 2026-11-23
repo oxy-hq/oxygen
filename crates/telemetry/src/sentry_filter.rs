@@ -232,7 +232,7 @@ pub const HTTP_TRACE_TARGET: &str = "oxy_telemetry::http_trace";
 /// **No `Breadcrumb` for it, deliberately.** It would not land where it looks
 /// like it should. `create_trace_layer()` wraps the whole router from the
 /// outside (`crates/server/src/commands/serve.rs`), while `NewSentryLayer` is applied inside
-/// `finalize_router` (`server/router/entry.rs`) — so by the time `on_failure`
+/// `finalize_router` (`crates/server/src/router/entry.rs`) — so by the time `on_failure`
 /// classifies the response, the per-request hub has been popped and the
 /// handler's own event has ALREADY been captured. A breadcrumb added there goes
 /// to the long-lived per-worker-thread hub, where it can only attach to some
@@ -363,7 +363,7 @@ pub fn is_custom_app_request(host: Option<&str>, path: &str) -> bool {
 ///
 /// **The tag does all of today's work; the URL arm is dormant.** Nothing in
 /// this workspace populates `Event::request`: the only sentry-tower layer
-/// mounted is `NewSentryLayer` (`server/router/entry.rs`, `router/openapi.rs`),
+/// mounted is `NewSentryLayer` (`router/{entry,openapi}.rs` in oxy-server),
 /// which binds a hub per request and sets no request data — `SentryHttpLayer`
 /// is mounted nowhere, and there is no `scope.set_request` or
 /// `add_event_processor` in the tree. So `request_url` arrives `None` on every

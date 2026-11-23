@@ -5,8 +5,8 @@
 //! crate no longer needs `oxy-app` to test it.
 
 use oxy_api_tenancy::partner_console::route_roles;
-use oxy_app::surface::roles::install_route_declarations_for_tests_with;
 use oxy_app_core::pods::role_manifest::{RouteRole, classify};
+use oxy_server::role_manifest::install_route_declarations_for_tests_with;
 
 const PARTNER: &str = "33333333-3333-3333-3333-333333333333";
 

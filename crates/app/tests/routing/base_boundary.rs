@@ -29,29 +29,28 @@ use syn::visit::Visit;
 /// `oxy_app::surface` as platform, and the workspace runtime under it. Module
 /// paths below `crate::`; a module covers everything under it.
 const BASE: &[&str] = &[
-    // Guards and request context: role guards, org and workspace context,
-    // the staff-console guards, token scopes, request id, timeout.
-    "server::api::middlewares",
+    // (Guards and request context, `server::api::middlewares`: the token
+    // scopes, request id and timeout went UP into `oxy-server`'s
+    // `router::middlewares` with the router on 2026-11-23, decompose LIFT;
+    // what is left there only re-exports `oxy-workspace-runtime` and
+    // `oxy-app-core`, so nothing of it goes down from here.)
     // (The session helpers every sign-in path shares, `server::api::auth`,
     // went down into `oxy-app-core::session` on 2026-11-21.)
     // The authz shim over `oxy-server-authz`.
     "server::authz",
-    // Pod placement: what is left of route roles and the role middleware here
-    // is the test installer that builds the real router and the tests that run
-    // on it. (The rest, with the Factory relay, servability, `role_router` and
-    // `IdeState`/`FleetState`, went down into `oxy-app-core::pods` on
-    // 2026-11-22, decompose G3.)
-    "server::role_manifest",
-    "server::role_middleware",
+    // (Pod placement, `server::{role_manifest, role_middleware}`: the code went
+    // down into `oxy-app-core::pods` on 2026-11-22, decompose G3, and the test
+    // installer that builds the real router went UP into `oxy-server` with the
+    // router and its tests on 2026-11-23, decompose LIFT.)
     // (Assume-role's authority, `server::api::admin::assume`, went down into
     // `oxy-app-core::assume` on 2026-11-22 with the request guards, decompose
     // G2. Staff scope, `admin::{scope, org_filter}`, went down to
     // `oxy-server-authz`'s `staff` in the admin split's PR 3.)
-    // The router's semantic caches. (The seam types surfaces fill went down
-    // into `oxy-app-core::seams` on 2026-11-23, decompose R0; their
-    // `router/seams.rs` re-export and its row went in R1, when the router's
-    // users imported `oxy_app_core::seams` directly.)
-    "server::router::workspace_cache",
+    // (The router's semantic caches, `server::router::workspace_cache`, a
+    // re-export of `oxy-app-core` and `oxy-workspace-runtime`, were deleted
+    // when the router went up into `oxy-server`, decompose LIFT 2026-11-23;
+    // its callers import those crates. The seam types surfaces fill went down
+    // into `oxy-app-core::seams` on 2026-11-23, decompose R0.)
     // (The LISTEN/NOTIFY settings a surface's listener rides,
     // `server::task_router_listener`, went down into `oxy-app-core::listener`
     // on 2026-11-22, decompose G3.)
@@ -102,11 +101,9 @@ const BACKLOG: &[(&str, &str)] = &[
     // (`IdeState` and `FleetState`, which the middleware and `role_router`
     // reached in the router's `mod.rs`, cleared on 2026-11-22: the two went
     // down into `oxy-app-core::pods` beside `role_router`, decompose G3.)
-    // The test-only installer builds the real routes to read their roles.
-    (
-        "server::role_manifest",
-        "server::router::route_declarations",
-    ),
+    // (The test-only installer's reach into the real routes,
+    // `server::role_manifest` → `server::router::route_declarations`, cleared
+    // on 2026-11-23: both went up into `oxy-server`, decompose LIFT.)
     // (`SurfaceSeams::catalog` carried the route catalog type until
     // 2026-11-16; it carries the `/_catalog` mount `oxy-server` builds now.)
 ];

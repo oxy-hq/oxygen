@@ -170,7 +170,7 @@ async fn seed_camera(
 /// The test router mounts:
 /// - `routes::router(db)` at the root (the edge `/control/*` tree).
 /// - `routes::workspace_routes(db)` nested under `/{workspace_id}`,
-///   mirroring how `crates/app/src/server/router/workspace.rs` wires
+///   mirroring how `crates/server/src/router/workspace.rs` wires
 ///   it. In production this subtree is also behind
 ///   `workspace_middleware` (cloud) / `local_context_middleware`
 ///   (local), but for Tier-A we exercise the cameras crate in

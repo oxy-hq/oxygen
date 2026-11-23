@@ -25,12 +25,12 @@
 
 use std::sync::Arc;
 
-use agentic_http::AgenticState;
-use axum::Router;
-use oxy_app::host::router::{
+use crate::router::{
     ApiRouterArgs, FleetJobSeam, GlobalTickSeam, SurfaceSeams, TaskSeam, api_router_with_state,
     internal_api_router,
 };
+use agentic_http::AgenticState;
+use axum::Router;
 use oxy_app::host::worker::PreaggCacheCtx;
 use oxy_app_core::seams::BackgroundSeam;
 use oxy_app_core::serve_mode::ServeMode;

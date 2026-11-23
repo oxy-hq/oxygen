@@ -1,6 +1,6 @@
 //! What `oxy-server`'s long-lived commands (`serve`, `start`, `worker`) take
-//! from `oxy-app`: the process checks they run at boot, the router they mount,
-//! the migrations they run first, and the run drivers and worker runtime.
+//! from `oxy-app`: the migrations they run first, the build identity they
+//! report, and the few lower-crate items they still reach through here.
 //!
 //! The counterpart of [`crate::surface`]. Like it, this module holds no code,
 //! only re-exports, which is why `tests/routing/app_growth.rs` admits it to
@@ -12,7 +12,7 @@
 //! also the inventory of what the base crate (step c) has to carry.
 //!
 //! Grouped by the module each item lives in, so a call site reads
-//! `host::role_manifest::current_process_role()` and still says where the item
+//! `host::migrations::run_database_migrations()` and still says where the item
 //! is defined.
 
 /// Database migrations: every domain's migrator under one advisory lock.
@@ -21,17 +21,11 @@ pub mod migrations {
     pub use crate::cli::commands::migrate::{run_database_migrations, skip_migrations_requested};
 }
 
-/// Which fleet role this process plays, and the route table's role declarations.
-pub mod role_manifest {
-    pub use crate::server::role_manifest::*;
-}
-
-/// Boot-time refusals: an auth provider that cannot serve the role it was
-/// started in. (The process-environment and encryption-key checks,
-/// `shared_state_check`, moved up into `oxy-server` on 2026-11-22.)
-pub mod auth_provider_check {
-    pub use crate::server::auth_provider_check::{check, provider_configured};
-}
+// The fleet role and the route table's declarations (`role_manifest`), the
+// boot refusal over the auth provider (`auth_provider_check`), the router
+// `serve` mounts with its seams (`router`) and the layers `serve` wraps it in
+// (`middleware`) are `oxy-server`'s own since decompose LIFT (2026-11-23): the
+// router assembly went up beside the commands that mount it.
 
 /// Which build this process is: the image tag and the build information
 /// `oxy-app`'s build script stamps (`GIT_HASH`, `BUILD_TIMESTAMP`, the
@@ -40,28 +34,6 @@ pub mod auth_provider_check {
 /// since 2026-11-16; `oxy migrate`'s report reads it here too.
 pub mod build_identity {
     pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
-}
-
-/// The router `serve` mounts, and the seams `oxy-server` composes into it.
-pub mod router {
-    pub use crate::server::router::{
-        ApiRouterArgs, FleetJobDeps, FleetJobSeam, GlobalTickSeam, NotificationsSeam, SurfaceSeams,
-        TaskSeam, TickPass, api_router, api_router_with_state, build_cors_layer, build_openapi_doc,
-        install_global_ticks, internal_api_router, require_fleet_jobs, require_notifications,
-        require_task_kinds,
-    };
-    // The run drivers (`recovery`, `start_fleet_jobs`), the token-usage flush and
-    // the periodic tick's metrics are `oxy-server`'s `drivers` since decompose
-    // BL1 (2026-11-23).
-}
-
-/// The layers `serve` wraps the router in.
-pub mod middleware {
-    pub use crate::server::api::middlewares::request_id::{
-        REQUEST_ID_HEADER, request_id_middleware,
-    };
-    pub use crate::server::api::middlewares::sentry_surface::tag_custom_app_surface;
-    pub use crate::server::role_middleware::{enforce_role, enforce_role_external};
 }
 
 /// The `ETag` helpers the SPA handler answers conditional requests with.

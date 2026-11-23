@@ -431,7 +431,7 @@ pub(crate) fn surface_seams() -> oxy_app_core::seams::SurfaceSeams {
 /// global ones behind the real authentication, fences and guards.
 pub(crate) fn flat_api_router() -> Router {
     let seams = surface_seams();
-    oxy_app::surface::testing::flat_api_surface(
+    oxy_server::router::flat_api_surface(
         seams.api.routes,
         seams.public.routes,
         seams.admin,

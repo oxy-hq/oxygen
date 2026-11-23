@@ -3,14 +3,11 @@
 //! One binary for the whole group; see `tests/authz/main.rs` for why. Add a case
 //! as a `mod` here rather than a new `tests/*.rs`.
 //!
-//! These seven were seven separate top-level targets — seven full links of
-//! DuckDB + DataFusion + Arrow + the AWS SDK — for tests that share one subject:
-//! `role_manifest`'s classification of a route, the router shape that
-//! classification is derived from, and the runtime probe that catches what the
-//! static checks missed. They belong together because they check each other:
-//! `route_role_derivation` covers only `router/workspace.rs`, `global_route_roles`
-//! covers what that parser structurally cannot see, and `fleet_canary` is the
-//! dynamic half of both.
+//! The cases that build the real router — `fleet_canary`, `fleet_routes_table`,
+//! `global_route_roles`, `route_role_derivation`, `route_trailing_slash` and
+//! `router_mount_collisions` — went up into `oxy-server`'s integration group
+//! (`tests/integration/routing/`) with the router in decompose LIFT
+//! (2026-11-23). What is left scans source and manifests.
 //!
 //! **Ungrouped in `.config/nextest.toml`, deliberately.** Nothing here opens a
 //! database — no [`common`] harness, no `establish_connection`, no `api_router(..)`
@@ -18,11 +15,6 @@
 //! `authz::shared_db_registry` scans this directory (it is in that file's
 //! `MIXED_BINARIES`) and fails the build the day a case here starts reaching the
 //! shared `OXY_DATABASE_URL` without being pinned into `serial-db`.
-//!
-//! One process-global to know about: `fleet_canary` flips
-//! `oxy::workspace_fs_probe`'s owns-files flag and resets its leak counter. Those
-//! cases carry `#[serial_test::serial]` — a guard private to one file excludes
-//! nothing across module boundaries once the files share a binary.
 
 // (`fleet_canary`'s meta-route test, whose handler's future needed
 // `#![recursion_limit = "256"]` here, moved to `oxy-api-workspaces`'
@@ -32,14 +24,8 @@ mod app_growth;
 mod base_boundary;
 mod config_write_routes;
 mod env_reads;
-mod fleet_canary;
-mod fleet_routes_table;
-mod global_route_roles;
 mod handler_spawns;
 mod paginated_links_keep_the_api_prefix;
-mod route_role_derivation;
-mod route_trailing_slash;
-mod router_mount_collisions;
 mod sentry_hub_scan;
 mod surface_contract;
 mod undeclared_mounts_stay_diskless;

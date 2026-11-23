@@ -10,12 +10,12 @@
 //! repointed every surface at the crate that holds the code (`oxy-app-core`,
 //! `oxy-server-authz`, `oxy-workspace-runtime`, `oxy-compile-runtime`,
 //! `oxy-previews`, …) and deleted the entries nothing named any more. The
-//! remaining holders: `oxy-api-custom-apps` (the demo seed in production; the
-//! router helpers in its tests), and the tests of the eight crates that keep
-//! `oxy-app` as a dev-dependency (the route-role installer that builds the real
-//! router, the demo seed, and `api_router`). The sandbox serve-tree fence went
-//! down to `oxy_custom_apps::sandbox_reach` (decompose AG, 2026-11-23). These leave with the router-assembly lift and the CLI owners,
-//! not with another repoint.
+//! remaining holders: `oxy-api-custom-apps` (the demo seed in production and in
+//! its tests), `oxy-api-identity` (the seeded personas) and the tests of
+//! `oxy-api-workspace-config` (the demo seed). The sandbox serve-tree fence went
+//! down to `oxy_custom_apps::sandbox_reach` (decompose AG, 2026-11-23), and the
+//! router helpers went up into `oxy-server` with the router (decompose LIFT,
+//! 2026-11-23). The seed leaves with the CLI owners (decompose SD).
 //!
 //! Add an item here only if it is platform runtime that cannot live lower yet.
 //! If it is someone's domain, lower it instead: a surface that needs another
@@ -34,22 +34,9 @@ pub mod seed {
     pub use crate::cli::commands::seed_platform_grants::unscoped_app_operator_email;
 }
 
-/// What the integration tests of the surface crates drive: the served router,
-/// which the custom-app tests exercise in a staging or sandbox environment, the
-/// external auth stack, and the publish-token scope middleware. Tests only; no
-/// surface's `src` takes anything from here.
-pub mod testing {
-    pub use crate::server::api::middlewares::app_publish_token_scope;
-    pub use crate::server::router::{api_router, external_auth_layers, flat_api_surface};
-
-    /// The router module itself, for the items tests name beside the ones above.
-    pub use crate::server::router;
-}
-
-/// Route-role (pod placement) declarations, as a test installs them: the real
-/// router's declarations plus the ones a surface crate hands in, so `classify`
-/// answers for the surface's routes too. Kept in `oxy-app` because it builds
-/// the router; the production half is `oxy_app_core::pods::role_manifest`.
-pub mod roles {
-    pub use crate::server::role_manifest::install_route_declarations_for_tests_with;
-}
+// `testing` (the served router, the external auth stack and the publish-token
+// scope middleware the surfaces' integration tests drive) and `roles` (the
+// route-role installer that builds the real router) went up into `oxy-server`
+// with the router (decompose LIFT, 2026-11-23): those tests dev-depend on
+// `oxy-server` (`default-features = false`) and import `oxy_server::router`
+// and `oxy_server::role_manifest`.

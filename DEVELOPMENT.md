@@ -216,7 +216,7 @@ var is used, then the default.
 >
 > Point it at a **remote** backend and custom-app data calls answer 403
 > `origin not allowed`. The origin gate
-> (`is_local_dev_pair`, `crates/app/src/server/router/mod.rs`) allows a
+> (`is_local_dev_pair`, `crates/server/src/router/mod.rs`) allows a
 > loopback origin only when the request also *arrived* at a loopback host, so a
 > dev browser talking to `app-dev.oxygen-hq.com` is — correctly — indistinguishable
 > from any other page on your machine posting there with your cookie.

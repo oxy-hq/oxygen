@@ -41,7 +41,8 @@ const SERVER: &[&str] = &[
     // `drivers` with the run drivers on 2026-11-23 (decompose BL1), and with
     // them `test_support`, the in-source DB harness shim they were the last
     // callers of.
-    "auth_provider_check",
+    // `auth_provider_check` moved up into `oxy-server` with the router on
+    // 2026-11-23 (decompose LIFT).
     "authz",
     "build_identity",
     // The compile boundary's runtime leaves (`compile_config_gate`,
@@ -72,13 +73,11 @@ const SERVER: &[&str] = &[
     // The queued analytics run (`queued_analytics`) left for
     // `oxy-workspace-runtime` on 2026-11-23 (W6b), re-exported in
     // `server/mod.rs`.
-    "role_manifest",
-    "role_manifest_tests",
-    "role_middleware",
-    "role_middleware_tests",
-    // The route table's types went down into `oxy-route-catalog` on
-    // 2026-11-23 (decompose RC).
-    "router",
+    // `role_manifest`, `role_manifest_tests`, `role_middleware`,
+    // `role_middleware_tests` and `router` (the router assembly, with the test
+    // installer and the tests that build it) moved up into `oxy-server` on
+    // 2026-11-23 (decompose LIFT). The route table's types went down into
+    // `oxy-route-catalog` the same day (decompose RC).
     // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
     // 2026-11-21 (re-exported in `server/mod.rs` until R1). `service`, the
     // re-exports of `oxy::service` and `oxy::types`, was deleted in R1 when
@@ -89,14 +88,16 @@ const SERVER: &[&str] = &[
 ];
 
 const SERVER_API: &[&str] = &[
-    "admin",
+    // `admin` (the console shell) and `local_setup` moved up into
+    // `oxy-server` with the router on 2026-11-23 (decompose LIFT).
     // Re-exports only since decompose B2 (the gate is `oxy_billing::gate`,
     // the past-due dispatcher `oxy_api_billing::billing::notify`).
     "billing",
     // The data plane's gate and the semantic boundary (out of `projects`) left
     // for `oxy-workspace-runtime` on 2026-11-22 (W6a), re-exported in
     // `api/mod.rs` and `projects/mod.rs`.
-    "local_setup",
+    // Re-exports only since decompose LIFT: the router-only middlewares went up
+    // into `oxy-server`'s `router::middlewares`.
     "middlewares",
     "projects",
     // The typed-stream sinks left for `oxy-workspace-runtime` on 2026-11-21

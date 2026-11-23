@@ -91,7 +91,7 @@ fn the_composition_runs_every_experiment_kind() {
         "the experiment tick is not handed to the global driver"
     );
     assert_eq!(
-        oxy_app::server::router::require_task_kinds(&seams.tasks),
+        crate::router::require_task_kinds(&seams.tasks),
         Ok(()),
         "a kind registered twice would shadow one executor with another"
     );
@@ -112,7 +112,7 @@ fn the_composition_runs_the_usage_report_on_every_loop() {
         .map(|t| (t.name, t.pass))
         .collect();
     assert!(
-        ticks.contains(&("usage_report", oxy_app::host::router::TickPass::EveryLoop)),
+        ticks.contains(&("usage_report", crate::router::TickPass::EveryLoop)),
         "the usage report's pass is not handed to the driver's loop: {ticks:?}"
     );
 }
@@ -126,7 +126,7 @@ fn the_composition_runs_the_usage_report_on_every_loop() {
 /// can show it — a dropped `openapi:` entry would lose it silently.
 #[tokio::test]
 async fn the_served_openapi_document_includes_the_surfaces() {
-    let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+    let doc = crate::router::build_openapi_doc(surface_seams().openapi).await;
     // `GET /user`, the lookup that turns a credential into a user, is
     // `oxy-api-identity`'s since 2026-11-15.
     let user = doc
@@ -291,7 +291,7 @@ fn operation<'a>(
 
 #[tokio::test]
 async fn the_agent_data_plane_is_documented() {
-    let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+    let doc = crate::router::build_openapi_doc(surface_seams().openapi).await;
     for (path, method) in AGENT_PATHS {
         let item = doc.paths.paths.get(*path).unwrap_or_else(|| {
             panic!(
@@ -322,7 +322,7 @@ async fn the_agent_data_plane_is_documented() {
 async fn the_sql_request_body_carries_its_fields() {
     use utoipa::openapi::{RefOr, Schema};
 
-    let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+    let doc = crate::router::build_openapi_doc(surface_seams().openapi).await;
     let item = doc
         .paths
         .paths
@@ -399,7 +399,7 @@ async fn every_security_requirement_names_a_registered_scheme() {
     // The served document, the seams' operations included (was
     // `oxy-app`'s `build_openapi_doc(Vec::new())`, until the thread and
     // agent operations left for `oxy-api-threads` on 2026-11-16).
-    let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+    let doc = crate::router::build_openapi_doc(surface_seams().openapi).await;
     let registered: Vec<String> = doc
         .components
         .as_ref()
@@ -457,7 +457,7 @@ async fn the_two_query_response_schemas_stayed_distinct() {
     use utoipa::openapi::{RefOr, Schema};
 
     // Only the served document holds both, so only it can show a collision.
-    let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+    let doc = crate::router::build_openapi_doc(surface_seams().openapi).await;
     let components = doc.components.as_ref().expect("components");
 
     let object_with = |name: &str| -> bool {

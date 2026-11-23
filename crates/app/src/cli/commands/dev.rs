@@ -15,7 +15,7 @@ use clap::Parser;
 use oxy_shared::errors::OxyError;
 
 use super::{compile, seed, seed_org_workspace, seed_partners};
-use crate::server::router::{ExampleAppsSeam, SurfaceSeams};
+use oxy_app_core::seams::{ExampleAppsSeam, SurfaceSeams};
 
 // The commands under `oxy dev`. A plain comment, not `///`: `oxy-server`
 // flattens this enum into its `dev` group, and clap would print a doc comment

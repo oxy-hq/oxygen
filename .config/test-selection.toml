@@ -38,10 +38,16 @@ globs = ["crates/server/src/main.rs", "crates/server/src/lib.rs"]
 mark-changed = ["oxy-app", "oxy-api-custom-apps", "oxy-route-catalog"]
 post-rule = "skip-rules"
 
-# api-custom-apps and route-catalog tests scan crates/server/src.
+# api-custom-apps and route-catalog tests scan crates/server/src, and
+# route-catalog's build script walks its router (`SOURCE_DIRS`/`DOC_DIRS`:
+# `crates/server/src/{router,admin}` since decompose LIFT). oxy-app's guards
+# read it too (`app_scope_boundary` reads `admin/mod.rs`; `handler_spawns`,
+# `sentry_hub_scan` and the workspace-path scans walk `router/` and `admin/`),
+# and oxy-workspace-runtime's `workspace_context_tests` include_str!s
+# `router/middlewares/local_context.rs`.
 [[determinator.path-rule]]
 globs = ["crates/server/src/**"]
-mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog"]
+mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog", "oxy-app", "oxy-workspace-runtime"]
 post-rule = "skip-rules"
 
 # oxy-route-catalog's build script reads every api-* crate's routes (it depends
@@ -51,9 +57,11 @@ globs = ["crates/api-*/src/**"]
 mark-changed = ["oxy-route-catalog"]
 post-rule = "skip-rules"
 
-# ...and oxy-app's router and docs (`SOURCE_DIRS`/`DOC_DIRS`), which it reads
-# with no dependency at all: none since decompose RC, and no dev-dependency
-# since decompose RT (its router-building tests went up to oxy-server).
+# ...and oxy-app's sources (`DOC_DIRS`), which it reads with no dependency at
+# all: none since decompose RC, and no dev-dependency since decompose RT (its
+# router-building tests went up to oxy-server). The router itself, the
+# `SOURCE_DIRS` entry this rule was for, is `crates/server/src/router` since
+# decompose LIFT (the rule above).
 [[determinator.path-rule]]
 globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog"]

@@ -2,7 +2,7 @@
 //! surface.
 //!
 //! Each installs the real router's declarations beside the surface's own
-//! (`oxy_app::surface::roles::install_route_declarations_for_tests_with`), then
+//! (`oxy_server::role_manifest::install_route_declarations_for_tests_with`), then
 //! asks the same `classify` the request path asks, so a surface's rows are
 //! proven against the router's patterns. They lived in each surface's own test
 //! group until decompose TR (2026-11-23), which moved them here: this crate

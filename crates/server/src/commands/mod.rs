@@ -12,7 +12,7 @@ mod worker;
 #[cfg(test)]
 mod entry_point_tests;
 
-use oxy_app::host::router::SurfaceSeams;
+use crate::router::SurfaceSeams;
 use oxy_shared::errors::OxyError;
 
 use args::{ServeArgs, StartArgs};

@@ -1,0 +1,913 @@
+//! HTTP router, split into per-concern modules.
+//!
+//! - [`public`] — unauthenticated routes (health, auth, Slack, current-user)
+//! - [`global`] — cloud-only org/workspace CRUD and GitHub integration
+//! - [`workspace`] — the per-workspace route tree and its sub-builders
+//! - [`secrets`] — secret routes gated behind an admin-only middleware
+//! - [`protected`] — cloud/local composition of protected routes + middleware
+//! - [`entry`] — [`api_router`] / [`internal_api_router`] public entry points
+//! - [`SurfaceSeams`], the named seams extracted surface crates mount through, is
+//!   `oxy_app_core::seams`' (decompose R0), re-exported here
+//! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
+
+mod entry;
+mod global;
+// The workspace tree's `/setup` handlers (legacy `--local` only), mounted by
+// `workspace`; with `local_context` (`middlewares`), what DEL-L deletes.
+pub mod local_setup;
+// The middlewares only this router layers (`protected`): up from `oxy-app`'s
+// `server::api::middlewares` with it (decompose LIFT, 2026-11-23).
+pub mod middlewares;
+mod openapi;
+mod protected;
+mod public;
+// The background drivers (`recovery`, `periodic`, `drive_policy`,
+// `run_retention`, `fleet_jobs`) are `oxy-server`'s `drivers` since decompose
+// BL1 (2026-11-23).
+// `oxy-app-core`'s `pods::role_router` since 2026-11-22 (decompose G3).
+pub(crate) use oxy_app_core::pods::role_router;
+mod workspace;
+
+use axum::Router;
+use axum::http::header::{HeaderName, HeaderValue};
+use axum::http::{HeaderMap, Method, header};
+use tower_http::cors::{AllowOrigin, CorsLayer};
+
+pub use entry::{ApiRouterArgs, api_router, api_router_with_state, internal_api_router};
+pub use openapi::{build_openapi_doc, openapi_router};
+pub use oxy_app_core::seams::{
+    ANOMALY_TASK_KINDS, AdminNest, AdminSection, BackgroundDeps, BackgroundSeam,
+    CHAT_BACKGROUND_JOBS, CUSTOM_APP_BACKGROUND_JOBS, CUSTOM_APP_TASK_KINDS, ExampleAppsSeam,
+    GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam,
+    OuterMount, PREVIEW_BACKGROUND_JOBS, PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps,
+    TaskSeam, TickPass, global_ticks, install_global_ticks, require_notifications,
+    require_task_kinds,
+};
+pub use oxy_app_core::seams::{
+    CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs,
+};
+pub use protected::{api_auth_layers, external_auth_layers};
+
+// `AppState` moved to `oxy-app-core` so the router and future per-surface crates
+// can hold it without depending on `oxy-app`. Re-exported here so every existing
+// `crate::router::AppState` call site (~52 files) is unchanged.
+pub use oxy_app_core::AppState;
+
+/// `oxy-app-core`'s `app_state::bare_app_state` since decompose R0
+/// (2026-11-23), re-exported so `router::bare_app_state` keeps resolving.
+pub use oxy_app_core::app_state::bare_app_state;
+
+/// The cloud **flat** routes behind the `/api` auth stack, merged with the
+/// public tree: what `api_router` serves for every path outside
+/// `/{workspace_id}/…`, minus the agentic state and worker boot that building
+/// the whole router costs.
+///
+/// `extra_api_routes`, `extra_public_routes` and `admin` are the extracted
+/// surfaces' share, exactly as `api_router` takes them from [`SurfaceSeams`]: the
+/// `api` seam's routes join the global tree behind the same auth stack, the
+/// `public` seam's join the public tree outside it, and the `admin` sections
+/// mount under `/admin`, with the `admin_nests` beside them.
+///
+/// Public for the same reason as [`api_auth_layers`]: `oxy-server`'s token
+/// tests drive the real mounts, guards and handlers (`/orgs`, `/user/tokens`,
+/// `/auth/cli/*`, `/admin/*`, `/assume`, …) rather than a copy of them.
+pub fn flat_api_surface(
+    extra_api_routes: axum::Router<AppState>,
+    extra_public_routes: axum::Router<AppState>,
+    admin: Vec<AdminSection>,
+    admin_nests: Vec<AdminNest>,
+) -> axum::Router {
+    let state = bare_app_state();
+    public::build_public_routes(&state)
+        .into_router()
+        .merge(extra_public_routes)
+        .merge(api_auth_layers(
+            global::build_global_routes(&state, admin, admin_nests)
+                .into_router()
+                .merge(extra_api_routes),
+        ))
+        .with_state(state)
+}
+
+/// An `AgenticState` over a disconnected database, for tests that need to build
+/// a router but never reach one.
+#[cfg(test)]
+pub(crate) fn test_agentic_state() -> std::sync::Arc<agentic_http::AgenticState> {
+    use agentic_pipeline::platform::ThreadOwnerLookup;
+
+    struct NoThreadOwner;
+
+    #[async_trait::async_trait]
+    impl ThreadOwnerLookup for NoThreadOwner {
+        async fn thread_owner(
+            &self,
+            _thread_id: uuid::Uuid,
+        ) -> Result<Option<Option<uuid::Uuid>>, String> {
+            Ok(None)
+        }
+    }
+
+    std::sync::Arc::new(agentic_http::AgenticState::new(
+        tokio_util::sync::CancellationToken::new(),
+        sea_orm::DatabaseConnection::default(),
+        std::sync::Arc::new(NoThreadOwner),
+    ))
+}
+
+/// Build the protected router purely to read back the roles it declared.
+///
+/// The server installs the real build's declarations at startup, for the mode it
+/// is running; this exists for the guards that assert policy about routes, which
+/// need the routes themselves rather than a description of them. It unions both
+/// modes, because git features and local setup are mounted by different ones and
+/// a guard has to see every route the server can serve.
+pub fn route_declarations() -> Vec<role_router::Decl> {
+    use agentic_http::AgenticState;
+    use agentic_pipeline::platform::ThreadOwnerLookup;
+    use std::sync::Arc;
+
+    struct NoThreadOwner;
+
+    #[async_trait::async_trait]
+    impl ThreadOwnerLookup for NoThreadOwner {
+        async fn thread_owner(
+            &self,
+            _thread_id: uuid::Uuid,
+        ) -> Result<Option<Option<uuid::Uuid>>, String> {
+            Ok(None)
+        }
+    }
+
+    let app_state = bare_app_state();
+    let agentic_state = Arc::new(AgenticState::new(
+        tokio_util::sync::CancellationToken::new(),
+        sea_orm::DatabaseConnection::default(),
+        Arc::new(NoThreadOwner),
+    ));
+    // No surface crates here: this collects oxy-app's OWN declarations for the
+    // tests, and a seam's routes are the composition root's to supply.
+    let (_, cloud) = protected::build_protected_routes(
+        app_state.clone(),
+        agentic_state.clone(),
+        Router::new(),
+        Vec::new(),
+        Router::new(),
+        Vec::new(),
+        Default::default(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let (_, local) = protected::build_local_protected_routes(
+        app_state.clone(),
+        agentic_state,
+        Router::new(),
+        Vec::new(),
+        Default::default(),
+    );
+    // The public tree is served in BOTH modes and now declares its own routes,
+    // so the guards have to see it too — otherwise `classify` answers correctly
+    // at runtime while every test still reads the FleetOk default and cannot
+    // tell a declaration from an omission.
+    let (_, public, _) = public::build_public_routes(&app_state).into_parts();
+    cloud
+        .into_iter()
+        .chain(local)
+        .chain(crate::role_manifest::api_prefixed(public))
+        .collect()
+}
+
+/// The two halves of the split, typed by the pod that may serve a route:
+/// `oxy-app-core`'s `pods` since 2026-11-22, re-exported at the path the
+/// handlers have always used.
+pub use oxy_app_core::pods::{FleetState, IdeState};
+
+/// The workspace the workspace middleware resolved. Defined beside that
+/// middleware (base), re-exported here at the path the handlers have always used.
+pub use oxy_workspace_runtime::request::workspace_extractor::WorkspaceExtractor;
+
+/// CORS policy for the API surface.
+///
+/// Customer-app bundles share the SPA's domain in the current model, so
+/// real cross-origin browser XHR only happens in local dev (Vite on
+/// `:5173` / `:5174` calling oxy on `:3000` when not proxied). Auto-allow
+/// that pair plus any same-origin request derived from `Host` /
+/// `X-Forwarded-Host`. No env-var setup needed for local or cloud
+/// deployments. (When whitelabelling lands, per-app allowed origins
+/// belong in the DB, not a global env var.)
+pub fn build_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_private_network(true)
+        .allow_origin(AllowOrigin::predicate(|origin, parts| {
+            cors_allow(origin, &parts.headers)
+        }))
+        .allow_credentials(true)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::HEAD,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::ACCEPT_LANGUAGE,
+            header::ORIGIN,
+            HeaderName::from_static("x-requested-with"),
+            HeaderName::from_static("x-request-id"),
+            // W3C trace context the custom-app SDK sends on every function
+            // invoke; same-origin today, but a cross-origin base would
+            // otherwise fail its preflight exactly as documented below.
+            HeaderName::from_static("traceparent"),
+            // Cross-origin SSE for the custom-app shell's Ask Oxygen stream.
+            // Its fetch sends `Cache-Control: no-cache` (don't cache the stream)
+            // and, on reconnect, `Last-Event-ID` (replay from a known point).
+            // Neither is CORS-safelisted, so each triggers a preflight; without
+            // them here the browser blocks the request and the run reports
+            // "Failed to fetch". Same headers the external CORS layer allows.
+            header::CACHE_CONTROL,
+            HeaderName::from_static("last-event-id"),
+            // Marks a workspace-preview request (`server::previews::pin`). The
+            // dev frontend calls the API cross-origin, so it needs a preflight
+            // pass like any other non-safelisted header.
+            HeaderName::from_static(oxy_previews::pin::REQUEST_HEADER),
+        ])
+        // `Link` carries `rel="next"` on the paginated list endpoints
+        // (`oxy_app_core::pagination`). A response header is invisible to a
+        // cross-origin browser caller unless it is exposed, so without this a
+        // custom-app subdomain reading `/api` would page one page and stop —
+        // the exact silence that header exists to break. Server-side callers
+        // (`oxyc`, curl) are unaffected either way.
+        // `x-oxy-request-id` for the same reason, and it matters more: the whole
+        // point of the id is that a caller can name the request that went
+        // wrong. Devtools and curl show it either way, but a custom app on
+        // `<org>--<slug>.customer-apps…` calling `/api` is cross-origin, so
+        // `response.headers.get('x-oxy-request-id')` reads null there without
+        // this — which is exactly the client that would report it.
+        // `x-oxy-preview` tells the frontend a response was served from a
+        // workspace preview, and which revision; unreadable cross-origin
+        // without this.
+        // `x-oxy-error-code` names *why* an airway route answered 503 on a
+        // replica with no working copy (`airway_needs_recompile` vs
+        // `airway_unavailable`); the body is prose for a person, the header is
+        // the field a client branches on, and it reads null cross-origin
+        // without this.
+        .expose_headers([
+            header::LINK,
+            HeaderName::from_static(crate::router::middlewares::request_id::REQUEST_ID_HEADER),
+            HeaderName::from_static(oxy_previews::pin::RESPONSE_HEADER),
+            HeaderName::from_static(agentic_http::routes::airway_not_servable::HEADER_ERROR_CODE),
+        ])
+}
+
+/// Wide-open CORS for the EXTERNAL API surface (`/external/api/*`).
+///
+/// Allows ANY origin so a standalone app on any domain (e.g. a Vercel
+/// dashboard) can call oxy with `X-API-Key`. This is safe ONLY because that
+/// surface is gated by [`oxy_auth::middleware::api_key_only_middleware`] —
+/// API-key auth carries no ambient browser credential, so `*`-origin has no
+/// CSRF vector. Critically we must NOT set `allow_credentials(true)` here: the
+/// CORS spec forbids credentials with a wildcard origin, and there are no
+/// cookies to send anyway. Kept entirely separate from [`build_cors_layer`]
+/// (the locked-down, cookie-credentialed policy for the main `/api` surface).
+pub(crate) fn build_external_cors_layer() -> CorsLayer {
+    use tower_http::cors::Any;
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+            Method::HEAD,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::ACCEPT_LANGUAGE,
+            header::ORIGIN,
+            HeaderName::from_static("x-requested-with"),
+            HeaderName::from_static("x-request-id"),
+            // W3C trace context the custom-app SDK sends on every function
+            // invoke; same-origin today, but a cross-origin base would
+            // otherwise fail its preflight exactly as documented below.
+            HeaderName::from_static("traceparent"),
+            HeaderName::from_static("x-api-key"),
+            HeaderName::from_static("last-event-id"),
+        ])
+        // Same reason as the main layer: a `Link: rel="next"` a browser cannot
+        // read is a paginated endpoint that reads as unpaginated, and a
+        // request id a browser cannot read cannot be quoted in a bug report.
+        .expose_headers([
+            header::LINK,
+            HeaderName::from_static(crate::router::middlewares::request_id::REQUEST_ID_HEADER),
+        ])
+}
+
+use oxy_app_core::origin::cors_allow;
+pub use oxy_app_core::origin::{is_allowed_origin, is_loopback_host};
+
+#[cfg(test)]
+mod app_state_tests {
+    use super::*;
+    use oxy_app_core::serve_mode::ServeMode;
+
+    #[test]
+    fn app_state_carries_mode() {
+        let local = AppState {
+            enterprise: false,
+            internal: false,
+            mode: ServeMode::Local,
+            observability: None,
+            startup_cwd: std::path::PathBuf::from("/tmp"),
+            preagg_cache: None,
+            preagg_renewal_threshold_secs: None,
+            agentic_state: None,
+            semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
+            semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+        };
+        let cloud = AppState {
+            enterprise: false,
+            internal: false,
+            mode: ServeMode::Cloud,
+            observability: None,
+            startup_cwd: std::path::PathBuf::new(),
+            preagg_cache: None,
+            preagg_renewal_threshold_secs: None,
+            agentic_state: None,
+            semantic_layer_cache: oxy_app_core::workspace_cache::new_semantic_layer_cache(),
+            semantic_engine_cache: oxy_app_core::workspace_cache::new_semantic_engine_cache(),
+        };
+        assert!(local.mode.is_local());
+        assert!(!cloud.mode.is_local());
+    }
+}
+
+#[cfg(test)]
+mod router_split_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use oxy_app_core::serve_mode::ServeMode;
+    use tower::ServiceExt;
+
+    /// `api_router()` wires database-backed middleware during construction.
+    /// Skip the inline router tests when `OXY_DATABASE_URL` is unset so CI
+    /// without a Postgres doesn't flag a config gap as a code regression.
+    /// (The DB-gated integration tests in `crates/app/tests/` follow the
+    /// same convention.)
+    fn db_unavailable() -> bool {
+        std::env::var("OXY_DATABASE_URL").is_err()
+    }
+
+    // `/orgs` is mounted by `oxy-server` through the api seam since #3460, so
+    // with `SurfaceSeams::empty()` it 404s in BOTH modes: the cloud "is mounted"
+    // check could only fail here and the local "is not" could only pass. The
+    // pair moved to `oxy-server`'s `served_router_tests`, which builds this
+    // router from the seams boot hands it.
+
+    // Was `local_router_serves_health` (`GET /live` = 200). The probes are
+    // `oxy-server`'s since 2026-11-16 and absent from an empty-seam router;
+    // `served_router_tests::both_modes_mount_the_health_probes` holds `/live`
+    // on the served one.
+    #[tokio::test]
+    async fn local_router_mounts_the_public_tree() {
+        if db_unavailable() {
+            return;
+        }
+        // `oxy-app`'s own public tree mounts nothing since 2026-11-21 (the
+        // QuickBooks OAuth callback, the last probe, left for
+        // `oxy-api-workspace-config`), so the probe is a route handed in on the
+        // public seam, which is where every public route arrives now: it is
+        // merged beside the public tree, so it answering proves the public
+        // tree is mounted on the local router. (`oxy-server`'s
+        // `served_router_tests` holds the real callbacks, and the Stripe
+        // webhook before them, on the served router in both modes.)
+        let seams = SurfaceSeams {
+            public: SurfaceSeam {
+                routes: Router::new().route("/seam-probe", axum::routing::get(|| async { "ok" })),
+                decls: Vec::new(),
+            },
+            ..SurfaceSeams::empty()
+        };
+        let (router, _external_router, _preagg) = api_router(
+            ServeMode::Local,
+            false,
+            None,
+            std::path::PathBuf::new(),
+            tokio_util::sync::CancellationToken::new(),
+            false,
+            seams,
+        )
+        .await
+        .expect("router built");
+        // GET only: TRACE gets 405 where it is mounted and 404 where it is
+        // not, without reaching the handler.
+        let trace = |uri: &'static str| {
+            let router = router.clone();
+            async move {
+                let req = Request::builder()
+                    .method(axum::http::Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap();
+                router.oneshot(req).await.expect("oneshot").status()
+            }
+        };
+        assert_eq!(trace("/seam-probe").await, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(
+            trace("/webhooks/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control"
+        );
+    }
+
+    #[tokio::test]
+    async fn local_router_mounts_workspace_routes_under_nil_uuid() {
+        if db_unavailable() {
+            return;
+        }
+        use oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+        let (router, _external_router, _preagg) = api_router(
+            ServeMode::Local,
+            false,
+            None,
+            std::path::PathBuf::new(),
+            tokio_util::sync::CancellationToken::new(),
+            false,
+            SurfaceSeams::empty(),
+        )
+        .await
+        .expect("router built");
+        // `/analytics/runs`, an in-tree workspace route (the agentic chat's
+        // run start, `nest_declared` in `build_workspace_routes`), by TRACE (no
+        // handler runs: 405 when mounted). It probed `GET /agents` until that
+        // left for `oxy-api-threads`, then `/meta` until that left for
+        // `oxy-api-workspaces`, then `/revision` until that left for
+        // `oxy-api-semantic` (all 2026-11-16), then
+        // `/integrations/quickbooks/authorize` until that left for
+        // `oxy-api-workspace-config` (2026-11-21); `oxy-server`'s served-router
+        // tests hold all four in local mode now.
+        let uri = format!("/{}/analytics/runs", LOCAL_WORKSPACE_ID);
+        let req = Request::builder()
+            .method(axum::http::Method::TRACE)
+            .uri(&uri)
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("oneshot");
+        assert_ne!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "local mode must mount workspace routes under /{{workspace_id}}, got {} for {}",
+            resp.status(),
+            uri
+        );
+    }
+
+    // `cloud_router_still_has_organizations_mounted` is pinned where the mount
+    // is composed, in `oxy-server`'s `served_router_tests` (#3468).
+    // `self_serve_org_creation_is_not_mounted` moved to `oxy-api-tenancy` with
+    // `/orgs`, which this tree no longer mounts.
+
+    /// An extracted surface's staff-console section (`SurfaceSeams::admin`)
+    /// is reachable under `/admin`, sits behind the capability it named, and
+    /// carries its pod-placement declarations under the same prefix — the
+    /// three things the seam promises, checked on the real global tree.
+    #[tokio::test]
+    async fn an_admin_section_mounts_under_admin_behind_its_capability() {
+        let section = AdminSection {
+            capability: oxy_server_authz::Action::PlatformOrgs,
+            routes: Router::new().route("/seam-probe", axum::routing::post(|| async { "ok" })),
+            decls: vec![oxy_shared::fleet_role::RouteRoleDecl {
+                method: "POST",
+                path: "/seam-probe",
+                role: oxy_shared::fleet_role::RouteRole::IdeOnly,
+            }],
+        };
+        let (router, decls, _) =
+            global::build_global_routes(&bare_app_state(), vec![section], Vec::new()).into_parts();
+        assert!(
+            decls.iter().any(|(m, p, r)| *m == "POST"
+                && p == "/admin/seam-probe"
+                && *r == oxy_shared::fleet_role::RouteRole::IdeOnly),
+            "the section's declaration must land under /admin"
+        );
+
+        // No authenticated user: an unguarded handler would answer 200, and an
+        // unmounted one 404. The staff guards answer 401 before either.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/seam-probe")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router
+            .with_state(bare_app_state())
+            .oneshot(req)
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// An extracted surface's sibling tree (`SurfaceSeams::admin_nests`) is
+    /// nested at `/admin{prefix}`, declared with `nest_all`'s two shapes, and
+    /// guarded with `.layer`: its route, and its route asked with a verb it
+    /// does not take, answer the guards; a path it does not match is the outer
+    /// 404, exactly as the in-tree nests answered on `main`.
+    #[tokio::test]
+    async fn an_admin_nest_mounts_beside_admin_guarded_on_every_path() {
+        let nest = AdminNest {
+            prefix: "/seam-nest",
+            capability: oxy_server_authz::Action::PlatformOperate,
+            routes: Router::new().route("/probe", axum::routing::get(|| async { "ok" })),
+            role: oxy_shared::fleet_role::RouteRole::FleetOk,
+            why: "a probe",
+        };
+        let (router, decls, _) =
+            global::build_global_routes(&bare_app_state(), Vec::new(), vec![nest]).into_parts();
+        for path in ["/admin/seam-nest", "/admin/seam-nest/{*rest}"] {
+            assert!(
+                decls.iter().any(|(m, p, r)| *m == "*"
+                    && p == path
+                    && *r == oxy_shared::fleet_role::RouteRole::FleetOk),
+                "nest_all must declare {path}"
+            );
+        }
+        let router = router.with_state(bare_app_state());
+        // No authenticated user: an unguarded route would answer 200 and a
+        // `route_layer` would let the wrong verb's 405 through. The staff
+        // guards answer 401 before either.
+        for (method, path, expected) in [
+            ("GET", "/admin/seam-nest/probe", StatusCode::UNAUTHORIZED),
+            ("POST", "/admin/seam-nest/probe", StatusCode::UNAUTHORIZED),
+            (
+                "GET",
+                "/admin/seam-nest/nothing-here",
+                StatusCode::NOT_FOUND,
+            ),
+            ("GET", "/admin/seam-nest", StatusCode::NOT_FOUND),
+        ] {
+            let req = Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let resp = router.clone().oneshot(req).await.expect("oneshot");
+            assert_eq!(resp.status(), expected, "{method} {path}");
+        }
+    }
+
+    /// The staff door is the OUTERMOST of a nest's three layers. With platform
+    /// standing unreadable (no database), the door defers to its legacy
+    /// verdict and refuses a caller who is not the Global Owner with 403; the
+    /// capability guard, asked first, would refuse the same caller with 500
+    /// (`platform_cap_guard`'s unknown-standing arm), and the acting refusal
+    /// lets an unreadable caller through. So a 403 here is the door answering
+    /// before the other two, and a 500 is the door gone or moved inward. With
+    /// a database, every live caller the door refuses the capability guard
+    /// refuses too, with the same bare 403 — this is the one place the door
+    /// shows.
+    #[tokio::test]
+    async fn an_admin_nest_answers_the_staff_door_first() {
+        struct Env(Vec<(&'static str, Option<String>)>);
+        impl Drop for Env {
+            fn drop(&mut self) {
+                for (k, v) in &self.0 {
+                    match v {
+                        Some(v) => unsafe { std::env::set_var(k, v) },
+                        None => unsafe { std::env::remove_var(k) },
+                    }
+                }
+            }
+        }
+        let keys = ["OXY_DATABASE_URL", "OXY_DATABASE_AUTH_MODE", "OXY_OWNER"];
+        let _restore = Env(keys.iter().map(|k| (*k, std::env::var(k).ok())).collect());
+        // Not a PostgreSQL URL, so the connection is refused at once rather
+        // than after the pool's acquire timeout.
+        unsafe { std::env::set_var("OXY_DATABASE_URL", "unreachable://standing") };
+        unsafe { std::env::remove_var("OXY_DATABASE_AUTH_MODE") };
+        unsafe { std::env::remove_var("OXY_OWNER") };
+
+        let nest = AdminNest {
+            prefix: "/seam-nest",
+            capability: oxy_server_authz::Action::PlatformOperate,
+            routes: Router::new().route("/probe", axum::routing::get(|| async { "ok" })),
+            role: oxy_shared::fleet_role::RouteRole::FleetOk,
+            why: "a probe",
+        };
+        let router = global::build_global_routes(&bare_app_state(), Vec::new(), vec![nest])
+            .into_router()
+            .with_state(bare_app_state());
+        let user = oxy_auth::types::AuthenticatedUser {
+            id: uuid::Uuid::new_v4(),
+            email: Some("not-staff@example.com".to_string()),
+            name: "not staff".to_string(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        };
+        for method in ["GET", "POST"] {
+            let mut req = Request::builder()
+                .method(method)
+                .uri("/admin/seam-nest/probe")
+                .body(Body::empty())
+                .unwrap();
+            req.extensions_mut().insert(user.clone());
+            let resp = router.clone().oneshot(req).await.expect("oneshot");
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{method}");
+        }
+    }
+
+    /// `entry::api_router` merges the public tree into the protected tree
+    /// wholesale, so a path registered in both panics the router at
+    /// construction — and with it every test that builds one.
+    ///
+    /// #3207 did exactly that: the staff fleet-health route landed on
+    /// `/customer-apps/health`, which `public.rs` already owned for the
+    /// host-resolved external liveness endpoint. This is the same merge
+    /// `entry.rs` performs, minus the database, so a future collision fails
+    /// here in milliseconds instead of panicking inside the DB-gated router
+    /// tests (which skip entirely when `OXY_DATABASE_URL` is unset, and so
+    /// would not have caught it locally at all).
+    #[test]
+    fn public_and_global_trees_do_not_collide() {
+        let _merged = public::build_public_routes(&bare_app_state())
+            .into_router()
+            .merge(
+                global::build_global_routes(&bare_app_state(), Vec::new(), Vec::new())
+                    .into_router(),
+            );
+    }
+
+    #[tokio::test]
+    async fn external_router_fallback_stays_behind_auth() {
+        if db_unavailable() {
+            return;
+        }
+        // The external JSON-404 fallback (protected.rs `external_api_not_found`)
+        // must sit BEHIND the api-key auth layer: an unauthenticated request to
+        // an *unmatched* external path must be 401, NOT the fallback's 404. If
+        // `.fallback(...)` were moved after the `.layer(...)` chain it would stop
+        // being wrapped by auth and unmatched paths would leak a 404 unauthed.
+        // (The matching valid-key → 404-JSON assertion — proving nested misses
+        // reach this fallback and not `with_context`'s own — needs a seeded API
+        // key; left as a follow-up.)
+        let (_router, external_router, _preagg) = api_router(
+            ServeMode::Cloud,
+            false,
+            None,
+            std::path::PathBuf::new(),
+            tokio_util::sync::CancellationToken::new(),
+            false,
+            SurfaceSeams::empty(),
+        )
+        .await
+        .expect("router built");
+        let uri = "/00000000-0000-0000-0000-000000000000/no-such-external-route";
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        let resp = external_router.oneshot(req).await.expect("oneshot");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "unauthenticated external miss must be 401 (auth wraps the fallback), got {}",
+            resp.status(),
+        );
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::*;
+
+    fn make_headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut m = HeaderMap::new();
+        for (k, v) in pairs {
+            m.insert(
+                axum::http::header::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                HeaderValue::from_str(v).unwrap(),
+            );
+        }
+        m
+    }
+
+    #[test]
+    fn no_origin_no_referer_allows_non_browser_clients() {
+        // Programmatic clients (CLIs, server-to-server) legitimately omit both.
+        assert!(is_allowed_origin(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn dev_origin_localhost_5173_is_allowed() {
+        // Vite's web-app calling the backend on :3000, cross-origin.
+        let headers = make_headers(&[
+            ("origin", "http://localhost:5173"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn dev_origin_localhost_5174_is_allowed() {
+        let headers = make_headers(&[
+            ("origin", "http://localhost:5174"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn dev_origin_localhost_3005_is_allowed() {
+        // Customer-app dev servers run on the :3000–:3005 range (e.g. the
+        // Command Center on :3005) and must reach the main `/api` cross-origin.
+        let headers = make_headers(&[
+            ("origin", "http://localhost:3005"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    /// THE regression this rule replaced a port allowlist to fix.
+    ///
+    /// Typing the loopback IP instead of the name is not a different setup, but
+    /// only `localhost` was listed — and Vite proxies `/api` with
+    /// `changeOrigin: true`, so `Host` arrives as the proxy *target's*
+    /// (`localhost:3000`) and the same-origin check can't rescue it either.
+    /// Every custom-app query answered 403 "origin not allowed", with nothing
+    /// in the URL to suggest the spelling was the problem.
+    #[test]
+    fn loopback_ip_origin_behind_the_vite_proxy_is_allowed() {
+        let headers = make_headers(&[
+            ("origin", "http://127.0.0.1:5173"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn unbracketed_ipv6_loopback_is_still_loopback() {
+        // Not what a spec-compliant proxy emits, but the bracketed form is
+        // handled deliberately and dropping the other silently is a worse
+        // failure than handling both.
+        let headers = make_headers(&[("origin", "http://[::1]:5173"), ("host", "::1")]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn ipv6_loopback_origin_is_allowed() {
+        // Bracketed, and the address is all colons — the port split has to find
+        // the closing bracket rather than the first `:`.
+        let headers = make_headers(&[("origin", "http://[::1]:5173"), ("host", "[::1]:3000")]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn localhost_subdomain_origin_is_allowed() {
+        // Org subdomains are exercised locally as `<slug>.localhost`, which
+        // RFC 6761 reserves to loopback.
+        let headers = make_headers(&[
+            ("origin", "http://acme.localhost:5173"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn any_local_port_is_allowed() {
+        // `OXY_DEV_PORT` / `OXY_DEV_PROXY_TARGET` exist so several dev servers
+        // can coexist; a hard-coded port list made using them a 403.
+        let headers = make_headers(&[
+            ("origin", "http://localhost:4321"),
+            ("host", "127.0.0.1:9876"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    /// The pair is what makes the loopback allowance safe. A page served from
+    /// the viewer's own machine posting at the production host would ride their
+    /// session cookie, so the *server* end has to be loopback too.
+    #[test]
+    fn loopback_origin_against_a_public_host_is_rejected() {
+        let headers = make_headers(&[
+            ("origin", "http://localhost:1234"),
+            ("host", "app.oxygen-hq.com"),
+        ]);
+        assert!(!is_allowed_origin(&headers));
+    }
+
+    /// …and the converse: a public origin does not become allowed just because
+    /// the request happens to have arrived on loopback (behind a proxy that
+    /// dropped the forwarded host).
+    #[test]
+    fn public_origin_against_a_loopback_host_is_rejected() {
+        let headers = make_headers(&[
+            ("origin", "https://evil.example.com"),
+            ("host", "localhost:3000"),
+        ]);
+        assert!(!is_allowed_origin(&headers));
+    }
+
+    /// `notlocalhost` and `localhost.evil.com` both contain the magic word.
+    /// Only a real label boundary counts.
+    #[test]
+    fn lookalike_hosts_are_not_loopback() {
+        for origin in [
+            "http://notlocalhost:5173",
+            "http://localhost.evil.com",
+            "http://127.0.0.1.evil.com",
+        ] {
+            let headers = make_headers(&[("origin", origin), ("host", "localhost:3000")]);
+            assert!(
+                !is_allowed_origin(&headers),
+                "{origin} must not be loopback"
+            );
+        }
+    }
+
+    #[test]
+    fn self_origin_via_host_is_allowed() {
+        // Standard same-domain deployment.
+        let headers = make_headers(&[
+            ("origin", "https://app-dev.oxygen-hq.com"),
+            ("host", "app-dev.oxygen-hq.com"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn self_origin_via_x_forwarded_host_is_allowed() {
+        // Behind a TLS-terminating reverse proxy, `Host` is the internal
+        // address; the public hostname comes in on `X-Forwarded-Host`.
+        let headers = make_headers(&[
+            ("origin", "https://app.oxygen-hq.com"),
+            ("host", "oxy-internal.svc.cluster.local"),
+            ("x-forwarded-host", "app.oxygen-hq.com"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn referer_scheme_host_used_when_origin_absent() {
+        let headers = make_headers(&[
+            ("referer", "https://app.oxygen-hq.com/some/path?q=1"),
+            ("host", "app.oxygen-hq.com"),
+        ]);
+        assert!(is_allowed_origin(&headers));
+    }
+
+    #[test]
+    fn cross_origin_outside_dev_or_self_is_rejected() {
+        // An origin that isn't a canonical dev host and doesn't match the
+        // server's own host is rejected — defence-in-depth carries over from
+        // the old env-driven allowlist.
+        let headers = make_headers(&[
+            ("origin", "https://attacker.com"),
+            ("host", "app.oxygen-hq.com"),
+        ]);
+        assert!(!is_allowed_origin(&headers));
+    }
+
+    /// The airway 503's reason rides a response header. A header a browser
+    /// cannot read cross-origin is a header that does not exist for the one
+    /// client that would branch on it, so the real layer must list it — not a
+    /// copy of the list, the layer.
+    #[tokio::test]
+    async fn airway_error_code_header_is_readable_cross_origin() {
+        use agentic_http::routes::airway_not_servable::HEADER_ERROR_CODE;
+        use axum::body::Body;
+        use axum::http::Request;
+        use axum::routing::get;
+        use tower::ServiceExt;
+
+        let router = Router::new()
+            .route("/", get(|| async { "" }))
+            .layer(build_cors_layer());
+        // The dev pair — the cross-origin caller this layer already admits.
+        let req = Request::builder()
+            .uri("/")
+            .header("origin", "http://localhost:5173")
+            .header("host", "localhost:3000")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("oneshot");
+
+        let exposed = resp
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .expect("the layer exposes response headers")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            exposed
+                .split(',')
+                .map(str::trim)
+                .any(|h| h == HEADER_ERROR_CODE),
+            "`{HEADER_ERROR_CODE}` is missing from Access-Control-Expose-Headers: {exposed}"
+        );
+    }
+}

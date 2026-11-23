@@ -76,7 +76,7 @@ where
 /// Mount with something like:
 ///
 /// ```ignore
-/// // crates/app/src/server/router/workspace.rs
+/// // crates/server/src/router/workspace.rs
 /// .merge(oxy_cameras::routes::workspace_routes::<AppState>(db.clone()))
 /// ```
 ///

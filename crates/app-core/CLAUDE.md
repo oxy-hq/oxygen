@@ -20,7 +20,7 @@ The rule is S9 in `internal-docs/domain-boundaries.md`, enforced by
 
 **`pods` is the split-fleet routing authority** (route roles, `RoleRouter`,
 the role middleware, the Factory relay, servability). Invoke
-`/crates/app:oxy-route-classification` before changing it: FS-touching routes
+`/crates/server:oxy-route-classification` before changing it: FS-touching routes
 must be `IdeOnly`, persisted-data reads must stay `FleetOk`.
 
 ## Admission test — all four must hold

@@ -275,7 +275,7 @@ async fn a_transient_github_failure_is_requeued_and_the_commit_is_promoted() {
     let fx = Fx::new().await;
     // SAFETY: single test per process.
     unsafe { std::env::set_var("OXY_ROLE", "worker") };
-    oxy_app::server::role_manifest::init_process_role_from_env();
+    oxy_app_core::pods::role_manifest::init_process_role_from_env();
 
     let archive = format!("/repos/acme/analytics/tarball/{HEAD}");
     Mock::given(method("GET"))
@@ -364,7 +364,7 @@ async fn a_retried_commit_compile_does_not_take_over_from_one_that_started_after
     let fx = Fx::new().await;
     // SAFETY: single test per process.
     unsafe { std::env::set_var("OXY_ROLE", "worker") };
-    oxy_app::server::role_manifest::init_process_role_from_env();
+    oxy_app_core::pods::role_manifest::init_process_role_from_env();
 
     let archive = format!("/repos/acme/analytics/tarball/{HEAD}");
     Mock::given(method("GET"))

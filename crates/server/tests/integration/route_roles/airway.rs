@@ -9,8 +9,8 @@
 //! depends on both.
 
 use oxy_api_airway::route_roles;
-use oxy_app::surface::roles::install_route_declarations_for_tests_with;
 use oxy_app_core::pods::role_manifest::{RouteRole, classify};
+use oxy_server::role_manifest::install_route_declarations_for_tests_with;
 
 const WORKSPACE: &str = "22222222-2222-2222-2222-222222222222";
 

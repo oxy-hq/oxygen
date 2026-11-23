@@ -30,7 +30,7 @@ async fn setup_db() -> DatabaseConnection {
         std::env::set_var("OXY_ROLE", "worker");
         std::env::set_var("OXY_COMPILE_REFUSE_FILE_CREDENTIALS", "1");
     }
-    oxy_app::server::role_manifest::init_process_role_from_env();
+    oxy_app_core::pods::role_manifest::init_process_role_from_env();
     db
 }
 

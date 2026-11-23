@@ -25,9 +25,8 @@ use agentic_pipeline::platform::ProjectContext;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy_app::agentic_wiring::OxyProjectContext;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use oxy_app::server::router::{
-    WorkspaceContextCache, new_workspace_context_cache, worker_project_ctx,
-};
+use oxy_workspace_runtime::driver_ctx::worker_ctx::worker_project_ctx;
+use oxy_workspace_runtime::workspace_cache::{WorkspaceContextCache, new_workspace_context_cache};
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 

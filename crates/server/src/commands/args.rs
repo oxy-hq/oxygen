@@ -112,8 +112,8 @@ impl ServeArgs {
         // Otherwise derive from the process role: only the stateless serve
         // replica offloads everything to the worker fleet. Shared invariant so a
         // single `OXY_ROLE=all` instance always runs its own in-process workers.
-        !oxy_app::host::role_manifest::role_runs_inprocess_workers(
-            oxy_app::host::role_manifest::current_process_role(),
+        !crate::role_manifest::role_runs_inprocess_workers(
+            crate::role_manifest::current_process_role(),
         )
     }
 }
@@ -218,7 +218,7 @@ mod tests {
             std::env::remove_var("OXY_DISABLE_INPROCESS_WORKERS");
             std::env::set_var("OXY_ROLE", "serve");
         }
-        oxy_app::host::role_manifest::init_process_role_from_env();
+        crate::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             args.workers_disabled(),
@@ -233,7 +233,7 @@ mod tests {
             std::env::remove_var("OXY_DISABLE_INPROCESS_WORKERS");
             std::env::set_var("OXY_ROLE", "all");
         }
-        oxy_app::host::role_manifest::init_process_role_from_env();
+        crate::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             !args.workers_disabled(),
@@ -249,7 +249,7 @@ mod tests {
             std::env::set_var("OXY_ROLE", "serve");
             std::env::set_var("OXY_DISABLE_INPROCESS_WORKERS", "0");
         }
-        oxy_app::host::role_manifest::init_process_role_from_env();
+        crate::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             !args.workers_disabled(),

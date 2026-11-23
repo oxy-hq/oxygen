@@ -28,10 +28,8 @@ utoipa-axum = { workspace = true }
 indexmap = { workspace = true }  # `data_plane::query`: column order in a result row
 # What this surface still reaches into oxy-app for, all through the prelude
 # (`oxy_app::surface`, rule S4, `tests/routing/surface_contract.rs`): the demo
-# seed helpers (`surface::seed`), and, in tests, the router helpers
-# (`testing::{api_router, external_auth_layers, flat_api_surface,
-# app_publish_token_scope}`; the route-role test moved up to oxy-server in
-# decompose TR). Everything
+# seed helpers (`surface::seed`). The router helpers its tests drive are
+# oxy-server's since decompose LIFT (a dev-dependency, below). Everything
 # else comes from the lower crates below. oxy-app never depends back on this
 # crate, not even as a dev-dependency, so none of its test binaries links V8.
 oxy-app = { path = "../app", default-features = false }
@@ -137,6 +135,13 @@ brotli = { workspace = true }
 # usage history, for the tests of the Activity tab's reads and the backfill.
 oxy-custom-apps = { workspace = true, features = ["test-fixtures"] }
 tower = { workspace = true, features = ["util"] }
+# The router the integration tests drive (`oxy_server::router::{api_router,
+# external_auth_layers, flat_api_surface}` and
+# `router::middlewares::app_publish_token_scope`), up from oxy-app's
+# `surface::testing` in decompose LIFT. A dev-dependency cycle Cargo allows.
+# default-features off so the test build turns on neither oxy-server's V8
+# forwarding (`custom-app-functions`) nor `dev-tools`.
+oxy-server = { path = "../server", default-features = false }
 # The integration tests reuse oxy-app's harness (`#[path]`-included from
 # crates/app/tests/common), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply.

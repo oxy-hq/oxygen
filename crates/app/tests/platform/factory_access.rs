@@ -163,7 +163,7 @@ async fn meta(FactoryAccess(factory_access): FactoryAccess) -> Json<Value> {
 /// behind the real middleware — nested at `prefix` the way the main API
 /// (`/api`) and the external API (`/external/api`) are.
 fn app(user: &AuthenticatedUser, prefix: &str) -> Router {
-    let state = oxy_app::server::router::bare_app_state();
+    let state = oxy_app_core::app_state::bare_app_state();
     let inner = Router::new()
         // The Factory's.
         .route("/files/{pathb64}", post(stub))

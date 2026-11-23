@@ -1,13 +1,10 @@
-pub mod api_key_query;
-pub mod app_grant_scope;
-pub mod app_publish_token_scope;
-pub mod local_context;
-pub mod oxy_owner_guard;
-pub mod request_id;
-pub mod sentry_surface;
-pub mod timeout;
-pub mod token_grant_scope;
-pub mod token_usage;
+// The router-only middlewares (`api_key_query`, `app_grant_scope`,
+// `app_publish_token_scope`, `local_context`, `request_id`, `timeout`,
+// `token_grant_scope`, `token_usage`) went up into `oxy-server`'s
+// `router::middlewares` with the router (decompose LIFT, 2026-11-23); the
+// `oxy_owner_guard` and `sentry_surface` shims went with them (import
+// `oxy_server_authz::oxy_owner_guard` and `oxy_telemetry::sentry_surface`).
+// What is left only re-exports lower crates.
 
 // The workspace middleware and the extractor that reads its row went down into
 // `oxy-workspace-runtime::request` (decompose W7, 2026-11-22); re-exported at

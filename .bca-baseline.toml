@@ -6849,37 +6849,37 @@ metric = "abc"
 value = 77.34339015067803
 
 [[entry]]
-path = "crates/app/src/server/api/middlewares/local_context.rs"
+path = "crates/server/src/router/middlewares/local_context.rs"
 qualified = "attach_workspace_manager"
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "crates/app/src/server/role_manifest_tests.rs"
+path = "crates/server/src/role_manifest_tests.rs"
 qualified = "<file>"
 metric = "loc.ploc"
 value = 754.0
 
 [[entry]]
-path = "crates/app/src/server/role_manifest_tests.rs"
+path = "crates/server/src/role_manifest_tests.rs"
 qualified = "<file>"
 metric = "loc.sloc"
 value = 1340.0
 
 [[entry]]
-path = "crates/app/src/server/router/entry.rs"
+path = "crates/server/src/router/entry.rs"
 qualified = "api_router_with_state"
 metric = "abc"
 value = 87.25823743349392
 
 [[entry]]
-path = "crates/app/src/server/router/entry.rs"
+path = "crates/server/src/router/entry.rs"
 qualified = "api_router"
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "crates/app/src/server/router/mod.rs"
+path = "crates/server/src/router/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
 value = 655.0
@@ -6891,7 +6891,7 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/app/src/server/router/protected.rs"
+path = "crates/server/src/router/protected.rs"
 qualified = "build_protected_routes"
 metric = "nargs"
 value = 9.0
@@ -7185,13 +7185,13 @@ metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/app/tests/routing/route_role_derivation.rs"
+path = "crates/server/tests/integration/routing/route_role_derivation.rs"
 qualified = "mounted_routes"
 metric = "abc"
 value = 52.848841046895245
 
 [[entry]]
-path = "crates/app/tests/routing/route_role_derivation.rs"
+path = "crates/server/tests/integration/routing/route_role_derivation.rs"
 qualified = "mounted_routes"
 metric = "cognitive"
 value = 35.0
@@ -10387,7 +10387,8 @@ value = 27.0
 path = "crates/shared/src/errors.rs"
 qualified = "StatusCode::from"
 metric = "cyclomatic"
-value = 27.0
+# 27 -> 28: main reached 28 with #4402 (a refused credential answers 401); raised in decompose LIFT #4406 with the user's approval (2026-11-23).
+value = 28.0
 
 [[entry]]
 path = "crates/shared/src/http_tests.rs"

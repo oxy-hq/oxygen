@@ -77,7 +77,7 @@ pub(crate) fn flat_api() -> Router {
         // Stripe's webhook, `oxy-api-billing`'s since the admin split's PR 9
         // (was `build_public_routes`, which `flat_api_surface` still builds).
         .merge(oxy_api_billing::public_routes());
-    oxy_app::server::router::flat_api_surface(
+    oxy_server::router::flat_api_surface(
         api_seam,
         public_seam,
         // `oxy-api-billing`'s first, as `surface_seams` chains it: the usage
@@ -119,13 +119,11 @@ fn workspace_tree() -> Router {
 }
 
 pub(crate) fn workspace_api() -> Router {
-    oxy_app::server::router::api_auth_layers(
-        Router::new().nest("/{workspace_id}", workspace_tree()),
-    )
+    oxy_server::router::api_auth_layers(Router::new().nest("/{workspace_id}", workspace_tree()))
 }
 
 pub(crate) fn workspace_external() -> Router {
-    oxy_app::server::router::external_auth_layers(
+    oxy_server::router::external_auth_layers(
         Router::new().nest("/{workspace_id}", workspace_tree()),
     )
 }

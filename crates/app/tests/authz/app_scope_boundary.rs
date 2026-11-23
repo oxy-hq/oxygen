@@ -219,7 +219,7 @@ fn every_app_route_tree_wears_the_stack_that_carries_the_scope_guard() {
         "exactly one mount wears `admin::apps::guarded`: `/customer-apps`. A second app \
          tree with its own layers is the second stack this test exists to prevent."
     );
-    let admin = read("crates/app/src/server/api/admin/mod.rs");
+    let admin = read("crates/server/src/admin/mod.rs");
     assert!(
         !admin.contains("apps::router()"),
         "`admin::router()` mounts the app handlers again, outside `guarded`"
@@ -387,7 +387,7 @@ fn publish_tokens_are_fenced_to_their_minter() {
 /// the day it is merged rather than the day someone greps.
 #[test]
 fn every_org_scoped_route_resolves_to_a_fenced_handler() {
-    let admin_mod = read("crates/app/src/server/api/admin/mod.rs");
+    let admin_mod = read("crates/server/src/admin/mod.rs");
     let merge_block = admin_mod
         .split("let staff_surface =")
         .nth(1)
@@ -474,7 +474,7 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
     // reached through the org section), so search the admin tree plus its delegates.
     let in_tree: Vec<String> = routers
         .iter()
-        .map(|r| format!("crates/app/src/server/api/admin/{r}.rs"))
+        .map(|r| format!("crates/server/src/admin/{r}.rs"))
         .filter(|p| repo_root().join(p).exists())
         .collect();
     let router_files: Vec<String> = in_tree
@@ -983,7 +983,7 @@ fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
         "oxy-server no longer chains oxy-api-admin's sections onto the admin seam"
     );
     assert!(
-        !read("crates/app/src/server/api/admin/mod.rs").contains("app_admins::router()"),
+        !read("crates/server/src/admin/mod.rs").contains("app_admins::router()"),
         "`admin::router` mounts the grant table again, beside its oxy-api-admin section"
     );
 

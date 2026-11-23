@@ -865,7 +865,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_REQUEST_TIMEOUT_SECS",
-        "crates/app/src/server/api/middlewares/timeout.rs",
+        "crates/server/src/router/middlewares/timeout.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

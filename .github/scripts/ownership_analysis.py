@@ -66,6 +66,8 @@ AREAS = [
     ("crates/app/src/server/api/admin/airhouse.rs",       "Airhouse fleet console (admin)"),
     ("crates/app/src/server/api/admin/oltp.rs",           "OLTP console (admin)"),
     ("crates/app/src/server/api/admin",                   "Admin (backend)"),
+    # The console shell, up into oxy-server with the router 2026-11-23 (LIFT).
+    ("crates/server/src/admin",                           "Admin (backend)"),
     ("web-app/src/pages/admin/AdminAirhouse",             "Airhouse fleet console (UI)"),
     ("web-app/src/pages/admin/AdminOltp",                 "OLTP console (UI)"),
     ("web-app/src/pages/admin",                           "Admin (UI)"),
@@ -150,6 +152,15 @@ AREAS = [
     ("crates/server/tests/integration/route_roles",       "HTTP router / fleet routing"),
     # The route catalog's router-building tests, up from crates/route-catalog 2026-11-23.
     ("crates/server/tests/integration/route_catalog",     "HTTP router / fleet routing"),
+    # The router assembly, its middlewares, the route-role installer and the
+    # routing tests that build it, up from oxy-app 2026-11-23 (decompose LIFT).
+    ("crates/server/src/router",                          "HTTP router / fleet routing"),
+    ("crates/server/src/role_manifest.rs",                "HTTP router / fleet routing"),
+    ("crates/server/src/role_manifest_tests.rs",          "HTTP router / fleet routing"),
+    ("crates/server/src/role_middleware.rs",              "HTTP router / fleet routing"),
+    ("crates/server/src/role_middleware_tests.rs",        "HTTP router / fleet routing"),
+    ("crates/server/tests/integration/routing",           "HTTP router / fleet routing"),
+    ("crates/server/tests/integration/local_mode_router.rs", "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
     # The console's handlers moved out of oxy-app into crates/api-observability
     # 2026-11-15; the old paths keep their history.

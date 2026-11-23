@@ -5,7 +5,7 @@
 //! tables are the middleware's, which goes up with the router, and only this
 //! crate depends on both it and the table.
 
-use oxy_app::server::api::middlewares::token_grant_scope::{
+use oxy_server::router::middlewares::token_grant_scope::{
     Blocked, REFUSED, Treatment, WHEN_BLOCKED, refused_family, treatment, treatment_when_blocked,
     when_blocked,
 };

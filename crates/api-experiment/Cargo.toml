@@ -11,8 +11,8 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# No normal oxy-app dependency (decompose R1, 2026-11-23); only the tests take
-# it, below. oxy-app never depends back on this crate.
+# No oxy-app dependency at all (decompose R1, 2026-11-23, and LIFT for the
+# tests, which take oxy-server instead). oxy-app never depends on this crate.
 oxy-workspace-runtime = { workspace = true } # workspace extractors, the metric-tree executor, the project-context and workspace-manager builders, the scan resolver
 oxy-app-core = { workspace = true }         # AppState (router state), the semantic-engine cache, the seams
 oxy = { workspace = true }                  # database client, config
@@ -75,10 +75,12 @@ agentic-automation = { workspace = true }
 agentic-connector = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
-# `simulation_router` builds the real router (`surface::testing::api_router`);
-# the route-role test moved up to oxy-server (decompose TR). Dev-only;
-# default-features off, as the normal dependency had it.
-oxy-app = { path = "../app", default-features = false }
+# `simulation_router` builds the real router (`oxy_server::router::api_router`,
+# up from oxy-app's `surface::testing` in decompose LIFT); the route-role test
+# moved up to oxy-server (decompose TR). Dev-only, a dev-dependency cycle Cargo
+# allows. default-features off so the test build turns on neither the V8
+# runtime (`custom-app-functions`) nor `dev-tools`.
+oxy-server = { path = "../server", default-features = false }
 
 [lints]
 workspace = true

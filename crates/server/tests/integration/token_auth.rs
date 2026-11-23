@@ -360,7 +360,7 @@ pub(crate) fn audited_surface(fx: &Fixture) -> Router {
             }
         }
     });
-    oxy_app::server::router::api_auth_layers(Router::new().nest(
+    oxy_server::router::api_auth_layers(Router::new().nest(
         "/{workspace_id}",
         workspace_routes().route("/audited", audited),
     ))
@@ -382,14 +382,12 @@ pub(crate) async fn audit_rows(
 
 /// `/api`, through its served auth stack.
 pub(crate) fn api_surface() -> Router {
-    oxy_app::server::router::api_auth_layers(
-        Router::new().nest("/{workspace_id}", workspace_routes()),
-    )
+    oxy_server::router::api_auth_layers(Router::new().nest("/{workspace_id}", workspace_routes()))
 }
 
 /// `/external/api`, through its served auth stack.
 pub(crate) fn external_surface() -> Router {
-    oxy_app::server::router::external_auth_layers(
+    oxy_server::router::external_auth_layers(
         Router::new().nest("/{workspace_id}", workspace_routes()),
     )
 }

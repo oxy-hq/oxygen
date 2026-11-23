@@ -23,7 +23,7 @@ async fn the_served_router_starts_the_chat_delivery_listener() {
     if std::env::var("OXY_DATABASE_URL").is_err() {
         return;
     }
-    let _router = super::api_router_and_boot(oxy_app::host::router::ApiRouterArgs {
+    let _router = super::api_router_and_boot(crate::router::ApiRouterArgs {
         mode: ServeMode::Cloud,
         enterprise: false,
         observability: None,

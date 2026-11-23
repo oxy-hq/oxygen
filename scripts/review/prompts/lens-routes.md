@@ -1,6 +1,6 @@
 Focus: route placement on the split fleet (which role serves a route, and whether it may touch disk)
 
-Read first: `crates/app/.claude/skills/oxy-route-classification/SKILL.md`.
+Read first: `crates/server/.claude/skills/oxy-route-classification/SKILL.md`.
 
 Check:
 - A route added, moved or renamed under `server/router/` (or an `api-*` crate) that is

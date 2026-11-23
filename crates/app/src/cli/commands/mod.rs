@@ -359,7 +359,7 @@ pub async fn run(
     // What `oxy-server` composes from the surface crates. Of the commands here
     // only `migrate` (the post-migrate report) and `seed` (the example apps)
     // read it; the commands that mount routes are `oxy-server`'s own.
-    seams: crate::server::router::SurfaceSeams,
+    seams: oxy_app_core::seams::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
         SubCommand::Run(run_args) => {

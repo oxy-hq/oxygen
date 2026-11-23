@@ -32,7 +32,7 @@ use entity::{revisions, semantic_views, workspaces};
 use oxy::workspace_fs_probe::{leaks, process_owns_workspace_files, reset_leaks};
 use oxy_app::agentic_wiring::compile_dispatcher::OxyCompileDispatcher;
 use oxy_app::server::compile_git;
-use oxy_app::server::role_manifest::{init_process_role_from_env, process_can_compile};
+use oxy_app_core::pods::role_manifest::{init_process_role_from_env, process_can_compile};
 use oxy_compile::RevisionKind;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,

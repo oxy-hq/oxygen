@@ -4,8 +4,9 @@
 //! Rule S4 in `internal-docs/domain-boundaries.md`. `crates/app/src/surface.rs`
 //! is the contract between the platform runtime and the extracted HTTP surfaces
 //! (`crates/api-*`); since decompose R1 it holds only what is still `oxy-app`'s
-//! (the demo seed, the serve-tree fence, the test router helpers and the
-//! route-role installer). Anything else a surface takes from `oxy-app` is another bounded
+//! (the demo seed, since the serve-tree fence went down in AG and the test
+//! router helpers and the route-role installer went up into `oxy-server` with
+//! the router in LIFT). Anything else a surface takes from `oxy-app` is another bounded
 //! context's logic, which rule S3 sends down into a domain crate instead.
 //!
 //! [`BACKLOG`] is the list of those reaches that predate the rule — it is a
@@ -265,7 +266,9 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
         "lib.rs",
         "surface.rs",
         "server/mod.rs",
-        "server/router/mod.rs",
+        // `server/router/mod.rs` until the router went up into `oxy-server`
+        // (decompose LIFT, 2026-11-23).
+        "server/api/middlewares/mod.rs",
     ] {
         assert!(
             files.iter().any(|f| f == &app_src.join(anchor)),
@@ -275,9 +278,11 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
     assert!(
         // A walk-sanity floor, not a policy count: the decompose shrinks
         // `crates/app/src` on purpose (195 files after P1, 2026-11-22; 96
-        // after W7 and W6b, 2026-11-23), so it sits well below today's count
-        // and still catches a broken walk. The anchors above carry the rest.
-        files.len() > 50,
+        // after W7 and W6b, 2026-11-23; 46 after LIFT, 2026-11-23, when it
+        // went from `> 50` to `> 30` with the user's approval), so it sits
+        // well below today's count and still catches a broken walk. The
+        // anchors above carry the rest.
+        files.len() > 30,
         "the walk found only {} files under crates/app/src — it lost its way",
         files.len()
     );
@@ -360,7 +365,13 @@ fn oxy_app_has_no_custom_apps_module() {
     // went down to `oxy-workspace-runtime` on 2026-11-22.)
     let mut entries = Vec::new();
     src_entries(&app_src, &mut entries);
-    for anchor in ["surface.rs", "server/api/mod.rs", "server/router/mod.rs"] {
+    // (`server/router/mod.rs` was the third anchor until the router went up
+    // into `oxy-server`, decompose LIFT, 2026-11-23.)
+    for anchor in [
+        "surface.rs",
+        "server/api/mod.rs",
+        "server/api/middlewares/mod.rs",
+    ] {
         assert!(
             entries.iter().any(|e| e == &app_src.join(anchor)),
             "the walk did not reach crates/app/src/{anchor} — it lost its way"
@@ -399,6 +410,70 @@ fn surface_sources_do_not_take_the_test_fixtures() {
         found.is_empty(),
         "src takes `surface::testing`:\n  {}",
         found.join("\n  ")
+    );
+}
+
+/// `Cargo.toml` lines naming `oxy-server` outside `[dev-dependencies]`.
+fn oxy_server_outside_dev_deps(manifest: &str) -> Vec<String> {
+    let mut section = "";
+    let mut found = Vec::new();
+    for (i, line) in manifest.lines().enumerate() {
+        let code = line.split('#').next().unwrap_or_default().trim();
+        if code.starts_with('[') {
+            section = code;
+        } else if code
+            .split_once('=')
+            .is_some_and(|(dep, _)| dep.trim() == "oxy-server")
+            && section != "[dev-dependencies]"
+        {
+            found.push(format!("Cargo.toml:{} under {section}", i + 1));
+        }
+    }
+    found
+}
+
+/// `file:line` for every non-comment line under `src` that names `oxy_server::`.
+fn oxy_server_in_src(src: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    rust_files(src, &mut files);
+    files
+        .iter()
+        .flat_map(|file| {
+            let text = std::fs::read_to_string(file).unwrap_or_default();
+            text.lines()
+                .enumerate()
+                .filter(|(_, line)| {
+                    line.split("//")
+                        .next()
+                        .unwrap_or_default()
+                        .contains("oxy_server::")
+                })
+                .map(|(i, _)| format!("{}:{}", file.display(), i + 1))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The router a surface's tests drive is `oxy-server`'s since decompose LIFT
+/// (2026-11-23), so `oxy-api-custom-apps` and `oxy-api-experiment` take it as a
+/// dev-dependency. Only that: `oxy-server` mounts every surface, so a normal
+/// dependency is a cycle Cargo refuses anyway, and the rule is stated here so
+/// the failure names it. And never in `src`, where it would make the
+/// composition root part of a surface's contract.
+#[test]
+fn surfaces_take_oxy_server_only_as_a_dev_dependency() {
+    let mut offenders = Vec::new();
+    for (name, dir) in surface_crates() {
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
+        let hits = oxy_server_outside_dev_deps(&manifest)
+            .into_iter()
+            .chain(oxy_server_in_src(&dir.join("src")));
+        offenders.extend(hits.map(|hit| format!("{name}: {hit}")));
+    }
+    assert!(
+        offenders.is_empty(),
+        "a surface takes oxy-server outside its tests (internal-docs/domain-boundaries.md S3, S5):\n  {}",
+        offenders.join("\n  ")
     );
 }
 

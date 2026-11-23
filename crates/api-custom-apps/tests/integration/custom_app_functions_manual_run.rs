@@ -83,10 +83,10 @@ use oxy_api_custom_apps::admin::apps::{
     invocations as admin_invocations,
 };
 use oxy_api_custom_apps::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
-use oxy_app::surface::testing::app_publish_token_scope::app_publish_token_scope_middleware;
 use oxy_auth::middleware::{AuthState, auth_middleware};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
+use oxy_server::router::middlewares::app_publish_token_scope::app_publish_token_scope_middleware;
 use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};

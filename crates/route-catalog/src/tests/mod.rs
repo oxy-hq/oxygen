@@ -253,8 +253,8 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     // Test files, not route trees. They name `route_fleet` / `route_ide` in
     // assertions and fixtures, and the walker learned those markers when the
     // routers moved to `RoleRouter` — so they started looking like mounts.
-    "crates/app/src/server/role_manifest_tests.rs",
-    "crates/app/src/server/role_middleware_tests.rs",
+    "crates/server/src/role_manifest_tests.rs",
+    "crates/server/src/role_middleware_tests.rs",
     // Fixture routers for the sandbox-agent-token body assertions.
     "crates/app-core/src/agent_body_tests.rs",
     // Fixture router for the environment guard's held-workspace-action tests.
