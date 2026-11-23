@@ -9829,7 +9829,7 @@ value = 1718.0
 path = "crates/route-catalog/build_route_catalog.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2385.0
+value = 2380.0
 
 [[entry]]
 path = "crates/route-catalog/build_route_catalog.rs"

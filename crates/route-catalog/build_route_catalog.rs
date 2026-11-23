@@ -720,8 +720,7 @@ const SEEDS: &[Seed] = &[
 /// handler often lives nowhere near the file that mounts it (the Slack
 /// webhooks, the worktree registry).
 ///
-/// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
-/// Both lists watch `crates/api-admin/src`, `crates/api-billing/src`, `crates/api-github/src`, `crates/api-tenancy/src`,
+/// REBUILD COST, deliberate. Both lists watch `crates/api-admin/src`, `crates/api-billing/src`, `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`, `crates/api-identity/src`,
 /// `crates/api-operating-graph/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
@@ -732,28 +731,24 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-automations/src`, `crates/api-workspace-config/src`,
 /// `crates/api-threads/src`, `crates/api-workspaces/src`,
 /// `crates/api-semantic/src` and `crates/api-eval/src`, none of
-/// which `oxy-app` depends on
-/// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
-/// reverse). Editing any of them therefore re-runs this build script and
-/// recompiles `oxy-app` — the workspace's largest crate — before the small
-/// crate you actually edited.
+/// which `oxy-app` depends on (`oxy-server` mounts them as siblings). Editing
+/// one re-runs this build script, ~2 s in series before `oxy-server`'s lib.
+/// It is the price of listing their routes at all: not watching them means
+/// `oxyc routes` omits or stale-lists those surfaces, the exact failure this
+/// catalog exists to prevent. Each carries a comment above its `description`
+/// pointing back here.
 ///
-/// Decoupling their dev loop was the payoff of extracting them (#2978, #2996,
-/// and the documents and frontline splits),
-/// and this watch reverses it for anyone working inside them — each of them
-/// now carries a comment above its `description` saying so and pointing
-/// back here. It is the price of listing their routes at all: not watching them
-/// means `oxyc routes` omits or stale-lists those surfaces, the exact
-/// failure this catalog exists to prevent. A real cost, though, not a free one.
-/// The durable fix is to generate the catalog from `oxy-server`, which already
-/// depends on every surface crate and is thin; see internal-docs/oxy-api-cli.md.
-///
-/// The other entries are free: `oxy-app` already depends on those crates.
-const DOC_DIRS: &[&str] = &[
+/// `oxy-server` itself is watched only where its handlers live, NOT as the
+/// whole `crates/server/src`: `oxy-server`'s lib depends on this crate, so a
+/// whole-crate watch re-ran this script on every edit there (a `drivers/`
+/// edit went 12.8 s to 21.4 s, decompose P1). `tests::doc_dirs_watched`
+/// fails if a handler doc lives in an oxy-server file outside these dirs.
+pub const DOC_DIRS: &[&str] = &[
     "crates/app/src",
-    // `oxy-server`: `core_routes` (2026-11-16), the router and the admin shell (decompose
-    // LIFT, 2026-11-23); here, where `crates/app/src`'s walk met the router (same order).
-    "crates/server/src",
+    // `oxy-server`: the handlers `core_routes` and the router mount (`healthcheck`,
+    // `local_setup`); here, where `crates/app/src`'s walk met the router (same order).
+    "crates/server/src/core_routes",
+    "crates/server/src/router",
     "crates/agentic/http/src",
     "crates/cameras/src",
     "crates/airhouse/src",
@@ -863,14 +858,14 @@ const METHODS: &[&str] = &[
 
 /// Walk the router sources and return every endpoint, sorted by path.
 ///
-/// `repo_root` is the workspace root (the parent of `crates/`). Emits the
+/// `repo_root` is the workspace root (the parent of `crates/`); `doc_dirs` is
+/// [`DOC_DIRS`], or a wider pool in `tests::doc_dirs_watched`. Emits the
 /// `cargo:rerun-if-changed` lines for everything it reads.
-pub fn collect(repo_root: &Path) -> Vec<Route> {
+pub fn collect(repo_root: &Path, doc_dirs: &[&str]) -> Vec<Route> {
     let idents = crate_idents(repo_root);
     let mut index: Vec<RouterFn> = Vec::new();
     let mut fn_docs: Vec<FnDoc> = Vec::new();
-    for dir in DOC_DIRS {
-        let dir = repo_root.join(dir);
+    for dir in doc_dirs.iter().map(|d| repo_root.join(d)) {
         println!("cargo:rerun-if-changed={}", dir.display());
         collect_dir(&dir, repo_root, &idents, "", &mut Vec::new(), &mut fn_docs);
     }

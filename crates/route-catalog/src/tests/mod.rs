@@ -8,6 +8,7 @@ use super::{GENERATED_SCANNED_DIRS, GeneratedRoute, RouteDescription, catalog, s
 
 mod admin_apps_alias_removed;
 mod app_grant_scope;
+mod doc_dirs_watched;
 mod factory_routes;
 mod previews_read_only;
 mod sandbox_agent_refusal;
