@@ -151,10 +151,9 @@ const DELEGATED: &[(&str, &str, &str)] = &[(
 /// is a wider hole than this exemption is meant to be. The custom-app example
 /// seed (`seed_apps.rs`) moved out of `app/src/cli/commands/` with the
 /// custom-apps vertical, so it is named here by its exact path in its crate.
-const SEED_PREFIXES: &[&str] = &[
-    "app/src/cli/commands/seed",
-    "api-custom-apps/src/seed_apps.rs",
-];
+/// The rest of the seed went up from `app/src/cli/commands/seed*` into
+/// `oxy-server`'s `dev/seed/` directory in decompose SD (2026-11-24).
+const SEED_PREFIXES: &[&str] = &["server/src/dev/seed/", "api-custom-apps/src/seed_apps.rs"];
 
 /// `crates/…`-relative, forward-slashed — the shape [`SEED_PREFIXES`] is written in.
 ///

@@ -16,7 +16,8 @@ use crate::common::{APP_SLUG, demo_workspace_id, examples_path, test_db};
 use entity::apps;
 use entity::prelude::{AppBuilds, Apps, Organizations, Workspaces};
 use oxy_api_custom_apps::custom_apps_build_store as store;
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps, `oxy-server`'s since decompose SD.
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 async fn seeded_app(db: &DatabaseConnection, org_slug: &str) -> apps::Model {

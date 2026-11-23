@@ -13,11 +13,12 @@ use std::collections::HashMap;
 use airhouse::LOCAL_ORG_ID;
 use chrono::{Duration, Utc};
 use entity::{app_builds, app_environment_events, app_environments, app_functions, apps};
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps, `oxy-server`'s since decompose SD.
 use oxy_api_custom_apps::seed_fixture::{
     self, Calendar, LIVE, Outcome, QUEUED_RUNS, RELEASES, bundle_releases, fixture_app_id,
     seeded_invocations,
 };
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Statement, Value,
@@ -40,7 +41,7 @@ async fn seeded() -> DatabaseConnection {
 }
 
 async fn build(db: &DatabaseConnection) -> seed_fixture::Built {
-    match seed_fixture::seed(db, demo_workspace_id(), true)
+    match seed_fixture::seed(db, demo_workspace_id(), true, seed::facts())
         .await
         .expect("the fixture seeds")
     {
@@ -265,7 +266,7 @@ async fn demo_fixture_a_second_run_finds_it_present_and_writes_nothing() {
     build(&db).await;
     let app = fixture_app_id(LOCAL_ORG_ID);
     let first = footprint(&db, app).await;
-    let again = seed_fixture::seed(&db, demo_workspace_id(), true)
+    let again = seed_fixture::seed(&db, demo_workspace_id(), true, seed::facts())
         .await
         .expect("second run");
     assert!(matches!(again, Outcome::Present), "{again:?}");
@@ -387,7 +388,7 @@ async fn demo_fixture_leaves_a_developers_own_pulse_demo_alone() {
     .insert(&db)
     .await
     .expect("a developer's own app");
-    let outcome = seed_fixture::seed(&db, demo_workspace_id(), true)
+    let outcome = seed_fixture::seed(&db, demo_workspace_id(), true, seed::facts())
         .await
         .expect("seed");
     assert!(matches!(outcome, Outcome::Foreign), "{outcome:?}");

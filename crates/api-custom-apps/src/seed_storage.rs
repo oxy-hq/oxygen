@@ -245,11 +245,16 @@ fn noon_utc_days_ago(days_ago: i64) -> DateTime<FixedOffset> {
 /// **Warns instead of failing**, matching `seed_example_apps` — a developer can
 /// work without demo storage numbers, and a failure here should never take down
 /// the rest of the seed.
-pub(crate) async fn seed_storage_usage(db: &DatabaseConnection) -> Result<(), OxyError> {
+///
+/// `is_local_db` is the seed's (`DemoSeedFacts::is_local_db`).
+pub(crate) async fn seed_storage_usage(
+    db: &DatabaseConnection,
+    is_local_db: fn() -> bool,
+) -> Result<(), OxyError> {
     // Skip (don't error) on a non-local DB, matching `seed_partner_tenants` — this
     // is folded into `oxy dev seed`, so erroring would take down the whole seed over
     // an optional fixture.
-    if !oxy_app::surface::seed::is_local_db() {
+    if !is_local_db() {
         println!(
             "{} skipping storage seed — OXY_DATABASE_URL is not local",
             "⚠️".warning()

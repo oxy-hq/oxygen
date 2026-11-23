@@ -25,7 +25,9 @@ pub use oxy_app_core::emails;
 pub mod host;
 pub mod managed_connection_resolver;
 pub mod server;
-pub mod surface;
+// `surface`, the prelude the `crates/api-*` surfaces took from oxy-app, is gone:
+// the router helpers went up into oxy-server in decompose LIFT, and the demo
+// seed, its last entry, in decompose SD (2026-11-24).
 
 // Re-export commonly used items
 pub use server::api;

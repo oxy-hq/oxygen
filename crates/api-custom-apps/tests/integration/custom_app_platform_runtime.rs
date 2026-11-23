@@ -27,12 +27,13 @@ use axum::routing::any;
 use chrono::Utc;
 use entity::prelude::Organizations;
 use entity::{org_members, org_members::OrgRole, organizations};
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps, `oxy-server`'s since decompose SD.
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_auth::types::Identity;
 use oxy_auth::user::UserService;
 use oxy_custom_apps::asset_manifest::{AssetManifest, SCHEMA_VERSION};
 use oxy_custom_apps::usage_queue;
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

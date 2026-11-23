@@ -1,13 +1,15 @@
-//! `oxy dev …`: the hidden group of dev tooling — `seed` and the dev `compile`
-//! (oxy-app's) and `test` (oxy-api-eval's). They write straight into a
-//! database or a local checkout, so they are compiled only with the
-//! `dev-tools` feature: on by default (debug builds, `just up`, CI's agentic
-//! job, the fleet image), off in the release build
-//! (`.github/actions/build-oxy-cli`), so a shipped binary cannot seed.
-//! `internal-docs/oxy-cli-to-oxyc.md`, "Dev tooling (class d)".
+//! `oxy dev …`: the hidden group of dev tooling — `seed` (this crate's,
+//! [`seed`], up from oxy-app in decompose SD), the dev `compile` (oxy-app's)
+//! and `test` (oxy-api-eval's). They write straight into a database or a local
+//! checkout, so they are compiled only with the `dev-tools` feature: on by
+//! default (debug builds, `just up`, CI's agentic job, the fleet image), off in
+//! the release build (`.github/actions/build-oxy-cli`), so a shipped binary
+//! cannot seed. `internal-docs/oxy-cli-to-oxyc.md`, "Dev tooling (class d)".
 //!
 //! The old top-level `oxy seed` and `oxy test` still run for one release, in
 //! dev-tools builds only, and print the new spelling first (on stderr).
+
+pub mod seed;
 
 use crate::router::SurfaceSeams;
 use oxy_cli_shim::RunResult;
@@ -25,9 +27,15 @@ pub enum DevGroup {
     Dev(DevCommand),
 }
 
-// What `oxy dev` lists: oxy-app's `seed` and `compile`, then `test`.
+// What `oxy dev` lists: `seed`, oxy-app's `compile`, then `test`.
 #[derive(clap::Subcommand, Debug)]
 pub enum DevCommand {
+    /// Seed the demo workspace, partners, tenants and platform grants into a local database
+    ///
+    /// Writes the rows routes and tokens later depend on, loads the demo's
+    /// Airhouse data, and compiles + promotes every seeded workspace. Refuses a
+    /// database that does not look local.
+    Seed(seed::SeedArgs),
     #[command(flatten)]
     App(oxy_app::cli::DevCommand),
     #[command(flatten)]
@@ -37,22 +45,35 @@ pub enum DevCommand {
 pub async fn run(group: DevGroup, seams: SurfaceSeams) -> RunResult {
     let DevGroup::Dev(command) = group;
     match command {
-        DevCommand::App(command) => oxy_app::cli::run_dev(command, seams).await,
+        DevCommand::Seed(seed_args) => {
+            ::oxy::sentry_config::add_operation_context("seed", None);
+            seed::handle_seed_command(seed_args, seams.example_apps).await?;
+            Ok(())
+        }
+        DevCommand::App(command) => oxy_app::cli::run_dev(command).await,
         DevCommand::Eval(command) => oxy_api_eval::run(command).await,
     }
 }
 
-// The old top-level `oxy test`, kept for one release. Hidden; `oxy seed`'s
-// alias is oxy-app's (its `SubCommand::Seed`).
+// The old top-level `oxy seed` and `oxy test`, kept for one release. Hidden.
+// `seed` was oxy-app's (its `SubCommand::Seed`) until decompose SD.
 #[derive(clap::Subcommand, Debug)]
 pub enum Renamed {
+    /// Renamed to `oxy dev seed` (kept for one release; dev-tools builds only)
+    #[command(hide = true)]
+    Seed(seed::SeedArgs),
     /// Renamed to `oxy dev test` (kept for one release)
     #[command(hide = true)]
     Test(oxy_api_eval::TestArgs),
 }
 
-pub async fn run_renamed(command: Renamed) -> RunResult {
+pub async fn run_renamed(command: Renamed, seams: SurfaceSeams) -> RunResult {
     match command {
+        Renamed::Seed(seed_args) => {
+            eprintln!("{}", oxy_app::cli::renamed_hint("seed"));
+            seed::handle_seed_command(seed_args, seams.example_apps).await?;
+            Ok(())
+        }
         Renamed::Test(args) => {
             eprintln!("{}", oxy_app::cli::renamed_hint("test"));
             oxy_api_eval::run(oxy_api_eval::Command::Test(args)).await
@@ -110,11 +131,13 @@ mod tests {
 
     /// The old spellings still parse in a dev-tools build, hidden, for one
     /// release; the top-level `compile` is not renamed (the template's CI gate
-    /// runs it on a release binary).
+    /// runs it on a release binary). `seed`'s alias is this crate's since
+    /// decompose SD, and oxy-app no longer has one.
     #[test]
     fn the_old_spellings_are_hidden_aliases() {
         assert!(Renamed::has_subcommand("test"));
-        assert!(oxy_app::cli::SubCommand::has_subcommand("seed"));
+        assert!(Renamed::has_subcommand("seed"));
+        assert!(!oxy_app::cli::SubCommand::has_subcommand("seed"));
         assert!(oxy_app::cli::SubCommand::has_subcommand("compile"));
         let root = Renamed::augment_subcommands(oxy_app::cli::SubCommand::augment_subcommands(
             clap::Command::new("oxy"),

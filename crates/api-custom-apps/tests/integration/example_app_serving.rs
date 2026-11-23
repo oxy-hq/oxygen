@@ -25,11 +25,12 @@ use chrono::Utc;
 const RESTRICTED_APP_SLUG: &str = "oxy-starter-private";
 use entity::prelude::{Apps, OrgMembers, Organizations};
 use entity::{apps, org_members, org_members::OrgRole, organizations};
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps, `oxy-server`'s since decompose SD.
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_api_custom_apps::workspace_custom_apps;
 use oxy_auth::types::Identity;
 use oxy_auth::user::UserService;
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel,
     QueryFilter,

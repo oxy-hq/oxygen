@@ -387,11 +387,32 @@ pub type OuterMount = fn(PreaggCacheCtx) -> Router;
 pub type MigrateReport =
     fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>>;
 
+/// What the demo seed knows that its custom-app half asks: whether the
+/// database is one a seed may touch, which workspace the partner seed made for
+/// an org, and who the seeded App Operator is. The seed (`oxy dev seed`, in
+/// `oxy-server`'s dev tooling) hands it to [`ExampleAppsSeam::deploy`] and
+/// [`ExampleAppsSeam::fixtures`], so `oxy-api-custom-apps` never reaches the seed
+/// itself (decompose SD, 2026-11-24). Functions rather than values: each is
+/// asked at the moment, and in the place, the custom-app half asked it before.
+#[derive(Clone, Copy)]
+pub struct DemoSeedFacts {
+    /// The database looks local, or `OXY_SEED_ALLOW_REMOTE` consents to demo
+    /// rows on one that does not. Every seed write that fabricates data gates on
+    /// this one definition.
+    pub is_local_db: fn() -> bool,
+    /// The workspace the partner seed made for an org (its slug and id), by its
+    /// derived id; `None` for an org the seed does not define.
+    pub seeded_workspace_id: fn(&str, uuid::Uuid) -> Option<uuid::Uuid>,
+    /// The email of the seeded unscoped App Operator, the demo fixture's
+    /// publisher.
+    pub unscoped_app_operator_email: fn() -> Option<&'static str>,
+}
+
 /// The demo seed's custom-app half: the example apps it deploys and the storage
 /// figures hung off them, and the matching teardown. `oxy dev seed` and the
-/// integration-test fixture pass it to `seed_demo_with`; `oxy-app` holds the rows
-/// the apps belong to (workspaces, orgs, teams) and `oxy-api-custom-apps` the
-/// apps themselves.
+/// integration-test fixture pass it to `seed_demo_with`; the seed (`oxy-server`'s
+/// dev tooling) holds the rows the apps belong to (workspaces, orgs, teams) and
+/// `oxy-api-custom-apps` the apps themselves.
 #[derive(Clone, Copy)]
 pub struct ExampleAppsSeam {
     /// Deploy the example apps to the demo workspace (id, workspace path) and to
@@ -402,6 +423,7 @@ pub struct ExampleAppsSeam {
         uuid::Uuid,
         &'a str,
         Option<uuid::Uuid>,
+        DemoSeedFacts,
     )
         -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>,
     /// Build the demo fixture app (`oxy dev seed --fixtures`) in the demo workspace
@@ -412,6 +434,7 @@ pub struct ExampleAppsSeam {
             &'a sea_orm::DatabaseConnection,
             uuid::Uuid,
             bool,
+            DemoSeedFacts,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>,
     /// Remove the seeded storage figures (before the apps, see `clear_demo`).
     pub clear_storage: for<'a> fn(

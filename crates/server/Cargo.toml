@@ -36,7 +36,14 @@ custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 # custom-app-functions`, so a shipped binary cannot seed. `oxy dev test` is
 # oxy-api-eval's command, registered only under this feature (`src/dev.rs`);
 # the crate itself is linked in every build for its eval-run routes and task.
-dev-tools = ["oxy-app/dev-tools"]
+# The seed itself (`src/dev/seed`, up from oxy-app in decompose SD) is this
+# crate's, and the dependencies only it uses come with the feature.
+dev-tools = [
+    "oxy-app/dev-tools",
+    "dep:agentic-analytics",
+    "dep:oxy-authz",
+    "dep:serde_yaml",
+]
 
 [dependencies]
 # oxy-app is the library this binary drives; default-features off so the feature
@@ -85,6 +92,12 @@ agentic-semantic = { workspace = true }
 oxy-project = { workspace = true }
 async-trait = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
+# `oxy dev seed` (`src/dev/seed`, `dev-tools` only): the demo threads' run
+# metadata (`agentic-analytics`), the staff grants' roles (`oxy-authz`) and the
+# LLM-key copy's `config.yml` read (`serde_yaml`).
+agentic-analytics = { workspace = true, optional = true }
+oxy-authz = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
 oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }
 oxy-api-notifications = { path = "../api-notifications" }
@@ -113,7 +126,9 @@ axum = { workspace = true }
 agentic-runtime = { workspace = true }
 agentic-http = { workspace = true }
 agentic-pipeline = { workspace = true }
-airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql"] }
+# `import`: `oxy dev seed` loads the demo workspace's data files into its
+# tenant (`src/dev/seed/seed_airhouse.rs`; oxy-app's until decompose SD).
+airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql", "import"] }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }

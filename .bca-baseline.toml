@@ -6813,42 +6813,6 @@ metric = "abc"
 value = 40.63249930782009
 
 [[entry]]
-path = "crates/app/src/cli/commands/seed.rs"
-qualified = "bind_org_admin_emails"
-metric = "abc"
-value = 40.13726448077895
-
-[[entry]]
-path = "crates/app/src/cli/commands/seed.rs"
-qualified = "ensure_demo_workspace"
-metric = "abc"
-value = 43.3358973600409
-
-[[entry]]
-path = "crates/app/src/cli/commands/seed_partners.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 802.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/seed_partners.rs"
-qualified = "ensure_workspace"
-metric = "abc"
-value = 50.457903246171455
-
-[[entry]]
-path = "crates/app/src/cli/commands/seed_platform_grants.rs"
-qualified = "upsert_grant"
-metric = "abc"
-value = 45.05552130427524
-
-[[entry]]
-path = "crates/app/src/cli/commands/seed_threads/mod.rs"
-qualified = "ensure_thread"
-metric = "abc"
-value = 77.34339015067803
-
-[[entry]]
 path = "crates/server/src/router/middlewares/local_context.rs"
 qualified = "attach_workspace_manager"
 metric = "nargs"
@@ -10184,6 +10148,42 @@ path = "crates/server/src/commands/worker.rs"
 qualified = "run_worker"
 metric = "abc"
 value = 93.1074647920348
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed.rs"
+qualified = "bind_org_admin_emails"
+metric = "abc"
+value = 40.13726448077895
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed.rs"
+qualified = "ensure_demo_workspace"
+metric = "abc"
+value = 43.3358973600409
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed_partners.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 802.0
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed_partners.rs"
+qualified = "ensure_workspace"
+metric = "abc"
+value = 50.457903246171455
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed_platform_grants.rs"
+qualified = "upsert_grant"
+metric = "abc"
+value = 45.05552130427524
+
+[[entry]]
+path = "crates/server/src/dev/seed/seed_threads/mod.rs"
+qualified = "ensure_thread"
+metric = "abc"
+value = 77.34339015067803
 
 [[entry]]
 path = "crates/server/src/lib.rs"

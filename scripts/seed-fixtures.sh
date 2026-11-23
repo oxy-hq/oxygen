@@ -18,7 +18,7 @@
 #     compiled + PROMOTED revision, or every compiled read 503s.
 #
 # All of that already exists as one first-party command — `oxy dev seed`, which
-# documents itself as idempotent (crates/app/src/cli/commands/seed.rs:14) and
+# documents itself as idempotent (crates/server/src/dev/seed/seed.rs:14) and
 # folds in the partner tenants, the platform grants and the example-app deploy.
 # What did not exist was (a) anything that ran it for the flows, (b) anything
 # that ran `compile --promote` after it, and (c) any check that the fixtures are

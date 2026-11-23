@@ -29,8 +29,10 @@ mod catalog_tests;
 mod commands;
 mod core_routes;
 mod custom_apps_seams;
+// `pub` for the demo seed (`dev::seed`, decompose SD): the surfaces'
+// integration tests build their fixtures on it.
 #[cfg(feature = "dev-tools")]
-mod dev;
+pub mod dev;
 mod drivers;
 #[cfg(test)]
 mod healthcheck_tests;
@@ -486,7 +488,7 @@ pub fn surface_seams() -> SurfaceSeams {
 /// no command. This binary owns the long-lived ones (`start`, `serve`,
 /// `worker`), listed first; oxy-app owns most of the one-shot rest. The hidden
 /// `oxy dev` group (`seed`, dev `compile`, and `test` from `oxy-api-eval`) and
-/// the one-release `oxy test` alias exist only with the `dev-tools` feature,
+/// the one-release `oxy seed` / `oxy test` aliases exist only with the `dev-tools` feature,
 /// which the release build leaves off (`dev.rs`). `oxy airway` was
 /// `oxy-api-airway`'s until it moved to `oxyc airway` on 2026-11-21.
 pub fn cli_owners() -> Vec<oxy_cli_shim::Owner<SurfaceSeams>> {
@@ -498,8 +500,8 @@ pub fn cli_owners() -> Vec<oxy_cli_shim::Owner<SurfaceSeams>> {
         oxy_cli_shim::Owner::of::<dev::DevGroup>(|command, seams| {
             Box::pin(dev::run(command, seams))
         }),
-        oxy_cli_shim::Owner::of::<dev::Renamed>(|command, _seams| {
-            Box::pin(dev::run_renamed(command))
+        oxy_cli_shim::Owner::of::<dev::Renamed>(|command, seams| {
+            Box::pin(dev::run_renamed(command, seams))
         }),
     ]);
     owners.push(oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(

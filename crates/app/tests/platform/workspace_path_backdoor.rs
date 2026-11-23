@@ -154,6 +154,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // (decompose LIFT, out of `src/server/{router,api}`, walked above).
         manifest.join("../server/src/router"),
         manifest.join("../server/src/admin"),
+        // The demo seed (`oxy dev seed`), `oxy-server`'s `dev/seed` since
+        // 2026-11-24 (decompose SD, out of `src/cli/commands/seed*`, walked above).
+        manifest.join("../server/src/dev"),
         // The conversation surface, `oxy-api-threads` since 2026-11-16.
         manifest.join("../api-threads/src"),
         // The workspaces surface, `oxy-api-workspaces` since 2026-11-16.

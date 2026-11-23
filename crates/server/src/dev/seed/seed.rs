@@ -122,7 +122,7 @@ pub async fn seed_demo_with(
         && let Some(apps) = example_apps
     {
         let servable = options.compile && compiled.is_ok();
-        (apps.fixtures)(&conn, workspace_id, servable).await;
+        (apps.fixtures)(&conn, workspace_id, servable, super::facts()).await;
     }
 
     print_next_steps(options.compile, workspace_id, &resolved_str);
@@ -220,7 +220,8 @@ async fn seed_rows(
 ///
 /// The apps are the custom-app surface's (`ExampleAppsSeam::deploy`, in
 /// `oxy-api-custom-apps`); the team that restricts Acme's second one is this
-/// seed's, so it is handed over.
+/// seed's, so it is handed over, with what else the seed knows
+/// (`super::facts`).
 async fn deploy_example_apps(
     conn: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
@@ -235,6 +236,7 @@ async fn deploy_example_apps(
         workspace_id,
         path,
         super::seed_partners::restricted_team_for("acme"),
+        super::facts(),
     )
     .await;
 }

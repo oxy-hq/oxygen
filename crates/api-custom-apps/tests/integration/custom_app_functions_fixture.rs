@@ -41,10 +41,11 @@ use entity::{app_function_invocations, org_members, org_members::OrgRole, organi
 use oxy_api_custom_apps::custom_apps_functions::seam::FunctionQueryExecutor;
 use oxy_api_custom_apps::custom_apps_publish::{OrgRef, PublishInput, PublishResult, publish};
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps, `oxy-server`'s since decompose SD.
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_auth::types::Identity;
 use oxy_auth::user::{LOCAL_GUEST_EMAIL, UserService};
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
     QueryOrder,

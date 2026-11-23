@@ -26,14 +26,10 @@ oxy-cameras = { workspace = true }
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 utoipa-axum = { workspace = true }
 indexmap = { workspace = true }  # `data_plane::query`: column order in a result row
-# What this surface still reaches into oxy-app for, all through the prelude
-# (`oxy_app::surface`, rule S4, `tests/routing/surface_contract.rs`): the demo
-# seed helpers (`surface::seed`). The router helpers its tests drive are
-# oxy-server's since decompose LIFT (a dev-dependency, below). Everything
-# else comes from the lower crates below. oxy-app never depends back on this
-# crate, not even as a dev-dependency, so none of its test binaries links V8.
-oxy-app = { path = "../app", default-features = false }
-# What the prelude used to hand on, imported from the crates that own it:
+# No oxy-app (decompose SD, 2026-11-24): the demo seed hands what it knows
+# into the example-apps seam (`DemoSeedFacts`), and the seed itself and the
+# router helpers its tests drive are oxy-server's (a dev-dependency, below).
+# What oxy-app's prelude used to hand on, imported from the crates that own it:
 oxy-workspace-runtime = { workspace = true } # the semantic boundary, gates, metric-tree executor, queued runs
 oxy-compile-runtime = { workspace = true }   # the lazy compile enqueue
 oxy-previews = { workspace = true }          # the preview run queue, namespace and sources
@@ -138,10 +134,12 @@ tower = { workspace = true, features = ["util"] }
 # The router the integration tests drive (`oxy_server::router::{api_router,
 # external_auth_layers, flat_api_surface}` and
 # `router::middlewares::app_publish_token_scope`), up from oxy-app's
-# `surface::testing` in decompose LIFT. A dev-dependency cycle Cargo allows.
-# default-features off so the test build turns on neither oxy-server's V8
-# forwarding (`custom-app-functions`) nor `dev-tools`.
-oxy-server = { path = "../server", default-features = false }
+# `surface::testing` in decompose LIFT, and the demo seed their fixtures build
+# on (`oxy_server::dev::seed::fixture`, up from oxy-app in decompose SD; it is
+# compiled only with `dev-tools`). A dev-dependency cycle Cargo allows.
+# default-features off so the test build does not turn on oxy-server's V8
+# forwarding (`custom-app-functions`).
+oxy-server = { path = "../server", default-features = false, features = ["dev-tools"] }
 # The integration tests reuse oxy-app's harness (`#[path]`-included from
 # crates/app/tests/common), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply.

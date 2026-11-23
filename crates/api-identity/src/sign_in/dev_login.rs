@@ -74,6 +74,7 @@ use axum::{
 };
 
 pub use peer::PeerAddr;
+pub use personas::dev_login_persona_email;
 
 use oxy::database::client::establish_connection;
 

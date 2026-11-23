@@ -1,13 +1,17 @@
-//! Surface crates import `oxy-app` through `oxy_app::surface` only, and `oxy-app`
-//! holds no custom-app module.
+//! Surface crates do not import `oxy-app` at all, and `oxy-app` holds no
+//! custom-app module.
 //!
 //! Rule S4 in `internal-docs/domain-boundaries.md`. `crates/app/src/surface.rs`
-//! is the contract between the platform runtime and the extracted HTTP surfaces
-//! (`crates/api-*`); since decompose R1 it holds only what is still `oxy-app`'s
-//! (the demo seed, since the serve-tree fence went down in AG and the test
-//! router helpers and the route-role installer went up into `oxy-server` with
-//! the router in LIFT). Anything else a surface takes from `oxy-app` is another bounded
-//! context's logic, which rule S3 sends down into a domain crate instead.
+//! was the contract between the platform runtime and the extracted HTTP
+//! surfaces (`crates/api-*`). Decompose R1 emptied it of everything that lived
+//! lower, AG sent the serve-tree fence down, LIFT sent the test router helpers
+//! and the route-role installer up into `oxy-server` with the router, and SD
+//! (2026-11-24) sent its last entry, the demo seed, up into `oxy-server`'s dev
+//! tooling, and deleted it. So no `oxy_app::` path is a surface's to take: what
+//! is platform runtime is in a crate below the surfaces, what is another
+//! bounded context's logic goes down into a domain crate (rule S3), and what a
+//! surface's tests need from the composition root is an `oxy-server`
+//! dev-dependency.
 //!
 //! [`BACKLOG`] is the list of those reaches that predate the rule — it is a
 //! backlog, not an exemption list (the same stance as `authz_boundaries.rs`).
@@ -145,9 +149,7 @@ fn surfaces_reach_oxy_app_only_through_the_prelude() {
     let mut violations = Vec::new();
     for (name, dir) in &crates {
         for (file, line, path) in reaches(dir) {
-            if under(&path, "surface") {
-                continue;
-            }
+            // (`oxy_app::surface` was exempt until decompose SD deleted it.)
             let backlogged = BACKLOG
                 .iter()
                 .any(|(c, prefix)| c == name && under(&path, prefix));
@@ -158,10 +160,12 @@ fn surfaces_reach_oxy_app_only_through_the_prelude() {
     }
     assert!(
         violations.is_empty(),
-        "a surface crate reaches into oxy-app outside `oxy_app::surface` \
-         (internal-docs/domain-boundaries.md S3/S4). If it is platform runtime, \
-         re-export it from crates/app/src/surface.rs; if it is another context's \
-         logic, lower it into a domain crate — do not add it to BACKLOG:\n  {}",
+        "a surface crate reaches into oxy-app (internal-docs/domain-boundaries.md \
+         S3/S4; its prelude, `oxy_app::surface`, is gone since decompose SD). If it \
+         is platform runtime, lower it into a crate below the surfaces; if it is \
+         another context's logic, lower it into a domain crate; if a test needs \
+         the composition root, take `oxy-server` as a dev-dependency — do not add \
+         it to BACKLOG:\n  {}",
         violations.join("\n  ")
     );
 }
@@ -262,9 +266,10 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
     // The walk is sane when it reaches the crate's anchors and finds a crate's
     // worth of files: the anchors carry the "it lost its way" check, since the
     // decompose keeps shrinking the count (190 files after G3, 2026-11-22).
+    // (`surface.rs` was an anchor until decompose SD deleted it, 2026-11-24.)
     for anchor in [
         "lib.rs",
-        "surface.rs",
+        "cli/mod.rs",
         "server/mod.rs",
         // `server/router/mod.rs` until the router went up into `oxy-server`
         // (decompose LIFT, 2026-11-23).
@@ -279,9 +284,9 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
         // A walk-sanity floor, not a policy count: the decompose shrinks
         // `crates/app/src` on purpose (195 files after P1, 2026-11-22; 96
         // after W7 and W6b, 2026-11-23; 46 after LIFT, 2026-11-23, when it
-        // went from `> 50` to `> 30` with the user's approval), so it sits
-        // well below today's count and still catches a broken walk. The
-        // anchors above carry the rest.
+        // went from `> 50` to `> 30` with the user's approval; 32 after SD,
+        // 2026-11-24), so it sits below today's count and still catches a
+        // broken walk. The anchors above carry the rest.
         files.len() > 30,
         "the walk found only {} files under crates/app/src — it lost its way",
         files.len()
@@ -367,8 +372,9 @@ fn oxy_app_has_no_custom_apps_module() {
     src_entries(&app_src, &mut entries);
     // (`server/router/mod.rs` was the third anchor until the router went up
     // into `oxy-server`, decompose LIFT, 2026-11-23.)
+    // (`surface.rs` was the first anchor until decompose SD deleted it.)
     for anchor in [
-        "surface.rs",
+        "cli/mod.rs",
         "server/api/mod.rs",
         "server/api/middlewares/mod.rs",
     ] {

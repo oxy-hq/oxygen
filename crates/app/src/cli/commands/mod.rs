@@ -1,27 +1,21 @@
 mod agentic_cli;
 mod compile;
-/// `oxy dev seed | compile`, only with the `dev-tools` feature.
+/// `oxy dev compile`, only with the `dev-tools` feature. `oxy dev seed` went up
+/// into `oxy-server`'s dev tooling in decompose SD (2026-11-24).
 #[cfg(feature = "dev-tools")]
 pub mod dev;
 mod looker;
 pub(crate) mod migrate;
 mod migrate_agents;
 mod migrate_automations;
-/// `pub` so integration tests can drive the seed directly (see
-/// `tests/seed_example_app.rs`) instead of shelling out to the binary — the
-/// seed is a fixture the tests are built on, not just a CLI command.
 pub mod oltp;
 pub mod run;
-pub mod seed;
-mod seed_airhouse;
-mod seed_compile;
-mod seed_llm_keys;
-#[cfg(feature = "dev-tools")]
-mod seed_org_workspace;
-pub(crate) mod seed_partners;
-pub(crate) mod seed_platform_grants;
-mod seed_threads;
 mod sync;
+
+/// The compile `oxy dev seed` runs on each seeded workspace (`oxy-server`'s
+/// `dev::seed::seed_compile`), the same entry point as `oxy compile`.
+#[cfg(feature = "dev-tools")]
+pub use compile::{CompileArgs, run_compile};
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
@@ -102,10 +96,6 @@ pub enum SubCommand {
     /// audit and rotation are `oxyc oltp`.
     Oltp(crate::cli::commands::oltp::OltpArgs),
 
-    /// Renamed to `oxy dev seed` (kept for one release; dev-tools builds only)
-    #[cfg(feature = "dev-tools")]
-    #[clap(hide = true)]
-    Seed(dev::SeedArgs),
     /// Moved to `oxyc looker test` (prints the command and exits 2)
     ///
     /// Checking a Looker integration's credentials is
@@ -357,8 +347,9 @@ pub fn prepare(name: Option<&str>) {
 pub async fn run(
     command: SubCommand,
     // What `oxy-server` composes from the surface crates. Of the commands here
-    // only `migrate` (the post-migrate report) and `seed` (the example apps)
-    // read it; the commands that mount routes are `oxy-server`'s own.
+    // only `migrate` (the post-migrate report) reads it; the commands that
+    // mount routes are `oxy-server`'s own, and so is `seed` (the example apps)
+    // since decompose SD.
     seams: oxy_app_core::seams::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
@@ -468,12 +459,6 @@ pub async fn run(
                 exit(1);
             }
         }
-        #[cfg(feature = "dev-tools")]
-        SubCommand::Seed(seed_args) => {
-            eprintln!("{}", dev::renamed_hint("seed"));
-            dev::handle_seed_command(seed_args, seams.example_apps).await?;
-        }
-
         SubCommand::Looker(looker_args) => {
             eprintln!("{}", looker::moved_message(&looker_args).warning());
             exit(looker::MOVED_EXIT_CODE);

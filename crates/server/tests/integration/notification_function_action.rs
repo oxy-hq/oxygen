@@ -21,13 +21,14 @@ use entity::{app_function_invocations, org_members, organizations, users};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use oxy_api_custom_apps::custom_apps_publish::{OrgRef, PublishInput, publish};
-use oxy_api_custom_apps::seed;
+// The demo seed with the example apps (`dev::seed`, up from oxy-app in decompose SD).
 use oxy_api_notifications::actions;
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::{AuthenticatedUser, Identity};
 use oxy_auth::user::{LOCAL_GUEST_EMAIL, UserService};
+use oxy_server::dev::seed::fixture as seed;
 use sea_orm::QueryFilter;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait};
 use serde_json::{Value, json};

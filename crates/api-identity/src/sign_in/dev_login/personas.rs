@@ -9,8 +9,12 @@
 //! replaces that list wholesale, personas included.
 //!
 //! The emails mirror what `oxy dev seed` creates (`seed_partners.rs`,
-//! `seed_platform_grants.rs`); `seeded_personas_match_the_seed` pins them, so a
-//! reshuffled seed fails a test instead of 409-ing a browser run.
+//! `seed_platform_grants.rs`, in `oxy-server`'s `dev::seed`);
+//! `seeded_personas_match_the_seed` pins them, so a reshuffled seed fails a
+//! test instead of 409-ing a browser run. That test is `oxy-server`'s (beside
+//! the seed, since decompose SD): a surface takes `oxy-server` only in its
+//! tests, never in `src`, and this one reads the table through
+//! [`dev_login_persona_email`].
 
 use axum::{
     http::StatusCode,
@@ -190,6 +194,14 @@ fn find(name: &str) -> Option<&'static Persona> {
     PERSONAS.iter().find(|p| p.name.eq_ignore_ascii_case(name))
 }
 
+/// A persona's email as the table states it: `None` when there is no persona
+/// by that name, `Some(None)` for one that takes the roster's first entry
+/// (`staff`). Read by `oxy-server`'s `seeded_personas_match_the_seed`, which
+/// pins the table to the demo seed.
+pub fn dev_login_persona_email(name: &str) -> Option<Option<&'static str>> {
+    find(name).map(|p| p.email)
+}
+
 fn persona_names() -> String {
     PERSONAS
         .iter()
@@ -353,13 +365,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn seeded_personas_match_the_seed() {
-        // The table is compiled in; the seed is generated from name pools and
-        // partner operator counts. Derive the same answers from the seed itself.
-        for (name, email) in oxy_app::surface::seed::seeded_persona_emails() {
-            let persona = find(name).unwrap_or_else(|| panic!("seed names unknown persona {name}"));
-            assert_eq!(persona.email, Some(email.as_str()), "{name}");
-        }
-    }
+    // `seeded_personas_match_the_seed` is `oxy-server`'s since decompose SD
+    // (`dev::seed`'s tests), beside the seed it reads.
 }

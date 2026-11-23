@@ -717,9 +717,12 @@ pub(crate) async fn clear_example_apps(conn: &Conn) -> Result<u64, OxyError> {
 /// First-by-name survives only for an org `ORGS` doesn't define, where there is no
 /// derived id to prefer and no seed identity to contradict. `None` is also the
 /// answer when the org itself is absent, so callers must tolerate it either way.
+///
+/// `seeded_workspace_id` is the seed's (`DemoSeedFacts::seeded_workspace_id`).
 pub(crate) async fn seeded_app_workspace_of(
     conn: &Conn,
     org_slug: &str,
+    seeded_workspace_id: fn(&str, Uuid) -> Option<Uuid>,
 ) -> Result<Option<AppTarget>, OxyError> {
     let Some(org) = Organizations::find()
         .filter(organizations::Column::Slug.eq(org_slug))
@@ -730,7 +733,7 @@ pub(crate) async fn seeded_app_workspace_of(
         return Ok(None);
     };
 
-    if let Some(seeded) = oxy_app::surface::seed::seeded_workspace_id(org_slug, org.id) {
+    if let Some(seeded) = seeded_workspace_id(org_slug, org.id) {
         let exists = Workspaces::find_by_id(seeded)
             .one(conn)
             .await

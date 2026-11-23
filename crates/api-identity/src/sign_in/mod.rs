@@ -27,6 +27,6 @@ mod ops;
 // The two handlers are mounted from `lib.rs`, whose signatures name `PeerAddr`;
 // the allow-list queries are what `oxy serve` announces at boot.
 pub(crate) use dev_login::dev_login_reachable_by;
-pub use dev_login::{PeerAddr, dev_login, dev_login_get};
+pub use dev_login::{PeerAddr, dev_login, dev_login_get, dev_login_persona_email};
 pub use dev_login::{dev_login_is_loopback_only, dev_login_source, is_dev_login_enabled};
 pub use handlers::*;

@@ -63,9 +63,9 @@ fn use_a_fixed_encryption_key() {
 async fn world() -> World {
     use_a_fixed_encryption_key();
     let db = test_db_with(Schema::All).await;
-    oxy_app::surface::seed::seed_demo_with(
+    oxy_server::dev::seed::seed_demo_with(
         Some(examples_path()),
-        oxy_app::surface::seed::SeedOptions {
+        oxy_server::dev::seed::SeedOptions {
             compile: false,
             llm_keys: false,
             fixtures: false,

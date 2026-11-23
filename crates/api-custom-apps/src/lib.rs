@@ -29,10 +29,11 @@
 //! the usage queue) and `oxy-app-core` (the agent-token body, the function seam
 //! traits, the admin and seam types), `oxy-workspace-runtime`, `oxy-compile-runtime`
 //! and `oxy-previews` (the semantic boundary, the metric-tree executor, the
-//! queued-run machinery, the preview queue). From `oxy-app` it takes
-//! `oxy_app::surface` and nothing else (rule S4, `tests/routing/surface_contract.rs`),
-//! and only what still lives there: the demo seed and the test router helpers.
-//! The sandbox serve-tree fence (`serve_tree_refuses`) is
+//! queued-run machinery, the preview queue). It takes nothing from `oxy-app`
+//! (decompose SD, 2026-11-24): the demo seed hands what it knows into
+//! [`seed::example_apps`]'s callbacks (`DemoSeedFacts`) instead of being
+//! reached, and the seed and the test router helpers are `oxy-server`'s, a
+//! dev-dependency. The sandbox serve-tree fence (`serve_tree_refuses`) is
 //! `oxy_custom_apps::sandbox_reach`.
 //!
 //! Mounted by the `oxy-server` composition root through these seams:

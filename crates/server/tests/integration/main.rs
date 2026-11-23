@@ -30,6 +30,9 @@ mod oltp_fx;
 // notifications surface running an app's function). Each needs both surfaces,
 // and a surface may not depend on another, so they are the composition root's.
 mod console_test_notification;
+// Builds on the demo seed (`oxy_server::dev::seed`), compiled only with
+// `dev-tools` (on by default) since decompose SD.
+#[cfg(feature = "dev-tools")]
 mod notification_function_action;
 // Billing's past-due notice (decompose B2): `oxy-api-billing` sends it, and
 // the notifications surface delivers it, honours (or here, refuses) a mute and

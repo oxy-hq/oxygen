@@ -465,7 +465,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DATABASE_URL",
-        "crates/app/src/cli/commands/seed_partners.rs",
+        "crates/server/src/dev/seed/seed_partners.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -600,7 +600,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_GLOBAL_ADMINS",
-        "crates/app/src/cli/commands/seed.rs",
+        "crates/server/src/dev/seed/seed.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -885,7 +885,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_SEED_ALLOW_REMOTE",
-        "crates/app/src/cli/commands/seed_partners.rs",
+        "crates/server/src/dev/seed/seed_partners.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (

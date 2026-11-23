@@ -9441,7 +9441,6 @@ dependencies = [
  "migration",
  "oxy",
  "oxy-airlayer-compat",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-authz",
@@ -9729,7 +9728,6 @@ dependencies = [
  "migration",
  "once_cell",
  "oxy",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-authz",
@@ -10160,7 +10158,6 @@ dependencies = [
  "hex",
  "migration",
  "oxy",
- "oxy-app",
  "oxy-app-core",
  "oxy-auth",
  "oxy-cameras",
@@ -10168,6 +10165,7 @@ dependencies = [
  "oxy-identity",
  "oxy-looker",
  "oxy-oltp",
+ "oxy-server",
  "oxy-server-authz",
  "oxy-shared",
  "oxy-test-utils",
@@ -11031,6 +11029,7 @@ dependencies = [
 name = "oxy-server"
 version = "0.5.161"
 dependencies = [
+ "agentic-analytics",
  "agentic-core",
  "agentic-http",
  "agentic-pipeline",

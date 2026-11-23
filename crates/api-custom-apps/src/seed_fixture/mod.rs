@@ -52,6 +52,7 @@ use airhouse::LOCAL_ORG_ID;
 use chrono::Utc;
 use entity::{app_builds, apps, custom_app_event, org_members, organizations, users, workspaces};
 use oxy::theme::StyledText;
+use oxy_app_core::seams::DemoSeedFacts;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
@@ -128,8 +129,14 @@ pub struct Built {
 
 /// `oxy dev seed --fixtures`: build the fixture unless it is present, and say
 /// what happened. Warns instead of failing, like the seed's other extras.
-pub async fn seed_demo_fixture(conn: &DatabaseConnection, workspace_id: Uuid, compiled: bool) {
-    match seed(conn, workspace_id, compiled).await {
+/// `facts` is what the seed knows (`ExampleAppsSeam::fixtures`).
+pub async fn seed_demo_fixture(
+    conn: &DatabaseConnection,
+    workspace_id: Uuid,
+    compiled: bool,
+    facts: DemoSeedFacts,
+) {
+    match seed(conn, workspace_id, compiled, facts).await {
         Ok(outcome) => runs::print_outcome(&outcome),
         Err(e) => println!(
             "{} pulse-demo fixture not seeded: {e}\n  Re-run `oxy dev seed --fixtures` once the cause is fixed.",
@@ -139,13 +146,16 @@ pub async fn seed_demo_fixture(conn: &DatabaseConnection, workspace_id: Uuid, co
 }
 
 /// [`seed_demo_fixture`] without the printing. `compiled` says the demo
-/// workspace compiled, which the queued runs need (`ctx.query`).
+/// workspace compiled, which the queued runs need (`ctx.query`); `facts` is
+/// what the seed knows: whether the database is local, and who its App
+/// Operator is.
 pub async fn seed(
     conn: &DatabaseConnection,
     workspace_id: Uuid,
     compiled: bool,
+    facts: DemoSeedFacts,
 ) -> Result<Outcome, FixtureError> {
-    if !oxy_app::surface::seed::is_local_db() {
+    if !(facts.is_local_db)() {
         return Ok(Outcome::Skipped(
             "OXY_DATABASE_URL does not look local".into(),
         ));
@@ -163,7 +173,7 @@ pub async fn seed(
     {
         return Ok(Outcome::Skipped("the demo workspace does not exist".into()));
     }
-    let Some(operator) = operator(conn).await? else {
+    let Some(operator) = operator(conn, facts.unscoped_app_operator_email).await? else {
         return Ok(Outcome::Skipped(
             "the seeded App Operator does not exist".into(),
         ));
@@ -327,8 +337,12 @@ impl Fixture<'_> {
 }
 
 /// The seeded unscoped App Operator: the fixture's publisher and promoter.
-async fn operator(conn: &DatabaseConnection) -> Result<Option<AuthenticatedUser>, DbErr> {
-    let Some(email) = oxy_app::surface::seed::unscoped_app_operator_email() else {
+/// `email` is the seed's (`DemoSeedFacts::unscoped_app_operator_email`).
+async fn operator(
+    conn: &DatabaseConnection,
+    email: fn() -> Option<&'static str>,
+) -> Result<Option<AuthenticatedUser>, DbErr> {
+    let Some(email) = email() else {
         return Ok(None);
     };
     Ok(users::Entity::find()

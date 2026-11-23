@@ -19,7 +19,7 @@
 set -euo pipefail
 
 : "${OXY_DATABASE_URL:?set OXY_DATABASE_URL to the cloud backend Postgres URL}"
-# `oxy dev seed`'s own fixed Demo workspace id (crates/app/src/cli/commands/seed.rs).
+# `oxy dev seed`'s own fixed Demo workspace id (crates/server/src/dev/seed/seed.rs).
 WORKSPACE_ID="${OXY_SEED_WORKSPACE_ID:-70787bb2-e11b-5488-b2c3-02e60d5fc7d3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # The released report — the same bytes web-app's directionalFixture.test.tsx renders.

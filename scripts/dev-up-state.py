@@ -32,7 +32,7 @@ EXPECTED = {
     "operator": "app-operator@oxy.local",
     "partner": "oliver.okafor@acme.test",
 }
-# Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local") — crates/app/src/cli/commands/seed.rs.
+# Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local") — crates/server/src/dev/seed/seed.rs.
 DEMO_WORKSPACE = "70787bb2-e11b-5488-b2c3-02e60d5fc7d3"
 # Loopback must never be routed through an HTTP(S)_PROXY from the caller's environment.
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))

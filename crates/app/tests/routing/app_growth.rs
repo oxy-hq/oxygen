@@ -32,7 +32,8 @@ const SRC: &[&str] = &[
     "host",
     "managed_connection_resolver",
     "server",
-    "surface",
+    // `surface`, the prelude the surface crates took from oxy-app, went on
+    // 2026-11-24 with its last entry, the demo seed (decompose SD).
 ];
 
 const SERVER: &[&str] = &[
