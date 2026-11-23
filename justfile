@@ -1098,9 +1098,23 @@ metrics base="origin/main":
 
 # The whole debt, not just today's regressions: per-file and per-function
 # hotspot tables. Informational, always exits 0.
+#
+#   just metrics-report                     # everything bca.toml scans
+#   just metrics-report crates/agentic      # one subtree
+#
+# A bare run passes NO `--paths`, because a command-line `--paths` replaces
+# bca.toml's rather than narrowing it. Measured on this tree: `--paths .`
+# analyses 8,253 files against the manifest's 7,924, pulling in `mobile/`,
+# `examples/`, `evals/` and the rest — code the gate never checks. A "whole
+# picture" that is bigger than the gate's picture is the wrong picture, since
+# backend-architecture.md sends readers here for the debt CI judges.
 metrics-report path="":
-    @bin=$(scripts/ci/install-bca.sh) || exit 1; "$bin" report markdown {{ path }}
+    @bin=$(scripts/ci/install-bca.sh) || exit 1; \
+      "$bin" report markdown {{ if path == "" { "" } else { "--paths " + path } }}
 
-# Churn x complexity, which is the ranking the fix loop reads.
-hotspots path=".":
-    @bin=$(scripts/ci/install-bca.sh) && $bin vcs {{ path }}
+# Churn x complexity — the ranking the fix loop reads, plus bus factor and
+# ownership. Needs real history, so it reads the repository, not a path:
+# `bca vcs --paths <subdir>` fails with "failed to compute diff" in 2.6.0.
+# Use `--top` to shorten it.
+hotspots top="20":
+    @bin=$(scripts/ci/install-bca.sh) || exit 1; "$bin" vcs --top {{ top }}
