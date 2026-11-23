@@ -76,7 +76,8 @@ const SERVER: &[&str] = &[
     "role_manifest_tests",
     "role_middleware",
     "role_middleware_tests",
-    "route_catalog",
+    // The route table's types went down into `oxy-route-catalog` on
+    // 2026-11-23 (decompose RC).
     "router",
     // The runtime-artifact S3 mirror left for `oxy-workspace-runtime` on
     // 2026-11-21 (re-exported in `server/mod.rs` until R1). `service`, the

@@ -25,8 +25,8 @@ pub mod healthcheck;
 
 use axum::Router;
 use axum::routing::get;
-use oxy_app::host::route_catalog::RouteCatalog;
 use oxy_app_core::AppState;
+use oxy_route_catalog::RouteCatalog;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 const fn fleet(path: &'static str) -> RouteRoleDecl {

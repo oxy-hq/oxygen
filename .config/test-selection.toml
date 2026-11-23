@@ -44,9 +44,16 @@ mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog"]
 post-rule = "skip-rules"
 
 # oxy-route-catalog's build script reads every api-* crate's routes (it depends
-# only on oxy-app, so nothing else marks it).
+# normally only on oxy-app-core, so nothing else marks it).
 [[determinator.path-rule]]
 globs = ["crates/api-*/src/**"]
+mark-changed = ["oxy-route-catalog"]
+post-rule = "skip-rules"
+
+# ...and oxy-app's router and docs (`SOURCE_DIRS`/`DOC_DIRS`), which it reads
+# without a normal dependency since decompose RC (oxy-app is a dev-dependency).
+[[determinator.path-rule]]
+globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog"]
 post-rule = "skip-rules"
 

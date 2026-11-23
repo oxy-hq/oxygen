@@ -11030,6 +11030,8 @@ dependencies = [
  "oxy-api-workspaces",
  "oxy-api-world-model",
  "oxy-app",
+ "oxy-app-core",
+ "serde",
  "uuid",
  "workspace-hack",
 ]

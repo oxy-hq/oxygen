@@ -26,7 +26,7 @@
 //!
 //! # Scope
 //!
-//! Whatever `oxy-app`'s `server::route_catalog` covers: the `/api` and `/external/api`
+//! Whatever `oxy-route-catalog`'s `route_catalog` module covers: the `/api` and `/external/api`
 //! surfaces. See that module for what is deliberately outside those bounds
 //! (the custom-app bundle tree, the worker health port, the internal loopback
 //! router).
@@ -35,7 +35,7 @@ use axum::Json;
 use axum::extract::Query;
 use serde::{Deserialize, Serialize};
 
-use oxy_app::host::route_catalog::{RouteCatalog, RouteDescription};
+use oxy_route_catalog::{RouteCatalog, RouteDescription};
 
 /// `?filter=` narrows the table server-side.
 #[derive(Deserialize, Default)]

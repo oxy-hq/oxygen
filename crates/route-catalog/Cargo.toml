@@ -2,19 +2,24 @@
 name = "oxy-route-catalog"
 version.workspace = true
 authors.workspace = true
-description = "The generated HTTP route table `GET /api/_catalog` serves. Sits above oxy-app and every surface crate, so editing a surface re-runs this build script instead of oxy-app's (internal-docs/domain-boundaries.md S7)"
+description = "The generated HTTP route table `GET /api/_catalog` serves, and its types. Its build script reads oxy-app and every surface crate without depending on them, so editing a surface re-runs this build script instead of rebuilding oxy-app (internal-docs/domain-boundaries.md S7)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The `GeneratedRoute` / `RouteCatalog` types live in oxy-app and the handler in
-# oxy-server (`core_routes`); this crate only owns the generated data and the
-# tests that read it.
-oxy-app = { path = "../app", default-features = false }
+# The `GeneratedRoute` / `RouteCatalog` types and the generated data live here
+# (decompose RC, 2026-11-23), the handler in oxy-server (`core_routes`).
+# oxy-app-core for `pods::role_manifest::classify` (`RouteDescription::role`).
+oxy-app-core = { workspace = true }
+serde = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# The tests build the real router to read its route declarations back
+# (`factory_routes`, the test installer) and read the grant-scope tables. Until
+# decompose RT moves those tests up into oxy-server.
+oxy-app = { path = "../app", default-features = false }
 # The sandbox-agent refusal tables the console owns (`custom_apps_agent_refusal`).
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 # The workspace-seam route roles the server composes (`oxy-server`

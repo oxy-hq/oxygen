@@ -1,11 +1,10 @@
 //! Completeness tests for the generated table — moved with it from
-//! `oxy-app`'s `server::route_catalog`.
+//! `oxy-app`'s `server::route_catalog`, whose types followed into this crate's
+//! `route_catalog` module (decompose RC).
 
 use std::collections::HashSet;
 
-use oxy_app::server::route_catalog::{GeneratedRoute, RouteDescription, searchable_fields};
-
-use super::{GENERATED_SCANNED_DIRS, catalog};
+use super::{GENERATED_SCANNED_DIRS, GeneratedRoute, RouteDescription, catalog, searchable_fields};
 
 mod admin_apps_alias_removed;
 mod app_grant_scope;

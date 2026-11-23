@@ -83,8 +83,8 @@ of the surface and where a new route belongs. It is **not** the authoritative
 list: for that, run `oxyc routes` (or `oxyc routes --json`), which
 prints every endpoint the binary mounts from a catalog
 `crates/route-catalog/build_route_catalog.rs` extracts from these very files at
-build time. `server::route_catalog` holds the types and search; the completeness
-tests live beside the table in `oxy-route-catalog`.
+build time. `oxy-route-catalog` holds the table, its types and search, and the
+completeness tests beside them.
 
 Legend: `🌐` public · `☁️` cloud only · `🏢` cloud + local (per-workspace)
 

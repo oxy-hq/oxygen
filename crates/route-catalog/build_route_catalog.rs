@@ -15,7 +15,7 @@
 //!
 //! The tradeoff is that a call it cannot resolve is **dropped, not guessed** —
 //! so a missing route means the walker lost the thread, never that the route
-//! does not exist. `server::route_catalog`'s tests are the guard: they fail if
+//! does not exist. This crate's completeness tests are the guard: they fail if
 //! the walk stops reaching a surface or a landmark route.
 
 use std::collections::{HashMap, HashSet};

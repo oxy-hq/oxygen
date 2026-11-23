@@ -42,13 +42,6 @@ pub mod build_identity {
     pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
 }
 
-/// The route table's types, as `GET /api/_catalog` (`oxy-server`'s since
-/// 2026-11-16) answers with them: the table `oxy-route-catalog` generates, one
-/// route as the response describes it, and the fields `?filter=` matches.
-pub mod route_catalog {
-    pub use crate::server::route_catalog::{RouteCatalog, RouteDescription, searchable_fields};
-}
-
 /// The router `serve` mounts, and the seams `oxy-server` composes into it.
 pub mod router {
     pub use crate::server::router::{

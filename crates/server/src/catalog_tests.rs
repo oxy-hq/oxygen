@@ -4,8 +4,7 @@
 
 use axum::Json;
 use axum::extract::Query;
-use oxy_app::host::route_catalog::searchable_fields;
-use oxy_route_catalog::catalog;
+use oxy_route_catalog::{catalog, searchable_fields};
 
 use crate::core_routes::catalog::{CatalogQuery, get_catalog};
 

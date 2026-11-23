@@ -1,8 +1,9 @@
 //! The HTTP route table, generated.
 //!
-//! `oxy-app` owns the [`GeneratedRoute`] / [`RouteCatalog`] types and
-//! `oxy-server` the `GET /api/_catalog` handler (since 2026-11-16); this crate
-//! owns the DATA, produced by `build.rs` from the router source of `oxy-app`,
+//! This crate owns the [`GeneratedRoute`] / [`RouteCatalog`] types (since
+//! decompose RC, 2026-11-23; `oxy-app` held them before) and the DATA, while
+//! `oxy-server` owns the `GET /api/_catalog` handler (since 2026-11-16). The
+//! data is produced by `build.rs` from the router source of `oxy-app`,
 //! every surface crate and the binary's `core_routes`. `oxy-server` binds
 //! [`catalog()`] into its handler and hands the mount to `oxy-app` through
 //! `SurfaceSeams::catalog`.
@@ -15,7 +16,11 @@
 //! The completeness tests live here, beside the table they read; the
 //! handler's are `oxy-server`'s `catalog_tests`.
 
-use oxy_app::server::route_catalog::{GeneratedRoute, RouteCatalog};
+mod route_catalog;
+
+pub use route_catalog::{
+    GeneratedRoute, RouteCatalog, RouteDescription, path_parameters, searchable_fields,
+};
 
 include!(concat!(env!("OUT_DIR"), "/route_catalog_generated.rs"));
 

@@ -54,7 +54,6 @@ pub mod previews;
 pub use oxy_workspace_runtime::queued_analytics;
 pub mod role_manifest;
 pub mod role_middleware;
-pub mod route_catalog;
 pub mod router;
 // The task router's LISTEN settings, `oxy-app-core`'s `listener` since 2026-11-22.
 pub use oxy_app_core::listener as task_router_listener;
