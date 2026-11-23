@@ -1118,3 +1118,21 @@ metrics-report path="":
 # Use `--top` to shorten it.
 hotspots top="20":
     @bin=$(scripts/ci/install-bca.sh) || exit 1; "$bin" vcs --top {{ top }}
+
+# Hotspots joined to the graph's TESTED_BY and CALLS edges, so each row also
+# says whether anything may be restructured at all. Exits 3 when nothing ranks,
+# which is a clean week rather than a failure.
+#
+# Slower than it looks (~70s cold): ranking walks the whole commit history. The
+# graph comes from this checkout if it has one and the main checkout otherwise,
+# and the run says on stderr when that database describes a different commit.
+#
+# What the weekly code-health loop would work on next.
+worklist top="10":
+    @python3 scripts/codehealth/worklist.py --top {{ top }}
+
+# `just brief 2` for the second row of `just worklist`.
+#
+# The brief the loop's agent is handed for one item, rules included.
+brief pick="1":
+    @python3 scripts/codehealth/worklist.py --top 25 --pick {{ pick }} --format brief

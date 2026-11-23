@@ -6,11 +6,35 @@ description: >-
 
 inputs:
   app-client-id:
-    description: Client id of the GitHub App that may read the private cargo git deps.
-    required: true
+    description: >-
+      Client id of the GitHub App that may read the private cargo git deps.
+      Required unless `private-git-deps` is "false".
+    required: false
+    default: ""
   app-private-key:
-    description: Private key of that App.
-    required: true
+    description: Private key of that App. Required unless `private-git-deps` is "false".
+    required: false
+    default: ""
+  private-git-deps:
+    description: >-
+      "false" for a job that must NOT hold the App private key, and therefore
+      cannot fetch the private cargo git deps. It gets the toolchain, mold,
+      protoc, the cargo tools and the cache, and nothing that mints a token.
+
+      The reason this exists: a job that runs code it did not write must not
+      hold a key that mints tokens. The runner loads every secret a job
+      references into its worker process at job start, whatever a step-level
+      `if` says, and these runners have passwordless sudo — so test code in
+      such a job can read the key out of process memory and mint an
+      installation token with every permission the App has. Scoping the token
+      the job uses is no defence against that; not referencing the key is.
+
+      A job passing "false" has to get its private deps another way, which in
+      practice means a sibling job fetches them and hands over `~/.cargo`
+      while this one runs with CARGO_NET_OFFLINE. See the `deps` job in
+      .github/workflows/weekly-code-health.yaml.
+    required: false
+    default: "true"
   cache-key:
     description: rust-cache `shared-key`. One per job shape, so clippy and build artifacts never evict each other.
     required: true
@@ -30,9 +54,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Refuse a silently unauthenticated fetch
+      if: inputs.private-git-deps == 'true' && inputs.app-private-key == ''
+      shell: bash
+      run: |
+        echo "::error::setup-rust-ci needs app-private-key, or private-git-deps: \"false\""
+        exit 1
+
     - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
       name: Create GitHub App Token
       id: app-token
+      if: inputs.private-git-deps == 'true'
       with:
         client-id: ${{ inputs.app-client-id }}
         private-key: ${{ inputs.app-private-key }}
@@ -72,6 +104,7 @@ runs:
     # so the helper resolves it on later cargo steps without re-passing
     # it. Must run before any cargo step.
     - name: Authenticate gh for private cargo git deps
+      if: inputs.private-git-deps == 'true'
       shell: bash
       env:
         GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}

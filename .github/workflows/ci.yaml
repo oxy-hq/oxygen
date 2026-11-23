@@ -720,6 +720,24 @@ jobs:
       # EXITS 1, and `--since ""` silently scopes to nothing. So a push to main
       # or a workflow_dispatch would have turned this job red, or — worse, if
       # the variable were merely empty — passed a no-op off as a gate.
+      # The weekly loop's ranking logic, which decides whether an agent is
+      # allowed to restructure a function at all. Milliseconds, no bca and no
+      # toolchain — and the one failure it cannot report about itself is being
+      # broken into always-passing, which is why it runs before the gate.
+      #
+      # python3 is installed rather than asserted: `ubuntu-slim` is not a
+      # contract, and the symptom of its absence here would be this step failing
+      # for a reason that has nothing to do with the code under test.
+      - name: Code-health worklist self-test
+        run: |
+          set -euo pipefail
+          command -v python3 >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3; }
+          python3 scripts/codehealth/worklist.py --self-test
+          # The weekly loop's patch validator: what may be applied to this repo
+          # from an agent that ran in another job. A rule broken into
+          # always-allowing is silent, and this is the one place it would be.
+          python3 scripts/ci/codehealth-apply.py --self-test
+
       - name: No new or worsened offenders in this diff
         env:
           # Set on pull_request runs only; the push event's previous sha covers

@@ -1,0 +1,891 @@
+name: Weekly Code Health
+
+# Phase 4 of internal-docs/2026-11-21-code-health-graph-design.md: the half that
+# changes code. Everything before it only measured — the `code-metrics` gate in
+# ci.yaml stops the debt growing, the reviewer gets told what a diff did to the
+# code's shape, and the edit-time hook tells an author while they still have the
+# context. None of them improves a single existing function, which is what this does.
+#
+# Once a week it ranks the worst of the debt (scripts/codehealth/worklist.py),
+# takes exactly one item, and opens one PR. A person merges it. That is the whole
+# loop, and the caps matter more than the agent does: the scarce resource here is
+# review attention, and a loop that floods it is worse than no loop.
+#
+#   - at most 3 of its PRs open at once;
+#   - nothing new while one of its own has sat unmerged for 7 days, because a
+#     stalled PR means nobody has attention for this right now;
+#   - one function per PR, behaviour-preserving, with the affected package's tests
+#     run by this workflow rather than reported by the agent.
+#
+# FIVE JOBS, AND THE SPLIT IS THE POINT. Each line of this table is a credential
+# boundary, and the right-hand column is the property worth keeping: no job that
+# runs the agent's code holds anything that can write to this repository or mint
+# something that can.
+#
+#   caps      counts this loop's open PRs and gates the rest. `pull-requests:
+#             read`, which is exactly why it is not part of `propose` — the
+#             agent receives that job's token. No agent code.
+#   deps      fetches the private cargo git deps, which is the one thing here
+#             that needs the App key, and hands them on through the run-scoped
+#             Actions cache. No agent code.
+#   propose   ranks the debt, runs the agent, uploads a patch. `contents: read`,
+#             the agent's own API key, and no App key.
+#   verify    base commit on a fresh runner, applies only the permitted paths,
+#             runs the gate and the tests. Executes the agent's code, and
+#             references NO SECRET AT ALL. Produces nothing — it is a pass/fail
+#             gate, because an artifact from here is one the executed code could
+#             have rewritten.
+#   open-pr   base commit again, re-checks and re-applies PROPOSE's artifact (not
+#             anything verify produced), then mints the write token and opens the
+#             PR. Never compiles or runs a line of the change.
+#
+# Four rounds of security review got it here, and each round found the same
+# shape: a boundary drawn one step short of where the code actually runs.
+#
+# The agent may write anywhere under the trees it works in, so in one job it
+# could edit the script deriving the test commands (scripts/codehealth), the
+# installer fetching the gate's binary (scripts/ci), a vitest config, or — a
+# path the guard did not even diff — a `.cargo/config.toml`, whose `runner` key
+# turns `cargo nextest` into arbitrary code execution. Verifying on a clean
+# checkout fixes all of those at once: the tooling is the base commit's and a
+# refused path cannot land.
+#
+# But `cargo nextest` and `vitest` still *run the agent's code*, and the fourth
+# round pointed out that the same job then minted a contents-write token. Test
+# code that runs before that step can wait for it: drop a `git` earlier on PATH,
+# poison the environment, read it out of the step that follows. So the write
+# credential moved to a job that executes nothing from the patch, and that job
+# re-applies propose's artifact rather than trusting anything verify leaves
+# behind — a job running untrusted code could otherwise swap the patch for a
+# different one after passing the gate.
+#
+# What this does NOT claim: `verify`'s verdict comes from running the agent's
+# tests, and you cannot run someone's tests without running their code, so an
+# agent determined to make its own tests pass can. What the split buys is that
+# the binary and config judging it are the base commit's, the patch that lands
+# is re-filtered on a clean runner, and no credential that can write to this
+# repository was ever in reach of the code that ran. A person still merges.
+#
+# Scheduled Monday 04:00 UTC (11:00 Vietnam): after the other Monday jobs, and
+# early enough in the working day that the PR is seen the day it is opened.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      pick:
+        description: "1-based worklist position to work on (default 1)"
+        required: false
+        default: "1"
+      dry_run:
+        description: "Rank and print the brief, change nothing"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-code-health
+  cancel-in-progress: false
+
+env:
+  # The label is the loop's memory: it is how the next run counts its own open
+  # PRs. Changing it resets the cap to zero, which is the one way to make this
+  # workflow flood review.
+  LABEL: code-health
+
+jobs:
+  # Its own job for one reason: listing this loop's open PRs needs
+  # `pull-requests: read`, and the job the agent runs in must not have it. The
+  # agent is handed that job's automatic token, so every permission the job
+  # holds is a permission the agent holds.
+  #
+  # Cheap, and it gates the rest: when the loop is capped there is no reason to
+  # spend a cargo fetch or a model call finding out.
+  caps:
+    name: Check the open-PR caps
+    if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.caps.outputs.proceed }}
+      taken: ${{ steps.caps.outputs.taken }}
+    steps:
+      # Both caps are about review attention, not correctness, which is why they
+      # skip the loop rather than fail it: a skipped week is the system working.
+      - name: Count this loop's own open PRs
+        id: caps
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --label "$LABEL" --state open \
+            --json number,createdAt,title,headRefName --limit 100)
+          count=$(jq 'length' <<<"$open")
+          echo "$count of its own PRs are open:"
+          jq -r '.[] | "  #\(.number) \(.createdAt) \(.title)"' <<<"$open"
+
+          if [ "$count" -ge 3 ]; then
+            echo "::notice::3 code-health PRs are already open — nothing new this week."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cutoff=$(date -u -d '7 days ago' +%s)
+          stalled=$(jq -r --argjson cutoff "$cutoff" \
+            '[.[] | select((.createdAt | fromdateiso8601) < $cutoff)] | .[0].number // ""' \
+            <<<"$open")
+          if [ -n "$stalled" ]; then
+            echo "::notice::#$stalled has been open over 7 days — stalling until it lands."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The functions these PRs already cover, read back out of their branch
+          # names (`codehealth/<slug>--<run id>`). Without this the loop proposes
+          # the same function every week: the ranking is computed from `main`,
+          # last week's PR has not merged so `main` is unchanged, position 1 is
+          # the same item, and a second PR opens for the two to compete over. It
+          # is also the stop condition for a failing PR — while it is open, its
+          # function is not picked again.
+          #
+          # `--` is the separator, not `-`: a slug collapses runs of
+          # non-alphanumerics to a single dash, so it can never contain `--` and
+          # this split is exact. With a single dash, a function named `step_2`
+          # yields `...-step-2` and this strip would eat the `2`.
+          taken=$(jq -r '.[].headRefName' <<<"$open" \
+            | sed -E 's#^codehealth/##; s/--[0-9]+$//' \
+            | grep -v '^$' | tr '\n' ' ' || true)
+          echo "already open for:${taken:+ $taken}"
+          {
+            echo "proceed=true"
+            echo "taken=$taken"
+          } >> "$GITHUB_OUTPUT"
+
+  # The App private key lives here and in `open-pr`, and in neither of the jobs
+  # that run the agent's code. That is the whole reason this job exists.
+  #
+  # The runner loads every secret a job references into its worker process when
+  # the job starts, whatever a step-level `if` says, and these runners have
+  # passwordless sudo (this repo already relies on it: claude-search-tools and
+  # ci.yaml both apt-get install). So test code the agent wrote, running in a job
+  # that references the key, can read it out of process memory and mint an
+  # installation token with every permission the App has — including the
+  # contents-write that opens pull requests. Scoping the token such a job *uses*
+  # is no defence; not referencing the key is.
+  #
+  # Compiling this workspace needs that key, because four cargo dependencies are
+  # private git repos. So the fetching happens here, where no agent code runs,
+  # and `propose` and `verify` get a populated `~/.cargo` plus
+  # CARGO_NET_OFFLINE — which also stops the agent's code reaching the network
+  # for a crate of its own choosing.
+  deps:
+    name: Fetch the private cargo deps
+    needs: caps
+    if: ${{ needs.caps.outputs.proceed == 'true' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      tar_sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          cache-key: test
+          save-cache: "false"
+
+      # `--locked` so this fetches exactly what Cargo.lock pins and fails rather
+      # than resolving something new. Unconditional: whether the week's item is
+      # Rust is not known until `propose` has ranked, and making this job wait on
+      # that answer would mean `propose` could not depend on it.
+      - name: Fetch every dependency Cargo.lock pins
+        run: cargo fetch --locked
+
+      # One tar rather than the artifact action walking tens of thousands of
+      # registry files. Compression is left at 1: `.crate` files are already
+      # compressed, so the time costs more than the bytes save.
+      - name: Pack the cargo directories
+        id: pack
+        run: |
+          set -euo pipefail
+          # Both created first: a workspace whose git deps were all cached
+          # already leaves no `.cargo/git`, and tar would fail on the missing
+          # path rather than on anything that matters.
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git"
+
+          # No git database means the fetch did not do what this job exists for,
+          # and `propose` would fail twenty minutes later as a confusing offline
+          # error. Checked against the filesystem with a glob, NOT with
+          # `tar -tf | grep -q`: `grep -q` exits on its first match, tar then
+          # writes into a closed pipe and dies with SIGPIPE, and `pipefail`
+          # turns that into a pipeline failure — so a fetch that worked perfectly
+          # would fail this job, nondeterministically, depending on readdir order
+          # and stdio buffering, and the error would send someone looking at
+          # authentication.
+          shopt -s nullglob
+          dbs=("$HOME"/.cargo/git/db/*)
+          if [ ${#dbs[@]} -eq 0 ]; then
+            echo "::error::no git dependency was fetched; the private-dep auth did not work"
+            exit 1
+          fi
+          echo "${#dbs[@]} private git database(s) fetched"
+
+          tar -cf cargo-deps.tar -C "$HOME" .cargo/registry .cargo/git
+          du -h cargo-deps.tar
+          # Pinned now, and checked by both jobs that unpack it. A job output is
+          # fixed once this step ends, so nothing later in the run can restate it.
+          echo "sha256=$(sha256sum cargo-deps.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # The Actions cache, not an artifact. The tar holds the git databases of
+      # four private repositories (airlayer, airform, airway-internal,
+      # snowflake-rs), and an artifact is a file anyone who can read
+      # oxygen-internal may download — which would hand their source to readers
+      # of this repo who may not be readers of theirs. A cache entry is reachable
+      # only through the Actions cache API, and this kind of data is already
+      # there: `Swatinem/rust-cache` caches `~/.cargo/git` from main's own test
+      # job. So this adds no exposure that the repo does not already have.
+      #
+      # Keyed by run id, so it is this run's deps and nothing else restores it by
+      # accident, and a deliberate miss cannot silently fall back to a stale one.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cargo-deps.tar
+          key: codehealth-cargo-deps-${{ github.run_id }}
+
+  propose:
+    name: Rank the debt and propose one change
+    needs: [caps, deps]
+    if: ${{ needs.caps.outputs.proceed == 'true' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    # `contents: read` and nothing else, spelled out rather than inherited.
+    #
+    # The agent is handed this job's automatic token, so EVERY PERMISSION HERE
+    # IS A PERMISSION THE AGENT HAS. That is why counting the loop's open PRs
+    # lives in the `caps` job: it needs `pull-requests: read`, and this job must
+    # not have it. Do not add a permission here to save a job.
+    #
+    # `id-token` matters as much as `contents`: with no `id-token: write` there
+    # is no OIDC exchange for claude-code-action to mint its own `claude[bot]`
+    # token with, which is what it does when given no `github_token` input.
+    permissions:
+      contents: read
+      id-token: none
+    env:
+      # Every cargo invocation in this job, the agent's included, is offline.
+      # The private deps arrive from `deps` through the run-scoped Actions
+      # cache, so nothing here needs the App key — and the agent's own test
+      # code cannot pull a crate of its choosing off the network either.
+      CARGO_NET_OFFLINE: "true"
+    outputs:
+      proceed: ${{ steps.patch.outputs.proceed }}
+      base: ${{ steps.base.outputs.sha }}
+      path: ${{ steps.pick.outputs.path }}
+      name: ${{ steps.pick.outputs.name }}
+      kind: ${{ steps.pick.outputs.kind }}
+      slug: ${{ steps.pick.outputs.slug }}
+      rust: ${{ steps.pick.outputs.rust }}
+      brief_sha256: ${{ steps.pick.outputs.brief_sha256 }}
+    steps:
+      # No App token in this job; the key stays in `deps` and `open-pr`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: `bca vcs` ranks on churn, which needs the commit DAG,
+          # not a shallow clone. A shallow one does not fail — it silently ranks
+          # everything the same, which is worse.
+          fetch-depth: 0
+          # Not left in `.git/config`, where the agent's `cat` would reach it.
+          persist-credentials: false
+
+      - name: Record the base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # "Which tests reach this function" is the question that decides whether the
+      # agent may restructure it at all, and text search answers it badly. The
+      # graph's TESTED_BY edges answer it, for the files it has indexed — and the
+      # worklist is explicit about the rest rather than guessing.
+      - uses: ./.github/actions/claude-search-tools
+
+      - name: Install bca (pinned, digest-verified)
+        run: scripts/ci/install-bca.sh
+
+      - name: Rank the debt and pick one item
+        id: pick
+        env:
+          PICK: ${{ inputs.pick || '1' }}
+          # Space separated, from the `caps` job. Slugs cannot contain a space,
+          # so this needs no quoting dance; word splitting is the parse.
+          TAKEN: ${{ needs.caps.outputs.taken }}
+        run: |
+          set -euo pipefail
+          # One invocation, both outputs. Ranking walks the whole commit history
+          # (`bca vcs`), ~60s cold on this repo, so running it twice to get the
+          # list and then one item's brief doubles the only slow part of the job.
+          #
+          # Exit 3 covers both "nothing ranked" and "no item at that position",
+          # and neither is a failure: a week with nothing to do is the system
+          # working, and failing the run would page someone over it.
+          # One `--exclude-slug` per function that already has an open PR. The
+          # slug comes from the script, not from a `jq` expression here: the two
+          # spellings disagreed on a name ending in a non-alphanumeric
+          # (`buildProgram::<anon@L347>` -> `...-l347-` in jq, `...-l347` in
+          # Python), and a slug that differs between the branch name and next
+          # week's exclusion defeats the whole check. It carries the file path
+          # too, because a name alone collides on every ordinary one — `handler`,
+          # `render`, `main` — and one open PR would then hide every other
+          # function of that name from the worklist.
+          excludes=()
+          for slug in $TAKEN; do
+            excludes+=(--exclude-slug "$slug")
+          done
+          set +e
+          python3 -I scripts/codehealth/worklist.py \
+            --top 25 --pick "$PICK" --format brief --json-out worklist.json \
+            "${excludes[@]}" > brief.md
+          rc=$?
+          set -e
+          if [ "$rc" = 3 ]; then
+            echo "::notice::Nothing to work on this week (no item at position $PICK)."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$rc" = 0 ] || exit "$rc"
+          item=$(jq ".[$((PICK - 1))]" worklist.json)
+          target=$(jq -r .path <<<"$item")
+
+          {
+            echo "proceed=true"
+            echo "path=$target"
+            echo "name=$(jq -r .name <<<"$item")"
+            echo "kind=$(jq -r .kind <<<"$item")"
+            echo "slug=$(jq -r .slug <<<"$item")"
+            case "$target" in
+              *.rs) echo "rust=true" ;;
+              *) echo "rust=false" ;;
+            esac
+          } >> "$GITHUB_OUTPUT"
+
+          # The brief's digest, taken now — before the agent step has run, and
+          # recorded as a step output, which is fixed once this step ends and is
+          # not a file anything later can rewrite. `open-pr` verifies it before
+          # pasting the brief into a PR body.
+          #
+          # Needed because `brief.md` lives in the worktree the agent then works
+          # in, with Write/Edit and code execution, and this job deliberately
+          # subtracts its own scratch files from the patch — so an edit to the
+          # brief is the one change no allow-list downstream would ever see.
+          # "Generated before the agent ran" is true of the file's *first*
+          # contents and says nothing about its last.
+          echo "brief_sha256=$(sha256sum brief.md | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+          echo "### Picked" >> "$GITHUB_STEP_SUMMARY"
+          cat brief.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run stops here
+        if: ${{ inputs.dry_run && steps.pick.outputs.proceed == 'true' }}
+        run: cat brief.md
+
+      # Only the toolchain this item needs. The worklist mixes Rust and
+      # TypeScript and which one comes up is not known until it has run, so both
+      # setups are conditional on the picked path rather than unconditional.
+      # No App key: `private-git-deps: "false"`. The toolchain, mold, protoc,
+      # nextest and the cargo cache all come from here; the four private git
+      # dependencies come from the `deps` cache entry restored below.
+      - uses: ./.github/actions/setup-rust-ci
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust == 'true' }}
+        with:
+          private-git-deps: "false"
+          tools: nextest
+          # Restores what the test job saves. Never saves: this job compiles one
+          # package, so saving would replace a full-workspace entry with a
+          # subset of it and slow every PR down.
+          cache-key: test
+          save-cache: "false"
+
+      # After setup-rust-ci, so this wins over whatever the restored cache held.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust == 'true' }}
+        with:
+          path: cargo-deps.tar
+          key: codehealth-cargo-deps-${{ github.run_id }}
+          # A miss means the deps job's output is gone, and the tests would then
+          # fail as an offline error twenty minutes later. Fail here instead.
+          fail-on-cache-miss: true
+      - name: Unpack the private cargo deps
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust == 'true' }}
+        env:
+          TAR_SHA256: ${{ needs.deps.outputs.tar_sha256 }}
+        run: scripts/ci/codehealth-unpack-deps.sh
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust != 'true' }}
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust != 'true' }}
+        with:
+          node-version: 26
+          cache: pnpm
+      - name: Install web dependencies
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' && steps.pick.outputs.rust != 'true' }}
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      # What this job's own setup has already changed in the worktree, recorded
+      # before the agent runs so it can be subtracted from the patch afterwards.
+      #
+      # It has to be computed, not listed: `claude-search-tools` copies over
+      # TRACKED files — `.claude/skills/ast-grep*`, and `code-review-graph
+      # install` regenerates the four tracked graph skills — so every patch
+      # carries edits under `.claude/` that the allow-list then refuses. The
+      # first version tried `git add --intent-to-add -A -- . ':!.claude/skills'`,
+      # which does nothing for a tracked file: the exclusion has to be on the
+      # `git diff`, and a hand-written list would rot the next time a setup step
+      # changes.
+      - name: Record what this job's own setup dirtied
+        id: collateral
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+          git add --intent-to-add -A
+          git diff --name-only HEAD > setup-collateral.txt
+          git reset -q
+          # Plus this job's own scratch files. Most are already in the list
+          # above because they exist by now and are untracked, but the ones
+          # written after that `git add` — including this file itself — are not,
+          # and a scratch file in the patch fails the allow-list just as an
+          # escape would.
+          printf '%s\n' setup-collateral.txt patch.diff touched.txt earned.txt \
+            >> setup-collateral.txt
+          sort -u -o setup-collateral.txt setup-collateral.txt
+          sed 's/^/not the agent'"'"'s: /' setup-collateral.txt
+
+      - name: Claude — do the one thing the brief allows
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' }}
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6 # v1
+        # No write credential anywhere near this step. The agent does not push,
+        # comment or open the PR — the later jobs do, after they have checked the
+        # change — so a write token here buys nothing and costs the repository if
+        # a prompt it reads turns out to be hostile. The brief is generated from
+        # this repo's own code, but the function it points at is not, and an
+        # instruction in a code comment is still an instruction.
+        #
+        # `github_token` is passed, not omitted, and it is the job's own
+        # automatic token. Omitting it is not the safe option:
+        # `public-image-bump.yaml` records that claude-code-action "generates its
+        # own claude[bot] token via OIDC" and writes it into `$GH_TOKEN` in its
+        # runtime, and a step-level `env: GH_TOKEN:` does not survive that. The
+        # job denies `id-token` so that exchange cannot happen, and this input
+        # names the credential instead of leaving it to the action.
+        #
+        # The automatic token rather than an App token, deliberately: it is
+        # already in this job whether referenced or not, so it adds no secret
+        # material, it expires with the job, it is capped by the job's
+        # `permissions:` above, and — the point — it cannot mint anything.
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          show_full_output: false
+          prompt: |
+            A weekly loop ranks this repo's worst code-shape debt and gives you
+            exactly one item. `brief.md` in the repo root is that item: read it
+            first, in full. It names the function, the thresholds it breaches, how
+            much the file churns, what the graph knows about its tests, and — this
+            is the part that binds you — which of three things you are allowed to
+            do with it.
+
+            Do that one thing. Not the file around it, not a second function that
+            looks similar, not a drive-by fix you notice on the way. One function,
+            one PR, because the scarce resource here is someone's attention on the
+            diff.
+
+            Behaviour-preserving means no new feature, no new dependency, no public
+            API change, and nothing any caller can observe. If you cannot tell
+            whether a caller observes something, it is not behaviour-preserving.
+
+            Steps:
+            1. Read `brief.md`. Read the function and enough of its callers to know
+               what it promises.
+            2. Establish that a test would catch you breaking it, by the standard
+               the brief sets for this item's kind. For `prove-coverage` that means
+               actually breaking it and watching a test fail — a test you assume
+               covers it is not evidence.
+            3. Make the change, or write the test, or add the suppression marker
+               with its reason. The brief says which of those is open to you.
+            4. Run the affected package's tests yourself:
+               `cargo nextest run -p <package> --lib` for Rust (never a bare
+               `cargo nextest run` — it links every test target in 84 crates), or
+               `pnpm --dir web-app exec vitest run` for web-app. `cargo fmt` /
+               `pnpm exec biome check --write <file>` before you finish.
+            5. Confirm you added no new offender:
+               `.tools/bin/bca check --paths <the file you touched>`.
+
+            Changing nothing is a valid outcome and sometimes the right one. If the
+            complexity is load-bearing — one exhaustive match that states every
+            case is clearer than four functions that hide it — say so and leave the
+            marker the brief shows instead. Do not split a function into pieces
+            that are only ever called in sequence: that improves every number and
+            no one's life, and a reviewer will say so.
+
+            Edit only the file the brief names, plus a test file if you are adding
+            one. Do not touch a build manifest, a lockfile, a CI workflow, a vite
+            or vitest config, or anything under `scripts/` — the next job applies
+            your change on a clean checkout and refuses paths outside that set, so
+            editing them loses the whole run rather than sneaking anything past.
+
+            Do not commit, push, or open a PR. The workflow does that, after it
+            has verified your change on a runner where you never ran.
+
+          claude_args: |
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo fmt:*),Bash(pnpm exec vitest:*),Bash(pnpm --dir web-app exec vitest:*),Bash(pnpm exec biome:*),Bash(pnpm exec tsc:*),Bash(git diff:*),Bash(git status:*),Bash(grep:*),Bash(ast-grep:*),Bash(jq:*),Bash(cat:*),Bash(.tools/bin/bca:*),mcp__code-review-graph__query_graph_tool,mcp__code-review-graph__semantic_search_nodes_tool"
+
+      # The agent's output, as a patch over the whole repo — not just the trees it
+      # was told to stay in. A guard that only looks where the rules say to look
+      # cannot see a rule being broken: the first version diffed
+      # crates/web-app/sdk/scripts and would not have noticed a new
+      # `.cargo/config.toml`, whose `runner` key makes `cargo nextest` run
+      # anything. The allow-list is applied in `verify`, on the clean checkout,
+      # where a rejected path cannot even be written.
+      - name: Collect the patch
+        id: patch
+        if: ${{ !inputs.dry_run && steps.pick.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+          # Intent-to-add so a *new* file counts. A `write-tests` item's whole
+          # output is usually a file that does not exist yet, and `git diff`
+          # cannot see an untracked one.
+          #
+          # Over the whole worktree, minus exactly what this job's own setup
+          # dirtied — so the guard downstream still sees the agent writing
+          # anywhere it should not, including outside the trees it was told to
+          # stay in, while this job's collateral does not fail every run. The
+          # exclusion is a pathspec on the `diff`, which is the part that works
+          # for a tracked file.
+          git add --intent-to-add -A
+          mapfile -t skip < <(sed 's/^/:!/' setup-collateral.txt)
+          git diff --binary HEAD -- . "${skip[@]}" > patch.diff
+          git diff --name-only HEAD -- . "${skip[@]}" > touched.txt
+          if [ ! -s touched.txt ]; then
+            echo "::notice::No change was made. Nothing to open a PR for."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sed 's/^/proposed: /' touched.txt
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ steps.patch.outputs.proceed == 'true' }}
+        with:
+          name: code-health-proposal
+          # No file list. The first version shipped `touched.txt` and the next
+          # job validated *that*, which is the agent's own account of its patch
+          # — a patch could name one innocuous file and carry a `Cargo.toml`
+          # edit. The list now comes from `git apply --numstat` on the patch.
+          path: |
+            patch.diff
+            brief.md
+          retention-days: 7
+          if-no-files-found: error
+
+  verify:
+    name: Verify on a clean checkout
+    needs: [deps, propose]
+    if: ${{ needs.propose.outputs.proceed == 'true' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    # This job runs the agent's code — `cargo nextest` and `vitest` are exactly
+    # that — so it holds no credential beyond the job's own automatic token. It
+    # mints nothing, references no secret, and uploads nothing: it is a gate that
+    # passes or fails, because an artifact from here would be one the executed
+    # code could have rewritten.
+    #
+    # It used to carry the App private key, through `setup-rust-ci`, for the four
+    # private cargo git dependencies — and that defeated every token scope in
+    # this file at a stroke, since a key that mints tokens is worth more than any
+    # token it mints. The deps now arrive from the `deps` job through the
+    # run-scoped Actions cache, digest-checked on unpack, and cargo runs offline.
+    permissions:
+      contents: read
+    env:
+      CARGO_NET_OFFLINE: "true"
+    steps:
+      # The base commit, not the agent's tree. Everything that judges the change
+      # — worklist.py, install-bca.sh, bca.toml, the vitest config, the cargo
+      # config — comes from here, so none of it is anything the agent touched.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.propose.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: code-health-proposal
+          path: proposal
+
+      # Validate and apply in one place, shared with `open-pr`, because the two
+      # must agree and a copy of a rule is a rule that drifts. The script reads
+      # the patch's own file list and file kinds — never a manifest the job that
+      # produced the patch also wrote — and refuses anything outside
+      # crates/web-app/sdk, any build manifest or test config inside them, and
+      # every rename, copy, delete, symlink and mode change.
+      - name: Refuse a change outside the brief, then apply it
+        run: python3 -I scripts/ci/codehealth-apply.py proposal/patch.diff
+
+      - name: Install bca (pinned, digest-verified)
+        run: scripts/ci/install-bca.sh
+
+      - uses: ./.github/actions/setup-rust-ci
+        if: needs.propose.outputs.rust == 'true'
+        with:
+          private-git-deps: "false"
+          tools: nextest
+          cache-key: test
+          save-cache: "false"
+
+      # After setup-rust-ci, so this wins over whatever the restored cache held.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: needs.propose.outputs.rust == 'true'
+        with:
+          path: cargo-deps.tar
+          key: codehealth-cargo-deps-${{ github.run_id }}
+          fail-on-cache-miss: true
+      # Digest-checked and member-restricted. `propose` ran the agent's code
+      # before this job started, and that code can reach the run-scoped
+      # ACTIONS_RUNTIME_TOKEN out of process memory — so this tar is treated as
+      # something that may have been swapped, not as this run's own output.
+      - name: Unpack the private cargo deps
+        if: needs.propose.outputs.rust == 'true'
+        env:
+          TAR_SHA256: ${{ needs.deps.outputs.tar_sha256 }}
+        run: scripts/ci/codehealth-unpack-deps.sh
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        if: needs.propose.outputs.rust != 'true'
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        if: needs.propose.outputs.rust != 'true'
+        with:
+          node-version: 26
+          cache: pnpm
+      - name: Install web dependencies
+        if: needs.propose.outputs.rust != 'true'
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Verify — the metric gate still passes
+        run: |
+          set -euo pipefail
+          # Named paths, not `--changed-only`. Measured 2026-11-23: `bca check
+          # --since HEAD` on a dirty tree reports "diff scope is empty (no files
+          # touched between HEAD and HEAD)" and exits 0 — it compares two commits
+          # and never looks at the working tree, so that spelling of this gate
+          # would have verified nothing at all.
+          #
+          # Never `--paths .`: that *replaces* the manifest's path list and pulls
+          # in everything it deliberately skips.
+          git diff --name-only HEAD | grep -E '\.(rs|ts|tsx)$' > changed.txt || true
+          if [ ! -s changed.txt ]; then
+            echo "::warning::The diff touches no source file the gate measures."
+            exit 0
+          fi
+          changed=$(tr '\n' ' ' < changed.txt)
+          echo "measuring: $changed"
+          # shellcheck disable=SC2086
+          .tools/bin/bca check --github-annotations --paths $changed
+
+      - name: Verify — the affected package's tests pass
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -I scripts/codehealth/worklist.py --affected HEAD > earned.txt
+          rc=$?
+          set -e
+          if [ "$rc" = 3 ]; then
+            echo "::warning::This diff earns no package-scoped test run."
+            exit 0
+          fi
+          [ "$rc" = 0 ] || exit "$rc"
+
+          # Data in, fixed commands out: the script emits `cargo-package <name>`
+          # and `web-app` lines, never shell. Nothing here is eval'd, the verb
+          # must match exactly, and a package name that is not a bare identifier
+          # fails the job rather than reaching a shell. Written as they run, so
+          # the PR body reports what was actually verified instead of
+          # re-deriving it and calling it passed.
+          : > verified.txt
+          while read -r verb name; do
+            case "$verb" in
+              cargo-package)
+                case "$name" in
+                  *[!A-Za-z0-9_-]* | "")
+                    echo "::error::refusing package name: $name"; exit 1 ;;
+                esac
+                echo "+ cargo nextest run -p $name --lib"
+                cargo nextest run -p "$name" --lib
+                echo "cargo nextest run -p $name --lib" >> verified.txt
+                ;;
+              web-app)
+                echo "+ pnpm --dir web-app exec vitest run"
+                pnpm --dir web-app exec vitest run
+                echo "pnpm --dir web-app exec vitest run" >> verified.txt
+                ;;
+              "") ;;
+              *) echo "::error::unrecognized line from --affected: $verb $name"; exit 1 ;;
+            esac
+          done < earned.txt
+
+  open-pr:
+    name: Re-apply on a clean checkout and open the PR
+    needs: [propose, verify]
+    # Read-only, like every other job here. The write happens through the App
+    # token minted at the end, not through the job's own permissions.
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      # The base commit again, and `propose`'s artifact — never anything the
+      # `verify` job touched. Nothing in this job compiles or runs the change:
+      # it applies a patch, measures it with a digest-verified binary, and opens
+      # a PR. That is why it is the only job allowed a write credential.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.propose.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: code-health-proposal
+          path: proposal
+
+      # The brief is about to be pasted into a PR body that the review bot reads,
+      # so it has to be the text `propose` generated and not whatever the agent
+      # left in the file afterwards. The digest was taken before the agent step
+      # ran and lives in a job output, which nothing later can rewrite.
+      - name: Verify the brief is the one that was generated
+        env:
+          BRIEF_SHA256: ${{ needs.propose.outputs.brief_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BRIEF_SHA256:-}" ]; then
+            echo "::error::no brief digest was recorded; refusing to use the brief"
+            exit 1
+          fi
+          echo "$BRIEF_SHA256  proposal/brief.md" | sha256sum -c -
+
+      # The same validation `verify` ran, repeated on purpose: this job must not
+      # take "verify passed" as permission to apply a patch it has not checked
+      # itself, and `verify` ran the agent's code before saying so.
+      - name: Refuse a change outside the brief, then apply it
+        run: python3 -I scripts/ci/codehealth-apply.py proposal/patch.diff
+
+      - name: Install bca (pinned, digest-verified)
+        run: scripts/ci/install-bca.sh
+
+      - name: Record what changed
+        run: |
+          set -euo pipefail
+          # `brief.md` holds the before numbers and this is the after. Measured
+          # here rather than carried from `verify`, because text from a job that
+          # ran untrusted code would end up in a PR body the review bot reads.
+          # The brief is only usable at all because the step above matched it
+          # against a digest taken before the agent ran.
+          #
+          # `after.txt` is still bca's output over the agent's source, so a
+          # function it *names* reaches the body. The paths are allow-listed and
+          # the names must be valid Rust or TypeScript identifiers, but backticks
+          # are stripped so nothing in them can close the code fence it is
+          # printed inside.
+          git diff --name-only HEAD | grep -E '\.(rs|ts|tsx)$' > changed.txt || true
+          after="No offender remains in the files this PR touches."
+          if [ -s changed.txt ]; then
+            changed=$(tr '\n' ' ' < changed.txt)
+            # shellcheck disable=SC2086
+            .tools/bin/bca check --no-fail --paths $changed > raw-after.txt 2>&1 || true
+            tr -d '`' < raw-after.txt > after.txt
+            [ -s after.txt ] && after=""
+          fi
+          # Re-derived from the diff with the base commit's script, which is the
+          # same input and the same code `verify` ran its tests from — so this
+          # lists what was run without trusting a report of it.
+          python3 -I scripts/codehealth/worklist.py --affected HEAD > earned.txt || true
+          {
+            echo "## What the loop did"
+            echo
+            cat proposal/brief.md
+            echo
+            echo "## Shape after the change"
+            echo
+            echo '```'
+            if [ -n "$after" ]; then echo "$after"; else head -30 after.txt; fi
+            echo '```'
+            echo
+            echo "## Verified on a clean checkout"
+            echo
+            echo "Three jobs: the agent ran on one runner, the gate and tests on a"
+            echo "second checked out from the base commit, and this PR was opened by a"
+            echo "third that compiled nothing. Every tool that judged the change is"
+            echo "this repository's at \`${{ needs.propose.outputs.base }}\`, and no"
+            echo "credential that can write here was ever in reach of the code that ran."
+            echo
+            echo "- the metric gate over the files this PR touches: no new or worsened offender"
+            if [ -s earned.txt ]; then
+              # shellcheck disable=SC2016
+              sed -e 's/^cargo-package \(.*\)$/- `cargo nextest run -p \1 --lib` — passed/' \
+                  -e 's/^web-app$/- `pnpm --dir web-app exec vitest run` — passed/' earned.txt
+            else
+              echo "- no package-scoped test run was earned by this diff"
+            fi
+            echo
+            echo "A person merges this. Nothing here is auto-merged, and while this PR"
+            echo "is open the loop will not pick the same function again — so a run that"
+            echo "fails is not retried behind your back, and closing this PR is what"
+            echo "puts the function back in the queue."
+            echo
+            echo "Roadmap: none -- behaviour-preserving, no product change"
+          } > pr-body.md
+
+      # Minted last, in the one job that runs nothing from the patch.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Create GitHub App Token (write)
+        id: app-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            oxygen-internal
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: codehealth/${{ needs.propose.outputs.slug }}--${{ github.run_id }}
+          commit-message: "refactor: ${{ needs.propose.outputs.name }} in ${{ needs.propose.outputs.path }}"
+          title: "refactor: simplify ${{ needs.propose.outputs.name }}"
+          body-path: pr-body.md
+          # The three trees the allow-list permits, and nothing else. This job's
+          # own scratch files all sit at the root.
+          add-paths: |
+            crates
+            web-app
+            sdk
+          delete-branch: true
+          labels: "automated,${{ env.LABEL }}"
