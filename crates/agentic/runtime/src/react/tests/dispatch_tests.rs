@@ -49,6 +49,7 @@ async fn drive_with(
         results: Arc::new(NoResults),
         on_done: None,
         nudge,
+        reflect: None,
     };
     let t = Transcript {
         system: "sys".into(),

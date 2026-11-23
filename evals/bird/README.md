@@ -95,6 +95,29 @@ python3 evals/bird/bird.py compare --fsm-dir <dir> --react-dir <dir> --model ...
 - `compare` prints per-db and pooled tables (answer accuracy, EX, Soft-F1, median latency,
   median turns, tokens, cost) and the question ids whose judge verdicts differ.
 
+## Memory passes (react only)
+
+A react run reads notes from `OXY_EVAL_MEMORY_READ` and appends to `OXY_EVAL_MEMORY_WRITE`
+(JSON lines, one fact per line). Use one notes file per database. A pass that only writes
+starts cold. A pass that only reads gets no `remember`/`forget` tools and no reflection turn,
+so it does not learn from itself and pays no reflection cost. With writes on, a run that made
+3 queries, or had one fail, gets one more model turn that may save notes; its `LlmEnd` has
+`state: react_reflect`. The protocol is in `internal-docs/agent-engine-runtime.md`, "Memory
+per user".
+
+```bash
+# 1. cold: learn on every question
+OXY_EVAL_MEMORY_WRITE=$OUT/financial.notes.jsonl oxy test financial.semantic.test.yml --output-json
+# 2. warm repeat: the same questions, reading what pass 1 saved
+OXY_EVAL_MEMORY_READ=$OUT/financial.notes.jsonl oxy test financial.semantic.test.yml --output-json
+# 3. transfer: learn on half a, test on half b
+python3 evals/bird/bird.py gen-cases --runtime semantic --half a   # and --half b
+OXY_EVAL_MEMORY_WRITE=$OUT/financial.a.jsonl oxy test financial.semantic.half-a.test.yml --output-json
+OXY_EVAL_MEMORY_READ=$OUT/financial.a.jsonl oxy test financial.semantic.half-b.test.yml --output-json
+```
+
+Half files are generated. Do not commit them.
+
 ## Regrade without re-running the agent
 
 A change to the grader (judge prompt, gold-SQL timeout, SKIP rule) is applied to an execution-graded

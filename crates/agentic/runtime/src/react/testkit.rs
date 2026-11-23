@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 pub struct ScriptedEngine {
     script: Mutex<std::collections::VecDeque<Result<Decision, EngineError>>>,
     pub seen: Mutex<Vec<Transcript>>,
+    /// The tool names offered on each call, in order.
+    pub seen_tools: Mutex<Vec<Vec<String>>>,
     delay: Option<Duration>,
 }
 
@@ -23,6 +25,7 @@ impl ScriptedEngine {
         Self {
             script: Mutex::new(script.into()),
             seen: Mutex::new(Vec::new()),
+            seen_tools: Mutex::new(Vec::new()),
             delay: None,
         }
     }
@@ -39,10 +42,12 @@ impl Engine for ScriptedEngine {
     async fn decide(
         &self,
         transcript: &Transcript,
-        _tools: &[ToolDef],
+        tools: &[ToolDef],
         _events: &EventSink,
     ) -> Result<Decision, EngineError> {
         self.seen.lock().unwrap().push(transcript.clone());
+        let names = tools.iter().map(|t| t.name.to_string()).collect();
+        self.seen_tools.lock().unwrap().push(names);
         if let Some(d) = self.delay {
             tokio::time::sleep(d).await;
         }

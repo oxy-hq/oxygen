@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::budget::BudgetMeter;
 use super::dispatch::{DispatchCx, Dispatched, dispatch_turn};
 use super::events::{emit_core, emit_turn};
+use super::memory::{Reflect, reflect};
 use super::nudge::{Nudge, NudgeState};
 
 /// Limits on one run, enforced by [`BudgetMeter`] between model turns.
@@ -42,6 +43,9 @@ pub struct LoopConfig {
     /// A one-time note added to a tool result when the run looks stuck.
     /// `None`: no note.
     pub nudge: Option<Nudge>,
+    /// One turn after a hard-won answer that may save notes for later runs.
+    /// `None`: no memory writes.
+    pub reflect: Option<Reflect>,
 }
 
 #[derive(Debug)]
@@ -131,6 +135,10 @@ pub(super) async fn run_loop_from(
         match decision {
             Decision::Reply(turn) => {
                 emit_turn(ev, &turn, decide_ms).await;
+                if meter.exceeded().is_none() {
+                    let cx = DispatchCx::new(cfg, ev, cancel);
+                    reflect((engine, toolset), cx, &transcript, &turn).await;
+                }
                 return finish(ev, cfg, LoopOutcome::Done { answer: turn }).await;
             }
             Decision::CallTools(turn) => {

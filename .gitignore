@@ -159,6 +159,8 @@ docs/superpowers/
 
 # BIRD eval data cache (defensive; the real cache is ~/.cache/oxy-evals/bird/)
 evals/bird/.cache/
+# Memory transfer pass halves (`bird.py gen-cases --half`)
+evals/bird/*.half-*.test.yml
 
 # Pinned dev tools installed by scripts/ci/install-bca.sh and friends.
 .tools/

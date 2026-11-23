@@ -21,6 +21,7 @@ use agentic_core::orchestrator::OrchestratorError;
 use crate::agent_definition::{self, AgentDefinitionError};
 use crate::context_documents;
 use crate::platform::{self, PlatformContext};
+pub use crate::react_run::memory::EvalMemory;
 use crate::react_run::{
     self, EVAL_ENTRY_REACT, HARNESS_ENTRY_REACT, ReactPolicy, STREAMING_ENTRY_REACT,
 };
@@ -80,7 +81,14 @@ pub async fn run_agentic_eval(
     prompt: String,
 ) -> Result<String, HeadlessError> {
     let destination = EventDestination::Drain;
-    run_agentic_headless(platform, agent_ref, prompt, destination, EVAL_ENTRY_REACT).await
+    run_agentic_headless(
+        platform,
+        agent_ref,
+        prompt,
+        destination,
+        (EVAL_ENTRY_REACT, None),
+    )
+    .await
 }
 
 /// Run ONE turn against an agent's instructions — no tools, no databases, no FSM.
@@ -178,7 +186,7 @@ pub async fn run_agentic_streaming(
         agent_ref,
         prompt,
         EventDestination::Forward(event_sink),
-        STREAMING_ENTRY_REACT,
+        (STREAMING_ENTRY_REACT, None),
     )
     .await
     .map_err(|e| e.to_string())
@@ -191,18 +199,21 @@ pub async fn run_agentic_streaming(
 /// harness to time each pipeline state.
 /// It is the one headless entry that honors `runtime: react`
 /// ([`HARNESS_ENTRY_REACT`]); the others run such an agent on the FSM.
+/// `memory` is the eval's notes ([`EvalMemory`]): only a react run reads or
+/// writes them, and an FSM run ignores them.
 pub async fn run_agentic_streaming_with_states(
     platform: Arc<dyn PlatformContext>,
     agent_ref: &str,
     prompt: String,
     event_sink: tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>,
+    memory: &EvalMemory,
 ) -> Result<String, String> {
     run_agentic_headless(
         platform,
         agent_ref,
         prompt,
         EventDestination::ForwardWithStates(event_sink),
-        HARNESS_ENTRY_REACT,
+        (HARNESS_ENTRY_REACT, Some(memory)),
     )
     .await
     .map_err(|e| e.to_string())
@@ -216,7 +227,7 @@ async fn run_agentic_headless(
     agent_ref: &str,
     prompt: String,
     destination: EventDestination,
-    react: ReactPolicy,
+    (react, memory): (ReactPolicy, Option<&EvalMemory>),
 ) -> Result<String, HeadlessError> {
     use agentic_analytics::build_analytics_handlers;
     use agentic_core::orchestrator::Orchestrator;
@@ -228,7 +239,8 @@ async fn run_agentic_headless(
     let (config, domain_docs) = load_agent(&*platform, agent_ref, &base_dir).await?;
     let ctx = build_context(&*platform, &config, domain_docs, &base_dir).await;
     if react_run::picks_react(&config, react, agent_ref) {
-        let run = (agent_ref, base_dir.as_path());
+        let memory = memory.cloned().unwrap_or_default();
+        let run = (agent_ref, base_dir.as_path(), &memory);
         return react_run::run_headless(&*platform, &config, ctx, run, prompt, destination).await;
     }
 

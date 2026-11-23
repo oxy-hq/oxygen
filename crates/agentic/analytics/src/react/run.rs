@@ -6,7 +6,10 @@ use std::sync::Arc;
 use agentic_connector::DatabaseConnector;
 use agentic_core::events::Event;
 use agentic_core::react::{DoneHook, EventSink, ResultHandle, Tool, Toolset, Turn};
-use agentic_runtime::react::{AskUser, Budgets, Nudge};
+use agentic_runtime::react::{
+    AskUser, Budgets, MEMORY_TOOLS, MemoryGate, Nudge, REFLECT_PROMPT, Reflect, RunMemory,
+    memory_tools, notes_section,
+};
 use async_trait::async_trait;
 
 use super::citations::{answer_result_id, parse_citations, strip_citations};
@@ -37,7 +40,17 @@ pub struct ReactAnalytics {
     /// With an advisor: the loop tells the model to call it after the third
     /// query, or at the first failed one.
     pub nudge: Option<Nudge>,
+    /// With memory writes on ([`Self::with_memory`]): the reflection turn.
+    pub reflect: Option<Reflect>,
 }
+
+/// Added with memory writes: the memory tools are in the toolset for the
+/// prompt cache, and refuse a call until the reflection turn.
+const MEMORY_TOOLS_RULE: &str = "Do not call `remember` or `forget` while you answer. After \
+    the answer, the run may ask you for notes.";
+
+/// Queries after which an answer is worth a reflection turn.
+const REFLECT_AFTER_QUERIES: usize = 3;
 
 impl ReactAnalytics {
     pub fn new(inputs: ReactInputs) -> Self {
@@ -80,7 +93,34 @@ impl ReactAnalytics {
                 after_calls: 3,
                 text: ADVISOR_NUDGE.into(),
             }),
+            reflect: None,
         }
+    }
+
+    /// Adds `memory` to this run: its notes go in the system prompt. When it
+    /// takes writes, `remember` and `forget` join the toolset for the whole
+    /// run (so the reflection turn reuses the run's prompt cache), and a run
+    /// that made [`REFLECT_AFTER_QUERIES`] queries, or had one fail, gets one
+    /// reflection turn.
+    pub fn with_memory(mut self, memory: RunMemory) -> Self {
+        if let Some(section) = notes_section(&memory.notes) {
+            self.toolset.system_prompt.push_str("\n\n");
+            self.toolset.system_prompt.push_str(&section);
+        }
+        if let Some(store) = memory.writes {
+            let gate = MemoryGate::default();
+            (self.toolset.tools).extend(memory_tools(store, &memory.notes, &gate));
+            self.toolset.system_prompt.push_str("\n\n");
+            self.toolset.system_prompt.push_str(MEMORY_TOOLS_RULE);
+            self.reflect = Some(Reflect {
+                only: MEMORY_TOOLS.map(String::from).to_vec(),
+                query_tool: "query".into(),
+                after_calls: REFLECT_AFTER_QUERIES,
+                prompt: REFLECT_PROMPT.into(),
+                gate,
+            });
+        }
+        self
     }
 }
 

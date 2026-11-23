@@ -28,6 +28,18 @@ pub struct DispatchCx<'a> {
     pub nudge: Option<&'a Mutex<NudgeState>>,
 }
 
+impl<'a> DispatchCx<'a> {
+    /// A context with no nudge.
+    pub fn new(cfg: &'a LoopConfig, ev: &'a EventSink, cancel: &'a CancellationToken) -> Self {
+        Self {
+            cfg,
+            ev,
+            cancel,
+            nudge: None,
+        }
+    }
+}
+
 /// A `Suspend` tool's question; the run parks on `call_id`.
 #[derive(Debug, Clone)]
 pub struct SuspendInfo {

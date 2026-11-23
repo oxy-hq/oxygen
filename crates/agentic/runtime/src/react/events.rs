@@ -83,11 +83,17 @@ pub(super) async fn emit_react(ev: &EventSink, e: ReactEvent) {
 /// `react_turn` plus the `LlmEnd` the existing UI transforms read.
 /// `duration_ms` is the model call's wall time (retries included).
 pub(super) async fn emit_turn(ev: &EventSink, turn: &Turn, duration_ms: u64) {
+    emit_turn_as(ev, turn, duration_ms, "react").await;
+}
+
+/// [`emit_turn`] with its `LlmEnd` tagged `state`, so a reader can tell a
+/// turn outside the answer (the memory reflection) from the run's own.
+pub(super) async fn emit_turn_as(ev: &EventSink, turn: &Turn, duration_ms: u64, state: &str) {
     let u = &turn.usage;
     emit_core(
         ev,
         CoreEvent::LlmEnd {
-            state: "react".into(),
+            state: state.into(),
             output_tokens: u.output_tokens as usize,
             input_tokens: u.input_tokens as usize,
             cache_creation_input_tokens: u.cache_write_tokens as usize,

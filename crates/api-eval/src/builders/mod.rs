@@ -25,6 +25,7 @@ mod execution_grade;
 mod execution_metric;
 mod execution_solver;
 mod generator;
+mod reflect_phase;
 mod regrade;
 mod run_timing;
 mod solver;

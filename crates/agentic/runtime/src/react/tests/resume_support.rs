@@ -44,6 +44,7 @@ pub(super) fn cfg(max_turns: u32) -> LoopConfig {
         results: Arc::new(NoResults),
         on_done: None,
         nudge: None,
+        reflect: None,
     }
 }
 

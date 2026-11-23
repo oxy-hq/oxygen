@@ -29,6 +29,34 @@ pub struct ToolTiming {
     pub errors: u64,
 }
 
+/// The memory reflection turn of a react eval run with memory writes on: the
+/// model turn after the answer that may save notes, and the writes it made.
+/// None of it is counted in the run's other fields or its `duration_ms`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReflectTiming {
+    /// The reflection's start → run returns.
+    pub ms: u64,
+    pub llm_calls: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    /// Advisor calls in the turn and their tokens, at the advisor's rates and
+    /// not counted in the fields above.
+    #[serde(default)]
+    pub advisor_calls: u64,
+    #[serde(default)]
+    pub advisor_input_tokens: u64,
+    #[serde(default)]
+    pub advisor_output_tokens: u64,
+    /// `remember` / `forget` calls that ran.
+    pub memory_writes: u64,
+    /// `<tool>: <output>` of each failed call in the turn, each cut to
+    /// [`MAX_TOOL_ERROR_CHARS`] characters: why a note was not saved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
 /// Where one target run's wall time went. When `fanout` is true the sums can
 /// exceed `wall_ms` (sub-specs run concurrently) and `other_ms` is `None`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,4 +126,8 @@ pub struct RunTiming {
     /// `wall − startup − llm − tool − query`, floored at 0; `None` under fan-out.
     /// Serialized as `null` (not omitted) when `None`.
     pub other_ms: Option<u64>,
+    /// The memory reflection turn, kept out of every field above. `None` when
+    /// the run did not reflect, and in records written before the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reflect: Option<ReflectTiming>,
 }

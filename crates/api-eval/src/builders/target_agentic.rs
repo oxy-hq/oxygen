@@ -28,6 +28,7 @@ use oxy_shared::errors::OxyError;
 use tokio::sync::mpsc;
 
 use super::EvalRun;
+use super::reflect_phase::{self, ReflectPhase};
 use super::run_timing::{TimingAccumulator, source_name};
 use super::types::AgenticInput;
 
@@ -57,18 +58,22 @@ pub(super) async fn run_target(
         &input.config_path,
         input.prompt,
         event_tx,
+        &target_memory(run.reads_working_copy(), |k| std::env::var_os(k)),
     )
     .await
     .map_err(OxyError::RuntimeError)?;
     let run_end = Instant::now();
 
-    let (usage, timing) = usage_consumer
+    let (usage, timing, reflect) = usage_consumer
         .await
         .map_err(|e| OxyError::RuntimeError(format!("usage consumer join: {e}")))?;
+    // A memory reflection is not the answer's: its time comes off the run.
+    let answer_end = reflect.as_ref().map_or(run_end, |r| r.start);
+    let reflect = reflect.map(|r| r.finish(run_end));
 
     let mut out = build_target_output(
         answer_text,
-        start.elapsed().as_secs_f64() * 1000.0,
+        answer_end.duration_since(start).as_secs_f64() * 1000.0,
         usage.input_tokens,
         usage.output_tokens,
     );
@@ -76,10 +81,40 @@ pub(super) async fn run_target(
     out.llm_rounds = usage.llm_rounds;
     out.runtime = usage.runtime;
     out.model = usage.model;
-    let mut timing = timing.finish(run_end);
+    let mut timing = timing.finish(answer_end);
     timing.answer_source = usage.answer_source;
+    timing.reflect = reflect;
     out.timing = Some(timing);
     Ok(vec![out])
+}
+
+/// [`eval_memory`] for `oxy test` (`working_copy`) only: an eval the server
+/// runs reads a shared context and never gets memory, whatever its env says,
+/// so no org's notes land in a local file.
+fn target_memory(
+    working_copy: bool,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> agentic_pipeline::EvalMemory {
+    if working_copy {
+        eval_memory(var)
+    } else {
+        agentic_pipeline::EvalMemory::default()
+    }
+}
+
+/// Notes file a react target reads (`OXY_EVAL_MEMORY_READ`) and appends to
+/// (`OXY_EVAL_MEMORY_WRITE`): the memory eval's switch. A cold pass sets only
+/// the write file, a warm pass only the read file. Unset or empty: no memory.
+fn eval_memory(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> agentic_pipeline::EvalMemory {
+    let path = |k| {
+        var(k)
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    agentic_pipeline::EvalMemory {
+        read: path("OXY_EVAL_MEMORY_READ"),
+        write: path("OXY_EVAL_MEMORY_WRITE"),
+    }
 }
 
 /// `oxy test` only: a target outside the workspace fails with this message.
@@ -102,19 +137,36 @@ async fn check_target_in_working_copy(
         })
 }
 
+type Consumed = (RunUsage, TimingAccumulator, Option<ReflectPhase>);
+
 /// Drain the run's event stream, stamping each event with its receipt instant.
+/// From a memory reflection's start on, events count to the [`ReflectPhase`],
+/// except the answer's `AnswerResult`.
 fn spawn_event_consumer(
     mut event_rx: mpsc::Receiver<AgenticEvent<AnalyticsEvent>>,
     run_start: Instant,
-) -> tokio::task::JoinHandle<(RunUsage, TimingAccumulator)> {
+) -> tokio::task::JoinHandle<Consumed> {
     tokio::spawn(async move {
         let mut usage = RunUsage::default();
         let mut timing = TimingAccumulator::new(run_start);
+        let mut reflect: Option<ReflectPhase> = None;
         while let Some(ev) = event_rx.recv().await {
-            timing.observe(Instant::now(), &ev);
-            usage.observe(&ev);
+            let now = Instant::now();
+            if reflect.is_none() && reflect_phase::starts(&ev) {
+                reflect = Some(ReflectPhase::new(now));
+            }
+            match reflect.as_mut() {
+                Some(r) => {
+                    r.observe(&ev);
+                    usage.observe_runtime_and_answer(&ev);
+                }
+                None => {
+                    timing.observe(now, &ev);
+                    usage.observe(&ev);
+                }
+            }
         }
-        (usage, timing)
+        (usage, timing, reflect)
     })
 }
 
@@ -428,7 +480,7 @@ mod tests {
             tx.send(ev).await.unwrap();
         }
         drop(tx);
-        let (usage, _) = consumer.await.unwrap();
+        let (usage, _, _) = consumer.await.unwrap();
         assert_eq!(usage.final_sql.as_deref(), Some("b"));
         assert_eq!(usage.runtime.as_deref(), Some("react"));
     }
@@ -496,5 +548,77 @@ mod tests {
         ]);
         assert_eq!((usage.input_tokens, usage.output_tokens), (500, 7));
         assert_eq!(usage.model.as_deref(), Some("m-0"));
+    }
+
+    #[test]
+    fn eval_memory_reads_its_two_variables_and_treats_empty_as_unset() {
+        use std::ffi::OsString;
+        let off = eval_memory(|_| None);
+        assert!(off.is_off());
+        let cold = eval_memory(|k| match k {
+            "OXY_EVAL_MEMORY_WRITE" => Some(OsString::from("/tmp/n.jsonl")),
+            "OXY_EVAL_MEMORY_READ" => Some(OsString::new()),
+            _ => None,
+        });
+        assert_eq!(cold.read, None);
+        assert_eq!(
+            cold.write.as_deref(),
+            Some(std::path::Path::new("/tmp/n.jsonl"))
+        );
+    }
+
+    fn llm_end(state: &str, input: usize, output: usize) -> AgenticEvent<AnalyticsEvent> {
+        AgenticEvent::Core(CoreEvent::LlmEnd {
+            state: state.into(),
+            output_tokens: output,
+            input_tokens: input,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            duration_ms: 1,
+            model: "m".into(),
+            sub_spec_index: None,
+            advisor_calls: 0,
+            advisor_input_tokens: 0,
+            advisor_output_tokens: 0,
+        })
+    }
+
+    fn llm_start() -> AgenticEvent<AnalyticsEvent> {
+        AgenticEvent::Core(CoreEvent::LlmStart {
+            state: "react".into(),
+            prompt_tokens: 0,
+            sub_spec_index: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn the_reflection_turn_is_counted_apart_and_the_answer_sql_still_pins() {
+        let (tx, rx) = mpsc::channel(32);
+        let consumer = spawn_event_consumer(rx, Instant::now());
+        let enter = AgenticEvent::Core(CoreEvent::StateEnter {
+            state: agentic_runtime::react::REFLECT_STATE.into(),
+            revision: 0,
+            trace_id: "t".into(),
+            sub_spec_index: None,
+        });
+        for ev in [
+            selected(),
+            llm_start(),
+            llm_end("react", 10, 5),
+            enter,
+            llm_start(),
+            llm_end(agentic_runtime::react::REFLECT_STATE, 100, 50),
+            answer("select 5"),
+        ] {
+            tx.send(ev).await.unwrap();
+        }
+        drop(tx);
+        let (usage, timing, reflect) = consumer.await.unwrap();
+        assert_eq!((usage.input_tokens, usage.output_tokens), (10, 5));
+        assert_eq!(usage.llm_rounds, 1);
+        assert_eq!(usage.final_sql.as_deref(), Some("select 5"));
+        let r = reflect.unwrap().finish(Instant::now());
+        assert_eq!((r.llm_calls, r.input_tokens, r.output_tokens), (1, 100, 50));
+        assert_eq!(timing.finish(Instant::now()).llm_calls, 1);
     }
 }

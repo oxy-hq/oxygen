@@ -27,7 +27,7 @@ pub use reference::DataAppReference;
 pub use reference::ReferenceKind;
 pub use reference::SemanticQueryReference;
 pub use run_timing::{
-    LlmStateTiming, MAX_TOOL_ERROR_CHARS, MAX_TOOL_ERRORS, RunTiming, ToolTiming,
+    LlmStateTiming, MAX_TOOL_ERROR_CHARS, MAX_TOOL_ERRORS, ReflectTiming, RunTiming, ToolTiming,
 };
 pub use sql::SQL;
 pub use table::{Table, TableReference};

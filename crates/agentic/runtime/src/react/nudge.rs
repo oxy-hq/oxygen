@@ -36,22 +36,9 @@ impl NudgeState {
     /// holds (a call still waiting for its result is not counted yet), and
     /// whether one of them already carries the note.
     pub(super) fn resumed(nudge: Nudge, transcript: &Transcript) -> Self {
-        let mut ours = HashSet::new();
-        let (mut calls, mut fired) = (0, false);
-        for entry in &transcript.entries {
-            match entry {
-                Entry::Assistant(turn) => ours.extend(
-                    (turn.tool_calls.iter())
-                        .filter(|c| c.name == nudge.tool)
-                        .map(|c| c.id.as_str()),
-                ),
-                Entry::ToolResult { call_id, text, .. } if ours.contains(call_id.as_str()) => {
-                    calls += 1;
-                    fired |= text.contains(&nudge.text);
-                }
-                _ => {}
-            }
-        }
+        let results = results_of(transcript, &nudge.tool);
+        let calls = results.len() as u32;
+        let fired = results.iter().any(|(text, _)| text.contains(&nudge.text));
         Self {
             nudge,
             calls,
@@ -73,6 +60,29 @@ impl NudgeState {
         self.fired = true;
         Some(format!("\n\n{}", self.nudge.text))
     }
+}
+
+/// The recorded results of `tool` in `transcript`, as `(text, is_error)`: a
+/// call still waiting for its result is not in it.
+pub(super) fn results_of<'a>(transcript: &'a Transcript, tool: &str) -> Vec<(&'a str, bool)> {
+    let mut ours = HashSet::new();
+    let mut out = Vec::new();
+    for entry in &transcript.entries {
+        match entry {
+            Entry::Assistant(turn) => ours.extend(
+                (turn.tool_calls.iter())
+                    .filter(|c| c.name == tool)
+                    .map(|c| c.id.as_str()),
+            ),
+            Entry::ToolResult {
+                call_id,
+                text,
+                is_error,
+            } if ours.contains(call_id.as_str()) => out.push((text.as_str(), *is_error)),
+            _ => {}
+        }
+    }
+    out
 }
 
 #[cfg(test)]

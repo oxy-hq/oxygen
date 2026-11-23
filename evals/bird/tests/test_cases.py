@@ -34,6 +34,23 @@ class CasesTests(unittest.TestCase):
                   'tags: ["simple", "financial"]']:
             self.assertIn(s, out)
 
+    def test_halves_split_by_id_and_cover_every_case_once(self):
+        rows = [row(i, "financial") for i in (5, 1, 4, 2, 3)]
+        a = cases.render_test_file("financial", rows, set(), runtime="semantic", half="a")
+        b = cases.render_test_file("financial", rows, set(), runtime="semantic", half="b")
+        self.assertIn('name: "bird-semantic-financial-half-a"', a)
+        for qid in (1, 2, 3):
+            self.assertIn(f'"bird-{qid}"', a)
+            self.assertNotIn(f'"bird-{qid}"', b)
+        for qid in (4, 5):
+            self.assertIn(f'"bird-{qid}"', b)
+            self.assertNotIn(f'"bird-{qid}"', a)
+
+    def test_half_file_names(self):
+        self.assertEqual(cases.test_file("financial", "semantic", "a"),
+                         "financial.semantic.half-a.test.yml")
+        self.assertEqual(cases.test_file("financial"), "financial.test.yml")
+
     def test_disputed_entries_accept_ids_and_objects(self):
         self.assertEqual(cases.disputed_ids([1, {"question_id": 2, "reason": "x"}]), {1, 2})
 

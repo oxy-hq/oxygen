@@ -62,7 +62,7 @@ use crate::platform::{PlatformContext, ProjectContext};
 /// enters `agentic-airway` through this facade, not directly).
 pub use crate::executor::PREVIEW_AIRWAY_SAMPLE;
 pub use crate::headless::{
-    HeadlessError, run_agentic_answer, run_agentic_eval, run_agentic_streaming,
+    EvalMemory, HeadlessError, run_agentic_answer, run_agentic_eval, run_agentic_streaming,
     run_agentic_streaming_with_states,
 };
 pub use crate::run_metadata::{STARTED_BY_KEY, stamp_started_by};

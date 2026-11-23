@@ -24,6 +24,7 @@ fn hooked_cfg() -> LoopConfig {
     LoopConfig {
         on_done: Some(Arc::new(UpperHook)),
         nudge: None,
+        reflect: None,
         ..cfg(30)
     }
 }

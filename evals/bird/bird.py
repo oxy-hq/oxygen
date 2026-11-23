@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from birdlib import config  # noqa: E402
-from birdlib.cases import RUNTIMES  # noqa: E402
+from birdlib.cases import HALVES, RUNTIMES  # noqa: E402
 from birdlib import fetch as fetch_mod  # noqa: E402
 
 
@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--runtime", choices=RUNTIMES, default="fsm",
                      help="react writes <db>.react.test.yml against <db>.react.agentic.yml; "
                      "semantic (react with semantic_only) writes <db>.semantic.test.yml")
+    gen.add_argument("--half", choices=HALVES, default=None,
+                     help="only the first (a) or second (b) half of each db's questions by id, "
+                     "written to <db>[.<runtime>].half-<a|b>.test.yml (memory transfer pass)")
     rp = sub.add_parser("report", help="render the report from <db>[.react].test.results.json")
     rp.add_argument("--runtime", choices=RUNTIMES, default="fsm")
     rp.add_argument("--dir", default=None, help="results directory (default evals/bird)")
@@ -57,7 +60,7 @@ def _run(args: argparse.Namespace) -> int:
         load_mod.load(fresh=args.fresh)
     elif args.cmd == "gen-cases":
         from birdlib import cases
-        cases.gen_cases(runs=args.runs, runtime=args.runtime)
+        cases.gen_cases(runs=args.runs, runtime=args.runtime, half=args.half)
     elif args.cmd == "report":
         from birdlib import report
         results = report.load_results(args.runtime, Path(args.dir) if args.dir else report.ROOT)

@@ -22,7 +22,7 @@ use agentic_core::events::{CoreEvent, Event};
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::react::{Engine, EventSink, PriorTurn, Transcript};
 use agentic_llm::LlmEngine;
-use agentic_runtime::react::{LoopConfig, LoopOutcome, ResultStore, run_loop};
+use agentic_runtime::react::{LoopConfig, LoopOutcome, ResultStore, RunMemory, run_loop};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -38,6 +38,15 @@ pub(crate) struct ReactRun {
     /// Shared by the loop's tools and [`finish`], which reads the cited SQL.
     pub results: Arc<ResultStore>,
     pub system: String,
+}
+
+impl ReactRun {
+    /// [`ReactAnalytics::with_memory`], keeping `system` in step.
+    pub(crate) fn with_memory(mut self, memory: RunMemory) -> Self {
+        self.analytics = self.analytics.with_memory(memory);
+        self.system = self.analytics.toolset.system_prompt.clone();
+        self
+    }
 }
 
 /// Whether `config` opts into the react runtime. An agent with no
@@ -245,6 +254,7 @@ pub(crate) fn loop_config(run: &ReactRun, run_id: String) -> LoopConfig {
             results: run.results.clone(),
         })),
         nudge: run.analytics.nudge.clone(),
+        reflect: run.analytics.reflect.clone(),
     }
 }
 
@@ -271,20 +281,24 @@ pub(crate) fn row_to_event(event_type: &str, payload: &Value) -> Option<Event<An
     }
 }
 
-/// The headless branch: build the run, then [`run_react_headless`].
+/// The headless branch: build the run, add the eval's `memory` (the only
+/// place a run gets memory), then [`run_react_headless`].
 pub(crate) async fn run_headless(
     platform: &dyn PlatformContext,
     config: &AgentConfig,
     mut ctx: BuildContext,
-    run: (&str, &Path),
+    run: (&str, &Path, &EvalMemory),
     prompt: String,
     destination: EventDestination,
 ) -> Result<String, HeadlessError> {
-    let (agent_ref, base_dir) = run;
+    let (agent_ref, base_dir, memory) = run;
     ctx.genai.agent_name = Some(agent_ref.to_string());
-    let run = build_react_run(platform, config, ctx, base_dir)
+    let mut run = build_react_run(platform, config, ctx, base_dir)
         .await
         .map_err(HeadlessError::Run)?;
+    if !memory.is_off() {
+        run = run.with_memory(memory.load().await.map_err(HeadlessError::Run)?);
+    }
     run_react_headless(run, prompt, destination).await
 }
 
@@ -342,6 +356,10 @@ async fn pump_rows(
         }
     }
 }
+
+#[path = "react_memory.rs"]
+pub(crate) mod memory;
+use memory::EvalMemory;
 
 #[cfg(test)]
 #[path = "react_run_tests.rs"]
