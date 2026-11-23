@@ -71,6 +71,32 @@ jobs:
         with:
           graph: "false"
 
+      # Measured facts about what the diff did to the code's shape, which the
+      # reviewer gets as a few lines of context rather than as a tool. Same
+      # reasoning as the `graph: false` above: a tool definition sits in every
+      # pass's prompt whether or not it is called, and this one is read because
+      # it is already in the context. Costs 1.7s and 16 MB; a PR that adds no
+      # offender produces no block at all, so most runs pay nothing for it.
+      #
+      # The reviewer resolves the binary from `.tools/bin/bca`, which is where
+      # this puts it. Without this step the block is simply absent — it is
+      # context, never a gate. `code-metrics` in ci.yaml is the gate.
+      #
+      # `continue-on-error` because the sentence above has to be true: a
+      # GitHub releases outage, a pulled asset or a rate limit would otherwise
+      # stop this job before `Review` runs, and review-gate.yaml turns that
+      # workflow conclusion into a red `review-gate` on every open PR — with no
+      # review posted. A third-party download must not be able to do that.
+      #
+      # It does NOT weaken the digest check. A mismatch still fails this step
+      # loudly in the log, and the gate for a tampered release is `code-metrics`
+      # in ci.yaml, which runs the same installer with no `continue-on-error`.
+      # Here, a missing binary means `complexityFor` returns "" and the review
+      # runs without the block, which is exactly what it was written to do.
+      - name: Install bca (pinned, digest-verified)
+        continue-on-error: true
+        run: scripts/ci/install-bca.sh
+
       - name: Install the reviewer
         working-directory: scripts/review
         run: pnpm install --prod --frozen-lockfile --prefer-offline

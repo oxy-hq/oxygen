@@ -39,6 +39,8 @@ export type RoundInput = Pick<
   comments?: IssueComment[];
   /** internal-docs/platform-roadmap.md at the checkout, for the general pass's roadmap answer. */
   roadmapDoc?: string | null;
+  /** `bca` offenders this PR added, already rendered; "" when it added none. */
+  complexity?: string;
 };
 
 export interface Debug extends Verified {
@@ -238,7 +240,8 @@ function promptsFor(load: RoundInput, repo: string, prior: readonly Finding[]): 
     prior,
     since: load.since,
     bodyChars: config.PR_BODY_CHARS,
-    conversation: discussion(comments, config.REVIEWER_LOGINS)
+    conversation: discussion(comments, config.REVIEWER_LOGINS),
+    complexity: load.complexity ?? ""
   });
   const max = config.MAX_FINDINGS_PER_PASS;
   const lines = roadmapLines(load.roadmapDoc);

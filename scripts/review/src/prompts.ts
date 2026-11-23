@@ -103,6 +103,8 @@ export interface ContextInput {
   since: string | null;
   bodyChars: number;
   conversation?: readonly string[];
+  /** Rendered by `complexityBlock`; "" when this change added no offender, which is most of them. */
+  complexity?: string;
 }
 
 /** The PR context every pass reads. */
@@ -115,7 +117,8 @@ export function contextBlock({
   prior,
   since,
   bodyChars,
-  conversation = []
+  conversation = [],
+  complexity = ""
 }: ContextInput): string {
   const incremental = plan.mode === "incremental";
   return fill(template("context.md"), {
@@ -135,6 +138,7 @@ export function contextBlock({
       ? `\nNot reviewed (lockfile, generated or binary): ${plan.ignored.length} file(s).`
       : "",
     guidanceBlock: guidanceBlock(plan, mergeBase),
+    complexityBlock: complexity,
     body: cleanBody(meta.body, bodyChars),
     conversationBlock: conversationBlock(conversation),
     priorBlock: priorBlock(prior)

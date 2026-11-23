@@ -4,10 +4,18 @@
 //   node scripts/review/review.ts --repo oxy-hq/oxygen-internal --pr 123 --fresh --out /tmp/r
 // internal-docs/code-review.md describes the pipeline.
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants,
+  mkdirSync,
+  readFileSync,
+  writeFileSync
+} from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import * as config from "./config.ts";
+import { complexityBlock, scan } from "./src/complexity.ts";
 import { touchedAreas } from "./src/gate.ts";
 import * as gh from "./src/github.ts";
 import { runPass } from "./src/llm.ts";
@@ -295,6 +303,25 @@ function roadmapDoc(cwd: string): string | null {
   }
 }
 
+/**
+ * What this PR did to the code's shape, for the context block.
+ *
+ * Resolved from the checkout's own `.tools/bin/bca`, which is where
+ * `scripts/ci/install-bca.sh` puts it — one rule, so a local dry run and CI
+ * agree, and a checkout without it simply measures nothing rather than
+ * measuring something else. Never throws: this is context, not a gate. The
+ * `code-metrics` job is the gate.
+ */
+async function complexityFor(mergeBase: string, cwd: string): Promise<string> {
+  const bin = join(cwd, ".tools", "bin", "bca");
+  try {
+    accessSync(bin, constants.X_OK);
+  } catch {
+    return "";
+  }
+  return complexityBlock(await scan({ bin, mergeBase, cwd }));
+}
+
 async function main(): Promise<void> {
   const args = cli();
   const cwd = process.cwd();
@@ -304,7 +331,11 @@ async function main(): Promise<void> {
     const outcome =
       shortcut(args, load) ??
       (await runRound({
-        load: { ...load, roadmapDoc: roadmapDoc(cwd) },
+        load: {
+          ...load,
+          roadmapDoc: roadmapDoc(cwd),
+          complexity: await complexityFor(load.mergeBase, cwd)
+        },
         repo: args.repo,
         runPass,
         cwd,
