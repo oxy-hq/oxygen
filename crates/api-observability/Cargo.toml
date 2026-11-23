@@ -26,6 +26,7 @@ oxy-observability = { workspace = true }       # WorkspaceScope, the store's row
 oxy = { workspace = true }                     # oxy::metrics / oxy::execution_analytics response shapes
 oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
 oxy-auth = { workspace = true }                # AuthenticatedUserExtractor, for the admin section
+oxy-server-authz = { workspace = true }        # Action, staff::scope (the admin section's fence)
 # The storage meter's decided algorithm — `storage::metering::time_weighted_average_bytes`,
 # the one definition of what a GB-month is. The I/O is batched here (one
 # statement over the fleet rather than two per org); the arithmetic is not

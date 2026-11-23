@@ -46,8 +46,8 @@ use agentic_airway::extension::pipeline_lease::Model as Lease;
 use agentic_pipeline::airway_run::{
     force_release_airway_lease, list_airway_leases, release_airway_lease_scoped,
 };
-use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_app_core::admin_db::connect;
+use oxy_server_authz::role_guards::WorkspaceAdmin;
 
 /// One lease as the routes answer it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

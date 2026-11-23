@@ -8,8 +8,8 @@
 //! dumps is still `oxy-app`'s `role_manifest`, read through the prelude.
 
 use axum::{Json, Router, routing::get};
-use oxy_app::surface::roles::{current_process_role, dump_manifest};
 use oxy_app_core::AppState;
+use oxy_app_core::pods::role_manifest::{current_process_role, dump_manifest};
 
 /// Relative to `/admin`: `oxy-app`'s console merges it behind the staff
 /// door, the refusal while acting and `PlatformOperate`.

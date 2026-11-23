@@ -19,7 +19,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration, Utc};
 use entity::workspace_members::WorkspaceRole;
 use oxy_api_airway::leases::{self, LeaseView, ReleaseMode, ReleaseOutcome};
-use oxy_app::surface::EffectiveWorkspaceRole;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use tower::ServiceExt;
 use uuid::Uuid;

@@ -86,8 +86,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::assume::may_act_as;
 use oxy_app_core::AppState;
+use oxy_app_core::assume::may_act_as;
 use oxy_app_core::audit::{self, AuditEntry};
 use oxy_app_core::pagination::{self, Paged, trim_overfetch};
 

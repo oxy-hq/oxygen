@@ -205,7 +205,7 @@ async fn the_routing_manifest_is_mounted_in_its_own_section() {
 /// by the classifier on a live URI.
 #[test]
 fn the_org_flag_read_is_declared_fleet_ok() {
-    use oxy_app::surface::roles::declared_role_in;
+    use oxy_app_core::pods::role_manifest::declared_role_in;
     let api: Vec<_> = route_roles()
         .iter()
         .map(|d| (d.method, format!("/api{}", d.path), d.role))

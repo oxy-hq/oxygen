@@ -89,8 +89,8 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use super::KNOWN_SOURCE_KINDS;
 use super::preview_scan::scan_pipelines;
-use oxy_app::surface::admin_scope::scope_org_filter;
 use oxy_app_core::admin_db::{connect, db_err, error_body};
+use oxy_server_authz::staff::org_filter::scope_org_filter;
 
 #[derive(Debug, Deserialize)]
 pub struct PreviewQuery {

@@ -168,7 +168,7 @@ fn upload_routes() -> Router<AppState> {
 /// radius. If that stops holding, the per-org row is the direction to take.
 pub fn admin_sections() -> Vec<oxy_app::surface::AdminSection> {
     vec![oxy_app::surface::AdminSection {
-        capability: oxy_app::surface::Action::PlatformOperate,
+        capability: oxy_server_authz::Action::PlatformOperate,
         routes: admin_routes(),
         decls: Vec::new(),
     }]

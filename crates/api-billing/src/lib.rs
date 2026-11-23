@@ -9,8 +9,8 @@
 //! `oxy-app`: the staff billing console ([`admin::billing`], out of
 //! `admin::billing`) and the tenant billing routes with the Stripe webhook
 //! ([`billing`], out of `api::billing`). The service gate (`billing_service`,
-//! `billing_disabled`, in `oxy_billing::gate` since decompose B1) arrives
-//! through `oxy_app::surface::billing`; the past-due dispatcher
+//! `billing_disabled`, in `oxy_billing::gate` since decompose B1) comes
+//! straight from `oxy_billing`; the past-due dispatcher
 //! ([`billing::notify`]) stayed in `oxy-app` at PR 9 and came here in
 //! decompose B2, with its only callers.
 //!
@@ -49,9 +49,10 @@ pub mod usage_report;
 
 use axum::Router;
 use axum::routing::post;
+use oxy_app::surface::AdminSection;
 use oxy_app::surface::seams::{GlobalTickSeam, TickPass};
-use oxy_app::surface::{Action, AdminSection};
 use oxy_app_core::AppState;
+use oxy_server_authz::Action;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The staff console's sections this crate hands `oxy-app`, merged inside
@@ -348,7 +349,7 @@ mod tests {
     /// look like), and matched by the classifier on live URIs.
     #[test]
     fn the_tenant_routes_and_the_webhook_are_declared_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let api: Vec<_> = route_roles()
             .iter()
             .map(|d| (d.method, format!("/api{}", d.path), d.role))

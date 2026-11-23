@@ -5,8 +5,8 @@
 //! `POST /webhooks/stripe`).
 //!
 //! The service gate (`billing_service`, `billing_disabled`) lives in
-//! `oxy_billing::gate` (decompose B1); this module takes it through
-//! `oxy_app::surface::billing`. The past-due dispatcher ([`notify`]) stayed in
+//! `oxy_billing::gate` (decompose B1); this module takes it from
+//! `oxy_billing` directly. The past-due dispatcher ([`notify`]) stayed in
 //! `oxy-app` at PR 9 and followed its callers here in decompose B2.
 
 pub mod handlers;
@@ -16,8 +16,8 @@ pub mod webhook;
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{get, post};
-use oxy_app::surface::org_middleware;
 use oxy_app_core::AppState;
+use oxy_app_core::guards::org_context::org_middleware;
 
 /// [`router`] at `/billing`, behind `org_middleware`, for
 /// [`routes`](crate::routes) to nest under `/orgs/{org_id}`: the shape

@@ -7,9 +7,9 @@ use oxy_billing::service::AdminSubscriptionItem;
 use serde::Serialize;
 use uuid::Uuid;
 
-use oxy_app::surface::billing::billing_service;
-use oxy_app::surface::role_guards::{OrgAdminStrict, OrgMemberStrict};
+use oxy_billing::billing_service;
 use oxy_feature_flags::is_enabled;
+use oxy_server_authz::role_guards::{OrgAdminStrict, OrgMemberStrict};
 
 #[derive(Serialize)]
 pub struct BillingSummary {

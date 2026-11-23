@@ -29,7 +29,7 @@
 //! **The staff-scope fence runs before the read.** `PlatformOperate` is held
 //! by every Global Admin *regardless of bound*, so an unfenced read answers
 //! another tenant's spend to an org-scoped App Operator. The fence is
-//! `oxy_app::surface::admin_scope`'s, never re-decided here — the one rule
+//! `oxy_server_authz::staff::scope`'s, never re-decided here — the one rule
 //! authz has. An out-of-scope org answers **not found**, which is what a scope
 //! boundary looks like throughout this console.
 //!
@@ -56,10 +56,11 @@ mod storage_rollup;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use oxy_app::surface::{Action, AdminSection};
+use oxy_app::surface::AdminSection;
 use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, error_body};
 use oxy_auth::AuthenticatedUser;
+use oxy_server_authz::Action;
 use oxy_shared::errors::OxyError;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 use serde::Deserialize;
@@ -154,7 +155,7 @@ pub(super) async fn connect_scoped(
     org_id: Uuid,
 ) -> Result<sea_orm::DatabaseConnection, Response> {
     let db = connect().await?;
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, actor, org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, actor, org_id)
         .await
         .map_err(IntoResponse::into_response)?;
     Ok(db)
@@ -169,7 +170,7 @@ pub(super) async fn connect_fleet(
     actor: &AuthenticatedUser,
 ) -> Result<(sea_orm::DatabaseConnection, Option<Vec<Uuid>>), Response> {
     let db = connect().await?;
-    let scope = oxy_app::surface::admin_scope::list_scope(&db, actor)
+    let scope = oxy_server_authz::staff::scope::list_scope(&db, actor)
         .await
         .map_err(IntoResponse::into_response)?;
     Ok((db, scope))
@@ -265,7 +266,7 @@ mod tests {
     /// uses them: prefixed by `/api/admin`, then matched against a live URI.
     #[test]
     fn every_mounted_route_classifies_fleet_ok() {
-        use oxy_app::surface::roles::declared_role_in;
+        use oxy_app_core::pods::role_manifest::declared_role_in;
         let decls: Vec<_> = route_roles()
             .iter()
             .map(|d| (d.method, format!("/api/admin{}", d.path), d.role))

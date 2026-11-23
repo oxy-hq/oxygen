@@ -18,6 +18,8 @@ edition.workspace = true
 # dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState (the router state type)
+oxy-server-authz = { workspace = true }  # Action, role_guards, staff::{scope, org_filter}, workspace_role
+oxy-workspace-runtime = { workspace = true }  # request::workspace_context::WorkspaceManagerReadOnly
 oxy = { workspace = true }
 oxy-shared = { workspace = true }
 # Report validation runs the real airway source over the bytes, and the upload

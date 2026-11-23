@@ -86,13 +86,16 @@ pub struct InstalledScope {
 
 impl InstalledScope {
     fn observe(installed: bool) -> Self {
-        let role = oxy_app::surface::roles::current_process_role();
+        use oxy_app_core::pods::role_manifest::{
+            current_process_role, role_runs_inprocess_workers,
+        };
+        let role = current_process_role();
         Self {
             scope: "answering_process",
             process_role: role.as_str(),
             pid: std::process::id(),
             hostname: std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty()),
-            process_runs_airway: oxy_app::surface::roles::role_runs_inprocess_workers(role),
+            process_runs_airway: role_runs_inprocess_workers(role),
             installed_in_this_process: installed,
         }
     }

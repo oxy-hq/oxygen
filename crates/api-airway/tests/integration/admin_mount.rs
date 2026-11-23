@@ -75,6 +75,6 @@ fn the_section_takes_platform_operate() {
     assert_eq!(sections.len(), 1);
     assert!(matches!(
         sections[0].capability,
-        oxy_app::surface::Action::PlatformOperate
+        oxy_server_authz::Action::PlatformOperate
     ));
 }

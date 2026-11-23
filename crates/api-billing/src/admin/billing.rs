@@ -26,11 +26,11 @@ use oxy_billing::service::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use oxy_app::surface::billing::billing_service;
 use oxy_app_core::AppState;
 use oxy_app_core::emails::billing_checkout::{
     CheckoutEmail, EmailSendOutcome, send_checkout_email,
 };
+use oxy_billing::billing_service;
 
 #[derive(Deserialize)]
 pub struct ListOrgsQuery {

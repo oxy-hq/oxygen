@@ -27,9 +27,9 @@ use uuid::Uuid;
 
 use super::metrics_pricing::{build_org_detail, build_overview};
 use super::metrics_rollup::{fetch_day_model_rows, fetch_org_model_rows, fetch_org_usage_day_rows};
-use oxy_app::surface::admin_scope::list_scope;
 use oxy_app_core::AppState;
 use oxy_app_core::admin_db::{connect, db_err};
+use oxy_server_authz::staff::scope::list_scope;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -142,7 +142,7 @@ async fn org_llm_usage(
     // unfenced this reads another tenant's LLM cost and token totals. Milder than the
     // subdomain toggle — a read, and cost rather than content — but the same axis, and
     // it is the fourth `{org_id}` router rather than a special case.
-    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor, org_id)
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &actor, org_id)
         .await
         .map_err(axum::response::IntoResponse::into_response)?;
     let day_rows = fetch_org_usage_day_rows(&db, days, org_id)

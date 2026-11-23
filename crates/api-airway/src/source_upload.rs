@@ -64,8 +64,8 @@ use axum::http::StatusCode;
 use serde::Serialize;
 use uuid::Uuid;
 
-use oxy_app::surface::WorkspaceManagerReadOnly;
-use oxy_app::surface::role_guards::WorkspaceEditor;
+use oxy_server_authz::role_guards::WorkspaceEditor;
+use oxy_workspace_runtime::request::workspace_context::WorkspaceManagerReadOnly;
 
 /// Body ceiling for an upload.
 ///
