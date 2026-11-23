@@ -181,6 +181,7 @@ pub(crate) fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRu
         system: analytics.toolset.system_prompt.clone(),
         analytics,
         results: Arc::new(ResultStore::new()),
+        after_done: None,
     }
 }
 

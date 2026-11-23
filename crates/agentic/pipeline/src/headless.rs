@@ -412,4 +412,4 @@ fn orchestrator_error_text(e: OrchestratorError<AnalyticsDomain>) -> String {
 mod tests;
 
 #[path = "react_memory_merge.rs"]
-mod memory_merge;
+pub(crate) mod memory_merge;

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub use db::{DbMemoryStore, NoteOwner};
 pub use file::FileMemoryStore;
-pub use merge::{MergeError, MergeReport, merge_notes};
+pub use merge::{MergeError, MergePlan, MergeReport, merge_notes, plan_merge};
 pub(super) use reflect::reflect;
 pub use reflect::{REFLECT_PROMPT, REFLECT_STATE, Reflect};
 pub use tools::{MemoryGate, memory_tools};
@@ -80,6 +80,18 @@ pub enum MemoryError {
 pub trait MemoryStore: Send + Sync {
     async fn facts(&self) -> Result<Vec<NoteFact>, MemoryError>;
     async fn append(&self, fact: NoteFact) -> Result<(), MemoryError>;
+
+    /// Writes `plan` and returns `true`, or writes nothing and returns
+    /// `false` when a note it replaces changed since it was read
+    /// ([`MergePlan::still_applies`]). This default appends with no check:
+    /// right for a store with one writer (the eval's file, written only
+    /// after its pass). A store runs write to concurrently overrides it.
+    async fn apply_merge(&self, plan: &MergePlan, run_id: &str) -> Result<bool, MemoryError> {
+        for fact in plan.facts(run_id) {
+            self.append(fact).await?;
+        }
+        Ok(true)
+    }
 }
 
 /// The live notes in `facts`, newest first: the last fact per id wins (the

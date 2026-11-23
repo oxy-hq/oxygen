@@ -172,3 +172,27 @@ async fn a_bad_reply_with_two_calls_gets_a_result_for_each() {
     assert_eq!(results[1].0, "b");
     assert!(results[1].1.starts_with("Ignored"), "{}", results[1].1);
 }
+
+#[test]
+fn a_plan_still_applies_only_while_its_old_notes_are_unchanged() {
+    let note = |id: &str, text: &str| Note {
+        note_id: id.into(),
+        text: text.into(),
+        recorded_at: Utc::now(),
+    };
+    let plan = MergePlan {
+        old: vec![note("a", "alpha"), note("b", "beta")],
+        merged: vec![note("m", "merged")],
+        usage: TurnUsage::default(),
+    };
+    let same = [note("b", "beta"), note("a", "alpha")];
+    let added = [note("c", "new"), note("b", "beta"), note("a", "alpha")];
+    let replaced = [note("b", "beta v2"), note("a", "alpha")];
+    let forgotten = [note("a", "alpha")];
+    assert!(plan.still_applies(&same));
+    assert!(plan.still_applies(&added), "a note added since is kept");
+    assert!(!plan.still_applies(&replaced));
+    assert!(!plan.still_applies(&forgotten));
+    let facts = plan.facts("r");
+    assert_eq!(facts.iter().filter(|f| f.op == NoteOp::Delete).count(), 2);
+}

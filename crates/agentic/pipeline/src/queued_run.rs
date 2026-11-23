@@ -24,6 +24,8 @@
 //! notifier, so its streams poll; the driver registers one and wakes
 //! instantly.
 
+#[path = "react_memory_merge_task.rs"]
+pub mod memory_merge;
 use std::sync::Arc;
 
 use agentic_core::delegation::TaskSpec;

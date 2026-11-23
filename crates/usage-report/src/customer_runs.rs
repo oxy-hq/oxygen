@@ -47,7 +47,8 @@
 /// history to its Airhouse, nor `custom_app_usage_purge`, the platform deleting a
 /// deleted app's usage facts from it, nor `app_events_relay`, the platform moving an org's
 /// published events onto the queue, filed in whichever of the org's app
-/// workspaces it picked.
+/// workspaces it picked. Nor does `react_memory_merge`, the platform
+/// shortening a user's agent notes after their chat.
 const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "health_eval_workspace",
     "preagg_cycle",
@@ -64,6 +65,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "custom_app_usage_purge",
     "app_events_relay",
     "app_table_watch",
+    "react_memory_merge",
 ];
 
 /// SQL predicate excluding `NON_WORKSPACE_RUN_SOURCES`, for a table aliased

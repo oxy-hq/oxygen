@@ -47,47 +47,84 @@ pub enum MergeError {
     /// The reply broke a cap or was empty: nothing was written.
     #[error("memory merge: reply not used, nothing written: {0}")]
     Invalid(String),
+    /// A note the plan replaces changed while the model was asked: nothing
+    /// was written. The next overflow merges again.
+    #[error("memory merge: the notes changed during the merge; nothing written")]
+    Changed,
 }
 
 /// Merges `store`'s live notes when the prompt cannot list them all.
 /// `Ok(None)`: they fit, and no model call was made. On any error nothing is
-/// written. On success the merged notes are appended first and the old ids
-/// deleted after, so a failure part way leaves duplicates, never a loss.
+/// written. The model is asked with no lock held; the store then applies the
+/// plan ([`MemoryStore::apply_merge`]), and a store with other writers refuses
+/// it ([`MergeError::Changed`]) when a note the plan replaces changed since.
 pub async fn merge_notes(
     engine: &dyn Engine,
     store: &dyn MemoryStore,
     run_id: &str,
 ) -> Result<Option<MergeReport>, MergeError> {
-    let old = latest(store.facts().await?);
+    let Some(plan) = plan_merge(engine, latest(store.facts().await?)).await? else {
+        return Ok(None);
+    };
+    if !store.apply_merge(&plan, run_id).await? {
+        return Err(MergeError::Changed);
+    }
+    Ok(Some(MergeReport {
+        before: plan.old.len(),
+        after: plan.merged.len(),
+        usage: plan.usage,
+    }))
+}
+
+/// What a merge will write: the live notes it read and the list replacing
+/// them.
+#[derive(Clone, Debug)]
+pub struct MergePlan {
+    pub old: Vec<Note>,
+    pub merged: Vec<Note>,
+    pub usage: TurnUsage,
+}
+
+impl MergePlan {
+    /// The rows that apply the plan: the merged notes first, the old ids'
+    /// deletes after, so a failure part way leaves duplicates, never a loss.
+    /// `latest` lists the last appended first among equal times, so the puts
+    /// go in reverse and the prompt keeps the model's order.
+    pub fn facts(&self, run_id: &str) -> Vec<NoteFact> {
+        let now = chrono::Utc::now();
+        let fact = |note_id: &str, op, text: &str| NoteFact {
+            note_id: note_id.to_string(),
+            op,
+            text: text.to_string(),
+            run_id: run_id.to_string(),
+            recorded_at: now,
+        };
+        let puts = (self.merged.iter().rev()).map(|n| fact(&n.note_id, NoteOp::Put, &n.text));
+        let deletes = (self.old.iter()).map(|n| fact(&n.note_id, NoteOp::Delete, ""));
+        puts.chain(deletes).collect()
+    }
+
+    /// Whether `live` still holds every note the plan replaces, unchanged.
+    /// Notes added since are kept as they are; a note replaced or removed
+    /// since means the plan would bring back what a run changed.
+    pub fn still_applies(&self, live: &[Note]) -> bool {
+        let now: std::collections::HashMap<&str, &str> = (live.iter())
+            .map(|n| (n.note_id.as_str(), n.text.as_str()))
+            .collect();
+        (self.old.iter()).all(|n| now.get(n.note_id.as_str()) == Some(&n.text.as_str()))
+    }
+}
+
+/// The plan for `old` (live notes, newest first), or `None` when they fit.
+pub async fn plan_merge(
+    engine: &dyn Engine,
+    old: Vec<Note>,
+) -> Result<Option<MergePlan>, MergeError> {
     if fits(&old) {
         return Ok(None);
     }
     let (merged, usage) = ask_until_valid(engine, &old).await?;
-    let now = chrono::Utc::now();
-    let fact = |note_id: String, op, text: String| NoteFact {
-        note_id,
-        op,
-        text,
-        run_id: run_id.to_string(),
-        recorded_at: now,
-    };
-    // `latest` lists the last appended first among equal times: append in
-    // reverse so the prompt keeps the model's order, most useful first.
-    for n in merged.iter().rev() {
-        store
-            .append(fact(n.note_id.clone(), NoteOp::Put, n.text.clone()))
-            .await?;
-    }
-    for n in &old {
-        store
-            .append(fact(n.note_id.clone(), NoteOp::Delete, String::new()))
-            .await?;
-    }
-    Ok(Some(MergeReport {
-        before: old.len(),
-        after: merged.len(),
-        usage,
-    }))
+    Ok(Some(MergePlan { old, merged, usage }))
 }
 
 /// How many replies a merge asks for before it gives up.

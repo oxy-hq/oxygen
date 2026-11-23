@@ -134,10 +134,24 @@ pub(crate) async fn build_served(
     inputs: ServedInputs,
     base_dir: &Path,
 ) -> Result<ReactRun, String> {
-    let workspace_id = inputs.workspace_id;
+    let (workspace_id, agent_id) = (inputs.workspace_id, inputs.agent_id.clone());
     let ctx = build_context(platform, config, inputs);
     let built = build_react_run(platform, config, ctx, base_dir).await?;
-    Ok(built.with_memory(memory::served_memory(platform, db, workspace_id).await))
+    let memory = memory::served_memory(platform, db, workspace_id).await;
+    let owner = (memory.writes.is_some())
+        .then(|| platform.requester())
+        .flatten()
+        .map(|r| agentic_runtime::react::NoteOwner {
+            workspace_id,
+            user_id: r.user_id,
+        });
+    let mut built = built.with_memory(memory);
+    built.after_done = owner.map(|owner| crate::queued_run::memory_merge::MergeTrigger {
+        db: db.clone(),
+        owner,
+        agent_id,
+    });
+    Ok(built)
 }
 
 /// The FSM solver's build context, from the same resolved inputs (the
@@ -248,11 +262,17 @@ where
     let (outcome_tx, outcomes) = mpsc::channel::<PipelineOutcome>(4);
     let cancel = CancellationToken::new();
     let token = cancel.clone();
+    let after_done = built.as_ref().ok().and_then(|r| r.after_done.clone());
     let join = spawn_with_hub(async move {
         let outcome = drive(built, rows_tx.clone(), token).await;
+        let done = matches!(outcome, LoopOutcome::Done { .. });
         let outcome = settle(&rows_tx, &run_id, &question, outcome).await;
         if outcome_tx.send(outcome).await.is_err() {
             tracing::warn!(run_id, "react outcome dropped: nobody is driving the run");
+        }
+        // After the outcome is sent, so the run never waits on it.
+        if let Some(trigger) = after_done.filter(|_| done) {
+            trigger.after_done(&run_id).await;
         }
     });
     RowHandle {

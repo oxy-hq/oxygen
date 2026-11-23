@@ -38,6 +38,9 @@ pub(crate) struct ReactRun {
     /// Shared by the loop's tools and [`finish`], which reads the cited SQL.
     pub results: Arc<ResultStore>,
     pub system: String,
+    /// A served run that may write notes queues a merge when they overflow
+    /// (`queued_run::memory_merge`). `None` elsewhere.
+    pub after_done: Option<crate::queued_run::memory_merge::MergeTrigger>,
 }
 
 impl ReactRun {
@@ -154,6 +157,7 @@ pub(crate) async fn build_react_run(
         system: analytics.toolset.system_prompt.clone(),
         analytics,
         results: Arc::new(ResultStore::new()),
+        after_done: None,
     })
 }
 

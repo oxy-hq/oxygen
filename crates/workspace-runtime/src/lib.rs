@@ -111,6 +111,7 @@ pub mod compile_dispatcher;
 pub mod connector;
 pub mod custom_apps_gates;
 pub mod driver_ctx;
+pub mod memory_merge_executor;
 pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;

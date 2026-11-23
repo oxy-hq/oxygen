@@ -1405,6 +1405,13 @@ pub(super) fn build_custom_task_registry(
         "preagg_cycle",
         Arc::new(PreaggTaskExecutor { db: db.clone() }),
     );
+    // A served chat's memory merge, as the run's requester (same shape).
+    reg.register(
+        agentic_pipeline::queued_run::memory_merge::MEMORY_MERGE_KIND,
+        Arc::new(
+            oxy_workspace_runtime::memory_merge_executor::MemoryMergeExecutor { db: db.clone() },
+        ),
+    );
     // Workspace previews' four kinds (the change check, the TTL drop, the
     // transform compare, the Airway sample) are `oxy-api-previews`' since
     // 2026-11-14, handed in with the surfaces' kinds below

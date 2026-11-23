@@ -126,3 +126,19 @@ fn staging_sandbox_and_preview_runs_save_no_notes() {
     assert!(writes_held(&preview));
     assert!(!writes_held(&Host::new(true, user())));
 }
+
+/// With the org's flag off by the time the task runs, the merge does nothing
+/// and reaches no database.
+#[tokio::test]
+async fn a_merge_task_does_nothing_once_the_flag_is_off() {
+    use crate::queued_run::memory_merge::{MemoryMergeRequest, MergeOutcome, run_memory_merge};
+    let request = MemoryMergeRequest {
+        workspace_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::new_v4(),
+        agent_id: "agents/a.agentic.yml".into(),
+        source_run_id: "r1".into(),
+    };
+    let host = Host::new(false, user());
+    let outcome = run_memory_merge(&host, &DatabaseConnection::default(), &request).await;
+    assert!(matches!(outcome, Ok(MergeOutcome::Off)));
+}
