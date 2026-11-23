@@ -35,9 +35,11 @@ const ALLOWED: &[(&str, &str)] = &[
          uses.",
     ),
     (
-        "src/server/router/recovery.rs",
+        "../workspace-runtime/src/driver_ctx.rs",
         "Builds a manager outside the HTTP path, so it resolves the revision the \
-         same way the middleware does.",
+         same way the middleware does. (Was `src/server/router/recovery.rs` \
+         until the driver's context builders went down into \
+         `oxy-workspace-runtime`, 2026-11-23.)",
     ),
     (
         "../workspace-runtime/src/preagg_workspace.rs",

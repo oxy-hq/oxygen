@@ -6969,12 +6969,6 @@ metric = "abc"
 value = 51.633322573702344
 
 [[entry]]
-path = "crates/app/src/server/router/recovery/worker_ctx.rs"
-qualified = "worker_project_ctx"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
 path = "crates/app/tests/airhouse/airhouse_broker_preview.rs"
 qualified = "mount_mint"
 metric = "nargs"
@@ -10610,6 +10604,12 @@ path = "crates/workspace-runtime/src/connector/unheld_callers_guard.rs"
 qualified = "only_the_project_context_names_an_unheld_connector_door"
 metric = "cognitive"
 value = 17.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/driver_ctx/worker_ctx.rs"
+qualified = "worker_project_ctx"
+metric = "nargs"
+value = 6.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/metric_tree_exec.rs"

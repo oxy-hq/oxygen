@@ -249,8 +249,9 @@ pub mod sentry_hub {
 
 /// An analytics run started from the queue: the claim-safe attempt every
 /// executor of one shares (`queued_analytics`), and who a custom-app ask runs
-/// as when something other than its request drives it (`caller`). The chat
-/// executor and recovery stay here and use both; a custom-app ask's start,
+/// as when something other than its request drives it (`caller`). Both are
+/// `oxy_workspace_runtime::queued_analytics` since 2026-11-23, beside the chat
+/// executor; recovery stays here and uses both. A custom-app ask's start,
 /// cancel and executor are `oxy-api-custom-apps`'s.
 pub mod queued_runs {
     pub use crate::server::queued_analytics::caller;

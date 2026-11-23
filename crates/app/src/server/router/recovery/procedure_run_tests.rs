@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
+use oxy_workspace_runtime::driver_ctx::build_cloud_project_ctx_inner;
 use sea_orm::{ActiveModelTrait, ActiveValue, TransactionTrait};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy, drive_policy_for};

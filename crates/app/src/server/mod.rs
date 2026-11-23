@@ -53,7 +53,11 @@ pub use oxy_preagg::promote as preagg_promote;
 // this path.
 pub(crate) use oxy_workspace_runtime::preagg_workspace;
 pub mod previews;
-pub mod queued_analytics;
+// The claim-safe attempt every queued analytics run's executor shares, the
+// chat executor and who a driven run runs as, `oxy-workspace-runtime`'s since
+// decompose W6b (2026-11-23); re-exported so recovery, `periodic`, the prelude
+// (`surface::queued_runs`) and `tests/platform` keep this path.
+pub use oxy_workspace_runtime::queued_analytics;
 pub mod role_manifest;
 pub mod role_middleware;
 pub mod route_catalog;

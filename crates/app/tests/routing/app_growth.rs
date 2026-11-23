@@ -66,7 +66,9 @@ const SERVER: &[&str] = &[
     // `preagg_workspace` (the cycle's workspace manager) left for
     // `oxy-workspace-runtime` on 2026-11-22 (re-exported in `server/mod.rs`).
     "previews",
-    "queued_analytics",
+    // The queued analytics run (`queued_analytics`) left for
+    // `oxy-workspace-runtime` on 2026-11-23 (W6b), re-exported in
+    // `server/mod.rs`.
     "role_manifest",
     "role_manifest_tests",
     "role_middleware",

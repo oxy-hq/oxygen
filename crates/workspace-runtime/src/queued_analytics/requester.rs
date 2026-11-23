@@ -10,7 +10,7 @@
 //! So the request records who it was for on the run's own insert
 //! (`agentic_pipeline::platform::Requester`, under `metadata.requester`), and
 //! a driver builds the context from that record: the tick's workspace context
-//! ([`crate::server::router::recovery::build_requester_base_ctx`]) with the
+//! ([`crate::driver_ctx::build_requester_base_ctx`]) with the
 //! recorded user as subject and the recorded role. The role is the one the
 //! request resolved, not one re-read now: that is what a handler-driven run
 //! keeps for its whole life, and what a queued one must not exceed.
@@ -26,7 +26,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agentic_wiring::OxyProjectContext;
+use crate::project_ctx::OxyProjectContext;
 
 /// Why a recorded requester's context could not be produced. Either way the
 /// run is not driven as anyone else.
@@ -77,15 +77,13 @@ pub async fn requester_context(
         .map_err(|e| RequesterContextError::Lookup(e.to_string()))?
         .ok_or(RequesterContextError::WorkspaceGone)?;
     let path = workspace.path.ok_or(RequesterContextError::NoPath)?;
-    let base = crate::server::router::recovery::build_requester_base_ctx(workspace_id, &path, db)
+    let base = crate::driver_ctx::build_requester_base_ctx(workspace_id, &path, db)
         .await
         .map_err(|e| match e {
-            crate::server::router::recovery::RequesterBaseError::NotCompiled => {
+            crate::driver_ctx::RequesterBaseError::NotCompiled => {
                 RequesterContextError::NotCompiled
             }
-            crate::server::router::recovery::RequesterBaseError::Build => {
-                RequesterContextError::Build
-            }
+            crate::driver_ctx::RequesterBaseError::Build => RequesterContextError::Build,
         })?;
     let context = base.with_subject(requester.user_id);
     Ok(match role {

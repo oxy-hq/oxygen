@@ -89,6 +89,18 @@
 //! Then (decompose W7, 2026-11-22) the workspace request, [`request`]: the
 //! workspace middleware that builds an `OxyProjectContext` per request, the Factory-access
 //! gate it applies, and the preview read-only guard's axum adapter.
+//!
+//! Then, on 2026-11-23 (W6b), the queued analytics run and the driver's
+//! context builders (`oxy-app` re-exports each at its old path:
+//! `server::queued_analytics`, and `server::router::recovery`'s
+//! `build_workspace_ctx` and `worker_ctx`):
+//!
+//! - [`queued_analytics`]: the claim-safe attempt every executor of a queued
+//!   analytics run shares (admission, heartbeat, `Settled`), the chat run's
+//!   executor, and who a driven run runs as (`caller`, `requester`).
+//! - [`driver_ctx`]: the `OxyProjectContext` a run driver, a health or
+//!   reconciliation sweep and a requester's run build with no request behind
+//!   them, and the driver's revision-tagged cache of it (`worker_ctx`).
 
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
@@ -98,6 +110,7 @@ pub mod app_airhouse;
 pub mod compile_dispatcher;
 pub mod connector;
 pub mod custom_apps_gates;
+pub mod driver_ctx;
 pub mod metric_sink;
 pub mod metric_tree_exec;
 pub mod metric_tree_runner;
@@ -107,6 +120,7 @@ pub mod preview_airhouse;
 pub mod preview_ctx;
 pub mod preview_runtime;
 pub mod project_ctx;
+pub mod queued_analytics;
 pub mod request;
 pub mod runtime_artifact;
 pub mod scan_source;

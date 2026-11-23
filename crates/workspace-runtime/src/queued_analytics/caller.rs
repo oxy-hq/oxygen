@@ -34,9 +34,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agentic_wiring::OxyProjectContext;
-use crate::server::api::custom_apps_gates::{CustomAppContext, build_caller_context};
-use crate::server::previews::runtime::PreviewRunResolver;
+use crate::custom_apps_gates::{CustomAppContext, build_caller_context};
+use crate::preview_runtime::PreviewRunResolver;
+use crate::project_ctx::OxyProjectContext;
 
 /// The key the record sits under in `agentic_runs.metadata`.
 pub const RUN_CALLER_KEY: &str = "custom_app_caller";
@@ -181,7 +181,7 @@ impl RunPlatformResolver for CallerRunResolver {
         }
         // A run a workspace request started records its requester: driven as
         // them, at the role the request resolved (`queued_analytics::requester`).
-        match crate::server::queued_analytics::requester::requester_platform(&self.db, root).await {
+        match crate::queued_analytics::requester::requester_platform(&self.db, root).await {
             Ok(Some(context)) => Ok(Arc::new(context)),
             Ok(None) => Ok(platform),
             Err(e) => Err(e.to_string()),

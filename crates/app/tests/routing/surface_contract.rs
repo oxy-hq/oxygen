@@ -273,9 +273,10 @@ fn oxy_app_holds_no_custom_app_module_except_shims() {
     }
     assert!(
         // A walk-sanity floor, not a policy count: the decompose shrinks
-        // `crates/app/src` on purpose (195 files after P1, 2026-11-22), so it
-        // sits well below today's count and still catches a broken walk.
-        files.len() > 100,
+        // `crates/app/src` on purpose (195 files after P1, 2026-11-22; 96
+        // after W7 and W6b, 2026-11-23), so it sits well below today's count
+        // and still catches a broken walk. The anchors above carry the rest.
+        files.len() > 50,
         "the walk found only {} files under crates/app/src — it lost its way",
         files.len()
     );

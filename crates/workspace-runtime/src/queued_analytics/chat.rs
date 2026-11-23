@@ -42,7 +42,7 @@ use tracing::Instrument;
 use super::SchemaCache;
 use super::requester::{RequesterContextError, requester_context};
 use super::{Settled, admission, attempt, beside_the_pipeline, heartbeat};
-use crate::agentic_wiring::OxyProjectContext;
+use crate::project_ctx::OxyProjectContext;
 
 pub struct ChatRunExecutor {
     pub db: DatabaseConnection,

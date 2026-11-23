@@ -1,15 +1,17 @@
 //! The driver's per-workspace context, through the [`WorkspaceContextCache`]:
 //! tagged with the promoted revision, and able to re-resolve after a promote.
 //!
-//! Driver code, so it lives with recovery and not in `workspace_cache`, which is
-//! base (`tests/routing/base_boundary.rs`) and may not reach into recovery.
+//! Driver code, so it lives with the driver's context builders ([`super`]) and
+//! not in `workspace_cache`. Was `oxy-app`'s `router/recovery/worker_ctx.rs`
+//! until decompose W6b (2026-11-23).
 
 use std::sync::Arc;
 
-use crate::agentic_wiring::OxyProjectContext;
-use crate::agentic_wiring::project_ctx::revision_rebuild::RevisionRebuilder;
-use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::router::workspace_cache::WorkspaceContextCache;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+
+use crate::project_ctx::OxyProjectContext;
+use crate::project_ctx::revision_rebuild::RevisionRebuilder;
+use crate::workspace_cache::WorkspaceContextCache;
 
 /// The background driver's context for a workspace, through `cache` — the one
 /// way the tick (and the boot-time recovery sweep) obtains it.
