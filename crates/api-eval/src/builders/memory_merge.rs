@@ -64,7 +64,11 @@ async fn append(notes: &Path, rec: Value) -> std::io::Result<()> {
     let mut f = (tokio::fs::OpenOptions::new().create(true).append(true))
         .open(PathBuf::from(path))
         .await?;
-    f.write_all(format!("{rec}\n").as_bytes()).await
+    f.write_all(format!("{rec}\n").as_bytes()).await?;
+    // A tokio `File` hands `write_all` to a blocking task and returns before
+    // the bytes land; dropping it does not wait. Flush so the record is on
+    // disk (and in order) before we return.
+    f.flush().await
 }
 
 #[cfg(test)]
