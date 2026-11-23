@@ -1,4 +1,6 @@
-import { Fragment, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Fragment, type ReactNode, useState } from "react";
+import { useLocalStorage } from "usehooks-ts";
 import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Button } from "@/components/ui/shadcn/button";
 import { cn } from "@/libs/shadcn/utils";
@@ -44,11 +46,15 @@ const itemClasses = (active?: boolean) =>
       : "opacity-60 hover:opacity-100"
   );
 
-/** Shown once the rail is open: on hover (after the same short wait the rail
- *  itself takes) or while it is tabbed into (`useTabbedIn`). Closed, the text is
- *  at zero width and invisible; the row's `aria-label` names it either way. */
+/** Shown once the rail is open. Closed, the text is at zero width and
+ *  invisible; the row's `aria-label` names it either way. */
 const revealClasses =
-  "opacity-0 transition-opacity duration-(--duration-fast) group-hover/rail:opacity-100 group-hover/rail:delay-(--duration-base) group-data-tabbed-in/rail:opacity-100";
+  "opacity-0 transition-opacity duration-(--duration-fast) group-data-expanded/rail:opacity-100";
+
+/** Collapsed, a row is only its mark, so its name is a hint to its right on
+ *  hover or focus. Open, the name is on the row and needs no hint. */
+const railHint = (label: string, expanded: boolean) =>
+  expanded ? undefined : { content: label, side: "right" as const, sideOffset: 8 };
 
 /** An item's mark: the app image (falling back to its letter on a load
  *  error), else its icon, else its letter. Shared with `ShellNavSheet`. */
@@ -75,11 +81,11 @@ function itemLabel(item: RailItem): string {
 /** The row plus its dock badge. The badge sits outside the row, so the idle
  *  row's fade does not dim it, and is pinned to the mark rather than the row,
  *  so it stays put while the rail opens. */
-function RailEntry({ item }: { item: RailItem }) {
-  if (!item.badge) return <RailTile item={item} />;
+function RailEntry({ item, expanded }: { item: RailItem; expanded: boolean }) {
+  if (!item.badge) return <RailTile item={item} expanded={expanded} />;
   return (
     <div className='relative'>
-      <RailTile item={item} />
+      <RailTile item={item} expanded={expanded} />
       <span className='pointer-events-none absolute inset-y-0 left-0 w-8'>
         <UnreadBadge
           count={item.badge}
@@ -91,7 +97,8 @@ function RailEntry({ item }: { item: RailItem }) {
   );
 }
 
-function RailTile({ item }: { item: RailItem }) {
+function RailTile({ item, expanded }: { item: RailItem; expanded: boolean }) {
+  const hint = railHint(item.label, expanded);
   const content = (
     <>
       {/* 30px: the row's 32px less its 1px border each side, so the mark sits
@@ -106,7 +113,7 @@ function RailTile({ item }: { item: RailItem }) {
   );
   if (item.href) {
     return (
-      <Button asChild variant='ghost' className={itemClasses(item.active)}>
+      <Button asChild variant='ghost' className={itemClasses(item.active)} tooltip={hint}>
         <a href={item.href} data-testid={item.testId} aria-label={itemLabel(item)}>
           {content}
         </a>
@@ -120,6 +127,7 @@ function RailTile({ item }: { item: RailItem }) {
       data-testid={item.testId}
       aria-label={itemLabel(item)}
       className={itemClasses(item.active)}
+      tooltip={hint}
     >
       {content}
     </Button>
@@ -132,52 +140,69 @@ function RailDivider() {
   return <div className='mx-1.5 my-1 h-px shrink-0 bg-sidebar-border' />;
 }
 
-/** Whether Tab has brought keyboard focus into `ref`'s element: true from a Tab
- *  (or Shift+Tab) that lands inside it until focus leaves it.
- *
- *  Not `:focus-visible` inside the rail, which also matches focus a menu or
- *  dialog hands back to its trigger when it closes: a mouse user who opened the
- *  account menu and pressed Escape got the visible focus back on the avatar, so
- *  the rail stayed open over the page after the pointer had left. A key's
- *  `keyup` fires where focus landed, so Tab into the rail is seen here and the
- *  Escape that closed a menu is not. Native listeners, not React's: React
- *  bubbles a portalled menu's events through the rail, the DOM does not. */
-function useTabbedIn<T extends HTMLElement>(ref: RefObject<T | null>): boolean {
-  const [tabbedIn, setTabbedIn] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Tab") setTabbedIn(true);
-    };
-    const onFocusOut = (e: FocusEvent) => {
-      if (!(e.relatedTarget instanceof Node && el.contains(e.relatedTarget))) setTabbedIn(false);
-    };
-    el.addEventListener("keyup", onKeyUp);
-    el.addEventListener("focusout", onFocusOut);
-    return () => {
-      el.removeEventListener("keyup", onKeyUp);
-      el.removeEventListener("focusout", onFocusOut);
-    };
-  }, [ref]);
-  return tabbedIn;
+/** Where the rail remembers how it was left — per browser, as ChatGPT and
+ *  Gemini do, so it opens the way the person last had it. */
+export const RAIL_EXPANDED_KEY = "oxy.shell-rail.expanded";
+
+/** The expand / collapse control, in the head's 32px cell. Collapsed, the cell
+ *  shows `mark` (the workspace's) and turns into the toggle's icon while the
+ *  pointer is on the rail or the toggle has keyboard focus — the cue that the
+ *  mark is the way back in. The swap only changes the icon; nothing opens until
+ *  the toggle is pressed. One element in both states, so keyboard focus stays
+ *  on it as the rail opens and closes. */
+function RailToggle({
+  expanded,
+  onToggle,
+  mark
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  mark?: ReactNode;
+}) {
+  const label = expanded ? "Collapse sidebar" : "Expand sidebar";
+  const Icon = expanded ? PanelLeftClose : PanelLeftOpen;
+  return (
+    <Button
+      variant='ghost'
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={expanded}
+      data-testid='shell-rail-toggle'
+      tooltip={{ content: label, side: "right", sideOffset: 8 }}
+      className='group/toggle size-8 shrink-0 p-0'
+    >
+      {mark ? (
+        <>
+          <span className='flex group-hover/rail:hidden group-focus-visible/toggle:hidden'>
+            {mark}
+          </span>
+          <Icon className='hidden size-4 group-hover/rail:block group-focus-visible/toggle:block' />
+        </>
+      ) : (
+        <Icon className='size-4' />
+      )}
+    </Button>
+  );
 }
 
 /** The icon rail — sole chrome of the workspace shell. Mirrors the IDE rail's
  *  visual vocabulary so the two read as one system.
  *
- *  Closed it is 48px of marks. Hovered (after a short wait, so crossing it on
- *  the way to the page does not open it) or tabbed into, it opens
- *  to 224px with each entry's name beside its mark, OVER the page: the 48px
- *  slot it holds in the layout never changes, so nothing beside it reflows.
- *  The marks, the workspace tile and the account menu stay exactly where they
- *  were, so a menu opened from the rail keeps its anchor as the rail closes.
- *  Hover-capable pointers only (Tailwind's `hover:` is `(hover: hover)`): a
- *  touch screen never sees it open, and below `md` the rail gives way to the
- *  nav sheet, which is labelled already.
+ *  It opens and closes like ChatGPT's and Gemini's sidebars, and only from its
+ *  toggle: closed it is 48px of marks, each named in a hint; open it is 224px
+ *  with each entry's name beside its mark. It sits in the page's flow, so the
+ *  page beside it narrows as it opens and widens as it closes — nothing is drawn
+ *  over the page, and hovering or tabbing into it opens nothing. The marks, the
+ *  badges and the account menu stay where they were through the change. The
+ *  state is remembered per browser (`RAIL_EXPANDED_KEY`).
+ *
+ *  Head: closed, one cell — the workspace mark, which is the toggle. Open, the
+ *  mark, the workspace's `title` and the toggle at the far end. Below `md` the
+ *  rail gives way to the nav sheet, which is labelled already.
  *
  *  The SDK's port (`sdk/typescript/src/shell/ShellRail.tsx`, the rail inside
- *  custom apps) does not open yet: it still names its entries in tooltips.
+ *  custom apps, from `@oxy-hq/sdk` 2.33.0) behaves the same and shares the key,
+ *  so on Oxygen's own origin the rail stays as it was left between HQ and apps.
  *
  *  `groups` are the conceptual sections (HQ · Apps · Intelligence), rendered
  *  top-down with a hairline divider between them. `footerItems` pin to the
@@ -185,61 +210,73 @@ function useTabbedIn<T extends HTMLElement>(ref: RefObject<T | null>): boolean {
  *  `bottom` account slot (workspace switch · user menu). */
 export function ShellRail({
   top,
+  title,
   groups,
   footerItems,
   bottom
 }: {
   top?: ReactNode;
+  /** The workspace's name, beside `top` in the head once the rail is open. */
+  title?: string;
   groups: RailItem[][];
   footerItems?: RailItem[];
   bottom?: ReactNode;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const tabbedIn = useTabbedIn(panelRef);
+  const [expanded, setExpanded] = useLocalStorage(RAIL_EXPANDED_KEY, false);
+  const toggle = () => setExpanded((open) => !open);
   return (
-    <div data-testid='shell-rail' className='relative h-full w-12 shrink-0'>
-      <div
-        ref={panelRef}
-        data-testid='shell-rail-panel'
-        data-tabbed-in={tabbedIn || undefined}
-        className={cn(
-          "group/rail absolute inset-y-0 left-0 z-40 flex w-12 flex-col overflow-hidden border-r bg-sidebar-background",
-          // Closing is a departure: faster, easing in. Opening arrives easing out,
-          // after a wait long enough that a pointer passing through does nothing.
-          "transition-[width,box-shadow] duration-(--duration-fast) ease-in motion-reduce:duration-0",
-          // `motion-reduce:hover:` too: the hovered duration below outranks a bare
-          // `motion-reduce:duration-0` (`:hover` adds specificity), and the rail
-          // then slid open under reduced motion. The wait stays; a wait is not motion.
-          "hover:w-56 hover:shadow-lg hover:delay-(--duration-base) hover:duration-(--duration-base) hover:ease-out motion-reduce:hover:duration-0",
-          "data-tabbed-in:w-56 data-tabbed-in:shadow-lg"
+    <nav
+      aria-label='Oxygen'
+      data-testid='shell-rail'
+      data-expanded={expanded || undefined}
+      className={cn(
+        "group/rail flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar-background",
+        // The width eases in the page's flow, so the page beside it moves with
+        // it. Opening arrives (ease-out); closing departs, faster (ease-in).
+        "transition-[width] motion-reduce:transition-none",
+        expanded
+          ? "w-56 duration-(--duration-base) ease-out"
+          : "w-12 duration-(--duration-fast) ease-in"
+      )}
+    >
+      {/* Fixed h-12 so the head matches the top bar's height exactly — the two
+          bottom borders then line up into one continuous divider and the mark
+          anchors the top-left corner. */}
+      {/* The toggle keeps its place among the head's children in both states (the
+          `false` holes hold it), so it is one element and keeps keyboard focus. */}
+      <div className='flex h-12 shrink-0 items-center gap-2 border-b px-2'>
+        {expanded && top}
+        {expanded && (
+          <span
+            data-testid='shell-rail-title'
+            className='min-w-0 flex-1 truncate font-medium text-sm'
+          >
+            {title}
+          </span>
         )}
-      >
-        {/* Fixed h-12 so the logo cell matches the top bar's height exactly —
-            the two bottom borders then line up into one continuous divider and
-            the logo anchors the top-left corner. */}
-        {top && <div className='flex h-12 shrink-0 items-center border-b px-2'>{top}</div>}
-        <div className='flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden p-2'>
-          {groups.map((group, i) => (
-            <Fragment key={group[0]?.key ?? i}>
-              {i > 0 && <RailDivider />}
-              {group.map((item) => (
-                <RailEntry key={item.key} item={item} />
-              ))}
-            </Fragment>
-          ))}
-          {footerItems && footerItems.length > 0 && (
-            <div className='mt-auto flex flex-col gap-1 pt-2'>
-              <RailDivider />
-              {footerItems.map((item) => (
-                <RailEntry key={item.key} item={item} />
-              ))}
-            </div>
-          )}
-        </div>
-        {bottom && (
-          <div className='flex shrink-0 flex-col items-start gap-1 border-t p-2'>{bottom}</div>
+        <RailToggle expanded={expanded} onToggle={toggle} mark={expanded ? undefined : top} />
+      </div>
+      <div className='flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden p-2'>
+        {groups.map((group, i) => (
+          <Fragment key={group[0]?.key ?? i}>
+            {i > 0 && <RailDivider />}
+            {group.map((item) => (
+              <RailEntry key={item.key} item={item} expanded={expanded} />
+            ))}
+          </Fragment>
+        ))}
+        {footerItems && footerItems.length > 0 && (
+          <div className='mt-auto flex flex-col gap-1 pt-2'>
+            <RailDivider />
+            {footerItems.map((item) => (
+              <RailEntry key={item.key} item={item} expanded={expanded} />
+            ))}
+          </div>
         )}
       </div>
-    </div>
+      {bottom && (
+        <div className='flex shrink-0 flex-col items-start gap-1 border-t p-2'>{bottom}</div>
+      )}
+    </nav>
   );
 }

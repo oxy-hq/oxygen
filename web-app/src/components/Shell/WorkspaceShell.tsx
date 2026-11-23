@@ -214,13 +214,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const layout = (
     <div className='flex min-h-0 w-full flex-1'>
-      {/* Below `md` the rail gives way to ShellNavSheet: its labels show only
-          when a pointer hovers it, which a touch screen never does, and its
-          48px is an eighth of a phone's width. */}
+      {/* Below `md` the rail gives way to ShellNavSheet: opened, the rail's
+          224px is most of a phone's width, and closed its 48px is an eighth of
+          it. The rail sits in this row's flow, so opening it narrows the
+          content column beside it rather than covering it. */}
       {!hideRail && (
         <div className='hidden h-full md:flex'>
           <ShellRail
             top={<RailWorkspaceTile />}
+            title={workspace?.name}
             groups={groups}
             footerItems={footerItems}
             bottom={bottom}

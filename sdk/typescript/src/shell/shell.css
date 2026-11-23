@@ -508,6 +508,143 @@
   }
 }
 
+/* ─── Rail open and closed (2.33.0) ─────────────────────────────────────── */
+
+/* The rail opens and closes from its toggle, as ChatGPT's and Gemini's sidebars do and as the
+   web-app's rail does: closed it is the 48px of marks above, each named in a hint; open it is
+   14rem with each entry's name beside its mark. It is a flex item of the frame, so the content
+   column narrows as it opens rather than being covered. Opening arrives (ease-out, base);
+   closing departs, faster (ease-in, fast). Every mark keeps its 32px cell 8px from the rail's
+   edge in both states, so nothing but the names and the head moves. */
+.oxy-rail {
+  transition: width var(--oxy-duration-fast) var(--oxy-ease-in);
+}
+
+.oxy-rail.oxy-rail--expanded {
+  width: 14rem;
+  transition-duration: var(--oxy-duration-base);
+  transition-timing-function: var(--oxy-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oxy-rail {
+    transition: none;
+  }
+}
+
+.oxy-rail--expanded .oxy-rail__top {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  overflow: hidden;
+  padding: 0 0.5rem;
+}
+
+.oxy-rail__title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  color: var(--oxy-shell-foreground);
+}
+
+.oxy-rail--expanded .oxy-rail__nav,
+.oxy-rail--expanded .oxy-rail__footer {
+  align-items: stretch;
+}
+
+.oxy-rail--expanded .oxy-rail__nav {
+  overflow-x: hidden;
+  padding: 0.5rem;
+}
+
+.oxy-rail--expanded .oxy-rail__nav .oxy-rail__item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.oxy-rail--expanded .oxy-rail__divider {
+  width: auto;
+  align-self: stretch;
+  margin: 0.25rem 0.375rem;
+}
+
+/* The bottom slot is the host's: its controls keep their size and sit at the left. */
+.oxy-rail--expanded .oxy-rail__bottom {
+  align-items: flex-start;
+  padding: 0.5rem;
+}
+
+.oxy-rail__item-mark {
+  display: inline-flex;
+  height: 100%;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.oxy-rail__item-label {
+  display: none;
+}
+
+.oxy-rail--expanded .oxy-rail__item-label {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding-right: 0.5rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+/* The toggle is a rail entry (its focus ring, its touch area). Closed it carries the workspace
+   mark, which rests at full strength as it did before it became the toggle; while the pointer is
+   on the rail, or the toggle has keyboard focus, the mark gives way to the sidebar icon. */
+.oxy-rail__toggle--mark {
+  opacity: 1;
+}
+
+.oxy-rail__toggle-mark,
+.oxy-rail__toggle-icon {
+  align-items: center;
+  justify-content: center;
+}
+
+.oxy-rail__toggle-mark {
+  display: inline-flex;
+}
+
+.oxy-rail__toggle-icon {
+  display: none;
+}
+
+@media (hover: hover) {
+  .oxy-rail:hover .oxy-rail__toggle-mark {
+    display: none;
+  }
+
+  .oxy-rail:hover .oxy-rail__toggle-icon {
+    display: inline-flex;
+  }
+}
+
+.oxy-rail__toggle:focus-visible .oxy-rail__toggle-mark {
+  display: none;
+}
+
+.oxy-rail__toggle:focus-visible .oxy-rail__toggle-icon {
+  display: inline-flex;
+}
+
 /* ─── Workspace tile ────────────────────────────────────────────────────── */
 
 .oxy-workspace-tile {

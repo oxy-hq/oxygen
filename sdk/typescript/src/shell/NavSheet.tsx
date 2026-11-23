@@ -15,6 +15,7 @@ import {
   useState
 } from "react";
 import { cx } from "./cx";
+import { NAV_SHEET_QUERY } from "./navSheetQuery";
 import { holdHistoryEntry, replacePageFrom } from "./phone/sheetHistory";
 import { type RailItem, RailItemMark } from "./ShellRail";
 
@@ -166,10 +167,9 @@ export function trapTab(e: KeyboardEvent, panel: HTMLElement | null) {
   }
 }
 
-/** Where the drawer stands in for the rail: below 768px, and on a phone on its
- *  side (the phone layout's landscape half), whose 390px cannot hold the rail's
- *  items at a 44px touch size. Kept equal to the query in shell.css. */
-export const NAV_SHEET_QUERY = "(max-width: 767.98px), (pointer: coarse) and (max-height: 500px)";
+// The query lives beside the rail's reader of it (`navSheetQuery.ts`); re-exported here,
+// where the shell and its tests have always imported it from.
+export { NAV_SHEET_QUERY };
 
 /** The menu button. Hidden by shell.css except under NAV_SHEET_QUERY in an
  *  `.oxy-shell--navsheet` shell. */

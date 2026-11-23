@@ -5,7 +5,9 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
 /** Rail-top workspace identity: the org logo when present, the
- *  name initial otherwise. Pure branding. */
+ *  name initial otherwise. Pure branding. No `title`: the name is beside it
+ *  wherever it is drawn open (the rail's head, the nav sheet's), and closed it
+ *  is the rail's toggle, whose own hint would sit under a native tooltip. */
 export function RailWorkspaceTile() {
   const { workspace } = useCurrentWorkspace();
   const orgUpdatedAt = useCurrentOrg((s) => s.org?.updated_at);
@@ -17,7 +19,6 @@ export function RailWorkspaceTile() {
   return (
     <span
       data-testid='rail-workspace'
-      title={name}
       // The tint backs the letter fallback; a real logo (often a transparent
       // PNG) sits on its own, so the fill would show through as a grey square.
       className={cn(

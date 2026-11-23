@@ -181,6 +181,34 @@ function buildRailGroups(
   return appItems.length ? [[hq, chat], appItems] : [[hq, chat]];
 }
 
+/** What the rail and the nav sheet share: the entries, the workspace mark (the Oxygen mark while
+ *  the bootstrap is in flight) and the org's name, which heads the open rail, the sheet and the
+ *  breadcrumb. */
+function railParts(
+  data: ShellContextData | null,
+  currentAppSlug: string | undefined,
+  abs: (url?: string | null) => string | undefined
+): { groups: RailItem[][]; workspaceTile: ReactNode; workspaceLabel: string } {
+  if (!data) {
+    return {
+      groups: [[]],
+      workspaceTile: (
+        <span className='oxy-workspace-tile'>
+          <OxyMark className='oxy-rail__item-img' />
+        </span>
+      ),
+      workspaceLabel: ""
+    };
+  }
+  return {
+    groups: buildRailGroups(data, currentAppSlug, abs),
+    workspaceTile: (
+      <WorkspaceTile name={data.workspace.name} logoUrl={data.logo_url ?? undefined} />
+    ),
+    workspaceLabel: data.org.name || data.workspace.name
+  };
+}
+
 /**
  * The workspace chrome around a custom app: icon rail + universal top bar
  * + content column — visually identical to the main web-app shell.
@@ -243,7 +271,7 @@ export function OxyShell({
   // injection — fall back to the manifest's own slug for matching/labels.
   const effectiveSlug = appSlug || manifest.slug;
   const currentApp = data?.apps.find((app) => app.slug === effectiveSlug);
-  const workspaceLabel = data ? data.org.name || data.workspace.name : "";
+  const { groups, workspaceTile, workspaceLabel } = railParts(data, effectiveSlug, abs);
   const page = pageLabel ?? currentApp?.name ?? manifest.name ?? effectiveSlug ?? "";
 
   // Ask Oxygen: available when this app's manifest binds an agent
@@ -282,14 +310,6 @@ export function OxyShell({
     );
   const bottom = modeSwitch("rail");
 
-  const groups = data ? buildRailGroups(data, effectiveSlug, abs) : [[]];
-  const workspaceTile = data ? (
-    <WorkspaceTile name={data.workspace.name} logoUrl={data.logo_url ?? undefined} />
-  ) : (
-    <span className='oxy-workspace-tile'>
-      <OxyMark className='oxy-rail__item-img' />
-    </span>
-  );
   // Below 768px, and on a phone on its side (NAV_SHEET_QUERY), the rail gives
   // way to NavSheet, whose menu button lives in the top bar — so only when
   // there is a top bar to hold it. `hideTopBar` keeps the rail at every width
@@ -312,7 +332,9 @@ export function OxyShell({
           )}
           style={chromeStyle}
         >
-          {!degraded && <ShellRail top={workspaceTile} groups={groups} bottom={bottom} />}
+          {!degraded && (
+            <ShellRail top={workspaceTile} title={workspaceLabel} groups={groups} bottom={bottom} />
+          )}
           <div className='oxy-shell__content-col'>
             {/* The top bar renders in degraded mode too when the host passed
               its own slot content — an app that moved its header into the

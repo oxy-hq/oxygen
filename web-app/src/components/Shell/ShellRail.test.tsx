@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import { type RailItem, ShellRail } from "./ShellRail";
+import { RAIL_EXPANDED_KEY, type RailItem, ShellRail } from "./ShellRail";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 const appItem: RailItem = {
   key: "app-1",
@@ -28,63 +30,82 @@ describe("ShellRail app entries", () => {
   });
 });
 
-describe("ShellRail opening from the keyboard", () => {
+describe("ShellRail opening and closing", () => {
   const homeItem: RailItem = { key: "hq", label: "Home", testId: "rail-hq", letter: "H" };
-  const panel = () => screen.getByTestId("shell-rail-panel");
+  const rail = () => screen.getByTestId("shell-rail");
+  const toggle = () => screen.getByTestId("shell-rail-toggle");
+  const mark = <span data-testid='mark'>P</span>;
 
-  /// Tab is what opens it: `keyup` fires where focus landed, so a Tab into the
-  /// rail is seen and the rail shows its names until focus leaves.
-  it("opens when Tab lands focus in it, and closes when focus leaves", () => {
-    render(
-      <>
-        <ShellRail groups={[[homeItem, appItem]]} />
-        <button type='button'>page</button>
-      </>
-    );
-    const home = screen.getByTestId("rail-hq");
-    fireEvent.keyUp(home, { key: "Tab" });
-    expect(panel()).toHaveAttribute("data-tabbed-in");
-
-    fireEvent.focusOut(home, { relatedTarget: screen.getByTestId("rail-app-bookkeeping") });
-    expect(panel()).toHaveAttribute("data-tabbed-in");
-
-    fireEvent.focusOut(home, { relatedTarget: screen.getByRole("button", { name: "page" }) });
-    expect(panel()).not.toHaveAttribute("data-tabbed-in");
+  /// Closed by default, as the reference app's rail is: marks only, each still
+  /// named for a screen reader, and the head's one cell is the way to open it.
+  it("starts closed, with the mark as its toggle", () => {
+    render(<ShellRail top={mark} title='Poke House' groups={[[homeItem, appItem]]} />);
+    expect(rail()).not.toHaveAttribute("data-expanded");
+    expect(toggle()).toHaveAccessibleName("Expand sidebar");
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(toggle()).toContainElement(screen.getByTestId("mark"));
+    expect(screen.queryByTestId("shell-rail-title")).toBeNull();
+    expect(screen.getByTestId("rail-hq")).toHaveAccessibleName("Home");
   });
 
-  /// The review's F1: a menu closed with Escape hands focus back to its trigger
-  /// in the rail, visibly, and the rail used to stay open over the page after
-  /// the pointer had gone.
-  it("does not open for the Escape that closed a menu and gave its trigger focus back", () => {
-    render(
-      <ShellRail
-        groups={[[homeItem]]}
-        bottom={
-          <button type='button' data-testid='user-menu'>
-            LV
-          </button>
-        }
-      />
-    );
-    fireEvent.keyUp(screen.getByTestId("user-menu"), { key: "Escape" });
-    expect(panel()).not.toHaveAttribute("data-tabbed-in");
+  /// The complaint this replaced: the rail opened on hover (and on Tab), over the
+  /// page. It opens only from its toggle now.
+  it("does not open on hover or when Tab lands in it", () => {
+    render(<ShellRail groups={[[homeItem]]} />);
+    fireEvent.mouseEnter(rail());
+    fireEvent.pointerEnter(rail());
+    fireEvent.keyUp(screen.getByTestId("rail-hq"), { key: "Tab" });
+    expect(rail()).not.toHaveAttribute("data-expanded");
   });
 
-  /// A menu opened from the rail renders in a portal: its keys are React
-  /// children of the rail but not DOM children, and do not open it.
-  it("ignores keys pressed inside a portalled menu", () => {
-    render(
-      <ShellRail
-        groups={[[homeItem]]}
-        bottom={createPortal(
-          <button type='button' data-testid='menu-item'>
-            Settings
-          </button>,
-          document.body
-        )}
-      />
-    );
-    fireEvent.keyUp(screen.getByTestId("menu-item"), { key: "Tab" });
-    expect(panel()).not.toHaveAttribute("data-tabbed-in");
+  /// Open, the head carries the mark, the workspace's name and the toggle that
+  /// closes it again — the close button the hover rail never had.
+  it("opens and closes from its toggle", () => {
+    render(<ShellRail top={mark} title='Poke House' groups={[[homeItem]]} />);
+    fireEvent.click(toggle());
+    expect(rail()).toHaveAttribute("data-expanded");
+    expect(toggle()).toHaveAccessibleName("Collapse sidebar");
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("shell-rail-title")).toHaveTextContent("Poke House");
+    expect(screen.getByTestId("mark")).toBeInTheDocument();
+
+    fireEvent.click(toggle());
+    expect(rail()).not.toHaveAttribute("data-expanded");
+    expect(screen.queryByTestId("shell-rail-title")).toBeNull();
+  });
+
+  /// Enter on the toggle must leave focus on the toggle: the closed and open heads
+  /// draw it in different places, and a remount there would drop focus to the page.
+  it("keeps keyboard focus on the toggle as it opens and closes", () => {
+    render(<ShellRail top={mark} title='Poke House' groups={[[homeItem]]} />);
+    toggle().focus();
+    fireEvent.click(toggle());
+    expect(rail()).toHaveAttribute("data-expanded");
+    expect(toggle()).toHaveFocus();
+    fireEvent.click(toggle());
+    expect(rail()).not.toHaveAttribute("data-expanded");
+    expect(toggle()).toHaveFocus();
+  });
+
+  /// It takes its width in the layout rather than floating over the page: the
+  /// rail itself is the flex item that changes size, with no overlay panel.
+  it("is the element that changes width, in the page's flow", () => {
+    render(<ShellRail groups={[[homeItem]]} />);
+    expect(rail()).toHaveClass("w-12", "shrink-0");
+    expect(rail()).not.toHaveClass("absolute");
+    fireEvent.click(toggle());
+    expect(rail()).toHaveClass("w-56");
+  });
+
+  /// Remembered per browser, as ChatGPT's and Gemini's are: a reload or the next
+  /// page opens the rail the way it was left.
+  it("remembers how it was left", () => {
+    const { unmount } = render(<ShellRail groups={[[homeItem]]} />);
+    fireEvent.click(toggle());
+    unmount();
+    expect(localStorage.getItem(RAIL_EXPANDED_KEY)).toBe("true");
+
+    render(<ShellRail groups={[[homeItem]]} />);
+    expect(rail()).toHaveAttribute("data-expanded");
   });
 });

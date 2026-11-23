@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.0] - 2026-11-23
+
+### Changed
+
+**The rail opens and closes from its toggle, and the app makes room** (the web-app's rail
+changed the same way in the same release). `OxyShell`'s rail, and a `ShellRail` an app draws
+itself, behave like ChatGPT's and Gemini's sidebars and the reference app's Home rail:
+
+- Closed, it is the same 48px of marks, each named in a hint. The head's one cell is the
+  workspace mark, and it is the toggle: while the pointer is on the rail, or the toggle has
+  keyboard focus, the mark shows the sidebar icon (`Expand sidebar`). Hovering opens nothing.
+- Open, it is 14rem: each entry's name beside its mark, and a head of mark · org name · close
+  toggle (`Collapse sidebar`). The rail is a flex item of the frame, so **the app's content
+  column narrows by 176px** while it is open, rather than being drawn over. A screen laid out
+  for a fixed width should let its column shrink (`min-width: 0`), as the shell's own column does.
+- The width eases (`--oxy-duration-base` opening, `--oxy-duration-fast` closing), and not under
+  reduced motion. Keyboard focus stays on the toggle as it opens and closes.
+- The state is remembered per browser under `localStorage["oxy.shell-rail.expanded"]`, the key
+  the web-app's rail uses, so on Oxygen's own origin (`/customer-apps/…`) the rail stays as the
+  person left it between Oxygen and its apps. Blocked storage starts it closed; it still toggles.
+- `ShellRail` takes an optional `title` (the name in the open head; `OxyShell` passes the org's)
+  and always draws its head now, holding the toggle alone when there is no `top`. The rail is
+  `role="navigation"` (`aria-label="Oxygen"`), still a `div`, so an app's `nav` rules miss it.
+- `WorkspaceTile` drops its native `title`: the name is beside it when the rail is open, and
+  closed it sits inside the toggle, whose hint the native tooltip would have covered.
+
+Below 768px, and on a phone on its side, nothing changes. The nav sheet still replaces the rail,
+and where an app keeps the rail there (`hideTopBar`, or a `ShellRail` it draws itself) it is the
+2.32 rail: closed, no toggle, the mark plain branding, since 14rem open would leave a 375px phone
+about 150px. The remembered choice is the desk's and is left as it is; the rail opens again as it
+was left once the window is desk-wide (`NAV_SHEET_QUERY` stops matching).
+
+An app gets this by moving to 2.33.0 and publishing again; a published bundle keeps the rail it
+was built with.
+
 ## [2.32.0] - 2026-11-22
 
 ### Added

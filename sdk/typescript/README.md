@@ -211,9 +211,20 @@ session cookie automatically.
 
 ### Workspace shell (`@oxy-hq/sdk/shell`)
 
-The Oxygen workspace chrome — the 48px icon rail and universal top bar the
-main web-app renders — as reusable components, so your app reads as part of
-the same product. The main web-app consumes these exact components.
+The Oxygen workspace chrome — the icon rail and universal top bar the main
+web-app renders — as reusable components, so your app reads as part of the
+same product.
+
+The rail opens and closes from its toggle, like ChatGPT's and Gemini's
+sidebars (2.33.0): closed it is 48px of marks named in hints, with the
+workspace mark as the toggle; open it is 14rem with each entry's name and a
+close button. It takes its width in the frame's flow, so **your content column
+narrows by 176px while the rail is open** rather than being drawn over; let it
+shrink (`min-width: 0`) instead of assuming a fixed width. Hovering opens
+nothing, and the state is remembered per browser
+(`localStorage["oxy.shell-rail.expanded"]`, shared with Oxygen's own rail).
+On a phone the nav sheet replaces the rail; where your app keeps the rail
+there (`hideTopBar`), it stays closed with no toggle, as before 2.33.0.
 
 ```tsx
 import { OxyAppProvider } from "@oxy-hq/sdk";
@@ -241,7 +252,7 @@ if the endpoint is unavailable (older server), your app renders unchromed.
 | `useOxyModePin(mode)` | Pin one screen to `"light"` or `"dark"` while it is mounted, and hide the mode switch (theme.css only). |
 | `useOxyTouchTargets(false)` | Turn the shell's 44px touch tap areas off while mounted, for a store's enrolled tablet (`<OxyShell touchTargets={false}>` from inside the shell). |
 | `useShellContext()` | The raw shell bootstrap payload (`{ data, loading, error }`). |
-| `ShellRail`, `RailItem` | Presentational icon rail — props only, router-free. |
+| `ShellRail`, `RailItem` | Presentational icon rail — router-free; `top` (the mark that is the toggle), optional `title` (the name in the open head), `groups`, `footerItems`, `bottom`. Keeps its own open state. |
 | `TopBar`, `Breadcrumb`, `SystemIndicator`, `WorkspaceClock` | Presentational top bar pieces. |
 | `WorkspaceTile`, `OxyMark`, `OxygenFactoryMark` | Branding primitives. |
 | `workspaceLogoUrl(apiBaseUrl, wsId, version?)` | Workspace logo endpoint URL builder. |

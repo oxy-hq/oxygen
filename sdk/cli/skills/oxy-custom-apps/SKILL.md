@@ -403,7 +403,9 @@ await ctx.oxygen.sourceUploads.report({ file, fileName, pipeline: "ubereats_tran
 **The dock.** Wrap the app in `<OxyShell>` (every `create-oxy-app` template
 does) so it shows Oxygen's rail: HQ, Chat and the viewer's other apps, each
 opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its
-own header. Link to another app with a plain `<a href>`, never `target="_blank"`;
+own header. From SDK 2.33.0 the viewer opens and closes the rail from its
+toggle, and the app's column narrows by 176px while it is open: lay screens out
+to shrink (`min-width: 0` on flex children), never for a fixed width. Link to another app with a plain `<a href>`, never `target="_blank"`;
 moving between apps is meant to feel like one product.
 
 **Look.** The design standard for every custom app is the oxygen reference app
