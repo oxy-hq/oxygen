@@ -34,6 +34,9 @@ mod console_test_notification;
 // `dev-tools` (on by default) since decompose SD.
 #[cfg(feature = "dev-tools")]
 mod notification_function_action;
+// `oxy compile`'s two `#[ignore]`d CLI smoke tests, from `oxy-app`'s `platform`
+// group (decompose T-small, 2026-11-24): this crate builds the binary.
+mod compile;
 // Billing's past-due notice (decompose B2): `oxy-api-billing` sends it, and
 // the notifications surface delivers it, honours (or here, refuses) a mute and
 // renders it in the inbox.

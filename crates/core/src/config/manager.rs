@@ -887,7 +887,7 @@ impl<S: DiskSlot> ConfigManager<S> {
     /// The disk arm translates the name back through
     /// [`Self::list_simulations`], which derives it with the same rule the
     /// walker uses (`artifact_name`, pinned by
-    /// `crates/app/tests/platform/artifact_naming_agrees.rs`) — that is what makes the
+    /// `crates/core/tests/integration/artifact_naming_agrees.rs`) — that is what makes the
     /// two arms answer about the same file. It already carries the body, so
     /// there is no second read.
     pub async fn simulation_definition(
@@ -1124,7 +1124,7 @@ mod tests {
     ///
     /// Ported from `server/api/compiled_read.rs` when that layer was deleted.
     /// Its companion — that dropping the capability leaves the origin alone —
-    /// lives in `crates/app/tests/platform/walker_storage_divergence.rs`, which can
+    /// lives in `crates/core/tests/integration/walker_storage_divergence.rs`, which can
     /// build the compiled combination.
     #[tokio::test]
     async fn a_working_copy_manager_reports_no_revision() {

@@ -114,7 +114,7 @@ pub const BASELINE_QUERY_HEADROOM: std::time::Duration = std::time::Duration::fr
 /// `metric_tree_inputs`), so at most `V` more and none on a tree without one;
 /// and each of those may fan out again, into one query per (view, additivity)
 /// group, when airlayer refuses the batch. `example_new` — the workspace this
-/// repo's fixtures and `tests/platform/metric_tree_fit_panel` run against —
+/// repo's fixtures and `metric_tree_fit_panel_tests` run against —
 /// ships six views, so `V = 6` gives `6 + 6 + 15 = 27` executor calls. Twenty
 /// seconds across 27 of them is ~740ms per warehouse round trip.
 ///

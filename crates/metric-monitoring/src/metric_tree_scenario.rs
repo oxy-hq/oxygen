@@ -1427,7 +1427,7 @@ views:
     }
 
     /// Views in `example_new/semantics/views` — the workspace this repo's own
-    /// metric-tree fixtures and `tests/platform/metric_tree_fit_panel` run
+    /// metric-tree fixtures and `metric_tree_fit_panel_tests` run
     /// against. Read from disk rather than hard-coded so adding a seventh view
     /// re-derives the budget's reference fan-out instead of silently
     /// invalidating it.

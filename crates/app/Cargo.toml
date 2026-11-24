@@ -145,8 +145,6 @@ tempfile = { workspace = true }
 # itself is `oxy-compile-runtime`'s since 2026-11-21).
 tar = { workspace = true }
 flate2 = { workspace = true }
-assert_cmd = { workspace = true }
-serial_test = { workspace = true }
 oxy-test-utils = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 # `sentry::test::with_captured_events` for the custom-app surface tag tests.

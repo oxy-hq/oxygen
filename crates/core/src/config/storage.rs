@@ -16,7 +16,7 @@ use super::test_config::TestFileConfig;
 /// a validation error deeper in the file cannot make an app vanish from the
 /// listing or read as unpublished. The three defaults must match
 /// `oxy_compile::compile::compile_app`, which is what fills the same columns on
-/// the compiled arm — `crates/app/tests/platform/artifact_naming_agrees.rs` pins `name`.
+/// the compiled arm — `crates/core/tests/integration/artifact_naming_agrees.rs` pins `name`.
 /// The `name:` field, or the path rule the compiler falls back to. Shared so a
 /// second entity kind cannot invent a third spelling.
 async fn yaml_name(path: &Path, relative: &str) -> String {

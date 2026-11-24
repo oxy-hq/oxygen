@@ -6,7 +6,7 @@
 //! start` has primed the DB:
 //!
 //! ```text
-//! cargo nextest run -p oxy-app --test platform -E 'test(compile)' --no-fail-fast
+//! cargo nextest run -p oxy-server --test integration -E 'test(compile::)' --run-ignored only --no-fail-fast
 //! ```
 //!
 //! These are intentionally light — the heavy lifting is in

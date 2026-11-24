@@ -31,7 +31,12 @@ uuid = { workspace = true, features = ["v5"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# `metric_tree_fit_panel_tests` (from oxy-app's `tests/platform`, decompose
+# T-small): runs the panel query on `example_new`'s CSVs through DuckDB, and
+# serializes its `set_current_dir`s.
+duckdb = { workspace = true }
 oxy-semantic = { workspace = true }
+serial_test = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

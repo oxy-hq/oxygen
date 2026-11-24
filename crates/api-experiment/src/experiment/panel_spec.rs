@@ -116,7 +116,7 @@ pub(super) fn primary_owner<'a>(
 ///
 /// The measure's own view when it names the entity with a single key that is
 /// one of its dimensions — no join, so no cross-grain fan-out
-/// (`crates/app/tests/platform/metric_tree_fit_panel.rs:200-233`); otherwise the
+/// (`crates/metric-monitoring/src/metric_tree_fit_panel_tests.rs:200-233`); otherwise the
 /// owning view's key, which airlayer joins in through the entity.
 fn key_dimension(measure_view: &View, owner: &View, owner_key: &str, entity: &str) -> String {
     if owner.name != measure_view.name {

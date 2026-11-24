@@ -1,7 +1,7 @@
 //! The `example_new` fixture as a semantic layer, and a DuckDB executor over its
 //! committed CSVs — what `experiment_pricing` runs the real price job against.
 //!
-//! Copied from `oxy-app`'s `tests/platform/metric_tree_fit_panel.rs` when the
+//! Copied from `oxy-app`'s `tests/platform/metric_tree_fit_panel.rs` (now `oxy-metric-monitoring`'s `src/metric_tree_fit_panel_tests.rs`) when the
 //! experiment tests moved here with their code: `oxy-app` cannot depend on this
 //! crate, and a test binary cannot share a module with another crate's. The
 //! metric-tree fit tests keep their copy; if the fixture's shape changes, both

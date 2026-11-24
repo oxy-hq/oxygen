@@ -194,6 +194,9 @@ tar = { workspace = true }
 # `routing::fleet_canary` (up from oxy-app's `tests/routing` in decompose LIFT)
 # serializes the cases that flip the process-global workspace-fs probe.
 serial_test = { workspace = true }
+# `compile` (from oxy-app's `tests/platform`, decompose T-small): the two
+# ignored `oxy compile` smoke tests drive the binary.
+assert_cmd = { workspace = true }
 
 [lints]
 workspace = true

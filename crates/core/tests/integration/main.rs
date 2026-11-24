@@ -7,6 +7,10 @@
 //!
 //! See `internal-docs/testing.md` for the cost model.
 
+// `artifact_naming_agrees` and `walker_storage_divergence` came from `oxy-app`'s
+// `platform` group (decompose T-small, 2026-11-24): both read only `oxy` and
+// `oxy-compile`, which core depends on.
+mod artifact_naming_agrees;
 mod config_parsing;
 mod omni_query_workflow;
 // `semantic_variables` spawned `oxy run` to show an automation parses; with
@@ -16,3 +20,4 @@ mod serve;
 mod strict_validation;
 mod sync;
 mod validation;
+mod walker_storage_divergence;

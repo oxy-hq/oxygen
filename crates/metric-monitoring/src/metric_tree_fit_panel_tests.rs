@@ -13,13 +13,13 @@
 //! `#[serial_test::serial]`.
 //!
 //! That attribute, not a lock private to this file, is what makes the cd safe.
-//! This module used to be its own `tests/*.rs` binary, where a private mutex
-//! was enough because nothing else in the process touched cwd. It is now a
-//! `mod` in the `platform` binary, which already contains a second cwd mutator
-//! (`workspace_details_fields::storage_key_normalizes_relative_to_absolute`),
-//! and a private mutex excludes nothing across module boundaries.
-//! `serial_test`'s lock is global to the binary, so the two coordinate — which
-//! is why that test already uses it.
+//! This module was its own `tests/*.rs` binary, then a `mod` of `oxy-app`'s
+//! `platform` binary beside a second cwd mutator; since decompose T-small it is
+//! an in-source test module of this crate's library, beside the
+//! `splitting_executor` it drives. Its lib-test binary has other modules, and a
+//! private mutex excludes nothing across module boundaries; `serial_test`'s
+//! lock is global to the binary, so any cwd mutator added beside it
+//! coordinates, provided it carries the attribute too.
 //!
 //! `cargo nextest`, which this repo mandates, gives each test its own process
 //! and would not need any of this. The attribute is what a stranger typing
@@ -46,7 +46,7 @@ const WINDOW: (&str, &str) = ("2026-05-08", "2026-08-05");
 /// Call this ONLY from a `#[serial_test::serial]` test: that attribute holds a
 /// binary-global lock for the test's whole body, which is what makes the cd
 /// and the CSV reads that depend on it atomic against the rest of the
-/// `platform` binary. A lock private to this file could not do that, and would
+/// lib-test binary. A lock private to this file could not do that, and would
 /// be worse than none because it would read as protection.
 /// A deadline far enough out that these tests never trip it — they are here to
 /// assert query SHAPES against real SQL, not the split's time budget, which is
@@ -326,11 +326,7 @@ fn the_fit_survives_a_batch_the_guard_refuses() {
     let dialects = DatasourceDialectMap::with_default(oxy_airlayer_compat::Dialect::DuckDB);
     let engine = SemanticEngine::from_semantic_layer(layer.clone(), dialects).unwrap();
     let guarded = guard_like_airlayer(layer.clone(), duckdb_executor(engine));
-    let executor = oxy_app::server::api::metric_tree_baseline::splitting_executor(
-        layer,
-        guarded,
-        no_deadline(),
-    );
+    let executor = crate::metric_tree_baseline::splitting_executor(layer, guarded, no_deadline());
 
     let fits = fit_driver_coefficients(
         &tree,
@@ -408,7 +404,7 @@ fn the_scenario_fit_sizes_every_driver_edge_against_the_shipped_fixture() {
 
     let dialects = DatasourceDialectMap::with_default(oxy_airlayer_compat::Dialect::DuckDB);
     let engine = SemanticEngine::from_semantic_layer(layer.clone(), dialects).unwrap();
-    let executor = oxy_app::server::api::metric_tree_baseline::splitting_executor(
+    let executor = crate::metric_tree_baseline::splitting_executor(
         layer,
         duckdb_executor(engine),
         no_deadline(),
@@ -570,7 +566,7 @@ fn a_foreign_grain_time_dimension_flattens_every_measure() {
     let layer = layer();
     let dialects = DatasourceDialectMap::with_default(oxy_airlayer_compat::Dialect::DuckDB);
     let engine = SemanticEngine::from_semantic_layer(layer.clone(), dialects).unwrap();
-    let split = oxy_app::server::api::metric_tree_baseline::splitting_executor(
+    let split = crate::metric_tree_baseline::splitting_executor(
         layer.clone(),
         duckdb_executor(engine),
         no_deadline(),

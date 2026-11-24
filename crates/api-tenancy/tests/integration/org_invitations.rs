@@ -16,7 +16,7 @@
 //! Skips automatically when `OXY_DATABASE_URL` is unset.
 //!
 //! To run locally:
-//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-app --test authz -E 'test(org_invitations)'
+//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-api-tenancy --test integration -E 'test(org_invitations::)'
 
 use std::sync::LazyLock;
 

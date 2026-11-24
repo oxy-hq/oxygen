@@ -8,10 +8,10 @@
 //! modules left with their code for `oxy-api-experiment`'s `tests/integration/`
 //! (2026-11-08); `oxy-app` cannot name that crate.
 //!
-//! Four of these ask "where may a workspace file be read from?" rather than
+//! Three of these ask "where may a workspace file be read from?" rather than
 //! "which pod serves this route" — `compiled_reader_is_not_a_back_door`,
-//! `workspace_path_backdoor`, `workspace_path_escape_hatch` and
-//! `walker_storage_divergence`. That is the line between this group and
+//! `workspace_path_backdoor` and `workspace_path_escape_hatch` (the fourth,
+//! `walker_storage_divergence`, went to core). That is the line between this group and
 //! `tests/routing/`: nothing here reasons about the router. They are source
 //! scans and walker-semantics tests, so they open no database and mutate no
 //! process-global state.
@@ -33,7 +33,7 @@
 //! * everything else is in-process, but NOT ungrouped: that override matches
 //!   `binary(=platform)`, so every module here except those exclusions runs
 //!   under `db-per-test` (`max-threads = 4`, `retries = 2`) whether or not it
-//!   opens a connection. The four source scans folded in above inherit that.
+//!   opens a connection. The three source scans folded in above inherit that.
 //!   Deliberate, and argued in the config: a per-binary rule stays true the day
 //!   someone adds a harness-backed test to one of those files, where a module
 //!   allowlist would silently go stale. `tests/routing/` is the group that got
@@ -42,11 +42,12 @@
 //!
 //! `authz::shared_db_registry` fails the build if that classification drifts.
 //!
-//! One member mutates process cwd — all of `metric_tree_fit_panel` (and
-//! `workspace_details_fields::storage_key_normalizes_relative_to_absolute` did,
-//! until it moved to `oxy-api-workspaces` on 2026-11-16). It carries
+//! No member mutates process cwd any more: `metric_tree_fit_panel` did until it
+//! moved into `oxy-metric-monitoring` (decompose T-small, 2026-11-24), and
+//! `workspace_details_fields::storage_key_normalizes_relative_to_absolute` did
+//! until it moved to `oxy-api-workspaces` on 2026-11-16. Both carry
 //! `#[serial_test::serial]`, whose
-//! lock is global to this binary; anything folded in here that touches cwd,
+//! lock is global to a binary; anything folded in here that touches cwd,
 //! environment variables or another process-global needs the same attribute — a
 //! guard private to one file excludes nothing once the files share a binary.
 
@@ -64,10 +65,12 @@ mod airway_fleet_control;
 mod analytics_run_thread_access;
 // `anomaly_notify` moved to `oxy-api-metric-monitoring`'s integration group
 // with the insights delivery's executor (2026-11-21).
-mod artifact_naming_agrees;
+// `artifact_naming_agrees` and `walker_storage_divergence` moved to `oxy`'s
+// (core's) integration group, which depends on `oxy-compile` (decompose T-small).
 // `chat_org_standing` moved to `oxy-api-threads`' integration group with the
 // chat handlers (2026-11-16).
-mod compile;
+// `compile` (`oxy compile`'s two ignored smoke tests) moved to `oxy-server`'s
+// integration group, the crate that builds the binary (decompose T-small).
 mod compile_first;
 mod compile_from_git;
 mod compile_oltp_promote;
@@ -91,7 +94,8 @@ mod fleet_claim;
 mod frontline_app_grant;
 mod frontline_pin;
 mod master_key_kms;
-mod metric_tree_fit_panel;
+// `metric_tree_fit_panel` moved into `oxy-metric-monitoring` as the in-source
+// `metric_tree_fit_panel_tests`, beside `splitting_executor` (decompose T-small).
 mod migration_rollback_safety;
 mod migration_rollback_tolerance;
 mod no_dropped_partner_tables;
@@ -119,7 +123,6 @@ mod semantic_scan_from_memory;
 // binary) with `shared_state_check` on 2026-11-22 (decompose UP2).
 // `usage_report` moved to `oxy-api-billing`'s integration group with the
 // usage report's surface (admin split, PR 8b).
-mod walker_storage_divergence;
 mod worker_ctx_follows_promote;
 // `workspace_details_fields` moved to `oxy-api-workspaces`' integration group
 // with the details builders it drives (2026-11-16).

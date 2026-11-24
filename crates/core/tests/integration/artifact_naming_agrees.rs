@@ -4,10 +4,10 @@
 //!
 //! `oxy_compile::compile::derive_name_from_path` is the rule the compile worker
 //! writes into `*_definitions.name`. `oxy::config::artifact_name` is the copy the
-//! filesystem arm uses, because `crates/core` cannot depend on `oxy-compile`
-//! without a new cross-layer edge. Two copies drift; this is what stops them.
+//! filesystem arm uses. Two copies drift; this is what stops them.
 //!
-//! `oxy-app` is the only crate that depends on both.
+//! It lives in core's integration group because core depends on `oxy-compile`
+//! (it was `oxy-app`'s until decompose T-small, 2026-11-24).
 
 #[test]
 fn the_two_name_derivations_agree() {

@@ -365,9 +365,12 @@ test-group = "db-per-test"
 retries = 2
 
 # The tenancy tests that moved out of oxy-app's `platform` binary with the
-# `oxy-api-tenancy` move — same harness, same group.
+# `oxy-api-tenancy` move — same harness, same group. The exception is
+# `org_invitations` (from oxy-app's `authz` binary, decompose T-small): it calls
+# `establish_connection()` on the shared database, so it is pinned into
+# `serial-db` below with the other shared-schema tests.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration)"
+filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration) & !test(/^(org_invitations)::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -402,9 +405,10 @@ retries = 2
 # querying those tables mid-DDL.
 #
 # Two routes in:
-#   * three call `oxy::database::client::establish_connection()` directly (and
-#     the six that were the `slack` binary's, now `oxy-api-slack`'s, and
-#     `admin_membership_audit`, now `oxy-api-identity`'s, below);
+#   * two call `oxy::database::client::establish_connection()` directly (and
+#     the six that were the `slack` binary's, now `oxy-api-slack`'s,
+#     `admin_membership_audit`, now `oxy-api-identity`'s, and
+#     `org_invitations`, now `oxy-api-tenancy`'s, below);
 #   * `local_mode_router`, `simulation_router` (now
 #     `oxy-api-experiment`) and `staging_preview_cookie_retired` (now
 #     `oxy-api-custom-apps`) call `api_router(..)`, which
@@ -424,7 +428,14 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|audit_append_only)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|audit_append_only)::/)"
+test-group = "serial-db"
+retries = 2
+
+# `oxy-api-tenancy`'s `org_invitations`, which was the `authz` binary's: it
+# calls `establish_connection()` on the shared database (see the note above).
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration) & test(/^(org_invitations)::/)"
 test-group = "serial-db"
 retries = 2
 

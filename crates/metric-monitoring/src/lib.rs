@@ -56,6 +56,11 @@ pub mod service;
 pub mod store;
 pub mod tick;
 
+// The scenario fit end to end against `example_new`'s committed CSVs through
+// DuckDB, from `oxy-app`'s `tests/platform/` (decompose T-small, 2026-11-24).
+#[cfg(test)]
+mod metric_tree_fit_panel_tests;
+
 pub use config::{
     Direction, Granularity, LoadError as ConfigLoadError, MonitorConfig, MonitorEntry,
     MonitorScheduleConfig, Sensitivity, WeekStart, default_config_path, from_definition,
