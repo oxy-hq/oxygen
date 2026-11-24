@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.35.0] - 2026-11-24
+
+### Added
+
+- **`ParentTabs` passes `data-*` attributes through to its root `<nav>`**, in every placement
+  (`inline`, `page`, and `topbar`, whose `TopBarTabs` takes them too). Store Ops marks its strip
+  `data-testid="parent-tabs"` for its e2e and layout walks and `data-tour` for its guided tour;
+  the SDK strip dropped both, so the app kept its own copy (decision 101). The strip's own
+  `data-placement` is not overridden, and props that are not `data-*` are not forwarded. A
+  strip given no `data-*` renders exactly as on 2.34.0 (`ParentTabs.test.tsx`, "passes data-*
+  attributes to its nav").
+- **`Panel` passes `data-*` attributes through to its root** (the `div`, `section` or `aside`
+  it is drawn as). Store Ops' Waste catalog panel carries the guided tour's
+  `data-tour="waste-catalog"` marker, which the SDK Panel dropped, so the app could not take it
+  there. Props that are not `data-*` are still not forwarded, and a panel given none renders
+  exactly as on 2.34.0 (`Panel.test.tsx`, "puts the data-* props it is given on its root").
+
 ## [2.34.0] - 2026-11-23
 
 ### Changed

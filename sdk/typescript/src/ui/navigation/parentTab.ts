@@ -48,7 +48,12 @@ export interface ParentTabsProps<K extends string> {
   /** The More button's name in the top bar (default "More screens"). */
   moreLabel?: string;
   className?: string;
+  /** `data-*` attributes (an app's `data-testid`, a guided tour's `data-tour`) go on the root
+   *  `<nav>` of every placement. The strip's own `data-placement` is not overridden. */
+  [data: `data-${string}`]: string | number | boolean | undefined;
 }
+
+export { dataAttributes } from "../dataAttributes";
 
 /** A plain left click is the app's own navigation; anything else is the browser's. */
 export function isPlainClick(e: MouseEvent): boolean {

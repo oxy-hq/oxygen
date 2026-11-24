@@ -208,6 +208,28 @@ describe("Panel, 2.31.0 options", () => {
     expect($("#body")?.parentElement?.className).toBe("oxy-ui-panel__body scrolls");
   });
 
+  it("puts the data-* props it is given on its root, as a div or a section (2.35.0)", async () => {
+    await render(
+      <>
+        <Panel title='Waste catalog' data-tour='waste-catalog' data-testid='catalog'>
+          <p>Body</p>
+        </Panel>
+        <Panel as='section' headingLevel={2} title='Schedules' data-tour='schedules' foldable>
+          <p>Body</p>
+        </Panel>
+      </>
+    );
+    const [plain, section] = [
+      ...document.querySelectorAll(".oxy-ui-panel--titled")
+    ] as HTMLElement[];
+    expect(plain.getAttribute("data-tour")).toBe("waste-catalog");
+    expect(plain.getAttribute("data-testid")).toBe("catalog");
+    expect(section.tagName).toBe("SECTION");
+    expect(section.getAttribute("data-tour")).toBe("schedules");
+    expect(section.getAttribute("aria-labelledby")).not.toBeNull();
+    expect(document.querySelectorAll("[data-tour]")).toHaveLength(2);
+  });
+
   it("styles each part it draws (the uiCss test checks the classes exist)", () => {
     const css = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "containers.css"),

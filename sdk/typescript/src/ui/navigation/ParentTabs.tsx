@@ -28,7 +28,7 @@
 
 import { cx } from "../cx";
 import { ui } from "../recipes";
-import { isOpen, linkClick, type ParentTabsProps } from "./parentTab";
+import { dataAttributes, isOpen, linkClick, type ParentTabsProps } from "./parentTab";
 import { TopBarTabs } from "./TopBarTabs";
 
 export type {
@@ -47,11 +47,14 @@ export function ParentTabs<K extends string>({
   placement = "inline",
   topBarFrom = "md",
   moreLabel,
-  className
+  className,
+  ...rest
 }: ParentTabsProps<K>) {
+  const data = dataAttributes(rest);
   if (placement === "topbar")
     return (
       <TopBarTabs
+        {...data}
         label={label}
         tabs={tabs}
         current={current}
@@ -63,6 +66,7 @@ export function ParentTabs<K extends string>({
     );
   return (
     <nav
+      {...data}
       aria-label={label}
       data-placement={placement}
       className={cx(

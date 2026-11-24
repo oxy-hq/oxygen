@@ -449,6 +449,11 @@ tile across); `AlertStrip`'s per-alert `hint` and `check` tone (the theme's `--s
 kept a local PanelTable, Subnav, StatGrid, KPI row, AlertStrip or Sparkline for one of these
 imports the SDK's and deletes its copy.
 
+SDK 2.35 adds: `ParentTabs` (top bar included) puts the `data-*` props it is given on its root
+`<nav>` (`data-placement` stays its own), and `Panel` puts them on its root. An app that kept a
+local ParentTabs or Panel for a `data-testid` or a guided tour's `data-tour` marker imports the
+SDK's and deletes its copy.
+
 What the pieces settle, so an app doesn't override them (decisions 81–93):
 
 - `SidePanel` keeps its overlay shadow; drop any `shadow-none` (81).

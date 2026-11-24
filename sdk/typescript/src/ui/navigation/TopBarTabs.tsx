@@ -23,7 +23,13 @@ import {
 import { cx } from "../cx";
 import { ui } from "../recipes";
 import { DotsThreeIcon } from "./icons";
-import { isOpen, linkClick, type ParentTab, type ParentTabsProps } from "./parentTab";
+import {
+  dataAttributes,
+  isOpen,
+  linkClick,
+  type ParentTab,
+  type ParentTabsProps
+} from "./parentTab";
 import { splitTabs, type TabSplit } from "./tabOverflow";
 
 export type TopBarTabsProps<K extends string> = Omit<ParentTabsProps<K>, "placement">;
@@ -74,7 +80,8 @@ export function TopBarTabs<K extends string>({
   onNavigate,
   topBarFrom = "md",
   moreLabel = "More screens",
-  className
+  className,
+  ...rest
 }: TopBarTabsProps<K>) {
   const active = tabs.findIndex((t) => isOpen(t, current));
   const { navRef, rowRef, split } = useSplit(active);
@@ -83,6 +90,7 @@ export function TopBarTabs<K extends string>({
 
   return (
     <nav
+      {...dataAttributes(rest)}
       ref={navRef}
       aria-label={label}
       data-placement='topbar'

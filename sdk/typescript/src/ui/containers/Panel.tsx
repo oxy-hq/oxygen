@@ -18,6 +18,9 @@
 //     right keeps its own case and ink and the header keeps the body's line.
 //   - `title` optional: Client Management's panels, some with no header at all.
 //
+// 2.35.0: the `data-*` props it is given go on its root (Store Ops' guided tour marks the panel a
+// step spotlights with `data-tour`), as `ParentTabs` does; nothing else is forwarded.
+//
 // A titled section, the app's one, for every screen that has one: `card` + `panel` with an
 // `eyebrow` header over a rule. One component, one recipe: a panel on one screen is the same
 // object as a panel on another.
@@ -29,10 +32,11 @@
 
 import { type ReactNode, useId, useState } from "react";
 import { cx } from "../cx";
+import { type DataAttributes, dataAttributes } from "../dataAttributes";
 import { CaretDownIcon, CaretRightIcon } from "../icons";
 import { ui } from "../recipes";
 
-export interface PanelProps {
+export interface PanelProps extends DataAttributes {
   /** The section's label, drawn as a caps eyebrow. Optional: a panel may have no header. */
   title?: ReactNode;
   /** Small meta text on the same line as the title, right-aligned. A function gets whether the
@@ -64,6 +68,7 @@ export interface PanelProps {
   className?: string;
   /** On the body (a body that scrolls inside the panel's height, a layout of its own). */
   bodyClassName?: string;
+  // 2.35.0: `data-*` props (an app's `data-testid`, a guided tour's `data-tour`) go on the root.
 }
 
 export function Panel({
@@ -80,7 +85,8 @@ export function Panel({
   density = "default",
   children,
   className,
-  bodyClassName
+  bodyClassName,
+  ...rest
 }: PanelProps) {
   const [openState, setOpenState] = useState(defaultOpen);
   const open = openProp ?? (foldable ? openState : true);
@@ -118,15 +124,16 @@ export function Panel({
   ) : (
     (fold ?? <span className={compact ? ui.eyebrow : undefined}>{title}</span>)
   );
-  const named = label
-    ? { "aria-label": label }
-    : Tag !== "div" && Heading && header == null && title != null
-      ? { "aria-labelledby": titleId }
-      : {};
+  const named = panelName(
+    label,
+    Tag !== "div" && Heading != null && header == null && title != null,
+    titleId
+  );
   const hasHeader = header != null || title != null || meta != null;
 
   return (
     <Tag
+      {...dataAttributes(rest)}
       {...named}
       className={cx(
         ui.panel,
@@ -150,4 +157,11 @@ export function Panel({
       )}
     </Tag>
   );
+}
+
+/** The landmark's name: `label` when given, else its own heading when it is a landmark titled by
+ *  `title` alone, else none. */
+function panelName(label: string | undefined, byTitle: boolean, titleId: string) {
+  if (label) return { "aria-label": label };
+  return byTitle ? { "aria-labelledby": titleId } : {};
 }

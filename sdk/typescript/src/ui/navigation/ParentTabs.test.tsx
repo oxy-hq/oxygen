@@ -219,3 +219,25 @@ describe("ParentTabs in the top bar", () => {
     expect(copy.querySelector("a, button")).toBeNull();
   });
 });
+
+describe("ParentTabs passes data-* attributes to its nav", () => {
+  // An app marks its strip for its own tests and its guided tour (`data-testid`, `data-tour`);
+  // every placement carries them on its one root nav. The strip's own `data-placement` wins.
+  const marked = {
+    "data-testid": "parent-tabs",
+    "data-tour": "screens",
+    "data-placement": "elsewhere"
+  } as Partial<ParentTabsProps<Id>>;
+
+  for (const placement of ["inline", "page", "topbar"] as const)
+    it(`carries them in the ${placement} placement`, async () => {
+      await mount({ placement, ...marked });
+      const navs = $$("nav");
+      expect(navs).toHaveLength(1);
+      const nav = navs[0] as HTMLElement;
+      expect(nav.getAttribute("data-testid")).toBe("parent-tabs");
+      expect(nav.getAttribute("data-tour")).toBe("screens");
+      expect(nav.getAttribute("data-placement")).toBe(placement);
+      expect($$("[data-testid]")).toHaveLength(1);
+    });
+});

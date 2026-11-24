@@ -681,6 +681,11 @@ would win over the pieces (their colours, rings and titles). Put them in
 utility class (or any unlayered app rule) always beats a recipe class on the same
 element, whatever order the class list gives.
 
+**New in 2.35.0**: `ParentTabs` (every placement, the top bar's `TopBarTabs` included) puts
+the `data-*` props it is given on its root `<nav>`, and `Panel` puts them on its root element,
+so an app's `data-testid` and a guided tour's `data-tour` survive the swap; the strip's own
+`data-placement` is not overridden. A strip or panel given none renders exactly as on 2.34.0.
+
 **New in 2.32.0** (each opt-in: a piece that passes none of it renders exactly as on 2.31.1):
 
 | Piece | What it takes now |
