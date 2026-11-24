@@ -6,7 +6,7 @@
 //! is dimmed (subtle but visible) so debug runs make it obvious *what* the
 //! agent is doing without burying the actual answer.
 //!
-//! Trade-offs vs. the legacy `AgentCLIHandler` (still used for `oxy run`):
+//! Trade-offs vs. the legacy `AgentCLIHandler` (gone; `oxy run` itself moved to `oxyc run`):
 //!
 //! - Loses syntax-highlighted SQL and ASCII tables — those came from
 //!   intercepting raw `Output::SQL` / `Output::Table` at the

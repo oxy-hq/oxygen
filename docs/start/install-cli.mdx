@@ -72,12 +72,12 @@ any subcommand. The commands you'll reach for most:
 | Command | What it does |
 | --- | --- |
 | `oxy validate` | Check `config.yml`, automations, and agents for errors |
-| `oxy run <file>` | Run an automation (`.automation.yml`) or a `.sql` file |
 | `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
 | `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
 
 Agent tests (`.test.yml` files) run on your deployment with
-[`oxyc evals run`](/guide/build/test-evaluate/testing).
+[`oxyc evals run`](/guide/build/test-evaluate/testing), and automations and
+`.sql` files with `oxyc run` (below).
 
 ### Validate your config
 
@@ -90,11 +90,17 @@ oxy validate
 
 ### Run an automation
 
-Point `oxy run` at an automation or SQL file to execute it from the terminal:
+`oxyc run` (`npm i -g @oxy-hq/cli`) starts an automation or a SQL file on your
+deployment and prints the result. It runs the automation your deployment has
+compiled, so push a change first; a SQL file's text is sent and runs against
+the deployed database of that name:
 
 ```bash
-oxy run my_report.automation.yml
+oxyc run my_report.automation.yml --workspace <workspace-id>
+oxyc run queries/weekly.sql --database warehouse --workspace <workspace-id>
 ```
+
+`oxy run` itself now only prints the `oxyc` command and exits `2`.
 
 ### Preview locally
 

@@ -1,299 +1,198 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+//! `oxy run` — a one-release stub. The command is `oxyc run` now
+//! (`@oxy-hq/cli`, `sdk/cli`): a `.sql` file's text is sent to
+//! `POST /api/{workspace_id}/sql/query` and runs against the deployed
+//! database; an automation is started with
+//! `POST /api/{workspace_id}/agentic-automations/runs` and runs the definition
+//! the deployment has compiled, on the worker fleet. Nothing runs in-process.
+//!
+//! Customers run this from scripts, so it is not deleted outright: the args
+//! still parse, so an old invocation lands here and is told the exact `oxyc`
+//! command to type, and the process exits `2` (a usage error). Delete this file
+//! and its `SubCommand` arm one release after the `oxyc` verb ships
+//! (`internal-docs/oxy-cli-to-oxyc.md`, step 10).
 
 use clap::Parser;
 use clap::builder::ValueParser;
-use minijinja::{Environment, Value};
-use uuid::Uuid;
 
-use ::oxy::adapters::secrets::SecretsManager;
-use ::oxy::adapters::workspace::builder::WorkspaceBuilder;
-use ::oxy::config::{ConfigBuilder, ConfigManager, resolve_local_workspace_path};
-use ::oxy::connector::Connector;
-use ::oxy::exec_types::utils::record_batches_to_table;
-use ::oxy::sentry_config;
-use ::oxy::utils::print_colored_sql;
-use oxy::config::WorkingCopy;
-use oxy_shared::errors::OxyError;
-
-type Variable = (String, String);
-
-fn parse_variable(env: &str) -> Result<Variable, OxyError> {
-    if let Some((var, value)) = env.split_once('=') {
-        Ok((var.to_owned(), value.to_owned()))
-    } else {
-        Err(OxyError::ArgumentError(
-            "Invalid variable format. Must be in the form of VAR=VALUE".to_string(),
-        ))
-    }
+fn parse_variable(env: &str) -> Result<(String, String), String> {
+    env.split_once('=')
+        .map(|(var, value)| (var.to_owned(), value.to_owned()))
+        .ok_or_else(|| "Invalid variable format. Must be in the form of VAR=VALUE".to_string())
 }
 
 #[derive(Parser, Debug)]
 pub struct RunArgs {
     /// Path to the file to execute (.sql, .automation.yml, or .procedure.yml)
-    pub(super) file: String,
+    pub file: String,
 
     /// Database connection to use for SQL execution
-    ///
-    /// Specify which database from your config.yml to use.
-    /// If not provided, uses the default database from configuration.
     #[clap(long)]
-    pub(super) database: Option<String>,
+    pub database: Option<String>,
 
     /// Template variables in the format VAR=VALUE
-    ///
-    /// Pass variables to SQL templates using Jinja2 syntax.
-    /// Example: --variables user_id=123 --variables status=active
-    #[clap(long, short = 'v', value_parser=ValueParser::new(parse_variable), num_args = 1..)]
-    pub(super) variables: Vec<(String, String)>,
+    #[clap(long, short = 'v', value_parser = ValueParser::new(parse_variable), num_args = 1..)]
+    pub variables: Vec<(String, String)>,
 
-    /// Reserved for future agentic CLI integration.
-    pub(super) question: Option<String>,
-
-    /// Retry failed operations automatically
-    ///
-    /// Enable automatic retry logic for transient failures
-    /// during automation or query execution.
-    #[clap(long, default_value_t = false, group = "named")]
-    pub(super) retry: bool,
-
-    /// Retry from a specific step in the automation
-    #[clap(long, group = "unnamed", conflicts_with = "named")]
-    pub(super) retry_from: Option<String>,
-
-    /// Preview SQL without executing against the database
-    ///
-    /// Validate and display the generated SQL query without
-    /// actually running it against your database.
-    #[clap(long, default_value_t = false)]
-    pub(super) dry_run: bool,
-}
-
-#[derive(Clone)]
-pub struct RunOptions {
-    pub database: Option<String>,
-    pub variables: Option<Vec<(String, String)>>,
+    /// Reserved; it did nothing.
     pub question: Option<String>,
+
+    /// It did nothing; `oxyc run` has no such flag.
+    #[clap(long, default_value_t = false, group = "named")]
     pub retry: bool,
+
+    /// It did nothing; `oxyc run` has no such flag.
+    #[clap(long, group = "unnamed", conflicts_with = "named")]
+    pub retry_from: Option<String>,
+
+    /// Preview SQL without executing it. `oxyc run` has no dry run.
+    #[clap(long, default_value_t = false)]
     pub dry_run: bool,
 }
 
-impl RunArgs {
-    pub fn new(file: String, options: Option<RunOptions>) -> Self {
-        match options {
-            Some(options) => Self {
-                file,
-                database: options.database,
-                variables: options.variables.unwrap_or(vec![]),
-                question: options.question,
-                retry: options.retry,
-                dry_run: options.dry_run,
-                retry_from: None,
-            },
-            None => Self {
-                file,
-                database: None,
-                variables: vec![],
-                question: None,
-                retry: false,
-                dry_run: false,
-                retry_from: None,
-            },
-        }
-    }
+/// The exit code the stub ends with: a usage error, as for an unknown command.
+pub const MOVED_EXIT_CODE: i32 = 2;
+
+fn is_automation(file: &str) -> bool {
+    [
+        ".automation.yml",
+        ".automation.yaml",
+        ".procedure.yml",
+        ".procedure.yaml",
+    ]
+    .iter()
+    .any(|ext| file.ends_with(ext))
 }
 
-pub enum RunResult {
-    Automation,
-    Sql(String),
-}
-
-pub async fn handle_run_command(run_args: RunArgs) -> Result<RunResult, OxyError> {
-    let file = &run_args.file;
-
-    let current_dir = std::env::current_dir()
-        .map_err(|e| OxyError::RuntimeError(format!("Could not get current directory: {e}")))?;
-
-    let file_path = current_dir.join(file);
-    if !file_path.exists() {
-        return Err(OxyError::ConfigurationError(format!(
-            "File not found: {file_path:?}"
-        )));
+/// What the stub prints: the `oxyc` invocation equivalent to `args`, or, for
+/// `--dry-run`, why there is none. The workspace is a deployed one now, so the
+/// caller fills in its id.
+pub fn moved_message(args: &RunArgs) -> String {
+    if args.dry_run {
+        return "`oxy run --dry-run` has no oxyc equivalent: the deployment's query route \
+                cannot dry-run, and `oxyc run` executes the query. Install oxyc with \
+                `npm i -g @oxy-hq/cli` and see `oxyc run --help`."
+            .to_string();
     }
-
-    let extension = file_path.extension().and_then(std::ffi::OsStr::to_str);
-
-    // Extract the compound extension (the part before the final `.yml`/`.yaml`/`.sql`).
-    // For example, `my.automation.yml` → outer_ext = "yml", stem_ext = "automation".
-    let stem_ext = file_path
-        .file_stem()
-        .and_then(|stem| std::path::Path::new(stem).extension())
-        .and_then(std::ffi::OsStr::to_str);
-
-    match (extension, stem_ext) {
-        (Some("yml") | Some("yaml"), Some("procedure" | "automation")) => {
-            handle_automation_file(&file_path, run_args.retry, run_args.retry_from).await?;
-            Ok(RunResult::Automation)
-        }
-        (Some("yml") | Some("yaml"), _) => Err(OxyError::ArgumentError(
-            "Invalid YAML file. Must be either *.automation.yml or *.procedure.yml".into(),
-        )),
-        (Some("sql"), _) => {
-            let config = ConfigBuilder::new()
-                .with_workspace_path(&resolve_local_workspace_path()?)?
-                .build_with_working_copy(oxy::config::Origin::Disk, oxy::config::OnMissing::Fail)
-                .await?;
-            let database = run_args
-                .database
-                .or_else(|| config.default_database_ref().cloned());
-
-            if database.is_none() {
-                return Err(OxyError::ArgumentError(
-                    "Database is required for running SQL file. Please provide the database using --database or set a default database in config.yml".into(),
-                ));
-            }
-            let sql_result = handle_sql_file(
-                &file_path,
-                database.unwrap(),
-                &config,
-                &run_args.variables,
-                run_args.dry_run,
-            )
-            .await?;
-            Ok(RunResult::Sql(sql_result))
-        }
-        _ => Err(OxyError::ArgumentError(
-            "Invalid file extension. Must be .automation.yml, .procedure.yml, or .sql".into(),
-        )),
+    let mut command = format!("oxyc run {}", shell_quote(&args.file));
+    if let Some(database) = &args.database {
+        command.push_str(" --database ");
+        command.push_str(&shell_quote(database));
     }
-}
-
-async fn handle_automation_file(
-    automation_path: &PathBuf,
-    _retry: bool,
-    _retry_from: Option<String>,
-) -> Result<(), OxyError> {
-    use std::sync::Arc;
-
-    use crate::agentic_wiring::OxyProjectContext;
-    use ::oxy::theme::StyledText;
-
-    let workspace_path = resolve_local_workspace_path()?;
-    let automation_name_str = automation_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-    sentry_config::add_automation_context(automation_name_str, None);
-
-    // CLI runs are stateless: nil ids and a noop runs manager so the user
-    // doesn't need OXY_DATABASE_URL set just to execute an automation.
-    let workspace_manager = WorkspaceBuilder::new(Uuid::nil())
-        .with_working_copy(&workspace_path, None, oxy::config::OnMissing::Fail)
-        .await?
-        .build()
-        .await
-        .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;
-
-    // Read + parse the automation YAML directly from disk. We bypass
-    // `WorkspaceContext::resolve_automation_yaml` (which expects relative
-    // paths) because the user gave us an absolute filesystem path.
-    let yaml = tokio::fs::read_to_string(automation_path)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("read {}: {e}", automation_path.display())))?;
-    let automation: agentic_automation::AutomationConfig = serde_yaml::from_str(&yaml)
-        .map_err(|e| OxyError::RuntimeError(format!("parse automation YAML: {e}")))?;
-
-    let project_ctx = Arc::new(OxyProjectContext::new(workspace_manager));
-    let workspace: Arc<dyn agentic_automation::WorkspaceContext> = project_ctx;
-
-    let results = agentic_pipeline::automation_run::run_inline_automation_with(
-        workspace.as_ref(),
-        automation,
-        None,
-        None,
+    for (var, value) in &args.variables {
+        command.push_str(" -v ");
+        command.push_str(&shell_quote(&format!("{var}={value}")));
+    }
+    command.push_str(" --workspace <workspace-id>");
+    let what = if is_automation(&args.file) {
+        format!(
+            "The deployment runs the automation it has COMPILED, not this file: push it first, \
+             or try a branch with `oxyc preview run <branch> procedure {} --workspace \
+             <workspace-id>`.",
+            shell_quote(&args.file)
+        )
+    } else {
+        "The SQL is read here and runs against the DEPLOYED database of that name; \
+         --database is required when the workspace has more than one."
+            .to_string()
+    };
+    format!(
+        "`oxy run` has moved to oxyc. From the root of your checkout, run:\n\n    {command}\n\n\
+         {what} Install oxyc with `npm i -g @oxy-hq/cli` (or run `npx @oxy-hq/cli run`)."
     )
-    .await
-    .map_err(|e| OxyError::RuntimeError(format!("inline automation: {e}")))?;
-
-    // Render results in automation-task order — the HashMap key set is
-    // the same, but the iteration order isn't deterministic.
-    let automation_again: agentic_automation::AutomationConfig =
-        serde_yaml::from_str(&yaml).expect("re-parse automation YAML (already validated above)");
-    println!("{}", format!("✓ {}", automation_name_str).success());
-    for task in &automation_again.tasks {
-        if let Some(value) = results.get(&task.name) {
-            println!("{}", format!("  {}", task.name).primary());
-            let pretty = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
-            for line in pretty.lines() {
-                println!("    {line}");
-            }
-        }
-    }
-    Ok(())
 }
 
-async fn handle_sql_file(
-    file_path: &PathBuf,
-    database: String,
-    config: &ConfigManager<WorkingCopy>,
-    variables: &[(String, String)],
-    dry_run: bool,
-) -> Result<String, OxyError> {
-    sentry_config::add_database_context(&database, Some("sql_file"));
-    sentry_config::add_operation_context("sql", Some(&file_path.to_string_lossy()));
+/// Single-quote `s` for a POSIX shell when it holds anything but safe characters.
+fn shell_quote(s: &str) -> String {
+    let safe = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:@+=,".contains(c));
+    if safe {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
+}
 
-    let content = std::fs::read_to_string(file_path)
-        .map_err(|e| OxyError::RuntimeError(format!("Failed to read SQL file: {e}")))?;
-    let mut env = Environment::new();
-    let mut query = content.clone();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Handle variable templating if variables are provided
-    if !variables.is_empty() {
-        env.add_template("query", &query)
-            .map_err(|e| OxyError::RuntimeError(format!("Failed to parse SQL template: {e}")))?;
-        let tmpl = env.get_template("query").unwrap();
-        let ctx = Value::from({
-            let mut m = BTreeMap::new();
-            for var in variables {
-                m.insert(var.0.clone(), var.1.clone());
-            }
-            m
-        });
-        query = tmpl
-            .render(ctx)
-            .map_err(|e| OxyError::RuntimeError(format!("Failed to render SQL template: {e}")))?
+    #[derive(Parser, Debug)]
+    struct Probe {
+        #[clap(flatten)]
+        args: RunArgs,
     }
 
-    print_colored_sql(&query);
-    let secrets_manager = SecretsManager::from_environment()?;
-    // CLI runs as the local guest with no per-user identity. Catch the
-    // airhouse_managed case here so the user sees a single friendly
-    // message instead of the verbose ConfigurationError out of `from_db`.
-    oxy::connector::reject_airhouse_managed_for_system_path(
-        config,
-        &database,
-        "Running queries from the CLI against",
-    )?;
-    let connector = Connector::from_database(
-        &database,
-        config,
-        &secrets_manager,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await?;
-    let (datasets, schema) = match dry_run {
-        false => connector.run_query_and_load(&query).await,
-        true => connector.dry_run(&query).await,
-    }?;
-    let batches_display = record_batches_to_table(&datasets, &schema)
-        .map_err(|e| OxyError::RuntimeError(format!("Failed to display query results: {e}")))?;
-    println!("\n\x1b[1;32mResults:\x1b[0m");
-    println!("{batches_display}");
+    fn parse(argv: &[&str]) -> RunArgs {
+        Probe::try_parse_from(std::iter::once("oxy").chain(argv.iter().copied()))
+            .expect("an old invocation must still parse")
+            .args
+    }
 
-    Ok(batches_display.to_string())
+    /// The invocations the docs, the `oxy-automations` skill and the old
+    /// integration tests (`crates/app/tests/platform/run.rs`,
+    /// `crates/core/tests/integration/semantic_variables.rs`) used.
+    #[test]
+    fn old_invocations_still_parse() {
+        let a = parse(&[
+            "data/example_intervals.sql",
+            "--database",
+            "primary_database",
+        ]);
+        assert_eq!(a.database.as_deref(), Some("primary_database"));
+        let a = parse(&[
+            "data/example_weekly_rejected.sql",
+            "-v",
+            "variable_a=1",
+            "variable_b=testalias",
+            "variable_c=*",
+        ]);
+        assert_eq!(a.variables.len(), 3);
+        assert_eq!(a.variables[2], ("variable_c".into(), "*".into()));
+        let a = parse(&["procedures/x.automation.yml", "--retry"]);
+        assert!(a.retry);
+        assert!(parse(&["q.sql", "--dry-run"]).dry_run);
+    }
+
+    #[test]
+    fn prints_the_equivalent_oxyc_command() {
+        let sql = moved_message(&parse(&[
+            "data/w.sql",
+            "--database",
+            "local",
+            "-v",
+            "a=1",
+            "b=my value",
+        ]));
+        assert!(
+            sql.contains(
+                "\n    oxyc run data/w.sql --database local -v a=1 -v 'b=my value' --workspace <workspace-id>\n"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("DEPLOYED database"));
+        let automation = moved_message(&parse(&["procedures/r.automation.yml", "--retry"]));
+        assert!(
+            automation.contains(
+                "\n    oxyc run procedures/r.automation.yml --workspace <workspace-id>\n"
+            ),
+            "{automation}"
+        );
+        assert!(
+            automation.contains("oxyc preview run <branch> procedure procedures/r.automation.yml")
+        );
+    }
+
+    /// `--dry-run` never turns into a command that executes.
+    #[test]
+    fn dry_run_prints_no_command() {
+        let message = moved_message(&parse(&["q.sql", "--database", "local", "--dry-run"]));
+        assert!(message.contains("no oxyc equivalent"), "{message}");
+        assert!(!message.contains("oxyc run q.sql"), "{message}");
+    }
+
+    #[test]
+    fn exits_as_a_usage_error() {
+        assert_eq!(MOVED_EXIT_CODE, 2);
+    }
 }

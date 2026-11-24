@@ -29,7 +29,6 @@ import {
   runAirhouseRotateSa,
   runAirhouseStatus
 } from "./commands/airhouse.js";
-import { registerAirway } from "./commands/airway-cli.js";
 import { runApi } from "./commands/api.js";
 import {
   runAppsBuilds,
@@ -66,7 +65,6 @@ import { runEnvOutbox } from "./commands/env-outbox.js";
 import { runEnvReset, runEnvUpdate } from "./commands/env-planes.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
-import { registerEvals } from "./commands/evals-cli.js";
 import { runEnvEvents } from "./commands/events.js";
 import { registerEvents } from "./commands/events-cli.js";
 import { registerExperiments } from "./commands/experiments-cli.js";
@@ -82,7 +80,6 @@ import { runLaunch } from "./commands/launch.js";
 import { runLoginLink } from "./commands/login-link.js";
 import { runLogs } from "./commands/logs.js";
 import { followTimeout, runLogsFollow } from "./commands/logs-follow.js";
-import { registerLooker } from "./commands/looker.js";
 import { runMigrateAutomations } from "./commands/migrate-automations.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import {
@@ -93,6 +90,7 @@ import {
 } from "./commands/oltp-access.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
 import { registerOltpOwnerVerbs } from "./commands/oltp-cli.js";
+import { registerPorted } from "./commands/ported-cli.js";
 import {
   runPreviewChecks,
   runPreviewCreate,
@@ -107,7 +105,6 @@ import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
 import { runRepos } from "./commands/repos.js";
 import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
-import { registerSync } from "./commands/sync-cli.js";
 import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
 import { runTokensCreateAgent } from "./commands/tokens-agent.js";
 import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
@@ -1624,10 +1621,7 @@ function buildProgram(): Command {
   registerFlags(program, { withGlobals, globals, collect });
   registerHome(program, { withGlobals, globals, collect });
   registerWorkspace(program, { withGlobals, globals, collect });
-  registerAirway(program, { withGlobals, globals, collect });
-  registerEvals(program, { withGlobals, globals, collect });
-  registerSync(program, { withGlobals, globals, collect });
-  registerLooker(program, { withGlobals, globals, collect });
+  registerPorted(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")

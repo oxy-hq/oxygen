@@ -9,7 +9,9 @@
 
 mod config_parsing;
 mod omni_query_workflow;
-mod semantic_variables;
+// `semantic_variables` spawned `oxy run` to show an automation parses; with
+// `oxyc run` (2026-11-24) it is `agentic-automation`'s `fixture_parse_tests`,
+// which parses the fixture with the type the server runs it as.
 mod serve;
 mod strict_validation;
 mod sync;

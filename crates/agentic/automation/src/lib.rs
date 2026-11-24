@@ -18,6 +18,9 @@ pub mod step_orchestrator;
 pub mod variables;
 pub mod workspace;
 
+#[cfg(test)]
+mod fixture_parse_tests;
+
 // Re-export the shared semantic helpers so existing call sites
 // (`agentic_automation::semantic::*`, `agentic_automation::preagg::*`,
 // `agentic_automation::refresh_key_cache::*`) keep working after the

@@ -7,7 +7,7 @@ description: >-
   file that is silently not an automation, a task that validates but fails with "unknown task
   type", SQL that receives JSON instead of a table, or an automation run landing
   `completed_with_errors`. Covers the file-naming trap, task-type gotchas, running SQL and
-  automations from the `oxy` CLI, and where the authoritative reference lives.
+  automations on a deployment with `oxyc run`, and where the authoritative reference lives.
 ---
 
 # Oxy automations
@@ -28,7 +28,7 @@ The canonical extension is **`.automation.yml`**.
   spreads. One production workspace has 18 automations, and every one of them
   is still `.procedure.yml`.
 - `.workflow.yml` is **no longer a recognised file kind at all**. A file with
-  that name is silently not an automation, and `oxy run` refuses it.
+  that name is silently not an automation, and `oxyc run` refuses it.
 - `oxyc migrate-automations [path]` renames legacy files (and rewrites
   references to them in every `.yml` / `.yaml` / `.sql` file); `--dry-run`
   previews. It is local only, needs no login, and is the only thing that reads
@@ -78,28 +78,37 @@ Routes follow the same split: `/automations/:id` is canonical;
   as `completed_with_errors`, not as a failed run. Code and dashboards that only
   check for "failed" will report it as a success.
 
-## Running locally with `oxy run`
+## Running one with `oxyc run`
 
-`oxy run <file>` takes a `.sql` file, an `.automation.yml`, or a
-`.procedure.yml` — nothing else.
+`oxyc run <file> --workspace <id>` (`npm i -g @oxy-hq/cli`) takes a `.sql` file,
+an `.automation.yml`, or a `.procedure.yml` — nothing else. It runs **on the
+deployment**, never on this machine. The Rust `oxy run` is gone: it now prints
+the `oxyc` command and exits `2`.
 
-- **SQL files:** `oxy run report.sql --database warehouse -v start=2024-01-01
-  -v region=west`. `--database` picks a database from `config.yml` (default:
-  the configured default database). `-v` / `--variables` fills Jinja
-  placeholders, and those `-v` values are the **entire** template context —
-  nothing else (no database or schema objects) is available inside the SQL.
-  `--dry-run` previews the rendered SQL without executing it.
-- **No `-v` means no rendering at all.** Run a templated `.sql` file without a
-  single `-v` and its `{{ … }}` placeholders reach the warehouse literally, as
-  a syntax error. Pass at least one variable whenever the file has
-  placeholders.
-- **`--dry-run` and `-v` are ignored for automations.** Both apply to `.sql`
-  files only. `oxy run x.automation.yml --dry-run` executes the automation for
-  real — every write, every `http_request` — and uses the file's own
-  `variables:` defaults whatever `-v` says. To check an automation without side
-  effects, run its SQL files individually with `--dry-run`.
-- `--retry` and `--retry-from <step>` are accepted but currently have no effect
-  on an automation run; a failed run is re-run from the top.
+- **An automation runs what is deployed, not your edit.** The server runs the
+  definition it has compiled for the workspace's served revision, on the worker
+  fleet. Push the change first, or try a branch with
+  `oxyc preview run <branch> procedure <ref> --workspace <id>` (its writes are
+  held). An automation the deployment does not have exits `5` before anything
+  starts.
+- **`-v name=value` sets the run's variables**, overriding the file's own
+  `variables:` defaults. Every value arrives as a string.
+- **SQL files:** `oxyc run report.sql --database warehouse -v start=2024-01-01
+  region=west --workspace <id>`. The file's text is sent, and runs against the
+  deployed database of that name with the workspace's secrets and your
+  identity. `--database` is required when the workspace has more than one
+  database (`config.yml`'s `defaults.database` is not visible to `oxyc`).
+- **`-v` renders only `{{ name }}`, and only when given.** Any other Jinja
+  (`{% … %}`, filters, expressions) or a placeholder with no value exits `2`
+  and sends nothing. Run a templated file without a single `-v` and its
+  `{{ … }}` reach the warehouse literally, as a syntax error.
+- **There is no dry run.** `--dry-run`, `--retry` and `--retry-from` are gone.
+  A run executes for real — every write, every `http_request`. To try an
+  automation without side effects, use the branch preview above.
+- A result stops at 10,000 rows. `--json` prints the rows (header row first)
+  or the run's final snapshot. Exit `1` the run failed, was cancelled or timed
+  out, or `--timeout` ran out (the run carries on: re-running starts a second
+  one); `6` the query failed; `7` retryable, before anything started.
 
 ## Before you write one
 

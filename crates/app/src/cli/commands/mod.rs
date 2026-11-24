@@ -21,7 +21,7 @@ use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
 use crate::cli::commands::migrate_automations::{
     MOVED_EXIT_CODE, MigrateAutomationsArgs, moved_message,
 };
-use crate::cli::commands::run::{RunArgs, handle_run_command};
+use crate::cli::commands::run::RunArgs;
 use crate::cli::commands::sync::SyncArgs;
 use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
@@ -44,9 +44,13 @@ use ::oxy::config::WorkingCopy;
 // the root command's `about`, above `Usage:`.
 #[derive(clap::Subcommand, Debug)]
 pub enum SubCommand {
-    /// Execute automation (.automation.yml or .procedure.yml) or SQL (.sql) files
+    /// Moved to `oxyc run` (prints the command and exits 2)
     ///
-    /// Run SQL queries against databases or execute automations for data processing.
+    /// Running a `.sql` file or an automation is
+    /// `oxyc run <file> --workspace <id>` now (`npm i -g @oxy-hq/cli`): it runs
+    /// on the deployment, against the deployed databases and the compiled
+    /// automations. This stub stays for one release so an old invocation is
+    /// told what to type instead.
     Run(RunArgs),
     /// Compile the workspace into the compile-boundary Postgres schema (Phase 1.6a observation mode).
     ///
@@ -346,9 +350,9 @@ pub async fn run(
     seams: oxy_app_core::seams::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
-        SubCommand::Run(run_args) => {
-            sentry_config::add_operation_context("run", Some(&run_args.file));
-            handle_run_command(run_args).await?;
+        SubCommand::Run(args) => {
+            eprintln!("{}", run::moved_message(&args).warning());
+            exit(run::MOVED_EXIT_CODE);
         }
         SubCommand::Compile(compile_args) => compile_command(compile_args).await,
         SubCommand::Sync(args) => {

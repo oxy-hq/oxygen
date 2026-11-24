@@ -876,6 +876,41 @@ shows the holder and asks first; with no terminal it refuses (exit `8`) unless
 is released and it exits `6` naming who holds it now. Both need a workspace
 admin; staff act inside a tenant through `oxyc assume`.
 
+## Running SQL and automations
+
+Run a `.sql` file or an automation on a deployment. It replaced the Rust
+`oxy run` (2026-11-24), which now prints this command and exits `2` for one
+release.
+
+```bash
+oxyc run <file.sql> [--database <name>] [-v KEY=VALUE ...] [--json] --workspace <id>
+oxyc run <file.automation.yml> [-v KEY=VALUE ...] [--json] [--detach] [--timeout <s>] --workspace <id>
+```
+
+A SQL file's text is read here and sent to `POST /api/{workspace_id}/sql/query`;
+it runs against the **deployed** database of that name, with the workspace's
+secrets and your identity. `--database` is checked against
+`GET …/databases` (unknown: exit `5`) and may be left out only when the
+workspace has one database. `-v` renders the file's `{{ name }}` placeholders,
+and only when given; any other Jinja, or a placeholder with no value, exits `2`
+and sends nothing. The output is a table; `--json` prints the route's rows
+(arrays of strings, header row first). The route stops at 10,000 rows, and
+`oxyc` warns when a result reaches that.
+
+An automation runs the definition the deployment has **compiled** for its
+served revision, on the worker fleet, not the file here: push it first, or try
+a branch with `oxyc preview run <branch> procedure <ref>`. The file's path from
+the checkout root (the nearest directory above it holding `config.yml`) is its
+ref. `oxyc` reads the deployed definition first (`404` exits `5`), starts the
+run with `-v` as its `variables`, and polls it until it ends; `done` prints
+`✓ <file>` and each task's result in task order, `--json` the final snapshot,
+`--detach` just the run id. Exit `1` a run that failed, was cancelled or timed
+out, or `--timeout` (default 3600s) ran out with the run still going (re-running
+would start a second run; a failed status read is retried meanwhile), `4` not
+signed in or not a member, `6` a failed query, `7` retryable, before anything
+started. `--dry-run`, `--retry` and `--retry-from`
+did not come across.
+
 ## Database schema sync
 
 Write a workspace's `.databases/` schema files (each dataset's DDL and one

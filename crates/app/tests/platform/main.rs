@@ -111,7 +111,8 @@ mod preagg_promote_nudge;
 mod queued_chat_run;
 mod revision_miss_not_from_disk;
 mod rollout_gates;
-mod run;
+// `run` spawned `oxy run`; with `oxyc run` (2026-11-24) its cases moved to
+// `sdk/cli/src/commands/run.test.ts`, over the same `oxy_example` fixture files.
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 // `shared_state_boot` moved to `oxy-server` (a unit-test module of the

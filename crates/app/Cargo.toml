@@ -109,7 +109,6 @@ duckdb = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 tempfile = { workspace = true }
-minijinja = { workspace = true, features = ["loader"] }
 tokio-util = { workspace = true }
 # Only for the AsyncMessage variant the chat listener matches on; the
 # connection itself is minted by agentic-runtime, which owns the TLS and IAM

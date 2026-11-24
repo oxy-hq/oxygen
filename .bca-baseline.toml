@@ -6807,12 +6807,6 @@ metric = "cyclomatic"
 value = 30.0
 
 [[entry]]
-path = "crates/app/src/cli/commands/run.rs"
-qualified = "handle_sql_file"
-metric = "abc"
-value = 40.63249930782009
-
-[[entry]]
 path = "crates/server/src/router/middlewares/local_context.rs"
 qualified = "attach_workspace_manager"
 metric = "nargs"
@@ -12402,25 +12396,25 @@ value = 716.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
-qualified = "buildProgram::<anon@L347>"
+qualified = "buildProgram::<anon@L344>"
 metric = "cognitive"
 value = 29.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
-qualified = "buildProgram::<anon@L347>"
+qualified = "buildProgram::<anon@L344>"
 metric = "cyclomatic"
 value = 20.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
-qualified = "buildProgram::<anon@L888>"
+qualified = "buildProgram::<anon@L885>"
 metric = "cognitive"
 value = 38.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
-qualified = "buildProgram::<anon@L888>"
+qualified = "buildProgram::<anon@L885>"
 metric = "cyclomatic"
 value = 27.0
 

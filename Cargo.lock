@@ -10346,7 +10346,6 @@ dependencies = [
  "futures",
  "glob",
  "migration",
- "minijinja",
  "oxy",
  "oxy-airlayer-compat",
  "oxy-app-core",
