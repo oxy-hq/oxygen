@@ -4,17 +4,27 @@ import {
   Sidebar as ShadcnSidebar,
   SidebarGroup,
   SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem
+  SidebarMenu
 } from "@/components/ui/shadcn/sidebar";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHealth";
-import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
-import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable, navItemReachable } from "../../adminNav";
 import { Footer } from "./components/Footer";
+import { NavItem } from "./components/NavItem";
+
+/**
+ * Whether a rail entry is the page you are on.
+ *
+ * Tenant entries carry a `?type=` query and share one pathname, so they match on the
+ * active type; everything else matches by path prefix.
+ */
+function isItemActive(to: string, pathname: string, tenantType: string): boolean {
+  const [itemPath, itemQuery] = to.split("?");
+  const itemType = itemQuery ? new URLSearchParams(itemQuery).get("type") : null;
+  if (itemType) return pathname === ROUTES.ADMIN.TENANTS && tenantType === itemType;
+  return pathname.startsWith(itemPath);
+}
 
 export function AdminSidebar() {
   const location = useLocation();
@@ -51,12 +61,22 @@ export function AdminSidebar() {
   const logoTarget = ROUTES.ADMIN.ROOT;
 
   return (
-    <ShadcnSidebar className='border-sidebar-border border-r bg-sidebar-background'>
-      <div className='flex h-[52px] shrink-0 items-center gap-2 border-sidebar-border/50 border-b px-3'>
+    <ShadcnSidebar
+      // **`icon`, not the default `offcanvas`** — the same bargain the product's rail
+      // strikes (`components/Shell/ToggleRail`): closed it is a 3rem strip of marks, not
+      // nothing. Off-canvas bought 256px by taking the navigation away with it, so the
+      // toggle was a choice between a wide rail and no rail; now it is a choice between
+      // names and no names, and ⌘B is worth pressing on a wide screen.
+      collapsible='icon'
+      className='border-sidebar-border border-r bg-sidebar-background'
+    >
+      <div className='flex h-[52px] shrink-0 items-center gap-2 border-sidebar-border/50 border-b px-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
         <Link to={logoTarget} className='flex shrink-0 items-center'>
           <OxyLogo />
         </Link>
-        <span className='rounded-sm border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]'>
+        {/* The chip is the one thing with no room at 3rem, and the logo already says
+            where you are. */}
+        <span className='rounded-sm border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em] group-data-[collapsible=icon]:hidden'>
           Admin
         </span>
       </div>
@@ -69,53 +89,20 @@ export function AdminSidebar() {
             <SidebarGroup key={group} className='px-2 pt-2'>
               <SidebarGroupLabel>{ADMIN_NAV_GROUPS[group]}</SidebarGroupLabel>
               <SidebarMenu>
-                {items.map(({ to, label, icon: Icon }) => {
-                  // Tenant items carry a `?type=` query and share one pathname,
-                  // so match on the active type; everything else matches by path.
-                  const [itemPath, itemQuery] = to.split("?");
-                  const itemType = itemQuery ? new URLSearchParams(itemQuery).get("type") : null;
-                  const isActive = itemType
-                    ? location.pathname === ROUTES.ADMIN.TENANTS && currentTenantType === itemType
-                    : location.pathname.startsWith(itemPath);
-                  const showHealthBadge =
-                    to === ROUTES.ADMIN.WORKSPACE_HEALTH && attentionCount > 0;
-                  return (
-                    <SidebarMenuItem key={to}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        className='gap-2.5 text-[13px] data-[active=true]:font-medium [&>svg]:size-3.5'
-                      >
-                        <Link to={to}>
-                          <Icon />
-                          <span className='tracking-tight'>{label}</span>
-                          {showHealthBadge && (
-                            <span
-                              data-testid='workspace-health-nav-badge'
-                              title={`${attentionCount} workspace${attentionCount === 1 ? "" : "s"} need attention`}
-                              className={cn(
-                                "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 font-medium text-[10px] tabular-nums ring-1 ring-inset",
-                                hasUnhealthy
-                                  ? cn(
-                                      ADMIN_TONE.danger.bg,
-                                      ADMIN_TONE.danger.text,
-                                      ADMIN_TONE.danger.ring
-                                    )
-                                  : cn(
-                                      ADMIN_TONE.warn.bg,
-                                      ADMIN_TONE.warn.text,
-                                      ADMIN_TONE.warn.ring
-                                    )
-                              )}
-                            >
-                              {attentionCount}
-                            </span>
-                          )}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
+                {items.map((item) => (
+                  <NavItem
+                    key={item.to}
+                    to={item.to}
+                    label={item.label}
+                    icon={item.icon}
+                    isActive={isItemActive(item.to, location.pathname, currentTenantType)}
+                    attention={
+                      item.to === ROUTES.ADMIN.WORKSPACE_HEALTH
+                        ? { count: attentionCount, severe: hasUnhealthy }
+                        : undefined
+                    }
+                  />
+                ))}
               </SidebarMenu>
             </SidebarGroup>
           );

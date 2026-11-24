@@ -1,75 +1,48 @@
-import {
-  Activity,
-  Database,
-  KeyRound,
-  LayoutDashboard,
-  type LucideIcon,
-  Radio,
-  Rocket,
-  Settings,
-  SquareFunction
-} from "lucide-react";
-import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useAppEventTypes } from "@/hooks/api/customApps/useAppEvents";
-import { useAppIssues } from "@/hooks/api/customApps/useAppIssues";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { CustomApp } from "@/types/apps";
-import { liveIssueCount } from "../AppDetail/components/Issues/issueBrief";
 import { CONSOLE_PAGES, type ConsolePageId, consolePagePath } from "./consolePages";
-import { eventsView } from "./Events/eventsView";
-
-const ICON: Record<ConsolePageId, LucideIcon> = {
-  overview: LayoutDashboard,
-  activity: Activity,
-  functions: SquareFunction,
-  events: Radio,
-  releases: Rocket,
-  data: Database,
-  secrets: KeyRound,
-  settings: Settings
-};
+import { useConsoleBadges } from "./useConsoleBadges";
 
 /**
  * The app's own sidebar: one entry per console page, the way Encore lists an app's
  * pages under its switcher. A count appears beside a page only when it is something
- * wrong (issues on the live build, dead event deliveries), so a quiet app's nav is just
- * names.
+ * wrong (`useConsoleBadges`), so a quiet app's nav is just names.
  *
  * At phone width it is a row that scrolls sideways above the page, not a column beside
  * it.
+ *
+ * **Inside the column browser it renders only below `lg`** (the caller passes
+ * `lg:hidden`), because the browser's Pages tier *is* this nav at that width. Same
+ * list, same icons, same counts — one source, two shapes.
  */
 export const ConsoleNav = ({
   app,
   page,
-  environment
+  environment,
+  className
 }: {
   app: CustomApp;
   page: ConsolePageId;
   environment: string;
+  className?: string;
 }) => {
   const { search } = useLocation();
-  const issues = useAppIssues(app.id);
-  const types = useAppEventTypes(app.org_slug);
-  const dead = useMemo(
-    () => (types.data ? eventsView(types.data.types, app.slug, environment).totals.dead : 0),
-    [types.data, app.slug, environment]
-  );
-  const badge: Partial<Record<ConsolePageId, number>> = {
-    activity: issues.data ? liveIssueCount(issues.data.issues) : 0,
-    events: dead
-  };
+  const badge = useConsoleBadges(app, environment);
 
   return (
     <nav
       aria-label={`${app.name} console`}
       data-testid='apps-console-nav'
-      className='lg:sticky lg:top-0 lg:w-44 lg:shrink-0 lg:self-start max-lg:-mx-1 max-lg:overflow-x-auto'
+      className={cn(
+        "lg:sticky lg:top-0 lg:w-44 lg:shrink-0 lg:self-start max-lg:-mx-1 max-lg:overflow-x-auto",
+        className
+      )}
     >
       <ul className='flex gap-0.5 lg:flex-col max-lg:w-max max-lg:px-1'>
         {CONSOLE_PAGES.map((p) => {
-          const Icon = ICON[p.id];
+          const Icon = p.icon;
           const active = p.id === page;
           const count = badge[p.id] ?? 0;
           return (

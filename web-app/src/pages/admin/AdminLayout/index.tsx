@@ -11,6 +11,7 @@ import {
 } from "./adminNav";
 import { AdminSidebar } from "./components/AdminSidebar";
 import { AdminTopbar } from "./components/AdminTopbar";
+import { useAdminRailOpen } from "./sidebarPreference";
 
 export default function AdminLayout() {
   const location = useLocation();
@@ -19,6 +20,8 @@ export default function AdminLayout() {
   const group = adminPageGroup(location.pathname, location.search);
 
   const acting = useActingSession();
+  // Above the early returns below, as every hook must be.
+  const [railOpen, setRailOpen] = useAdminRailOpen();
 
   if (isPending) {
     return (
@@ -63,8 +66,11 @@ export default function AdminLayout() {
     return <Navigate to={acting.landing} replace />;
   }
 
+  // Controlled, not `defaultOpen`: the provider's own `sidebar_state` cookie is shared
+  // by every sidebar in the app, so the admin rail keeps its own key. `sidebarPreference`
+  // has the measurement.
   return (
-    <SidebarProvider>
+    <SidebarProvider open={railOpen} onOpenChange={setRailOpen}>
       <AdminSidebar />
       {/* `min-w-0` because this is a flex item in the sidebar's row, so without it its
           minimum width is its widest page's content. The custom-apps fleet's table

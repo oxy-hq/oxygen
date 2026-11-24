@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppHealth, CustomApp } from "@/types/apps";
 import type { HealthIndex } from "./appStatus";
-import { discriminatingFilters } from "./fleetFilters";
+import { appliedStatus, discriminatingFilters, type FleetFilter } from "./fleetFilters";
 
 /**
  * The specification for "All 3 · Needs attention 3 · Not measured 3" — three chips
@@ -84,5 +84,38 @@ describe("discriminatingFilters", () => {
   it("offers nothing for a fleet of one, whatever its status", () => {
     // One app cannot be narrowed to a proper subset of itself.
     expect(discriminatingFilters([app("a")], health(["a", "down"]))).toEqual([]);
+  });
+});
+
+describe("appliedStatus", () => {
+  const chip = (status: FleetFilter["status"]): FleetFilter => ({
+    status,
+    label: status,
+    count: 1
+  });
+
+  it("applies a filter this scope offers", () => {
+    expect(appliedStatus("draft", [chip("draft"), chip("down")])).toBe("draft");
+  });
+
+  it("drops one this scope does not offer", () => {
+    // The bug this exists for: the column browser changes the scope under a chosen
+    // filter, and the fleet re-renders rather than remounts, so the choice survives. On
+    // the seeded deployment, "Draft" chosen over all apps and then `pokehouse-local`
+    // opened gave zero rows, "Nothing matches" and NO chip to switch off.
+    expect(appliedStatus("draft", [chip("down")])).toBe(null);
+    expect(appliedStatus("draft", [])).toBe(null);
+  });
+
+  it("is null when nothing was chosen", () => {
+    expect(appliedStatus(null, [chip("draft")])).toBe(null);
+  });
+
+  it("brings the choice back in a scope that can honour it", () => {
+    // Deriving rather than clearing: passing through an org without drafts does not
+    // forget that drafts were what you asked for.
+    const chosen = "draft" as const;
+    expect(appliedStatus(chosen, [])).toBe(null);
+    expect(appliedStatus(chosen, [chip("draft")])).toBe("draft");
   });
 });

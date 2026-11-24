@@ -93,3 +93,56 @@ cases:
           Fail if: the card still reads Draft or shows Publish at the end;
           a confirm dialog is left open; the console shows an error instead
           of the card.
+
+  - name: walk the column browser from org to app to page
+    tags: [admin, customer-apps, navigation, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-apps-browser]"
+
+      # The first tier. `local` is the only seeded org with custom apps, so this
+      # fixture cannot prove that picking a *different* org narrows the second
+      # tier — `appBrowserModel.test.ts` is where that is specified. What it does
+      # prove is that the tiers render, that each hands off to the next, and that
+      # the pane follows.
+      - act: |
+          In the Organizations column, click the local org's row
+          [data-testid=admin-apps-browser-row-orgs-local].
+
+      - wait_for: "selector:[data-testid=admin-apps-browser-column-apps]"
+
+      - act: |
+          In the Apps column, click
+          [data-testid=admin-apps-browser-row-apps-local-oxy-starter].
+
+      # The third tier exists only once an app is selected.
+      - wait_for: "selector:[data-testid=admin-apps-browser-column-pages]"
+
+      - act: |
+          In the Pages column, click Activity
+          [data-testid=admin-apps-browser-row-pages-activity].
+
+      - wait_for: "selector:[data-testid=apps-console-main][data-page=activity]"
+
+      # Hiding the first two tiers gives a console page the width back. The path
+      # bar is what keeps that safe, so it has to survive the collapse.
+      - act: |
+          Click [data-testid=admin-apps-browser-collapse] to hide the
+          Organizations and Apps columns.
+
+      - wait_for: "selector:[data-testid=admin-apps-browser-rail][data-collapsed=true]"
+
+    expect:
+      - assert: selector [data-testid=admin-apps-browser-column-orgs] is not visible
+      - assert: selector [data-testid=admin-apps-browser-column-pages] is visible
+      - assert: selector [data-testid=admin-apps-browser-path] is visible
+      - assert: selector [data-testid=apps-console-main] has attribute data-page=activity
+      - judge: |
+          The page is /admin/apps with a narrow column of console page names
+          (Overview, Activity, Functions, …) on the left and oxy-starter's
+          Activity page beside it. A path bar along the bottom names the
+          selection, ending in Activity. The Organizations and Apps columns are
+          hidden and a control offers to show them again.
+
+          Fail if: no column of page names is visible; the Activity page is
+          blank or shows an error; the path bar is missing; the Organizations
+          column is still on screen.

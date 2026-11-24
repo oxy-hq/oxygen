@@ -1,6 +1,6 @@
 import { AppWindow } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { useFleetStorage } from "@/hooks/api/customApps/useAppStorage";
 import { useAppHealthIndex, useFleetHealth } from "@/hooks/api/customApps/useFleetHealth";
@@ -15,10 +15,8 @@ import {
   AgentSkillsStrip,
   useAgentSkillsDismissed
 } from "./components/AgentSkills";
-import { AppConsole } from "./components/AppConsole";
-import { AppIdentity } from "./components/AppIdentity";
+import { AppBrowser } from "./components/AppBrowser";
 import { AppSwitcherTrigger } from "./components/AppSwitcher";
-import { AppsFleet } from "./components/AppsFleet";
 import { CreateCustomAppDialog } from "./components/CreateCustomAppDialog";
 import { FleetStrip } from "./components/FleetStrip";
 import { useAdminAppRegistry } from "./useAdminAppRegistry";
@@ -26,35 +24,33 @@ import { useAdminAppRegistry } from "./useAdminAppRegistry";
 /**
  * The custom-apps staff console.
  *
- * Two surfaces on one route. `/admin/apps` is **the fleet** — every app, worst first;
- * `/admin/apps/:orgSlug/:appSlug` is **one app's console**. The fleet hands you to an
- * app; the console is where you work.
+ * **One surface now, in three tiers.** `/admin/apps` is a Finder column browser —
+ * organizations, that org's apps, that app's console pages — with the thing you selected
+ * in the pane beside them (`components/AppBrowser`). The URLs did not change: a bare
+ * `/admin/apps` opens on every app, `?org=acme` on one org, and
+ * `/admin/apps/:orgSlug/:appSlug/:consolePage` on one page of one app's console, which is
+ * what the columns resolve to a selection.
  *
- * **The fleet was cut and then asked back for, and the maintainer was right.** The first
- * pass of this redesign made the bare route redirect to whichever app most needed a
- * person, on the reasoning that an operator always arrives about *one* app. That
- * overcorrected: "is anything broken?" and "what is even deployed here?" are fleet
- * questions, and a console showing one app at a time cannot answer either. Worse, the
- * redirect made the URL non-deterministic — typing `/admin/apps` landed you somewhere
- * that depended on data, with no way to see what you were not being shown.
+ * **What this replaced, and what survived it.** Before the browser, this route was two
+ * surfaces that did not know about each other: a flat worst-first table of every app, and
+ * an app console with its own eight-entry sidebar. Both are still here — the table is
+ * what the pane shows when no app is selected, scoped to the selected org, and the
+ * console is what it shows when one is — but neither is the navigation any more. That
+ * was the cost worth removing: the table flattened orgs into a text cell and the sidebar
+ * hid the pages behind a selection, so moving one app sideways meant going back to a
+ * list, re-reading the whole fleet, and two more clicks.
  *
- * What was actually wrong was never that a list existed. It was *that* list: two
- * structurally empty columns, three filter chips that selected the same three apps, one
- * deployment fact repeated once per row, and two apps both reading "Oxy Starter". Those
- * are defects of a particular table, not of listing things, and `fleetColumns` and
- * `fleetFilters` now make each of them unrepresentable rather than merely fixed. The
- * ordering is still `byAttention`, so the fleet's top row is the app the old redirect
- * would have chosen — the information survived; the coercion did not.
+ * Two things left the header, because the browser says them better. The "All apps" button
+ * is the path bar's first segment, and the app's name and org are in the pane's own
+ * header and the path bar both — a third copy beside the controls was there only because
+ * nothing else on screen said where you were.
  *
- * What this replaces: four sibling tabs — Apps, Organizations, Publish tokens, Storage —
- * which were four *object types* presented as four *tasks*. Storage and Publishing/CI
- * are facts about an app, so they are panels on the console. The genuinely
- * deployment-level views are routed escape hatches, never tabs: `/admin/apps/storage`,
- * `/admin/apps/access`, and `…/preview` for one app's stage.
+ * The genuinely deployment-level views stay routed escape hatches, never tabs:
+ * `/admin/apps/storage`, `/admin/apps/access`, and `…/preview` for one app's stage.
  *
- * **Accepted cost, still accepted:** "Organizations" as a browsable *second* app list is
- * gone. Org is part of every app's identity here, so the fleet answers "what does acme
- * have?" by filtering rather than by being a different page with a different layout.
+ * **Below `lg` the browser does not render** and this is the surface it always was: the
+ * table, or the console with its own nav. Three columns need width, and a drill-down
+ * stack for phones would be a third navigation model to keep working.
  */
 export default function AdminCustomApps() {
   const params = useParams<{ orgSlug?: string; appSlug?: string }>();
@@ -68,18 +64,21 @@ export default function AdminCustomApps() {
   const fleet = useFleetHealth();
   const { rows: healthRows } = useAppHealthIndex();
   // `AppHealthRow` carries `health`, so the whole row satisfies `HealthIndex` and one
-  // map serves both the status model and the fleet's Requests column. Hand-rolling a
-  // second, narrower map here is what made three `Map`s get rebuilt every keystroke.
+  // map serves the status model, the fleet's Requests column and the browser's dots.
+  // Hand-rolling a second, narrower map here is what made three `Map`s get rebuilt every
+  // keystroke.
   const health: HealthIndex | undefined = healthRows;
 
-  // Only the fleet reads per-app storage; the console's own panel fetches its one app.
+  // Only the fleet table reads per-app storage, and the pane shows it exactly when no app
+  // is selected — which is still what this gate says. The console's own panel fetches its
+  // one app.
   const onFleet = !params.appSlug;
   const { data: storageResponse } = useFleetStorage("bytes", { enabled: onFleet });
   const storage = useMemo(() => storageIndex(storageResponse), [storageResponse]);
 
   const [createOpen, setCreateOpen] = useState(false);
-  // The fleet carries the reminder as a strip until it is dismissed; after that, and on
-  // every app console, it is the header's "Agent skills" button.
+  // The strip is the fleet-wide reminder until it is dismissed; after that, and on every
+  // app console, it is the header's "Agent skills" button.
   const [skillsDismissed, dismissSkills] = useAgentSkillsDismissed();
   const skillsStrip = onFleet && !skillsDismissed;
 
@@ -87,7 +86,8 @@ export default function AdminCustomApps() {
   // that key (`AdminEntitySearch`), and binding it again here opened both dialogs
   // stacked on a single keypress, each filtering its own half of the results. Custom
   // apps are a group in that palette now, and this surface asks it to open rather than
-  // competing with it.
+  // competing with it. The browser's own type-ahead is per column and takes no shortcut,
+  // so it cannot collide with either.
 
   return (
     <div className='flex h-[calc(100vh-3.5rem)] flex-col' data-testid='admin-customer-apps'>
@@ -98,25 +98,12 @@ export default function AdminCustomApps() {
       {/* On a phone the bar wraps rather than dropping a control. */}
       <header className='flex h-10 shrink-0 items-center gap-2 border-b px-3 max-sm:h-auto max-sm:min-h-10 max-sm:flex-wrap max-sm:gap-y-1 max-sm:py-1.5'>
         <AppSwitcherTrigger onClick={openAdminPalette} />
-        {selected ? (
-          <>
-            {/* On an app, the way back to the whole fleet is a link, not the browser's
-                Back button — an operator often arrives here from the palette or a
-                pasted URL, where Back goes somewhere else entirely. */}
-            <Button asChild variant='ghost' size='sm' className='h-7 shrink-0 text-xs'>
-              <Link to='/admin/apps' data-testid='apps-console-all-apps'>
-                All apps
-              </Link>
-            </Button>
-            {/* A phone has no room for the name beside the controls, and the console
-                below opens with it anyway: there it only keeps the controls apart. */}
-            <AppIdentity app={selected} className='min-w-0 flex-1 max-sm:invisible' />
-          </>
-        ) : (
-          <span className='flex-1 text-muted-foreground text-xs'>
-            Every custom app on this deployment, worst first.
-          </span>
-        )}
+        {/* The surface's one line, and only where it is still true of what is on screen:
+            inside an app the pane's own header and the path bar say where you are, and
+            this would be dead text beside them. */}
+        <span className='min-w-0 flex-1 truncate text-muted-foreground text-xs'>
+          {selected ? "" : "Every custom app on this deployment, by org."}
+        </span>
         {!skillsStrip && <AgentSkillsButton />}
         <Button
           variant='outline'
@@ -143,8 +130,8 @@ export default function AdminCustomApps() {
           // below, byte-identical to the one `AdminAsync` already renders. Two guards,
           // both load-bearing:
           //
-          //   `params.appSlug && !selected` — `isWalking` alone would hold the FLEET in a
-          //   skeleton, when it should show the rows it has and grow.
+          //   `params.appSlug && !selected` — `isWalking` alone would hold the BROWSER in
+          //   a skeleton, when it should show the tiers it has and grow.
           //
           //   `&& !error` — `AdminAsync` checks loading BEFORE error, so a forced
           //   `isPending` makes the error branch and its Retry unreachable. That is not
@@ -178,43 +165,20 @@ export default function AdminCustomApps() {
             />
           }
         >
-          {(list) =>
-            params.appSlug && !selected ? (
-              // Named an app the registry does not have. Distinct from "no apps exist" and
-              // from a load failure, and it must not silently redirect somewhere else —
-              // a stale link should say it is stale.
-              <AdminEmptyState
-                className='m-6'
-                icon={AppWindow}
-                title={`No app at ${params.orgSlug}/${params.appSlug}.`}
-                description='It may have been deleted, or the slug may have changed.'
-                action={
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className='h-7 text-xs'
-                    onClick={openAdminPalette}
-                  >
-                    Switch app
-                  </Button>
-                }
-              />
-            ) : selected ? (
-              <AppConsole app={selected} />
-            ) : (
-              // Bare `/admin/apps`: the fleet. It used to redirect to whichever app most
-              // needed a person — same ordering, but it decided *for* the operator and
-              // hid everything it did not choose.
-              <AppsFleet
-                apps={list}
-                health={health}
-                healthRows={healthRows}
-                fleet={fleet.data}
-                storage={storage}
-                storageResponse={storageResponse}
-              />
-            )
-          }
+          {(list) => (
+            <AppBrowser
+              apps={list}
+              selected={selected}
+              // A stale link says it is stale in the pane, with the tiers still up beside
+              // it — distinct from "no apps exist" and from a load failure, and it must
+              // never silently redirect somewhere else.
+              missingApp={
+                params.appSlug && !selected ? `${params.orgSlug}/${params.appSlug}` : null
+              }
+              health={health}
+              data={{ health, healthRows, fleet: fleet.data, storage, storageResponse }}
+            />
+          )}
         </AdminAsync>
       )}
 

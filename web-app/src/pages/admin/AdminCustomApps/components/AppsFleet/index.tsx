@@ -1,14 +1,8 @@
-import { AppWindow, ArrowUpCircle, Search } from "lucide-react";
+import { AppWindow } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/shadcn/button";
-import { Input } from "@/components/ui/shadcn/input";
-import { useBatchPromoteLatestApps } from "@/hooks/api/customApps/useBatchAppMutations";
-import { errMessage } from "@/hooks/api/errMessage";
 import { cn } from "@/libs/shadcn/utils";
 import { timeAgo } from "@/libs/utils/date";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
-import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type {
   AppHealthRow,
   AppStorageUsageRow,
@@ -24,11 +18,12 @@ import {
   statusOf
 } from "../../appStatus";
 import { fleetColumns } from "../../fleetColumns";
-import { discriminatingFilters } from "../../fleetFilters";
+import { appliedStatus, discriminatingFilters } from "../../fleetFilters";
 import { LIFECYCLE_COPY, LifecycleConfirm } from "../AppLifecycle";
-import { statusTone } from "../AppSwitcher";
 import { FleetRow, gridTemplate } from "./FleetRow";
 import { FleetSummary } from "./FleetSummary";
+import { FleetToolbar } from "./FleetToolbar";
+import { usePromoteLatest } from "./usePromoteLatest";
 
 /**
  * The fleet: every custom app on the deployment, worst first.
@@ -60,6 +55,7 @@ import { FleetSummary } from "./FleetSummary";
  */
 export const AppsFleet = ({
   apps,
+  scopeOrg = null,
   health,
   healthRows,
   fleet,
@@ -67,6 +63,18 @@ export const AppsFleet = ({
   storageResponse
 }: {
   apps: CustomApp[];
+  /**
+   * One org's slug when the column browser has an org selected, `null` for the whole
+   * deployment.
+   *
+   * **Every count narrows with it.** The derived columns, the discriminating filters,
+   * the "n of m" and the promote-latest set are all computed over the scoped apps, so an
+   * org view cannot say "3 of 40" about three apps or offer to promote the deployment.
+   * The deployment-wide summary is the one thing that does *not* narrow — it links to
+   * audits that are fleet-wide and counts orgs, so under one org it would be a sentence
+   * about a scope nobody asked for. It is dropped instead of being rewritten.
+   */
+  scopeOrg?: string | null;
   health: HealthIndex | undefined;
   healthRows: ReadonlyMap<string, AppHealthRow> | undefined;
   fleet: FleetHealthResponse | undefined;
@@ -77,108 +85,66 @@ export const AppsFleet = ({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<AppStatus | null>(null);
 
+  const inScope = useMemo(
+    () => (scopeOrg ? apps.filter((a) => a.org_slug === scopeOrg) : apps),
+    [apps, scopeOrg]
+  );
+
   const { shown, hidden } = useMemo(
     () =>
       fleetColumns({
-        apps,
+        apps: inScope,
         observabilityConfigured: fleet?.observability_configured ?? false,
         storage
       }),
-    [apps, fleet?.observability_configured, storage]
+    [inScope, fleet?.observability_configured, storage]
   );
 
-  const filters = useMemo(() => discriminatingFilters(apps, health), [apps, health]);
+  const filters = useMemo(() => discriminatingFilters(inScope, health), [inScope, health]);
+
+  // What the chosen filter means in THIS scope — see `appliedStatus`. Everything below
+  // reads this rather than `status`, so the rows, the chips and the empty state cannot
+  // disagree about whether a filter is on.
+  const active = appliedStatus(status, filters);
 
   // Worst first — the same ordering the console's resolver uses, so the fleet's top row
   // and "the app that most needs a person" are the same app by construction.
   const rows = useMemo(() => {
-    const ordered = byAttention(apps, health);
+    const ordered = byAttention(inScope, health);
     return ordered.filter(
       (a) =>
-        (!query || matchesQuery(a, query)) && (status === null || statusOf(a, health) === status)
+        (!query || matchesQuery(a, query)) && (active === null || statusOf(a, health) === active)
     );
-  }, [apps, health, query, status]);
+  }, [inScope, health, query, active]);
 
-  // The fleet's one verb: promote the newest build on every published app in view.
-  // The batch endpoint and its hook existed with no consumer; this is the consumer.
-  // Published apps only — on a draft the same call would be a first publish, which is
-  // the per-app card's decision, not a fleet-wide one.
-  const promoteLatest = useBatchPromoteLatestApps();
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  const promotable = useMemo(() => rows.filter((a) => a.published_at), [rows]);
-  const runPromoteLatest = async () => {
-    try {
-      const result = await promoteLatest.mutateAsync(promotable.map((a) => a.id));
-      if (result.failed > 0) {
-        toast.warning(`Promoted ${result.succeeded}, ${result.failed} failed.`);
-      } else {
-        toast.success(
-          `Promoted the latest build on ${result.succeeded} app${result.succeeded === 1 ? "" : "s"}.`
-        );
-      }
-      setPromoteOpen(false);
-    } catch (err) {
-      toast.error(errMessage(err, "Couldn't promote the latest builds"));
-    }
-  };
+  // The fleet's one verb, with its mutation and its partial-failure handling in a hook
+  // of its own. The batch endpoint existed with no consumer; this is the consumer.
+  const promote = usePromoteLatest(rows);
 
   return (
-    <div className='flex min-h-0 flex-col' data-testid='admin-apps-fleet'>
-      <div className='flex items-center gap-2 px-4 py-2'>
-        <div className='relative min-w-0 flex-1 md:max-w-xs'>
-          <Search className='absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder='Filter by name, slug or org…'
-            className='h-7 pl-7 text-xs'
-            data-testid='admin-apps-fleet-search'
-          />
-        </div>
-        {filters.map((f) => (
-          <button
-            key={f.status}
-            type='button'
-            onClick={() => setStatus((s) => (s === f.status ? null : f.status))}
-            data-testid={`admin-apps-fleet-filter-${f.status}`}
-            className={cn(
-              "h-7 shrink-0 rounded-md border px-2 text-xs transition-colors",
-              status === f.status
-                ? // Through `statusTone`, not a down/not-down guess: `discriminatingFilters`
-                  // returns a chip for ANY status forming a proper subset, so an
-                  // "Operational 2" chip was being painted in the warning tone. On this
-                  // surface colour means something is wrong.
-                  cn(ADMIN_TONE[statusTone(f.status)].bg, "border-transparent")
-                : "border-border/60 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {f.label} <span className='tabular-nums'>{f.count}</span>
-          </button>
-        ))}
-        <span className='ml-auto shrink-0 text-muted-foreground text-xs tabular-nums'>
-          {rows.length === apps.length
-            ? `${apps.length} app${apps.length === 1 ? "" : "s"}`
-            : `${rows.length} of ${apps.length}`}
-        </span>
-        <Button
-          variant='outline'
-          size='sm'
-          className='h-7 shrink-0 gap-1.5 text-xs'
-          disabled={promotable.length === 0 || promoteLatest.isPending}
-          onClick={() => setPromoteOpen(true)}
-          data-testid='admin-apps-fleet-promote-latest'
-        >
-          <ArrowUpCircle className='size-3.5' />
-          Promote latest
-          <span className='text-muted-foreground tabular-nums'>{promotable.length}</span>
-        </Button>
-      </div>
+    // `flex-1` so the scroller below actually has a height to fill: inside the browser's
+    // pane this is what keeps the table scrolling on its own instead of pushing the path
+    // bar off the bottom of the page.
+    <div className='flex min-h-0 flex-1 flex-col' data-testid='admin-apps-fleet'>
+      <FleetToolbar
+        query={query}
+        onQueryChange={setQuery}
+        filters={filters}
+        status={active}
+        onStatusChange={setStatus}
+        counts={{ shown: rows.length, total: inScope.length }}
+        promote={{
+          count: promote.promotable.length,
+          disabled: promote.promotable.length === 0 || promote.pending,
+          onOpen: () => promote.setOpen(true)
+        }}
+      />
 
       <LifecycleConfirm
-        copy={promoteOpen ? LIFECYCLE_COPY.promoteLatest(promotable.length) : null}
-        pending={promoteLatest.isPending}
-        onConfirm={runPromoteLatest}
-        onCancel={() => setPromoteOpen(false)}
+        copy={promote.open ? LIFECYCLE_COPY.promoteLatest(promote.promotable.length) : null}
+        pending={promote.pending}
+        onConfirm={promote.run}
+        onCancel={() => promote.setOpen(false)}
       />
 
       <div className='min-h-0 flex-1 overflow-auto'>
@@ -226,7 +192,7 @@ export const AppsFleet = ({
           <AdminEmptyState
             className='m-6'
             icon={AppWindow}
-            title={query || status ? "Nothing matches." : "No custom apps on this deployment yet."}
+            title={emptyTitle(Boolean(query || active), scopeOrg)}
             description={
               query || status
                 ? "Clear the filter to see the whole fleet."
@@ -265,8 +231,21 @@ export const AppsFleet = ({
           </p>
         )}
 
-        <FleetSummary apps={apps} storage={storageResponse} />
+        {/* Deployment-wide facts, so only on the deployment-wide view — see `scopeOrg`. */}
+        {!scopeOrg && <FleetSummary apps={apps} storage={storageResponse} />}
       </div>
     </div>
   );
 };
+
+/**
+ * What an empty list says, which is three different facts and not one with modifiers: a
+ * filter that matched nothing, an org with no apps, and a deployment with none. The last
+ * two must not borrow each other's sentence — "no custom apps on this deployment" under
+ * one org would be a claim about the whole fleet from a view that cannot see it.
+ */
+function emptyTitle(filtered: boolean, scopeOrg: string | null): string {
+  if (filtered) return "Nothing matches.";
+  if (scopeOrg) return `No custom apps under ${scopeOrg}.`;
+  return "No custom apps on this deployment yet.";
+}

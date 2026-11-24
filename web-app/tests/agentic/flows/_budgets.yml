@@ -118,11 +118,12 @@
   warm_usd: 0.005
 
 - flow: admin-custom-apps-lifecycle
-  # Navigate to /admin/apps, open the seeded app's console, Unpublish +
-  # confirm, Publish + confirm, then DOM assertions + one judge call. Three
-  # act steps, no streaming LLM run. Replaces admin-custom-apps-tabs.
-  cold_usd: 0.30
-  warm_usd: 0.005
+  # Two cases. The lifecycle card: navigate to /admin/apps, open the seeded
+  # app's console, Unpublish + confirm, Publish + confirm. Then the column
+  # browser: org -> app -> page across the three tiers, and collapse the rail.
+  # Seven act steps between them, no streaming LLM run.
+  cold_usd: 0.60
+  warm_usd: 0.01
 
 - flow: automations-run-from-list
   # List an automation, open it, run it, read its output. The demo automation is

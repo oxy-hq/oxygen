@@ -56,3 +56,31 @@ export function discriminatingFilters(
     .map(([status, count]) => ({ status, label: STATUS_LABEL[status], count }))
     .sort((a, b) => statusRank(a.status) - statusRank(b.status));
 }
+
+/**
+ * The filter that is actually in force: the chosen one, or none when this scope does not
+ * offer it.
+ *
+ * **A filter that cannot be shown must not apply.** The rule above decides what is
+ * offered *per scope*, and the column browser changes the scope under a chosen filter —
+ * which the fleet keeps across the switch, because it is one component that re-renders
+ * rather than remounts. Choose "Draft" over the whole deployment, then open an org with
+ * no drafts, and `discriminatingFilters` correctly offers no chip while the chosen
+ * status still filtered the rows: zero rows, "Nothing matches", and nothing left on
+ * screen to switch off. Reproduced on the seeded fleet under `pokehouse-local` before
+ * this existed, and the only ways out were a reload or guessing which other org would
+ * bring the chip back.
+ *
+ * Deriving rather than clearing is what makes that unrepresentable instead of merely
+ * fixed: there is no moment where the stored choice and the offered chips disagree about
+ * what the table shows. It also means the choice survives a trip through a scope that
+ * cannot honour it — go back to an org that has drafts and the chip is active again,
+ * which is both visible on screen and what someone narrowing a fleet by hand expects.
+ */
+export function appliedStatus(
+  status: AppStatus | null,
+  offered: readonly FleetFilter[]
+): AppStatus | null {
+  if (status === null) return null;
+  return offered.some((f) => f.status === status) ? status : null;
+}

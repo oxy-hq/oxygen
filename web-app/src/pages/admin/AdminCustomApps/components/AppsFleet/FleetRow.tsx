@@ -139,10 +139,25 @@ export const FleetRow = ({
  * edge moves per row is not a column anyone can read down, which is the entire reason
  * Requests and Storage are right-aligned and tabular.
  *
- * `App` takes the slack because it is the only cell whose content has no bound. Its
- * floor is `12rem`, not `0`: every other track is `max-content`, so on a narrow pane a
- * zero floor gave App all of the squeeze and truncated names to a single letter. With a
- * floor the table scrolls sideways in its scroller instead.
+ * `App` absorbs the squeeze and some of the slack, because it is the only cell whose
+ * content has no bound. Its floor is `12rem`, not `0`: every other track is
+ * `max-content`, so on a narrow pane a zero floor gave App all of the squeeze and
+ * truncated names to a single letter. With a floor the table scrolls sideways in its
+ * scroller instead.
+ *
+ * **Its ceiling, and the gutter after it, are what a wide screen needs.** `1fr` with no
+ * ceiling gave App *every* spare pixel: measured on a 2560px screen, the App track ran
+ * to about 1400px and pushed Published, Last active and Storage against the right edge,
+ * so reading one row meant crossing 1300px of white to get from a name to its date. A
+ * column you have to travel to is not easier to read for being wider. The ceiling stops
+ * the stretch at a width that still fits the longest real identity this fleet has (an
+ * `authz-diff-<uuid>/authz-diff-app-<uuid>` pair), and the trailing `1fr` takes what is
+ * left so the tracks stay put instead of redistributing it.
  */
 export const gridTemplate = (columns: readonly FleetColumn[]): string =>
-  columns.map((c) => (c.id === "app" ? "minmax(12rem,1fr)" : "max-content")).join(" ");
+  [
+    ...columns.map((c) => (c.id === "app" ? "minmax(12rem,48rem)" : "max-content")),
+    // The gutter. Every row and the header are `col-span-full` subgrids, so they simply
+    // leave this last track empty.
+    "1fr"
+  ].join(" ");

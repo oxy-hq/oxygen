@@ -1,16 +1,14 @@
-import { CircleSlash, ExternalLink } from "lucide-react";
+import { CircleSlash } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAppLifecycle } from "@/hooks/api/customApps/useAppLifecycle";
-import { timeAgo } from "@/libs/utils/date";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { PRODUCTION } from "@/types/appEnvironments";
 import type { CustomApp } from "@/types/apps";
 import { resolveBundleUrl } from "../../resolveBundleUrl";
 import { useAppViewState } from "../AppDetail/useAppViewState";
-import { AppIdentity } from "../AppIdentity";
-import { LifecycleVerdictPill } from "../AppLifecycle";
+import { ConsoleHeader } from "./ConsoleHeader";
 import { ConsoleNav } from "./ConsoleNav";
 import { type ConsolePageId, consolePageFrom, consolePagePath } from "./consolePages";
 import { EnvironmentStrip } from "./EnvironmentStrip";
@@ -38,8 +36,14 @@ import { SettingsPage } from "./pages/SettingsPage";
  * **What stayed.** The environment strip rules every page that is one environment's
  * (`?env=`); panels still say which environment they show; and explanations still
  * exist, behind an ⓘ on the title they explain rather than under it.
+ *
+ * **`railed` means "the column browser is around me".** It suppresses this console's own
+ * sidebar at `lg` and up, because there the browser's Pages tier is that sidebar — same
+ * list, same icons, same counts, drawn once. Everything else is unchanged, including the
+ * header: the pane is where an operator reads the app's name and verdict, and the
+ * browser's path bar names it in the file-browser's own idiom rather than repeating it.
  */
-export const AppConsole = ({ app }: { app: CustomApp }) => {
+export const AppConsole = ({ app, railed = false }: { app: CustomApp; railed?: boolean }) => {
   const { consolePage } = useParams<{ consolePage?: string }>();
   const page = consolePageFrom(consolePage);
   const navigate = useNavigate();
@@ -77,25 +81,18 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
     <div className='min-h-0 flex-1 overflow-auto' data-testid='apps-console'>
       <div className='mx-auto w-full max-w-[110rem] p-4 lg:p-6'>
         <EnvironmentStrip appId={app.id} value={environment} onChange={setEnvironment} />
-        <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
-          <div className='flex min-w-0 flex-col gap-1.5'>
-            <AppIdentity app={app} size='lg' data-testid='apps-console-identity' />
-            <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs'>
-              <LifecycleVerdictPill verdict={verdict} data-testid='apps-console-status' />
-              <Since label='Published' at={app.published_at} />
-              <Since label='Last active' at={app.last_active_at} />
-            </div>
-          </div>
-          <Button asChild variant='outline' size='sm' className='h-7 gap-1.5 text-xs'>
-            <a href={servedAt} target='_blank' rel='noreferrer' data-testid='apps-console-open'>
-              Open app
-              <ExternalLink className='size-3' />
-            </a>
-          </Button>
-        </header>
+        <ConsoleHeader app={app} verdict={verdict} servedAt={servedAt} />
 
         <div className='flex gap-6 max-lg:flex-col max-lg:gap-3'>
-          <ConsoleNav app={app} page={page ?? "overview"} environment={environment} />
+          {/* Inside the column browser the Pages tier *is* this nav at `lg` and up, from
+              the same `CONSOLE_PAGES` and the same `useConsoleBadges`. It stays below
+              `lg`, where the browser does not render at all. */}
+          <ConsoleNav
+            app={app}
+            page={page ?? "overview"}
+            environment={environment}
+            className={railed ? "lg:hidden" : undefined}
+          />
           <main
             className='min-w-0 flex-1'
             data-testid='apps-console-main'
@@ -131,12 +128,6 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
     </div>
   );
 };
-
-const Since = ({ label, at }: { label: string; at: string | null | undefined }) => (
-  <span>
-    {label} {at ? <span title={new Date(at).toLocaleString()}>{timeAgo(at)}</span> : "—"}
-  </span>
-);
 
 const ConsolePageBody = ({
   page,

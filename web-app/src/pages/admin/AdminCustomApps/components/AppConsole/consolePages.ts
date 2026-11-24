@@ -1,3 +1,15 @@
+import {
+  Activity,
+  Database,
+  KeyRound,
+  LayoutDashboard,
+  type LucideIcon,
+  Radio,
+  Rocket,
+  Settings,
+  SquareFunction
+} from "lucide-react";
+
 /**
  * The app console's pages, and the one rule for the URL each lives at.
  *
@@ -28,17 +40,26 @@ export type ConsolePage = {
   label: string;
   /** The path segment after the app. Empty for the overview, which is the bare route. */
   segment: string;
+  /**
+   * The glyph that stands for the page.
+   *
+   * It lives on the page rather than in the component that draws it, because two
+   * surfaces now draw this list — the console's own sidebar and the column browser's
+   * Pages tier, which *is* that sidebar at `lg` and up. Two icon maps would be two
+   * chances for the same page to look like two pages.
+   */
+  icon: LucideIcon;
 };
 
 export const CONSOLE_PAGES: readonly ConsolePage[] = [
-  { id: "overview", label: "Overview", segment: "" },
-  { id: "activity", label: "Activity", segment: "activity" },
-  { id: "functions", label: "Functions", segment: "functions" },
-  { id: "events", label: "Events", segment: "events" },
-  { id: "releases", label: "Releases", segment: "releases" },
-  { id: "data", label: "Data", segment: "data" },
-  { id: "secrets", label: "Secrets", segment: "secrets" },
-  { id: "settings", label: "Settings", segment: "settings" }
+  { id: "overview", label: "Overview", segment: "", icon: LayoutDashboard },
+  { id: "activity", label: "Activity", segment: "activity", icon: Activity },
+  { id: "functions", label: "Functions", segment: "functions", icon: SquareFunction },
+  { id: "events", label: "Events", segment: "events", icon: Radio },
+  { id: "releases", label: "Releases", segment: "releases", icon: Rocket },
+  { id: "data", label: "Data", segment: "data", icon: Database },
+  { id: "secrets", label: "Secrets", segment: "secrets", icon: KeyRound },
+  { id: "settings", label: "Settings", segment: "settings", icon: Settings }
 ];
 
 /**
