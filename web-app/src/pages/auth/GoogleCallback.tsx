@@ -20,7 +20,13 @@ const GoogleCallback = () => {
 
     // Check for OAuth errors first
     if (error) {
-      console.error("Google OAuth error:", error);
+      // Google's own refusal, usually `access_denied` because the person
+      // cancelled the consent screen. Not a defect here, and `sentry.ts`
+      // captures every `console.error` as a Sentry error event
+      // (captureConsoleIntegration), so this one stays a warning: visible in
+      // the browser console, out of the error view. The CSRF branch below
+      // stays `console.error` — a failed state check is worth an event.
+      console.warn("Google OAuth error:", error);
       navigate(`${ROUTES.AUTH.LOGIN}?error=oauth_failed`);
       return;
     }

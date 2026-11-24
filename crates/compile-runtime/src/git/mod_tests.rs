@@ -205,3 +205,62 @@ fn every_failure_a_person_has_to_fix_is_not_retryable() {
         assert!(!error.is_retryable(), "{code}");
     }
 }
+
+/// The coordinator logs these refusals at WARN rather than ERROR, because only
+/// the workspace's owner can act on them and `fetch_for_task` has already
+/// logged each with its `workspace_id`. It cannot import this crate
+/// (`agentic-runtime` depends on `agentic-core` only), so it matches the
+/// leading `compile from git failed [<code>]: ` as text —
+/// `is_workspace_config_refusal` in
+/// `crates/agentic/runtime/src/orchestrator/coordinator/outcomes.rs`. Renaming
+/// one of these codes without editing that list would silently put the
+/// refusal back in Sentry's error events, which is what this pins.
+#[test]
+fn the_codes_the_coordinator_warns_on_keep_their_names() {
+    let warned = [
+        CompileGitError::DuckDbFileDatabase {
+            database: "sales".into(),
+        },
+        CompileGitError::DuckDbDataMissing {
+            database: "sales".into(),
+            path: ".db".into(),
+        },
+        CompileGitError::DuckDbPathOutsideTree {
+            database: "sales".into(),
+            path: "/proc/self/environ".into(),
+        },
+        CompileGitError::NoConfig,
+        CompileGitError::SubdirMissing("warehouse".into()),
+        github(TarballError::NotFound {
+            owner: "acme".into(),
+            repo: "analytics".into(),
+            sha: SHA.into(),
+        }),
+        CompileGitError::Unpack(UnpackError::TooLarge { limit: 1 }),
+    ];
+    let mut codes: Vec<&str> = warned
+        .iter()
+        .map(|error| {
+            let code = error.code();
+            let message = error.task_failure();
+            assert!(
+                message.starts_with(&format!("compile from git failed [{code}]: ")),
+                "{message}"
+            );
+            code
+        })
+        .collect();
+    codes.sort_unstable();
+    assert_eq!(
+        codes,
+        [
+            "commit_not_found",
+            "duckdb_data_missing",
+            "duckdb_file_database",
+            "duckdb_path_outside_tree",
+            "no_config",
+            "subdir_missing",
+            "tree_too_large",
+        ]
+    );
+}

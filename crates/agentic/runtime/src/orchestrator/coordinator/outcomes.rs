@@ -289,6 +289,16 @@ impl Coordinator {
                 error = %msg,
                 "agentic task failed while the workspace was still compiling"
             );
+        } else if is_workspace_config_refusal(&msg) {
+            tracing::warn!(
+                target: "coordinator",
+                task_id,
+                run_id,
+                task_kind = %task_kind,
+                parent_task_id,
+                error = %msg,
+                "agentic task refused the workspace's configuration"
+            );
         } else {
             tracing::error!(
                 target: "coordinator",
@@ -473,9 +483,49 @@ fn is_pending_compile(msg: &str) -> bool {
     msg.contains("a (re)compile has been enqueued")
 }
 
+/// Is this failure a commit compile refusing something only the workspace's
+/// owner can change?
+///
+/// `CompileGitError::task_failure` (`oxy-compile-runtime`) leads every commit
+/// compile failure with `compile from git failed [<code>]: `. The codes below
+/// name the repository's own content — a DuckDB file database a cloud
+/// deployment no longer serves, a missing `config.yml`, a commit that was
+/// force-pushed away — so nobody here can act on them, and `fetch_for_task`
+/// has already logged each one at WARN with its `workspace_id` and `code`.
+/// The coordinator logged the same fact a second time at ERROR, without the
+/// workspace id: `duckdb_file_database` alone was 391 of production's
+/// `agentic task failed` events in the week to 2026-11-23.
+///
+/// Codes that can be ours stay ERROR: `io`, `bad_archive`, `database`,
+/// `not_a_commit`, `duckdb_mirror_unconfigured` (our own
+/// `OXY_COMPILE_BLOB_S3_BUCKET` is unset, not the customer's repository), and
+/// every retryable one — a retryable failure carries `, retryable` inside the
+/// brackets, so the exact `[<code>]` match below cannot catch one.
+///
+/// Matched as text because `agentic-runtime` may not depend on
+/// `oxy-compile-runtime` (it depends on `agentic-core` only), the same way
+/// `is_pending_compile` matches `ScanUnavailable`. The strings are pinned by
+/// the tests below against `CompileGitError::code`.
+fn is_workspace_config_refusal(msg: &str) -> bool {
+    const CODES: [&str; 7] = [
+        "duckdb_file_database",
+        "duckdb_data_missing",
+        "duckdb_path_outside_tree",
+        "no_config",
+        "subdir_missing",
+        "commit_not_found",
+        "tree_too_large",
+    ];
+    CODES.iter().any(|code| {
+        msg.strip_prefix("compile from git failed [")
+            .and_then(|rest| rest.strip_prefix(*code))
+            .is_some_and(|rest| rest.starts_with("]: "))
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_pending_compile, is_user_input_request};
+    use super::{is_pending_compile, is_user_input_request, is_workspace_config_refusal};
 
     #[test]
     fn a_needs_user_input_failure_is_recognised() {
@@ -512,5 +562,67 @@ mod tests {
             r#"fatal: CompileError("models/orders.view.yml: missing field `dimensions`")"#
         ));
         assert!(!is_pending_compile("worker panicked"));
+    }
+
+    /// The message production reported, verbatim from Sentry OXY-2G, and the
+    /// shape `CompileGitError::task_failure` builds for the rest of the codes.
+    #[test]
+    fn a_workspace_config_refusal_is_recognised() {
+        assert!(is_workspace_config_refusal(
+            "compile from git failed [duckdb_file_database]: DuckDB database \"gallant\" is a \
+             file database (`dataset:` or `path:`), which a cloud deployment no longer \
+             supports: its data is files in the repository. Move the data to the workspace's \
+             Airhouse and declare the database as `type: airhouse_managed` under the same name"
+        ));
+        assert!(is_workspace_config_refusal(
+            "compile from git failed [no_config]: the commit has no config.yml at the \
+             workspace root; if the workspace lives in a subdirectory of its repository, \
+             workspaces.repo_subdir is not recorded yet"
+        ));
+        assert!(is_workspace_config_refusal(
+            "compile from git failed [commit_not_found]: commit not found"
+        ));
+        assert!(is_workspace_config_refusal(
+            "compile from git failed [tree_too_large]: the commit unpacks to more than 20000 \
+             files"
+        ));
+    }
+
+    /// The codes that can be our fault, and the retryable form: a retryable
+    /// failure appends `, retryable` inside the brackets
+    /// (`CompileGitError::RETRYABLE_MARKER`), so no exact `[<code>]` matches.
+    #[test]
+    fn a_failure_that_can_be_ours_is_not_a_config_refusal() {
+        assert!(!is_workspace_config_refusal(
+            "compile from git failed [io]: could not prepare a directory for the fetched commit"
+        ));
+        assert!(!is_workspace_config_refusal(
+            "compile from git failed [database]: database error: pool timed out"
+        ));
+        assert!(!is_workspace_config_refusal(
+            "compile from git failed [duckdb_mirror_unconfigured]: DuckDB database \"gallant\" \
+             is a local file and no S3 mirror bucket is configured"
+        ));
+        assert!(!is_workspace_config_refusal(
+            "compile from git failed [github_unavailable, retryable]: GitHub is unavailable"
+        ));
+        // Not a commit compile at all.
+        assert!(!is_workspace_config_refusal("worker panicked"));
+        assert!(!is_workspace_config_refusal(
+            r#"fatal: CompileError("models/orders.view.yml: missing field `dimensions`")"#
+        ));
+    }
+
+    /// A code that only starts with a listed one, and a listed code quoted
+    /// mid-message rather than leading it, are both ERROR: the match is the
+    /// whole bracketed code at the front of the message.
+    #[test]
+    fn a_config_refusal_matches_the_whole_leading_code_only() {
+        assert!(!is_workspace_config_refusal(
+            "compile from git failed [no_config_whatsoever]: invented"
+        ));
+        assert!(!is_workspace_config_refusal(
+            "worker panicked while handling compile from git failed [no_config]: ..."
+        ));
     }
 }
