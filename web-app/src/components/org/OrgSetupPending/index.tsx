@@ -2,8 +2,8 @@ import { Building2, LogOut, Settings } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import OxyLogo from "@/components/OxyLogo";
-import SettingsDialog from "@/components/settings/SettingsDialog";
-import { useSettingsDeepLink } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
+import { LegacySettingsParamRedirect } from "@/components/settings/LegacySettingsParamRedirect";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrgs } from "@/hooks/api/organizations";
@@ -11,7 +11,6 @@ import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { releaseBodyPointerLock } from "@/libs/utils/pointerEvents";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 import type { Organization } from "@/types/organization";
 import { BootstrapCommands } from "./components/BootstrapCommands";
 
@@ -41,10 +40,9 @@ export default function OrgSetupPending({ org }: Props) {
   const { logout } = useAuth();
   const { data: user } = useCurrentUser();
   const { data: orgs } = useOrgs();
-  const openSettings = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
 
-  // `/<org>?settings=organization.crew` opens the dialog straight away.
-  useSettingsDeepLink();
+  // `/<org>?settings=organization.crew` goes straight to that page.
 
   // Clear a body pointer lock leaked by a dialog on the page we came from, and
   // retire the last visit's workspace: `useCurrentWorkspace` is only ever
@@ -143,7 +141,7 @@ export default function OrgSetupPending({ org }: Props) {
         </div>
       </div>
 
-      <SettingsDialog />
+      <LegacySettingsParamRedirect />
     </div>
   );
 }

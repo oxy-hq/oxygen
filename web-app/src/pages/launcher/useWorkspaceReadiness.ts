@@ -1,6 +1,7 @@
 import { Database, GitFork, KeyRound } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { useChosenWorkspaceId } from "@/contexts/ChosenWorkspaceContext";
 import useAgents from "@/hooks/api/agents/useAgents";
@@ -16,7 +17,6 @@ import {
 import ROUTES from "@/libs/utils/routes";
 import { getAgentNameFromPath } from "@/libs/utils/string";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 
 export interface SetupGap {
   icon: typeof Database;
@@ -50,7 +50,7 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const navigate = useNavigate();
   const location = useLocation();
-  const openSettings = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
   // The workspace the shell was handed for this org (`OrgWorkspace`); the
   // address does not name one.
   const urlWsId = useChosenWorkspaceId();

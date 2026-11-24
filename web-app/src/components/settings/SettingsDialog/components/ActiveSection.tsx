@@ -1,5 +1,5 @@
 import { CanOrgAdmin } from "@/components/auth/Can";
-import type { SettingsSection } from "@/stores/useSettingsDialog";
+import type { SettingsSection } from "@/components/settings/settingsRoute";
 import type { Organization, OrgRole } from "@/types/organization";
 import type { Workspace } from "@/types/workspace";
 import AccountNotifications from "../sections/account/Notifications";

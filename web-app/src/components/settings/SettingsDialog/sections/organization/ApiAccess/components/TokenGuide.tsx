@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
-import useSettingsDialog, { type SettingsSection } from "@/stores/useSettingsDialog";
+import type { SettingsSection } from "@/components/settings/settingsRoute";
+import { useSettingsRoute } from "@/components/settings/useSettingsRoute";
 import type { ApiTokensTab } from "../../../../tabs";
 import { useCanOpenSection } from "../../../../useVisibleNavGroups";
 
@@ -87,8 +88,7 @@ interface TokenGuideProps {
  * can, rather than hidden.
  */
 export function TokenGuide({ visibleTabs }: TokenGuideProps) {
-  const setTab = useSettingsDialog((s) => s.setTab);
-  const open = useSettingsDialog((s) => s.open);
+  const { setTab, open } = useSettingsRoute();
   const canOpenSecrets = useCanOpenSection(SECRETS);
 
   const follow = (to: Destination): (() => void) | null => {

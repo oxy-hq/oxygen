@@ -50,13 +50,10 @@ vi.mock("@/contexts/AuthContext", () => ({
   useOptionalAuth: () => ({ isLocalMode: false, authConfig: {} })
 }));
 vi.mock("@/components/OxyLogo", () => ({ default: () => null }));
-vi.mock("@/components/settings/SettingsDialog", () => ({ default: () => null }));
-vi.mock("@/components/settings/SettingsDialog/useSettingsDeepLink", () => ({
-  SETTINGS_PARAM: "settings",
-  useSettingsDeepLink: () => {}
-}));
-vi.mock("@/stores/useSettingsDialog", () => ({
-  default: <T,>(selector: (s: { open: () => void }) => T) => selector({ open: vi.fn() })
+// Settings is a route now; the dispatcher only forwards its parameter, so the real
+// `settingsRoute` module (constants and pure parsing) is what it should be reading.
+vi.mock("@/components/settings/LegacySettingsParamRedirect", () => ({
+  LegacySettingsParamRedirect: () => null
 }));
 
 function Location() {

@@ -1,9 +1,7 @@
-import { Bell } from "lucide-react";
 import type { ReactNode } from "react";
 import { oxygenFirst } from "@/components/Notifications/utils";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useNotificationSettings, useUpdateNotificationSettings } from "@/hooks/api/notifications";
-import SectionHeader from "../../../components/SectionHeader";
 import { Devices } from "./components/Devices";
 import { PauseRow } from "./components/PauseRow";
 import { QuietHoursRow } from "./components/QuietHoursRow";
@@ -60,11 +58,6 @@ export default function AccountNotifications() {
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-account-notifications'>
-      <SectionHeader
-        icon={Bell}
-        title='Notifications'
-        description='Your inbox gets everything. Choose what else reaches you.'
-      />
       {schedule}
       <Devices />
       {tree}

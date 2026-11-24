@@ -1,12 +1,12 @@
 import { AlertCircle } from "lucide-react";
 import type React from "react";
 import { useEffect } from "react";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/shadcn/alert";
 import { Button } from "@/components/ui/shadcn/button";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useAirhouseConnection from "@/hooks/api/airhouse/useAirhouseConnection";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 
 type Props = {
   onReady: () => void;
@@ -26,7 +26,7 @@ type Props = {
  */
 const AirhouseGate: React.FC<Props> = ({ onReady }) => {
   const { workspace } = useCurrentWorkspace();
-  const { open } = useSettingsDialog();
+  const open = useOpenSettings();
   const { data, isLoading, error } = useAirhouseConnection(workspace?.id);
 
   const ready = !isLoading && !error && data?.is_provisioned === true;

@@ -351,7 +351,7 @@ function LocationForm({
           disabled={!canSubmit || isPending}
           data-testid='settings-locations-submit'
         >
-          {isPending ? "Saving..." : existing ? "Save changes" : "Create location"}
+          {isPending ? "Saving…" : existing ? "Save changes" : "Create location"}
         </Button>
       </div>
     </form>

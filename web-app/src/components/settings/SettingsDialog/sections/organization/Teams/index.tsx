@@ -1,11 +1,12 @@
-import { Plus, Users } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { useTeams } from "@/hooks/api/appAccess";
 import type { Team } from "@/types/appAccess";
 import type { Organization, OrgRole } from "@/types/organization";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
 import { TeamEditor } from "./components/TeamEditor";
+
 import { TeamList } from "./components/TeamList";
 
 interface TeamsSectionProps {
@@ -40,17 +41,12 @@ export default function TeamsSection({ org, viewerRole }: TeamsSectionProps) {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        icon={Users}
-        title='Teams'
-        description='Group people once, then grant a whole team access to an app. Adding someone to a team gives them everything that team can open.'
-        actions={
-          <Button size='sm' onClick={() => setCreating(true)}>
-            <Plus className='size-4' aria-hidden />
-            New team
-          </Button>
-        }
-      />
+      <SectionActions>
+        <Button size='sm' className='gap-1.5' onClick={() => setCreating(true)}>
+          <Plus className='size-4' aria-hidden='true' />
+          New team
+        </Button>
+      </SectionActions>
 
       <TeamList
         orgId={orgId}

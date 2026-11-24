@@ -1,10 +1,8 @@
-import { Activity } from "lucide-react";
 import React from "react";
 import TableContentWrapper from "@/components/settings/components/TableContentWrapper";
 import TableWrapper from "@/components/settings/components/TableWrapper";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useLogs } from "@/hooks/api/activityLogs/useLogs";
-import SectionHeader from "../../../components/SectionHeader";
 import LogRow from "./LogRow";
 
 export default function ActivityLogs() {
@@ -22,8 +20,6 @@ export default function ActivityLogs() {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader icon={Activity} title='Activity Logs' />
-
       <TableWrapper>
         <Table>
           <TableHeader>

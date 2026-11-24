@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import queryKeys from "@/hooks/api/queryKey";
@@ -100,9 +101,11 @@ const fillInNewSecret = async (existing: Secret[] | null = []) => {
     queryClient.setQueryData(queryKeys.secret.list("proj-1"), list);
   }
   render(
-    <QueryClientProvider client={queryClient}>
-      <Secrets />
-    </QueryClientProvider>
+    <MemoryRouter initialEntries={["/acme/settings/organization/secrets"]}>
+      <QueryClientProvider client={queryClient}>
+        <Secrets />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   fireEvent.change(screen.getByLabelText("Name *"), { target: { value: "API_KEY" } });
@@ -219,11 +222,13 @@ describe("Secrets section create", () => {
 describe("Secrets section: apps missing a key", () => {
   const renderSection = () =>
     render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}
-      >
-        <Secrets />
-      </QueryClientProvider>
+      <MemoryRouter initialEntries={["/acme/settings/organization/secrets"]}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}
+        >
+          <Secrets />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
 
   it("opens create with the name filled in and the app ticked", async () => {

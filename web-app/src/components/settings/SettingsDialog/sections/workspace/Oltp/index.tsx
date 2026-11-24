@@ -1,10 +1,9 @@
-import { Database, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type React from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import useOltpConnection from "@/hooks/api/oltp/useOltpConnection";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import SectionHeader from "../../../components/SectionHeader";
 import SchemaDiagram from "./components/SchemaDiagram";
 
 /** A labelled read-only value, matching the Airhouse connection panel. */
@@ -167,15 +166,6 @@ const Oltp: React.FC = () => {
   // schemas exist and whether analytics can see them.
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        title={
-          <span className='flex items-center gap-2'>
-            <Database className='h-4 w-4' />
-            OLTP Database
-          </span>
-        }
-        description='Where your custom apps and pipelines write transactional data.'
-      />
       <div className='space-y-6'>{renderContent()}</div>
     </div>
   );

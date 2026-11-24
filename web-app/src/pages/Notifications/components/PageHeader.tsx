@@ -1,6 +1,6 @@
 import { ArrowLeft, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { SETTINGS_PARAM } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
+import { SETTINGS_PARAM } from "@/components/settings/settingsRoute";
 import ROUTES from "@/libs/utils/routes";
 
 /** Settings → Notifications, opened in whichever workspace `/` lands in. */

@@ -107,7 +107,7 @@ export default function GeneralSection({ org, onClose }: GeneralSectionProps) {
             {slugError && <p className='text-destructive text-sm'>{slugError}</p>}
           </div>
           <Button onClick={handleSave} disabled={!hasChanges || updateOrg.isPending}>
-            {updateOrg.isPending ? "Saving..." : "Save"}
+            {updateOrg.isPending ? "Saving…" : "Save"}
           </Button>
         </div>
 
@@ -115,12 +115,12 @@ export default function GeneralSection({ org, onClose }: GeneralSectionProps) {
 
         <CanOrgOwner>
           <div className='space-y-4 rounded-lg border border-destructive/50 p-4'>
-            <h3 className='font-medium text-destructive'>Danger Zone</h3>
+            <h3 className='font-medium text-destructive'>Danger zone</h3>
             <p className='text-muted-foreground text-sm'>
               Deleting this organization will permanently remove all workspaces, members, and data.
             </p>
             <Button variant='destructive' onClick={() => setDeleteOpen(true)}>
-              Delete Organization
+              Delete organization
             </Button>
           </div>
         </CanOrgOwner>

@@ -1,10 +1,10 @@
+import type { SettingsSection } from "@/components/settings/settingsRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import useCanUsePreviews from "@/hooks/useCanUsePreviews";
 import { useRole } from "@/hooks/useRole";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import type { SettingsSection } from "@/stores/useSettingsDialog";
 import { type VisibleNavGroup, visibleNavGroups } from "./nav";
 
 /**
@@ -29,8 +29,7 @@ export function useVisibleNavGroups(): VisibleNavGroup[] {
     billingEnabled: authConfig.billing_enabled,
     hasOrg: !!org && !!role,
     hasWorkspace: !!workspace,
-    orgName: org?.name,
-    workspaceName: workspace?.name
+    orgName: org?.name
   });
 }
 

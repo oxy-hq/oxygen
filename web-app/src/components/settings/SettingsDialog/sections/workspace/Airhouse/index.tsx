@@ -1,13 +1,12 @@
 import { isAxiosError } from "axios";
 import type React from "react";
-import { AirhouseLogo } from "@/components/icons";
 import useAirhouseConnection from "@/hooks/api/airhouse/useAirhouseConnection";
 import useProvisionAirhouse from "@/hooks/api/airhouse/useProvisionAirhouse";
 import useAuthConfig from "@/hooks/auth/useAuthConfig";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
 import { AirhouseVersionBadge } from "./components/AirhouseVersionBadge";
 import { CatalogIndexes } from "./components/CatalogIndexes";
 import { ConnectionDetails } from "./components/ConnectionDetails";
@@ -102,16 +101,10 @@ const Airhouse: React.FC = () => {
   // (provisioning, catalog indexes) are gated individually above.
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        title={
-          <span className='flex items-center gap-2'>
-            <AirhouseLogo className='h-4 w-4' />
-            Airhouse
-          </span>
-        }
-        description='Connect any Postgres-compatible client to your Airhouse-managed database.'
-        actions={<AirhouseVersionBadge />}
-      />
+      <SectionActions>
+        <AirhouseVersionBadge />
+      </SectionActions>
+
       <div className='space-y-6'>{renderContent()}</div>
     </div>
   );

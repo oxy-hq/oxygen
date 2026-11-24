@@ -96,7 +96,7 @@ function WorkerAppsForm({
           disabled={unchanged || setApps.isPending}
           data-testid='settings-crew-apps-submit'
         >
-          {setApps.isPending ? "Saving..." : "Save apps"}
+          {setApps.isPending ? "Saving…" : "Save apps"}
         </Button>
       </div>
     </form>

@@ -317,7 +317,7 @@ function TrustPolicyForm({
         <Button type='submit' size='sm' disabled={isPending} data-testid='api-access-trust-submit'>
           {policy
             ? isPending
-              ? "Saving..."
+              ? "Saving…"
               : "Save changes"
             : isPending
               ? "Adding..."

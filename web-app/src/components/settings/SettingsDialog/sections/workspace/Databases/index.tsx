@@ -1,8 +1,6 @@
-import { Database } from "lucide-react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
 import WorkspaceRepositoryNotice from "@/components/WorkspaceRepositoryNotice";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
 import DatabaseTable from "./DatabaseTable";
 
 /**
@@ -20,7 +18,6 @@ export default function Databases() {
       }
     >
       <div className='flex flex-col gap-5'>
-        <SectionHeader icon={Database} title='Databases' />
         <WorkspaceRepositoryNotice />
         <DatabaseTable />
       </div>

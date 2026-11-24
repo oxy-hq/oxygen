@@ -5,7 +5,6 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import type { AxiosAdapter } from "axios";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import SettingsDialog from "@/components/settings/SettingsDialog";
 import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { apiClient } from "@/services/api/axios";
@@ -18,11 +17,15 @@ import { WorkspaceShell } from "./WorkspaceShell";
  * A customer screen never calls a Factory route.
  *
  * A dialog mounted for every page used to ask `GET /{workspace}/modeling` on load
- * (that route and the dialog are gone now); once enforcement is on, such a request
+ * (that route and the dialog are both gone now); once enforcement is on, such a request
  * is a `403 factory_access_required` per page load, and a toast for each. Rendering what
  * every page mounts, as someone the server will not let into the Factory, and
  * recording the requests it sends is the check that does not depend on remembering
  * which hook is mounted where.
+ *
+ * Settings used to be that dialog, mounted beside the shell here. It is a route now, so it
+ * is not mounted on a customer screen at all and there is nothing of it left to render in
+ * this test — which is the stronger version of what this file is protecting.
  *
  * The prefixes are the route table's Factory list
  * (`crates/workspace-runtime/src/request/factory_access/routes.rs`) at its coarsest: a route the customer list
@@ -93,7 +96,6 @@ function renderWhatEveryPageMounts() {
       <AuthProvider authConfig={authConfig}>
         <MemoryRouter initialEntries={["/acme/workspaces/ws-1/home"]}>
           <SidebarProvider>
-            <SettingsDialog />
             <WorkspaceShell>
               <div />
             </WorkspaceShell>

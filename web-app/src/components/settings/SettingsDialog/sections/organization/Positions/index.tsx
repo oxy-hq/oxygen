@@ -6,7 +6,7 @@ import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components
 import { useAssignments, useOrgRoles } from "@/hooks/api/organizations";
 import type { Organization, OrgRole } from "@/types/organization";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
 import { NewPositionDialog } from "./components/NewPositionDialog";
 import { OrgWidePane } from "./components/OrgWidePane";
 import { PositionRow } from "./components/PositionRow";
@@ -46,25 +46,19 @@ export default function PositionsSection({ org, viewerRole }: PositionsSectionPr
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-positions'>
-      <SectionHeader
-        icon={BriefcaseBusiness}
-        title='Positions'
-        description='What people are called and what work routes to them: shift lead, store manager, area manager. A position grants no permissions.'
-        actions={
-          <Button
-            size='sm'
-            className='gap-1.5'
-            onClick={() => setCreating(true)}
-            data-testid='settings-positions-new'
-          >
-            <Plus className='h-4 w-4' />
-            New position
-          </Button>
-        }
-      />
-      {roles.data && (
-        <p className='-mt-2 text-muted-foreground text-xs'>{positionSummary(roles.data)}</p>
-      )}
+      <SectionActions>
+        <Button
+          size='sm'
+          className='gap-1.5'
+          onClick={() => setCreating(true)}
+          data-testid='settings-positions-new'
+        >
+          <Plus className='size-4' aria-hidden='true' />
+          New position
+        </Button>
+      </SectionActions>
+
+      {roles.data && <p className='text-muted-foreground text-sm'>{positionSummary(roles.data)}</p>}
 
       {roles.isPending ? (
         <div className='flex min-h-24 items-center justify-center'>

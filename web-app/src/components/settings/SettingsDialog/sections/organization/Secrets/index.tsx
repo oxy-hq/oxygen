@@ -1,4 +1,4 @@
-import { ArrowRight, KeyRound, Plus } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
@@ -7,14 +7,14 @@ import { CreateSecretDialog } from "@/components/settings/secrets/CreateSecretDi
 import { UnifiedSecretsTable } from "@/components/settings/secrets/UnifiedSecretsTable";
 import { buildRows, inScope } from "@/components/settings/secrets/UnifiedSecretsTable/rows";
 import type { SecretsScope } from "@/components/settings/secrets/UnifiedSecretsTable/types";
+import { useSettingsRoute } from "@/components/settings/useSettingsRoute";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import useSecrets from "@/hooks/api/secrets/useSecrets";
 import { useSharedSecrets } from "@/hooks/api/secrets/useSharedSecrets";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
 import type { SecretsTab } from "../../../tabs";
 
 /** What the create dialog opens with: blank, or a key an app is missing. */
@@ -46,9 +46,7 @@ const SCOPE_OF: Record<SecretsTab, SecretsScope> = { shared: "workspace", app: "
 const TAB_OF: Record<SecretsScope, SecretsTab> = { workspace: "shared", app: "app" };
 
 const SecretsBody: React.FC = () => {
-  const requested = useSettingsDialog((s) => s.tab);
-  const setRequested = useSettingsDialog((s) => s.setTab);
-  const openSettings = useSettingsDialog((s) => s.open);
+  const { tab: requested, setTab: setRequested, open: openSettings } = useSettingsRoute();
   const { isLocalMode } = useAuth();
   const tab: SecretsScope = SCOPE_OF[requested as SecretsTab] ?? "workspace";
   const setTab = (scope: SecretsScope) => setRequested(TAB_OF[scope]);
@@ -70,39 +68,31 @@ const SecretsBody: React.FC = () => {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        icon={KeyRound}
-        title='Secrets'
-        description={
-          <>
-            Values Oxygen keeps for your apps, agents and databases, such as another service's API
-            key.
-            {/* Local mode has no sign-in, so no API tokens section to point at. */}
-            {!isLocalMode && (
-              <>
-                {" "}
-                For a token that lets something call Oxygen itself, see{" "}
-                <button
-                  type='button'
-                  className='inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline'
-                  onClick={() => openSettings("organization.api_tokens")}
-                  data-testid='secrets-api-tokens-link'
-                >
-                  API tokens
-                  <ArrowRight className='size-3' aria-hidden />
-                </button>
-                .
-              </>
-            )}
-          </>
-        }
-        actions={
-          <Button size='sm' variant='outline' onClick={() => openCreate()}>
-            <Plus />
-            Create
-          </Button>
-        }
-      />
+      <SectionActions>
+        <Button size='sm' variant='outline' onClick={() => openCreate()}>
+          <Plus aria-hidden='true' />
+          Create
+        </Button>
+      </SectionActions>
+
+      {/* The nav's description says what a secret is; this says what it is NOT, which is
+          the mix-up that actually costs people time. Local mode has no sign-in, so no API
+          tokens section to point at. */}
+      {!isLocalMode && (
+        <p className='text-muted-foreground text-sm'>
+          For a token that lets something call Oxygen itself, see{" "}
+          <button
+            type='button'
+            className='inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline'
+            onClick={() => openSettings("organization.api_tokens")}
+            data-testid='secrets-api-tokens-link'
+          >
+            API tokens
+            <ArrowRight className='size-3' aria-hidden='true' />
+          </button>
+          .
+        </p>
+      )}
 
       <AppsMissingSecrets
         sharing={sharing}

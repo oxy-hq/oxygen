@@ -40,8 +40,8 @@ import { PreviewPending } from "./components/PreviewBar/PreviewPending";
 import ProtectedRoute from "./components/ProtectedRoute";
 import UnknownWorkspacePath from "./components/Shell/UnknownWorkspacePath";
 import { WorkspaceShell } from "./components/Shell/WorkspaceShell";
-import SettingsDialog from "./components/settings/SettingsDialog";
-import { useSettingsDeepLink } from "./components/settings/SettingsDialog/useSettingsDeepLink";
+import { LegacySettingsParamRedirect } from "./components/settings/LegacySettingsParamRedirect";
+import { useOpenSettings } from "./components/settings/useSettingsRoute";
 import { ThemeServerSync } from "./components/ThemeServerSync";
 import AgenticSetupPage from "./components/workspaces/components/CreateWorkspaceDialog/components/AgenticSetup";
 import { LocalWorkspaceSetupDialog } from "./components/workspaces/components/LocalWorkspaceSetupDialog";
@@ -72,12 +72,13 @@ import OrgWorkspace from "./pages/OrgWorkspace";
 import OnboardingPage from "./pages/onboarding";
 import PostLoginDispatcher from "./pages/PostLoginDispatcher";
 import QuickBooksConnected from "./pages/quickbooks/QuickBooksConnected";
+import SettingsPage from "./pages/settings/SettingsPage";
+import SettingsWorkspaceGate from "./pages/settings/SettingsWorkspaceGate";
 import WorkspaceEntry from "./pages/WorkspaceEntry";
 import useAskDock from "./stores/useAskDock";
 import useCurrentOrg from "./stores/useCurrentOrg";
 import useCurrentWorkspace from "./stores/useCurrentWorkspace";
 import { useDatabaseOperationStore } from "./stores/useDatabaseOperation";
-import useSettingsDialog from "./stores/useSettingsDialog";
 import type { AuthConfigResponse } from "./types/auth";
 
 // Lazy-load the entire IDE subtree: users who never visit /ide should not pay
@@ -218,16 +219,13 @@ export const WorkspaceLayout = React.memo(function WorkspaceLayout({
   // a refresh doesn't re-fire the toast. (Lived in the cloud-only sidebar
   // footer until the sidebar was removed; WorkspaceLayout matches its mount
   // surface, and the local-mode guard matches its cloud-only scope.)
-  // `?settings=<section>` — the link the custom-app shell emits, and any
-  // other deep link into the dialog. Read once, then stripped.
-  useSettingsDeepLink();
   const [searchParams, setSearchParams] = useSearchParams();
-  const openSettingsDialog = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
   useEffect(() => {
     if (isLocalMode) return;
     if (searchParams.get("slack_installed") !== "ok") return;
     toast.success("Slack connected");
-    openSettingsDialog("organization.integration");
+    openSettings("organization.integration");
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -236,7 +234,7 @@ export const WorkspaceLayout = React.memo(function WorkspaceLayout({
       },
       { replace: true }
     );
-  }, [isLocalMode, searchParams, setSearchParams, openSettingsDialog]);
+  }, [isLocalMode, searchParams, setSearchParams, openSettings]);
 
   React.useEffect(() => {
     if (!isPending && !isError && data) {
@@ -362,10 +360,17 @@ export const WorkspaceLayout = React.memo(function WorkspaceLayout({
 
   const shell = (
     <HotkeysProvider>
-      <SettingsDialog />
+      {/* `?settings=` is still emitted by notification emails and published `oxyc`
+          versions, so it is translated to the route wherever it lands. */}
+      <LegacySettingsParamRedirect />
       <WorkspaceShell>
         <Routes>
           <Route index element={<CustomerHome />} />
+
+          {/* Also declared here, not only at the org level: local mode has no org segment,
+              so this is the only place its `/settings/...` can resolve. In cloud the
+              org-level route matches first and this one never runs. */}
+          <Route path='settings/*' element={<SettingsPage />} />
 
           <Route path='home' element={<CustomerHome />} />
           {/* The Chat page: a composer + recent threads (replacing the old bulk
@@ -794,6 +799,11 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
 
               {/* Org root sends everyone to the org home; an org with nothing
                   ready shows "being set up" */}
+              {/* Settings is a page now, not a dialog: `/settings/<area>/<page>[/<tab>]`.
+                  It sits at the org level, above the workspace catch-all, because an org
+                  still being set up has no workspace and its "being set up" screen links
+                  into Crew, Locations and App access — none of which need one. */}
+              <Route path='settings/*' element={<SettingsWorkspaceGate />} />
               <Route index element={<OrgDispatcher />} />
               {/* The org onboarding wizard is gone; old links land on the org root. */}
               <Route path='onboarding' element={<Navigate to='..' replace />} />

@@ -6,7 +6,7 @@ import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components
 import { useLocations } from "@/hooks/api/organizations";
 import type { Organization, OrgRole } from "@/types/organization";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
 import { LocationDialog } from "./components/LocationDialog";
 import { LocationTableRow } from "./components/LocationTableRow";
 import { locationSummary, locationTree } from "./utils";
@@ -42,24 +42,20 @@ export default function LocationsSection({ org, viewerRole }: LocationsSectionPr
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-locations'>
-      <SectionHeader
-        icon={MapPin}
-        title='Locations'
-        description='The places work happens, in the levels you name: regions, stores, stations. People are assigned here, kiosks sit here, and other systems find each place by its external ids.'
-        actions={
-          <Button
-            size='sm'
-            className='gap-1.5'
-            onClick={() => setCreating(true)}
-            data-testid='settings-locations-new'
-          >
-            <Plus className='h-4 w-4' />
-            New location
-          </Button>
-        }
-      />
+      <SectionActions>
+        <Button
+          size='sm'
+          className='gap-1.5'
+          onClick={() => setCreating(true)}
+          data-testid='settings-locations-new'
+        >
+          <Plus className='size-4' aria-hidden='true' />
+          New location
+        </Button>
+      </SectionActions>
+
       {locations.data && (
-        <p className='-mt-2 text-muted-foreground text-xs'>{locationSummary(locations.data)}</p>
+        <p className='text-muted-foreground text-sm'>{locationSummary(locations.data)}</p>
       )}
 
       {locations.isPending ? (

@@ -69,7 +69,7 @@ function VersionBadgeBody({ showBuildDetails }: { showBuildDetails: boolean }) {
       </PopoverTrigger>
       <PopoverContent className='w-80' align='start'>
         <div className='space-y-2'>
-          <div className='font-semibold text-sm'>Build Information</div>
+          <div className='font-semibold text-sm'>Build information</div>
           <div className='space-y-1 text-xs'>
             <div className='flex justify-between'>
               <span className='text-muted-foreground'>Image:</span>

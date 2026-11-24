@@ -1,10 +1,8 @@
-import { HardHat } from "lucide-react";
 import { useOrgAppAccessList } from "@/hooks/api/appAccess";
 import { useFrontlineDevices, useFrontlineWorkers } from "@/hooks/api/organizations";
 import { kioskState } from "@/libs/frontline";
 import type { Organization, OrgRole } from "@/types/organization";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
 import { KiosksPane } from "./components/KiosksPane";
 import { WorkersPane } from "./components/WorkersPane";
 
@@ -52,12 +50,7 @@ export default function CrewSection({ org, viewerRole }: CrewSectionProps) {
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-crew'>
-      <SectionHeader
-        icon={HardHat}
-        title='Crew'
-        description='Frontline workers who sign in on a shared tablet with a PIN. They have no email and no membership here, and reach only the apps you grant.'
-      />
-      {counts && <p className='-mt-2 text-muted-foreground text-xs'>{counts}</p>}
+      {counts && <p className='text-muted-foreground text-sm'>{counts}</p>}
 
       <WorkersPane
         orgId={orgId}

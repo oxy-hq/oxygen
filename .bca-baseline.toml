@@ -1390,25 +1390,13 @@ value = 21.0
 path = "crates/agentic/llm/src/anthropic.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 885.0
-
-[[entry]]
-path = "crates/agentic/llm/src/anthropic.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1300.0
+value = 608.0
 
 [[entry]]
 path = "crates/agentic/llm/src/anthropic.rs"
 qualified = "AnthropicProvider::build_request_body"
 metric = "nargs"
 value = 7.0
-
-[[entry]]
-path = "crates/agentic/llm/src/anthropic.rs"
-qualified = "AnthropicProvider::stream"
-metric = "cyclomatic"
-value = 16.0
 
 [[entry]]
 path = "crates/agentic/llm/src/anthropic.rs"
@@ -1480,7 +1468,7 @@ value = 7.0
 path = "crates/agentic/llm/src/genai.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 630.0
+value = 628.0
 
 [[entry]]
 path = "crates/agentic/llm/src/genai.rs"
@@ -1551,18 +1539,6 @@ value = 33.0
 [[entry]]
 path = "crates/agentic/llm/src/openai_compat.rs"
 qualified = "ThinkParser::push"
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "crates/agentic/llm/src/pricing.rs"
-qualified = "rates_for"
-metric = "abc"
-value = 53.16013544000805
-
-[[entry]]
-path = "crates/agentic/llm/src/pricing.rs"
-qualified = "rates_for"
 metric = "cyclomatic"
 value = 16.0
 
@@ -1840,13 +1816,13 @@ value = 17.0
 path = "crates/agentic/pipeline/src/lib.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1166.0
+value = 1155.0
 
 [[entry]]
 path = "crates/agentic/pipeline/src/lib.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1741.0
+value = 1712.0
 
 [[entry]]
 path = "crates/agentic/pipeline/src/lib.rs"
@@ -1864,7 +1840,7 @@ value = 6.0
 path = "crates/agentic/pipeline/src/lib.rs"
 qualified = "PipelineBuilder::resume_analytics"
 metric = "abc"
-value = 55.036351623268054
+value = 48.54894437575342
 
 [[entry]]
 path = "crates/agentic/pipeline/src/lib.rs"
@@ -1876,7 +1852,7 @@ value = 6.0
 path = "crates/agentic/pipeline/src/lib.rs"
 qualified = "PipelineBuilder::start_analytics"
 metric = "abc"
-value = 67.36467917239716
+value = 66.007575322837
 
 [[entry]]
 path = "crates/agentic/pipeline/src/lib.rs"
@@ -1907,12 +1883,6 @@ path = "crates/agentic/pipeline/src/react_resume.rs"
 qualified = "resume_react"
 metric = "nargs"
 value = 6.0
-
-[[entry]]
-path = "crates/agentic/pipeline/src/react_run.rs"
-qualified = "build_react_run"
-metric = "abc"
-value = 46.2709412050371
 
 [[entry]]
 path = "crates/agentic/pipeline/src/react_run.rs"
@@ -2138,12 +2108,6 @@ value = 6.0
 
 [[entry]]
 path = "crates/agentic/runtime/src/lifecycle/crud/queries.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 609.0
-
-[[entry]]
-path = "crates/agentic/runtime/src/lifecycle/crud/queries.rs"
 qualified = "get_thread_history_with_events"
 metric = "abc"
 value = 55.98214000911362
@@ -2188,13 +2152,13 @@ value = 8.0
 path = "crates/agentic/runtime/src/migration.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1669.0
+value = 1648.0
 
 [[entry]]
 path = "crates/agentic/runtime/src/migration.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2234.0
+value = 2175.0
 
 [[entry]]
 path = "crates/agentic/runtime/src/migration.rs"
@@ -2668,7 +2632,7 @@ value = 20.0
 path = "crates/airhouse/src/admin/client.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 966.0
+value = 725.0
 
 [[entry]]
 path = "crates/airhouse/src/admin/client.rs"
@@ -2680,7 +2644,7 @@ value = 86.0
 path = "crates/airhouse/src/admin/client.rs"
 qualified = "AirhouseAdminClient::mint_token"
 metric = "nargs"
-value = 8.0
+value = 6.0
 
 [[entry]]
 path = "crates/airhouse/src/api/admin.rs"
@@ -3526,13 +3490,13 @@ value = 1779.0
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1959.0
+value = 1453.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2810.0
+value = 2219.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
@@ -3543,14 +3507,14 @@ value = 18.0
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "ProjectFunctionHost"
-start_line = 505
+start_line = 511
 metric = "nom"
 value = 34.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "ProjectFunctionHost"
-start_line = 901
+start_line = 907
 metric = "nom"
 value = 87.0
 
@@ -3672,13 +3636,13 @@ value = 19.0
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 2402.0
+value = 2345.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 3661.0
+value = 3589.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"
@@ -3918,7 +3882,7 @@ value = 53.68426212587819
 path = "crates/api-custom-apps/src/custom_apps_publish/inflate.rs"
 qualified = "inflate"
 metric = "abc"
-value = 56.089214649520635
+value = 52.952809179494906
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_publish_form.rs"
@@ -5106,13 +5070,13 @@ value = 65.27633568147036
 path = "crates/api-frontline/src/frontline.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 865.0
+value = 864.0
 
 [[entry]]
 path = "crates/api-frontline/src/frontline.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1534.0
+value = 1533.0
 
 [[entry]]
 path = "crates/api-frontline/src/frontline.rs"
@@ -5790,7 +5754,7 @@ value = 1204.0
 path = "crates/api-semantic/src/semantic.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 633.0
+value = 632.0
 
 [[entry]]
 path = "crates/api-semantic/src/semantic.rs"
@@ -5976,13 +5940,13 @@ value = 52.1344415909483
 path = "crates/api-tenancy/src/admin/orgs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 977.0
+value = 976.0
 
 [[entry]]
 path = "crates/api-tenancy/src/admin/orgs.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1241.0
+value = 1240.0
 
 [[entry]]
 path = "crates/api-tenancy/src/admin/orgs.rs"
@@ -6729,154 +6693,10 @@ metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
-path = "crates/workspace-runtime/src/preview_ctx/airhouse_writes.rs"
-qualified = "PreviewAirhouse::review"
-metric = "abc"
-value = 40.47221268969612
-
-[[entry]]
 path = "crates/app/src/cli/commands/compile.rs"
 qualified = "run_compile"
 metric = "abc"
 value = 40.36087214122113
-
-[[entry]]
-path = "crates/app/src/cli/commands/mod.rs"
-qualified = "run"
-metric = "abc"
-value = 50.566787519082126
-
-[[entry]]
-path = "crates/app/src/cli/commands/mod.rs"
-qualified = "run"
-metric = "cognitive"
-value = 44.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/mod.rs"
-qualified = "run"
-metric = "cyclomatic"
-value = 30.0
-
-[[entry]]
-path = "crates/server/src/router/middlewares/local_context.rs"
-qualified = "attach_workspace_manager"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "crates/server/src/role_manifest_tests.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 754.0
-
-[[entry]]
-path = "crates/server/src/role_manifest_tests.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1340.0
-
-[[entry]]
-path = "crates/server/src/router/entry.rs"
-qualified = "api_router_with_state"
-metric = "abc"
-value = 87.25823743349392
-
-[[entry]]
-path = "crates/server/src/router/entry.rs"
-qualified = "api_router"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "crates/server/src/router/mod.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 655.0
-
-[[entry]]
-path = "crates/server/src/drivers/periodic/monitors.rs"
-qualified = "create_schedule"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/server/src/router/protected.rs"
-qualified = "build_protected_routes"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 1232.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1963.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "drive_pending"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "recover_all_workspaces"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "recover_local"
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "run_recovery"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "spawn_latency_worker"
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "spawn_recovery"
-metric = "abc"
-value = 48.2078831727758
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "tick_cloud"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "tick_cloud"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery.rs"
-qualified = "tick_local"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "crates/server/src/drivers/recovery/procedure_run_tests.rs"
-qualified = "a_single_process_executes_the_run_it_queued"
-metric = "abc"
-value = 51.633322573702344
 
 [[entry]]
 path = "crates/app/tests/airhouse/airhouse_broker_preview.rs"
@@ -6975,12 +6795,6 @@ metric = "abc"
 value = 46.33573135281238
 
 [[entry]]
-path = "crates/test-utils/harness/compile_from_git_support.rs"
-qualified = "seed_workspace"
-metric = "abc"
-value = 49.09175083453431
-
-[[entry]]
 path = "crates/app/tests/platform/compile_push.rs"
 qualified = "a_retried_commit_compile_does_not_take_over_from_one_that_started_after_it_was_asked_for"
 metric = "abc"
@@ -7009,12 +6823,6 @@ path = "crates/app/tests/platform/frontline_app_grant.rs"
 qualified = "seed"
 metric = "abc"
 value = 46.2709412050371
-
-[[entry]]
-path = "crates/metric-monitoring/src/metric_tree_fit_panel_tests.rs"
-qualified = "json_of"
-metric = "cyclomatic"
-value = 27.0
 
 [[entry]]
 path = "crates/app/tests/platform/migration_rollback_safety.rs"
@@ -7095,18 +6903,6 @@ metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/server/tests/integration/routing/route_role_derivation.rs"
-qualified = "mounted_routes"
-metric = "abc"
-value = 52.848841046895245
-
-[[entry]]
-path = "crates/server/tests/integration/routing/route_role_derivation.rs"
-qualified = "mounted_routes"
-metric = "cognitive"
-value = 35.0
-
-[[entry]]
 path = "crates/app/tests/routing/sentry_hub_scan.rs"
 qualified = "fn_items"
 metric = "cognitive"
@@ -7116,7 +6912,7 @@ value = 20.0
 path = "crates/app/tests/routing/sentry_hub_scan.rs"
 qualified = "server_sources"
 metric = "abc"
-value = 49.040799340956916
+value = 48.041648597857254
 
 [[entry]]
 path = "crates/app/tests/routing/undeclared_mounts_stay_diskless.rs"
@@ -8794,6 +8590,12 @@ metric = "loc.sloc"
 value = 1289.0
 
 [[entry]]
+path = "crates/metric-monitoring/src/metric_tree_fit_panel_tests.rs"
+qualified = "json_of"
+metric = "cyclomatic"
+value = 27.0
+
+[[entry]]
 path = "crates/metric-monitoring/src/metric_tree_groups.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -9385,7 +9187,7 @@ value = 61.02458520956943
 path = "crates/oltp/src/migrator.rs"
 qualified = "apply_into"
 metric = "abc"
-value = 50.93132631298737
+value = 49.969990994595946
 
 [[entry]]
 path = "crates/oltp/src/migrator.rs"
@@ -10027,19 +9829,19 @@ value = 714.0
 path = "crates/server/src/commands/serve.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1138.0
+value = 882.0
 
 [[entry]]
 path = "crates/server/src/commands/serve.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1662.0
+value = 1302.0
 
 [[entry]]
 path = "crates/server/src/commands/serve.rs"
 qualified = "create_web_application"
 metric = "abc"
-value = 49.64876634922564
+value = 48.662100242385755
 
 [[entry]]
 path = "crates/server/src/commands/serve.rs"
@@ -10132,6 +9934,84 @@ metric = "abc"
 value = 77.34339015067803
 
 [[entry]]
+path = "crates/server/src/drivers/periodic/monitors.rs"
+qualified = "create_schedule"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 1019.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1618.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "drive_pending"
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "recover_all_workspaces"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "recover_local"
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "run_recovery"
+metric = "nargs"
+value = 10.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "spawn_latency_worker"
+metric = "nargs"
+value = 10.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "spawn_recovery"
+metric = "abc"
+value = 48.2078831727758
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "tick_cloud"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "tick_cloud"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery.rs"
+qualified = "tick_local"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "crates/server/src/drivers/recovery/procedure_run_tests.rs"
+qualified = "a_single_process_executes_the_run_it_queued"
+metric = "abc"
+value = 51.633322573702344
+
+[[entry]]
 path = "crates/server/src/lib.rs"
 qualified = "surface_seams"
 metric = "abc"
@@ -10142,18 +10022,6 @@ path = "crates/server/src/logging.rs"
 qualified = "init"
 metric = "abc"
 value = 65.30696746902278
-
-[[entry]]
-path = "crates/server/src/main.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 722.0
-
-[[entry]]
-path = "crates/server/src/main.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1210.0
 
 [[entry]]
 path = "crates/server/src/main.rs"
@@ -10174,16 +10042,58 @@ metric = "cyclomatic"
 value = 20.0
 
 [[entry]]
+path = "crates/server/src/role_manifest_tests.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 754.0
+
+[[entry]]
+path = "crates/server/src/role_manifest_tests.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1340.0
+
+[[entry]]
+path = "crates/server/src/router/entry.rs"
+qualified = "api_router"
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "crates/server/src/router/entry.rs"
+qualified = "api_router_with_state"
+metric = "abc"
+value = 57.99137866959192
+
+[[entry]]
+path = "crates/server/src/router/middlewares/local_context.rs"
+qualified = "attach_workspace_manager"
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "crates/server/src/router/mod.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 621.0
+
+[[entry]]
+path = "crates/server/src/router/protected.rs"
+qualified = "build_protected_routes"
+metric = "nargs"
+value = 9.0
+
+[[entry]]
 path = "crates/server/src/served_router_tests.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 4931.0
+value = 4901.0
 
 [[entry]]
 path = "crates/server/src/served_router_tests.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 5909.0
+value = 5875.0
 
 [[entry]]
 path = "crates/server/src/served_router_tests.rs"
@@ -10270,6 +10180,18 @@ metric = "abc"
 value = 45.902069670114
 
 [[entry]]
+path = "crates/server/tests/integration/routing/route_role_derivation.rs"
+qualified = "mounted_routes"
+metric = "abc"
+value = 52.848841046895245
+
+[[entry]]
+path = "crates/server/tests/integration/routing/route_role_derivation.rs"
+qualified = "mounted_routes"
+metric = "cognitive"
+value = 35.0
+
+[[entry]]
 path = "crates/server/tests/integration/token_auth/agent_token_standing.rs"
 qualified = "make_partner"
 metric = "abc"
@@ -10333,8 +10255,7 @@ value = 27.0
 path = "crates/shared/src/errors.rs"
 qualified = "StatusCode::from"
 metric = "cyclomatic"
-# 27 -> 28: main reached 28 with #4402 (a refused credential answers 401); raised in decompose LIFT #4406 with the user's approval (2026-11-23).
-value = 28.0
+value = 27.0
 
 [[entry]]
 path = "crates/shared/src/http_tests.rs"
@@ -10418,13 +10339,13 @@ value = 40.099875311526844
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1169.0
+value = 1125.0
 
 [[entry]]
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2012.0
+value = 1954.0
 
 [[entry]]
 path = "crates/telemetry/src/stderr_capture.rs"
@@ -10449,6 +10370,12 @@ path = "crates/tenancy/src/org_teams/service.rs"
 qualified = "validate_grantees_belong_to_org"
 metric = "abc"
 value = 52.478567053607705
+
+[[entry]]
+path = "crates/test-utils/harness/compile_from_git_support.rs"
+qualified = "seed_workspace"
+metric = "abc"
+value = 49.09175083453431
 
 [[entry]]
 path = "crates/usage-report/src/collect.rs"
@@ -10518,6 +10445,12 @@ value = 8.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/connector.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 781.0
+
+[[entry]]
+path = "crates/workspace-runtime/src/connector.rs"
 qualified = "try_database_to_connector_config"
 metric = "abc"
 value = 176.71728834497208
@@ -10533,18 +10466,6 @@ path = "crates/workspace-runtime/src/connector.rs"
 qualified = "try_database_to_connector_config"
 metric = "cyclomatic"
 value = 45.0
-
-[[entry]]
-path = "crates/workspace-runtime/src/connector.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 832.0
-
-[[entry]]
-path = "crates/workspace-runtime/src/connector.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1236.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/connector/unheld_callers_guard.rs"
@@ -10631,16 +10552,10 @@ metric = "abc"
 value = 68.18357573492314
 
 [[entry]]
-path = "crates/workspace-runtime/src/project_ctx.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 1412.0
-
-[[entry]]
-path = "crates/workspace-runtime/src/project_ctx.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 2137.0
+path = "crates/workspace-runtime/src/preview_ctx/airhouse_writes.rs"
+qualified = "PreviewAirhouse::review"
+metric = "abc"
+value = 40.47221268969612
 
 [[entry]]
 path = "crates/workspace-runtime/src/project_ctx.rs"
@@ -10676,13 +10591,13 @@ value = 35.0
 path = "crates/workspace-runtime/src/request/workspace_context.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1062.0
+value = 810.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/request/workspace_context.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1638.0
+value = 1294.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/request/workspace_context.rs"
@@ -11480,31 +11395,25 @@ value = 18.0
 path = "scripts/seed-target.py"
 qualified = "main"
 metric = "abc"
-value = 51.778373863998475
+value = 47.54997371187496
 
 [[entry]]
 path = "scripts/seed-target.py"
 qualified = "main"
 metric = "cognitive"
-value = 24.0
-
-[[entry]]
-path = "scripts/seed-target.py"
-qualified = "main"
-metric = "cyclomatic"
-value = 16.0
+value = 22.0
 
 [[entry]]
 path = "scripts/seed-target.py"
 qualified = "pick_source"
 metric = "cognitive"
-value = 30.0
+value = 27.0
 
 [[entry]]
 path = "scripts/seed-target.py"
 qualified = "pick_source"
 metric = "cyclomatic"
-value = 20.0
+value = 18.0
 
 [[entry]]
 path = "scripts/seed-target.py"
@@ -11864,13 +11773,7 @@ value = 17.0
 path = "sdk/cli/src/commands/checks.test.ts"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1028.0
-
-[[entry]]
-path = "sdk/cli/src/commands/checks.test.ts"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1239.0
+value = 955.0
 
 [[entry]]
 path = "sdk/cli/src/commands/checks.ts"
@@ -12254,25 +12157,25 @@ value = 19.0
 path = "sdk/cli/src/commands/validate.test.ts"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1329.0
+value = 1307.0
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.test.ts"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1928.0
+value = 1892.0
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.ts"
 qualified = "runValidate"
 metric = "abc"
-value = 43.87482193696061
+value = 42.95346318982906
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.ts"
 qualified = "runValidate"
 metric = "cognitive"
-value = 20.0
+value = 18.0
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.ts"
@@ -12296,13 +12199,13 @@ value = 19.0
 path = "sdk/cli/src/commands/validate.ts"
 qualified = "validateFile"
 metric = "cognitive"
-value = 22.0
+value = 20.0
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.ts"
 qualified = "validateFile"
 metric = "cyclomatic"
-value = 21.0
+value = 19.0
 
 [[entry]]
 path = "sdk/cli/src/commands/validate.ts"
@@ -12338,19 +12241,19 @@ value = 19.0
 path = "sdk/cli/src/main.ts"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 2153.0
+value = 2120.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2448.0
+value = 2414.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
 qualified = "buildProgram"
 metric = "abc"
-value = 716.0
+value = 702.0
 
 [[entry]]
 path = "sdk/cli/src/main.ts"
@@ -12956,19 +12859,13 @@ value = 33.0
 path = "sdk/typescript/src/shell/OxyShell.tsx"
 qualified = "OxyShell"
 metric = "abc"
-value = 74.35052118176442
-
-[[entry]]
-path = "sdk/typescript/src/shell/OxyShell.tsx"
-qualified = "OxyShell"
-metric = "cognitive"
-value = 22.0
+value = 46.87216658103186
 
 [[entry]]
 path = "sdk/typescript/src/shell/OxyShell.tsx"
 qualified = "OxyShell"
 metric = "cyclomatic"
-value = 49.0
+value = 28.0
 
 [[entry]]
 path = "sdk/typescript/src/shell/ReasoningTrace.tsx"
@@ -13322,19 +13219,19 @@ value = 45.12205669071391
 path = "sdk/typescript/src/ui/charts/Sparkline.tsx"
 qualified = "Sparkline"
 metric = "abc"
-value = 98.47842403288143
+value = 89.15716460273958
 
 [[entry]]
 path = "sdk/typescript/src/ui/charts/Sparkline.tsx"
 qualified = "Sparkline"
 metric = "cognitive"
-value = 34.0
+value = 27.0
 
 [[entry]]
 path = "sdk/typescript/src/ui/charts/Sparkline.tsx"
 qualified = "Sparkline"
 metric = "cyclomatic"
-value = 39.0
+value = 34.0
 
 [[entry]]
 path = "sdk/typescript/src/ui/charts/TrendChart.test.tsx"
@@ -13418,19 +13315,19 @@ value = 43.116122274620196
 path = "sdk/typescript/src/ui/containers/Panel.tsx"
 qualified = "Panel"
 metric = "abc"
-value = 52.04805471869242
+value = 49.69909455915671
 
 [[entry]]
 path = "sdk/typescript/src/ui/containers/Panel.tsx"
 qualified = "Panel"
 metric = "cognitive"
-value = 22.0
+value = 19.0
 
 [[entry]]
 path = "sdk/typescript/src/ui/containers/Panel.tsx"
 qualified = "Panel"
 metric = "cyclomatic"
-value = 30.0
+value = 28.0
 
 [[entry]]
 path = "sdk/typescript/src/ui/contrast.test.ts"
@@ -13565,24 +13462,6 @@ metric = "abc"
 value = 46.389654018972806
 
 [[entry]]
-path = "sdk/typescript/src/ui/tables/PanelTable.tsx"
-qualified = "PanelTable::<anon@L143>"
-metric = "cognitive"
-value = 25.0
-
-[[entry]]
-path = "sdk/typescript/src/ui/tables/PanelTable.tsx"
-qualified = "PanelTable::<anon@L143>"
-metric = "cyclomatic"
-value = 22.0
-
-[[entry]]
-path = "sdk/typescript/src/ui/tables/PanelTable.tsx"
-qualified = "PanelTable::cells::<anon@L121>"
-metric = "cognitive"
-value = 17.0
-
-[[entry]]
 path = "sdk/typescript/src/ui/uiCss.test.ts"
 qualified = "<anon@L232>::<anon@L284>"
 metric = "cognitive"
@@ -13622,19 +13501,19 @@ value = 33.0
 path = "web-app/src/App.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 662.0
+value = 670.0
 
 [[entry]]
 path = "web-app/src/App.tsx"
 qualified = "WorkspaceLayout"
 metric = "abc"
-value = 119.9249765478401
+value = 121.75795661885921
 
 [[entry]]
 path = "web-app/src/App.tsx"
 qualified = "getCloudRouter"
 metric = "abc"
-value = 146.02739469017448
+value = 148.02702455970666
 
 [[entry]]
 path = "web-app/src/components/AppPreview/Displays/DataTableBlock.tsx"
@@ -13787,22 +13666,10 @@ metric = "cognitive"
 value = 19.0
 
 [[entry]]
-path = "web-app/src/components/Shell/TopBar/NotificationsBell/components/InboxPanel.tsx"
-qualified = "InboxPanel"
+path = "web-app/src/components/Shell/WorkspaceShell.tsx"
+qualified = "WorkspaceShell"
 metric = "cyclomatic"
 value = 16.0
-
-[[entry]]
-path = "web-app/src/components/Shell/WorkspaceShell.tsx"
-qualified = "WorkspaceShell"
-metric = "abc"
-value = 52.32590180780452
-
-[[entry]]
-path = "web-app/src/components/Shell/WorkspaceShell.tsx"
-qualified = "WorkspaceShell"
-metric = "cyclomatic"
-value = 28.0
 
 [[entry]]
 path = "web-app/src/components/ThreadHistory/index.tsx"
@@ -13911,30 +13778,6 @@ path = "web-app/src/components/airway/RunTimeline.tsx"
 qualified = "RunTimeline"
 metric = "cognitive"
 value = 22.0
-
-[[entry]]
-path = "web-app/src/components/appAccess/AppAccessDialog.tsx"
-qualified = "AppAccessDialog"
-metric = "abc"
-value = 54.415071441651165
-
-[[entry]]
-path = "web-app/src/components/appAccess/AppAccessDialog.tsx"
-qualified = "AppAccessDialog"
-metric = "cognitive"
-value = 19.0
-
-[[entry]]
-path = "web-app/src/components/appAccess/AppAccessDialog.tsx"
-qualified = "AppAccessDialog"
-metric = "cyclomatic"
-value = 23.0
-
-[[entry]]
-path = "web-app/src/components/appAccess/AppAccessDialog.tsx"
-qualified = "AppAccessDialog::handleSave"
-metric = "cognitive"
-value = 18.0
 
 [[entry]]
 path = "web-app/src/components/automation/AutomationDiagram/layout/useAutomationLayout.ts"
@@ -14156,7 +13999,7 @@ value = 19.0
 path = "web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/index.test.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1014.0
+value = 1045.0
 
 [[entry]]
 path = "web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/utils/issuerTrustForm.ts"
@@ -14258,7 +14101,7 @@ value = 21.0
 path = "web-app/src/components/settings/SettingsDialog/sections/organization/Members/index.tsx"
 qualified = "TeamSection"
 metric = "abc"
-value = 48.91829923454004
+value = 46.561786907291264
 
 [[entry]]
 path = "web-app/src/components/settings/SettingsDialog/sections/organization/Members/index.tsx"
@@ -17229,84 +17072,6 @@ path = "web-app/src/pages/ide/observability/utils/SpanIcon.tsx"
 qualified = "SpanIcon"
 metric = "cyclomatic"
 value = 37.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV2.tsx"
-qualified = "HomeV2"
-metric = "abc"
-value = 104.1633332799983
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV2.tsx"
-qualified = "HomeV2"
-metric = "cognitive"
-value = 47.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV2.tsx"
-qualified = "HomeV2"
-metric = "cyclomatic"
-value = 69.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV3.tsx"
-qualified = "HomeV3"
-metric = "abc"
-value = 70.26378868236469
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV3.tsx"
-qualified = "HomeV3"
-metric = "cognitive"
-value = 18.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/HomeV3.tsx"
-qualified = "HomeV3"
-metric = "cyclomatic"
-value = 45.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeAppTile.tsx"
-qualified = "HomeAppTile"
-metric = "abc"
-value = 46.9148164229596
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeAppTile.tsx"
-qualified = "HomeAppTile"
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeWidgets/components/WidgetCard.tsx"
-qualified = "WidgetCard"
-metric = "abc"
-value = 53.113086899558006
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeWidgets/components/WidgetCard.tsx"
-qualified = "WidgetCard"
-metric = "cyclomatic"
-value = 23.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeWidgets/index.tsx"
-qualified = "HomeWidgets"
-metric = "abc"
-value = 50.85272854036448
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeWidgets/index.tsx"
-qualified = "HomeWidgets"
-metric = "cognitive"
-value = 17.0
-
-[[entry]]
-path = "web-app/src/pages/launcher/CustomerHome/components/HomeWidgets/index.tsx"
-qualified = "HomeWidgets"
-metric = "cyclomatic"
-value = 24.0
 
 [[entry]]
 path = "web-app/src/pages/launcher/useWorkspaceReadiness.ts"

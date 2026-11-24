@@ -1,11 +1,11 @@
 import { Database as DatabaseIcon, Plus, RotateCw } from "lucide-react";
 import type React from "react";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { Button } from "@/components/ui/shadcn/button";
 import { SidebarContent, SidebarGroup, SidebarMenu } from "@/components/ui/shadcn/sidebar";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useDatabases from "@/hooks/api/databases/useDatabases";
 import { SidebarHeader } from "@/pages/ide/components/SidebarHeader";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 import { ConnectionItem } from "./ConnectionItem";
 
 interface DatabaseSidebarProps {
@@ -17,7 +17,7 @@ export const DatabaseSidebar: React.FC<DatabaseSidebarProps> = ({
   sidebarOpen,
   setSidebarOpen
 }) => {
-  const openSettings = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
   const { data: databases = [], isLoading, refetch, isFetching } = useDatabases();
 
   return (

@@ -1,8 +1,6 @@
-import { Eye } from "lucide-react";
 import { usePreviewPin } from "@/contexts/PreviewPinContext";
 import useCanUsePreviews from "@/hooks/useCanUsePreviews";
 import type { Workspace, WorkspacePreview } from "@/types/workspace";
-import SectionHeader from "../../../components/SectionHeader";
 import NewPreviewForm from "./components/NewPreviewForm";
 import PreviewSourcesPanel from "./components/PreviewSourcesPanel";
 import PreviewsTable from "./components/PreviewsTable";
@@ -38,11 +36,6 @@ export default function Previews({ workspace, onOpened }: Props) {
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-previews'>
-      <SectionHeader
-        icon={Eye}
-        title='Previews'
-        description='Open the product on a branch, on real data, without making it live. Read-only.'
-      />
       <NewPreviewForm workspaceId={workspace.id} />
       <PreviewSourcesPanel workspaceId={workspace.id} />
       <PreviewsTable workspaceId={workspace.id} onOpen={open} />

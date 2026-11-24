@@ -232,7 +232,7 @@ function ServiceAccountForm({
         >
           {account
             ? isPending
-              ? "Saving..."
+              ? "Saving…"
               : "Save changes"
             : isPending
               ? "Creating..."

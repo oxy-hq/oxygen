@@ -20,7 +20,8 @@ import {
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import type { Organization, OrgRole } from "@/types/organization";
 import TableWrapper from "../../../../components/TableWrapper";
-import SectionHeader from "../../../components/SectionHeader";
+import { SectionActions } from "../../../components/SectionChrome";
+
 import { InviteDialog } from "./components/InviteDialog";
 import { MemberRowActions } from "./components/MemberRowActions";
 import { RoleBadge } from "./components/RoleBadge";
@@ -105,20 +106,16 @@ export default function TeamSection({ org, viewerRole }: TeamSectionProps) {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        icon={Users}
-        title='Members'
-        description='People who belong to this organization. Their role here is the default access they get across every workspace in the org.'
-        actions={
-          canManage ? (
-            <Button onClick={() => setInviteOpen(true)} size='sm' className='gap-1.5'>
-              <UserPlus className='h-4 w-4' />
-              Invite member
-            </Button>
-          ) : undefined
-        }
-      />
-      <p className='-mt-2 text-muted-foreground text-xs'>{counts}</p>
+      {canManage && (
+        <SectionActions>
+          <Button onClick={() => setInviteOpen(true)} size='sm' className='gap-1.5'>
+            <UserPlus className='size-4' aria-hidden='true' />
+            Invite member
+          </Button>
+        </SectionActions>
+      )}
+
+      <p className='text-muted-foreground text-sm'>{counts}</p>
 
       <div className='relative'>
         <Search className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground' />

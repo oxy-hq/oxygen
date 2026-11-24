@@ -94,7 +94,7 @@ function RenamePositionForm({
           disabled={!canSubmit || rename.isPending}
           data-testid='settings-positions-rename-submit'
         >
-          {rename.isPending ? "Saving..." : "Save changes"}
+          {rename.isPending ? "Saving…" : "Save changes"}
         </Button>
       </div>
     </form>

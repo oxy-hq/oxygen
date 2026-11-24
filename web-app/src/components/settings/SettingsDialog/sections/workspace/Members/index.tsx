@@ -29,7 +29,6 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import type { OrgRole, WorkspaceMember, WorkspaceRole } from "@/types/organization";
 import TableWrapper from "../../../../components/TableWrapper";
-import SectionHeader from "../../../components/SectionHeader";
 
 // ─── Role badges ─────────────────────────────────────────────────────────────
 
@@ -203,13 +202,9 @@ export default function WorkspaceMembers() {
     );
   }, [members, search]);
 
-  const sectionDescription =
-    "These users inherit their organization role here. Override the role to grant or restrict access for this workspace specifically.";
-
   if (isPending) {
     return (
       <div className='flex flex-col gap-5'>
-        <SectionHeader icon={Users} title='Members' description={sectionDescription} />
         <div className='flex items-center justify-center py-12'>
           <Loader2 className='h-4 w-4 animate-spin text-muted-foreground' />
         </div>
@@ -220,7 +215,6 @@ export default function WorkspaceMembers() {
   if (isError) {
     return (
       <div className='flex flex-col gap-5'>
-        <SectionHeader icon={Users} title='Members' description={sectionDescription} />
         <div className='flex items-center justify-center py-12'>
           <p className='text-destructive text-sm'>Failed to load members.</p>
         </div>
@@ -238,8 +232,7 @@ export default function WorkspaceMembers() {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader icon={Users} title='Members' description={sectionDescription} />
-      <p className='-mt-2 text-muted-foreground text-xs'>{counts}</p>
+      <p className='text-muted-foreground text-sm'>{counts}</p>
 
       <div className='flex flex-col gap-4'>
         <div className='relative max-w-sm'>

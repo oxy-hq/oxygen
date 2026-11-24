@@ -1,10 +1,8 @@
-import { KeySquare } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
+import { useSettingsRoute } from "@/components/settings/useSettingsRoute";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 import type { Organization, OrgRole } from "@/types/organization";
-import SectionHeader from "../../../components/SectionHeader";
 import type { ApiTokensTab } from "../../../tabs";
 import PersonalTokens from "../../account/PersonalTokens";
 import { ApiIdField } from "./components/ApiIdField";
@@ -105,8 +103,7 @@ const TABS: readonly TabDef[] = [
  * own tokens and nothing an admin route would refuse to fill.
  */
 export default function ApiTokensSection({ org, viewerRole }: ApiTokensSectionProps) {
-  const requested = useSettingsDialog((s) => s.tab);
-  const setTab = useSettingsDialog((s) => s.setTab);
+  const { tab: requested, setTab } = useSettingsRoute();
   // Lives here rather than in the Service accounts tab so it survives a tab switch, and so the
   // inventory can open an account's page from a token row.
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -127,12 +124,6 @@ export default function ApiTokensSection({ org, viewerRole }: ApiTokensSectionPr
 
   return (
     <div className='flex flex-col gap-5' data-testid='settings-api-tokens'>
-      <SectionHeader
-        icon={KeySquare}
-        title='API tokens'
-        description='A token lets a script, a scheduled job or another service call Oxygen without anyone signing in.'
-      />
-
       <TokenGuide visibleTabs={visible.map((tab) => tab.id)} />
 
       {visible.length === 1 ? (

@@ -172,7 +172,7 @@ function PolicyForm({ orgId, saved }: { orgId: string; saved: TokenPolicy }) {
           disabled={!dirty || !!lifetimeError || update.isPending}
           data-testid='api-access-policy-save'
         >
-          {update.isPending ? "Saving..." : "Save policy"}
+          {update.isPending ? "Saving…" : "Save policy"}
         </Button>
       </div>
     </form>

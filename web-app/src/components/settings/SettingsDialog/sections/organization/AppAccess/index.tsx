@@ -1,11 +1,10 @@
-import { AppWindow, Loader2, ShieldCheck } from "lucide-react";
+import { AppWindow, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { AppAccessBadge, AppAccessDialog } from "@/components/appAccess";
 import { Button } from "@/components/ui/shadcn/button";
 import { useOrgAppAccessList } from "@/hooks/api/appAccess";
 import type { AppAccessSummary } from "@/types/appAccess";
 import type { Organization, OrgRole } from "@/types/organization";
-import SectionHeader from "../../../components/SectionHeader";
 
 /**
  * Who can open each of the org's custom apps.
@@ -39,12 +38,6 @@ export default function AppAccessSection({
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        icon={ShieldCheck}
-        title='App access'
-        description='By default every member of the organization can open an app. Restrict one to hide it from everyone except the teams and people you list.'
-      />
-
       {isPending ? (
         <div className='flex items-center justify-center py-12'>
           <Loader2 className='size-5 animate-spin text-muted-foreground' aria-hidden />

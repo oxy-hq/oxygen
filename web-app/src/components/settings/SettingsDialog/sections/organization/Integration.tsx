@@ -100,7 +100,7 @@ function GitHubConnections({ org }: IntegrationSectionProps) {
     <div className='space-y-3'>
       <div className='flex items-start justify-between gap-4'>
         <div className='space-y-1'>
-          <h3 className='font-medium'>GitHub Connections</h3>
+          <h3 className='font-medium'>GitHub connections</h3>
           <p className='text-muted-foreground text-sm'>
             GitHub App installations connected to this organization.
           </p>
@@ -114,7 +114,7 @@ function GitHubConnections({ org }: IntegrationSectionProps) {
       </div>
 
       {isLoading ? (
-        <div className='py-8 text-center text-muted-foreground text-sm'>Loading...</div>
+        <div className='py-8 text-center text-muted-foreground text-sm'>Loading…</div>
       ) : namespaces && namespaces.length > 0 ? (
         <div className='divide-y divide-border rounded-lg border border-border'>
           {namespaces.map((ns) => (

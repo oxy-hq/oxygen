@@ -1,6 +1,7 @@
 import { Check, LogOut, Plus, Settings, Shield } from "lucide-react";
 import { type ComponentPropsWithoutRef, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { UserAvatar } from "@/components/UserAvatar";
 import { focusRing, sectionLinkOff } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
@@ -18,7 +19,6 @@ import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 
 /** Org switcher section of the user menu (cloud mode only — mounted
  *  conditionally so `useOrgs` never fires in local mode). Ported from the
@@ -141,7 +141,7 @@ export function RailUserMenu({ open = false }: { open?: boolean } = {}) {
   const { isLocalMode, logout } = useAuth();
   const { data: profile } = useCurrentUser();
   const isAdmin = !!(profile?.is_owner || profile?.is_app_admin);
-  const openSettings = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
 
   return (
     <DropdownMenu>
@@ -152,9 +152,10 @@ export function RailUserMenu({ open = false }: { open?: boolean } = {}) {
         {!isLocalMode && <OrgSwitcherGroup />}
         <DropdownMenuItem
           className='cursor-pointer'
-          onSelect={() =>
-            openSettings(isLocalMode ? "workspace.databases" : "organization.general")
-          }
+          // No argument: the store remembers where you were, and its default is a
+          // section every role can open. Naming one here overrode both, and named a
+          // section a plain Member is not allowed to see.
+          onSelect={() => openSettings()}
         >
           <Settings className='h-4 w-4' />
           Settings

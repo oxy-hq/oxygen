@@ -1,8 +1,8 @@
 import { RefreshCw, TriangleAlert } from "lucide-react";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { usePreviewPin } from "@/contexts/PreviewPinContext";
 import { usePreview } from "@/hooks/api/workspaces/usePreviews";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 
 /**
  * What has happened to this branch's preview since the pinned revision
@@ -21,7 +21,7 @@ export function PreviewRowState({
 }) {
   const { preview } = usePreview(workspaceId, branch);
   const { enter } = usePreviewPin();
-  const openSettings = useSettingsDialog((s) => s.open);
+  const openSettings = useOpenSettings();
   const toPreviews = () => openSettings("workspace.previews");
 
   if (!preview) return null;

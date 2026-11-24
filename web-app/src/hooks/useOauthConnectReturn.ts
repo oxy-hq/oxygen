@@ -1,22 +1,25 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
+import { useOpenSettings } from "@/components/settings/useSettingsRoute";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import useSettingsDialog from "@/stores/useSettingsDialog";
 
 /**
  * Closes the loop on a Settings → Connections OAuth redirect.
  *
  * The consent flow leaves the SPA entirely and comes back to `return_path` with
- * `?oxy_connected=ok`. The settings dialog is zustand state, not URL state, so
- * without this the user lands on a page with the dialog shut, no confirmation
- * that anything happened, and a stale query string — indistinguishable from
- * having cancelled.
+ * `?oxy_connected=ok`. Without this the person lands with no confirmation that anything
+ * happened and a stale query string — indistinguishable from having cancelled.
  *
- * The flag is stripped with `replaceState` so a refresh or a shared link does
- * not re-toast.
+ * The flag goes with the navigation itself — the clean settings address carries no query —
+ * so a refresh or a shared link does not re-toast.
  */
 export default function useOauthConnectReturn(): void {
-  const open = useSettingsDialog((s) => s.open);
+  const open = useOpenSettings();
+  // The router's location, not `window.location`. On the full page load this runs after they
+  // say the same thing, but reading one while navigating through the other is precisely the
+  // split that made the old `replaceState` + `open()` pair push a duplicate entry.
+  const { search } = useLocation();
   // An OAuth return is a FULL PAGE LOAD, and neither the workspace nor the org
   // store is persisted — so on the first commit after this mounts the role is
   // undefined, and `SettingsDialog` has filtered `workspace.connections` out of
@@ -36,14 +39,7 @@ export default function useOauthConnectReturn(): void {
   useEffect(() => {
     if (!roleLoaded) return;
 
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("oxy_connected") !== "ok") return;
-
-    url.searchParams.delete("oxy_connected");
-    // QuickBooks' own flow appends this; harmless here but it would otherwise
-    // linger in the address bar after a Drive connect.
-    url.searchParams.delete("realm_id");
-    window.history.replaceState({}, "", url.toString());
+    if (new URLSearchParams(search).get("oxy_connected") !== "ok") return;
 
     toast.success("Connected. The refresh token is stored in workspace secrets.");
     // Deliberately NOT also gated on `is.workspaceAdmin`: a non-admin holding
@@ -51,6 +47,17 @@ export default function useOauthConnectReturn(): void {
     // dirty indefinitely. `Connections` shows its own access notice for a role
     // known not to be admin, and `authorize` sits behind the WorkspaceAdmin
     // extractor regardless — so opening it is coherent, not a leak.
-    open("workspace.connections");
-  }, [open, roleLoaded]);
+    // One router-managed step: this both lands on Connections and drops the flag, because
+    // the clean address has no query of its own. (QuickBooks also appends `realm_id`, which
+    // goes the same way.)
+    //
+    // It used to be `history.replaceState` to strip the flag, then a plain `open()`. That
+    // worked while Connections was a dialog over another page, but settings is an address
+    // now: `replaceState` bypasses the router, so the router still believed the location
+    // carried `?oxy_connected=ok`, and the `open()` that followed was not a same-page
+    // navigation — it *pushed*. History then held the same Connections address twice and
+    // the first Back appeared to do nothing. `replaceState({})` also wiped React Router's
+    // own `idx`/`key` off the entry the person was standing on.
+    open("workspace.connections", null, { replace: true });
+  }, [open, roleLoaded, search]);
 }

@@ -1,7 +1,7 @@
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import OrgSetupPending from "@/components/org/OrgSetupPending";
 import { NOTIFICATIONS_PARAM } from "@/components/Shell/TopBar/NotificationsBell/constants";
-import { SETTINGS_PARAM } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
+import { SETTINGS_PARAM } from "@/components/settings/settingsRoute";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";

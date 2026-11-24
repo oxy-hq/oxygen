@@ -4,7 +4,6 @@ import { Switch } from "@/components/ui/shadcn/switch";
 import { useOrgSubdomain } from "@/hooks/api/access/useOrgSubdomain";
 import { useOxyAccess, useSetOxyLockdown } from "@/hooks/api/access/useOxyAccess";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import SectionHeader from "../../../components/SectionHeader";
 
 function formatAt(value: string): string {
   return new Date(value).toLocaleString();
@@ -36,12 +35,6 @@ export default function OxyAccess() {
 
   return (
     <div className='flex flex-col gap-6'>
-      <SectionHeader
-        icon={ShieldOff}
-        title='Oxy staff access'
-        description="Oxy's support engineers can open the apps registered for this workspace, so they can help you build and debug them. Lock them out at any time — support will no longer be able to see this workspace's apps."
-      />
-
       <div className='flex items-start gap-4 rounded-lg border bg-card p-5'>
         <div
           className={

@@ -50,7 +50,7 @@ vi.mock("@/stores/useCurrentOrg", () => ({
   default: (selector: (s: { org: { slug: string } }) => unknown) =>
     selector({ org: { slug: "acme" } })
 }));
-vi.mock("@/stores/useSettingsDialog", () => ({ default: () => vi.fn() }));
+vi.mock("@/components/settings/useSettingsRoute", () => ({ useOpenSettings: () => vi.fn() }));
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: "/", search: "", state: null })

@@ -1,9 +1,7 @@
-import { Monitor, Moon, Sun, SunMoon } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "@/libs/shadcn/utils";
 import { chooseThemeMode } from "@/stores/themeSync";
 import useTheme, { type ThemeMode } from "@/stores/useTheme";
-import SectionHeader from "../../components/SectionHeader";
 
 const MODES: { value: ThemeMode; label: string; hint: string; icon: typeof Sun }[] = [
   { value: "light", label: "Light", hint: "Bright surfaces", icon: Sun },
@@ -16,19 +14,9 @@ const MODES: { value: ThemeMode; label: string; hint: string; icon: typeof Sun }
  *  here (`stores/themeSync.ts`). In local mode it stays with this browser. */
 export default function Appearance() {
   const mode = useTheme((s) => s.mode);
-  const { isLocalMode } = useAuth();
 
   return (
     <div className='flex flex-col gap-6'>
-      <SectionHeader
-        icon={SunMoon}
-        title='Appearance'
-        description={
-          isLocalMode
-            ? "Theme applies to this browser, across every workspace."
-            : "Theme follows you across Oxygen and every app."
-        }
-      />
       <div className='grid max-w-xl grid-cols-3 gap-3'>
         {MODES.map(({ value, label, hint, icon: Icon }) => (
           <button

@@ -1,4 +1,3 @@
-import { AppWindow } from "lucide-react";
 import type React from "react";
 import { useMemo } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
@@ -7,7 +6,6 @@ import { useAppIntegrations } from "@/hooks/api/appIntegrations/useAppIntegratio
 import type { AppIntegration, AppIntegrationKind } from "@/services/api/appIntegrations";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
 import { AppCard } from "./components/AppCard";
 import { ToastWebhookSetup } from "./components/ToastWebhookSetup";
 
@@ -33,12 +31,6 @@ const Apps: React.FC = () => {
       fallback={<NoAccessNotice>You need workspace admin access to manage apps.</NoAccessNotice>}
     >
       <div className='flex flex-col gap-5'>
-        <SectionHeader
-          icon={AppWindow}
-          title='Apps'
-          description='External services that feed downstream dashboards. Credentials live in the workspace secrets store and are referenced from config.yml.'
-        />
-
         <WorkspaceRepositoryNotice />
 
         <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>

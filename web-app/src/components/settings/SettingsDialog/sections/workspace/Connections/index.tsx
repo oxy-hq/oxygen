@@ -1,4 +1,3 @@
-import { Plug } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,7 +12,6 @@ import {
 } from "@/services/api/integrations";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import NoAccessNotice from "../../../components/NoAccessNotice";
-import SectionHeader from "../../../components/SectionHeader";
 
 /**
  * Connect a workspace to a third-party OAuth provider.
@@ -117,11 +115,6 @@ const Connections: React.FC = () => {
 
   return (
     <div className='flex flex-col gap-5'>
-      <SectionHeader
-        icon={Plug}
-        title='Connections'
-        description='Connect this workspace to a third-party API. Credentials are stored in the workspace secrets store and read by your app functions through ctx.env.'
-      />
       {!workspace?.id ? null : (
         <div className='flex flex-col gap-4'>
           {OAUTH_PROVIDERS.map((p) => (
