@@ -1,7 +1,7 @@
 //! The shape of the per-period writes.
 //!
 //! Statement-shape rather than round-trip: there is no database-backed harness
-//! reachable from `--lib` tests (`crates/app/tests/common::fresh_db` is an
+//! reachable from `--lib` tests (`crates/test-utils/harness::fresh_db` is an
 //! integration-only fixture), and the property at issue is entirely in the SQL
 //! — whether the retry of a requeued run rewrites its rows or dies on the
 //! primary key. Built the same way `api::thread`'s tests pin their filters.

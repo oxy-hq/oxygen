@@ -52,7 +52,7 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The in-source DB tests' harness (`oxy_test_utils::db`) and the integration group's per-test harness (`crates/app/tests/common`, by
+# The in-source DB tests' harness (`oxy_test_utils::db`) and the integration group's per-test harness (`crates/test-utils/harness`, by
 # `#[path]`, which clones a per-run template database and needs every migrator
 # `Schema::All` can apply), plus what the moved previews tests drive: a DuckDB
 # stand-in for Airhouse, a `wiremock` GitHub, the router.

@@ -1,10 +1,10 @@
 //! The OLTP provisioner's fixture: a control-plane database from `common` and a
 //! provisioner wired to the same cluster's tenant plane.
 //!
-//! Shared by path (`#[path = "../common/oltp_fx.rs"]`) between `oxy-app`'s
+//! Shared by path (`#[path = "../../../test-utils/harness/oltp_fx.rs"]`) between `oxy-app`'s
 //! `platform` binary (`oltp_provisioner`, `oltp_branches`, `notifications_send`)
 //! and `oxy-api-custom-apps`' integration binary (`console_test_notification`), so
-//! neither carries a copy. Not a module of `common/mod.rs`: that harness is
+//! neither carries a copy. Not a module of the harness's `mod.rs`: that harness is
 //! included by crates that have no `oxy-oltp`.
 #![allow(dead_code, unused_imports)]
 

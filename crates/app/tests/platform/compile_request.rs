@@ -17,6 +17,7 @@
 //! Run with:
 //! `cargo nextest run -p oxy-app --test platform -E 'test(compile_request)'`
 
+#[path = "../../../test-utils/harness/compile_request_fixture.rs"]
 pub(super) mod fixture;
 
 use oxy::workspace_fs_probe::leaks;

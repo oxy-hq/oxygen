@@ -19,7 +19,7 @@
 //! The API-token suite (`token_auth`) moved to `oxy-server`'s integration tests:
 //! it drives the served flat tree, and `/orgs` is now `oxy-api-tenancy`'s.
 
-#[path = "../common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // `admin_membership_audit` moved to `oxy-api-identity`'s integration group

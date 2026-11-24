@@ -51,7 +51,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 migration = { workspace = true }
 agentic-runtime = { workspace = true }
 # The integration group (`tests/integration/`) reuses oxy-app's per-test
-# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# database harness (`crates/test-utils/harness/mod.rs`, included by `#[path]`),
 # as `oxy-api-automations`' does, so it needs that harness's dependencies too.
 airhouse = { workspace = true }
 oxy-oltp = { workspace = true }

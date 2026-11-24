@@ -21,7 +21,7 @@
 //!
 //! The scan also reaches past `oxy-app`. An extracted surface crate
 //! (`oxy-api-frontline` first, `oxy-api-documents` next) keeps using this crate's
-//! DB harness by `#[path]`-including `app/tests/common` into its one
+//! DB harness by `#[path]`-including `crates/test-utils/harness` into its one
 //! `tests/integration` group, and its DB-backed modules carry exactly the race
 //! described above. So every crate whose integration group includes the harness
 //! is scanned too, and is held to the same rule against its own package's
@@ -57,10 +57,11 @@ fn crates_root() -> PathBuf {
 /// `oxy-app`'s package name — the key its own binaries are filed under.
 const APP_PACKAGE: &str = "oxy-app";
 
-/// What a sibling's integration group names to `#[path]`-include this crate's
-/// harness. A crate that includes it shares the harness's databases, so it is
-/// scanned; a crate with its own harness is not this registry's business.
-const SHARED_HARNESS: &str = "app/tests/common";
+/// What a sibling's integration group names to `#[path]`-include the shared
+/// harness (`crates/test-utils/harness/`; oxy-app's own `tests/common` until
+/// decompose HAR). A crate that includes it shares the harness's databases, so
+/// it is scanned; a crate with its own harness is not this registry's business.
+const SHARED_HARNESS: &str = "test-utils/harness";
 
 /// **Every** `oxy-app` *grouped* integration binary. Not a curated subset.
 ///

@@ -7,7 +7,7 @@
 //! its own, cloned from a per-run template. That puts this binary in nextest's
 //! `db-per-test` group (`.config/nextest.toml`).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod admin_mount;

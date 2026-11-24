@@ -15,13 +15,13 @@
 //! template database and the stray-database sweep), so `.config/nextest.toml`
 //! puts this binary in `db-per-test`.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 #[path = "../../../api-notifications/tests/integration/platform_notices/fixture.rs"]
 mod notices_fixture;
 #[path = "../../../api-notifications/tests/integration/notification_categories/fixture.rs"]
 mod notification_fixture;
-#[path = "../../../app/tests/common/oltp_fx.rs"]
+#[path = "../../../test-utils/harness/oltp_fx.rs"]
 mod oltp_fx;
 
 // Notifications driven through a custom app: the console's "Test notifications"

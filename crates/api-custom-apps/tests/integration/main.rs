@@ -132,9 +132,9 @@
 //! the fully-serialized `serial-db` group — they contend for one Postgres server,
 //! not for a schema.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
-#[path = "../../../app/tests/common/oltp_fx.rs"]
+#[path = "../../../test-utils/harness/oltp_fx.rs"]
 mod oltp_fx;
 
 mod admin_app_workspace_in_org;

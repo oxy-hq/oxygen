@@ -10,7 +10,7 @@ use oxy_api_tenancy::admin::workspaces::{ListWorkspacesQuery, list_workspaces};
 use oxy_auth::types::AuthenticatedUser;
 use uuid::Uuid;
 
-#[path = "../../../app/tests/platform/admin_staff_scope/fixture.rs"]
+#[path = "../../../test-utils/harness/admin_staff_scope_fixture.rs"]
 #[allow(dead_code)]
 pub(crate) mod fixture;
 use fixture::{Reply, as_actor, reply, world};

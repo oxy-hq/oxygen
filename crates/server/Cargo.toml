@@ -173,7 +173,7 @@ sentry = { workspace = true, features = ["test"] }
 # The API-token suite (`tests/integration/token_auth`) drives the served flat
 # tree, oxy-app's routes and the surfaces' together, which only this crate can
 # compose. It reuses oxy-app's harness (`#[path]`-included from
-# crates/app/tests/common), which clones a per-run template database and needs
+# crates/test-utils/harness), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
 oxy-authz = { workspace = true }
 agentic-core = { workspace = true }
@@ -183,7 +183,7 @@ serde_yaml = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
-oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }      # the harness takes its Postgres from here
 # `console_test_notification` and `notification_function_action`: the
 # notification tests that span the custom-app and notifications surfaces (a
 # surface may not depend on another, not even for tests), with the org-store

@@ -15,7 +15,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
 use uuid::Uuid;
 
-#[path = "../../../app/tests/platform/admin_staff_scope/fixture.rs"]
+#[path = "../../../test-utils/harness/admin_staff_scope_fixture.rs"]
 #[allow(dead_code)]
 mod fixture;
 use fixture::{Reply, as_actor, reply, world};

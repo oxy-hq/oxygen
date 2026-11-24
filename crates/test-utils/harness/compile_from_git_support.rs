@@ -1,7 +1,7 @@
 //! The commit-compile world `compile_from_git`'s tests build on, shared with
 //! the tests that drive a preview's create and refresh through it
 //! (`oxy-api-previews`' `previews_from_git`, which includes this file and
-//! `compile_request/fixture.rs` by `#[path]`): a GitHub commit archive, a
+//! `compile_request_fixture.rs` by `#[path]`): a GitHub commit archive, a
 //! workspace connected through a PAT namespace, and a worker's
 //! selection-and-drive loop.
 

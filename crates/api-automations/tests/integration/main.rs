@@ -7,7 +7,7 @@
 //! cloned from a per-run template. That puts this binary in nextest's
 //! `db-per-test` group (`.config/nextest.toml`).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // Rehomed from `oxy-api-custom-apps`' `env_schedules_tenant` with the schedule

@@ -56,7 +56,7 @@
 // default 128 — the same limit, for the same reason, as `oxy-app`'s own lib.
 #![recursion_limit = "256"]
 
-#[path = "../common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod admin_staff_scope;

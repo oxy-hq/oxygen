@@ -15,7 +15,7 @@
 // `routing` group, 2026-11-16.)
 #![recursion_limit = "256"]
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // Rehomed from `oxy-app`'s `routing` group (`fleet_canary`) with the `/meta`

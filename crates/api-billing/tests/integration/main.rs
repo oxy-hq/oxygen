@@ -10,7 +10,7 @@
 //! `oxy-app`'s `authz::shared_db_registry` fails the build the day one does
 //! without a `serial-db` pin.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod usage_report;

@@ -8,7 +8,7 @@
 //! stray-database sweep). Each test gets its own database, so
 //! `.config/nextest.toml` puts this binary in `db-per-test`.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // Rehomed from `oxy-app`'s `platform` group with Admin → Metrics (admin split,

@@ -87,7 +87,7 @@ path = "junit.xml"
 #     sync` does the writing) and no longer need the group for that.
 #
 # `db-per-test` — the `oxy-app` integration binaries that touch Postgres. These
-# do NOT share a schema: `tests/common/mod.rs` gives every test its own database,
+# do NOT share a schema: `crates/test-utils/harness/mod.rs` gives every test its own database,
 # cloned from a per-run template, and serializes the only genuinely shared step
 # (building/cloning that template) behind a Postgres advisory lock rather than
 # behind the whole test group. What's left to contend for is one Postgres
@@ -128,7 +128,7 @@ retries = 2
 
 # `oxy-app`'s integration tests are grouped into one binary per domain
 # (`tests/<domain>/main.rs`). The tests matched here reach Postgres through
-# `tests/common/mod.rs`, so each owns its database and they contend for the
+# `crates/test-utils/harness/mod.rs`, so each owns its database and they contend for the
 # server rather than for a schema.
 #
 # The grouping is per binary, coarser than the evidence strictly supports —
@@ -163,7 +163,7 @@ test-group = "db-per-test"
 retries = 2
 
 # `oxy-api-documents`' integration group moved out of oxy-app's `platform`
-# binary with the code it tests, and includes the same `tests/common/mod.rs`
+# binary with the code it tests, and includes the same `crates/test-utils/harness/mod.rs`
 # harness by `#[path]` — every DB-backed module owns a database cloned from the
 # per-run template, exactly as it did under `platform`. None reach the shared
 # `OXY_DATABASE_URL`, so this is `db-per-test`, never `serial-db`.
@@ -183,7 +183,7 @@ test-group = "db-per-test"
 retries = 2
 
 # `oxy-api-notifications`' integration group moved out of oxy-app's `platform`
-# binary with the notifications surface — same harness (`tests/common/mod.rs` by
+# binary with the notifications surface — same harness (`crates/test-utils/harness/mod.rs` by
 # `#[path]`, own database per test), same group. `slack_notify_dm`, which was
 # the `slack` binary's, reaches the shared `OXY_DATABASE_URL` directly and keeps
 # its `serial-db` seat in its own override further down.
@@ -347,7 +347,7 @@ retries = 2
 
 # The frontline tests that moved out of oxy-app's `platform` binary with the
 # `oxy-api-frontline` extraction. They `#[path]`-include the same
-# `tests/common/mod.rs` harness (own database per test, cloned from the per-run
+# `crates/test-utils/harness/mod.rs` harness (own database per test, cloned from the per-run
 # template), so they keep the group they had. `frontline_device_guards` opens
 # no database (the role guards, in-process), so it is carved out the way the
 # `platform` override above carves out its modules: run at full parallelism,
@@ -396,7 +396,7 @@ test-group = "db-per-test"
 retries = 2
 
 # The `authz` and `platform` binaries are mixed, and the difference is
-# not cosmetic: these modules do NOT use `tests/common/mod.rs`. They reach
+# not cosmetic: these modules do NOT use `crates/test-utils/harness/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read
 # and write the same `public` schema as the `serial-db` members above — which run
 # `Migrator::up` on it. Running them in parallel is the `CREATE TABLE` /

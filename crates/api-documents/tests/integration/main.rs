@@ -13,7 +13,7 @@
 //! `platform` binary was. None of it touches the shared `OXY_DATABASE_URL`.
 //! The route-role test moved up to `oxy-server`'s group (decompose TR).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod document_ask;

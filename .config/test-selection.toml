@@ -67,6 +67,39 @@ globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog"]
 post-rule = "skip-rules"
 
+# The shared DB test harness is a plain directory no crate compiles: every
+# integration group below `#[path]`-includes it (decompose HAR moved it here
+# from oxy-app's `tests/common`), so the graph sees none of them. Keep this list
+# in step with the includers (`grep -rl test-utils/harness crates/*/tests`).
+[[determinator.path-rule]]
+globs = ["crates/test-utils/harness/**"]
+mark-changed = [
+  "oxy-app",
+  "oxy-server",
+  "oxy-api-admin",
+  "oxy-api-airway",
+  "oxy-api-automations",
+  "oxy-api-billing",
+  "oxy-api-custom-apps",
+  "oxy-api-documents",
+  "oxy-api-experiment",
+  "oxy-api-frontline",
+  "oxy-api-github",
+  "oxy-api-identity",
+  "oxy-api-metric-monitoring",
+  "oxy-api-notifications",
+  "oxy-api-observability",
+  "oxy-api-operating-graph",
+  "oxy-api-previews",
+  "oxy-api-tenancy",
+  "oxy-api-threads",
+  "oxy-api-workspace-config",
+  "oxy-api-workspace-health",
+  "oxy-api-workspaces",
+  "oxy-api-world-model",
+]
+post-rule = "skip-rules"
+
 # oxy-auth's token store tests include_str! the api_tokens migration; oxy-auth
 # does not depend on `migration`.
 [[determinator.path-rule]]

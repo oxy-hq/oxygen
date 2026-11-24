@@ -33,7 +33,7 @@ use oxy_oltp::entity::roles::{self as oltp_roles};
 use oxy_oltp::entity::tenants::Entity as OltpTenants;
 use oxy_oltp::entity::tenants::{self as oltp_tenants};
 
-#[path = "../common/oltp_fx.rs"]
+#[path = "../../../test-utils/harness/oltp_fx.rs"]
 mod oltp_fx;
 pub(crate) use oltp_fx::{Fx, seed_org, with_fx, with_fx_on};
 

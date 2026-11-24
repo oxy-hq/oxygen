@@ -10,7 +10,7 @@
 //! group (`max-threads = 4`) in `.config/nextest.toml`, not the fully-serialized
 //! `serial-db` group.
 
-#[path = "../common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod airhouse_broker;

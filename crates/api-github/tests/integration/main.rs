@@ -15,7 +15,7 @@
 //! `webhook_push` is the GitHub App webhook receiver's half of `oxy-app`'s
 //! former `platform::compile_push` (the handler moved here on 2026-11-15).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod installation_attach_route;

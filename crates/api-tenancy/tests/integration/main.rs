@@ -7,7 +7,7 @@
 //! sweep). Like `oxy-api-frontline`'s, they need nextest's process-per-test
 //! mode; `.config/nextest.toml` puts this binary in `db-per-test`.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod admin_data_plane_mount;

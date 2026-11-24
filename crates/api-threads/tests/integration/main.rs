@@ -7,7 +7,7 @@
 //! own, cloned from a per-run template. That puts this binary in nextest's
 //! `db-per-test` group (`.config/nextest.toml`), all but `thread_role_guards`.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // Rehomed from `oxy-app`'s `platform` group with the staff console's Explorer

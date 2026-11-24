@@ -50,7 +50,7 @@ tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"
 tower = { workspace = true, features = ["util"] }
 # The integration group (`tests/integration/`, added with Admin → Metrics in the
 # admin split) reuses oxy-app's per-test database harness
-# (`crates/app/tests/common/mod.rs`) and the `admin_staff_scope` fixture, both
+# (`crates/test-utils/harness/mod.rs`) and the `admin_staff_scope` fixture, both
 # included by `#[path]`, so it needs their dependencies too — the same list as
 # oxy-api-threads'. Dev-only: nothing here ships.
 migration = { workspace = true }
@@ -60,7 +60,7 @@ oxy-cameras = { workspace = true }
 async-trait = { workspace = true }
 url = { workspace = true }
 tempfile = { workspace = true }
-oxy-test-utils = { workspace = true }    # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }    # the harness takes its Postgres from here
 agentic-pipeline = { workspace = true }
 agentic-runtime = { workspace = true }   # the LLM runs the llm-usage case seeds
 entity = { workspace = true }            # the fixture's rows

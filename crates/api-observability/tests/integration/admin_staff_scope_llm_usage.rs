@@ -10,7 +10,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::json;
 use uuid::Uuid;
 
-#[path = "../../../app/tests/platform/admin_staff_scope/fixture.rs"]
+#[path = "../../../test-utils/harness/admin_staff_scope_fixture.rs"]
 #[allow(dead_code)]
 pub(crate) mod fixture;
 use fixture::{as_actor, reply, world};

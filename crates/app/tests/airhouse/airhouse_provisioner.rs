@@ -45,7 +45,7 @@ fn set_test_encryption_key() {
 /// A fresh per-test database carrying the central + airhouse schema.
 ///
 /// The migration chain runs once per `cargo nextest run` into a template that
-/// this clones; see `tests/common/mod.rs`.
+/// this clones; see `crates/test-utils/harness/mod.rs`.
 async fn test_db() -> DatabaseConnection {
     crate::common::fresh_db(crate::common::Schema::CentralAirhouse)
         .await

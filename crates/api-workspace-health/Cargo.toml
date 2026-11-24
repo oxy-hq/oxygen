@@ -46,7 +46,7 @@ tokio = { workspace = true, features = ["test-util"] }
 serde_yaml = { workspace = true }
 # Two harnesses: the in-source DB tests' (`oxy_test_utils::db`, the central and
 # runtime migrators against `OXY_DATABASE_URL`) and the integration tests'
-# (oxy-app's `tests/common`, included by path, which clones a per-run template
+# (`crates/test-utils/harness`, included by path, which clones a per-run template
 # database and needs every migrator `Schema::All` can apply — same list as
 # oxy-api-tenancy).
 migration = { workspace = true }
@@ -55,7 +55,7 @@ airhouse = { workspace = true }
 oxy-oltp = { workspace = true }
 tempfile = { workspace = true }
 url = { workspace = true }
-oxy-test-utils = { workspace = true }      # the in-source DB harness; tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }      # the in-source DB harness; the harness takes its Postgres from here
 
 [lints]
 workspace = true

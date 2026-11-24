@@ -46,7 +46,7 @@ pub(super) fn set_test_encryption_key() {
 /// environment variable is required" rather than seeing the seeded rows.
 ///
 /// The migration chain runs once per `cargo nextest run` into a template that
-/// this clones; see `tests/common/mod.rs`.
+/// this clones; see `crates/test-utils/harness/mod.rs`.
 pub(super) async fn test_db() -> DatabaseConnection {
     let (db, test_url) = crate::common::fresh_db(crate::common::Schema::CentralAirhouse).await;
     // SAFETY: single-threaded test setup before any other env access. nextest

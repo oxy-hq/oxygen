@@ -13,7 +13,7 @@
 //! `frontline_device_guards` opens no database. The route-role test moved up
 //! to `oxy-server`'s group (decompose TR).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod frontline_app_grant;

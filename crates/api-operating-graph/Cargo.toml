@@ -34,20 +34,20 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
-# from crates/app/tests/common), which clones a per-run template database and
+# from crates/test-utils/harness), which clones a per-run template database and
 # needs every migrator `Schema::All` can apply.
 oxy-custom-apps = { workspace = true }     # operating_graph: the `ctx.org` directory reads
 migration = { workspace = true }
 airhouse = { workspace = true }
 oxy-oltp = { workspace = true }
 agentic-runtime = { workspace = true }
-agentic-pipeline = { workspace = true }      # tests/common
+agentic-pipeline = { workspace = true }      # the harness
 agentic-semantic = { workspace = true }      # operating_graph: the binding's semantic-layer fixture
 oxy-airlayer-compat = { workspace = true }   # operating_graph: the same fixture's schema types
 oxy-cameras = { workspace = true }
 tempfile = { workspace = true }
 url = { workspace = true }
-oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }      # the harness takes its Postgres from here
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

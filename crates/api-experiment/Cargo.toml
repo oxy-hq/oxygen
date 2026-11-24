@@ -55,15 +55,15 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # The integration group (`tests/integration/`) reuses oxy-app's per-test
-# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# database harness (`crates/test-utils/harness/mod.rs`, included by `#[path]`),
 # so it needs that harness's dependencies too. Dev-only: nothing here ships.
-agentic-runtime = { workspace = true }       # tests/common runs the runtime migrator
+agentic-runtime = { workspace = true }       # the harness runs the runtime migrator
 migration = { workspace = true }
 airhouse = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-oltp = { workspace = true }
 url = { workspace = true }
-oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }      # the harness takes its Postgres from here
 # `experiment_pricing` and the fixture helpers `set_current_dir`; the attribute's
 # lock is global to the binary.
 serial_test = { workspace = true }

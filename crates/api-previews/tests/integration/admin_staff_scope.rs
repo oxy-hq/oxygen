@@ -8,7 +8,7 @@
 //! path so the copies cannot drift, as `oxy-api-identity` includes it. Each
 //! case owns its database ([`crate::common::test_db_with`]).
 
-#[path = "../../../app/tests/platform/admin_staff_scope/fixture.rs"]
+#[path = "../../../test-utils/harness/admin_staff_scope_fixture.rs"]
 #[allow(dead_code)]
 mod fixture;
 

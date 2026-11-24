@@ -40,7 +40,7 @@ const WEBHOOK_SECRET_VALUE: &str = "s3cr3t-from-the-workspace-secret-store";
 /// (used by the code under test) points at it.
 ///
 /// The migration chain runs once per `cargo nextest run` into a template that
-/// this clones; see `tests/common/mod.rs`.
+/// this clones; see `crates/test-utils/harness/mod.rs`.
 async fn setup_db() -> DatabaseConnection {
     let (db, test_url) = crate::common::fresh_db(crate::common::Schema::Central).await;
     // SAFETY: single-threaded test setup before any other env access. nextest

@@ -13,7 +13,7 @@
 //! `db-per-test` group (`.config/nextest.toml`), as the `platform` binary did.
 //! The route-role test moved up to `oxy-server`'s group (decompose TR).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod operating_graph;

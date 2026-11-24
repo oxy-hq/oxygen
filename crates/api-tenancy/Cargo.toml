@@ -57,7 +57,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # (decompose TR).
 tower = { workspace = true, features = ["util"] }
 # The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
-# from crates/app/tests/common), which clones a per-run template database and
+# from crates/test-utils/harness), which clones a per-run template database and
 # needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
 migration = { workspace = true }
 agentic-runtime = { workspace = true }
@@ -67,7 +67,7 @@ url = { workspace = true }
 duckdb = { workspace = true }
 async-trait = { workspace = true }
 serde_yaml = { workspace = true }
-oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }      # the harness takes its Postgres from here
 
 [lints]
 workspace = true

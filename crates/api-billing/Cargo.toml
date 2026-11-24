@@ -42,7 +42,7 @@ tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
 # The usage report's database cases (moved from oxy-app's `platform` group
 # with the surface, admin split PR 8b) reuse oxy-app's per-test harness
-# (`#[path]`-included from crates/app/tests/common), which clones a per-run
+# (`#[path]`-included from crates/test-utils/harness), which clones a per-run
 # template database and needs every migrator `Schema::All` can apply — the
 # same list as oxy-api-admin.
 migration = { workspace = true }
@@ -53,7 +53,7 @@ oxy-cameras = { workspace = true }
 oxy = { workspace = true }
 tempfile = { workspace = true }
 url = { workspace = true }
-oxy-test-utils = { workspace = true }   # tests/common takes its Postgres from here
+oxy-test-utils = { workspace = true }   # the harness takes its Postgres from here
 agentic-core = { workspace = true }
 agentic-runtime = { workspace = true }  # the harness runs its migrator
 # The cases' own fakes: the mail provider that keeps what it is given, and

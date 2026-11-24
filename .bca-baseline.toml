@@ -6975,7 +6975,7 @@ metric = "abc"
 value = 46.33573135281238
 
 [[entry]]
-path = "crates/app/tests/platform/compile_from_git/support.rs"
+path = "crates/test-utils/harness/compile_from_git_support.rs"
 qualified = "seed_workspace"
 metric = "abc"
 value = 49.09175083453431

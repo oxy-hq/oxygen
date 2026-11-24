@@ -17,15 +17,15 @@
 //! `oxy-app`'s `platform` group by path, for the compile console's cases
 //! (admin split, PR 6).
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // Shared with `oxy-app`'s tests, which use more of each than
 // `previews_from_git` does.
-#[path = "../../../app/tests/platform/compile_from_git/support.rs"]
+#[path = "../../../test-utils/harness/compile_from_git_support.rs"]
 #[allow(dead_code)]
 mod compile_from_git_support;
-#[path = "../../../app/tests/platform/compile_request/fixture.rs"]
+#[path = "../../../test-utils/harness/compile_request_fixture.rs"]
 #[allow(dead_code)]
 mod compile_request_fixture;
 

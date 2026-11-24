@@ -74,7 +74,6 @@ internal-docs/airhouse-integration.md              @luong-komorebi @hotay
 # connection underneath is his agentic/connector Postgres path.
 # (the two admin/ lines are overrides carved out of admin/ above)
 crates/oltp/                                       @luong-komorebi @hotay
-crates/app/src/cli/commands/oltp.rs                @luong-komorebi @hotay
 crates/api-tenancy/src/admin/oltp.rs               @luong-komorebi @hotay
 web-app/src/pages/admin/AdminOltp/                 @luong-komorebi @hotay
 scripts/oltp/                                      @luong-komorebi @hotay
@@ -482,6 +481,8 @@ sdk/vite-plugin/                                   @luong-komorebi @NTtanh
 # Deliberately UNOWNED — shared, no single reviewer (gating them would stall
 # everyone; the highest-volume committer only appears to "lead" them):
 #   crates/core, crates/shared, crates/entity, crates/migration,
+#   crates/test-utils/harness (the shared DB test harness, oxy-app's unowned
+#   tests/common until decompose HAR),
 #   web-app/src/{components,hooks,services,types,libs,stores},
 #   web-app/src/pages/{thread,chat}.
 # Add an owner only if that changes. A single feature leaf inside one of them may

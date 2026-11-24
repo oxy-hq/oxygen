@@ -20,9 +20,9 @@
 // default 128 — the same limit, for the same reason, as `oxy-app`'s own lib.
 #![recursion_limit = "256"]
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
-#[path = "../../../app/tests/common/oltp_fx.rs"]
+#[path = "../../../test-utils/harness/oltp_fx.rs"]
 mod oltp_fx;
 
 mod notification_categories;

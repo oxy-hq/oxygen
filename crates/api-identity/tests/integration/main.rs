@@ -10,7 +10,7 @@
 //! `serial-db`, and `oxy-app`'s `authz::shared_db_registry` fails the build if
 //! that pin drifts.
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 mod admin_membership_audit;

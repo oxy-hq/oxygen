@@ -43,6 +43,7 @@ mod fences;
 // console cases and `oxy-api-admin`'s internal-jobs, audit and assume cases include
 // this file by path; the helpers only they use read as dead code from here.
 #[allow(dead_code)]
+#[path = "../../../test-utils/harness/admin_staff_scope_fixture.rs"]
 mod fixture;
 // The task queue's cases (`internal_jobs`) moved with the handlers to
 // `oxy-api-admin`'s `admin_staff_scope` (admin split, PR 7), and include

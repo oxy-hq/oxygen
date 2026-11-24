@@ -11,7 +11,7 @@
 // depth in this binary, as it does in the crates whose libs carry the same line.
 #![recursion_limit = "256"]
 
-#[path = "../../../app/tests/common/mod.rs"]
+#[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
 // The tenant halves of `oxy-api-custom-apps`' `staging_secrets_admin` and

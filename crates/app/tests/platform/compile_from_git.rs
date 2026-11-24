@@ -44,6 +44,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::common::{Schema, test_db_with};
 
+#[path = "../../../test-utils/harness/compile_from_git_support.rs"]
 mod support;
 pub(crate) use support::*;
 
