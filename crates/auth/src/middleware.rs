@@ -21,7 +21,10 @@ pub const TOKEN_EXPIRATION_HEADER: &str = "x-oxy-token-expiration";
 /// What a surface answers for every refusal that is not the legacy one.
 type Fallback<E> = fn(E) -> Response;
 
-/// `/api`: the error's own status, which logs it and reports it to Sentry.
+/// `/api`: the error's own status. Logged once on the way through
+/// `From<OxyError> for StatusCode` — at `warn` for an authentication failure,
+/// which is the caller's credential and files no Sentry issue, and at `error`
+/// with a Sentry report for anything that is ours.
 fn mapped<E: Into<StatusCode>>(err: E) -> Response {
     err.into().into_response()
 }
@@ -51,12 +54,20 @@ fn unauthorized<E>(_: E) -> Response {
 /// authenticator simply never produces it.
 ///
 /// Everything else is the caller's own `fallback`, unchanged. That is not
-/// ceremony: `/api` maps the error through `From<OxyError> for StatusCode`,
-/// which logs at `error` and calls `capture_to_sentry`, while `/external/api`
-/// has always answered a bare 401 and logged one `warn`. Routing the public,
-/// `CORS: *` surface through the former would let anyone fill the Sentry quota
-/// with junk `X-API-Key` values, and would turn a `DBError` during lookup into
-/// a 500 where that surface has always said 401.
+/// ceremony, though what divides them is narrower than it was: `/api` maps the
+/// error through `From<OxyError> for StatusCode`, so the status is the error's
+/// own, while `/external/api` answers a bare 401 whatever went wrong and logs
+/// the detail itself at the call site.
+///
+/// Every refusal the built-in authenticator hands to this function is an
+/// `AuthenticationError`, and those no longer reach Sentry from either surface
+/// — `From<OxyError> for StatusCode` stopped reporting them, so nobody can fill
+/// the quota with junk `X-API-Key` values any more. What is left is the status:
+/// a `DBError` during lookup is a 500 through `mapped` and a 401 through
+/// `unauthorized`, and this surface has always said 401 rather than admit that
+/// the failure was ours. A non-authentication failure still reports to Sentry
+/// through `mapped`, which is the other reason not to route a public,
+/// `CORS: *` surface through it.
 fn refusal<E: std::error::Error>(err: E, fallback: Fallback<E>) -> Response {
     if err.to_string() == crate::token::dispatch::LEGACY_KEY_REMOVED {
         return (
@@ -444,9 +455,10 @@ mod tests {
 
     /// `/external/api` answers 401 for **every** failure, including one that is
     /// our fault. It is a public, `CORS: *` surface: mapping the error through
-    /// `From<OxyError>` instead would report each junk `X-API-Key` to Sentry at
-    /// `error`, and turn a database error during lookup into a 500 where this
-    /// surface has always said 401.
+    /// `From<OxyError>` instead would turn a database error during lookup into
+    /// a 500 where this surface has always said 401, and would report that
+    /// database error to Sentry. A junk `X-API-Key` would not — an
+    /// `AuthenticationError` no longer reports from either surface.
     #[tokio::test]
     async fn the_external_surface_answers_401_even_when_the_fault_is_ours() {
         let refused = refusal(

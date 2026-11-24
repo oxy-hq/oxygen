@@ -263,33 +263,45 @@ impl From<std::io::Error> for OxyError {
     }
 }
 
+/// Log this error as it leaves a handler, and report it to Sentry only when it
+/// is **ours**.
+///
+/// An authentication failure is the CALLER's credential, so it is not reported.
+/// The issue it filed was unactionable by construction — the fix is always
+/// "present a credential that admits" — and every junk token was one more event
+/// against the quota. It also looked new every release: nothing pins the
+/// fingerprint of a `capture_error` event, which keeps the stack
+/// `attach_stacktrace` gives it at send time, and
+/// `oxy::sentry_config::normalize_tracing_event` deliberately leaves an event
+/// carrying an exception alone.
+///
+/// `/external/api` has always avoided this: its refusal answers through
+/// `oxy_auth::middleware::unauthorized`, which never comes through here, so a
+/// `CORS: *` surface cannot be used to fill the quota. `/api` is the same
+/// refusal on a surface with less traffic, and had no reason to be louder.
+///
+/// Still logged, once, at `warn`: a 401 the caller asked for is not an
+/// incident, and the detail belongs in the platform logs where the caller can
+/// be identified. Deliberately the ONLY line — `auth_middleware` has no log of
+/// its own, because the two together said the same thing twice.
+///
+/// A free function rather than a method, and not an `if` inside the conversion
+/// below, because the metrics gate holds both shapes still: that conversion is
+/// one exhaustive match recorded at cyclomatic 27 against a limit of 15, and
+/// `impl OxyError` is recorded at wmc 69 against 60. Growing either fails the
+/// gate, and neither reads better for carrying this.
+fn log_on_the_way_out(error: &OxyError) {
+    if matches!(error, OxyError::AuthenticationError(_)) {
+        tracing::warn!("Authentication failed: {error}");
+        return;
+    }
+    tracing::error!("Error occurred: {}", error);
+    error.capture_to_sentry();
+}
+
 impl From<OxyError> for StatusCode {
     fn from(error: OxyError) -> Self {
-        // An authentication failure is the CALLER's credential, not a fault of
-        // ours, so it is not reported to Sentry. The issue it filed was
-        // unactionable by construction — the fix is always "present a
-        // credential that admits" — and every junk token was one more event
-        // against the quota, re-grouped as a NEW issue each release because an
-        // exception event keeps the stack `attach_stacktrace` gives it and
-        // `oxy::sentry_config::normalize_tracing_event` deliberately leaves
-        // that stack alone.
-        //
-        // `/external/api` has always avoided this: its refusal answers through
-        // `oxy_auth::middleware::unauthorized`, which never comes through here,
-        // precisely so a `CORS: *` surface cannot be used to fill the quota
-        // with junk `X-API-Key` values. `/api` is the same refusal on a surface
-        // with less traffic, and had no reason to be louder.
-        //
-        // Still logged, once and at `warn`: a 401 the caller asked for is not
-        // an incident, and the detail belongs in the platform logs where the
-        // caller can be identified. Deliberately the only line — `auth_middleware`
-        // dropped its own, which said the same thing twice at `error`.
-        if matches!(error, OxyError::AuthenticationError(_)) {
-            tracing::warn!("Authentication failed: {error}");
-        } else {
-            tracing::error!("Error occurred: {}", error);
-            error.capture_to_sentry();
-        }
+        log_on_the_way_out(&error);
 
         match error {
             OxyError::ConfigurationError(_) => StatusCode::BAD_REQUEST,
