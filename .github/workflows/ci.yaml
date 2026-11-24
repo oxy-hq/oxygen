@@ -2069,7 +2069,7 @@ jobs:
       # one package — from ever writing a smaller cache under that key.
       - name: Prep cargo cache (build path)
         if: needs.cargo-check-and-test.result == 'skipped'
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           shared-key: test
           save-if: false
