@@ -17,15 +17,25 @@
 //!    fault listed ([`InstallError::Author`]) and leaves what is installed as
 //!    it was, so the author learns it before production moves and the app
 //!    keeps capturing its other tables meanwhile.
-//! 4. **Per declared table**: owner install, writer install, owner commit,
-//!    each in its own transaction, so the guard holds a table only once its
-//!    triggers are in place.
-//! 5. **Per installed table no longer declared**: owner uninstall, writer
-//!    uninstall, owner drop. Its shapes stay, for the history already shipped.
+//! 4. **Every table's owner**, read and checked before anything changes
+//!    (`attach`). A table any role but the app's writer or the store's owner
+//!    owns refuses the promote, naming it and its owner
+//!    ([`InstallError::Author`]), and leaves what is installed as it was.
+//! 5. **Per declared table**: owner install, the triggers attached as the
+//!    table's owner, owner commit, each in its own transaction, so the guard
+//!    holds a table only once its triggers are in place.
+//! 6. **Per installed table no longer declared**: owner uninstall, the
+//!    triggers dropped as the table's owner, owner drop. Its shapes stay, for
+//!    the history already shipped.
 //!
 //! The writer is the app's own, derived from its slug as its migrations'
-//! writer is: the manifest names tables, never a schema. The triggers go on as
-//! that writer, which owns the tables; the functions go in as the owner.
+//! writer is: the manifest names tables, never a schema. The functions and
+//! the registry rows go in as the store's owner. A table's triggers go on and
+//! come off as the role that owns the table, since enabling or dropping a
+//! trigger is its owner's alone: the writer, for a table the app's migrations
+//! made (they run as the writer); the store's owner, for one a workspace's
+//! `schemas/*.sql` made in the app's schema (they run as the owner, and grant
+//! the writer `ALL` on it, but not its ownership).
 //!
 //! A failure part way leaves the tables already done installed, each whole,
 //! and the same promote retried installs the rest. Nothing is undone, as
@@ -48,8 +58,10 @@ use uuid::Uuid;
 
 use crate::custom_apps_migrations::MigrationError;
 
+mod attach;
 mod plan;
 
+use attach::{Attach, Attacher, Detach, Roles};
 use plan::{Installed, Plan, Recorded};
 
 /// The platform step that creates `oxy_changes`. A store below it has
@@ -63,13 +75,6 @@ const CHANGES_STEP: i32 = 8;
 /// its versions.
 const LATEST_SHAPE_SQL: &str = "SELECT schema_version, columns::text AS columns, primary_key \
        FROM oxy_changes.shapes WHERE relid = $1 ORDER BY schema_version DESC LIMIT 1";
-
-/// The schema and name the table with oid `$1` has now, if it still exists:
-/// a removed table's triggers are dropped where they are, which after a
-/// rename (on a store without the DDL guard) is not where its row says.
-const LIVE_NAME_SQL: &str = "SELECT n.nspname::text AS schema_name, c.relname::text AS table_name \
-       FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
-      WHERE c.oid = $1";
 
 /// What one promote did to the app's capture, by table name.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -169,13 +174,13 @@ pub async fn install_on_promote(
     let Some(tenant) = current_tenant(db, org_id, !declared.is_empty()).await? else {
         return Ok(InstallSummary::default());
     };
-    let mut owner = owner_client(&tenant).await?;
+    let owner = owner_client(&tenant).await?;
     let installed = read_installed(&owner, &writer.name).await?;
     if declared.is_empty() && installed.is_empty() {
         return Ok(InstallSummary::default());
     }
     let plan = plan_against(&owner, &writer, &declared, &installed).await?;
-    apply_plan(db, org_id, &writer, &mut owner, &plan).await
+    apply_plan(db, org_id, &writer, owner, &plan).await
 }
 
 /// Every declared table read and validated against its live shape, beside
@@ -196,27 +201,58 @@ async fn plan_against(
     Ok(plan::plan(recorded, installed))
 }
 
-/// Carry out `plan`: each table installed or reshaped, as owner, then writer,
-/// then owner; then each removed table taken down the same way backwards.
+/// Carry out `plan`: each table installed or reshaped, as the store's owner,
+/// then the table's owner, then the store's owner; then each removed table
+/// taken down the same way backwards.
 async fn apply_plan(
     db: &DatabaseConnection,
     org_id: Uuid,
     writer: &Writer,
-    owner: &mut Client,
+    owner: Client,
     plan: &Plan,
 ) -> Result<InstallSummary, InstallError> {
     let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
         .await
         .map_err(|e| infra("resolve the app's writer", e))?;
-    // Every statement is generated before the first runs: a name the capture
-    // SQL refuses is the author's to fix, and is refused with nothing changed.
+    // Every statement is generated, and every table's owner checked, before
+    // the first runs: a name the capture SQL refuses, or a table neither the
+    // writer nor the store's owner owns, is the author's to fix, and is
+    // refused with nothing changed.
     let tables = install_sql(plan, writer, &conn.role)?;
-    let mut writer_client = oxy_oltp::connect::connect(&conn.dsn, "oxy_changes install")
+    let store_owner = attach::store_owner(&owner).await?;
+    let roles = Roles {
+        writer: &conn.role,
+        owner: &store_owner,
+    };
+    let steps = attach::decide(&owner, roles, &tables, &plan.remove, &writer.schema).await?;
+    let writer_client = oxy_oltp::connect::connect(&conn.dsn, "oxy_changes install")
         .await
         .map_err(|e| pg_infra("open the org's OLTP store as the app's writer", &e))?;
-    install_tables(owner, &mut writer_client, &tables).await?;
-    remove_tables(owner, &mut writer_client, &writer.schema, &plan.remove).await?;
+    let mut sessions = Sessions {
+        owner,
+        writer: writer_client,
+    };
+    install_tables(&mut sessions, &steps.install).await?;
+    remove_tables(&mut sessions, &writer.schema, &steps.remove).await?;
     Ok(plan.summary())
+}
+
+/// The install's two sessions on the store: its owner's, which writes the
+/// functions and the registry rows, and the app's writer's. A table's
+/// triggers go on and come off on the session of whichever owns it.
+struct Sessions {
+    owner: Client,
+    writer: Client,
+}
+
+impl Sessions {
+    /// The session `attacher` names.
+    fn of(&mut self, attacher: Attacher) -> &mut Client {
+        match attacher {
+            Attacher::Writer => &mut self.writer,
+            Attacher::Owner => &mut self.owner,
+        }
+    }
 }
 
 /// The app's writer, derived from its slug as `ctx.oltp` and its migrations
@@ -361,9 +397,11 @@ async fn latest_shape(owner: &Client, relid: u32) -> Result<Option<Recorded>, In
     }))
 }
 
-/// One table's install, as SQL for each connection.
+/// One table's install, as SQL for each connection. `writer_install` runs as
+/// the table's owner, which `attach` reads by `relid`.
 struct TableSql {
     table: String,
+    relid: u32,
     owner_install: Vec<String>,
     writer_install: Vec<String>,
     owner_commit: String,
@@ -383,6 +421,7 @@ fn install_sql(plan: &Plan, writer: &Writer, role: &str) -> Result<Vec<TableSql>
             };
             Ok(TableSql {
                 table: table.clone(),
+                relid: t.capture.shape.relid,
                 owner_install: owner_install_sql(&spec, role)
                     .map_err(|e| schema_refusal(table, &e))?,
                 writer_install: writer_install_sql(&spec).map_err(|e| schema_refusal(table, &e))?,
@@ -399,63 +438,49 @@ fn schema_refusal(table: &str, e: &SchemaError) -> InstallError {
     ))
 }
 
-/// Owner install, writer install, owner commit, per table in order.
-async fn install_tables(
-    owner: &mut Client,
-    writer: &mut Client,
-    tables: &[TableSql],
-) -> Result<(), InstallError> {
-    for t in tables {
+/// Owner install, the triggers attached as the table's owner, owner commit,
+/// per table in order.
+async fn install_tables(sessions: &mut Sessions, steps: &[Attach<'_>]) -> Result<(), InstallError> {
+    for step in steps {
+        let t = step.sql;
         let name = &t.table;
         let doing = format!("write the capture functions of {name:?} as the store's owner");
-        in_transaction(owner, &t.owner_install, &doing).await?;
-        let doing = format!("attach the capture triggers to {name:?} as the app's writer");
-        in_transaction(writer, &t.writer_install, &doing).await?;
+        in_transaction(&mut sessions.owner, &t.owner_install, &doing).await?;
+        let by = step.by;
+        let doing = format!("attach the capture triggers to {name:?} as {}", by.role());
+        in_transaction(sessions.of(by), &t.writer_install, &doing).await?;
         let doing = format!("commit the capture of {name:?}");
-        in_transaction(owner, std::slice::from_ref(&t.owner_commit), &doing).await?;
+        let commit = std::slice::from_ref(&t.owner_commit);
+        in_transaction(&mut sessions.owner, commit, &doing).await?;
     }
     Ok(())
 }
 
-/// Owner uninstall, writer uninstall, owner drop, per table in order. The
-/// triggers are dropped on the table the oid names now, and not at all when
-/// it is gone (its triggers went with it) or left the writer's schema.
+/// Owner uninstall, the triggers dropped as the table's owner, owner drop,
+/// per table in order. The triggers are dropped on the table the oid names
+/// now, and not at all when it is gone (its triggers went with it) or left
+/// the writer's schema.
 async fn remove_tables(
-    owner: &mut Client,
-    writer: &mut Client,
+    sessions: &mut Sessions,
     schema: &str,
-    removed: &[Installed],
+    steps: &[Detach<'_>],
 ) -> Result<(), InstallError> {
-    for row in removed {
+    for step in steps {
+        let row = step.row;
         let name = &row.table;
-        let live = live_name(owner, row.relid).await?;
         let doing = format!("release the capture of {name:?} from the guard");
-        in_transaction(owner, &[owner_uninstall_sql(row.relid)], &doing).await?;
-        if let Some((live_schema, live_table)) = live.filter(|(s, _)| s == schema) {
-            let doing = format!("drop the capture triggers of {name:?} as the app's writer");
-            let sql = writer_uninstall_sql(&live_schema, &live_table);
-            in_transaction(writer, &sql, &doing).await?;
+        let release = [owner_uninstall_sql(row.relid)];
+        in_transaction(&mut sessions.owner, &release, &doing).await?;
+        if let Some((live, by)) = &step.triggers {
+            let doing = format!("drop the capture triggers of {name:?} as {}", by.role());
+            let sql = writer_uninstall_sql(&live.schema, &live.table);
+            in_transaction(sessions.of(*by), &sql, &doing).await?;
         }
         let doing = format!("drop the capture functions of {name:?} as the store's owner");
-        in_transaction(owner, &owner_drop_sql(row.relid, schema), &doing).await?;
+        let functions = owner_drop_sql(row.relid, schema);
+        in_transaction(&mut sessions.owner, &functions, &doing).await?;
     }
     Ok(())
-}
-
-async fn live_name(owner: &Client, relid: u32) -> Result<Option<(String, String)>, InstallError> {
-    let doing = "find a removed table";
-    let Some(row) = owner
-        .query_opt(LIVE_NAME_SQL, &[&relid])
-        .await
-        .map_err(|e| pg_infra(doing, &e))?
-    else {
-        return Ok(None);
-    };
-    let schema: String = row
-        .try_get("schema_name")
-        .map_err(|e| pg_infra(doing, &e))?;
-    let table: String = row.try_get("table_name").map_err(|e| pg_infra(doing, &e))?;
-    Ok(Some((schema, table)))
 }
 
 /// `statements` in one transaction, so a step that fails leaves nothing of

@@ -10,10 +10,11 @@
 //! 2. diffs against what is installed ([`INSTALLED_SQL`]) and picks each
 //!    table's [`next_schema_version`];
 //! 3. per table, runs [`owner_install_sql`] as the owner,
-//!    [`writer_install_sql`] as the writer, then [`owner_commit_sql`] as the
-//!    owner;
+//!    [`writer_install_sql`] as the table's owner (the writer, or the owner
+//!    for a table a workspace's schemas made), then [`owner_commit_sql`] as
+//!    the owner;
 //! 4. per table no longer declared, [`owner_uninstall_sql`],
-//!    [`writer_uninstall_sql`], [`owner_drop_sql`].
+//!    [`writer_uninstall_sql`] as the table's owner, [`owner_drop_sql`].
 //!
 //! Generating SQL is all this module does; it opens no connection. The
 //! capture itself is four statement-level triggers per table calling four

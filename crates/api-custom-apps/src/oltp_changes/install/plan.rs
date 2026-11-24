@@ -44,12 +44,18 @@ pub(super) fn validate_all(
     if refusals.is_empty() {
         Ok(captures)
     } else {
-        Err(format!(
-            "change capture was not installed, so production keeps its previous build and every \
-             table's capture stays as it was: {}",
-            refusals.join("; ")
-        ))
+        Err(refusal(&refusals))
     }
+}
+
+/// The install's refusal, naming every table at fault (`refusals`, one each)
+/// and saying that nothing changed: production keeps its previous build.
+pub(super) fn refusal(refusals: &[String]) -> String {
+    format!(
+        "change capture was not installed, so production keeps its previous build and every \
+         table's capture stays as it was: {}",
+        refusals.join("; ")
+    )
 }
 
 /// A table this writer's capture covers, as `oxy_oltp::changes::INSTALLED_SQL`

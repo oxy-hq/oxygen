@@ -2,9 +2,16 @@
 //! it, each on the connection it needs (OLTP change stream design §5.2,
 //! "Install order").
 //!
-//! The writer owns the table, since the app's migrations created it, and
-//! only a role with `TRIGGER` on a table may put a trigger on it; the owner
-//! owns `app_<writer>`, where the writer only has `USAGE` and `CREATE`. So:
+//! The owner owns `app_<writer>`, where the writer only has `USAGE` and
+//! `CREATE`, so the functions and the registry rows go in as the owner. The
+//! triggers go on, and come off, as the **table's** owner: `CREATE TRIGGER`
+//! needs only `TRIGGER` on the table, but `ALTER TABLE … ENABLE ALWAYS
+//! TRIGGER` and `DROP TRIGGER` need its ownership. A table the app's
+//! migrations created is the writer's, since they run as the writer; one a
+//! workspace's `schemas/*.sql` created in the app's schema is the owner's,
+//! since they run as the owner and only grant the writer `ALL` on it. The
+//! caller reads which role owns each table and runs the trigger SQL on that
+//! role's connection. So:
 //!
 //! 1. **as the owner**, [`owner_install_sql`]: seed `stream` if it has no row,
 //!    write the table's `tables` row with `installed = false`, record its
@@ -12,16 +19,17 @@
 //!    owner, `EXECUTE` revoked from `PUBLIC` and granted to that writer
 //!    alone. The writer can neither replace nor drop a function it does not
 //!    own in a schema it does not own;
-//! 2. **as the writer**, [`writer_install_sql`]: the four statement-level
-//!    triggers, `ENABLE ALWAYS` so a `session_replication_role = replica`
-//!    session still captures;
+//! 2. **as the table's owner** (the writer, or the owner for a table a
+//!    workspace's schemas made), [`writer_install_sql`]: the four
+//!    statement-level triggers, `ENABLE ALWAYS` so a
+//!    `session_replication_role = replica` session still captures;
 //! 3. **as the owner**, [`owner_commit_sql`]: `installed = true`, from which
 //!    the DDL guard holds the table.
 //!
 //! Removing a table runs the same steps backwards: [`owner_uninstall_sql`],
-//! [`writer_uninstall_sql`], [`owner_drop_sql`]. `installed` goes false first
-//! so the guard lets the triggers go; the shapes stay, for history already
-//! shipped.
+//! [`writer_uninstall_sql`] as the table's owner, [`owner_drop_sql`].
+//! `installed` goes false first so the guard lets the triggers go; the shapes
+//! stay, for history already shipped.
 //!
 //! Every identifier here has passed [`validate_name`] (or is derived from
 //! one that has, as `app_<writer>` is) and is quoted on top; every name the
@@ -125,10 +133,12 @@ pub fn owner_install_sql(
     Ok(sql)
 }
 
-/// Step 2 of an install, as the writer: one `AFTER … FOR EACH STATEMENT`
-/// trigger per operation, each with the transition tables its function reads
-/// (Postgres allows them only on a single-event trigger), then each enabled
-/// always. `CREATE OR REPLACE`, so a reinstall rewires the triggers in place.
+/// Step 2 of an install, as the table's owner (the writer, or the owner for a
+/// table a workspace's schemas made): enabling a trigger needs ownership, not
+/// only `TRIGGER`. One `AFTER … FOR EACH STATEMENT` trigger per operation,
+/// each with the transition tables its function reads (Postgres allows them
+/// only on a single-event trigger), then each enabled always. `CREATE OR
+/// REPLACE`, so a reinstall rewires the triggers in place.
 pub fn writer_install_sql(spec: &CaptureSpec<'_>) -> Result<Vec<String>, SchemaError> {
     let target = Target::of(spec)?;
     let table = &target.table;
@@ -167,8 +177,9 @@ pub fn owner_uninstall_sql(relid: u32) -> String {
     format!("UPDATE {CHANGES_TABLES_TABLE} SET installed = false WHERE relid = {relid}::oid")
 }
 
-/// Step 2 of a removal, as the writer. `schema` and `table` come from the
-/// table's `tables` row, which an install wrote from validated names.
+/// Step 2 of a removal, as the table's owner, the only role that may drop
+/// its triggers. `schema` and `table` name the table where it is now, as the
+/// catalog reports it for the oid in its `tables` row.
 pub fn writer_uninstall_sql(schema: &str, table: &str) -> Vec<String> {
     let table = format!("{}.{}", quote_ident(schema), quote_ident(table));
     Op::ALL
