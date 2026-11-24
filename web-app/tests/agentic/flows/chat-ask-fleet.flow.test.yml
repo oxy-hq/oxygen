@@ -1,9 +1,18 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
-# Ask a sales question via the "Ask Oxygen" dock and verify the analytics
-# agent returns a real, data-backed answer — driven against the split-fleet
+# Ask a sales question on the Chat page and verify the analytics agent
+# returns a real, data-backed answer — driven against the split-fleet
 # Docker deployment (a stateless `serve` replica's public port), not an
 # auto-spawned single-process backend.
+#
+# ENTRY POINT — the Chat page (`/threads`, pages/chat/index.tsx,
+# [data-testid=chat-page]). This flow asked through the Ask dock, opened with
+# ControlOrMeta+k, until nothing in the chrome opened the dock any more (the
+# rail's Chat entry and the top bar's Ask button went in #4385, the shortcut
+# after them). The Chat page is reached by address; its composer is the same
+# ask-locked ChatPanel, but submitting navigates to `/threads/<id>` and the
+# answer streams there. The run it starts is the same `POST /analytics/runs`
+# plus SSE stream, so the serve→ide hop below is exercised exactly as before.
 #
 # WHY THIS FLOW EXISTS. The product's core loop is "connect a warehouse and
 # ask a question" — and until this flow, no committed flow proved that loop
@@ -74,7 +83,10 @@
 # degraded" half.
 #
 # WHAT TO ANCHOR ON (deterministic, $0):
-#   [data-testid=ask-dock]            — components/Ask/AskDock/index.tsx:31
+#   [data-testid=chat-page]           — pages/chat/index.tsx. Gone after the
+#     submit: the page navigated to the thread.
+#   [data-testid=message-input-send-button] — pages/thread/analytics/
+#     MessageInputShell.tsx, the thread page's follow-up composer.
 #   [data-testid^=reasoning-pill-]    — AnalyticsStepRow.tsx:154-169. Rendered
 #     ONLY when the run's trace contains an artifact/sql/chart item
 #     (collectPills, AnalyticsStepRow.tsx:868-901) — i.e. a query genuinely
@@ -123,18 +135,18 @@
 # concurrent agent's own flow work on this shared fleet) instead of the
 # intended `70787bb2-…` — confirmed from the Playwright trace's
 # `trace.network`, whose very first API calls after `goto:/` are scoped to
-# `/api/c5b8d83a-…/...`, not `/api/70787bb2-…/...`. The dock opened fine but
-# the submit step then burned 15 iterations against a workspace with no real
-# agent to answer, and `streaming_complete` correctly timed out — a bad
-# fixture landing, not a bug in the Ask dock. `goto:/home` is used instead:
-# `ROUTES.ORG(slug).WORKSPACE(id).HOME` is `${wsBase}/home`
-# (libs/utils/routes.ts:68-72), a workspace-scoped path — NOT the bare `/`
-# — so it IS subject to `OXY_PATH_PREFIX` and lands on the exact workspace
-# this flow's setup env vars name, deterministically, regardless of how many
-# other workspaces a concurrent agent has created in the same org.
+# `/api/c5b8d83a-…/...`, not `/api/70787bb2-…/...`. The dock (the entry
+# point then) opened fine but the submit step then burned 15 iterations
+# against a workspace with no real agent to answer, and `streaming_complete`
+# correctly timed out — a bad fixture landing, not a product bug. A
+# workspace-scoped path is used instead: `goto:/threads` is `${wsBase}/threads`
+# (`ROUTES.ORG(slug).WORKSPACE(id).THREADS`, libs/utils/routes.ts) — NOT the
+# bare `/` — so it IS subject to `OXY_PATH_PREFIX` and lands on the exact
+# workspace this flow's setup env vars name, deterministically, regardless of
+# how many other workspaces a concurrent agent has created in the same org.
 #
-# COST: two act steps (open the dock, submit the question) plus one
-# streaming wait and one judge call — no onboarding prelude.
+# COST: one act step (submit the question) plus one streaming wait and one
+# judge call — no onboarding prelude.
 # Wall-clock is dominated by the agent run itself (~55s measured live above).
 
 name: chat ask returns a real, data-backed answer (fleet fixture)
@@ -147,72 +159,47 @@ settings:
   max_steps: 15
 
 setup:
-  # NOT "goto:/" — see the header's NAVIGATION FINDING. "/home" is
+  # NOT "goto:/" — see the header's NAVIGATION FINDING. "/threads" is
   # workspace-scoped so OXY_PATH_PREFIX applies and this lands on the exact
   # intended workspace even when the org has other workspaces too.
-  - "goto:/home"
+  - "goto:/threads"
 
 cases:
-  - name: ask a sales question and get a real numeric answer through the serve-to-ide proxy
+  - name: ask a sales question on the chat page and get a real numeric answer through the serve-to-ide proxy
     tags: [chat, fleet, compile-boundary, critical]
     steps:
-      # A key press does not wait for the page the way a click waits for its button:
-      # replayed from the cache it fired mid-redirect and the dock never opened. The
-      # shortcut is bound once the workspace's chrome is up.
-      - wait_for: "selector:[data-testid=workspace-topbar]"
+      # The composer is ready once its submit button renders. The page has one:
+      # the home draws no composer and the Ask dock is not mounted.
+      - wait_for: "selector:[data-testid=chat-page] [data-testid=chat-panel-submit-button]"
 
       - act: |
-          browser_press_key ControlOrMeta+k (the Ask shortcut,
-          web-app/src/App.tsx; there is no Ask button in the top bar). The
-          right-side Ask dock ([data-testid=ask-dock]) opens with a ChatPanel
-          composer inside.
-
-      - wait_for: "selector:[data-testid=ask-dock]"
-
-      - act: |
-          Submit a question to the analytics agent via the Ask dock:
-          1. browser_type into the SCOPED selector
-             `[data-testid=ask-dock] textarea[name=question]`:
+          Submit a question on the Chat page:
+          1. browser_type into `[data-testid=chat-page] textarea[name=question]`:
              "What were the total weekly sales by store?"
-             Scoped, not bare: this page renders TWO composers — the launcher's
-             behind the dock and the dock's own — so a bare
-             `textarea[name=question]` matches the one underneath, leaves the
-             dock's box empty, and the submit button stays disabled
-             (`ChatPanel/index.tsx` disables on `!message`). The click then
-             lands on a dead button and nothing streams, which surfaces as
-             "the previous act step probably never submitted".
-          2. browser_click the SCOPED selector
-             `[data-testid=ask-dock] [data-testid=chat-panel-submit-button]`.
-             Scoped for the same reason as step 1 and it is the same two
-             components: `AskForwardFallback` (launcher/index.tsx:105, the
-             no-custom-apps branch the demo workspace takes) and
-             `AskDock/DockComposer` both render `ChatPanel`, so the page carries
-             TWO buttons with this testid as well as two textareas. A bare
-             selector takes the first — the launcher's, underneath — and the
-             click never reaches the dock.
-          The dock switches to its thread view and the answer streams in
-          place. This run executes on the ide node via the serve→ide proxy
-          (see this file's header) — allow it the full streaming window.
+          2. browser_click `[data-testid=chat-page] [data-testid=chat-panel-submit-button]`.
+          The URL changes to /threads/<id> and the answer streams there. This
+          run executes on the ide node via the serve→ide proxy (see this
+          file's header) — allow it the full streaming window.
 
       - wait_for: streaming_complete
 
     expect:
-      # Deterministic, $0. The dock is still open/rendered post-stream, an
-      # artifact pill of SOME kind rendered (proving a query actually ran and
-      # returned something, not just prose), and the degraded-proxy banner
-      # never appeared.
-      - assert: "selector [data-testid=ask-dock] is visible"
+      # Deterministic, $0. Submitting left the Chat page for the thread page,
+      # an artifact pill of SOME kind rendered (proving a query actually ran
+      # and returned something, not just prose), and the degraded-proxy
+      # banner never appeared.
+      - assert: "selector [data-testid=chat-page] is not visible"
+      - assert: "selector [data-testid=message-input-send-button] is visible"
       - assert: "selector [data-testid^=reasoning-pill-] is visible"
       - assert: "selector [data-testid=ide-unavailable-banner] is not visible"
 
       - judge: |
-          The Ask dock on the right shows the analytics agent's answer to
-          "What were the total weekly sales by store?" — a coherent,
-          data-backed result that includes REAL numeric dollar figures (e.g.
-          per-store weekly sales amounts, an average, a min/max range, or a
-          per-store breakdown table/chart with actual numbers plotted) — not
-          a placeholder, not a generic non-numeric description, not a
-          request for clarification.
+          The page shows the analytics agent's answer to "What were the total
+          weekly sales by store?" — a coherent, data-backed result that
+          includes REAL numeric dollar figures (e.g. per-store weekly sales
+          amounts, an average, a min/max range, or a per-store breakdown
+          table/chart with actual numbers plotted) — not a placeholder, not a
+          generic non-numeric description, not a request for clarification.
 
           Fail if ANY of the following is true:
           (a) an error banner or message is visible (e.g. "failed", "error

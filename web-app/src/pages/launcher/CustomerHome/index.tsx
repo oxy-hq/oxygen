@@ -33,7 +33,8 @@ const RECENT_KEEP = 100;
  * holds the apps, and the top bar's bell opens the notifications in a panel
  * docked on the right (`NotificationsDock`, the shell's). A greeting, then every
  * app the person can open across the org as a preview card. Nothing else: no ask
- * box (Ask is the top bar's, and ⌘K), no Today, no recent questions, no data map.
+ * box (the top bar has no Ask either, and ⌘K opens nothing), no Today, no recent
+ * questions, no data map.
  *
  * On a phone the apps are one to a row and the bell sits at the greeting's right
  * end: it shows the notifications in place of the apps, the heading becomes

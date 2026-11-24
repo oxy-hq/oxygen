@@ -6,8 +6,9 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
 /**
- * The Chat landing (rail "Chat" button) — a ChatGPT-like composer with the
- * workspace's recent threads below it. Reuses the same ask-locked composer as
+ * The Chat landing — a ChatGPT-like composer with the workspace's recent threads
+ * below it. Nothing in the chrome links here since the rail's Chat entry went
+ * (#4385); it opens by address, `/threads`. Reuses the same ask-locked composer as
  * the Ask dock (default agent, extended-thinking toggle, no selectors), but
  * WITHOUT `onThreadCreated`, so submitting navigates to the full thread page
  * (`/threads/:id`) rather than streaming in the dock.
@@ -20,7 +21,7 @@ const ChatPage = () => {
   // survive a workspace switch and leak into the next one (see #2962).
   const wsId = useCurrentWorkspace((s) => s.workspace?.id);
   return (
-    <div className='flex h-full flex-col overflow-auto'>
+    <div data-testid='chat-page' className='flex h-full flex-col overflow-auto'>
       <div className='mx-auto w-full max-w-2xl px-6 pt-16 pb-16 sm:pt-24'>
         <p className='mb-6 text-balance text-center text-xl sm:text-2xl'>
           {getGreeting()}! How can I assist you?

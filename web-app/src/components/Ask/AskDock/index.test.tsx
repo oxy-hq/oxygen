@@ -6,11 +6,12 @@ import useAskDock from "@/stores/useAskDock";
 import { AskDock } from ".";
 
 /**
- * ⌘K must land the caret in the composer, every time (#3970). The composer's
- * own `autoFocus` covers only the first open: the dock stays mounted across
- * collapses, so a reopen used to leave focus on the page and swallow the first
- * keystrokes. The composer here keeps `autoFocus` like the real one, so the
- * first open passes either way and the REOPEN is the case that matters.
+ * Opening the dock must land the caret in the composer, every time (#3970, when
+ * ⌘K opened it; a prefilled ask does now). The composer's own `autoFocus` covers
+ * only the first open: the dock stays mounted across collapses, so a reopen used
+ * to leave focus on the page and swallow the first keystrokes. The composer here
+ * keeps `autoFocus` like the real one, so the first open passes either way and the
+ * REOPEN is the case that matters.
  */
 
 vi.mock("./DockComposer", () => ({

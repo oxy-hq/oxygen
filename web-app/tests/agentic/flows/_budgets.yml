@@ -13,13 +13,15 @@
 
 - flow: chat-ask-fleet
   # Fleet fixture, driven with --no-auto-backend against a running replica.
-  # Same shape as chat-ask (2 act steps + streaming_complete + one judge
-  # call) — cost is dominated by the analytics run's own wall-clock (~55s
-  # measured live), not LLM tool-pick iterations.
+  # Same shape as chat-ask (one act step on the Chat page + streaming_complete
+  # + one judge call) — cost is dominated by the analytics run's own
+  # wall-clock (~55s measured live), not LLM tool-pick iterations.
   cold_usd: 0.50
   warm_usd: 0.005
 
 - flow: chat-panel-agent-switch
+  # No act step since it moved to the Chat page: `goto:`, two waits and two
+  # asserts, no LLM call at all. The ceiling stays as headroom.
   cold_usd: 0.40
   warm_usd: 0.005
 
@@ -93,14 +95,12 @@
   warm_usd: 0.05
 
 - flow: launcher-home
-  # 3 cases covering the launcher's key surfaces. No streaming LLM run in
-  # fallback-home or rail-toggle (just clicks + visibility checks).
-  # ask-dock-roundtrip triggers a chat submit, waits for streaming_complete
-  # in the dock, then promotes to the routed thread page — same cost profile
-  # as chat-ask (one analytics run) plus one extra act. Cold dominated by the
-  # streaming run in the roundtrip case; warm is just judge calls.
-  cold_usd: 0.60
-  warm_usd: 0.008
+  # 3 cases covering the launcher's key surfaces, none with a streaming LLM
+  # run (one act each: a snapshot, a key press, a click; then deterministic
+  # asserts). The ask-dock round trip, which ran an analytics question, went
+  # with the ⌘K shortcut, so the ceiling is a clicks-only flow's.
+  cold_usd: 0.30
+  warm_usd: 0.005
 
 - flow: admin-workspace-health
   # Navigate to /admin/workspace-health, assert table renders, click

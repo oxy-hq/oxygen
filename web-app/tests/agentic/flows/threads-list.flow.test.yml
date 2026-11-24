@@ -7,9 +7,9 @@
 # that thread from the history via search.
 #
 # Navigation note: shell v2 chrome is the left icon rail
-# ([data-testid=shell-rail]); the "Chat" rail item lands on /threads. The
-# Chat composer navigates to /threads/<id> on submit (it is not the in-place
-# Ask dock).
+# ([data-testid=shell-rail]), which has no Chat entry since #4385, so the flow
+# reaches /threads by address. The Chat composer navigates to /threads/<id> on
+# submit.
 
 name: threads list
 target: threads

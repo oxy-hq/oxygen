@@ -6,8 +6,8 @@ import { TopBar } from "./index";
 
 /**
  * The top bar is the reference design's: the breadcrumb, then the status items
- * (only while something is wrong) and the bell. No Ask button (⌘K opens Ask), no
- * Today, no clock.
+ * (only while something is wrong) and the bell. No Ask button (nothing in the chrome
+ * opens Ask), no Today, no clock.
  */
 
 vi.mock("./Breadcrumb", () => ({ Breadcrumb: () => null }));

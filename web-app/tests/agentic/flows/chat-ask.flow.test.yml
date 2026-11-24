@@ -1,13 +1,17 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
-# Ask a sales question via the universal "Ask Oxygen" dock and verify the
-# analytics agent — `analytics` (analytics.agentic.yml), the demo project's
-# sole agent since #2346 removed the classic `default.agent.yml` — returns a
-# coherent, data-backed answer.
+# Ask a sales question on the Chat page and verify the analytics agent —
+# `analytics` (analytics.agentic.yml), the demo project's sole agent since
+# #2346 removed the classic `default.agent.yml` — returns a coherent,
+# data-backed answer.
 #
-# The Ask dock ([data-testid=ask-dock]) is the apps-first ask surface: the
-# Ask shortcut (ControlOrMeta+k, App.tsx; the top bar has no Ask button) opens it, and
-# submitting streams the answer inside the dock in place — the URL stays put.
+# The Chat page (`/threads`, pages/chat/index.tsx, [data-testid=chat-page]) is
+# where a question starts. Nothing in the chrome opens the Ask dock any more:
+# the rail's Chat entry and the top bar's Ask button went in #4385 and the ⌘K /
+# Ctrl+K shortcut after them, so the page is reached by address. Its composer
+# is the same ask-locked ChatPanel the dock used, but without
+# `onThreadCreated`: submitting creates the thread and navigates to
+# `/threads/<id>`, where the answer streams.
 
 name: chat ask returns an analytics answer
 target: chat
@@ -19,61 +23,42 @@ settings:
   max_steps: 15
 
 setup:
-  - "goto:/"
+  # Workspace-scoped, so OXY_PATH_PREFIX lands it in the Demo workspace (bare `/`
+  # is exempt from the prefix, runner/backend.ts).
+  - "goto:/threads"
 
 cases:
-  - name: ask a question and get an analytics answer in the dock
+  - name: ask a question on the chat page and get an analytics answer
     tags: [chat, critical]
     steps:
-      # A key press does not wait for the page the way a click waits for its button:
-      # replayed from the cache it fired mid-redirect and the dock never opened. The
-      # shortcut is bound once the workspace's chrome is up.
-      - wait_for: "selector:[data-testid=workspace-topbar]"
+      # The composer is ready once its submit button renders. The page has one:
+      # the home draws no composer and the Ask dock is not mounted.
+      - wait_for: "selector:[data-testid=chat-page] [data-testid=chat-panel-submit-button]"
 
       - act: |
-          browser_press_key ControlOrMeta+k (the Ask shortcut, App.tsx; there is
-          no Ask button in the top bar). The right-side Ask dock
-          ([data-testid=ask-dock]) opens with a ChatPanel composer inside.
-
-      - wait_for: "selector:[data-testid=ask-dock]"
-
-      - act: |
-          Submit "What were the total weekly sales by store?" to the analytics
-          agent via the Ask dock. The demo project ships a single agent
-          (`analytics`, analytics.agentic.yml) selected by default, so no
-          agent-picker step is needed:
-          1. browser_type into the SCOPED selector
-             `[data-testid=ask-dock] textarea[name=question]`:
+          Submit "What were the total weekly sales by store?" on the Chat page.
+          The demo project ships a single agent (`analytics`,
+          analytics.agentic.yml) selected by default, so no agent-picker step
+          is needed:
+          1. browser_type into `[data-testid=chat-page] textarea[name=question]`:
              "What were the total weekly sales by store?"
-             Scoped, not bare: this page renders TWO composers — the launcher's
-             behind the dock and the dock's own — so a bare
-             `textarea[name=question]` matches the one underneath, leaves the
-             dock's box empty, and the submit button stays disabled
-             (`ChatPanel/index.tsx` disables on `!message`). The click then
-             lands on a dead button and nothing streams, which surfaces as
-             "the previous act step probably never submitted".
-          2. browser_click the SCOPED selector
-             `[data-testid=ask-dock] [data-testid=chat-panel-submit-button]`.
-             Scoped for the same reason as step 1 and it is the same two
-             components: `AskForwardFallback` (launcher/index.tsx:105, the
-             no-custom-apps branch the demo workspace takes) and
-             `AskDock/DockComposer` both render `ChatPanel`, so the page carries
-             TWO buttons with this testid as well as two textareas. A bare
-             selector takes the first — the launcher's, underneath — and the
-             click never reaches the dock.
-          The dock switches to its thread view and the answer streams in place.
+          2. browser_click `[data-testid=chat-page] [data-testid=chat-panel-submit-button]`.
+          The URL changes to /threads/<id> and the answer streams there.
 
       - wait_for: streaming_complete
 
     expect:
+      # Submitting left the Chat page for the thread page (its follow-up
+      # composer's send button), which the judge below cannot see in the URL.
+      - assert: "selector [data-testid=chat-page] is not visible"
+      - assert: "selector [data-testid=message-input-send-button] is visible"
       # The agentic analytics agent renders its result as reasoning-trace
-      # steps + an interpreted answer inside the dock, not a classic
-      # `execute_sql` artifact — so assert on the answer via the judge.
-      # (streaming_complete already gates run completion.)
+      # steps + an interpreted answer, not a classic `execute_sql` artifact —
+      # so assert on the answer via the judge.
       - judge: |
-          The Ask dock on the right shows the analytics agent's answer to the
-          "total weekly sales by store" question — a coherent, data-backed
-          result with per-store sales figures as a table, chart, or written
-          summary. Fail if instead the dock shows an error banner, or the
-          agentic run is suspended awaiting input on a clarifying question (a
-          prompt back to the user, not an answer).
+          The page shows the analytics agent's answer to the "total weekly
+          sales by store" question — a coherent, data-backed result with
+          per-store sales figures as a table, chart, or written summary. Fail
+          if instead the page shows an error banner, or the agentic run is
+          suspended awaiting input on a clarifying question (a prompt back to
+          the user, not an answer).

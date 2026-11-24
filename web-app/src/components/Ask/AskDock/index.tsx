@@ -11,8 +11,9 @@ import { useDockWidth } from "./useDockWidth";
  * The docked Ask panel — a right-side flex sibling of `<main>` that COMPACTS
  * the page when open (Cursor-style) rather than floating over it. It stays
  * mounted (collapsing to width 0) once first opened, so composer text and the
- * live thread survive a collapse/expand. The top-bar "Ask Oxygen" button and
- * ⌘K toggle it; the floating pill is gone.
+ * live thread survive a collapse/expand. Only a prefilled ask opens it now (the
+ * home's `usePrefilledAsk`, e.g. an anomaly's follow-up question): the top-bar
+ * "Ask Oxygen" button, ⌘K and the floating pill are all gone.
  */
 export function AskDock() {
   const isOpen = useAskDock((s) => s.isOpen);
@@ -22,7 +23,7 @@ export function AskDock() {
   const asideRef = useRef<HTMLElement>(null);
 
   // The composer's `autoFocus` fires only when it mounts, and the dock stays
-  // mounted across collapses — so every later ⌘K open left focus wherever it
+  // mounted across collapses — so every later open left focus wherever it
   // was, and the first keystrokes went nowhere (#3970). Focus the active
   // view's textarea on each open instead; the history view has none.
   useEffect(() => {

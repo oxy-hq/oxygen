@@ -3,37 +3,19 @@
 # Verify the apps-first Ask composer uses the default analytics agent with
 # NO manual agent picker. The agent-switch dropdown was removed in the
 # "streamline Ask Oxygen composer" change: ChatPanel is locked to ask-mode
-# and auto-selects the workspace default agent with the picker hidden
-# (AskPanel and AskForwardFallback both pass `hideAgentPicker`). So this flow
-# now guards that the picker stays gone, rather than exercising a switch.
-# (chat-ask covers that the auto-selected agent actually answers.)
+# and auto-selects the workspace default agent with the picker hidden. So
+# this flow guards that the picker stays gone, rather than exercising a
+# switch. (chat-ask covers that the auto-selected agent actually answers.)
 #
-# Home is the apps-first launcher; with zero published apps the ask-forward
-# fallback renders the same ChatPanel composer, so the submit button is
-# present while the agent selector is not.
-#
-# ENTRY POINT — why the Ask dock, not the home fallback directly:
-# the fallback only renders when the workspace has zero published custom
-# apps. `demo_project/` (the `--local` fixture) never publishes one, so the
-# home page always lands on the fallback there. `examples/` (the fixture
-# behind the split-fleet Docker deployment, seeded via `oxy seed` per
-# docker-compose.fleet.yml's bootstrap) publishes "Oxy Starter"
-# unconditionally, so Home renders the apps grid instead — confirmed by
-# navigating `/` against the fleet and screenshotting the result: cards, no
-# composer. That precondition is a `--local`-only fixture shape, not
-# something a flow can restore without unpublishing a seeded app (out of
-# scope — mutating the shared fleet workspace).
-#
-# The Ask dock ([data-testid=ask-dock], opened via the ControlOrMeta+k
-# shortcut; the top bar has no Ask button) is the OTHER caller of the
-# same composer — per this file's own header comment, "AskPanel and
-# AskForwardFallback both pass `hideAgentPicker`" — and the top bar renders
-# on every workspace page regardless of app count (`launcher-home`'s
-# ask-dock-roundtrip case already proves this). So it is reachable
-# unconditionally and asserts the identical product invariant (no agent
-# picker anywhere in the ask composer) without depending on the empty-apps
-# precondition. See tests/agentic/canonical-prompts.md § "Chat panel" for
-# the shared open-dock step reused verbatim here.
+# ENTRY POINT — the Chat page (`/threads`, pages/chat/index.tsx,
+# [data-testid=chat-page]). It renders the composer as
+# `<ChatPanel lockMode='ask' hideAgentPicker />`, so the invariant holds
+# there. It used to be checked in the Ask dock, opened with ControlOrMeta+k;
+# nothing in the chrome opens the dock any more (the rail's Chat entry and the
+# top bar's Ask button went in #4385, the shortcut after them), and the home
+# draws no composer, so the Chat page, reached by address, is where a person
+# meets this composer. No act step: the page is loaded by `goto:` and the
+# rest is waits and asserts, so the flow costs nothing once cached.
 
 name: ask composer has no agent picker
 target: chat
@@ -45,37 +27,25 @@ settings:
   max_steps: 15
 
 setup:
-      # `/home`, not `/`. Bare `/` is deliberately exempt from OXY_PATH_PREFIX
-      # (runner/backend.ts) and lands wherever the post-login dispatcher picks,
-      # which is fine with one workspace and a coin flip with two. This org now
-      # has two, so `/` silently ran a case against the wrong workspace. `/home`
-      # is the same page on a workspace-scoped route, so the prefix applies and
-      # the target is whatever OXY_PATH_PREFIX names.
-  - "goto:/home"
+  # Workspace-scoped, so OXY_PATH_PREFIX lands it in the Demo workspace (bare `/`
+  # is exempt from the prefix and lands wherever the post-login dispatcher
+  # picks, runner/backend.ts).
+  - "goto:/threads"
 
 cases:
   - name: composer renders the default agent without a picker
     tags: [chat, regression]
     steps:
-      # Universal chrome — present regardless of published-app count.
-      - wait_for: "selector:[data-testid=workspace-topbar]"
+      # The composer is ready once its submit button renders.
+      - wait_for: "selector:[data-testid=chat-page] [data-testid=chat-panel-submit-button]"
 
-      # Verbatim from canonical-prompts.md § "Chat panel" > "Ask a question
-      # via the Ask dock" (first step only) — cache_scope: shared so this
-      # replays free once any flow using that prelude has recorded it.
-      - act: |
-          browser_press_key ControlOrMeta+k (the Ask shortcut; there is no Ask
-          button in the top bar). The right-side Ask dock ([data-testid=ask-dock])
-          opens with a composer.
-        cache_scope: shared
-
-      - wait_for: "selector:[data-testid=ask-dock]"
-
-      # The composer inside the dock is ready once its submit button renders.
-      - wait_for: "selector:[data-testid=ask-dock] [data-testid=chat-panel-submit-button]"
+      # The default agent has been resolved: ChatPanel shows the extended-thinking
+      # menu only once it has picked an analytics agent (the demo project's sole
+      # agent is `analytics.agentic.yml`). Gating on it makes the picker check
+      # below run after the agents have loaded, not before.
+      - wait_for: "selector:[data-testid=chat-page] [data-testid=thinking-mode-trigger]"
     expect:
       # The agent picker is intentionally hidden — the workspace default
-      # analytics agent is auto-selected, so no selector should be present
-      # anywhere in the dock.
-      - assert: "selector [data-testid=ask-dock] [data-testid=chat-panel-submit-button] is visible"
-      - assert: "selector [data-testid=ask-dock] [data-testid=agent-selector-button] is not visible"
+      # analytics agent is auto-selected, so no selector should be present.
+      - assert: "selector [data-testid=chat-page] [data-testid=chat-panel-submit-button] is visible"
+      - assert: "selector [data-testid=chat-page] [data-testid=agent-selector-button] is not visible"

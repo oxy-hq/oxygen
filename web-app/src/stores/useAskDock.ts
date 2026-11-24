@@ -27,7 +27,8 @@ interface AskDockState {
   open: (prefill?: AskPrefill) => void;
   /** Collapse to zero width, preserving view / thread / composer text. */
   close: () => void;
-  /** Cmd+K / the Ask Oxygen button — flip open/closed, preserving state. */
+  /** Flip open/closed, preserving state. Nothing in the chrome calls it any more
+   *  (the ⌘K binding and the Ask Oxygen button are gone); tests do. */
   toggle: () => void;
   /** A thread was created (or a recent one selected) → show it in-dock. */
   openThread: (threadId: string) => void;

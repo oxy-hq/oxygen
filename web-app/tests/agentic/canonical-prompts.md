@@ -31,38 +31,35 @@ default scope is `flow` (private to that flow file/case/step index).
 
 ## Chat panel
 
-### Ask a question via the Ask dock
+### Ask a question on the Chat page
 
-The Ask dock ([data-testid=ask-dock]) is the universal ask surface: the
-Ask shortcut (ControlOrMeta+k, `App.tsx`; the top bar has no Ask button) opens it, and
-submitting streams the answer inside the dock in place (the URL stays put).
-The dock header's "Full view" control ([data-testid=ask-dock-full]) promotes
-the in-dock thread to the routed `/threads/<id>` page.
+The Chat page (`/threads`, `pages/chat/index.tsx`, [data-testid=chat-page]) is
+where a question starts. Nothing in the chrome opens the Ask dock any more (the
+rail's Chat entry and the top bar's Ask button went in #4385, the ⌘K / Ctrl+K
+shortcut after them), so a flow reaches the page by address: `goto:/threads` in
+`setup:` (workspace-scoped, so `OXY_PATH_PREFIX` applies). Submitting navigates to
+the routed `/threads/<id>` page, where the answer streams.
 
 The demo project ships a single agent — `analytics` (analytics.agentic.yml),
 selected by default — since #2346 removed the classic `default` agent, so no
 agent-picker step is needed.
 
 ```yaml
-- act: |
-    browser_press_key ControlOrMeta+k (the Ask shortcut; there is no Ask
-    button in the top bar). The right-side Ask dock ([data-testid=ask-dock])
-    opens with a composer.
-
-- wait_for: "selector:[data-testid=ask-dock]"
+- wait_for: "selector:[data-testid=chat-page] [data-testid=chat-panel-submit-button]"
 
 - act: |
-    Submit a question via the Ask dock:
-    1. browser_type into textarea[name=question] inside
-       [data-testid=ask-dock]: "What were the total weekly sales by store?"
-    2. browser_click the [data-testid=chat-panel-submit-button] inside
-       [data-testid=ask-dock] (scope to the dock — the home fallback has its
-       own composer behind it).
-    The dock switches to its thread view and the answer streams in place.
+    Submit a question on the Chat page:
+    1. browser_type into `[data-testid=chat-page] textarea[name=question]`:
+       "What were the total weekly sales by store?"
+    2. browser_click `[data-testid=chat-page] [data-testid=chat-panel-submit-button]`.
+    The URL changes to /threads/<id> and the answer streams there.
+
+- wait_for: streaming_complete
 ```
 
-(Not `cache_scope: shared` today — no two flows submit byte-identical dock
-text. Promote to shared if a second flow needs the exact same submit.)
+(Not `cache_scope: shared` today — `chat-ask`, `chat-ask-fleet` and
+`threads-list` each word their submit for what they go on to check. Promote to
+shared if a second flow needs the exact same submit.)
 
 ---
 

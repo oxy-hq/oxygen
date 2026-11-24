@@ -11,6 +11,8 @@
 - surface: chat-panel
   paths:
     - "src/pages/launcher/"
+    # The Chat page, where the chat flows ask since nothing opens the Ask dock.
+    - "src/pages/chat/"
     - "src/components/Chat/"
     - "src/components/Ask/"
     # The Ask dock's width/resize behaviour lives in a shared hook.

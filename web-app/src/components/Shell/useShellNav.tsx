@@ -82,7 +82,7 @@ export function appRailItems(apps: readonly CustomAppSummary[]): RailItem[] {
 }
 
 /** Home on its own; the apps get their own divided group when the org has any. No
- *  Chat entry: Ask (⌘K) is the way in to a question. */
+ *  Chat entry: the Chat page (`/threads`) opens by address only. */
 export function useRailGroups(apps: readonly CustomAppSummary[]): RailItem[][] {
   const navigate = useNavigate();
   const { org, homeLit } = useShellPlace();

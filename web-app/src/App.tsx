@@ -187,7 +187,10 @@ interface WorkspaceLayoutProps {
   workspaceId?: string;
 }
 
-const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: WorkspaceLayoutProps) {
+/** Exported for `App.noAskShortcut.test.tsx`; the router mounts it through `OrgWorkspace`. */
+export const WorkspaceLayout = React.memo(function WorkspaceLayout({
+  workspaceId
+}: WorkspaceLayoutProps) {
   const { authConfig, isLocalMode } = useAuth();
   const orgSlug = useCurrentOrg((s) => s.org?.slug);
   const orgId = useCurrentOrg((s) => s.org?.id);
@@ -205,17 +208,9 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: Wor
   // Settings → Connections leaves the SPA for the provider's consent screen and
   // returns with ?oxy_connected=ok; this reopens the dialog and confirms it.
   useOauthConnectReturn();
-  // react-hotkeys-hook's useKey matching misfired on bare "k" (closing the
-  // panel mid-typing); bind ⌘K/Ctrl+K manually with explicit modifier checks.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
-      e.preventDefault();
-      useAskDock.getState().toggle();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  // No ⌘K / Ctrl+K here: it toggled the Ask dock, and the product removed every
+  // way into the dock but a prefilled ask (`usePrefilledAsk`, the home's), so the
+  // key is the browser's again. `App.noAskShortcut.test.tsx` pins it.
 
   // After a successful Slack install, the backend redirects the browser to
   // /<orgSlug>?slack_installed=ok. Detect the param, surface a toast, pop
@@ -373,8 +368,9 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: Wor
           <Route index element={<CustomerHome />} />
 
           <Route path='home' element={<CustomerHome />} />
-          {/* The rail "Chat" button lands here — a composer + recent threads
-              (replacing the old bulk threads-management list). */}
+          {/* The Chat page: a composer + recent threads (replacing the old bulk
+              threads-management list). Nothing in the chrome links here since
+              the rail's Chat entry went (#4385); it opens by address. */}
           <Route path='threads' element={<ChatPage />} />
           <Route path='threads/:threadId' element={<ThreadPage />} />
           {/* The customer's read-only world model, opened from the home's card. */}
