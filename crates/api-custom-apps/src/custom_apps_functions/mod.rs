@@ -862,8 +862,14 @@ fn success_sse_body(body_text: &str, http_status: u16) -> String {
 // ── Idempotency, reaper & invocation-slot acquisition ──────────────────────
 
 /// Seconds after which a still-`running` invocation row is treated as orphaned
-/// (an instance crash / thread detach left it stuck) — well beyond the 300s max
-/// function timeout + grace.
+/// — well beyond the 300s max function timeout + grace.
+///
+/// Three things leave a row here and the reaper cannot tell them apart, which
+/// is why its message no longer claims to: an instance crash, a thread detach,
+/// or a queue task whose worker stopped heartbeating inside its
+/// `visibility_timeout_secs` and had the task taken back while this attempt
+/// kept running. Which one it was is in the run's read-back
+/// (`FunctionRunDetail::queue`), not here.
 const REAP_AFTER_SECS: i64 = 900;
 /// Reap at most once per this interval per process, so the sweep isn't an
 /// UPDATE-scan on every single invocation (it clears orphans, which appear
@@ -904,7 +910,10 @@ async fn reap_stuck_invocations(db: &sea_orm::DatabaseConnection) {
         )
         .col_expr(
             app_function_invocations::Column::Error,
-            Expr::value("reaped: still running past max lifetime (instance died or detached)"),
+            Expr::value(
+                "reaped: no terminal status written within the max lifetime — the instance \
+                 died or detached, or its queue task took the claim back (see the run)",
+            ),
         )
         .col_expr(
             app_function_invocations::Column::FailureFingerprint,
@@ -1756,7 +1765,10 @@ const MAX_LOG_EVENTS: usize = 500;
 
 /// A sink for run-lifecycle events (`function_log`, `app_function_completed`)
 /// emitted at the END of a background function run (logs are drained in one batch
-/// once the isolate returns, not live-tailed). In the queued path this is
+/// once the isolate returns, not live-tailed) — plus the one event that is
+/// emitted at the START, `app_function_invocation_started`, so an attempt that
+/// never returns is still traceable to the invocation row it abandoned. In the
+/// queued path this is
 /// `AppFunctionTaskExecutor`'s worker event channel — events are persisted to
 /// `agentic_run_events` via the coordinator, so a scheduled/manual run's logs
 /// survive the isolate and render in the orchestrator dashboard. `None` for
@@ -1881,6 +1893,18 @@ pub(crate) async fn run_scheduled_function(
         QueuedFor { parent, user_id },
     )
     .await;
+    // Name the invocation the moment its row exists, not when it finishes: an
+    // attempt whose worker loses its claim never emits
+    // `app_function_completed`, so this is the only link from the run to the
+    // `running` row it abandoned — and to the call trace that says what the
+    // attempt was blocked on. See `admin::apps::function_run`.
+    if let Some(events) = events.as_ref() {
+        let env = admitted.resolved.environment.name();
+        let what = serde_json::json!({ "invocation_id": invocation_id, "environment": env });
+        let _ = events
+            .send(("app_function_invocation_started".to_string(), what))
+            .await;
+    }
     let run = QueuedRun {
         db,
         app: &app,

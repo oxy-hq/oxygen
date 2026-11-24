@@ -85,6 +85,8 @@ interface RunDetail {
   error?: string | null;
   /** New with sandboxes: null until the run starts. */
   invocation_id?: string | null;
+  /** How the invocation failed, as stored with it. Absent on an older server. */
+  error_kind?: string | null;
   /** The run's durable-queue entry. Absent from a deployment that predates it. */
   queue?: RunQueueEntry | null;
 }
@@ -370,8 +372,17 @@ function parsesToOkFalse(answer: string | null | undefined): boolean {
  * that without the claim count and the two timestamps that bracket the
  * disappearance — the last heartbeat and the dead-letter — which is what a
  * release gate's one red line has to carry.
+ *
+ * It names the last attempt's invocation too, where the server reports one.
+ * An abandoned attempt leaves a `running` invocation row behind, and that
+ * row's call trace is the only record of what it was blocked on when its
+ * heartbeat stopped — the difference between knowing the fleet lost the task
+ * and knowing which host call hung.
  */
-function deadLetterMessage(queue: RunQueueEntry | null | undefined): string | undefined {
+function deadLetterMessage(
+  queue: RunQueueEntry | null | undefined,
+  invocationId: string | null | undefined
+): string | undefined {
   if (queue?.status !== "dead") return undefined;
   const claims =
     typeof queue.claim_count === "number" && typeof queue.max_claims === "number"
@@ -386,23 +397,37 @@ function deadLetterMessage(queue: RunQueueEntry | null | undefined): string | un
   ];
   const when = stamps.flatMap(([label, at]) => (at ? [`${label} ${at}`] : [])).join(", ");
   const detail = when ? ` (${when})` : "";
+  const attempt = invocationId ? `; last attempt invocation ${invocationId}, read its calls` : "";
   return (
     `dead-lettered ${claims}: every worker that claimed it stopped heartbeating, so the ` +
-    `function never ran to a verdict — this is the worker fleet, not the app${detail}`
+    `function never ran to a verdict — this is the worker fleet, not the app${detail}${attempt}`
   );
 }
 
+/**
+ * Why a check did not pass, in the order the reasons are worth reading: the
+ * run's own message, then the two verdicts the status and the answer carry,
+ * then what the queue can explain, then whatever is in hand.
+ */
 function failureMessage(detail: RunDetail, answerFailed: boolean, timeoutSeconds: number): string {
   if (detail.error) return detail.error;
   if (detail.status === "timed_out") return `timed out after ${timeoutSeconds}s`;
   if (answerFailed) return `answer reported "ok": false`;
   if (detail.status === "cancelled") return "run cancelled";
   // No error on the run is itself a fact about the run, so say which fact it
-  // is. `error_kind` cannot help here: it lives on the invocation, and a run
-  // that never executed wrote none.
-  const deadLettered = deadLetterMessage(detail.queue);
+  // is. A dead-letter is the one fact the queue can explain by itself; past
+  // that, name whatever is in hand, because the run that reaches this floor is
+  // the one nobody can otherwise diagnose. `error_kind` only helps below the
+  // dead-letter branch: a task the queue gave up on never ran to a verdict, so
+  // its invocation carries no kind.
+  const deadLettered = deadLetterMessage(detail.queue, detail.invocation_id);
   if (deadLettered) return deadLettered;
-  return `status ${detail.status}, and the run recorded no error`;
+  const named = [
+    detail.error_kind ? `kind ${detail.error_kind}` : undefined,
+    `run ${detail.run_id}`,
+    detail.invocation_id ? `invocation ${detail.invocation_id}` : undefined
+  ].filter((part): part is string => part !== undefined);
+  return `status ${detail.status} with no reason recorded (${named.join(", ")})`;
 }
 
 function printResultLine(result: CheckResult | BrowserCheckResult): void {
@@ -417,7 +442,10 @@ function printResultLine(result: CheckResult | BrowserCheckResult): void {
   // reason this command built. The dead-letter message runs to ~280 with its
   // three timestamps, and truncating it drops exactly the part an operator
   // correlates against a worker rollout. A real function error over 400 is
-  // still in `--json` and in the run's logs.
-  const reason = (result.error ?? result.status).slice(0, 400);
+  // still in `--json` and in the run's logs, and the cut is marked, so a
+  // clipped reason cannot read as a complete one.
+  const MAX_REASON = 400;
+  const full = result.error ?? result.status;
+  const reason = full.length > MAX_REASON ? `${full.slice(0, MAX_REASON)}…` : full;
   process.stderr.write(`${err.red("✗")} ${result.name} failed: ${reason}\n`);
 }

@@ -1,6 +1,6 @@
 //! Unit tests for the function-run read-back (`function_run.rs`).
 
-use super::{completed_invocation_id, effective_run_status, run_belongs_to_app, run_environment};
+use super::{attempt_invocation_id, effective_run_status, run_belongs_to_app, run_environment};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ fn a_run_reports_the_invocation_its_last_completed_event_names() {
     let two = json!({ "status": "success", "invocation_id": last });
 
     let running = [("app_function_started", &started), ("function_log", &log)];
-    assert_eq!(completed_invocation_id(running.into_iter()), None);
+    assert_eq!(attempt_invocation_id(running.into_iter()), None);
 
     let retried = [
         ("app_function_started", &started),
@@ -43,13 +43,46 @@ fn a_run_reports_the_invocation_its_last_completed_event_names() {
         ("function_log", &log),
         ("app_function_completed", &two),
     ];
-    assert_eq!(completed_invocation_id(retried.into_iter()), Some(last));
+    assert_eq!(attempt_invocation_id(retried.into_iter()), Some(last));
 
     // An event from before the field carries none, and is not an error.
     let legacy = json!({ "status": "success" });
     assert_eq!(
-        completed_invocation_id([("app_function_completed", &legacy)].into_iter()),
+        attempt_invocation_id([("app_function_completed", &legacy)].into_iter()),
         None
+    );
+}
+
+/// A dead-lettered run's attempts never complete, so the row they abandoned is
+/// reachable only through the started event. Without this the run detail of the
+/// failure that matters most names no invocation at all.
+#[test]
+fn an_abandoned_attempt_is_named_when_none_completed() {
+    let first = Uuid::new_v4();
+    let last = Uuid::new_v4();
+    let one = json!({ "invocation_id": first });
+    let two = json!({ "invocation_id": last });
+    let done = json!({ "status": "success", "invocation_id": Uuid::new_v4() });
+
+    // Three claims, three abandoned rows, nothing completed: the last one.
+    let abandoned = [
+        ("app_function_invocation_started", &one),
+        ("app_function_invocation_started", &two),
+    ];
+    assert_eq!(attempt_invocation_id(abandoned.into_iter()), Some(last));
+
+    // A completed attempt still wins, whatever order the events arrive in —
+    // it is the attempt whose outcome the run actually reports.
+    let mixed = [
+        ("app_function_invocation_started", &one),
+        ("app_function_completed", &done),
+        ("app_function_invocation_started", &two),
+    ];
+    assert_eq!(
+        attempt_invocation_id(mixed.into_iter()),
+        done.get("invocation_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
     );
 }
 

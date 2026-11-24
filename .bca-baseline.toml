@@ -3672,13 +3672,13 @@ value = 19.0
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 2392.0
+value = 2402.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 3637.0
+value = 3661.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/mod.rs"

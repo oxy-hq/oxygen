@@ -36,8 +36,11 @@ pub struct FunctionRunDetail {
     /// trigger named another (`?environment=`), from the run metadata.
     pub environment: String,
     /// The `app_function_invocations` row the run wrote — the id to read its
-    /// held writes and log lines back by. `None` until the run finishes, and
-    /// for a run that was refused before it wrote one.
+    /// held writes, log lines and call trace back by. The last *completed*
+    /// attempt's row, or, when no attempt completed, the last one that
+    /// started: a run the queue gave up on abandons a `running` row, and that
+    /// row's call trace is the only record of what the attempt was blocked on.
+    /// `None` only for a run that was refused before it wrote one.
     pub invocation_id: Option<Uuid>,
     /// The function's return body on success.
     pub answer: Option<String>,
@@ -146,16 +149,30 @@ fn run_environment(metadata: Option<&serde_json::Value>) -> String {
         .to_string()
 }
 
-/// The invocation a run wrote, from its `app_function_completed` event
-/// (`run_scheduled_function` emits one per attempt, so the last is the
-/// attempt whose outcome the run reports). `None` before the run finishes.
-fn completed_invocation_id<'a>(
+/// The invocation a run wrote: the last `app_function_completed` event's
+/// (`run_scheduled_function` emits one per attempt, so the last is the attempt
+/// whose outcome the run reports), else the last `app_function_invocation_started`.
+///
+/// **The fallback is the point.** An attempt whose worker loses its claim is
+/// abandoned mid-run and never completes, so a dead-lettered run has only
+/// `started` events — and the `running` row it left behind holds the call
+/// trace that says what it was blocked on. Preferring `completed` keeps a
+/// finished run reporting the attempt whose outcome it reports; falling back
+/// makes the abandoned one reachable instead of reporting nothing.
+fn attempt_invocation_id<'a>(
     events: impl Iterator<Item = (&'a str, &'a serde_json::Value)>,
 ) -> Option<Uuid> {
-    events
-        .filter(|(event_type, _)| *event_type == "app_function_completed")
-        .filter_map(|(_, payload)| payload.get("invocation_id")?.as_str()?.parse().ok())
-        .last()
+    let mut completed = None;
+    let mut started = None;
+    for (event_type, payload) in events {
+        let id = (|| payload.get("invocation_id")?.as_str()?.parse::<Uuid>().ok())();
+        match event_type {
+            "app_function_completed" => completed = id.or(completed),
+            "app_function_invocation_started" => started = id.or(started),
+            _ => {}
+        }
+    }
+    completed.or(started)
 }
 
 /// Whether `caller` may read a run queued in `environment`: anyone the mount
@@ -305,7 +322,7 @@ pub(crate) async fn detail(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let invocation_id =
-        completed_invocation_id(events.iter().map(|e| (e.event_type.as_str(), &e.payload)));
+        attempt_invocation_id(events.iter().map(|e| (e.event_type.as_str(), &e.payload)));
     let error_kind = invocation_error_kind(db, id, invocation_id).await;
     Ok(FunctionRunDetail {
         run_id: run_id.to_string(),
