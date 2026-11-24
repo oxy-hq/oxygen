@@ -1,8 +1,12 @@
 //! An org with a custom app whose live build declares the brief's catalogue,
-//! a member, a second member, and someone outside the org.
+//! a member, a second member, someone outside the org, and the three people
+//! the notification catalogue segments by: an owner, an admin, and a plain
+//! member an operator granted the Factory in the workspace.
 
 use chrono::{Duration, Timelike, Utc};
-use entity::{app_builds, apps, notifications, org_members, users, workspaces};
+use entity::{
+    app_builds, apps, notifications, org_members, users, workspace_factory_grants, workspaces,
+};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait};
@@ -17,6 +21,13 @@ pub(super) struct World {
     pub member: AuthenticatedUser,
     pub other: AuthenticatedUser,
     pub stranger: AuthenticatedUser,
+    /// An owner of the org: every audience admits them.
+    pub owner: AuthenticatedUser,
+    /// An admin: an operator and an officer, but not an owner, so no Billing.
+    pub admin: AuthenticatedUser,
+    /// A plain org member holding a Factory grant on `workspace`: an operator
+    /// with no standing in the org at all.
+    pub grantee: AuthenticatedUser,
 }
 
 /// `operations` → `operations/food-safety`, `operations/receiving`; a
@@ -77,18 +88,41 @@ pub(super) async fn seed_user(db: &DatabaseConnection) -> Uuid {
 }
 
 pub(super) async fn join(db: &DatabaseConnection, org: Uuid, user: Uuid) {
+    join_as(db, org, user, org_members::OrgRole::Member).await;
+}
+
+pub(super) async fn join_as(
+    db: &DatabaseConnection,
+    org: Uuid,
+    user: Uuid,
+    role: org_members::OrgRole,
+) {
     let now = Utc::now().fixed_offset();
     org_members::ActiveModel {
         id: Set(Uuid::new_v4()),
         org_id: Set(org),
         user_id: Set(user),
-        role: Set(org_members::OrgRole::Member),
+        role: Set(role),
         created_at: Set(now),
         updated_at: Set(now),
     }
     .insert(db)
     .await
     .expect("join org");
+}
+
+/// The row that IS a Factory grant — what `Ring::Factory` reads.
+pub(super) async fn grant_factory(db: &DatabaseConnection, workspace: Uuid, user: Uuid) {
+    workspace_factory_grants::ActiveModel {
+        workspace_id: Set(workspace),
+        user_id: Set(user),
+        granted_by: Set(None),
+        granted_at: Set(Utc::now().fixed_offset()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("grant the factory");
 }
 
 /// An app in `org` whose live (published) build declares `manifest`.
@@ -208,12 +242,24 @@ pub(super) async fn seed(db: &DatabaseConnection, org: Uuid) -> World {
     );
     join(db, org, member).await;
     join(db, org, other).await;
+    let (owner, admin, grantee) = (
+        seed_user(db).await,
+        seed_user(db).await,
+        seed_user(db).await,
+    );
+    join_as(db, org, owner, org_members::OrgRole::Owner).await;
+    join_as(db, org, admin, org_members::OrgRole::Admin).await;
+    join(db, org, grantee).await;
+    grant_factory(db, workspace, grantee).await;
     World {
         workspace,
         app,
         member: signed_in(member),
         other: signed_in(other),
         stranger: signed_in(stranger),
+        owner: signed_in(owner),
+        admin: signed_in(admin),
+        grantee: signed_in(grantee),
     }
 }
 

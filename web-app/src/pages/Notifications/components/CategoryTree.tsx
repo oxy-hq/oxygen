@@ -2,8 +2,13 @@ import type { ReactNode } from "react";
 import { oxygenFirst } from "@/components/Notifications/utils";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { cn } from "@/libs/shadcn/utils";
-import type { CategoryNode, InboxFilter, NotificationCatalog } from "@/types/notifications";
-import { sourceKey, sourceTestKey } from "../utils";
+import type {
+  CategoryNode,
+  InboxFilter,
+  NotificationCatalog,
+  NotificationStream
+} from "@/types/notifications";
+import { sourceKey, sourcesInStream, sourceTestKey } from "../utils";
 
 /** Indent per depth, on the spacing scale: all, a source, its categories, and so on. */
 const INDENT = ["pl-2", "pl-4", "pl-7", "pl-10", "pl-13", "pl-16"];
@@ -54,15 +59,29 @@ interface CategoryTreeProps {
   filter: InboxFilter;
   /** A node was picked: narrows the list to it (and drops any thread). */
   onSelect: (filter: InboxFilter) => void;
+  /** The stream whose categories to draw; `undefined` draws every one. */
+  stream?: NotificationStream;
 }
 
 /**
  * Sources → categories → kinds, each with its unread count. Picking a node
  * narrows the list to its subtree; "All" clears the filter. The desktop
  * sidebar and the phone's filter sheet both draw this.
+ *
+ * With a `stream`, only that stream's categories are drawn, so the tree beside
+ * the Operations tab is Billing and Automations and nothing else. Selecting a
+ * node keeps the stream (it is part of the filter the page holds), which is why
+ * there is no category here that belongs to the other tab.
  */
-export function CategoryTree({ catalog, isPending, isError, filter, onSelect }: CategoryTreeProps) {
-  const sources = oxygenFirst(catalog?.sources ?? []);
+export function CategoryTree({
+  catalog,
+  isPending,
+  isError,
+  filter,
+  onSelect,
+  stream
+}: CategoryTreeProps) {
+  const sources = oxygenFirst(sourcesInStream(catalog?.sources ?? [], stream));
   const total = sources.reduce((sum, s) => sum + s.unread, 0);
   const nothingPicked = !filter.source;
 
@@ -88,7 +107,7 @@ export function CategoryTree({ catalog, isPending, isError, filter, onSelect }: 
             unread={node.unread}
             depth={depth}
             selected={here && filter.category === node.path && !filter.kind}
-            onSelect={() => onSelect({ source: key, category: node.path })}
+            onSelect={() => onSelect({ stream, source: key, category: node.path })}
             testId={`notifications-tree-${testKey}-cat-${node.path}`}
           />,
           ...node.kinds.map((kind) => (
@@ -99,7 +118,7 @@ export function CategoryTree({ catalog, isPending, isError, filter, onSelect }: 
               depth={depth + 1}
               leaf
               selected={here && filter.kind === kind.kind}
-              onSelect={() => onSelect({ source: key, kind: kind.kind })}
+              onSelect={() => onSelect({ stream, source: key, kind: kind.kind })}
               testId={`notifications-tree-${testKey}-kind-${kind.kind}`}
             />
           )),
@@ -113,7 +132,7 @@ export function CategoryTree({ catalog, isPending, isError, filter, onSelect }: 
             depth={1}
             strong
             selected={here && !filter.category && !filter.kind}
-            onSelect={() => onSelect({ source: key })}
+            onSelect={() => onSelect({ stream, source: key })}
             testId={`notifications-tree-${testKey}`}
           />
           {categories(source.categories, 2)}
@@ -134,7 +153,7 @@ export function CategoryTree({ catalog, isPending, isError, filter, onSelect }: 
         depth={0}
         strong
         selected={nothingPicked}
-        onSelect={() => onSelect({})}
+        onSelect={() => onSelect({ stream })}
         testId='notifications-tree-all'
       />
       {body}

@@ -31,6 +31,7 @@ function filterParams(filter: InboxFilter): Record<string, string> {
   if (filter.category) params.category = filter.category;
   if (filter.kind) params.kind = filter.kind;
   if (filter.thread) params.thread = filter.thread;
+  if (filter.stream) params.stream = filter.stream;
   return params;
 }
 

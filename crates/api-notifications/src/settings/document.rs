@@ -126,7 +126,7 @@ pub fn source(listed: Listed, global: &GlobalSettings, now: DateTime<Utc>) -> Se
         source_label: &listed.label,
         now,
     };
-    let (kinds, paths) = shape(&listed.catalogue, &listed.facts);
+    let (kinds, paths) = shape(&listed.catalogue, &listed.facts, listed.standing);
     let categories = children(&paths, None)
         .into_iter()
         .map(|p| tree.category(&paths, &kinds, &p))

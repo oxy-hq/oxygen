@@ -84,6 +84,8 @@ export interface InboxFilter {
   category?: string;
   kind?: string;
   thread?: string;
+  /** One stream. Only an operator has anything in `operations`. */
+  stream?: NotificationStream;
 }
 
 /** The answer to running a notification's action. */
@@ -94,6 +96,14 @@ export interface NotificationActionResult {
   /** An open action's destination. */
   url?: string;
 }
+
+/**
+ * Which of the inbox's two streams a kind is in. Activity is what happened to
+ * you — your apps' notices, an answer you asked for, an alarm you were named
+ * in. Operations is what happened to the workspace: a failed run, an unpaid
+ * invoice. Derived on the server from the kind's audience, stored nowhere.
+ */
+export type NotificationStream = "activity" | "operations";
 
 /** A kind, the leaf of the catalogue tree. */
 export interface KindNode {
@@ -109,6 +119,8 @@ export interface KindNode {
   muted: NotificationChannel[];
   actions: NotificationAction[];
   unread: number;
+  /** Absent from a server that predates streams; then nothing is segmented. */
+  stream?: NotificationStream;
 }
 
 /** A category: a path segment of a source's tree. */
@@ -138,12 +150,25 @@ export interface SourceNode {
 export interface NotificationCatalog {
   sources: SourceNode[];
   reach: NotificationReach;
+  /**
+   * Whether this person runs anything — may open Nexus somewhere, or owns or
+   * administers one of their orgs. Only they get the stream tabs. Absent from a
+   * server that predates them, which reads as "no tabs".
+   */
+  operator?: boolean;
 }
 
 export interface UnreadResponse {
   unread: number;
   /** The apps with something unread. Absent from a server that predates it. */
   apps?: AppUnread[];
+  /** `unread` split by stream. Absent from a server that predates streams. */
+  streams?: StreamUnread;
+}
+
+export interface StreamUnread {
+  activity: number;
+  operations: number;
 }
 
 interface AppUnread {

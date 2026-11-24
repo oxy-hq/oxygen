@@ -2,12 +2,13 @@ import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { InboxFilter } from "@/types/notifications";
 
-const FILTER_KEYS = ["source", "category", "kind", "thread"] as const;
+const FILTER_KEYS = ["source", "category", "kind", "thread", "stream"] as const;
 const UNREAD_PARAM = "unread";
 
 /**
  * The page's filter, kept in the URL so a link (or a refresh) lands on the same
- * list: `?source=<oxygen|app id>&category=<path>&kind=<kind>&thread=<id>&unread=1`.
+ * list:
+ * `?source=<oxygen|app id>&category=<path>&kind=<kind>&thread=<id>&stream=<activity|operations>&unread=1`.
  * Every change replaces the entry, so Back leaves the page rather than stepping
  * through filters.
  */
@@ -18,7 +19,14 @@ export function useNotificationsFilter() {
     const next: InboxFilter = {};
     for (const key of FILTER_KEYS) {
       const value = params.get(key);
-      if (value) next[key] = value;
+      if (!value) continue;
+      // A stream the server would refuse is dropped here rather than sent: a
+      // hand-edited URL should not 400 the whole page.
+      if (key === "stream") {
+        if (value === "activity" || value === "operations") next.stream = value;
+        continue;
+      }
+      next[key] = value;
     }
     return next;
   }, [params]);

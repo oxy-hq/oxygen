@@ -10,6 +10,7 @@ export { useNotificationSettings } from "./useNotificationSettings";
 export { useRemoveNotificationDevice } from "./useRemoveNotificationDevice";
 export { useReportThisDevice } from "./useReportThisDevice";
 export { useRunNotificationAction } from "./useRunNotificationAction";
+export { useUnreadByStream } from "./useUnreadByStream";
 export { useUnreadNotificationCount } from "./useUnreadNotificationCount";
 export { useUpdateNotificationDevice } from "./useUpdateNotificationDevice";
 export { useUpdateNotificationSettings } from "./useUpdateNotificationSettings";

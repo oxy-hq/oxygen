@@ -17,6 +17,7 @@ vi.mock("@/services/api/notifications", () => ({
     markRead: vi.fn(),
     markAllRead: vi.fn(),
     runAction: vi.fn(),
+    unread: vi.fn(),
     vapidPublicKey: vi.fn()
   }
 }));
@@ -232,6 +233,13 @@ beforeEach(() => {
   service.markRead.mockResolvedValue();
   service.markAllRead.mockResolvedValue();
   service.runAction.mockResolvedValue({ ok: true, result: null });
+  // The page reads the badge for its stream counts; the tabs are their own
+  // file (`streams.test.tsx`), so here it only has to answer.
+  service.unread.mockResolvedValue({
+    unread: 4,
+    apps: [],
+    streams: { activity: 4, operations: 0 }
+  });
   service.vapidPublicKey.mockResolvedValue({ configured: false, public_key: null });
 });
 

@@ -6,8 +6,14 @@
 //! functions that send it. So a build with no `notifications` block, a kind
 //! received from an older build, and a platform kind from a newer binary all
 //! resolve the same way.
+//!
+//! [`Audience`] lives here too: which *people* a kind is for. Not to be
+//! confused with [`crate::catalog::audience`], which decides which *apps* may
+//! reach a person.
 
 use std::collections::{BTreeMap, BTreeSet};
+
+use serde::Serialize;
 
 use super::model::{
     Action, Catalogue, GENERAL, GENERAL_LABEL, Level, ancestors, humanize, is_within,
@@ -31,6 +37,42 @@ impl Source {
     }
 }
 
+/// Who a kind is for.
+///
+/// Four of the five nest by standing — `Everyone` ⊃ `Operators` ⊃ `Officers` ⊃
+/// `Owners` — because every owner is an officer, every officer reaches the
+/// Factory (`Ring::Factory`'s officer term), and every operator is in the org.
+/// So one comparison orders them and no two partly overlap.
+///
+/// [`Audience::Addressed`] is outside that order: the kind is only ever sent to
+/// specifically named individuals, never to a role, so no standing admits it. An
+/// `Addressed` kind appears in a person's catalogue and settings once they have
+/// received one or set something on it, and not before.
+///
+/// `Everyone` is the default, so a kind this binary does not know — one a newer
+/// binary sent — is never hidden. Hiding is the failure mode that loses a
+/// notification.
+///
+/// This is about which **people** a kind is for. [`crate::catalog::audience`] is
+/// a different question: which **apps** may reach a person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Audience {
+    /// Anyone in the org. A notice about the product, not about running it.
+    #[default]
+    Everyone,
+    /// Someone who may open Nexus in the org — `Action::FactoryUse`.
+    Operators,
+    /// An owner or admin of the org (`Ring::OrgAdminStrict`). No kind today;
+    /// kept because it is the ring the Factory's officer term names, so a future
+    /// "owners and admins" kind has a value waiting.
+    Officers,
+    /// An owner of the org, and nobody else.
+    Owners,
+    /// Only the individuals the sender named.
+    Addressed,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceCatalogue {
     pub source: Source,
@@ -38,6 +80,10 @@ pub struct SourceCatalogue {
     /// The kinds a function may send (`functions.*.notify.kinds`), each with
     /// whether one marks it critical. Empty for Oxygen.
     pub declared: BTreeMap<String, bool>,
+    /// Who each kind is for. Only Oxygen declares one: an app's notices are
+    /// its own org's business, so every app kind is [`Audience::Everyone`] and
+    /// this stays empty for an app.
+    pub audiences: BTreeMap<String, Audience>,
 }
 
 /// Everything the tree, the inbox and delivery need to know about one kind.
@@ -58,6 +104,9 @@ pub struct KindInfo {
     /// an Oxygen kind that is never muted (`kinds::is_mutable`: a test
     /// notice, which exists to show that push arrives).
     pub mutable: bool,
+    /// Who it is for ([`Audience`]). Drives what the catalogue and the settings
+    /// document draw, and which stream it is in (`crate::stream`).
+    pub audience: Audience,
 }
 
 impl KindInfo {
@@ -78,6 +127,7 @@ impl SourceCatalogue {
             source: Source::App,
             catalogue,
             declared,
+            audiences: BTreeMap::new(),
         }
     }
 
@@ -101,6 +151,13 @@ impl SourceCatalogue {
             .get(kind)
             .and_then(|k| k.level)
             .unwrap_or_default()
+    }
+
+    /// Who `kind` is for. An undeclared kind — an app's, or a platform kind
+    /// from a newer binary — is [`Audience::Everyone`], so it is shown rather
+    /// than hidden.
+    pub fn audience_of(&self, kind: &str) -> Audience {
+        self.audiences.get(kind).copied().unwrap_or_default()
     }
 
     /// Oxygen's kinds have fixed channels; an app's reach all three, since
@@ -130,6 +187,7 @@ impl SourceCatalogue {
             actions: def.map(|d| d.actions.clone()).unwrap_or_default(),
             channels: self.channels_of(kind),
             mutable,
+            audience: self.audience_of(kind),
         }
     }
 

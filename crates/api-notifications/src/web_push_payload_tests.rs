@@ -134,7 +134,7 @@ fn the_payload_carries_ids_and_config_and_never_a_title_or_body() {
 #[test]
 fn a_rows_title_body_and_link_never_reach_the_payload() {
     use crate::catalog::model::Level;
-    use crate::catalog::source::KindInfo;
+    use crate::catalog::source::{Audience, KindInfo};
 
     let row = entity::notifications::Model {
         id: Uuid::new_v4(),
@@ -162,6 +162,7 @@ fn a_rows_title_body_and_link_never_reach_the_payload() {
         actions: vec![],
         channels: vec!["push"],
         mutable: false,
+        audience: Audience::Everyone,
     };
     let payload = Payload::new(&PushSignal::new(&row, &info, "Store Ops"));
     let json = serde_json::to_string(&payload).expect("serializes");

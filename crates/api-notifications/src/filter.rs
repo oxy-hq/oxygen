@@ -3,13 +3,20 @@
 //! Always the person's own signals, in the orgs the request's token reaches.
 //! Then, each optional and each narrowing: one org (`org_id`), one app
 //! (`app_id`), one source (`source=oxygen|<app id>`), a category subtree of
-//! that source (`category=<path>`, which needs `source`), one kind and one
-//! thread. The list, the badge and `read-all` take the same parameters, so
-//! "mark all read" clears exactly what the page shows.
+//! that source (`category=<path>`, which needs `source`), one stream
+//! (`stream=activity|operations`), one kind and one thread. The list, the badge
+//! and `read-all` take the same parameters, so "mark all read" clears exactly
+//! what the page shows.
+//!
+//! `stream` is the one that spans two columns: Activity is every app's notice
+//! *plus* Oxygen's non-operator kinds, so it composes as a condition rather
+//! than a chained filter. Its kind list comes from Oxygen's catalogue at
+//! request time (`crate::stream::operations_kinds`), so adding a kind to the
+//! platform table puts it in the right stream with no edit here.
 
 use axum::http::StatusCode;
 use entity::{apps, notifications};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -17,6 +24,7 @@ use super::catalog::model::{GENERAL, valid_path};
 use super::catalog::platform::oxygen;
 use super::catalog::source::{KindSet, SourceCatalogue};
 use super::input::valid_kind;
+use super::stream::{Stream, operations_kinds};
 
 /// Longest `thread` filter: a thread key is 32 hex characters.
 const MAX_THREAD_FILTER: usize = 64;
@@ -40,6 +48,10 @@ pub struct FilterParams {
     pub kind: Option<String>,
     /// An item's opaque `thread`.
     pub thread: Option<String>,
+    /// `activity` | `operations`. Anything else is `400`, like every other
+    /// malformed parameter: `read-all` takes this filter, and a typo must not
+    /// clear both streams.
+    pub stream: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +69,8 @@ pub struct Filter {
     kinds: Option<KindSet>,
     kind: Option<String>,
     thread: Option<String>,
+    /// The stream, with the Oxygen kinds Operations holds, read once.
+    stream: Option<(Stream, Vec<String>)>,
 }
 
 impl FilterParams {
@@ -92,6 +106,13 @@ impl FilterParams {
                 Some(catalogue.kinds_in_scope(path))
             }
         };
+        let stream = match self.stream.as_deref() {
+            None => None,
+            Some(value) => Some((
+                Stream::parse(value).ok_or(StatusCode::BAD_REQUEST)?,
+                operations_kinds(),
+            )),
+        };
         Ok(Filter {
             org_id: self.org_id,
             app_id: self.app_id,
@@ -99,6 +120,7 @@ impl FilterParams {
             kinds,
             kind: self.kind.clone(),
             thread: self.thread.clone(),
+            stream,
         })
     }
 }
@@ -146,6 +168,9 @@ impl Filter {
         if let Some(thread) = &self.thread {
             find = find.filter(C::ThreadKey.eq(thread.clone()));
         }
+        if let Some((stream, operations)) = &self.stream {
+            find = find.filter(stream_condition(*stream, operations));
+        }
         let blocked = user.blocked_orgs();
         if !blocked.is_empty() {
             find = find.filter(C::OrgId.is_not_in(blocked.iter().copied()));
@@ -154,10 +179,30 @@ impl Filter {
     }
 }
 
+/// `stream`'s narrowing: Activity is an app's notice or an Oxygen kind that is
+/// not one of `operations`; Operations is the complement, within Oxygen.
+///
+/// Written over the two columns rather than as a kind list so that every app
+/// kind — including ones no catalogue describes — is Activity by construction,
+/// and so a kind this binary has never heard of lands in Activity, where
+/// somebody is looking, instead of being hidden.
+fn stream_condition(stream: Stream, operations: &[String]) -> Condition {
+    use notifications::Column as C;
+    match stream {
+        Stream::Activity => Condition::any()
+            .add(C::AppId.is_not_null())
+            .add(C::Kind.is_not_in(operations.to_vec())),
+        Stream::Operations => Condition::all()
+            .add(C::AppId.is_null())
+            .add(C::Kind.is_in(operations.to_vec())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::extract::Query;
     use axum::http::Uri;
+    use sea_orm::QueryTrait;
 
     use super::*;
 
@@ -176,5 +221,48 @@ mod tests {
         assert!(parsed("source=oxygen&categroy=runs").is_none());
         assert!(parsed("org_id=not-a-uuid").is_none());
         assert!(parsed("").is_some());
+    }
+
+    #[test]
+    fn a_stream_parses_and_an_unknown_one_is_refused() {
+        assert_eq!(
+            parsed("stream=operations").unwrap().stream.as_deref(),
+            Some("operations")
+        );
+        // Parsing is lenient (any string); resolving is what refuses, because
+        // only there is the catalogue in hand. Both ends must say no.
+        for bad in ["stream=ops", "stream=", "stream=Operations"] {
+            let params = parsed(bad).unwrap();
+            assert!(
+                Stream::parse(params.stream.as_deref().unwrap_or("")).is_none(),
+                "{bad}"
+            );
+        }
+        assert!(
+            parsed("streams=activity").is_none(),
+            "a typo is 400, not ignored"
+        );
+    }
+
+    #[test]
+    fn activity_spans_both_columns_and_operations_is_oxygens_alone() {
+        let operations = operations_kinds();
+        assert!(!operations.is_empty(), "the condition would match nothing");
+        let sql = |stream| {
+            notifications::Entity::find()
+                .filter(stream_condition(stream, &operations))
+                .build(sea_orm::DatabaseBackend::Postgres)
+                .to_string()
+        };
+        let activity = sql(Stream::Activity);
+        assert!(
+            activity.contains("\"app_id\" IS NOT NULL") && activity.contains("NOT IN"),
+            "an app's notice OR not an operations kind: {activity}"
+        );
+        let ops = sql(Stream::Operations);
+        assert!(
+            ops.contains("\"app_id\" IS NULL") && ops.contains("\"kind\" IN"),
+            "no app AND an operations kind: {ops}"
+        );
     }
 }

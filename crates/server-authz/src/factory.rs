@@ -23,6 +23,19 @@ pub fn may_use_factory(facts: &PrincipalFacts, workspace_id: Uuid, org_id: Uuid)
     )
 }
 
+/// Whether `facts` may use the Factory in SOME workspace of `org_id` — the ring's staff
+/// and officer terms, which name no workspace. A grant is per workspace, so a grantee is
+/// admitted by [`may_use_factory`] on that workspace, not by this.
+///
+/// `Resource::org` makes the grant term false by construction (the ring reads it only
+/// against a workspace resource), which is exactly the quantification wanted: *could
+/// this person open Nexus somewhere in this org by standing alone*. Asked by the
+/// notification catalogue, which segments by operator standing and knows an org rather
+/// than a workspace.
+pub fn may_use_factory_in_org(facts: &PrincipalFacts, org_id: Uuid) -> bool {
+    allows(facts, Action::FactoryUse, &Resource::org(org_id))
+}
+
 /// Whether `facts` may **check a compile** of the workspace — queue a staging compile
 /// of a branch and read its status — which is the one thing the Factory gate lets
 /// through for a caller [`may_use_factory`] refuses, on exactly the two routes that do
@@ -140,6 +153,34 @@ mod tests {
         assert!(may_use_factory(&admin_without_grant, WS, ORG));
         assert!(!may_use_factory(&member_without_grant, WS, ORG));
         assert!(!may_use_factory(&PrincipalFacts::default(), WS, ORG));
+    }
+
+    #[test]
+    fn standing_in_an_org_is_the_ring_without_its_grant_term() {
+        let granted = PrincipalFacts {
+            member_orgs: vec![ORG],
+            factory_workspaces: vec![WS],
+            ..Default::default()
+        };
+        let admin = PrincipalFacts {
+            admin_orgs: vec![ORG],
+            member_orgs: vec![ORG],
+            ..Default::default()
+        };
+        let staff = PrincipalFacts {
+            platform: Some(PlatformStanding::from_role(
+                PlatformRole::GlobalAdmin,
+                Scope::All,
+            )),
+            ..Default::default()
+        };
+        assert!(may_use_factory_in_org(&admin, ORG));
+        assert!(may_use_factory_in_org(&staff, ORG));
+        // A grantee holds the Factory in a workspace, not a standing in the org: the
+        // grant term reads a workspace resource and an org names none.
+        assert!(may_use_factory(&granted, WS, ORG));
+        assert!(!may_use_factory_in_org(&granted, ORG));
+        assert!(!may_use_factory_in_org(&PrincipalFacts::default(), ORG));
     }
 
     #[test]

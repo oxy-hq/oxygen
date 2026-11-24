@@ -22,6 +22,9 @@ oxy-slack-client = { workspace = true }
 oxy-slack = { workspace = true }         # installation, links, link-by-email
 oxy = { workspace = true }                 # database client
 oxy-auth = { workspace = true }            # AuthenticatedUserExtractor, device-login codes
+# The one authority that decides who runs a workspace (`Action::FactoryUse`), which
+# the catalogue segments by. No role is read by hand in this crate.
+oxy-server-authz = { workspace = true }    # Caller, PrincipalFacts, factory::may_use_factory*
 oxy-shared = { workspace = true }          # http builder, fleet_role::RouteRoleDecl
 entity = { workspace = true }
 agentic-core = { workspace = true }

@@ -71,6 +71,7 @@ fn query() -> InboxQuery {
         category: None,
         kind: None,
         thread: None,
+        stream: None,
     }
 }
 

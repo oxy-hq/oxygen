@@ -5,6 +5,7 @@ import type {
   InboxItem,
   KindNode,
   NotificationCatalog,
+  NotificationStream,
   SourceNode
 } from "@/types/notifications";
 
@@ -99,6 +100,26 @@ function findKind(nodes: CategoryNode[], kind: string): KindNode | undefined {
   return undefined;
 }
 
+/**
+ * The stream `kind` belongs to, as the catalogue places it — `undefined` for a
+ * kind it does not name, and for a server that predates streams.
+ *
+ * Used to pick the open tab for a link that names a kind but no stream, so a
+ * clicked push for a failed run opens on Operations with its branch of the tree
+ * beside it, rather than on Activity, which never holds that kind.
+ */
+export function kindStream(
+  catalog: NotificationCatalog | undefined,
+  kind: string | undefined
+): NotificationStream | undefined {
+  if (!kind) return undefined;
+  for (const source of catalog?.sources ?? []) {
+    const found = findKind(source.categories, kind);
+    if (found) return found.stream;
+  }
+  return undefined;
+}
+
 /** What the filter narrows to, in words: "All notifications", "Store Ops · Food safety". */
 export function scopeLabel(catalog: NotificationCatalog | undefined, filter: InboxFilter): string {
   if (!filter.source) return "All notifications";
@@ -110,4 +131,42 @@ export function scopeLabel(catalog: NotificationCatalog | undefined, filter: Inb
       ? findCategory(source.categories, filter.category)?.label
       : undefined;
   return leaf ? `${source.label} · ${leaf}` : source.label;
+}
+
+/**
+ * `sources` with only what `stream` holds: its kinds, the categories that still
+ * have one, and the sources that still have a category. `undefined` leaves the
+ * tree alone, which is what a non-operator and an older server both get.
+ *
+ * A kind with no `stream` — a server that predates them — matches every stream,
+ * so an old server's tree is never emptied by a filter it does not know about.
+ *
+ * A source's own count is re-summed from what survived; a category's is left as
+ * the server computed it, because a category's kinds are all in one stream (an
+ * audience is declared per kind, but Oxygen's categories group kinds that share
+ * one, and every app kind is Activity).
+ */
+export function sourcesInStream(
+  sources: SourceNode[],
+  stream: NotificationStream | undefined
+): SourceNode[] {
+  if (!stream) return sources;
+  const keep = (nodes: CategoryNode[]): CategoryNode[] =>
+    nodes
+      .map((node) => ({
+        ...node,
+        kinds: node.kinds.filter((k) => !k.stream || k.stream === stream),
+        categories: keep(node.categories)
+      }))
+      .filter((node) => node.kinds.length > 0 || node.categories.length > 0);
+  return sources
+    .map((source) => {
+      const categories = keep(source.categories);
+      return {
+        ...source,
+        categories,
+        unread: categories.reduce((sum, c) => sum + c.unread, 0)
+      };
+    })
+    .filter((source) => source.categories.length > 0);
 }

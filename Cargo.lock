@@ -9833,6 +9833,7 @@ dependencies = [
  "oxy-custom-apps",
  "oxy-metric-monitoring",
  "oxy-oltp",
+ "oxy-server-authz",
  "oxy-shared",
  "oxy-slack",
  "oxy-slack-client",

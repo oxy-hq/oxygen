@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { InboxItem, NotificationCatalog } from "@/types/notifications";
-import { collapseThreads, dayLabel, groupByDay, scopeLabel } from "./utils";
+import type {
+  CategoryNode,
+  InboxItem,
+  KindNode,
+  NotificationCatalog,
+  SourceNode
+} from "@/types/notifications";
+import { collapseThreads, dayLabel, groupByDay, scopeLabel, sourcesInStream } from "./utils";
 
 const item = (id: string, created_at: string, over: Partial<InboxItem> = {}): InboxItem => ({
   id,
@@ -137,5 +143,92 @@ describe("scopeLabel", () => {
 
   it("still says something before the catalogue loads", () => {
     expect(scopeLabel(undefined, { source: "oxygen" })).toBe("Oxygen");
+  });
+});
+
+const kind = (name: string, unread: number, stream?: KindNode["stream"]): KindNode => ({
+  kind: name,
+  label: name,
+  description: null,
+  level: "active",
+  critical: false,
+  channels: ["push"],
+  muted: [],
+  actions: [],
+  unread,
+  stream
+});
+
+const category = (
+  path: string,
+  kinds: KindNode[],
+  categories: CategoryNode[] = []
+): CategoryNode => ({
+  path,
+  label: path,
+  description: null,
+  muted: [],
+  unread: kinds.reduce((n, k) => n + k.unread, 0) + categories.reduce((n, c) => n + c.unread, 0),
+  categories,
+  kinds
+});
+
+const oxygen = (categories: CategoryNode[]): SourceNode => ({
+  source: "oxygen",
+  app: null,
+  label: "Oxygen",
+  muted: [],
+  unread: categories.reduce((n, c) => n + c.unread, 0),
+  categories
+});
+
+const app = (categories: CategoryNode[]): SourceNode => ({
+  source: "app",
+  app: { id: "app-1", slug: "store-ops", name: "Store Ops", org_slug: "acme" },
+  label: "Store Ops",
+  muted: [],
+  unread: categories.reduce((n, c) => n + c.unread, 0),
+  categories
+});
+
+describe("sourcesInStream", () => {
+  const sources = [
+    app([category("operations", [kind("temp_alarm", 3, "activity")])]),
+    oxygen([
+      category("runs", [kind("oxy.run_failed", 2, "operations")]),
+      category("workspaces", [kind("oxy.workspace_ready", 1, "activity")])
+    ])
+  ];
+
+  it("leaves the tree alone without a stream", () => {
+    expect(sourcesInStream(sources, undefined)).toBe(sources);
+  });
+
+  it("keeps one stream's categories and drops the sources left with none", () => {
+    const operations = sourcesInStream(sources, "operations");
+    expect(operations.map((s) => s.label)).toEqual(["Oxygen"]);
+    expect(operations[0].categories.map((c) => c.path)).toEqual(["runs"]);
+    // The source's own count is re-summed from what survived, so the row does
+    // not advertise the other tab's unread.
+    expect(operations[0].unread).toBe(2);
+
+    const activity = sourcesInStream(sources, "activity");
+    expect(activity.map((s) => s.label)).toEqual(["Store Ops", "Oxygen"]);
+    expect(activity[1].categories.map((c) => c.path)).toEqual(["workspaces"]);
+    expect(activity[1].unread).toBe(1);
+  });
+
+  it("drops a parent whose only kinds were in the other stream", () => {
+    const nested = [
+      oxygen([category("top", [], [category("top/inner", [kind("k", 1, "operations")])])])
+    ];
+    expect(sourcesInStream(nested, "activity")).toEqual([]);
+    expect(sourcesInStream(nested, "operations")[0].categories[0].path).toBe("top");
+  });
+
+  it("shows everything from a server that does not say which stream a kind is in", () => {
+    const old = [oxygen([category("runs", [kind("oxy.run_failed", 2)])])];
+    expect(sourcesInStream(old, "operations")[0].categories).toHaveLength(1);
+    expect(sourcesInStream(old, "activity")[0].categories).toHaveLength(1);
   });
 });

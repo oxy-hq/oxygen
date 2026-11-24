@@ -106,6 +106,7 @@ pub mod inbox_view;
 pub mod input;
 pub mod links;
 mod native_push;
+pub mod operators;
 pub mod platform;
 pub mod preferences;
 pub mod push_routing;
@@ -116,6 +117,7 @@ pub mod settings;
 #[cfg(debug_assertions)]
 mod simulator_push;
 pub mod slack_dm;
+pub mod stream;
 pub mod task;
 pub mod test_notice;
 pub mod web_push;

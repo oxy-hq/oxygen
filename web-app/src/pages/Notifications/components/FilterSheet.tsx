@@ -1,7 +1,7 @@
 import { ListFilter } from "lucide-react";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/shadcn/sheet";
-import type { InboxFilter, NotificationCatalog } from "@/types/notifications";
+import type { InboxFilter, NotificationCatalog, NotificationStream } from "@/types/notifications";
 import { CategoryTree } from "./CategoryTree";
 
 interface FilterSheetProps {
@@ -12,6 +12,7 @@ interface FilterSheetProps {
   /** The current scope, in words: what the button says. */
   label: string;
   onSelect: (filter: InboxFilter) => void;
+  stream?: NotificationStream;
 }
 
 /**
@@ -24,7 +25,8 @@ export function FilterSheet({
   isError,
   filter,
   label,
-  onSelect
+  onSelect,
+  stream
 }: FilterSheetProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -54,6 +56,7 @@ export function FilterSheet({
             isPending={isPending}
             isError={isError}
             filter={filter}
+            stream={stream}
             onSelect={(next) => {
               onSelect(next);
               setOpen(false);

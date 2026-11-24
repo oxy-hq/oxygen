@@ -102,14 +102,18 @@ export function withItemRead(
 /**
  * `catalog` once everything `filter` covers is read: every source for `{}`, one
  * source, a category's subtree, or a kind. `null` when the catalogue cannot say
- * what a filter covered (a thread), so it is re-read instead.
+ * what a filter covered (a thread, or one stream of a source), so it is re-read
+ * instead.
  */
 export function withFilterRead(
   catalog: NotificationCatalog,
   filter: InboxFilter
 ): NotificationCatalog | null {
-  const { source, category, kind, thread } = filter;
-  if (thread || (category && (!source || kind))) return null;
+  const { source, category, kind, thread, stream } = filter;
+  // A stream cuts across the tree — one of a source's categories is in it and
+  // another is not — so zeroing a whole source would take the other tab's
+  // counts down with it. Re-read rather than guess.
+  if (thread || stream || (category && (!source || kind))) return null;
   const wanted = (s: SourceNode) => !source || sourceKey(s) === source;
   if (category) {
     return inSource(catalog, wanted, { category: (c) => c.path === category, kind: () => 0 });

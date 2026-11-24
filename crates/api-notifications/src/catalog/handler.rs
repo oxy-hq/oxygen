@@ -8,6 +8,15 @@
 //! catalogue and they are in its audience. Catalogues are config read from
 //! Oxy's database; no org store is touched.
 //!
+//! Oxygen's tree is then cut to what this person is for: every kind states its
+//! [`Audience`](super::source::Audience), and one asked of
+//! `operators::standing_of` decides which of them they see. So one
+//! `oxy.workspace_ready` no longer unlocks Billing and Automations switches for
+//! a crew member for good — the bug this segmentation exists to fix. The
+//! response also says whether they stand as an operator at all
+//! ([`CatalogResponse::operator`]), which is what the page's stream tabs hang
+//! on; a second request to learn it would be a second read of the same facts.
+//!
 //! The settings document (`GET /api/notifications/settings`) lists the same
 //! sources ([`listed_sources`]), and both read what was set from
 //! `notification_node_settings`: a mute here is a channel set off there.
@@ -29,10 +38,12 @@ use uuid::Uuid;
 use super::platform::oxygen;
 use super::source::SourceCatalogue;
 use super::tree::{self, CategoryNode, Facts};
+use crate::operators::{Standing, standing_of};
 use crate::preferences::{Reachability, reachability};
 use crate::settings::model::Node;
 use crate::settings::store::{self, UserNodes};
 use oxy_app_core::audience::PersonReach;
+use oxy_server_authz::caller::Caller;
 
 #[derive(Debug, Serialize)]
 pub struct SourceApp {
@@ -59,6 +70,10 @@ pub struct SourceNode {
 pub struct CatalogResponse {
     pub sources: Vec<SourceNode>,
     pub reach: Reachability,
+    /// Whether this person runs anything — `Action::FactoryUse` somewhere, or
+    /// an owner or admin of one of their orgs. The page shows its two stream
+    /// tabs only to them; everyone else sees the inbox exactly as before.
+    pub operator: bool,
 }
 
 /// `GET /api/notifications/catalog`
@@ -87,6 +102,9 @@ pub struct Listed {
     pub label: String,
     pub catalogue: SourceCatalogue,
     pub facts: Facts,
+    /// What the person stands as, loaded once for the whole document and
+    /// carried per source because that is where the tree is drawn.
+    pub standing: Standing,
 }
 
 /// The catalogue as `user` sees it. Separate from the route so it can be
@@ -95,14 +113,26 @@ pub async fn catalog_for(
     db: &DatabaseConnection,
     user: &AuthenticatedUser,
 ) -> Result<CatalogResponse, DbErr> {
-    let sources = listed_sources(db, user)
-        .await?
+    let listed = listed_sources(db, user).await?;
+    let operator = listed.first().map(|l| l.standing.operator);
+    let sources: Vec<SourceNode> = listed
         .into_iter()
         .map(source_node)
+        // A source with nothing left to draw and nothing unread is not listed:
+        // the property the "received anything?" gate was reaching for, now that
+        // a tree can be pruned to nothing. Unread is kept in the condition so a
+        // notice with no switch of its own — a test notice — still shows its
+        // count somewhere.
+        .filter(|s| !s.categories.is_empty() || s.unread > 0)
         .collect();
     Ok(CatalogResponse {
         sources,
         reach: reachability(db, user.id).await?,
+        // `listed_sources` loads the standing once; if it listed nothing, ask.
+        operator: match operator {
+            Some(operator) => operator,
+            None => standing_of(db, &Caller::from_user(user)).await.operator,
+        },
     })
 }
 
@@ -113,6 +143,8 @@ pub async fn listed_sources(
 ) -> Result<Vec<Listed>, DbErr> {
     let blocked: HashSet<Uuid> = user.blocked_orgs().iter().copied().collect();
     let mut had = had(db, user.id, &blocked).await?;
+    // Once for the whole document, not once per source.
+    let standing = standing_of(db, &Caller::from_user(user)).await;
     let mut sources = Vec::new();
     let oxygen_facts = had.facts(None);
     if !oxygen_facts.kinds.is_empty() || !oxygen_facts.nodes.is_empty() {
@@ -121,11 +153,13 @@ pub async fn listed_sources(
             label: "Oxygen".into(),
             catalogue: oxygen(),
             facts: oxygen_facts,
+            standing,
         });
     }
     for (app, org_slug, catalogue) in apps_for(db, user, &blocked, &had).await? {
         let facts = had.facts(Some(app.id));
         sources.push(Listed {
+            standing,
             label: app.name.clone(),
             app: Some(SourceApp {
                 id: app.id,
@@ -141,7 +175,7 @@ pub async fn listed_sources(
 }
 
 fn source_node(listed: Listed) -> SourceNode {
-    let (categories, unread) = tree::build(&listed.catalogue, &listed.facts);
+    let (categories, unread) = tree::build(&listed.catalogue, &listed.facts, listed.standing);
     SourceNode {
         source: listed.catalogue.source.as_str(),
         app: listed.app,

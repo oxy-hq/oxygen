@@ -43,6 +43,9 @@ pub struct InboxQuery {
     pub category: Option<String>,
     pub kind: Option<String>,
     pub thread: Option<String>,
+    /// `activity` | `operations` (`crate::stream`). Checked when the filter is
+    /// resolved, which is where an unknown value becomes `400`.
+    pub stream: Option<String>,
 }
 
 fn yes() -> bool {
@@ -58,6 +61,7 @@ impl InboxQuery {
             category: self.category.clone(),
             kind: self.kind.clone(),
             thread: self.thread.clone(),
+            stream: self.stream.clone(),
         }
     }
 }
@@ -205,4 +209,44 @@ pub async fn mine(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .filter(|n| super::handlers::visible_to(n, user))
         .ok_or(StatusCode::NOT_FOUND)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::extract::Query;
+    use axum::http::Uri;
+
+    use super::*;
+
+    /// Every filter parameter of the list route reaches the shared filter.
+    ///
+    /// `InboxQuery` holds the paging fields *and* a hand-written copy of the
+    /// filter's, because `serde(flatten)` cannot read a `bool` or a number out
+    /// of a query string. It also does **not** deny unknown fields — it cannot,
+    /// having `limit` and `before` of its own — so a filter parameter missing
+    /// from the copy is silently ignored on this one route while the badge and
+    /// `read-all` honour it. That is a divergence no 400 would reveal, which is
+    /// why it is asserted here rather than left to the struct literal.
+    #[test]
+    fn the_list_route_passes_every_filter_parameter_through() {
+        let uri: Uri = "/api/notifications?unread_only=false&limit=10&before=\
+             00000000-0000-0000-0000-000000000001&org_id=\
+             00000000-0000-0000-0000-000000000002&app_id=\
+             00000000-0000-0000-0000-000000000003&source=oxygen&category=runs\
+             &kind=oxy.run_failed&thread=abc&stream=operations"
+            .parse()
+            .unwrap();
+        let q = Query::<InboxQuery>::try_from_uri(&uri).expect("parses").0;
+        let f = q.filter();
+        assert_eq!(f.org_id, Some(Uuid::from_u128(2)));
+        assert_eq!(f.app_id, Some(Uuid::from_u128(3)));
+        assert_eq!(f.source.as_deref(), Some("oxygen"));
+        assert_eq!(f.category.as_deref(), Some("runs"));
+        assert_eq!(f.kind.as_deref(), Some("oxy.run_failed"));
+        assert_eq!(f.thread.as_deref(), Some("abc"));
+        assert_eq!(f.stream.as_deref(), Some("operations"));
+        // And the paging fields stay out of the filter's business.
+        assert!(!q.unread_only);
+        assert_eq!((q.limit, q.before), (Some(10), Some(Uuid::from_u128(1))));
+    }
 }

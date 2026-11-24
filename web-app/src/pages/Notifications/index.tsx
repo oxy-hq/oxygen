@@ -11,9 +11,11 @@ import { FilterSheet } from "./components/FilterSheet";
 import { ListToolbar, ThreadChip } from "./components/ListToolbar";
 import { NotificationList } from "./components/NotificationList";
 import { PageHeader } from "./components/PageHeader";
+import { StreamTabs } from "./components/StreamTabs";
 import { WIDE_MEDIA_QUERY } from "./constants";
 import { useNotificationsFilter } from "./useNotificationsFilter";
 import { usePushClicks } from "./usePushClicks";
+import { useStream } from "./useStream";
 import { scopeLabel } from "./utils";
 
 /**
@@ -24,12 +26,20 @@ import { scopeLabel } from "./utils";
  * Wide: the category tree on the left, the list on the right. A phone: the list
  * fills the screen and the tree is a filter sheet. Either way the filter lives
  * in the URL (`useNotificationsFilter`).
+ *
+ * Someone who runs something — `catalog.operator` — gets the two streams as
+ * tabs above the list, Activity selected: a failing hourly pipeline then stops
+ * crowding out the notices meant for them personally. Everyone else sees the
+ * page exactly as before, with no stream in the filter at all, so an operator
+ * notice already in their inbox stays visible rather than moving into a tab
+ * they do not have.
  */
 export default function NotificationsPage() {
   const wide = useMediaQuery(WIDE_MEDIA_QUERY);
   const { filter, unreadOnly, setFilter, setUnreadOnly } = useNotificationsFilter();
   const catalog = useNotificationCatalog();
-  const feed = useNotificationFeed(filter, unreadOnly);
+  const open = useStream(catalog.data, filter);
+  const feed = useNotificationFeed(open.filter, unreadOnly);
   const markAll = useMarkAllNotificationsRead();
   const label = scopeLabel(catalog.data, filter);
   usePushClicks();
@@ -39,7 +49,8 @@ export default function NotificationsPage() {
     (pages[0]?.unread ?? 0) > 0 || pages.some((p) => p.items.some((i) => i.read_at === null));
   // A thread is narrower than any node of the tree, so it replaces the rest.
   const openThread = (item: InboxItem) => {
-    if (item.thread) setFilter({ source: item.app?.id ?? "oxygen", thread: item.thread });
+    if (!item.thread) return;
+    setFilter({ stream: open.stream, source: item.app?.id ?? "oxygen", thread: item.thread });
   };
   const clearThread = () => setFilter({ ...filter, thread: undefined });
 
@@ -48,15 +59,25 @@ export default function NotificationsPage() {
     isPending: catalog.isPending,
     isError: catalog.isError,
     filter,
-    onSelect: setFilter
+    onSelect: setFilter,
+    stream: open.stream
   };
+  // Switching tab starts over inside that stream: a category of the one being
+  // left would narrow the new list to nothing.
+  const tabs = open.tabs && open.stream && (
+    <StreamTabs
+      stream={open.stream}
+      onSelect={(next) => setFilter({ stream: next })}
+      counts={open.counts}
+    />
+  );
   const toolbar = (
     <ListToolbar
       unreadOnly={unreadOnly}
       onUnreadOnly={setUnreadOnly}
       canMarkAll={canMarkAll}
       markingAll={markAll.isPending}
-      onMarkAll={() => markAll.mutate(filter)}
+      onMarkAll={() => markAll.mutate(open.filter)}
       compact={!wide}
     />
   );
@@ -86,6 +107,7 @@ export default function NotificationsPage() {
           </aside>
           <main className='min-w-0 flex-1 overflow-y-auto'>
             <div className='mx-auto flex w-full max-w-3xl flex-col'>
+              {tabs && <div className='flex shrink-0 border-b px-4 py-2'>{tabs}</div>}
               <div className='flex items-center gap-2 border-b px-4 py-2'>
                 <h2
                   className='min-w-0 flex-1 truncate font-medium text-sm'
@@ -103,6 +125,7 @@ export default function NotificationsPage() {
         </div>
       ) : (
         <main className='flex min-h-0 flex-1 flex-col'>
+          {tabs && <div className='flex shrink-0 border-b px-3 py-2'>{tabs}</div>}
           <div className='flex shrink-0 items-center gap-2 border-b px-3 py-2'>
             <FilterSheet {...tree} label={label} />
             {toolbar}
