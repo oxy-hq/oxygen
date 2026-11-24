@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use entity::custom_app_migrations;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
     EntityTrait, QueryFilter, TransactionTrait,
@@ -13,6 +14,7 @@ use uuid::Uuid;
 
 use super::plan::plan;
 use super::types::{Applied, DeclaredMigration, MigrationError, MigrationTarget, STORE_OLTP};
+use crate::oltp_changes::provenance::{self, ChangeSigner, SIGN_SQL, TXID_SQL};
 
 /// The one target this path applies to. It connects to the app's production
 /// OLTP writer, so recording any other target here would be a lie.
@@ -80,15 +82,20 @@ pub(super) fn pg_detail(e: &tokio_postgres::Error) -> String {
 /// nothing (`declared` empty). That path costs one branch — no ledger read, no
 /// writer resolution, no tenant connection — so an app with no tables pays
 /// nothing for this feature existing.
-#[instrument(skip(db, declared), fields(app_id = %app_id, app_slug = %app_slug))]
+///
+/// With [`PromoteFiles::captures_changes`], each file's transaction is signed
+/// for the change stream before its first statement, so a change a migration
+/// makes to a captured table carries a MAC the relay verifies.
+#[instrument(skip(db, files), fields(app_id = %app_id, app_slug = %app_slug))]
 pub(crate) async fn apply_on_promote(
     db: &DatabaseConnection,
     app_id: Uuid,
     app_slug: &str,
     org_id: Uuid,
     build_pk: Uuid,
-    declared: &[DeclaredMigration],
+    files: PromoteFiles<'_>,
 ) -> Result<Applied, MigrationError> {
+    let declared = files.declared;
     if declared.is_empty() {
         return Ok(Applied::default());
     }
@@ -118,8 +125,33 @@ pub(crate) async fn apply_on_promote(
         target: TARGET,
         session_setup: None,
         cut: None,
+        signing: files.captures_changes.then_some(ChangeSigning {
+            org_id,
+            writer: &conn.schema,
+        }),
     };
     apply_to(db, app_id, build_pk, declared, &dest).await
+}
+
+/// What a promote applies to production's OLTP schema.
+#[derive(Clone, Copy)]
+pub(crate) struct PromoteFiles<'a> {
+    /// The build's declared migration files.
+    pub declared: &'a [DeclaredMigration],
+    /// The build declares a table under `oltpChanges` (`oltp_changes::signs`):
+    /// each file's transaction is signed as `migration:<file>`, with no
+    /// invocation.
+    pub captures_changes: bool,
+}
+
+/// Who signs each file's transaction for the OLTP change stream
+/// (`oltp_changes::provenance`): production's writer, as `migration:<file>`,
+/// with no invocation. Production only: a branch does not capture.
+#[derive(Clone, Copy)]
+pub(super) struct ChangeSigning<'a> {
+    org_id: Uuid,
+    /// The writer's schema, `app_<writer>`.
+    writer: &'a str,
 }
 
 /// `Some` when the ledger of `target` already holds every declared file — the
@@ -167,10 +199,14 @@ pub(super) struct Destination<'a> {
     /// For a branch, the cut `conn` reaches: each file is recorded only while
     /// the branch is still that cut (`oxy_oltp::branches::still_current`).
     pub cut: Option<&'a oxy_oltp::branches::BranchCut>,
+    /// Production's signer for the change stream, when the build's changes
+    /// are captured; `None` everywhere else.
+    pub signing: Option<ChangeSigning<'a>>,
 }
 
 /// Apply `declared` through `dest.conn` and record each file under
-/// `dest.target`, and only there.
+/// `dest.target`, and only there; each file's transaction signed for the
+/// change stream when `dest.signing` is set.
 pub(super) async fn apply_to(
     db: &DatabaseConnection,
     app_id: Uuid,
@@ -178,6 +214,7 @@ pub(super) async fn apply_to(
     declared: &[DeclaredMigration],
     dest: &Destination<'_>,
 ) -> Result<Applied, MigrationError> {
+    let signing = dest.signing;
     let (mut client, lock_key) = open_locked(app_id, dest).await?;
     let record = Recorder {
         db,
@@ -186,7 +223,7 @@ pub(super) async fn apply_to(
         target: &dest.target,
         cut: dest.cut,
     };
-    let outcome = run_pending(&mut client, declared, &record, &dest.conn.schema).await;
+    let outcome = run_pending(&mut client, declared, &record, &dest.conn.schema, signing).await;
     // Best-effort: the lock is session-scoped and the client is dropped on
     // return anyway.
     let _ = client
@@ -239,6 +276,7 @@ async fn run_pending(
     declared: &[DeclaredMigration],
     record: &Recorder<'_>,
     schema: &str,
+    signing: Option<ChangeSigning<'_>>,
 ) -> Result<Applied, MigrationError> {
     let ledger = read_ledger(record.db, record.app_id, STORE_OLTP, record.target).await?;
     let pending = plan(declared, &ledger)?;
@@ -253,7 +291,7 @@ async fn run_pending(
         "applying custom-app schema migrations"
     );
     for m in pending {
-        run_one(client, m).await?;
+        run_one(client, m, signing).await?;
         record.applied(m).await?;
         info!(filename = %m.filename, schema = %schema, "applied custom-app migration");
         outcome.applied.push(m.filename.clone());
@@ -261,10 +299,11 @@ async fn run_pending(
     Ok(outcome)
 }
 
-/// Run one file in its own transaction.
+/// Run one file in its own transaction, signed first when `signing` is set.
 async fn run_one(
     client: &mut tokio_postgres::Client,
     m: &DeclaredMigration,
+    signing: Option<ChangeSigning<'_>>,
 ) -> Result<(), MigrationError> {
     let txn = client
         .transaction()
@@ -273,6 +312,12 @@ async fn run_one(
             filename: m.filename.clone(),
             message: pg_detail(&e),
         })?;
+    // Before the file's first statement, so every change it makes to a
+    // captured table carries who made it. On failure `txn` drops, which rolls
+    // the empty transaction back.
+    if let Some(signing) = signing {
+        sign_file(&txn, signing, &m.filename).await?;
+    }
     // `batch_execute` (simple query protocol) so a file may hold several
     // statements. All of them commit together or none do, which is what
     // makes a failed migration leave nothing behind for the next promote to
@@ -287,6 +332,43 @@ async fn run_one(
         filename: m.filename.clone(),
         message: format!("committing: {e}"),
     })
+}
+
+/// Read the file's transaction id ([`TXID_SQL`]), then set who made its
+/// changes ([`SIGN_SQL`]): `migration:<file>`, no invocation, in production.
+/// A failure is the platform's, never the file's: [`MigrationError::Infra`].
+async fn sign_file(
+    txn: &tokio_postgres::Transaction<'_>,
+    signing: ChangeSigning<'_>,
+    filename: &str,
+) -> Result<(), MigrationError> {
+    let failed = |message: String| MigrationError::Infra {
+        filename: filename.to_string(),
+        message: format!("signing the transaction for the change stream: {message}"),
+    };
+    let row = txn
+        .query_one(TXID_SQL, &[])
+        .await
+        .map_err(|e| failed(pg_detail(&e)))?;
+    let text: String = row.try_get(0).map_err(|e| failed(e.to_string()))?;
+    let txid = provenance::parse_txid(&text)
+        .ok_or_else(|| failed(format!("`{text}` is not a transaction id")))?;
+    let actor = provenance::migration_actor(filename);
+    let environment = AppEnvironment::Production.name();
+    let signer = ChangeSigner {
+        txid,
+        environment: &environment,
+        writer: signing.writer,
+        actor: &actor,
+        invocation: None,
+    };
+    let mac = provenance::sign_hex(signing.org_id, &signer);
+    // `''` is no invocation, as the capture trigger reads it.
+    let invocation = String::new();
+    txn.execute(SIGN_SQL, &[&actor, &invocation, &mac])
+        .await
+        .map(|_| ())
+        .map_err(|e| failed(pg_detail(&e)))
 }
 
 /// Writes a file's ledger row under the one target the apply connected to.

@@ -14,7 +14,7 @@
 // field a newer SDK added would break every app on a slightly older `oxyc` —
 // but it is said, because a typo'd `timeoutSecond` is the commonest mistake a
 // manifest holds, and silently ignored is how it used to be found: in
-// production, at the first timeout.
+// production, at the first timeout (except under `STRICT_UNKNOWN`, below).
 //
 // A SMALL WALKER, NOT A SCHEMA ENGINE. It covers exactly the keywords the
 // generator emits — `manifest-schema.test.ts` pins that list — so this module
@@ -111,13 +111,13 @@ export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
       continue;
     }
     issues.push({
-      level: violation.kind === "unknown" ? "warning" : "error",
+      level: levelOf(violation, path),
       path,
-      message: describe(violation)
+      message: messageOf(violation, path)
     });
   }
 
-  issues.push(...surfaceRule(raw), ...eventsRule(raw), ...callsRule(raw));
+  issues.push(...surfaceRule(raw), ...eventsRule(raw), ...callsRule(raw), ...oltpChangesRule(raw));
 
   // The catalogue's checks know more about `notifications` than the schema does
   // (which categories exist, which kinds a function sends), so where both speak
@@ -305,6 +305,110 @@ function callsRule(raw: Record<string, unknown>): ManifestIssue[] {
       level: "error",
       path: "calls",
       message: `calls names ${pairs} (app, function) pairs; the most allowed is ${CALLS_MAX_PAIRS}`
+    });
+  }
+  return out;
+}
+
+/**
+ * Blocks the SERVER reads strictly, refusing a key it does not know where the
+ * rest of the manifest ignores one: there an unknown field is an error, saying
+ * why, instead of the usual warning.
+ */
+const STRICT_UNKNOWN: ReadonlyArray<{ path: RegExp; because: string }> = [
+  {
+    // The server's publish-time reader of this block refuses unknown keys.
+    path: /^oltpChanges\./,
+    because:
+      "the platform refuses a key it does not know in `oltpChanges`, where a misspelt `exclude` would capture the columns it meant to leave out"
+  }
+];
+
+/** The strict block `path` is an unknown key in, if any. */
+const strictUnknown = (violation: Violation, path: string) =>
+  violation.kind === "unknown" ? STRICT_UNKNOWN.find((s) => s.path.test(path)) : undefined;
+
+/** A schema violation's level: an unknown key warns, except in a strict block. */
+function levelOf(violation: Violation, path: string): ManifestIssue["level"] {
+  if (violation.kind !== "unknown") return "error";
+  return strictUnknown(violation, path) ? "error" : "warning";
+}
+
+/** A schema violation's sentence, with a strict block's reason added. */
+function messageOf(violation: Violation, path: string): string {
+  const strict = strictUnknown(violation, path);
+  return strict ? `unknown field ${label(violation.path)}: ${strict.because}` : describe(violation);
+}
+
+/**
+ * Longest table or column name `oltpChanges` accepts: the server's OLTP
+ * `MAX_NAME_LEN` (63-byte identifiers, less the longest `app_` … `_rw` wrapping).
+ */
+const OLTP_NAME_MAX = 63 - "app_".length - "_rw".length;
+/** The server's OLTP `validate_name`, without the length (`OLTP_NAME_MAX`). */
+const OLTP_NAME = /^[a-z][a-z0-9_]*$/;
+/** The same rule as a sentence: the server's `capturable_name_rule`, word for word. */
+const OLTP_NAME_RULE = `1-${OLTP_NAME_MAX} characters, a lowercase letter then lowercase letters, digits or underscores`;
+
+const isCapturableName = (name: string): boolean =>
+  name.length <= OLTP_NAME_MAX && OLTP_NAME.test(name);
+
+/**
+ * `oltpChanges`: the refusals of the server's publish-time reader of this
+ * block, in its words — at least one table,
+ * table and column names the OLTP rule accepts, no column twice in one
+ * `exclude`, and a `migrations` block beside it. Shape errors are the
+ * schema's; this skips what is not the right type.
+ */
+function oltpChangesRule(raw: Record<string, unknown>): ManifestIssue[] {
+  const block = raw.oltpChanges;
+  if (!isRecord(block)) return [];
+  const out: ManifestIssue[] = [];
+  if (raw.migrations === undefined || raw.migrations === null) {
+    out.push({
+      level: "error",
+      path: "oltpChanges",
+      message:
+        "`oltpChanges` needs a `migrations` block: a captured table must be created by the app's own migrations"
+    });
+  }
+  const tables = block.tables;
+  if (!isRecord(tables)) return out;
+  if (Object.keys(tables).length === 0) {
+    out.push({
+      level: "error",
+      path: "oltpChanges.tables",
+      message:
+        "`oltpChanges.tables` is empty: name at least one table to capture, or remove the `oltpChanges` block"
+    });
+  }
+  for (const [table, spec] of Object.entries(tables)) {
+    if (!isCapturableName(table)) {
+      out.push({
+        level: "error",
+        path: `oltpChanges.tables.${table}`,
+        message: `\`oltpChanges.tables\` names ${JSON.stringify(table)}, which is not a table name the platform accepts: use ${OLTP_NAME_RULE}`
+      });
+    }
+    if (!isRecord(spec) || !Array.isArray(spec.exclude)) continue;
+    const seen = new Set<string>();
+    spec.exclude.forEach((column, i) => {
+      if (typeof column !== "string") return;
+      const at = `oltpChanges.tables.${table}.exclude`;
+      if (!isCapturableName(column)) {
+        out.push({
+          level: "error",
+          path: `${at}.${i}`,
+          message: `\`${at}\` names ${JSON.stringify(column)}, which is not a column name the platform accepts: use ${OLTP_NAME_RULE}`
+        });
+      } else if (seen.has(column)) {
+        out.push({
+          level: "error",
+          path: `${at}.${i}`,
+          message: `\`${at}\` lists ${JSON.stringify(column)} more than once`
+        });
+      }
+      seen.add(column);
     });
   }
   return out;

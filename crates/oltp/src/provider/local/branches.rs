@@ -327,6 +327,13 @@ fn checked(req: &BranchRequest, branch: &str) -> Result<(), ProviderError> {
 /// — a schema-only branch there has an empty `oxy_meta` ledger, and the
 /// environment-branch cut (a later step) copies the ledger back. Locally the
 /// ledger just survives the truncate, which leaves the same end state.
+///
+/// [`crate::platform::CHANGES_SCHEMA`] is emptied second, in its own
+/// statement. A captured app table's `AFTER TRUNCATE` trigger reads
+/// `oxy_changes.stream`, so emptying the stream in the same statement makes
+/// that trigger fail the whole cut ("never seeded"). Emptied after, the
+/// markers those triggers wrote go with it, and the cut then seeds the
+/// branch's stream as not capturing (`provisioner::branch_changes`).
 fn truncate_all_tables_sql() -> String {
     format!(
         "DO $oxy_empty$ \
@@ -334,13 +341,19 @@ fn truncate_all_tables_sql() -> String {
          BEGIN \
            SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO tables \
              FROM pg_tables \
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema', '{meta}') \
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema', '{meta}', '{changes}') \
               AND schemaname NOT LIKE 'pg\\_toast%' AND schemaname NOT LIKE 'pg\\_temp%'; \
+           IF tables IS NOT NULL THEN \
+             EXECUTE 'TRUNCATE ' || tables || ' RESTART IDENTITY CASCADE'; \
+           END IF; \
+           SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO tables \
+             FROM pg_tables WHERE schemaname = '{changes}'; \
            IF tables IS NOT NULL THEN \
              EXECUTE 'TRUNCATE ' || tables || ' RESTART IDENTITY CASCADE'; \
            END IF; \
          END $oxy_empty$",
         meta = crate::platform::META_SCHEMA,
+        changes = crate::platform::CHANGES_SCHEMA,
     )
 }
 

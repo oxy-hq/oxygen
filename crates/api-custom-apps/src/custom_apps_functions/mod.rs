@@ -39,6 +39,10 @@ pub(crate) mod call_run;
 /// Whose call this is — the scope every per-call key (result cache,
 /// idempotency record, rate-limit bucket) is built from, environment included.
 mod call_scope;
+#[cfg(feature = "custom-app-functions")]
+mod capabilities;
+#[cfg(feature = "custom-app-functions")]
+use capabilities::manifest_capabilities;
 /// A queued run in a named app environment: how one is triggered, and the
 /// admission [`queued_admission`] decides for it.
 pub(crate) mod check_run;
@@ -781,82 +785,6 @@ fn resolve_fetch_max_bytes(entry: &FunctionManifestEntry) -> Option<u64> {
         .and_then(|f| f.max_response_bytes)
         .filter(|n| *n > 0)
         .map(|n| n.min(fetch_ceiling_bytes()))
-}
-
-/// The fail-closed capability gates `entry` grants, the same for a route call
-/// and a queued run.
-#[cfg(feature = "custom-app-functions")]
-fn manifest_capabilities(
-    entry: &FunctionManifestEntry,
-    app: &entity::apps::Model,
-    build: &entity::app_builds::Model,
-) -> host::FunctionCapabilities {
-    // A kind is critical when the function says so, or when the build's
-    // notification catalogue gives it the critical level.
-    let catalogue =
-        oxy_app_core::notifications::catalog::parse::catalogue(build.manifest_json.as_ref());
-    let notify_kinds = entry.notify_kinds().map(|mut kinds| {
-        for (kind, critical) in kinds.iter_mut() {
-            *critical |= catalogue.kinds.get(kind).and_then(|k| k.level)
-                == Some(oxy_app_core::notifications::catalog::model::Level::Critical);
-        }
-        kinds
-    });
-    let publishes = entry.publishes();
-    // Declared by the build (top-level `calls`), for every function of the app;
-    // checked when the build was published, so one that does not parse here
-    // declares nothing.
-    let calls = oxy_custom_apps::calls::DeclaredCalls::from_manifest(build.manifest_json.as_ref())
-        .unwrap_or_default();
-    host::FunctionCapabilities {
-        secrets_write: entry.secrets_write(),
-        email_send: entry.email_send(),
-        notify_kinds,
-        org_read: entry.org_read(),
-        platform_facts: entry.platform_facts(),
-        frontline_devices: entry
-            .platform_actions()
-            .contains(&oxy_authz::Action::FrontlineDeviceManage),
-        source_uploads: entry
-            .platform_actions()
-            .contains(&oxy_authz::Action::SourceUploadReport),
-        source_upload_pipelines: entry
-            .oxygen
-            .as_ref()
-            .map(oxy_custom_apps::platform_access::PlatformActionSpecs::pipelines)
-            .unwrap_or_default(),
-        storage_read: entry.storage_read(),
-        storage_write: entry.storage_write(),
-        // DERIVED from the invoking app's slug, gated by the manifest — never
-        // named by the manifest, so one app cannot reach another's schema.
-        // A slug that can't back a schema is a distinct fail-closed reason so
-        // the host diagnoses it as such, not as "capability missing".
-        oltp: host::WriterCapability::resolve(entry.oltp_enabled(), &app.slug),
-        airhouse: host::WriterCapability::resolve(entry.airhouse_enabled(), &app.slug),
-        events: (!publishes.is_empty()).then(|| publishes.iter().cloned().collect()),
-        // A send is written as the app's events writer too.
-        events_writer: host::WriterCapability::resolve(
-            !publishes.is_empty() || !calls.is_empty(),
-            &app.slug,
-        ),
-        calls,
-        // Checked when the build was published (`app_events::declared_events`),
-        // so a catalogue that does not parse here declares nothing.
-        event_catalog: if publishes.is_empty() {
-            Default::default()
-        } else {
-            oxy_custom_apps::events::catalog::EventCatalog::from_manifest(
-                build.manifest_json.as_ref(),
-            )
-            .unwrap_or_default()
-        },
-        customer_warehouse_writes: entry.customer_warehouse_writes(),
-        fetch_max_bytes: resolve_fetch_max_bytes(entry),
-        storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
-            build.manifest_json.as_ref(),
-            app.id,
-        ),
-    }
 }
 
 fn resolve_timeout(entry: &FunctionManifestEntry) -> Duration {

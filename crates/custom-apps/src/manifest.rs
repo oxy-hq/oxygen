@@ -9,8 +9,11 @@
 //!   the channel's build.
 //! - `pick_channel_for` — which channel a request is served from.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use entity::{app_builds, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_oltp::schema::MAX_NAME_LEN;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +113,146 @@ pub fn airhouse_migrations_config(
         })
 }
 
+/// The `oltpChanges` block: the tables of the app's OLTP schema whose every
+/// committed change a production promote installs capture on, keyed by table
+/// name (design `2026-11-22-oltp-change-stream-design.md` §5.1).
+///
+/// Like [`OxyAppMigrationsConfig`], no way to name a schema: the table lives in
+/// the app's own `app_<writer>`, derived from its slug.
+///
+/// `deny_unknown_fields`, unlike the rest of the manifest: the one optional key
+/// here is `exclude`, and a misspelt one would be read as "exclude nothing",
+/// which captures the very columns the author meant to keep out of the log and
+/// Airhouse. Refusing it costs a republish; ignoring it costs a purge.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OltpChangesConfig {
+    pub tables: BTreeMap<String, OltpChangesTable>,
+}
+
+/// One declared table under `oltpChanges.tables`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OltpChangesTable {
+    /// Columns never captured: they reach neither the change log nor Airhouse,
+    /// so they keep no history. Personal data goes here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+}
+
+/// Read the `oltpChanges` block out of a raw `oxy-app.json`.
+///
+/// **Strict**, for the reason [`migrations_config`] gives: a block that failed
+/// to parse and meant "none" would ship an app whose declared tables are
+/// silently not captured, and the history it was promised would start
+/// whenever someone noticed. So it refuses, naming the field and the fix:
+///
+/// - a block that is not `{ "tables": { <table>: { "exclude"?: [..] } } }`;
+/// - an empty `tables`: declaring nothing is leaving the block out;
+/// - a table or column name that `oxy_oltp::schema::validate_name` would
+///   refuse (`is_capturable_name`): it reaches generated capture SQL;
+/// - a column listed twice in one `exclude`;
+/// - the block without `migrations`: a captured table must be the app's own,
+///   created by its migrations, which run before capture is installed.
+///
+/// `sdk/typescript/src/custom-app/manifest-validate.ts` (`oltpChangesRule`)
+/// says the same refusals in the same words, so `oxyc validate` catches them
+/// before a build. `Ok(None)` means the manifest declares no capture.
+pub fn oltp_changes_from_manifest(
+    raw: &serde_json::Value,
+) -> Result<Option<OltpChangesConfig>, ManifestError> {
+    let Some(block) = raw.get("oltpChanges") else {
+        return Ok(None);
+    };
+    // As for `migrations`: an explicit `null` declares nothing.
+    if block.is_null() {
+        return Ok(None);
+    }
+    let refuse = ManifestError::InvalidOltpChanges;
+    let config = match serde_json::from_value::<OltpChangesConfig>(block.clone()) {
+        Ok(config) => config,
+        Err(e) => {
+            return Err(refuse(format!(
+                "the `oltpChanges` block in oxy-app.json is not usable ({e}); it must be an \
+                 object with a `tables` map naming each table to capture, e.g. \
+                 \"oltpChanges\": {{ \"tables\": {{ \"leases\": {{}}, \
+                 \"landlords\": {{ \"exclude\": [\"contact_email\"] }} }} }}"
+            )));
+        }
+    };
+    if config.tables.is_empty() {
+        return Err(refuse(
+            "`oltpChanges.tables` is empty: name at least one table to capture, or remove the \
+             `oltpChanges` block"
+                .to_string(),
+        ));
+    }
+    for (table, spec) in &config.tables {
+        check_declared_table(table, spec)?;
+    }
+    if matches!(raw.get("migrations"), None | Some(serde_json::Value::Null)) {
+        return Err(refuse(
+            "`oltpChanges` needs a `migrations` block: a captured table must be created by the \
+             app's own migrations"
+                .to_string(),
+        ));
+    }
+    Ok(Some(config))
+}
+
+/// One `oltpChanges.tables` entry: a name the platform accepts, and an
+/// `exclude` of such names, none twice.
+fn check_declared_table(table: &str, spec: &OltpChangesTable) -> Result<(), ManifestError> {
+    let refuse = ManifestError::InvalidOltpChanges;
+    if !is_capturable_name(table) {
+        return Err(refuse(format!(
+            "`oltpChanges.tables` names {table:?}, which is not a table name the platform \
+             accepts: use {}",
+            capturable_name_rule()
+        )));
+    }
+    let mut seen = BTreeSet::new();
+    for column in &spec.exclude {
+        if !is_capturable_name(column) {
+            return Err(refuse(format!(
+                "`oltpChanges.tables.{table}.exclude` names {column:?}, which is not a column \
+                 name the platform accepts: use {}",
+                capturable_name_rule()
+            )));
+        }
+        if !seen.insert(column.as_str()) {
+            return Err(refuse(format!(
+                "`oltpChanges.tables.{table}.exclude` lists {column:?} more than once"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// `oxy_oltp::schema::validate_name`'s rule, restated because that function is
+/// `pub(crate)` to `oxy-oltp`: a lowercase ASCII letter, then lowercase
+/// letters, digits or `_`, at most [`MAX_NAME_LEN`] bytes. The bound is the
+/// oltp crate's own constant, so the length cannot drift; the character rule
+/// is the original's, line for line. A declared name reaches the capture SQL
+/// `oxy_oltp::changes` generates, which accepts only what that rule passes, so
+/// refusing the same set here tells the author at publish, not at the install.
+fn is_capturable_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > MAX_NAME_LEN {
+        return false;
+    }
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// [`is_capturable_name`] as a sentence. `manifest-validate.ts` writes the same.
+fn capturable_name_rule() -> String {
+    format!(
+        "1-{MAX_NAME_LEN} characters, a lowercase letter then lowercase letters, digits or \
+         underscores"
+    )
+}
+
 /// App-level storage config from `oxy-app.json`.
 ///
 /// Deliberately **not** the same block as the per-function `storage: { read,
@@ -180,6 +323,9 @@ pub struct OxyAppManifest {
     /// the tables `ctx.airhouse` appends facts to. Absent for most apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub airhouse_migrations: Option<OxyAppMigrationsConfig>,
+    // `oltpChanges` is deliberately not a field: serving and the launcher
+    // parse this type, and the block is strict. Publish and promote read it
+    // from the raw manifest with [`oltp_changes_from_manifest`].
 }
 
 /// Resolve an app's asset-retention policy from the `oxy-app.json` captured in
@@ -232,6 +378,11 @@ pub enum ManifestError {
     Parse(String),
     #[error("oxy-app.json schemaVersion {0} is not supported; expected 2")]
     UnsupportedSchema(u32),
+    /// The `oltpChanges` block declares something the platform cannot
+    /// capture; the message names the field and the fix
+    /// ([`oltp_changes_from_manifest`]).
+    #[error("{0}")]
+    InvalidOltpChanges(String),
 }
 
 // ── Manifest resolution ──────────────────────────────────────────────────────
@@ -423,6 +574,197 @@ mod card_metadata_tests {
         assert!(m.description.is_none());
         assert!(m.ask.is_none());
         assert!(m.art.is_none());
+    }
+}
+
+/// The `oltpChanges` reader. `manifest-validate.test.ts` has the same cases,
+/// under the same names, and expects the same sentences.
+#[cfg(test)]
+mod oltp_changes_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A manifest with `migrations`, declaring `oltp_changes`.
+    fn manifest(oltp_changes: serde_json::Value) -> serde_json::Value {
+        json!({
+            "schemaVersion": 2,
+            "slug": "leasing",
+            "migrations": { "dir": "migrations" },
+            "oltpChanges": oltp_changes,
+        })
+    }
+
+    /// `oltpChanges` declaring the one table `table`, with `spec`.
+    fn one_table(table: &str, spec: serde_json::Value) -> serde_json::Value {
+        let mut tables = serde_json::Map::new();
+        tables.insert(table.to_string(), spec);
+        manifest(json!({ "tables": tables }))
+    }
+
+    fn refusal(raw: &serde_json::Value) -> String {
+        oltp_changes_from_manifest(raw)
+            .expect_err(&format!("must refuse {raw}"))
+            .to_string()
+    }
+
+    #[test]
+    fn absent_is_none() {
+        let bare = json!({ "schemaVersion": 2, "slug": "leasing" });
+        assert_eq!(oltp_changes_from_manifest(&bare).expect("reads"), None);
+        // An explicit `null` declares nothing, as for `migrations`, and needs
+        // no `migrations` beside it.
+        let declared_null = json!({ "schemaVersion": 2, "slug": "leasing", "oltpChanges": null });
+        assert_eq!(
+            oltp_changes_from_manifest(&declared_null).expect("reads"),
+            None
+        );
+    }
+
+    /// The typed manifest, which serving and the launcher parse, never reads
+    /// the block: a key this binary does not know there (a later release's, or
+    /// a misspelt override) must not fail the whole parse. Only publish and
+    /// promote read it, strictly, through `oltp_changes_from_manifest`.
+    #[test]
+    fn the_typed_manifest_ignores_the_block() {
+        let raw = manifest(json!({
+            "tables": { "leases": { "exclude": ["a"], "mode": "from-a-later-release" } }
+        }));
+        let typed: Result<OxyAppManifest, _> = serde_json::from_value(raw.clone());
+        assert!(typed.is_ok(), "{typed:?}");
+        assert!(oltp_changes_from_manifest(&raw).is_err());
+    }
+
+    #[test]
+    fn a_table_with_exclude_parses() {
+        let raw = manifest(json!({
+            "tables": {
+                "leases": {},
+                "landlords": { "exclude": ["contact_email", "contact_phone"] }
+            }
+        }));
+        let config = oltp_changes_from_manifest(&raw)
+            .expect("reads")
+            .expect("declares");
+        assert_eq!(
+            config.tables.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["landlords", "leases"]
+        );
+        assert!(config.tables["leases"].exclude.is_empty());
+        assert_eq!(
+            config.tables["landlords"].exclude,
+            vec!["contact_email", "contact_phone"]
+        );
+        // The longest name the oltp crate accepts is accepted here too.
+        let longest = "a".repeat(MAX_NAME_LEN);
+        assert!(oltp_changes_from_manifest(&one_table(&longest, json!({}))).is_ok());
+    }
+
+    #[test]
+    fn empty_tables_is_refused() {
+        assert_eq!(
+            refusal(&manifest(json!({ "tables": {} }))),
+            "`oltpChanges.tables` is empty: name at least one table to capture, or remove the \
+             `oltpChanges` block"
+        );
+        // No `tables` at all, or not a map, is the shape error.
+        for shape in [json!({}), json!({ "tables": ["leases"] }), json!("leases")] {
+            let message = refusal(&manifest(shape));
+            assert!(
+                message.starts_with("the `oltpChanges` block in oxy-app.json is not usable"),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bad_identifier_is_refused() {
+        assert_eq!(
+            refusal(&one_table("Leases", json!({}))),
+            "`oltpChanges.tables` names \"Leases\", which is not a table name the platform \
+             accepts: use 1-56 characters, a lowercase letter then lowercase letters, digits \
+             or underscores"
+        );
+        assert_eq!(
+            refusal(&one_table(
+                "landlords",
+                json!({ "exclude": ["contact-email"] })
+            )),
+            "`oltpChanges.tables.landlords.exclude` names \"contact-email\", which is not a \
+             column name the platform accepts: use 1-56 characters, a lowercase letter then \
+             lowercase letters, digits or underscores"
+        );
+        let too_long = "a".repeat(MAX_NAME_LEN + 1);
+        for table in [
+            "",
+            "1leases",
+            "_seq",
+            "lea-ses",
+            "app_leasing.leases",
+            "a\"b",
+            "leasés",
+            too_long.as_str(),
+        ] {
+            let message = refusal(&one_table(table, json!({})));
+            assert!(
+                message.starts_with("`oltpChanges.tables` names "),
+                "{table:?}: {message}"
+            );
+            let message = refusal(&one_table("leases", json!({ "exclude": [table] })));
+            assert!(
+                message.starts_with("`oltpChanges.tables.leases.exclude` names "),
+                "{table:?}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_duplicate_exclude_is_refused() {
+        let raw = one_table(
+            "landlords",
+            json!({ "exclude": ["contact_email", "contact_phone", "contact_email"] }),
+        );
+        assert_eq!(
+            refusal(&raw),
+            "`oltpChanges.tables.landlords.exclude` lists \"contact_email\" more than once"
+        );
+    }
+
+    #[test]
+    fn oltp_changes_without_migrations_is_refused() {
+        let block = json!({ "tables": { "leases": {} } });
+        for raw in [
+            json!({ "schemaVersion": 2, "slug": "leasing", "oltpChanges": block }),
+            json!({
+                "schemaVersion": 2, "slug": "leasing", "migrations": null, "oltpChanges": block
+            }),
+            // Airhouse migrations create no OLTP table.
+            json!({
+                "schemaVersion": 2,
+                "slug": "leasing",
+                "airhouseMigrations": { "dir": "airhouse-migrations" },
+                "oltpChanges": block
+            }),
+        ] {
+            assert_eq!(
+                refusal(&raw),
+                "`oltpChanges` needs a `migrations` block: a captured table must be created by \
+                 the app's own migrations"
+            );
+        }
+    }
+
+    /// A misspelt `exclude` would otherwise capture what it meant to leave out.
+    #[test]
+    fn an_unknown_key_is_refused() {
+        let message = refusal(&one_table(
+            "landlords",
+            json!({ "exlude": ["contact_email"] }),
+        ));
+        assert!(message.contains("unknown field `exlude`"), "{message}");
+        let message = refusal(&manifest(
+            json!({ "tables": { "leases": {} }, "mode": "all" }),
+        ));
+        assert!(message.contains("unknown field `mode`"), "{message}");
     }
 }
 

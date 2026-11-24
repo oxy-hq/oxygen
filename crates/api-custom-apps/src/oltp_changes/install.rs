@@ -1,0 +1,491 @@
+//! Change capture, installed at a production promote (OLTP change stream
+//! design §5.2, "Triggers, installed at publish" and "Install order").
+//!
+//! [`install_on_promote`] runs after the app's OLTP migrations and before its
+//! Airhouse migrations and the pointer move, at both production promotes: a
+//! promoting publish (`custom_apps_publish::pipeline::promote`) and every
+//! other move of production (`custom_apps_promote::production`). In order:
+//!
+//! 1. **The flag.** With `oltp_changes` off for the org it does nothing and
+//!    opens no store connection, whatever the build declares.
+//! 2. **What is installed**, read as the store's owner ([`INSTALLED_SQL`]),
+//!    once the store is brought current so `oxy_changes` (platform step 8)
+//!    exists. Nothing declared and nothing installed for the app's writer:
+//!    done, after that one read.
+//! 3. **Every declared table's shape** ([`SHAPE_SQL`]), each validated before
+//!    anything changes. One table at fault refuses the promote with every
+//!    fault listed ([`InstallError::Author`]) and leaves what is installed as
+//!    it was, so the author learns it before production moves and the app
+//!    keeps capturing its other tables meanwhile.
+//! 4. **Per declared table**: owner install, writer install, owner commit,
+//!    each in its own transaction, so the guard holds a table only once its
+//!    triggers are in place.
+//! 5. **Per installed table no longer declared**: owner uninstall, writer
+//!    uninstall, owner drop. Its shapes stay, for the history already shipped.
+//!
+//! The writer is the app's own, derived from its slug as its migrations'
+//! writer is: the manifest names tables, never a schema. The triggers go on as
+//! that writer, which owns the tables; the functions go in as the owner.
+//!
+//! A failure part way leaves the tables already done installed, each whole,
+//! and the same promote retried installs the rest. Nothing is undone, as
+//! nothing a migration did is.
+
+use oxy_custom_apps::manifest::OltpChangesConfig;
+use oxy_oltp::changes::{
+    CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, SHAPE_SQL, ShapeRow, owner_commit_sql,
+    owner_drop_sql, owner_install_sql, owner_uninstall_sql, shape_from_rows, writer_install_sql,
+    writer_uninstall_sql,
+};
+use oxy_oltp::entity::tenants::{self as oltp_tenants, TenantStatus};
+use oxy_oltp::migrator::{MigrateError, owner_dsn, tenant_for_org};
+use oxy_oltp::provisioner::reconcile_platform_schema_as_owner;
+use oxy_oltp::schema::{SchemaError, WriterRef, app_writer_name};
+use oxy_oltp::sql::PgSqlExecutor;
+use sea_orm::DatabaseConnection;
+use tokio_postgres::Client;
+use uuid::Uuid;
+
+use crate::custom_apps_migrations::MigrationError;
+
+mod plan;
+
+use plan::{Installed, Plan, Recorded};
+
+/// The platform step that creates `oxy_changes`. A store below it has
+/// captured nothing, so a build that declares nothing need not bring it
+/// current.
+const CHANGES_STEP: i32 = 8;
+
+/// The latest shape recorded for a table (`$1`, its oid), whether or not it is
+/// captured now: `INSTALLED_SQL` joins shapes only to tables still in
+/// `oxy_changes.tables`, and a table removed and declared again must continue
+/// its versions.
+const LATEST_SHAPE_SQL: &str = "SELECT schema_version, columns::text AS columns, primary_key \
+       FROM oxy_changes.shapes WHERE relid = $1 ORDER BY schema_version DESC LIMIT 1";
+
+/// The schema and name the table with oid `$1` has now, if it still exists:
+/// a removed table's triggers are dropped where they are, which after a
+/// rename (on a store without the DDL guard) is not where its row says.
+const LIVE_NAME_SQL: &str = "SELECT n.nspname::text AS schema_name, c.relname::text AS table_name \
+       FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+      WHERE c.oid = $1";
+
+/// What one promote did to the app's capture, by table name.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct InstallSummary {
+    /// Captured from this promote on, and not before.
+    pub installed: Vec<String>,
+    /// Captured before; its captured columns or key changed, so it records a
+    /// new `schema_version`.
+    pub reshaped: Vec<String>,
+    /// No longer declared: its capture was removed and its shapes kept.
+    pub removed: Vec<String>,
+}
+
+impl InstallSummary {
+    pub fn is_empty(&self) -> bool {
+        self.installed.is_empty() && self.reshaped.is_empty() && self.removed.is_empty()
+    }
+
+    /// One line for the promote's log; empty when nothing changed, so a caller
+    /// can test it and log.
+    pub fn summary(&self) -> String {
+        let parts: Vec<String> = [
+            ("installed on", &self.installed),
+            ("reshaped on", &self.reshaped),
+            ("removed from", &self.removed),
+        ]
+        .into_iter()
+        .filter(|(_, tables)| !tables.is_empty())
+        .map(|(verb, tables)| format!("{verb} {}", tables.join(", ")))
+        .collect();
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("change capture {}", parts.join("; "))
+        }
+    }
+}
+
+/// Why capture could not be installed. Two answers to "whose problem is
+/// this", as [`MigrationError`] gives them, and surfaced the same way.
+#[derive(Debug, thiserror::Error)]
+pub enum InstallError {
+    /// The build declares what its store cannot capture as it stands: a table
+    /// missing after the migrations or without a primary key, a reserved
+    /// column, a bad `exclude`, a name the capture SQL refuses. The author
+    /// changes the build; the same promote again changes nothing.
+    #[error("{0}")]
+    Author(String),
+    /// The store or the platform failed around the install: unreachable, not
+    /// provisioned, a statement that failed. The same promote again may pass.
+    #[error("{0}")]
+    Infra(String),
+}
+
+/// What [`MigrationError::Infra`] says was being applied.
+const APPLYING: &str = "change capture (oltpChanges)";
+
+/// Onto a migration's own surfaces: an author error is refused like a bad
+/// `migrations` block (`422`, `migration_failed` on a promote), an infra
+/// error like a store that dropped mid-apply (`409`, retryable).
+impl From<InstallError> for MigrationError {
+    fn from(e: InstallError) -> Self {
+        match e {
+            InstallError::Author(message) => MigrationError::BadManifest(message),
+            InstallError::Infra(message) => MigrationError::Infra {
+                filename: APPLYING.to_string(),
+                message,
+            },
+        }
+    }
+}
+
+/// Install capture on the tables `declared` names, in the writer `app_slug`
+/// derives, and remove it from the tables that writer's capture covers and
+/// `declared` no longer names. See the module docs.
+pub async fn install_on_promote(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    app_slug: &str,
+    declared: Option<&OltpChangesConfig>,
+) -> Result<InstallSummary, InstallError> {
+    let declared = plan::declared_tables(declared);
+    if !super::enabled_for(org_id) {
+        if !declared.is_empty() {
+            tracing::info!(
+                %org_id,
+                app_slug,
+                tables = declared.len(),
+                "oltp_changes is off for this org: change capture is not installed"
+            );
+        }
+        return Ok(InstallSummary::default());
+    }
+    let Some(writer) = Writer::of(app_slug, !declared.is_empty())? else {
+        return Ok(InstallSummary::default());
+    };
+    let Some(tenant) = current_tenant(db, org_id, !declared.is_empty()).await? else {
+        return Ok(InstallSummary::default());
+    };
+    let mut owner = owner_client(&tenant).await?;
+    let installed = read_installed(&owner, &writer.name).await?;
+    if declared.is_empty() && installed.is_empty() {
+        return Ok(InstallSummary::default());
+    }
+    let plan = plan_against(&owner, &writer, &declared, &installed).await?;
+    apply_plan(db, org_id, &writer, &mut owner, &plan).await
+}
+
+/// Every declared table read and validated against its live shape, beside
+/// the latest shape recorded for it, then planned against what is installed.
+/// Nothing is changed: a refusal here leaves the store as it was.
+async fn plan_against(
+    owner: &Client,
+    writer: &Writer,
+    declared: &[DeclaredTable],
+    installed: &[Installed],
+) -> Result<Plan, InstallError> {
+    let captures = read_and_validate(owner, &writer.schema, declared).await?;
+    let mut recorded = Vec::with_capacity(captures.len());
+    for capture in captures {
+        let latest = latest_shape(owner, capture.shape.relid).await?;
+        recorded.push((capture, latest));
+    }
+    Ok(plan::plan(recorded, installed))
+}
+
+/// Carry out `plan`: each table installed or reshaped, as owner, then writer,
+/// then owner; then each removed table taken down the same way backwards.
+async fn apply_plan(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    writer: &Writer,
+    owner: &mut Client,
+    plan: &Plan,
+) -> Result<InstallSummary, InstallError> {
+    let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
+        .await
+        .map_err(|e| infra("resolve the app's writer", e))?;
+    // Every statement is generated before the first runs: a name the capture
+    // SQL refuses is the author's to fix, and is refused with nothing changed.
+    let tables = install_sql(plan, writer, &conn.role)?;
+    let mut writer_client = oxy_oltp::connect::connect(&conn.dsn, "oxy_changes install")
+        .await
+        .map_err(|e| pg_infra("open the org's OLTP store as the app's writer", &e))?;
+    install_tables(owner, &mut writer_client, &tables).await?;
+    remove_tables(owner, &mut writer_client, &writer.schema, &plan.remove).await?;
+    Ok(plan.summary())
+}
+
+/// The app's writer, derived from its slug as `ctx.oltp` and its migrations
+/// derive it.
+struct Writer {
+    /// The bare name (`bookings`): `oxy_changes.tables.writer`, and what each
+    /// log row records.
+    name: String,
+    /// `app_bookings`: where its tables and their capture functions live.
+    schema: String,
+    writer: WriterRef,
+}
+
+impl Writer {
+    /// `None` for a slug that backs no schema when nothing is `required`:
+    /// nothing can have been captured for it. Declared tables make it the
+    /// author's to fix, as a migration's `NoSchema` is.
+    fn of(app_slug: &str, required: bool) -> Result<Option<Self>, InstallError> {
+        let named = app_writer_name(app_slug)
+            .and_then(|name| WriterRef::app(name.clone()).ok().map(|w| (name, w)));
+        match named {
+            Some((name, writer)) => Ok(Some(Self {
+                schema: writer.schema_name(),
+                name,
+                writer,
+            })),
+            None if !required => Ok(None),
+            None => Err(InstallError::Author(format!(
+                "the app's slug '{app_slug}' cannot back an OLTP schema, so the tables under \
+                 oltpChanges cannot be captured"
+            ))),
+        }
+    }
+}
+
+/// The org's store, brought current so `oxy_changes` exists. `None` when
+/// nothing is `required` and the store cannot hold any capture: none, not
+/// active, or below the step that creates `oxy_changes`.
+async fn current_tenant(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    required: bool,
+) -> Result<Option<oltp_tenants::Model>, InstallError> {
+    let tenant = match tenant_for_org(db, org_id).await {
+        Ok(tenant) => tenant,
+        Err(MigrateError::NotProvisioned(_)) if !required => return Ok(None),
+        Err(e) => return Err(infra("find the org's OLTP store", e)),
+    };
+    if tenant.status != TenantStatus::Active {
+        if !required {
+            return Ok(None);
+        }
+        return Err(InstallError::Infra(format!(
+            "the org's OLTP store is {}, not active",
+            tenant.status.as_str()
+        )));
+    }
+    if !required && tenant.platform_schema_version < CHANGES_STEP {
+        return Ok(None);
+    }
+    reconcile_platform_schema_as_owner(db, &PgSqlExecutor, &tenant)
+        .await
+        .map(Some)
+        .map_err(|e| infra("bring the org's OLTP store up to date", e))
+}
+
+async fn owner_client(tenant: &oltp_tenants::Model) -> Result<Client, InstallError> {
+    let doing = "open the org's OLTP store as its owner";
+    let dsn = owner_dsn(tenant).map_err(|e| infra(doing, e))?;
+    oxy_oltp::connect::connect(&dsn, "oxy_changes install")
+        .await
+        .map_err(|e| pg_infra(doing, &e))
+}
+
+/// The writer's `oxy_changes.tables` rows.
+async fn read_installed(owner: &Client, writer: &str) -> Result<Vec<Installed>, InstallError> {
+    let doing = "read the app's installed change capture";
+    let rows = owner
+        .query(INSTALLED_SQL, &[&writer])
+        .await
+        .map_err(|e| pg_infra(doing, &e))?;
+    rows.iter()
+        .map(|row| -> Result<Installed, tokio_postgres::Error> {
+            Ok(Installed {
+                relid: row.try_get("relid")?,
+                table: row.try_get("table_name")?,
+                schema_version: row.try_get("schema_version")?,
+                installed: row.try_get("installed")?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| pg_infra(doing, &e))
+}
+
+/// Each declared table's shape in `schema`, all validated before any is
+/// installed (`plan::validate_all`).
+async fn read_and_validate(
+    owner: &Client,
+    schema: &str,
+    declared: &[DeclaredTable],
+) -> Result<Vec<oxy_oltp::changes::CaptureShape>, InstallError> {
+    let mut read = Vec::with_capacity(declared.len());
+    for decl in declared {
+        let doing = format!("read the shape of table {:?}", decl.name);
+        let rows = owner
+            .query(SHAPE_SQL, &[&schema, &decl.name])
+            .await
+            .map_err(|e| pg_infra(&doing, &e))?;
+        let rows = rows
+            .iter()
+            .map(ShapeRow::from_row)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| pg_infra(&doing, &e))?;
+        read.push((decl.clone(), shape_from_rows(&rows)));
+    }
+    plan::validate_all(&read).map_err(InstallError::Author)
+}
+
+async fn latest_shape(owner: &Client, relid: u32) -> Result<Option<Recorded>, InstallError> {
+    let doing = "read the table's recorded capture shape";
+    let Some(row) = owner
+        .query_opt(LATEST_SHAPE_SQL, &[&relid])
+        .await
+        .map_err(|e| pg_infra(doing, &e))?
+    else {
+        return Ok(None);
+    };
+    let read =
+        |row: &tokio_postgres::Row| -> Result<(i32, String, Vec<String>), tokio_postgres::Error> {
+            Ok((
+                row.try_get("schema_version")?,
+                row.try_get("columns")?,
+                row.try_get("primary_key")?,
+            ))
+        };
+    let (version, columns, primary_key) = read(&row).map_err(|e| pg_infra(doing, &e))?;
+    let columns: Vec<Column> = serde_json::from_str(&columns).map_err(|e| infra(doing, e))?;
+    Ok(Some(Recorded {
+        version,
+        columns,
+        primary_key,
+    }))
+}
+
+/// One table's install, as SQL for each connection.
+struct TableSql {
+    table: String,
+    owner_install: Vec<String>,
+    writer_install: Vec<String>,
+    owner_commit: String,
+}
+
+/// `role` is the writer's real role name (qualified on a shared-cluster
+/// provider), the one `EXECUTE` is granted to.
+fn install_sql(plan: &Plan, writer: &Writer, role: &str) -> Result<Vec<TableSql>, InstallError> {
+    plan.install
+        .iter()
+        .map(|t| -> Result<TableSql, InstallError> {
+            let table = &t.capture.shape.table;
+            let spec = CaptureSpec {
+                writer: &writer.name,
+                capture: &t.capture,
+                schema_version: t.schema_version,
+            };
+            Ok(TableSql {
+                table: table.clone(),
+                owner_install: owner_install_sql(&spec, role)
+                    .map_err(|e| schema_refusal(table, &e))?,
+                writer_install: writer_install_sql(&spec).map_err(|e| schema_refusal(table, &e))?,
+                owner_commit: owner_commit_sql(t.capture.shape.relid, t.schema_version),
+            })
+        })
+        .collect()
+}
+
+fn schema_refusal(table: &str, e: &SchemaError) -> InstallError {
+    InstallError::Author(format!(
+        "oltpChanges table {table:?} cannot be captured, since a name its capture is built from \
+         is not one the platform accepts: {e}"
+    ))
+}
+
+/// Owner install, writer install, owner commit, per table in order.
+async fn install_tables(
+    owner: &mut Client,
+    writer: &mut Client,
+    tables: &[TableSql],
+) -> Result<(), InstallError> {
+    for t in tables {
+        let name = &t.table;
+        let doing = format!("write the capture functions of {name:?} as the store's owner");
+        in_transaction(owner, &t.owner_install, &doing).await?;
+        let doing = format!("attach the capture triggers to {name:?} as the app's writer");
+        in_transaction(writer, &t.writer_install, &doing).await?;
+        let doing = format!("commit the capture of {name:?}");
+        in_transaction(owner, std::slice::from_ref(&t.owner_commit), &doing).await?;
+    }
+    Ok(())
+}
+
+/// Owner uninstall, writer uninstall, owner drop, per table in order. The
+/// triggers are dropped on the table the oid names now, and not at all when
+/// it is gone (its triggers went with it) or left the writer's schema.
+async fn remove_tables(
+    owner: &mut Client,
+    writer: &mut Client,
+    schema: &str,
+    removed: &[Installed],
+) -> Result<(), InstallError> {
+    for row in removed {
+        let name = &row.table;
+        let live = live_name(owner, row.relid).await?;
+        let doing = format!("release the capture of {name:?} from the guard");
+        in_transaction(owner, &[owner_uninstall_sql(row.relid)], &doing).await?;
+        if let Some((live_schema, live_table)) = live.filter(|(s, _)| s == schema) {
+            let doing = format!("drop the capture triggers of {name:?} as the app's writer");
+            let sql = writer_uninstall_sql(&live_schema, &live_table);
+            in_transaction(writer, &sql, &doing).await?;
+        }
+        let doing = format!("drop the capture functions of {name:?} as the store's owner");
+        in_transaction(owner, &owner_drop_sql(row.relid, schema), &doing).await?;
+    }
+    Ok(())
+}
+
+async fn live_name(owner: &Client, relid: u32) -> Result<Option<(String, String)>, InstallError> {
+    let doing = "find a removed table";
+    let Some(row) = owner
+        .query_opt(LIVE_NAME_SQL, &[&relid])
+        .await
+        .map_err(|e| pg_infra(doing, &e))?
+    else {
+        return Ok(None);
+    };
+    let schema: String = row
+        .try_get("schema_name")
+        .map_err(|e| pg_infra(doing, &e))?;
+    let table: String = row.try_get("table_name").map_err(|e| pg_infra(doing, &e))?;
+    Ok(Some((schema, table)))
+}
+
+/// `statements` in one transaction, so a step that fails leaves nothing of
+/// itself behind.
+async fn in_transaction(
+    client: &mut Client,
+    statements: &[String],
+    doing: &str,
+) -> Result<(), InstallError> {
+    let txn = client
+        .transaction()
+        .await
+        .map_err(|e| pg_infra(doing, &e))?;
+    for statement in statements {
+        txn.batch_execute(statement)
+            .await
+            .map_err(|e| pg_infra(doing, &e))?;
+    }
+    txn.commit().await.map_err(|e| pg_infra(doing, &e))
+}
+
+fn infra(doing: &str, e: impl std::fmt::Display) -> InstallError {
+    InstallError::Infra(format!("{doing}: {e}"))
+}
+
+/// A Postgres failure with its SQLSTATE, message, detail and hint:
+/// `tokio_postgres::Error`'s own `Display` is the bare "db error".
+fn pg_infra(doing: &str, e: &tokio_postgres::Error) -> InstallError {
+    infra(doing, oxy_oltp::connect::pg_detail(e))
+}
+
+#[cfg(test)]
+mod tests;

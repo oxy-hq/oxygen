@@ -199,7 +199,26 @@ fn the_state_replay_names_both_databases_and_never_grants_public_blindly() {
 #[test]
 fn emptying_keeps_the_platform_ledger_schema() {
     let sql = truncate_all_tables_sql();
-    let kept = format!("'information_schema', '{}')", crate::platform::META_SCHEMA);
+    let kept = format!(
+        "'information_schema', '{}', '{}')",
+        crate::platform::META_SCHEMA,
+        crate::platform::CHANGES_SCHEMA
+    );
     assert!(sql.contains(&kept), "{sql}");
     assert!(sql.contains("RESTART IDENTITY CASCADE"));
+}
+
+/// A captured table's truncate trigger reads `oxy_changes.stream`, so the
+/// change schema is emptied after every other table, never with them.
+#[test]
+fn emptying_the_change_schema_comes_last() {
+    let sql = truncate_all_tables_sql();
+    let first = sql.find("EXECUTE 'TRUNCATE '").expect("a first truncate");
+    let second = sql
+        .find(&format!(
+            "WHERE schemaname = '{}'",
+            crate::platform::CHANGES_SCHEMA
+        ))
+        .expect("the change schema is emptied on its own");
+    assert!(first < second, "{sql}");
 }

@@ -107,6 +107,24 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
+        key: super::OLTP_CHANGES,
+        description: "OLTP change capture for an org: a production promote installs capture \
+                      triggers on the tables an app declares under oltpChanges, so every \
+                      committed change to them lands in the org store's oxy_changes.log, and \
+                      removes them from tables it no longer declares. Off, a promote installs \
+                      and removes nothing and opens no store connection for it. Turn it on \
+                      per org with an org override; it needs the org's OLTP store \
+                      provisioned.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // A production promote reads it with the app's org (`is_enabled_for`).
+        per_org: true,
+        client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
         key: super::REACT_RUNTIME,
         description: "Run served analytics chats on the react runtime. An agent react \
                       cannot serve (no read-only database) stays on the FSM. The agent's \
@@ -283,6 +301,18 @@ mod tests {
         let flag = get(super::super::REACT_MEMORY).expect("react_memory is declared");
         assert!(flag.per_org, "read with the workspace's org");
         assert!(!flag.default_enabled, "off until an org is opted in");
+        assert!(!flag.client, "server-only");
+    }
+
+    #[test]
+    fn oltp_changes_flag_is_registered_per_org_and_off() {
+        let flag = get(super::super::OLTP_CHANGES).expect("oltp_changes is declared");
+        assert_eq!(flag.key, "oltp_changes");
+        assert!(flag.per_org, "read with the promoting app's org");
+        assert!(
+            !flag.default_enabled,
+            "off until an org is opted in: off, a promote does what it did before"
+        );
         assert!(!flag.client, "server-only");
     }
 

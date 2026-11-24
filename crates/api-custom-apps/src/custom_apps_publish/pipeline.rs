@@ -293,7 +293,8 @@ async fn record(
 /// worse than a promote that did not happen). A draft shares production's
 /// `app_<writer>` schema and never applies its DDL. A partial apply is not
 /// rolled back: the files that succeeded are in the ledger, so the fixed
-/// re-publish resumes.
+/// re-publish resumes. Change capture on the declared tables is installed
+/// between the OLTP and the Airhouse files, under the same rule.
 async fn promote(ctx: &Publishing<'_>, build_pk: Uuid) -> Result<(), PublishError> {
     let (input, app_id) = (ctx.input, ctx.app_id);
     if !input.promote {
@@ -305,7 +306,10 @@ async fn promote(ctx: &Publishing<'_>, build_pk: Uuid) -> Result<(), PublishErro
         &input.app_slug,
         ctx.org.id,
         build_pk,
-        &ctx.inflated.declared_migrations,
+        migrations::PromoteFiles {
+            declared: &ctx.inflated.declared_migrations,
+            captures_changes: crate::oltp_changes::signs(ctx.inflated.manifest_json.as_ref()),
+        },
     )
     .await
     .map_err(|e| {
@@ -314,6 +318,24 @@ async fn promote(ctx: &Publishing<'_>, build_pk: Uuid) -> Result<(), PublishErro
     })?;
     if !applied.summary().is_empty() {
         tracing::info!("publish: {} for app {app_id}", applied.summary());
+    }
+    // Change capture on the tables the build declares, now that its
+    // migrations made them, and off those it no longer declares; refused, still
+    // before the pointer moves, with a migration's statuses
+    // (`oltp_changes::install`). Nothing without the org's `oltp_changes`.
+    let captured = crate::oltp_changes::install::install_on_promote(
+        ctx.db,
+        ctx.org.id,
+        &input.app_slug,
+        ctx.inflated.declared_oltp_changes.as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::warn!("publish: change capture failed for app {app_id}: {e}");
+        PublishError::Migration(e.into())
+    })?;
+    if !captured.is_empty() {
+        tracing::info!("publish: {} for app {app_id}", captured.summary());
     }
     // The app's Airhouse tables, after its OLTP schema and under the same rule.
     let applied = migrations::apply_airhouse_on_promote(

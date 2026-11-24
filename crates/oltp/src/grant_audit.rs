@@ -37,12 +37,16 @@
 //! anywhere. System schemas (`pg_*`, `information_schema`) are out of scope.
 //!
 //! **Functions are audited in Oxy's schemas only** (`oxy_meta`, `oxy_inbox`,
-//! `oxy_events`): a function there is a door into Oxy's objects, as
-//! `oxy_events.publish` is. A function an app creates in its own schema gets
-//! `EXECUTE` for `PUBLIC` by Postgres's default, and is reachable only through
-//! that schema's `USAGE`, which is audited.
+//! `oxy_events`, `oxy_changes`): a function there is a door into Oxy's
+//! objects, as `oxy_events.publish` is. A function an app creates in its own
+//! schema gets `EXECUTE` for `PUBLIC` by Postgres's default, and is reachable
+//! only through that schema's `USAGE`, which is audited. The capture functions
+//! the owner writes into an app's schema ([`crate::changes`]) are reached the
+//! same way, and `EXECUTE` on them goes to that app's writer alone.
 
-use crate::platform::{EVENTS_PUBLISH_FUNCTION, EVENTS_SCHEMA, INBOX_SCHEMA, META_SCHEMA};
+use crate::platform::{
+    CHANGES_SCHEMA, EVENTS_PUBLISH_FUNCTION, EVENTS_SCHEMA, INBOX_SCHEMA, META_SCHEMA,
+};
 use crate::roles::quote_literal;
 use crate::schema::{SchemaError, validate_name};
 
@@ -238,9 +242,10 @@ pub fn public_findings_sql() -> String {
 
 /// The part of [`public_findings_sql`] that reaches a writer's data or Oxy's
 /// own: privileges `PUBLIC` holds in an `app_*` or `raw_*` schema, or in
-/// `oxy_meta` / `oxy_inbox` / `oxy_events`. Provisioning refuses on these. The
-/// rest (a provider's own schema left readable, say) is for `oxyc oltp audit` to
-/// report rather than a reason to stop every provision on that provider.
+/// `oxy_meta` / `oxy_inbox` / `oxy_events` / `oxy_changes`. Provisioning
+/// refuses on these. The rest (a provider's own schema left readable, say) is
+/// for `oxyc oltp audit` to report rather than a reason to stop every
+/// provision on that provider.
 fn public_reach_sql() -> String {
     let filter = format!(
         "(s.nspname LIKE 'app\\_%' OR s.nspname LIKE 'raw\\_%' OR s.nspname IN ({}))",
@@ -251,7 +256,7 @@ fn public_reach_sql() -> String {
 
 /// Oxy's own schemas inside a tenant database, as a list of SQL literals.
 fn oxy_schemas() -> String {
-    [META_SCHEMA, INBOX_SCHEMA, EVENTS_SCHEMA]
+    [META_SCHEMA, INBOX_SCHEMA, EVENTS_SCHEMA, CHANGES_SCHEMA]
         .map(quote_literal)
         .join(", ")
 }
@@ -454,7 +459,7 @@ mod tests {
     #[test]
     fn provisioning_refuses_public_reach_into_every_oxy_schema() {
         let sql = public_reach_sql();
-        for schema in ["oxy_meta", "oxy_inbox", "oxy_events"] {
+        for schema in ["oxy_meta", "oxy_inbox", "oxy_events", "oxy_changes"] {
             assert!(sql.contains(&format!("'{schema}'")), "{schema}: {sql}");
         }
     }

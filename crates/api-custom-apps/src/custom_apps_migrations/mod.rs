@@ -119,8 +119,8 @@ pub(crate) use airhouse_drop::drop_environment_schema;
 pub use airhouse_drop::{AirhouseDrop, DropOutcome, drop_environment_schema_over};
 pub use airhouse_home::AirhouseHome;
 pub(crate) use airhouse_home::schema_owner;
-pub(super) use apply::apply_on_promote;
 pub use apply::read_ledger;
+pub(super) use apply::{PromoteFiles, apply_on_promote};
 pub(crate) use branch::BRANCH_APPLY_TIMEOUT;
 #[doc(hidden)]
 pub use branch::apply_to_resolved_branch;

@@ -30,7 +30,7 @@ use crate::schema::{SchemaError, analyst_role_for, validate_name};
 ///
 /// Recorded on `oltp_tenants.platform_schema_version`. A tenant below this is
 /// reconciled the next time anything touches it.
-pub const PLATFORM_SCHEMA_VERSION: i32 = 7;
+pub const PLATFORM_SCHEMA_VERSION: i32 = 8;
 
 /// Table recording which workspace migrations a tenant has applied.
 ///
@@ -120,8 +120,49 @@ pub const EVENT_INVOKER_TOKEN_SETTING: &str = "oxy_events.invoker_token_id";
 /// The same, for the host's MAC over the row and the invoker, as hex.
 pub const EVENT_INVOKER_PROVENANCE_SETTING: &str = "oxy_events.invoker_provenance";
 
+/// Schema holding the store's change log: every committed change to a table
+/// an app declares under `oltpChanges`, written by triggers in the same
+/// transaction as the change (platform step 8).
+///
+/// Oxy-owned like [`EVENTS_SCHEMA`], and unlike it reached by no writer at
+/// all: a writer holds no privilege here, not even `USAGE`. Capture runs
+/// through definer functions the owner writes into each app's schema
+/// ([`crate::changes`]), so the log is out of an app's reach whatever SQL it
+/// runs. Design: `internal-docs/2026-11-22-oltp-change-stream-design.md` §5.2.
+pub const CHANGES_SCHEMA: &str = "oxy_changes";
+/// The store's one-row stream: its generation, whether it captures, and the
+/// relay's batch numbers.
+pub const CHANGES_STREAM_TABLE: &str = "oxy_changes.stream";
+/// The change log, schema-qualified.
+pub const CHANGES_LOG_TABLE: &str = "oxy_changes.log";
+/// What this store captures: one row per declared table, by oid.
+pub const CHANGES_TABLES_TABLE: &str = "oxy_changes.tables";
+/// Each capture shape a table has had, for the relay.
+pub const CHANGES_SHAPES_TABLE: &str = "oxy_changes.shapes";
+/// The log's sequence, at `CACHE 1`: per-row order holds only then.
+pub const CHANGES_SEQUENCE: &str = "oxy_changes.seq";
+/// The `ddl_command_end` event trigger that refuses DDL breaking an installed
+/// table's capture.
+pub const CHANGES_GUARD_TRIGGER: &str = "oxy_changes_guard";
+/// The `sql_drop` event trigger that records a captured table's drop.
+pub const CHANGES_DROP_TRIGGER: &str = "oxy_changes_drop";
+/// The transaction-local setting the host puts who made a change in, which
+/// each capture function copies into its log rows.
+pub const CHANGES_ACTOR_SETTING: &str = "oxy_changes.actor";
+/// The same, for the invocation the change ran in (a UUID).
+pub const CHANGES_INVOCATION_SETTING: &str = "oxy_changes.invocation";
+/// The same, for the host's MAC over the transaction id and who made it, as
+/// hex.
+pub const CHANGES_PROVENANCE_SETTING: &str = "oxy_changes.provenance";
+/// Every capture function is named this, then the table's oid and the
+/// operation (`i`, `u`, `d`, `t`): `_oxy_capture_16423_i`.
+pub const CAPTURE_FUNCTION_PREFIX: &str = "_oxy_capture_";
+
 // The events outbox's later steps.
 mod outbox;
+
+// Step 8, the change log.
+mod changes;
 
 /// One versioned change to the Oxy-owned state of a tenant database.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,6 +383,7 @@ $$"
         },
         outbox::provenance_step(),
         outbox::invoker_step(),
+        changes::changes_step(&analyst),
     ])
 }
 
@@ -421,7 +463,8 @@ mod tests {
             for stmt in &step.statements {
                 let creates_object = stmt.starts_with("CREATE SCHEMA")
                     || stmt.starts_with("CREATE TABLE")
-                    || stmt.starts_with("CREATE INDEX");
+                    || stmt.starts_with("CREATE INDEX")
+                    || stmt.starts_with("CREATE SEQUENCE");
                 if creates_object {
                     assert!(
                         stmt.contains("IF NOT EXISTS"),

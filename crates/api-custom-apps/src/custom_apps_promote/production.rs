@@ -22,11 +22,12 @@
 //!    event_listeners_broken` unless `break_listeners`; a rollback only warns.
 //! 2. **Migrations, before the pointer** — the build's pending OLTP files,
 //!    then its Airhouse files, re-read from the stored bundle and applied
-//!    through `apply_on_promote` / `apply_airhouse_on_promote` unchanged. A
-//!    failure leaves the pointer where it was and is answered with the
-//!    migration's own status. A file already applied is a no-op, so a
-//!    rollback to a build whose files all ran applies nothing; nothing is ever
-//!    reversed.
+//!    through `apply_on_promote` / `apply_airhouse_on_promote` unchanged,
+//!    with change capture installed between the two on the tables the build
+//!    declares under `oltpChanges` (`oltp_changes::install`). A failure leaves
+//!    the pointer where it was and is answered with the migration's own
+//!    status. A file already applied is a no-op, so a rollback to a build
+//!    whose files all ran applies nothing; nothing is ever reversed.
 //! 3. **Move, under the app's row lock** — in one transaction holding
 //!    `apps` `FOR UPDATE`, everything in 1 is asked again of the database as
 //!    it is now — and, for a promote, the app's four-eyes rule
@@ -37,6 +38,7 @@
 use chrono::Utc;
 use entity::{app_builds, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_custom_apps::manifest::oltp_changes_from_manifest;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect,
     TransactionTrait,
@@ -53,6 +55,7 @@ use crate::app_events::gate::{self, GateScope};
 use crate::custom_apps_agent_built::AgentBuilt;
 use crate::custom_apps_build_state::{BuildState, PromoteRefusal};
 use crate::custom_apps_environments::{self, EnvAction};
+use crate::oltp_changes::install::{InstallSummary, install_on_promote};
 use crate::{
     custom_apps_build_history as history, custom_apps_cache, custom_apps_migrations as migrations,
 };
@@ -394,16 +397,27 @@ async fn agent_built_refusal<C: ConnectionTrait>(
 }
 
 /// Step 2: the build's pending files, OLTP then Airhouse, applied to
-/// production before the pointer moves.
+/// production before the pointer moves, and change capture installed on the
+/// tables it declares between the two.
 async fn apply_migrations(
     db: &DatabaseConnection,
     app: &apps::Model,
     build: &app_builds::Model,
 ) -> Result<MigrationsApplied, PromoteError> {
     let declared = migrations::declared_in_build(build, &app.slug).await?;
-    let oltp =
-        migrations::apply_on_promote(db, app.id, &app.slug, app.org_id, build.id, &declared.oltp)
-            .await?;
+    let oltp = migrations::apply_on_promote(
+        db,
+        app.id,
+        &app.slug,
+        app.org_id,
+        build.id,
+        migrations::PromoteFiles {
+            declared: &declared.oltp,
+            captures_changes: crate::oltp_changes::signs(build.manifest_json.as_ref()),
+        },
+    )
+    .await?;
+    let captured = install_capture(db, app, build).await?;
     let airhouse = migrations::apply_airhouse_on_promote(
         db,
         app.id,
@@ -413,7 +427,7 @@ async fn apply_migrations(
         &declared.airhouse,
     )
     .await?;
-    for summary in [oltp.summary(), airhouse.summary()] {
+    for summary in [oltp.summary(), captured.summary(), airhouse.summary()] {
         if !summary.is_empty() {
             tracing::info!(app_id = %app.id, build = %build.build_id, "promote: {summary}");
         }
@@ -422,4 +436,25 @@ async fn apply_migrations(
         oltp: oltp.applied,
         airhouse: airhouse.applied,
     })
+}
+
+/// Change capture on the tables the stored build declares under
+/// `oltpChanges`, read from its manifest strictly, as the publish that stored
+/// it read it (`oltp_changes::install`). A refusal is answered as a
+/// migration's: the author's `422`, a retryable `409`.
+async fn install_capture(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    build: &app_builds::Model,
+) -> Result<InstallSummary, PromoteError> {
+    let declared = build
+        .manifest_json
+        .as_ref()
+        .map(oltp_changes_from_manifest)
+        .transpose()
+        .map_err(|e| migrations::MigrationError::BadManifest(e.to_string()))?
+        .flatten();
+    install_on_promote(db, app.org_id, &app.slug, declared.as_ref())
+        .await
+        .map_err(|e| PromoteError::Migration(e.into()))
 }

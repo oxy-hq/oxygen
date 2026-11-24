@@ -158,8 +158,9 @@ impl OltpProvisioner {
         out
     }
 
-    /// Record the provider's answer, copy the ledger, mint the credentials,
-    /// and leave the branch `migrating`.
+    /// Record the provider's answer, copy the ledger, seed the change stream
+    /// as not capturing (`branch_changes`), mint the credentials, and leave
+    /// the branch `migrating`.
     pub(super) async fn land_cut(
         &self,
         row: rows::Model,
@@ -185,10 +186,13 @@ impl OltpProvisioner {
             .record_env_cut(row, &cut, expected, times, mode)
             .await?;
         self.seed_branch_ledger(&cut.id, snapshot).await?;
+        // As the branch owner the cut just recorded, whose credential works
+        // before any role is minted (the ledger copy below relies on it too).
+        let site = BranchSite::of_env(&row).ok_or_else(|| uncut(tenant.org_id, &row))?;
+        self.seed_branch_change_stream(tenant, &site).await?;
         if row.mode == EnvBranchMode::Empty {
             self.copy_meta_ledger(tenant, &row, times.fork_at).await?;
         }
-        let site = BranchSite::of_env(&row).ok_or_else(|| uncut(tenant.org_id, &row))?;
         // Roles before grants: a writer provisioned after the cut does not
         // exist on a Neon branch until its credential is minted there.
         self.mint_branch_credentials(tenant, &site).await?;

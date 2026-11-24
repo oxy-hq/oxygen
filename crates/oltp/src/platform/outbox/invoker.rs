@@ -122,20 +122,24 @@ $$"
 mod tests {
     use crate::platform::{
         EVENT_INVOKER_PROVENANCE_SETTING, EVENT_INVOKER_SETTING, EVENT_INVOKER_TOKEN_SETTING,
-        EVENTS_PUBLISH_FUNCTION, PLATFORM_SCHEMA_VERSION, platform_steps, statements_since,
+        EVENTS_PUBLISH_FUNCTION, platform_steps, steps_since,
     };
 
+    /// Step 7's statements alone: later steps follow it.
     fn step_seven() -> String {
-        statements_since(6, "local", "oxy_org_x")
+        steps_since(6, "local", "oxy_org_x")
             .unwrap()
+            .into_iter()
+            .filter(|step| step.version == 7)
+            .flat_map(|step| step.statements)
+            .collect::<Vec<_>>()
             .join("; ")
     }
 
     #[test]
-    fn step_seven_is_the_last_step() {
+    fn step_seven_is_step_seven() {
         let steps = platform_steps("neon", "neondb").unwrap();
         assert_eq!(steps[6].version, 7);
-        assert_eq!(PLATFORM_SCHEMA_VERSION, 7);
     }
 
     /// Revert safety: a binary one release back calls the thirteen-argument

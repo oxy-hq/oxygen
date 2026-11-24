@@ -664,6 +664,25 @@ export interface OxyAppManifest {
    */
   airhouseMigrations?: OxyAppMigrationsManifest;
   /**
+   * Tables of the app's OLTP store (`ctx.oltp`) whose every committed change the
+   * platform records, in the same transaction, so the app's records reach
+   * Airhouse with their history. Production only, and only where Oxy has turned
+   * change capture on for the org.
+   *
+   * `tables` is keyed by table name in the app's own schema. A declared table
+   * must be created by the app's `migrations` (so the block needs one), have a
+   * primary key, and have none of the column names the change table uses itself:
+   * `_generation`, `_seq`, `_txid`, `_op`, `_changed_at`, `_actor`,
+   * `_invocation_id`. Removing a table stops its capture at the next publish.
+   *
+   * Publish refuses an empty `tables`, a table or column name that is not 1-56
+   * characters of a lowercase letter then lowercase letters, digits or
+   * underscores, a column listed twice in one `exclude`, a key it does not know
+   * (a misspelt `exclude` would capture what it meant to leave out), and the
+   * block without `migrations`. `oxyc validate` and the Vite plugin say so first.
+   */
+  oltpChanges?: OxyAppOltpChangesManifest;
+  /**
    * What the app's non-production environments (staging) write instead of
    * production. Read by the platform at publish and on every staging call.
    *
@@ -840,6 +859,21 @@ export interface OxyAppMigrationsManifest {
    * @minLength 1
    */
   dir: string;
+}
+
+/** The `oltpChanges` block: the OLTP tables whose changes the platform captures. */
+export interface OxyAppOltpChangesManifest {
+  /** The tables to capture, keyed by table name in the app's own schema. At least one. */
+  tables: Record<string, OxyAppOltpChangesTable>;
+}
+
+/** One table under `oltpChanges.tables`. */
+export interface OxyAppOltpChangesTable {
+  /**
+   * Columns never captured: they reach neither the change log nor Airhouse, so
+   * they keep no history. Personal data goes here. Each at most once.
+   */
+  exclude?: string[];
 }
 
 /** The `ask` block of `oxy-app.json`. */

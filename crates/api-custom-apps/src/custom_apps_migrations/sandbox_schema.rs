@@ -77,6 +77,7 @@ impl SandboxOltp<'_> {
             target: self.target(),
             session_setup: Some(setup),
             cut: Some(&writer.cut),
+            signing: None,
         }
     }
 

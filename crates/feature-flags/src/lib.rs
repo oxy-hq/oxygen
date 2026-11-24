@@ -62,6 +62,14 @@ pub fn is_enabled_for(key: &'static str, ctx: &FlagContext) -> bool {
 /// publishing app's org; everywhere else a publish is refused `EventsNotEnabled`.
 pub const APP_EVENTS: &str = "app_events";
 
+/// The OLTP change stream's capture, per org (OLTP change stream design §8,
+/// phase 1): a production promote installs capture on the tables an app
+/// declares under `oltpChanges`, and removes it from those it no longer
+/// declares, only where this serves `on`. Read with [`is_enabled_for`] and
+/// the promoting app's org; off, a promote installs nothing and opens no
+/// store connection for it.
+pub const OLTP_CHANGES: &str = "oltp_changes";
+
 /// The react analytics pilot, per org, and its only switch: where this serves
 /// `on`, a served analytics chat runs on the react runtime (an agent react
 /// cannot serve, with no read-only database or a key react does not honor,

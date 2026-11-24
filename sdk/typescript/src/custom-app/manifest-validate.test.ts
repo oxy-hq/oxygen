@@ -280,6 +280,129 @@ describe("validateOxyAppManifest", () => {
     });
   });
 
+  // The cases and sentences of the server's publish-time `oltpChanges` reader
+  // tests, under the same names.
+  describe("oltpChanges", () => {
+    const base = { schemaVersion: 2, slug: "leasing", migrations: { dir: "migrations" } };
+    const withTables = (tables: unknown) => ({ ...base, oltpChanges: { tables } });
+    const NAME_RULE =
+      "use 1-56 characters, a lowercase letter then lowercase letters, digits or underscores";
+
+    it("absent_is_none", () => {
+      expect(validateOxyAppManifest({ schemaVersion: 2, slug: "leasing" })).toEqual([]);
+    });
+
+    it("a_table_with_exclude_parses", () => {
+      expect(
+        validateOxyAppManifest(
+          withTables({ leases: {}, landlords: { exclude: ["contact_email", "contact_phone"] } })
+        )
+      ).toEqual([]);
+      // The longest name the server accepts.
+      expect(messages(withTables({ ["a".repeat(56)]: {} }))).toEqual([]);
+    });
+
+    it("empty_tables_is_refused", () => {
+      expect(errors(withTables({}))).toEqual([
+        {
+          level: "error",
+          path: "oltpChanges.tables",
+          message:
+            "`oltpChanges.tables` is empty: name at least one table to capture, or remove the `oltpChanges` block"
+        }
+      ]);
+      expect(messages({ ...base, oltpChanges: {} })).toEqual(["`oltpChanges.tables` is required"]);
+    });
+
+    it("a_bad_identifier_is_refused", () => {
+      expect(errors(withTables({ Leases: {} }))).toEqual([
+        {
+          level: "error",
+          path: "oltpChanges.tables.Leases",
+          message: `\`oltpChanges.tables\` names "Leases", which is not a table name the platform accepts: ${NAME_RULE}`
+        }
+      ]);
+      expect(errors(withTables({ landlords: { exclude: ["contact-email"] } }))).toEqual([
+        {
+          level: "error",
+          path: "oltpChanges.tables.landlords.exclude.0",
+          message: `\`oltpChanges.tables.landlords.exclude\` names "contact-email", which is not a column name the platform accepts: ${NAME_RULE}`
+        }
+      ]);
+      for (const name of [
+        "",
+        "1leases",
+        "_seq",
+        "lea-ses",
+        "app_leasing.leases",
+        'a"b',
+        "leasés",
+        "a".repeat(57)
+      ]) {
+        const [table] = messages(withTables({ [name]: {} }));
+        expect(table, name).toBe(
+          `\`oltpChanges.tables\` names ${JSON.stringify(name)}, which is not a table name the platform accepts: ${NAME_RULE}`
+        );
+        const [column] = errors(withTables({ leases: { exclude: [name] } }));
+        expect(column?.path, name).toBe("oltpChanges.tables.leases.exclude.0");
+      }
+    });
+
+    it("a_duplicate_exclude_is_refused", () => {
+      expect(
+        errors(
+          withTables({
+            landlords: { exclude: ["contact_email", "contact_phone", "contact_email"] }
+          })
+        )
+      ).toEqual([
+        {
+          level: "error",
+          path: "oltpChanges.tables.landlords.exclude.2",
+          message: '`oltpChanges.tables.landlords.exclude` lists "contact_email" more than once'
+        }
+      ]);
+    });
+
+    it("oltp_changes_without_migrations_is_refused", () => {
+      const refusal =
+        "`oltpChanges` needs a `migrations` block: a captured table must be created by the app's own migrations";
+      const oltpChanges = { tables: { leases: {} } };
+      expect(messages({ schemaVersion: 2, slug: "leasing", oltpChanges })).toEqual([refusal]);
+      // Airhouse migrations create no OLTP table.
+      expect(
+        messages({
+          schemaVersion: 2,
+          slug: "leasing",
+          airhouseMigrations: { dir: "airhouse-migrations" },
+          oltpChanges
+        })
+      ).toEqual([refusal]);
+      expect(
+        messages({ schemaVersion: 2, slug: "leasing", migrations: null, oltpChanges })
+      ).toContain(refusal);
+    });
+
+    // A misspelt `exclude` would otherwise capture what it meant to leave out,
+    // so this is an error, where an unknown field elsewhere is a warning.
+    it("an_unknown_key_is_refused", () => {
+      const issues = validateOxyAppManifest(
+        withTables({ landlords: { exlude: ["contact_email"] } })
+      );
+      expect(issues).toEqual([
+        {
+          level: "error",
+          path: "oltpChanges.tables.landlords.exlude",
+          message:
+            "unknown field `oltpChanges.tables.landlords.exlude`: the platform refuses a key it does not know in `oltpChanges`, where a misspelt `exclude` would capture the columns it meant to leave out"
+        }
+      ]);
+      expect(
+        errors({ ...base, oltpChanges: { tables: { leases: {} }, mode: "all" } }).map((i) => i.path)
+      ).toEqual(["oltpChanges.mode"]);
+    });
+  });
+
   it("warns, without refusing, about a field it does not know", () => {
     const issues = validateOxyAppManifest({
       schemaVersion: 2,

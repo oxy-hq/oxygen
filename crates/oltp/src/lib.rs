@@ -52,6 +52,7 @@
 
 pub mod api;
 pub mod branches;
+pub mod changes;
 pub mod config;
 pub mod confinement_audit;
 pub mod connect;

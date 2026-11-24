@@ -24,18 +24,20 @@ const HOST_RS: &str = include_str!("host.rs");
 
 /// Fields of `FunctionCapabilities` that are NOT gates: a retention policy, a
 /// byte ceiling, the writer an event publish is written as, the build's
-/// declared events (an app-level block, not a function's capability) and the
-/// pipelines an upload may name (its gate is `source_uploads`) shape a call
-/// that is allowed rather than gate a capability. The TypeScript file carries the
-/// same names in its own doc comment, and another non-gate field has to be
-/// added here on purpose — the test below fails until it is, which is the
-/// point.
+/// declared events (an app-level block, not a function's capability), the
+/// pipelines an upload may name (its gate is `source_uploads`) and whether the
+/// build declares tables under `oltpChanges` (a production `ctx.oltp`
+/// transaction is then signed) shape a call that is allowed rather than gate a
+/// capability. The TypeScript file carries the same names in its own doc
+/// comment, and another non-gate field has to be added here on purpose — the
+/// test below fails until it is, which is the point.
 pub(super) const NOT_GATES: &[&str] = &[
     "storage_retention",
     "fetch_max_bytes",
     "events_writer",
     "event_catalog",
     "source_upload_pipelines",
+    "oltp_changes",
 ];
 
 /// Strip full-line `//` comments and `/* … */` blocks, trimming what is left.

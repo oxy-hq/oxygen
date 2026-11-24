@@ -157,6 +157,7 @@ pub async fn apply_to_resolved_branch(
         target: MigrationTarget::Branch(branch.cut.provider_branch_id.clone()),
         session_setup: Some(&setup),
         cut: Some(&branch.cut),
+        signing: None,
     };
     apply_to(db, app_id, build_pk, declared, &dest).await
 }

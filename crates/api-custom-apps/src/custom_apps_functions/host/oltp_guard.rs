@@ -32,11 +32,12 @@
 //!   anything connects ([`ProjectFunctionHost::admit_publish`]), so a
 //!   non-production event never lands in production's outbox.
 //!
-//! **In every environment**, production included, a statement naming the
-//! platform's events schema `oxy_events`, or setting `search_path` from a
-//! value built when it runs, is refused before it is sent
-//! ([`refuse_platform_schema`], which says what it cannot see): apps publish
-//! through `ctx.events.publish`.
+//! **In every environment**, production included, a statement naming one of
+//! the platform's schemas — the events schema `oxy_events`, or the change
+//! stream's `oxy_changes` — or setting `search_path` from a value built when
+//! it runs, is refused before it is sent ([`refuse_platform_schema`], which
+//! says what it cannot see): apps publish through `ctx.events.publish`, and
+//! the platform captures their changes for them.
 
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::tokenizer::{Token, Tokenizer};
@@ -49,31 +50,53 @@ use super::*;
 /// The platform's events schema (`oxy_oltp::platform::EVENTS_SCHEMA`).
 const PLATFORM_EVENTS_SCHEMA: &str = oxy_oltp::platform::EVENTS_SCHEMA;
 
+/// The platform's change-stream schema (`oxy_oltp::platform::CHANGES_SCHEMA`,
+/// platform step 8): the capture log, and the prefix of the settings the host
+/// signs each production transaction with (`oltp_changes::provenance`).
+const PLATFORM_CHANGES_SCHEMA: &str = oxy_oltp::platform::CHANGES_SCHEMA;
+
 /// What `ctx.oltp` SQL naming [`PLATFORM_EVENTS_SCHEMA`] is refused with, in
 /// every environment.
 pub(super) const PLATFORM_SCHEMA_REFUSAL: &str =
     "OltpPlatformSchema: `oxy_events` belongs to the platform; publish with ctx.events.publish";
 
+/// What `ctx.oltp` SQL naming [`PLATFORM_CHANGES_SCHEMA`] — its log, or one
+/// of the settings the host signs a transaction with — is refused with, in
+/// every environment.
+pub(super) const CHANGES_SCHEMA_REFUSAL: &str = "OltpPlatformSchema: `oxy_changes` belongs to \
+     the platform; it records the changes to the tables oltpChanges declares, and an app's SQL \
+     may not read, write or set it";
+
+/// Every schema of the platform's an app's SQL may not name, each with what
+/// naming it is refused with. The first a statement names decides.
+const PLATFORM_SCHEMAS: [(&str, &str); 2] = [
+    (PLATFORM_EVENTS_SCHEMA, PLATFORM_SCHEMA_REFUSAL),
+    (PLATFORM_CHANGES_SCHEMA, CHANGES_SCHEMA_REFUSAL),
+];
+
 /// What a Unicode-escaped identifier is refused with: it can spell any name.
 const UNICODE_IDENTIFIER_REFUSAL: &str = "OltpPlatformSchema: a Unicode-escaped identifier \
-     (U&\"…\") could spell `oxy_events`, which belongs to the platform; write the name plainly";
+     (U&\"…\") could spell `oxy_events` or `oxy_changes`, which belong to the platform; write \
+     the name plainly";
 
 /// What setting `search_path` from a value built when the statement runs is
-/// refused with: it could name the platform's schema, and an unqualified
+/// refused with: it could name a platform schema, and an unqualified
 /// `publish(...)` would then reach it.
 const SEARCH_PATH_REFUSAL: &str = "OltpPlatformSchema: `search_path` may be set only to plain \
-     names or plain string literals, which are checked for `oxy_events`; this statement sets it \
-     from a value built when it runs";
+     names or plain string literals, which are checked for `oxy_events` and `oxy_changes`; this \
+     statement sets it from a value built when it runs";
 
-/// `Err` when `sql` reaches the platform's events schema in a way that can be
-/// read off the statement, in every environment, before it is sent (after
-/// the environment's own admission, so a statement staging holds is reported
-/// held). Refused:
+/// `Err` when `sql` reaches one of the platform's schemas
+/// ([`PLATFORM_SCHEMAS`]) in a way that can be read off the statement, in
+/// every environment, before it is sent (after the environment's own
+/// admission, so a statement staging holds is reported held). Refused:
 ///
-/// - an identifier `oxy_events` — unquoted in any case, as Postgres folds it,
-///   or double-quoted exactly — or the name spelled whole inside a string or
-///   a dollar-quoted body, where Postgres may resolve it when the statement
-///   runs (`DO … EXECUTE '…'`); comments say nothing;
+/// - an identifier `oxy_events` or `oxy_changes` — unquoted in any case, as
+///   Postgres folds it, or double-quoted exactly — or the name spelled whole
+///   inside a string or a dollar-quoted body, where Postgres may resolve it
+///   when the statement runs (`DO … EXECUTE '…'`), or which names one of the
+///   `oxy_changes.*` settings (`set_config('oxy_changes.actor', …)`);
+///   comments say nothing;
 /// - any Unicode-escaped identifier `U&"…"`, which can spell any name;
 /// - changing `search_path` to anything but plain names and plain string
 ///   literals: `set_config` whose setting is not a plain literal, or that sets
@@ -103,12 +126,21 @@ const SEARCH_PATH_REFUSAL: &str = "OltpPlatformSchema: `search_path` may be set 
 /// rows the relay stores as quarantined events, within the definer's bounds,
 /// and pre-empt one of its own app's events by writing that id first (the
 /// host's row is then the `ON CONFLICT` no-op); both harm the app alone.
+///
+/// For `oxy_changes`, such SQL can set the three settings the host signs a
+/// transaction with, at any point in it. Nothing lexical holds there either,
+/// and nothing needs to: no writer holds any grant on the schema, and the
+/// MAC binds the settings to the transaction's own id
+/// (`oltp_changes::provenance`), so a value the app wrote ships as
+/// unverified.
 pub(super) fn refuse_platform_schema(sql: &str) -> Result<(), String> {
     let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
         return refuse_in_text(sql);
     };
-    if tokens.iter().any(names_platform_schema) {
-        return Err(PLATFORM_SCHEMA_REFUSAL.to_string());
+    for (schema, refusal) in PLATFORM_SCHEMAS {
+        if tokens.iter().any(|token| names_schema(token, schema)) {
+            return Err(refusal.to_string());
+        }
     }
     if has_unicode_identifier(&tokens) {
         return Err(UNICODE_IDENTIFIER_REFUSAL.to_string());
@@ -123,13 +155,14 @@ pub(super) fn refuse_platform_schema(sql: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether `token` names [`PLATFORM_EVENTS_SCHEMA`] or spells it in a string.
-fn names_platform_schema(token: &Token) -> bool {
+/// Whether `token` names the platform schema `schema` or spells it in a
+/// string.
+fn names_schema(token: &Token, schema: &str) -> bool {
     match token {
-        Token::Word(word) if word.quote_style.is_some() => word.value == PLATFORM_EVENTS_SCHEMA,
-        Token::Word(word) => word.value.eq_ignore_ascii_case(PLATFORM_EVENTS_SCHEMA),
-        Token::DollarQuotedString(body) => spells_platform_schema(&body.value),
-        other => string_text(other).is_some_and(spells_platform_schema),
+        Token::Word(word) if word.quote_style.is_some() => word.value == schema,
+        Token::Word(word) => word.value.eq_ignore_ascii_case(schema),
+        Token::DollarQuotedString(body) => spells_schema(&body.value, schema),
+        other => string_text(other).is_some_and(|text| spells_schema(text, schema)),
     }
 }
 
@@ -241,8 +274,11 @@ fn call_arguments<'a>(code: &'a [&'a Token]) -> Vec<&'a [&'a Token]> {
 /// it would have refused, as text.
 fn refuse_in_text(sql: &str) -> Result<(), String> {
     let lowered = sql.to_ascii_lowercase();
-    if spells_platform_schema(sql) {
-        Err(PLATFORM_SCHEMA_REFUSAL.to_string())
+    if let Some((_, refusal)) = PLATFORM_SCHEMAS
+        .iter()
+        .find(|(schema, _)| spells_schema(sql, schema))
+    {
+        Err(refusal.to_string())
     } else if lowered.contains("u&\"") {
         Err(UNICODE_IDENTIFIER_REFUSAL.to_string())
     } else if ["set_config", "search_path", "pg_settings"]
@@ -255,18 +291,16 @@ fn refuse_in_text(sql: &str) -> Result<(), String> {
     }
 }
 
-/// Whether `text` spells [`PLATFORM_EVENTS_SCHEMA`] as a whole name, without
-/// case.
-fn spells_platform_schema(text: &str) -> bool {
+/// Whether `text` spells the platform schema `schema` as a whole name,
+/// without case.
+fn spells_schema(text: &str, schema: &str) -> bool {
     let lowered = text.to_ascii_lowercase();
     let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
-    lowered
-        .match_indices(PLATFORM_EVENTS_SCHEMA)
-        .any(|(at, name)| {
-            let before = lowered[..at].chars().next_back();
-            let after = lowered[at + name.len()..].chars().next();
-            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
-        })
+    lowered.match_indices(schema).any(|(at, name)| {
+        let before = lowered[..at].chars().next_back();
+        let after = lowered[at + name.len()..].chars().next();
+        !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+    })
 }
 
 /// Appended to an OLTP DSN's `options` outside production: every transaction
@@ -551,7 +585,9 @@ fn read_only_session(dsn: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{PLATFORM_SCHEMA_REFUSAL, read_only_session, refuse_platform_schema};
+    use super::{
+        CHANGES_SCHEMA_REFUSAL, PLATFORM_SCHEMA_REFUSAL, read_only_session, refuse_platform_schema,
+    };
 
     #[test]
     fn sql_naming_the_platform_events_schema_is_refused_however_spelled() {
@@ -570,6 +606,45 @@ mod tests {
                 Err(PLATFORM_SCHEMA_REFUSAL.to_string()),
                 "{sql}"
             );
+        }
+    }
+
+    /// The change stream's schema, its log and the settings the host signs a
+    /// production transaction with, refused as `oxy_events` is, each with its
+    /// own message; names that merely resemble it are sent.
+    #[test]
+    fn oltp_sql_naming_oxy_changes_is_refused() {
+        for sql in [
+            "select * from oxy_changes.log",
+            "DELETE FROM OXY_CHANGES.log",
+            "select * from \"oxy_changes\".tables",
+            "truncate oxy_changes.log",
+            "do $$ begin execute 'delete from oxy_changes.log'; end $$",
+            "update oxy_changes.stream set capturing = false",
+            "select set_config('oxy_changes.actor', 'someone', true)",
+            "select pg_catalog.set_config('oxy_changes.provenance', $1, true)",
+            "SET LOCAL oxy_changes.invocation = '00000000-0000-0000-0000-000000000000'",
+            "select current_setting('oxy_changes.provenance', true)",
+            "SET search_path TO oxy_changes",
+            // Unreadable by the tokenizer (an unterminated string): searched
+            // as text.
+            "select 'oxy_changes.log",
+        ] {
+            assert_eq!(
+                refuse_platform_schema(sql),
+                Err(CHANGES_SCHEMA_REFUSAL.to_string()),
+                "{sql}"
+            );
+        }
+        assert!(CHANGES_SCHEMA_REFUSAL.starts_with("OltpPlatformSchema: `oxy_changes` "));
+        for sql in [
+            "select * from my_oxy_changes",
+            "select oxy_changes_count from t",
+            "select * from \"OXY_CHANGES\".log",
+            "select 1 -- oxy_changes.log is the platform's\n",
+            "insert into notes (body) values ('oxy_changesx')",
+        ] {
+            assert_eq!(refuse_platform_schema(sql), Ok(()), "{sql}");
         }
     }
 

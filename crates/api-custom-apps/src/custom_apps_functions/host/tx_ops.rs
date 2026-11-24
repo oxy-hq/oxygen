@@ -121,6 +121,9 @@ impl ProjectFunctionHost {
         self.read_only_when_held(HostOp::TxBeginOltp, &mut *tx, &conn.schema)
             .await?;
         self.name_session(&mut *tx, trace_id.as_deref()).await?;
+        // In production, for a build that declares tables to capture: who
+        // made the handle's changes, signed before its first statement.
+        self.sign_oltp_tx(&mut *tx, &conn.schema).await?;
         let opened_into = self.oltp_opened_into();
         self.register_tx(tx, "oltp", &conn.schema, opened_into, None)
             .await

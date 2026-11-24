@@ -103,6 +103,10 @@
           "$ref": "#/definitions/OxyAppMigrationsManifest",
           "description": "Tables for the app's FACTS, in its Airhouse schema `app_<writer>`: a directory of numbered `.sql` files run once each, at promote, with the same ledger rules as `migrations` (never edit, rename or copy one that ran).\n\nEvery object must be named `app_<writer>.<name>`. Airhouse is DuckLake, so a file declaring a PRIMARY KEY, UNIQUE, an index or a foreign key is refused at publish — a table carrying one fails and leaves the writer inert."
         },
+        "oltpChanges": {
+          "$ref": "#/definitions/OxyAppOltpChangesManifest",
+          "description": "Tables of the app's OLTP store (`ctx.oltp`) whose every committed change the platform records, in the same transaction, so the app's records reach Airhouse with their history. Production only, and only where Oxy has turned change capture on for the org.\n\n`tables` is keyed by table name in the app's own schema. A declared table must be created by the app's `migrations` (so the block needs one), have a primary key, and have none of the column names the change table uses itself: `_generation`, `_seq`, `_txid`, `_op`, `_changed_at`, `_actor`, `_invocation_id`. Removing a table stops its capture at the next publish.\n\nPublish refuses an empty `tables`, a table or column name that is not 1-56 characters of a lowercase letter then lowercase letters, digits or underscores, a column listed twice in one `exclude`, a key it does not know (a misspelt `exclude` would capture what it meant to leave out), and the block without `migrations`. `oxyc validate` and the Vite plugin say so first."
+        },
         "nonProduction": {
           "$ref": "#/definitions/OxyAppNonProductionManifest",
           "description": "What the app's non-production environments (staging) write instead of production. Read by the platform at publish and on every staging call.\n\n`destinations` maps a database a function writes in production to the one staging writes instead. In staging, `ctx.warehouse.insert` / `exec` / `upsert` and `ctx.tx` naming `clickhouse` run against `clickhouse_staging`; reads (`ctx.warehouse.query`) stay on production. The mapped database must pass the same checks production's does: listed in the function's `destinations` and, unless it is Airhouse, named in its `customerWarehouseWrites` with a reason. A staging write to a database with no mapping is **held** — not performed, and listed in the invocation's `app.staging.held` audit row.\n\nPublish refuses a mapping onto the same database, onto the workspace's own Airhouse (`airhouse_managed` is production's tenant), DuckDB to DuckDB, a chain (a target that is itself a key here), or a target whose database resolves to the same host and user as any production database mapped here — a heuristic, not proof; the credential behind the staging entry is yours to keep separate, with no write grant on production. The platform repeats the check on every staging write, refusing it when a secret does not resolve, and holds a statement that names production's database, or writes through another database than the mapped one's.\n\n`ctx.airhouse` needs no mapping: staging's appends land in the app's sibling schema, `app_<writer>__staging`, whose tables come from the same `airhouseMigrations`.\n\n```jsonc \"nonProduction\": { \"destinations\": { \"clickhouse\": \"clickhouse_staging\" } } ```"
@@ -765,6 +769,35 @@
       "required": ["dir"],
       "additionalProperties": false,
       "description": "The `migrations` / `airhouseMigrations` block: a directory of numbered `.sql` files."
+    },
+    "OxyAppOltpChangesManifest": {
+      "type": "object",
+      "properties": {
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OxyAppOltpChangesTable"
+          },
+          "description": "The tables to capture, keyed by table name in the app's own schema. At least one."
+        }
+      },
+      "required": ["tables"],
+      "additionalProperties": false,
+      "description": "The `oltpChanges` block: the OLTP tables whose changes the platform captures."
+    },
+    "OxyAppOltpChangesTable": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Columns never captured: they reach neither the change log nor Airhouse, so they keep no history. Personal data goes here. Each at most once."
+        }
+      },
+      "additionalProperties": false,
+      "description": "One table under `oltpChanges.tables`."
     },
     "OxyAppNonProductionManifest": {
       "type": "object",

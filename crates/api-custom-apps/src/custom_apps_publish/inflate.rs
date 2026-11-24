@@ -4,6 +4,7 @@
 //! into the store. Nothing is written.
 
 use axum::body::Bytes;
+use oxy_custom_apps::manifest::{OltpChangesConfig, oltp_changes_from_manifest};
 use sea_orm::DatabaseConnection;
 
 use super::admit::Admitted;
@@ -21,6 +22,9 @@ pub(super) struct Inflated {
     pub fn_specs: Vec<(String, serde_json::Value)>,
     pub declared_migrations: Vec<migrations::DeclaredMigration>,
     pub declared_airhouse: Vec<migrations::DeclaredMigration>,
+    /// The `oltpChanges` block, read strictly: the tables a production promote
+    /// installs change capture on. `None` when the manifest declares none.
+    pub declared_oltp_changes: Option<OltpChangesConfig>,
     pub asset_manifest: asset_manifest::AssetManifest,
     pub seed_entries: Vec<(String, Bytes)>,
     /// The publish's own warnings, in the order they are answered.
@@ -71,11 +75,7 @@ pub(super) async fn inflate(
     // Advisory, never a gate: an oversized card image only slows the home page.
     let art_warning =
         crate::custom_apps_validate::oversized_art_warning(&files, manifest_json.as_ref());
-    // Declared on a draft too, so the author learns a wrong directory on the
-    // publish that carries it, not on a promote weeks later.
-    let declared_migrations = migrations::declare(manifest_json.as_ref(), &files)?;
-    let declared_airhouse =
-        migrations::declare_airhouse(manifest_json.as_ref(), &files, &input.app_slug)?;
+    let declared = read_declared(manifest_json.as_ref(), &files, &input.app_slug)?;
     // Where staging's warehouse writes land: an author error refuses the
     // publish, nothing staging does fails a promoting one.
     let mapping_warning =
@@ -94,11 +94,41 @@ pub(super) async fn inflate(
         index_bytes,
         manifest_json,
         fn_specs,
-        declared_migrations,
-        declared_airhouse,
+        declared_migrations: declared.migrations,
+        declared_airhouse: declared.airhouse,
+        declared_oltp_changes: declared.oltp_changes,
         asset_manifest,
         seed_entries,
         warnings,
+    })
+}
+
+/// What a promote applies or installs, as the manifest declares it.
+struct Declared {
+    migrations: Vec<migrations::DeclaredMigration>,
+    airhouse: Vec<migrations::DeclaredMigration>,
+    oltp_changes: Option<OltpChangesConfig>,
+}
+
+/// Read on a draft too, so the author learns a wrong directory or a bad block
+/// on the publish that carries it, not on a promote weeks later. The
+/// `oltpChanges` block is refused as a bad `migrations` block is: one that
+/// failed to parse and meant "none" would ship an app whose declared tables
+/// are silently not captured.
+fn read_declared(
+    manifest_json: Option<&serde_json::Value>,
+    files: &Files,
+    app_slug: &str,
+) -> Result<Declared, PublishError> {
+    let oltp_changes = manifest_json
+        .map(oltp_changes_from_manifest)
+        .transpose()
+        .map_err(|e| migrations::MigrationError::BadManifest(e.to_string()))?
+        .flatten();
+    Ok(Declared {
+        migrations: migrations::declare(manifest_json, files)?,
+        airhouse: migrations::declare_airhouse(manifest_json, files, app_slug)?,
+        oltp_changes,
     })
 }
 

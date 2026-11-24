@@ -121,6 +121,9 @@ pub mod html_cache;
 mod invocation_placement;
 pub mod logs;
 pub mod me_apps;
+/// The OLTP change stream: who made each change to a table an app declares
+/// under `oltpChanges`, signed.
+pub mod oltp_changes;
 pub mod seed;
 pub mod seed_apps;
 pub mod seed_fixture;

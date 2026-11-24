@@ -25,6 +25,9 @@ use crate::provider::{BranchRequest, ProviderError};
 use super::branch_site::BranchSite;
 use super::{OltpProvisioner, ProvisionerError};
 
+/// A cut branch's change stream, seeded so it captures nothing.
+mod stream;
+
 impl OltpProvisioner {
     /// Create the org's `kind` branch, or finish one a failed attempt left.
     ///
@@ -73,6 +76,14 @@ impl OltpProvisioner {
                 self.insert_branch(tenant, kind, &cut).await?
             }
         };
+        // The cut's change stream (`branch_changes`), as the branch owner the
+        // row now records: on a fresh cut, and again on a row an earlier
+        // attempt left `provisioning`, which may have failed before seeding
+        // it. Never on an active branch: a re-run touches nothing it holds.
+        if row.status == BranchStatus::Provisioning {
+            self.seed_branch_change_stream(tenant, &BranchSite::of_org_branch(&row))
+                .await?;
+        }
         self.finish_branch(tenant, row).await
     }
 
@@ -145,6 +156,10 @@ impl OltpProvisioner {
             .record_cut(row, &cut, tenant.platform_schema_version)
             .await?;
         self.seed_branch_ledger(&row.provider_branch_id, &snapshot)
+            .await?;
+        // A failure leaves the row `resetting`; running the reset again
+        // re-cuts and seeds again.
+        self.seed_branch_change_stream(tenant, &BranchSite::of_org_branch(&row))
             .await?;
         self.finish_branch(tenant, row).await
     }

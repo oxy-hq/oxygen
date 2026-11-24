@@ -9,10 +9,14 @@
 //! whose DML rights are scoped to the one `app_<writer>` schema — narrower on
 //! reads (no `raw_*`) and finally writable.
 //!
-//! SQL naming the platform's events schema, `oxy_events` — or setting
-//! `search_path` from a value built when it runs — is refused in every
-//! environment (`oltp_guard::refuse_platform_schema`): an app publishes
-//! through `ctx.events.publish`.
+//! SQL naming one of the platform's schemas, `oxy_events` or `oxy_changes` —
+//! or setting `search_path` from a value built when it runs — is refused in
+//! every environment (`oltp_guard::refuse_platform_schema`): an app publishes
+//! through `ctx.events.publish`, and its changes are captured for it.
+//!
+//! In production, for a build that declares tables under `oltpChanges`, each
+//! transaction is signed with who made its changes before the app's statement
+//! runs (`oltp_sign`).
 //!
 //! Fail-closed on the `oltp` capability, and run in a one-shot transaction so
 //! parameters are bound (never string-concatenated) and a failed statement
@@ -70,8 +74,9 @@ impl ProjectFunctionHost {
         }
     }
 
-    /// The one-shot transaction a statement runs in, named for the audit and,
-    /// outside production, `READ ONLY` on a read-only session.
+    /// The one-shot transaction a statement runs in, named for the audit,
+    /// outside production `READ ONLY` on a read-only session, and in
+    /// production signed for the change stream (`oltp_sign`).
     pub(super) async fn open_statement_tx(
         &self,
         op: HostOp,
@@ -92,6 +97,7 @@ impl ProjectFunctionHost {
         // empty transaction back.
         self.read_only_when_held(op, &mut *tx, &conn.schema).await?;
         self.name_session(&mut *tx, trace_id.as_deref()).await?;
+        self.sign_oltp_tx(&mut *tx, &conn.schema).await?;
         Ok(tx)
     }
 

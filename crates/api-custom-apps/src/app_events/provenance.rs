@@ -57,8 +57,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// The stable code a quarantined row's `relay_error` starts with.
 pub const UNVERIFIED_PROVENANCE: &str = "unverified_provenance";
 
-/// What the per-org key is derived under, before the org's id.
-const KEY_DOMAIN: &[u8] = b"app-events-provenance";
+/// What the per-org key is derived under, before the org's id. Visible to the
+/// crate so another stream's key (`oltp_changes::provenance`) can be shown to
+/// differ from this one.
+pub(crate) const KEY_DOMAIN: &[u8] = b"app-events-provenance";
 /// What every signed message starts with: a new encoding gets a new version.
 const MESSAGE_DOMAIN: &[u8] = b"oxy-app-events-provenance:v1\0";
 /// What the invoker MAC's message starts with: the v1 fields, then the
@@ -229,8 +231,23 @@ fn master_key() -> [u8; 32] {
 /// `org_id`'s key: `HMAC-SHA256(master, "app-events-provenance" ‖ org id)`.
 /// The org's id is a fixed 16 bytes, so the input is unambiguous.
 fn org_key(master: &[u8; 32], org_id: Uuid) -> [u8; 32] {
+    org_key_with(master, KEY_DOMAIN, org_id)
+}
+
+/// `org_id`'s key under `domain`, from the deployment's master key:
+/// `HMAC-SHA256(master, domain ‖ org id)`, as [`org_key`] derives the
+/// outbox's under [`KEY_DOMAIN`]. For another stream that signs who wrote it
+/// (`oltp_changes::provenance`), under a domain of its own, so neither key
+/// can stand in for the other. The key never leaves the host process.
+pub(crate) fn org_key_for(domain: &[u8], org_id: Uuid) -> [u8; 32] {
+    org_key_with(&master_key(), domain, org_id)
+}
+
+/// [`org_key_for`] under `master`: what a test derives without reading the
+/// deployment's key.
+pub(crate) fn org_key_with(master: &[u8; 32], domain: &[u8], org_id: Uuid) -> [u8; 32] {
     let mut mac = keyed(master);
-    mac.update(KEY_DOMAIN);
+    mac.update(domain);
     mac.update(org_id.as_bytes());
     to_array(&mac.finalize().into_bytes())
 }
