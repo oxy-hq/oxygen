@@ -11,10 +11,10 @@
 
 use entity::app_members;
 use entity::org_members::OrgRole;
-use oxy_app::server::authz::Caller;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::RoleCeiling;
 use oxy_custom_apps::auth::resolve_app_role;
+use oxy_server_authz::Caller;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 

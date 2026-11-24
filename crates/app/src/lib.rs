@@ -20,8 +20,6 @@ pub const BUILD_SHA: &str = env!("GIT_HASH");
 
 pub mod agentic_wiring;
 pub mod cli;
-/// Moved to `oxy_app_core::emails`; re-exported so `crate::emails::*` call sites don't move.
-pub use oxy_app_core::emails;
 pub mod host;
 pub mod managed_connection_resolver;
 pub mod server;
@@ -29,5 +27,6 @@ pub mod server;
 // the router helpers went up into oxy-server in decompose LIFT, and the demo
 // seed, its last entry, in decompose SD (2026-11-24).
 
-// Re-export commonly used items
-pub use server::api;
+// The `emails` and `api` aliases went in decompose RPT (2026-11-24): nothing
+// named them once `oxy-server`'s tests imported `oxy_app_core::emails` and
+// `oxy_server_authz` directly.

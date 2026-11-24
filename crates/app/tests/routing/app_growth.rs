@@ -54,7 +54,8 @@ const SERVER: &[&str] = &[
     // (with `compile_worker_tests`) the same day too (as `worker`).
     // The Factory-access gate left for `oxy-workspace-runtime::request` on
     // 2026-11-22 (decompose W7), re-exported in `server/mod.rs`.
-    "http_cache",
+    // `http_cache`, a re-export of `oxy_app_core::http_cache`, was deleted in
+    // decompose RPT (2026-11-24) when `oxy-server`'s SPA handler imported it.
     // Pod placement (`ide_proxy`, `servability`, and `role_manifest`'s and
     // `role_middleware`'s code) left for `oxy-app-core::pods` on 2026-11-22,
     // re-exported in `server/mod.rs`; the two files that stay hold the test

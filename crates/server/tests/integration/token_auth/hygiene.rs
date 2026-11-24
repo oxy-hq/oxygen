@@ -13,7 +13,7 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use entity::api_tokens;
 use entity::org_members::OrgRole;
 use oxy_api_identity::user_tokens::hygiene::{expire_unused_tokens, send_expiry_notices};
-use oxy_app::emails::token_mail::outbox;
+use oxy_app_core::emails::token_mail::outbox;
 use oxy_auth::token::credential::source;
 use oxy_auth::token::format::generate_personal;
 use oxy_auth::token::personal::{self, NewToken};

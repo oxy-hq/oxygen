@@ -31,7 +31,7 @@ use crate::router::{
 };
 use agentic_http::AgenticState;
 use axum::Router;
-use oxy_app::host::worker::PreaggCacheCtx;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_app_core::seams::BackgroundSeam;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_shared::errors::OxyError;

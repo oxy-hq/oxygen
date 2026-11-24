@@ -12,9 +12,9 @@
 use axum::http::StatusCode;
 use entity::org_members::OrgRole;
 use entity::{app_builds, apps};
-use oxy_app::server::authz::Caller;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{Action, Resource};
+use oxy_server_authz::Caller;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
 };
@@ -83,7 +83,7 @@ async fn app_decides(fx: &Fixture, app: &apps::Model, action: Action, resource: 
         credential: Some(credential.clone()),
     };
     let caller = Caller::of(&user, Some(&credential));
-    oxy_app::server::authz::enforce_for(
+    oxy_server_authz::enforce_for(
         &fx.db,
         &caller,
         "test.oxygen_access",

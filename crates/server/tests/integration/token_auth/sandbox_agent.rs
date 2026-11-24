@@ -9,10 +9,10 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
 use entity::org_members::OrgRole;
 use entity::{api_token_grants, api_tokens, app_admin_scope_orgs, app_admins, apps, users};
-use oxy_app::server::authz::Caller;
 use oxy_auth::token::{CredentialContext, StoredKind, TokenFormat, store};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::PlatformRole;
+use oxy_server_authz::Caller;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

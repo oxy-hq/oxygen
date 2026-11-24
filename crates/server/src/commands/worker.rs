@@ -50,7 +50,7 @@ use super::serve;
 use crate::drivers::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
 use crate::worker_health::{self, WorkerHealthState};
 use crate::worker_runtime::WorkerRuntime;
-use oxy_app::host::worker::PreaggCacheCtx;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 
 /// Default cadence for the standalone-worker recovery loop. Same default the
 /// in-process driver uses (`OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS`).

@@ -4,7 +4,7 @@
 //! minter is told, and the token is refused on its very next request.
 
 use axum::http::StatusCode;
-use oxy_app::emails::token_mail::outbox;
+use oxy_app_core::emails::token_mail::outbox;
 use oxy_auth::token::format::{SCANNER_PATTERN, generate_sandbox_agent};
 use serde_json::{Value, json};
 

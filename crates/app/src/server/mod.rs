@@ -1,7 +1,8 @@
 //! HTTP server and API endpoints
 //!
 //! Only re-exports of lower crates are left here, each kept because the CLI,
-//! `host`, `oxy-server` or `oxy-app`'s own `tests/` still names its old path.
+//! `host` or `oxy-app`'s own `tests/` still names its old path (`oxy-server`
+//! names none of them since decompose RPT, 2026-11-24).
 //! Decompose SHM (2026-11-23) deleted the ones nothing named any more
 //! (`compile_maintenance`, `compile_worker`, `factory_access`, `ide_proxy`,
 //! `preagg_context`, `preagg_executor`, `task_router_listener`, `workspace_fs`):
@@ -17,7 +18,7 @@ pub use oxy_compile_runtime::git as compile_git;
 pub use oxy_compile_runtime::oltp as compile_oltp;
 // The branch check, the push webhook's reconciler, the env pins and the
 // automatic compile enqueue, `oxy-compile-runtime`'s `reconcile` since
-// 2026-11-22; re-exported so `oxy-server` and `tests/platform` keep this path.
+// 2026-11-22; re-exported so `tests/platform` keeps this path.
 pub use oxy_compile_runtime::reconcile as compile_reconcile;
 // The branch compile and its status read, `oxy-compile-runtime`'s `request`
 // since 2026-11-22; re-exported so `tests/platform` keeps this path.
@@ -27,8 +28,8 @@ pub use oxy_compile_runtime::request as compile_request;
 // `tests/platform` keeps these paths.
 pub use oxy_app_core::{default_branch, workspace_repo_facts};
 
-// `host::http_cache` re-exports this for `oxy-server`'s SPA handler.
-pub mod http_cache;
+// `http_cache`, a re-export of `oxy_app_core::http_cache` for `host`, went in
+// decompose RPT (2026-11-24) when `oxy-server`'s SPA handler imported it.
 // The compile worker's post-promote nudge, `oxy-preagg`'s `promote` since
 // 2026-11-20; re-exported so `tests/platform` keeps this path.
 pub use oxy_preagg::promote as preagg_promote;

@@ -20,8 +20,7 @@ use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get_service;
 use include_dir::{Dir, include_dir};
-use oxy_app::host::http_cache::{if_none_match, weak_etag};
-use oxy_app_core::http_cache::wants_html;
+use oxy_app_core::http_cache::{if_none_match, wants_html, weak_etag};
 use tower_serve_static::ServeDir;
 
 static DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/dist");

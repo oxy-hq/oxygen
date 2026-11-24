@@ -31,10 +31,10 @@ use oxy_api_custom_apps::custom_apps_usage_backfill::{self, USAGE_BACKFILL_KIND}
 use oxy_api_custom_apps::custom_apps_usage_purge::{self, USAGE_PURGE_KIND};
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
-use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_app_core::semantic_pin_seam::SemanticPinner;
+use oxy_compile_runtime::reconcile::env_pinner::EnvPinner;
 use oxy_custom_apps::storage::{retention, sweeper};
 use oxy_custom_apps::{tracking as custom_apps_tracking, usage_queue as custom_apps_usage_queue};
 use tower::ServiceBuilder;

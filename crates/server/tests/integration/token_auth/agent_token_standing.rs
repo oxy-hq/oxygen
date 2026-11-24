@@ -148,7 +148,7 @@ async fn the_standing_carried_is_the_one_held_when_the_code_is_redeemed() {
         .exec(&fx.db)
         .await
         .expect("take the grant away");
-    oxy_app::server::authz::globals::invalidate_admin_cache();
+    oxy_server_authz::globals::invalidate_admin_cache();
 
     let (status, minted) = exchange(approved["code"].as_str().unwrap(), VERIFIER).await;
     assert_eq!(

@@ -276,8 +276,9 @@ where
 // `oxy-server-authz` (state-agnostic authz context, consumed by the workspace
 // role guards that also moved). The workspace middleware below still resolves
 // and inserts it; re-exported here so the original
-// `middlewares::workspace_context::EffectiveWorkspaceRole` path — including the
-// integration tests' `oxy_app::api::...` path — keeps resolving.
+// `middlewares::workspace_context::EffectiveWorkspaceRole` path keeps resolving
+// (oxy-server's tests import `oxy_server_authz::workspace_role` since decompose
+// RPT, 2026-11-24, when the `oxy_app::api` alias went).
 pub use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 
 /// Moved to `oxy-app-core` so the custom-app serve path, which sits above this

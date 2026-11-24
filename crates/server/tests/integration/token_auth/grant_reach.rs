@@ -5,10 +5,10 @@
 
 use axum::http::StatusCode;
 use entity::org_members::OrgRole;
-use oxy_app::server::authz::Caller;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::RoleCeiling;
 use oxy_custom_apps::auth::user_can_access_app;
+use oxy_server_authz::Caller;
 
 use super::stack::{
     Reach, custom_app_caller, flat_api, get_as, get_in_session, ids, join_org, leave_org,

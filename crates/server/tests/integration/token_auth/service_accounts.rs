@@ -10,13 +10,13 @@ use axum::http::StatusCode;
 use entity::org_members::{self, OrgRole};
 use entity::users::{self, UserStatus};
 use entity::{org_invitations, service_accounts};
-use oxy_app::server::authz::Caller;
-use oxy_app::server::authz::loader::load_principal_facts;
 use oxy_app_core::audience::app_audience;
 use oxy_auth::authenticator::Authenticator;
 use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::types::{AuthenticatedUser, Identity};
 use oxy_auth::user::UserService;
+use oxy_server_authz::Caller;
+use oxy_server_authz::loader::load_principal_facts;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, Statement,

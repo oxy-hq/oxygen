@@ -1,6 +1,8 @@
 //! What `oxy-server`'s long-lived commands (`serve`, `start`, `worker`) take
-//! from `oxy-app`: the migrations they run first, the build identity they
-//! report, and the few lower-crate items they still reach through here.
+//! from `oxy-app`: the migrations they run first and the build identity they
+//! report. The lower-crate items they reached through here (`http_cache`,
+//! `worker::PreaggCacheCtx`, `bundle_cache_budget`) went in decompose RPT
+//! (2026-11-24), when `oxy-server` imported the crates that hold them.
 //!
 //! The counterpart of [`crate::surface`]. Like it, this module holds no code,
 //! only re-exports, which is why `tests/routing/app_growth.rs` admits it to
@@ -35,18 +37,3 @@ pub mod migrations {
 pub mod build_identity {
     pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
 }
-
-/// The `ETag` helpers the SPA handler answers conditional requests with.
-pub mod http_cache {
-    pub use crate::server::http_cache::{if_none_match, weak_etag};
-}
-
-/// What the standalone worker builds its pre-aggregation context from. Its
-/// runtime, health listener and metrics moved up into `oxy-server` on
-/// 2026-11-22 (decompose UP2).
-pub mod worker {
-    pub use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-}
-
-/// The custom-app bundle cache's byte budget, sized at boot.
-pub use crate::server::api::custom_apps_bundle_cache::resolve_budget as bundle_cache_budget;

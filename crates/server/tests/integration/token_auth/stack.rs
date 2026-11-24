@@ -18,15 +18,15 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use entity::org_members::{self, OrgRole};
 use entity::{app_admins, apps};
-use oxy_app::server::api::middlewares::workspace_context::workspace_access_middleware;
-use oxy_app::server::authz::Caller;
-use oxy_app::server::authz::role_guards::{WorkspaceAdmin, WorkspaceEditor};
 use oxy_auth::authenticator::Authenticator;
 use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, GrantSpec, NewToken};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{PlatformRole, RoleCeiling};
+use oxy_server_authz::Caller;
+use oxy_server_authz::role_guards::{WorkspaceAdmin, WorkspaceEditor};
+use oxy_workspace_runtime::request::workspace_context::workspace_access_middleware;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

@@ -78,10 +78,10 @@ use entity::users::UserStatus;
 use entity::workspace_members::WorkspaceRole;
 use entity::workspaces::WorkspaceStatus;
 use entity::{api_keys, api_tokens, organizations, users, workspaces};
-use oxy_app::api::middlewares::workspace_context::EffectiveWorkspaceRole;
 use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_auth::token::CredentialContext;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };

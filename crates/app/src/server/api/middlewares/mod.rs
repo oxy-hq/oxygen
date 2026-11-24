@@ -9,6 +9,7 @@
 // and were deleted in decompose SHM (2026-11-23).
 
 // The workspace middleware went down into `oxy-workspace-runtime::request`
-// (decompose W7, 2026-11-22); re-exported at its old path because `host`,
-// `oxy-server` and `tests/platform` still name it.
+// (decompose W7, 2026-11-22); re-exported at its old path because
+// `tests/platform` still names it (`host` and `oxy-server` stopped in decompose
+// RPT, 2026-11-24).
 pub use oxy_workspace_runtime::request::workspace_context;

@@ -12,10 +12,10 @@ use axum::routing::get;
 use axum::{Router, middleware};
 use chrono::{Duration, Utc};
 use oxy_api_identity::user_tokens::inventory::list_workspace_tokens;
-use oxy_app::server::api::middlewares::workspace_context::workspace_access_middleware;
 use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, NewToken};
 use oxy_authz::RoleCeiling;
+use oxy_workspace_runtime::request::workspace_context::workspace_access_middleware;
 use serde_json::{Value, json};
 use uuid::Uuid;
 

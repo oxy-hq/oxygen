@@ -656,7 +656,7 @@ async fn serve_application(
     // `budget_bytes = resolve_budget()` this block silently did nothing and the
     // gauges stayed lazy, which is the exact defect it was added to prevent.
     // Prod happened to be covered only because it runs at `info`.
-    let bundle_cache_budget_bytes = oxy_app::host::bundle_cache_budget();
+    let bundle_cache_budget_bytes = oxy_custom_apps::bundle_cache::resolve_budget();
     tracing::info!(
         target: "oxy.custom_app.bundle_cache",
         budget_bytes = bundle_cache_budget_bytes,
