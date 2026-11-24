@@ -172,6 +172,11 @@ AREAS = [
     ("crates/agentic/llm",                                "Agentic LLM client"),
     ("crates/semantic",                                   "Semantic model"),
     ("crates/agentic/semantic",                           "Semantic (agentic shim)"),
+    # The semantic surface, out of oxy-app into crates/api-semantic 2026-11-16
+    # (#4155); the old paths keep their history.
+    ("crates/api-semantic",                               "Semantic model"),
+    ("crates/app/src/server/api/semantic.rs",             "Semantic model"),
+    ("crates/app/src/server/api/semantic_scan.rs",        "Semantic model"),
     # The pre-aggregation runtime's domain half, 2026-11-20; the pre-extraction
     # paths keep their history (`preagg_promote.rs` followed as
     # `oxy_preagg::promote` the same day, the cycle's body as
@@ -255,6 +260,8 @@ AREAS = [
     # oxy-app into crates/api-eval 2026-11-20; the old path keeps its history.
     ("crates/api-eval",                                   "Evals (oxy dev test)"),
     ("crates/app/src/integrations/eval",                  "Evals (oxy dev test)"),
+    # The BIRD benchmark harness (#4204). generic_area() buckets at evals/<name>.
+    ("evals/bird",                                        "Evals (oxy dev test)"),
     ("crates/app/src/server/api/source_upload.rs",        "Source uploads"),
     # Schedules + the automation run surface, out of oxy-app 2026-11-15; the old
     # paths keep the scheduler's history attributed.
@@ -340,6 +347,9 @@ AREAS = [
     ("mobile/ios",                                        "Mobile apps (iOS/Android)"),
     ("mobile/android",                                    "Mobile apps (iOS/Android)"),
     ("mobile/design",                                     "Mobile apps (iOS/Android)"),
+    # The UI kit and theme (`@oxy-hq/sdk/ui`, Mars's) — before their parent.
+    ("sdk/typescript/src/ui",                             "SDK UI kit (@oxy-hq/sdk/ui)"),
+    ("sdk/typescript/src/theme",                          "SDK UI kit (@oxy-hq/sdk/ui)"),
     ("sdk/typescript",                                    "TypeScript SDK"),
     ("sdk/cli",                                           "oxyc CLI"),
     ("web-app/src/pages/context-graph",                   "Context graph (UI)"),

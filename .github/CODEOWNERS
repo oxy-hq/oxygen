@@ -225,10 +225,12 @@ internal-docs/partner-platform.md                  @luong-komorebi @NTtanh
 crates/api-github/                                 @luong-komorebi @NTtanh
 
 # oxyc — the `@oxy-hq/cli` HTTP-API client that replaced `oxy api` (#3016).
-# Mars backs up on the same reasoning as sdk/typescript below (client/SDK side);
-# nobody but Luong has committed here yet, so this is a generalist backup.
-sdk/cli/                                           @luong-komorebi @NTtanh
-internal-docs/oxy-api-cli.md                       @luong-komorebi @NTtanh
+# Tay backs up as of 2026-11-23 (was Mars, a generalist backup): he moved the
+# rust CLI's verbs onto it, each over a new route — airway (#4274), oltp
+# (#4271, #4291), airhouse rotate-sa (#4272), sync (#4293), looker test
+# (#4292), compile (#4309), evals (#4296), migrate-automations (#4270).
+sdk/cli/                                           @luong-komorebi @hotay
+internal-docs/oxy-api-cli.md                       @luong-komorebi @hotay
 
 # Build / CI / the deploy train.
 # (The LLM crates that used to sit here moved to Tay's section 2026-09-28 — the
@@ -263,6 +265,10 @@ internal-docs/apps-first-shell.md                  @luong-komorebi @NTtanh
 crates/infrastructure/semantic/                    @haitrr @luong-komorebi
 crates/semantic/                                   @haitrr @luong-komorebi
 crates/agentic/semantic/                           @haitrr @luong-komorebi
+# The semantic surface (`oxy-api-semantic`: semantic, scan and pre-agg routes),
+# out of crates/app/src/server/api/{semantic,semantic_scan,preagg}.rs on
+# 2026-11-16 (#4155); uncovered until 2026-11-23. Tay's commits are the extraction.
+crates/api-semantic/                               @haitrr @luong-komorebi
 # The pre-aggregation runtime's domain half (`oxy-preagg`), 2026-11-20: rollup
 # freshness, rebuild, retraction, the builder-generation sweep and the cycle
 # that drives them, out of crates/app/src/server/preagg_*.
@@ -359,6 +365,9 @@ crates/api-airway/                          @hotay @luong-komorebi
 # The eval context: `oxy dev test`, its event handler, reporters and engine, out of
 # crates/app (S10, 2026-11-20). Tay drove the eval harness, Luong backs up.
 crates/api-eval/                                   @hotay @luong-komorebi
+# The BIRD benchmark harness (#4204): FSM vs React analytics arms, semantic-only
+# arms and their reports. All Tay's, uncovered until 2026-11-23.
+evals/                                             @hotay @luong-komorebi
 
 # Agentic runtime + FSM framework
 crates/agentic/runtime/                            @hotay @luong-komorebi
@@ -477,6 +486,12 @@ crates/api-workspaces/                             @luong-komorebi @NTtanh
 # TypeScript SDK (Luong = bulk/releases; Mars = @oxy-hq/sdk/shell)
 sdk/typescript/                                    @luong-komorebi @NTtanh
 sdk/vite-plugin/                                   @luong-komorebi @NTtanh
+# The SDK's UI kit and theme (`@oxy-hq/sdk/ui`): the reference app's desk
+# components, the phone kit and the theme the shell reads (#3942, #4246, #4253,
+# #4337). Every commit in both dirs is Mars's, so he is primary here; kept below
+# sdk/typescript/ so this override wins (last match wins).
+sdk/typescript/src/ui/                             @NTtanh @luong-komorebi
+sdk/typescript/src/theme/                          @NTtanh @luong-komorebi
 
 # Deliberately UNOWNED — shared, no single reviewer (gating them would stall
 # everyone; the highest-volume committer only appears to "lead" them):
