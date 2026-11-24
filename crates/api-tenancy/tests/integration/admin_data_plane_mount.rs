@@ -68,6 +68,8 @@ async fn oltp_admin_routes_are_mounted_on_the_real_router() {
             "POST",
             format!("/admin/orgs/{org}/oltp/roles/app:probe/rotate"),
         ),
+        // Applying the workspace's schema migrations.
+        ("POST", format!("/admin/orgs/{org}/oltp/apply")),
         // Airhouse rides the same mount and would 404 the same way.
         ("GET", "/admin/airhouse".to_string()),
         (

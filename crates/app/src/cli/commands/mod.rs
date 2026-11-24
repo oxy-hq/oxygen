@@ -8,7 +8,6 @@ mod looker;
 pub(crate) mod migrate;
 mod migrate_agents;
 mod migrate_automations;
-pub mod oltp;
 pub mod run;
 mod sync;
 
@@ -89,12 +88,6 @@ pub enum SubCommand {
     /// in place and reported, unless `--force` drops the field. Never
     /// overwrites; collisions are reported. Run `--dry-run --json` first.
     MigrateAgents(MigrateAgentsArgs),
-
-    /// Per-org OLTP Postgres: apply a workspace's schema.
-    ///
-    /// Status, provisioning, credentials, deprovisioning, the confinement
-    /// audit and rotation are `oxyc oltp`.
-    Oltp(crate::cli::commands::oltp::OltpArgs),
 
     /// Moved to `oxyc looker test` (prints the command and exits 2)
     ///
@@ -425,12 +418,6 @@ pub async fn run(
                     );
                     exit(1)
                 }
-            }
-        }
-        SubCommand::Oltp(args) => {
-            if let Err(e) = crate::cli::commands::oltp::oltp(args).await {
-                eprintln!("{}", format!("{e}").error());
-                exit(1);
             }
         }
         SubCommand::Migrate => {

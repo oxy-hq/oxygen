@@ -697,6 +697,7 @@ oxyc oltp expose --org <slug|uuid|url> --writer app:<slug>|pipeline:<source> [--
 oxyc oltp deprovision --org <slug|uuid|url> [--writer app:<slug>|pipeline:<source>] --yes [--json]
 oxyc oltp audit --org <slug|uuid|url> [--json]
 oxyc oltp rotate --org <slug|uuid|url> --role app:<slug>|pipeline:<source> --yes [--json]
+oxyc oltp apply --org <slug|uuid|url> [--workspace <id>] --yes [--json]
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
@@ -735,6 +736,20 @@ shown (`--json` gives `{writer, role, schema}`), so it exits `8` without
 `--yes`. Only writers rotate; the analyst and the owner are re-minted by
 `provision`. Both are audited on the server, and both replaced the Rust `oxy
 oltp audit | rotate`, whose blanket exit `1` is now `9` / `8` / the table's.
+
+`apply` runs the workspace's compiled `schemas/*.sql` that the org's database
+has not run, as its owner, then re-grants every writer over its schema (so it
+also repairs `permission denied for table`). It reads the workspace's newest
+successful compile on the server, never a checkout; `--workspace` names it when
+the org has more than one (otherwise exit `6`). DDL is not undone, so it exits
+`8` without `--yes` and sends nothing. A migration that fails exits `9`,
+`--json` included (the server's body: `applied`, `already_applied`, `failed`,
+`ok`; `applied` names the files this call committed before the failure, which
+stay applied). Another apply holding the org's lock exits `7`, and so does an
+apply the server cut off after 50 seconds (`timed_out: true`, with `applied`
+naming what landed): a re-run resumes at the first file the database has not
+run. It is audited on the server (a row before the DDL and
+one after), and replaced the Rust `oxy oltp apply`.
 
 `provision` prints what it will create and asks first, because it calls a paid
 provider; without a terminal it refuses unless `--yes`. It is idempotent — an

@@ -76,6 +76,11 @@ where
         // an audit row — an act, never a read a prefetch may make.
         .route("/orgs/{org_id}/oltp/audit", post(audit))
         .route("/orgs/{org_id}/oltp/roles/{role}/rotate", post(rotate_role))
+        // Apply the workspace's compiled `schemas/*.sql` the database has not
+        // run, and re-grant every writer. Was `oxy oltp apply`. The body is
+        // all-optional (`{}` or `{"workspace_id": …}`), so the fence below
+        // answers before any extractor can.
+        .route("/orgs/{org_id}/oltp/apply", post(apply))
 }
 
 /// A connection, or a 500 that says which surface failed.
@@ -425,6 +430,61 @@ pub async fn rotate_role(
         out.is_ok(),
     )
     .await;
+    out
+}
+
+/// Apply the org's pending schema migrations (`oxy_oltp::api::apply`). Audited
+/// twice, before and after: it runs DDL as the tenant's OWNER, which no later
+/// call undoes. The second row names the workspace, the revision and the files
+/// (those that committed before a failure included), and a migration that failed is a
+/// FAILED entry although the handler answers 200 — its verdict is in the body,
+/// and `out.is_ok()` alone would log a failed apply as a success.
+pub async fn apply(
+    user: oxy_app_core::audit::RequestActor,
+    Path(org_id): Path<Uuid>,
+    Json(body): Json<oxy_oltp::api::apply::ApplyRequest>,
+) -> Result<Json<oxy_oltp::api::apply::ApplyResponse>, (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    scope::deny_out_of_scope(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+    let requested = body.workspace_id;
+    // Before the DDL, not only after: if this request dies mid-apply (a pod
+    // restart, a dropped connection), files it committed stay on the
+    // customer's database, and this row is the trace that someone ran it.
+    audit_oltp(
+        &db,
+        &user,
+        org_id,
+        "oltp.migrations.apply_started",
+        serde_json::json!({ "workspace_id": requested }),
+        true,
+    )
+    .await;
+    let out = oxy_oltp::api::apply::apply(
+        AuthenticatedUserExtractor(user.user.clone()),
+        Path(org_id),
+        Json(body),
+    )
+    .await;
+    let metadata = match &out {
+        Ok(Json(a)) => serde_json::json!({
+            "workspace_id": a.workspace_id,
+            "revision_id": a.revision_id,
+            "applied": a.applied,
+            "already_applied": a.already_applied,
+            "failed": a.failed.as_ref().map(|f| f.file_path.clone()),
+            "timed_out": a.timed_out,
+        }),
+        // The status says which; a 504 here is a budget spent before any
+        // DDL ran (one cut off mid-apply is a body, above).
+        Err((status, _)) => serde_json::json!({
+            "workspace_id": requested,
+            "status": status.as_u16(),
+        }),
+    };
+    let ok = out.as_ref().is_ok_and(|Json(a)| a.ok);
+    audit_oltp(&db, &user, org_id, "oltp.migrations.applied", metadata, ok).await;
     out
 }
 

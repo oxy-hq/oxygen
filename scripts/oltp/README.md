@@ -29,10 +29,8 @@ denial against a real Postgres.
 ## Set it up by hand
 
 There is no demo script: the verbs are `oxyc oltp` (over the running server's
-admin routes, so they need `oxyc login` or `OXY_TOKEN` and `--env`/`--target`)
-plus the Rust `oxy oltp apply | audit | rotate`, which still read
-`OXY_DATABASE_URL` directly. `--org` takes a slug or UUID for `oxyc`, and a UUID
-or a member's email for `oxy`. Start the stack the normal way
+admin routes, so they need `oxyc login` or `OXY_TOKEN` and `--env`/`--target`).
+`--org` takes a slug or UUID. Start the stack the normal way
 (`oxy start --enterprise`) and point at the local provider:
 
 ```bash
@@ -51,7 +49,7 @@ oxyc oltp provision --target http://localhost:3000 --org <org-slug> --writer app
 
 # 2. compile the workspace, then apply the schemas it carries
 oxy compile --workspace-path "$PWD/examples" --workspace-id <ws> --skip-migrations
-oxy oltp apply --org you@oxy.tech
+oxyc oltp apply --target http://localhost:3000 --org <org-slug> --yes   # exit 9 if a migration fails
 
 # 3. `raw_*` is analyst-readable on creation; `app_*` is opt-in
 oxyc oltp expose --target http://localhost:3000 --org <org-slug> --writer app:bookings
@@ -71,7 +69,7 @@ deprovisions without a terminal.
 
 | Path | What it is |
 | --- | --- |
-| `examples/schemas/000*.sql` | The migrations `oxy oltp apply` runs — bookings tables, a Toast raw table, and demo orders. |
+| `examples/schemas/000*.sql` | The migrations `oxyc oltp apply` runs — bookings tables, a Toast raw table, and demo orders. |
 | `examples/oltp_semantics/views/*.view.yml` | Semantic views over `app_bookings` and `raw_toast`, so the agent can be asked questions. |
 | `examples/oltp.agentic.yml` | An analytics agent scoped to those views only — no warehouse credentials needed. |
 | `examples/pipelines/oltp_toast.airway.yml` | An Airway pipeline whose destination is `database: oltp`, i.e. its own writer. |

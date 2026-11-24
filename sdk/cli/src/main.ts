@@ -91,8 +91,8 @@ import {
   runOltpDsn,
   runOltpExpose
 } from "./commands/oltp-access.js";
-import { runOltpAudit, runOltpRotate } from "./commands/oltp-audit.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
+import { registerOltpOwnerVerbs } from "./commands/oltp-cli.js";
 import {
   runPreviewChecks,
   runPreviewCreate,
@@ -468,7 +468,7 @@ function buildProgram(): Command {
   const oltp = program
     .command("oltp")
     .description(
-      "an org's OLTP database (ctx.oltp) — status, provisioning, credentials, analytics exposure, deprovisioning, the confinement audit, rotation and its staging branch, for staff"
+      "an org's OLTP database (ctx.oltp) — status, provisioning, credentials, analytics exposure, deprovisioning, the confinement audit, rotation, schema migrations and its staging branch, for staff"
     );
 
   withGlobals(
@@ -591,35 +591,7 @@ function buildProgram(): Command {
     });
   });
 
-  withGlobals(
-    oltp
-      .command("audit")
-      .description(
-        "every role's real authority in the org's database, and its grants outside its own schema — exit 9 on a violation"
-      )
-      .option("--json", "emit the server's report (still exits 9 on a violation)")
-  ).action(async (opts: Record<string, unknown>) => {
-    await runOltpAudit(createContext(globals(opts)), opts.org as string | undefined, {
-      json: opts.json as boolean | undefined
-    });
-  });
-
-  withGlobals(
-    oltp
-      .command("rotate")
-      .description(
-        "rotate a writer's password and reseal it (--role <w> --yes) — the old one stops working at once"
-      )
-      .option("--role <app:slug|pipeline:source>", "the writer to rotate (required)")
-      .option("--yes", "required: without it nothing is sent (exit 8)")
-      .option("--json", "emit the server's response: {writer, role, schema}")
-  ).action(async (opts: Record<string, unknown>) => {
-    await runOltpRotate(createContext(globals(opts)), opts.org as string | undefined, {
-      role: opts.role as string | undefined,
-      yes: opts.yes as boolean | undefined,
-      json: opts.json as boolean | undefined
-    });
-  });
+  registerOltpOwnerVerbs(oltp, { withGlobals, globals });
 
   const airhouse = program
     .command("airhouse")

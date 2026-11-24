@@ -146,6 +146,47 @@ pub async fn apply_to_org(
     tenant_row_id: Uuid,
     owner_role: &str,
 ) -> Result<MigrateOutcome, MigrateError> {
+    let mut outcome = MigrateOutcome::default();
+    let target = ApplyTarget {
+        org_id,
+        revision_id,
+        owner_dsn,
+        tenant_row_id,
+        owner_role,
+    };
+    apply_into(control, &target, &mut outcome).await?;
+    Ok(outcome)
+}
+
+/// Which tenant, which revision, and the owner credential to run it as — the
+/// arguments [`apply_to_org`] takes, as one value.
+pub struct ApplyTarget<'a> {
+    pub org_id: Uuid,
+    pub revision_id: Uuid,
+    pub owner_dsn: &'a str,
+    pub tenant_row_id: Uuid,
+    pub owner_role: &'a str,
+}
+
+/// The apply itself, recording each file in `outcome` as it lands.
+///
+/// Public for the staff route (`api::apply`), which owns `outcome` OUTSIDE
+/// the future it times out: files this call committed are owner-level DDL on
+/// a customer's database, and the route has to report and audit them whether
+/// the apply finished, failed on a later file, or ran out of time.
+#[instrument(skip(control, target, outcome), fields(org_id = %target.org_id, revision_id = %target.revision_id))]
+pub async fn apply_into(
+    control: &DatabaseConnection,
+    target: &ApplyTarget<'_>,
+    outcome: &mut MigrateOutcome,
+) -> Result<(), MigrateError> {
+    let ApplyTarget {
+        org_id,
+        revision_id,
+        owner_dsn,
+        tenant_row_id,
+        owner_role,
+    } = *target;
     let tenant = tenant_for_org(control, org_id).await?;
     let analyst_role = crate::schema::analyst_role_for(&tenant.provider, &tenant.database_name);
     let pending = entity::schema_migration_definitions::Entity::find()
@@ -194,8 +235,6 @@ pub async fn apply_to_org(
         .into_iter()
         .map(|r| (r.get("file_path"), r.get("checksum")))
         .collect();
-
-    let mut outcome = MigrateOutcome::default();
 
     for m in pending {
         match applied.get(&m.file_path) {
@@ -275,7 +314,7 @@ pub async fn apply_to_org(
         .execute("SELECT pg_advisory_unlock($1)", &[&lock_key])
         .await;
 
-    Ok(outcome)
+    Ok(())
 }
 
 /// Re-grant every writer over its schema, covering objects a migration created.

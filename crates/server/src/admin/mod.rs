@@ -129,6 +129,7 @@ use oxy_server_authz::platform_cap_guard;
 ///   - POST   /admin/orgs/{org_id}/oltp/branches/{branch}/reset
 ///   - POST   /admin/orgs/{org_id}/oltp/audit
 ///   - POST   /admin/orgs/{org_id}/oltp/roles/{role}/rotate
+///   - POST   /admin/orgs/{org_id}/oltp/apply
 ///
 /// Admin routes. The outer nest layer in `router::global` is the **door**
 /// (`oxy_owner_or_app_admin_guard`): it answers "are you Oxy staff at all". Each

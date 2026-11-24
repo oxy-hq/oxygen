@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Tables are NOT created here. `schemas/*.sql` owns them, applied by
-    // `oxy oltp apply` — a table created by the writer cannot later be altered
+    // `oxyc oltp apply` — a table created by the writer cannot later be altered
     // by a migration, because migrations run as the database owner.
 
     // 4. The analyst login `postgres_managed` resolves to.

@@ -31,6 +31,7 @@
 //!   - POST   /admin/orgs/{org_id}/oltp/branches/{branch}/reset
 //!   - POST   /admin/orgs/{org_id}/oltp/audit
 //!   - POST   /admin/orgs/{org_id}/oltp/roles/{role}/rotate
+//!   - POST   /admin/orgs/{org_id}/oltp/apply
 
 pub mod airhouse;
 pub mod oltp;

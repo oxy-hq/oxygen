@@ -674,6 +674,8 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
                 // OWNER; a rotation re-mints one writer's password.
                 "audit",
                 "rotate_role",
+                // Runs DDL as the tenant's OWNER.
+                "apply",
             ],
         ),
         (

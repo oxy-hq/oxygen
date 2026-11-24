@@ -9,6 +9,7 @@
 //! which resolves the read-only analyst server-side.
 
 pub mod admin;
+pub mod apply;
 pub mod branches;
 pub mod confinement;
 pub mod erd;
