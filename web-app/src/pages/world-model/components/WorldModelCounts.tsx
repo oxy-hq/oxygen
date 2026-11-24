@@ -1,6 +1,6 @@
 import { cn } from "@/libs/shadcn/utils";
 import type { WorldModel } from "@/types/worldModel";
-import { worldModelCounts } from "./previewLayout";
+import { worldModelCounts } from "../counts";
 
 const COUNT_LABELS = {
   entities: ["entity", "entities"],
@@ -10,8 +10,7 @@ const COUNT_LABELS = {
 
 /**
  * The world model's three counts, figure first: "19 entities  19 connections  64
- * measures". On the home's card and the world model page, so the two say it the
- * same way.
+ * measures", under the page's heading.
  */
 export function WorldModelCounts({ model, className }: { model: WorldModel; className?: string }) {
   const counts = worldModelCounts(model);

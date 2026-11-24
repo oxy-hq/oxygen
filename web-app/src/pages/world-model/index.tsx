@@ -2,11 +2,18 @@ import { Card } from "@/components/ui/shadcn/card";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useWorldModel } from "@/hooks/api/useWorldModel";
 import { cn } from "@/libs/shadcn/utils";
-import { worldModelTitle } from "@/pages/launcher/CustomerHome/components/WorldModelCard";
-import { WorldModelCounts } from "@/pages/launcher/CustomerHome/components/WorldModelCard/WorldModelCounts";
-import { HOME_CONTAINER } from "@/pages/launcher/CustomerHome/layout";
+import { possessive } from "@/libs/utils/possessive";
 import useCurrentOrg from "@/stores/useCurrentOrg";
+import { WorldModelCounts } from "./components/WorldModelCounts";
 import { WorldModelExplorer } from "./components/WorldModelExplorer";
+
+/** The frame the page sits in, so a banner above it lines up with the content. */
+const PAGE_CONTAINER = "mx-auto w-full max-w-7xl px-6";
+
+/** The page's heading. */
+function worldModelTitle(orgName?: string) {
+  return orgName ? `How ${possessive(orgName)} data fits together` : "How your data fits together";
+}
 
 /**
  * The world model a customer can open from the home: the entities their company's
@@ -20,12 +27,10 @@ export default function CustomerWorldModelPage() {
   const { data: model, isLoading, error } = useWorldModel();
   const ready = !!model && model.entities.length > 0;
 
-  // The home's container and type, so the page keeps the home's edges and the
-  // card's title becomes this page's heading. The map sits in one bordered card,
-  // as it does on the home.
+  // The map sits in one bordered card.
   return (
     <div className='flex h-full min-h-0 flex-col overflow-auto' data-testid='customer-world-model'>
-      <header className={cn(HOME_CONTAINER, "flex flex-col gap-4 pt-10 pb-6")}>
+      <header className={cn(PAGE_CONTAINER, "flex flex-col gap-4 pt-10 pb-6")}>
         <div className='flex flex-col gap-1'>
           <h1 className='font-medium text-2xl tracking-tight sm:text-3xl'>
             {worldModelTitle(org?.name)}
@@ -37,7 +42,7 @@ export default function CustomerWorldModelPage() {
         </div>
         {ready && <WorldModelCounts model={model} />}
       </header>
-      <div className={cn(HOME_CONTAINER, "flex min-h-0 flex-1 flex-col pb-10")}>
+      <div className={cn(PAGE_CONTAINER, "flex min-h-0 flex-1 flex-col pb-10")}>
         <Card className='flex min-h-96 flex-1 flex-col overflow-hidden shadow-none'>
           {isLoading ? (
             <div className='flex flex-1 items-center justify-center'>

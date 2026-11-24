@@ -759,18 +759,6 @@ const notificationKeys = {
   devices: () => [...notificationKeys.all, "devices"] as const
 };
 
-// Each app's live cards on the home, for the signed-in person in one org.
-const homeWidgetKeys = {
-  all: ["home-widgets"] as const,
-  list: (orgSlug: string) => [...homeWidgetKeys.all, orgSlug] as const
-};
-
-// The signed-in person's own choices about the home in one org: hidden copies, whether Today shows.
-const homePreferenceKeys = {
-  all: ["home-preferences"] as const,
-  get: (orgSlug: string) => [...homePreferenceKeys.all, orgSlug] as const
-};
-
 const internalJobsKeys = {
   all: ["admin", "internal-jobs"] as const,
   queueStats: () => [...internalJobsKeys.all, "queue-stats"] as const,
@@ -1273,8 +1261,6 @@ const queryKeys = {
   featureFlags: featureFlagKeys,
   usageReport: usageReportKeys,
   notifications: notificationKeys,
-  homeWidgets: homeWidgetKeys,
-  homePreferences: homePreferenceKeys,
   internalJobs: internalJobsKeys,
   compiles: compilesKeys,
   compile: compileKeys,

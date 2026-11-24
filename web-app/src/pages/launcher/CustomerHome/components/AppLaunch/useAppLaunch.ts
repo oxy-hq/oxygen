@@ -26,7 +26,7 @@ function morph(direction: "open" | "close", update: () => void) {
   // The browser skips the animation when the tab is hidden (a press that
   // navigates away does exactly that) and rejects `ready` to say so. `update`
   // still runs and `finished` still settles, so there is nothing to report:
-  // unhandled, it reached Sentry as an error (as `useTodayHint`'s once did).
+  // unhandled, it reached Sentry as an error (as the old home's Today hint did).
   transition.ready.catch(() => undefined);
   transition.finished.then(done, done);
   return transition;

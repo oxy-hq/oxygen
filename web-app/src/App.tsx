@@ -18,7 +18,7 @@ import AirwayPage from "@/pages/airway";
 import AutomationPage from "@/pages/automation";
 import AutomationsListPage from "@/pages/automation/AutomationsListPage";
 import ChatPage from "@/pages/chat";
-import LauncherPage from "@/pages/launcher";
+import CustomerHome from "@/pages/launcher/CustomerHome";
 import ThreadPage from "@/pages/thread";
 import CustomerWorldModelPage from "@/pages/world-model";
 import { AdminRedirect } from "./pages/admin/components/AdminRedirect";
@@ -370,9 +370,9 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: Wor
       <SettingsDialog />
       <WorkspaceShell>
         <Routes>
-          <Route index element={<LauncherPage />} />
+          <Route index element={<CustomerHome />} />
 
-          <Route path='home' element={<LauncherPage />} />
+          <Route path='home' element={<CustomerHome />} />
           {/* The rail "Chat" button lands here — a composer + recent threads
               (replacing the old bulk threads-management list). */}
           <Route path='threads' element={<ChatPage />} />

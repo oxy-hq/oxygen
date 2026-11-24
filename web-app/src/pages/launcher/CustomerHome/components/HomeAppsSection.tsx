@@ -2,9 +2,9 @@ import { useState } from "react";
 import { eyebrow } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomAppSummary } from "@/types/apps";
-import { FirstAppsOnTheirWay } from "../FirstAppsOnTheirWay";
 import { AppPreview } from "./AppPreview";
 import { type AppSort, AppsSort, sortApps } from "./AppsSort";
+import { FirstAppsOnTheirWay } from "./FirstAppsOnTheirWay";
 
 /**
  * The home's apps: the eyebrow with the sort at its right end, then every app the

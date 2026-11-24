@@ -5,7 +5,7 @@ import { focusRing, textBase, textSm, tile } from "@/components/ui/reference/tok
 import { cn } from "@/libs/shadcn/utils";
 import { prefetchApp } from "@/libs/utils/prefetchApp";
 import type { CustomAppSummary } from "@/types/apps";
-import { appFreshnessLine } from "../../../components/appFreshness";
+import { appFreshnessLine } from "../../components/appFreshness";
 import { useCutLines } from "./useCutLines";
 
 /** A press answers in place: the card shrinks a hair while its link is held. */

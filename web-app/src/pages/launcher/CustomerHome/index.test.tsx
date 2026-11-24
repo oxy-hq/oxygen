@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomAppSummary } from "@/types/apps";
-import HomeV4 from "./HomeV4";
+import CustomerHome from ".";
 
 /**
  * The home, direction A: a greeting and the apps as preview cards,
@@ -75,7 +75,7 @@ vi.mock("@/components/Notifications/NoticeList", () => ({
 const renderHome = () =>
   render(
     <MemoryRouter>
-      <HomeV4 />
+      <CustomerHome />
     </MemoryRouter>
   );
 const cardOrder = () =>
