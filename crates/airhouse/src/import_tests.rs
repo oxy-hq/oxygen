@@ -364,9 +364,27 @@ async fn an_unreadable_file_is_a_read_error() {
 /// reader failed there (`could not read the file: out is null`) while CSV,
 /// which is built in, loaded. The `parquet` feature on the workspace's
 /// `duckdb` links it in; this fails if that feature is dropped.
+///
+/// The connection gets an empty extension directory of its own. Listing
+/// `duckdb_extensions()` reads the `.info` file of every extension in that
+/// directory, and other test binaries (`agentic-semantic`'s preagg probe
+/// among them) run `INSTALL httpfs` into the shared
+/// `~/.duckdb/extensions` at the same time: an install holds a write lock on
+/// its `httpfs.duckdb_extension.tmp-<uuid>…info`, and a listing that reached
+/// that file failed with "Could not set lock on file … Conflicting lock is
+/// held". An empty directory is also the pod's case this test stands for: no
+/// cache to load parquet from, so `STATICALLY_LINKED` is the only way it can
+/// be there.
 #[test]
 fn the_parquet_reader_is_linked_in_not_downloaded() {
-    let conn = duckdb::Connection::open_in_memory().unwrap();
+    let extensions = tempfile::tempdir().unwrap();
+    let config = duckdb::Config::default()
+        .with(
+            "extension_directory",
+            extensions.path().to_str().expect("utf-8 temp path"),
+        )
+        .unwrap();
+    let conn = duckdb::Connection::open_in_memory_with_flags(config).unwrap();
     let mode: String = conn
         .query_row(
             "SELECT install_mode FROM duckdb_extensions() WHERE extension_name = 'parquet'",
