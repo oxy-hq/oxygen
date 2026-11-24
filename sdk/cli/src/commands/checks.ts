@@ -85,6 +85,27 @@ interface RunDetail {
   error?: string | null;
   /** New with sandboxes: null until the run starts. */
   invocation_id?: string | null;
+  /** The run's durable-queue entry. Absent from a deployment that predates it. */
+  queue?: RunQueueEntry | null;
+}
+
+/**
+ * `FunctionRunDetail.queue` — the queue entry the run's status came from.
+ *
+ * This is the only thing that distinguishes "the function failed and said
+ * nothing" from "nothing ever ran the function". A task that exhausts
+ * `max_claims` is dead-lettered, the server maps a `dead` entry to run status
+ * `failed`, and the run row carries no error because no attempt ever reported
+ * one. `failureMessage` reads it for exactly that case.
+ */
+interface RunQueueEntry {
+  /** `queued` | `claimed` | `completed` | `dead`. */
+  status?: string | null;
+  claim_count?: number | null;
+  max_claims?: number | null;
+  queued_at?: string | null;
+  last_heartbeat?: string | null;
+  updated_at?: string | null;
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(["done", "failed", "cancelled", "timed_out"]);
@@ -337,12 +358,51 @@ function parsesToOkFalse(answer: string | null | undefined): boolean {
   );
 }
 
+/**
+ * Why a dead-lettered run has no error, or `undefined` if that is not what
+ * happened.
+ *
+ * `status failed` on a run that recorded nothing is the one failure this
+ * command used to report as a bare status, and it is the one where the status
+ * is actively misleading: the function neither ran nor failed. Its task was
+ * claimed, its worker stopped heartbeating, the reaper requeued it, and on the
+ * `max_claims`-th time there was nothing left to retry with. Nobody can act on
+ * that without the claim count and the two timestamps that bracket the
+ * disappearance — the last heartbeat and the dead-letter — which is what a
+ * release gate's one red line has to carry.
+ */
+function deadLetterMessage(queue: RunQueueEntry | null | undefined): string | undefined {
+  if (queue?.status !== "dead") return undefined;
+  const claims =
+    typeof queue.claim_count === "number" && typeof queue.max_claims === "number"
+      ? `after ${queue.claim_count} of ${queue.max_claims} claims`
+      : "after exhausting its claims";
+  // Each one is the evidence for a different question: queued/dead-lettered is
+  // how long it sat, last heartbeat is when the instance holding it went away.
+  const stamps: [string, string | null | undefined][] = [
+    ["queued", queue.queued_at],
+    ["last heartbeat", queue.last_heartbeat],
+    ["dead-lettered", queue.updated_at]
+  ];
+  const when = stamps.flatMap(([label, at]) => (at ? [`${label} ${at}`] : [])).join(", ");
+  const detail = when ? ` (${when})` : "";
+  return (
+    `dead-lettered ${claims}: every worker that claimed it stopped heartbeating, so the ` +
+    `function never ran to a verdict — this is the worker fleet, not the app${detail}`
+  );
+}
+
 function failureMessage(detail: RunDetail, answerFailed: boolean, timeoutSeconds: number): string {
   if (detail.error) return detail.error;
   if (detail.status === "timed_out") return `timed out after ${timeoutSeconds}s`;
   if (answerFailed) return `answer reported "ok": false`;
   if (detail.status === "cancelled") return "run cancelled";
-  return `status ${detail.status}`;
+  // No error on the run is itself a fact about the run, so say which fact it
+  // is. `error_kind` cannot help here: it lives on the invocation, and a run
+  // that never executed wrote none.
+  const deadLettered = deadLetterMessage(detail.queue);
+  if (deadLettered) return deadLettered;
+  return `status ${detail.status}, and the run recorded no error`;
 }
 
 function printResultLine(result: CheckResult | BrowserCheckResult): void {
@@ -352,6 +412,12 @@ function printResultLine(result: CheckResult | BrowserCheckResult): void {
     process.stderr.write(`${err.green("✓")} ${result.name} ${seconds}\n`);
     return;
   }
-  const reason = (result.error ?? result.status).slice(0, 200);
+  // 400, not the 200 this started at. The cap is there so a function that
+  // throws a stack trace does not own the terminal; it is not there to clip a
+  // reason this command built. The dead-letter message runs to ~280 with its
+  // three timestamps, and truncating it drops exactly the part an operator
+  // correlates against a worker rollout. A real function error over 400 is
+  // still in `--json` and in the run's logs.
+  const reason = (result.error ?? result.status).slice(0, 400);
   process.stderr.write(`${err.red("✗")} ${result.name} failed: ${reason}\n`);
 }

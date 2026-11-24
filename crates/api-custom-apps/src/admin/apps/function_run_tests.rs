@@ -113,3 +113,55 @@ fn ownership_guard_matches_only_this_apps_function_runs() {
     ));
     assert!(!run_belongs_to_app(None, &format!("fn:{app}/x"), app));
 }
+
+/// The dead-letter story the status cannot tell. `effective_run_status` maps a
+/// `dead` entry to `failed` (above), and the run row has no error because no
+/// attempt ever reported one — so the projected queue entry is the only thing
+/// in the response that says why. The two surviving timestamps must survive
+/// the projection; the reaper nulls `worker_id` and `claimed_at`, which is why
+/// neither is projected.
+#[test]
+fn a_dead_queue_entry_projects_the_claims_and_the_timestamps() {
+    use super::FunctionRunQueueEntry;
+    use chrono::{DateTime, Utc};
+
+    let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap().fixed_offset();
+    let queued = at("2026-11-23T10:00:02Z");
+    let heartbeat = at("2026-11-23T10:03:11Z");
+    let reaped = at("2026-11-23T10:04:30Z");
+
+    let entry = agentic_runtime::orchestrator::entity::task_queue::Model {
+        task_id: "task-1".to_string(),
+        run_id: "run-1".to_string(),
+        parent_task_id: None,
+        root_task_id: "task-1".to_string(),
+        queue_status: "dead".to_string(),
+        spec: json!({}),
+        policy: None,
+        // Cleared by the reaper's dead-letter UPDATE, hence not projected.
+        worker_id: None,
+        last_heartbeat: Some(heartbeat),
+        claimed_at: None,
+        visibility_timeout_secs: 60,
+        claim_count: 3,
+        claim_epoch: 3,
+        max_claims: 3,
+        scope_owned: false,
+        available_at: queued,
+        first_deferred_at: None,
+        retry_attempt: 0,
+        created_at: queued,
+        updated_at: reaped,
+    };
+
+    let projected = FunctionRunQueueEntry::of(&entry);
+    assert_eq!(projected.status, "dead");
+    assert_eq!(projected.claim_count, 3);
+    assert_eq!(projected.max_claims, 3);
+    assert_eq!(projected.queued_at, queued.with_timezone(&Utc));
+    assert_eq!(
+        projected.last_heartbeat,
+        Some(heartbeat.with_timezone(&Utc))
+    );
+    assert_eq!(projected.updated_at, reaped.with_timezone(&Utc));
+}

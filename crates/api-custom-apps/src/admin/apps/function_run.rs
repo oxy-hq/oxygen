@@ -47,7 +47,58 @@ pub struct FunctionRunDetail {
     /// when it did not fail, and when it was recorded before the kind was
     /// stored. `error` above is the run's own message and is unchanged.
     pub error_kind: Option<String>,
+    /// The durable-queue entry behind the run, when it still has one. See
+    /// [`FunctionRunQueueEntry`] — it is what a `failed` status with no
+    /// `error` means.
+    pub queue: Option<FunctionRunQueueEntry>,
     pub logs: Vec<FunctionRunLogLine>,
+}
+
+/// The run's `agentic_task_queue` entry: where its status came from when the
+/// run row itself says nothing.
+///
+/// A task whose claims are all abandoned is dead-lettered once it has spent
+/// `max_claims` ([`agentic_runtime::crud::reap_stale_tasks`]), and
+/// [`effective_run_status`] reports that as `failed`. The function never
+/// failed — nothing executed it to a verdict — so `error` is `None` and
+/// `error_kind` is too (there is no invocation to carry one). Without these
+/// fields the status is the whole answer, and it is the wrong one: it reads as
+/// the app's fault when the worker fleet is at fault. Caller-side, that is the
+/// difference between `oxyc checks run` printing `status failed` and printing a
+/// cause.
+///
+/// The reaper clears `worker_id` and `claimed_at` on the row it dead-letters,
+/// so neither is here: they are `NULL` in exactly the case these fields exist
+/// for. `last_heartbeat` survives, and with `updated_at` it brackets when the
+/// instance went away — the pair to line up against a worker rollout.
+#[derive(Debug, Serialize)]
+pub struct FunctionRunQueueEntry {
+    /// `queued` | `claimed` | `completed` | `dead`. `dead` is retries spent.
+    pub status: String,
+    /// Claims spent. Equal to `max_claims` on a `dead` entry.
+    pub claim_count: i32,
+    pub max_claims: i32,
+    /// When the task was enqueued.
+    pub queued_at: DateTime<Utc>,
+    /// The last heartbeat from a claim holder — the reaper's evidence that the
+    /// instance died or detached. `None` for a task no worker ever claimed.
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    /// When the entry last changed: on a `dead` entry, when it was
+    /// dead-lettered.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl FunctionRunQueueEntry {
+    fn of(entry: &agentic_runtime::orchestrator::entity::task_queue::Model) -> Self {
+        Self {
+            status: entry.queue_status.clone(),
+            claim_count: entry.claim_count,
+            max_claims: entry.max_claims,
+            queued_at: entry.created_at.with_timezone(&Utc),
+            last_heartbeat: entry.last_heartbeat.map(|t| t.with_timezone(&Utc)),
+            updated_at: entry.updated_at.with_timezone(&Utc),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -235,12 +286,15 @@ pub(crate) async fn detail(
     // Report queued-vs-running honestly: a background job is only executing once
     // a worker has claimed its queue task. Otherwise a run sitting in the queue
     // (e.g. no global worker draining it) reads as a perpetual "running" spinner.
-    let queue_status = agentic_runtime::crud::get_queue_entry(db, run_id)
+    let queue_entry = agentic_runtime::crud::get_queue_entry(db, run_id)
         .await
         .ok()
-        .flatten()
-        .map(|q| q.queue_status);
-    let status = effective_run_status(run.task_status.as_deref(), queue_status.as_deref());
+        .flatten();
+    let status = effective_run_status(
+        run.task_status.as_deref(),
+        queue_entry.as_ref().map(|q| q.queue_status.as_str()),
+    );
+    let queue = queue_entry.as_ref().map(FunctionRunQueueEntry::of);
     let trigger = run
         .metadata
         .as_ref()
@@ -262,6 +316,7 @@ pub(crate) async fn detail(
         answer: run.answer,
         error: run.error_message,
         error_kind,
+        queue,
         logs: log_lines(events),
     })
 }
