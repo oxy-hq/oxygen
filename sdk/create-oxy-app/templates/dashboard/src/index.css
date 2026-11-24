@@ -1,0 +1,39 @@
+/* The app's own CSS, after the SDK's three stylesheets (`src/main.tsx`). The
+   palette, the type scale and light/dark are the SDK's: read its tokens
+   (`var(--card)`, `var(--muted-foreground)`) and restate none of them here.
+   `tests/design-system.test.ts` holds this file to that with the SDK's guard. */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* The page: one column, the pieces stacked with one gap. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.page h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}

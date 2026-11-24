@@ -584,7 +584,7 @@ jobs:
     # Warp arm64 like the other test jobs: this one does four real pnpm
     # installs, which is the slow part.
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
-    # Four scaffolds x (install + tsc + vite build) is ~4-6m warm; 25m covers a
+    # Four scaffolds x (install + tsc + vite build + vitest) is ~4-6m warm; 25m covers a
     # cold pnpm store.
     timeout-minutes: 25
     steps:
@@ -605,7 +605,7 @@ jobs:
         run: >-
           pnpm --filter @oxy-hq/sdk --filter @oxy-hq/vite-plugin
           --filter @oxy-hq/create-oxy-app build
-      - name: Scaffold, install and build every template
+      - name: Scaffold, install, build and test every template
         run: node scripts/ci/verify-templates.mjs
 
   # Node strips types at load and does NOT check them, so a `.ts` script in

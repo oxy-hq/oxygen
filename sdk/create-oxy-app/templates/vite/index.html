@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{APP_DISPLAY_NAME}}</title>
   </head>
-  <!-- All styling comes from Tailwind (src/index.css, imported by src/main.tsx).
-       The inline background avoids a white flash before the CSS loads. -->
-  <body class="h-screen w-screen overflow-hidden bg-background text-foreground" style="background: #0a0a0a">
-    <div id="root" class="h-full w-full"></div>
+  <!-- Styling comes from the SDK's stylesheets and src/index.css, imported by
+       src/main.tsx. Light or dark is the person's one Oxygen-wide choice: the
+       pre-paint vite.config.ts puts in <head> applies it before the first paint. -->
+  <body>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

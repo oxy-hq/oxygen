@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Scaffold every create-oxy-app template and prove it installs and builds.
+// Scaffold every create-oxy-app template and prove it installs, builds and
+// passes its own tests (the design-system checks among them).
 //
 // Nothing else in CI touches `sdk/create-oxy-app/templates/**`: they are not
 // pnpm workspace packages, so turbo never sees them, and until recently the
@@ -15,10 +16,18 @@
 // next publish will produce — so resolving against the registry would make
 // this job fail for a release-ordering reason rather than a template defect.
 // The range-vs-repo check below covers that axis statically instead.
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dirname, "../..");
 const TEMPLATES_DIR = join(REPO, "sdk/create-oxy-app/templates");
@@ -53,15 +62,27 @@ const LOCAL_PACKAGES = {
 //
 // The list is self-cleaning: a template that starts passing while still listed
 // fails the job, so an entry cannot outlive the bug it documents.
-const KNOWN_BROKEN = {
-  dashboard:
-    "imports `useOxy` from @oxy-hq/sdk, which no longer exists. It wants an " +
-    "OxyClient handle (`sdk.anomalies.list`, `sdk.metricTree.*`); the only " +
-    "React entry point the SDK exposes now is `useOxyApp()`, which returns " +
-    "{ projectId, appSlug, orgSlug, fetcher } and no client. MetricTreeClient's " +
-    "own doc says construction is internal to OxyClient, so reconnecting this " +
-    "is an SDK API decision rather than a template edit."
+const KNOWN_BROKEN = {};
+
+// The no-copy check every template's own `pnpm test` carries
+// (`checkSdkUiCopies()` from `@oxy-hq/sdk/testing`, run by
+// `tests/design-system.test.ts`), proved to FAIL in each scaffold, not only to
+// pass: a planted local copy of an SDK piece must fail the test with a message
+// naming the import to use, the same copy allow-listed with a reason must pass,
+// and with the plant removed the test must pass again. A guard that exits 0 on
+// a copy is the expensive kind of green.
+const PLANT = {
+  path: "src/components/SidePanel.tsx",
+  copy: "export function SidePanel() {\n  return null;\n}\n",
+  allowed:
+    "// oxy-ui-local: SidePanel -- a planted variant, to prove the allow-list\n" +
+    "export function SidePanel() {\n  return null;\n}\n",
+  message: 'import { SidePanel } from "@oxy-hq/sdk/ui"'
 };
+
+// `node scripts/ci/verify-templates.mjs vite functions` runs only those, for a
+// local loop. CI names none and runs every template.
+const ONLY = process.argv.length > 2 ? new Set(process.argv.slice(2)) : null;
 
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 
@@ -73,6 +94,7 @@ const templates = () =>
   readdirSync(TEMPLATES_DIR, { withFileTypes: true })
     .filter((e) => e.isDirectory() && existsSync(join(TEMPLATES_DIR, e.name, "package.json")))
     .map((e) => e.name)
+    .filter((name) => !ONLY || ONLY.has(name))
     .sort();
 
 function log(msg) {
@@ -155,6 +177,32 @@ function runFunctionDev(appDir, want) {
   }
   if (!want.body.test(stdout)) problems.push(`its response did not match ${want.body}`);
   if (problems.length) throw new Error(`oxyc fn dev ${want.name} ${problems.join("; ")}`);
+}
+
+/** The scaffold's `pnpm test` fails on a planted SidePanel, passes once it is allow-listed, and
+ *  passes again once it is removed. */
+function provePlantFails(appDir) {
+  const plant = join(appDir, PLANT.path);
+  mkdirSync(dirname(plant), { recursive: true });
+  try {
+    writeFileSync(plant, PLANT.copy);
+    const run = spawnSync("pnpm", ["test"], { cwd: appDir, encoding: "utf8" });
+    const output = `${run.stdout}${run.stderr}`;
+    if (run.status === 0)
+      throw new Error(`pnpm test passed with a copied SidePanel in ${PLANT.path}`);
+    if (!output.includes(PLANT.message)) {
+      throw new Error(`pnpm test failed on the plant without naming \`${PLANT.message}\``);
+    }
+    log(`   plant: a copied SidePanel fails pnpm test, naming ${PLANT.message}`);
+    writeFileSync(plant, PLANT.allowed);
+    execFileSync("pnpm", ["test"], { cwd: appDir, stdio: ["ignore", "ignore", "inherit"] });
+    log("   plant: the same SidePanel, allow-listed with a reason, passes");
+    rmSync(plant);
+    execFileSync("pnpm", ["test"], { cwd: appDir, stdio: ["ignore", "ignore", "inherit"] });
+    log("   plant: removed, pnpm test passes again");
+  } finally {
+    rmSync(plant, { force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -297,11 +345,15 @@ for (const template of templates()) {
       stdio: "inherit"
     });
 
-    for (const script of ["typecheck", "build"]) {
+    for (const script of ["typecheck", "build", "test"]) {
       if (pkg.scripts?.[script]) {
         stage = script;
         execFileSync("pnpm", ["run", script], { cwd: appDir, stdio: "inherit" });
       }
+    }
+    if (pkg.scripts?.test) {
+      stage = "plant";
+      provePlantFails(appDir);
     }
     if (template in FUNCTION_RUNS) {
       stage = "fn-dev";
@@ -341,4 +393,4 @@ if (failures.length) {
   for (const f of failures) log(`  - ${f}`);
   process.exit(1);
 }
-log("\nall templates scaffold, install and build");
+log("\nall templates scaffold, install, build and pass their tests");

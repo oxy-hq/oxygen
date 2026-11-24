@@ -2,13 +2,60 @@
 // queries — the {{ params.X | sqlquote }} syntax interpolates form state
 // into the SQL on the client; oxy gates execution by your project
 // membership.
+//
+// The pieces on screen (Field, Stat, Panel, PanelTable, LoadError,
+// EmptyState, Loading) are the shared desk UI from `@oxy-hq/sdk/ui`: import
+// them, never copy them, so the app moves with Oxygen's design system.
+// `tests/design-system.test.ts` fails on a local copy.
 
 import { useState } from "react";
-import { useQuery } from "@oxy-hq/sdk";
+import { useQuery, type UseQueryResult } from "@oxy-hq/sdk";
+import {
+  EmptyState,
+  Field,
+  LoadError,
+  Loading,
+  Panel,
+  PanelTable,
+  Stat,
+  StatGrid,
+  ui
+} from "@oxy-hq/sdk/ui";
 
 type EntityRow = { entity: string };
 type SummaryRow = { entity: string; total: number; first_seen: string; last_seen: string };
 type ActivityRow = { date: string; value: number };
+
+/** A warehouse cell as a number for people: a SQL NULL (an empty SUM, a filter that matched nothing) reads "—". */
+const fmtNumber = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString());
+
+/** Loading, a failed read, or nothing to show: the three states every panel has before its data. */
+function ReadState<Row>({
+  query,
+  what,
+  children
+}: {
+  query: UseQueryResult<Row>;
+  what: string;
+  children: React.ReactNode;
+}) {
+  if (query.loading) return <Loading label={`Loading ${what}…`} rows={3} />;
+  if (query.error) {
+    return (
+      <LoadError title={`Couldn't load ${what}`} onRetry={query.refetch}>
+        {query.error.message}
+      </LoadError>
+    );
+  }
+  if (query.rows.length === 0) {
+    return (
+      <EmptyState title={`No ${what} yet`}>
+        Replace the placeholder SQL in <code>src/App.tsx</code> with a query against your warehouse.
+      </EmptyState>
+    );
+  }
+  return <>{children}</>;
+}
 
 export function App() {
   const [selected, setSelected] = useState<string>("1");
@@ -26,17 +73,15 @@ export function App() {
   }, { params: { entity: selected } });
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">{{APP_DISPLAY_NAME}}</h1>
-        <p className="text-sm text-gray-600">Single-entity deep-dive — replace the placeholder SQL.</p>
+    <main className="page">
+      <header>
+        <h1>{{APP_DISPLAY_NAME}}</h1>
+        <p className="lead">Single-entity deep-dive — replace the placeholder SQL.</p>
       </header>
 
-      <section className="mb-6">
-        <label className="block text-sm font-medium" htmlFor="entity-select">Entity</label>
+      <Field label="Entity" htmlFor="entity-select">
         <select
-          id="entity-select"
-          className="mt-1 block w-full rounded-md border px-3 py-2 text-sm"
+          className={ui.field}
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
         >
@@ -46,32 +91,32 @@ export function App() {
             </option>
           ))}
         </select>
-      </section>
+      </Field>
 
-      <section className="mb-6 rounded-md border p-4">
-        <h2 className="mb-2 text-sm font-medium uppercase text-gray-500">Summary</h2>
-        {summary.loading && <p>Loading…</p>}
-        {summary.error && <p style={{ color: "red" }}>{summary.error.message}</p>}
+      <ReadState query={summary} what="the summary">
         {summary.rows.map((row) => (
-          <dl key={row.entity} className="space-y-1 text-sm">
-            <div className="flex justify-between"><dt className="text-gray-500">Total</dt><dd>{row.total}</dd></div>
-            <div className="flex justify-between"><dt className="text-gray-500">First seen</dt><dd>{row.first_seen}</dd></div>
-            <div className="flex justify-between"><dt className="text-gray-500">Last seen</dt><dd>{row.last_seen}</dd></div>
-          </dl>
+          <StatGrid key={row.entity}>
+            <Stat boxed label="Total" value={fmtNumber(row.total)} />
+            <Stat boxed label="First seen" value={row.first_seen} />
+            <Stat boxed label="Last seen" value={row.last_seen} />
+          </StatGrid>
         ))}
-      </section>
+      </ReadState>
 
-      <section>
-        <h2 className="mb-2 text-sm font-medium uppercase text-gray-500">Recent activity</h2>
-        <ul className="divide-y rounded-md border">
-          {activity.rows.map((row) => (
-            <li key={row.date} className="flex justify-between px-3 py-2 text-sm">
-              <span className="font-mono">{row.date}</span>
-              <span>{row.value}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <ReadState query={activity} what="recent activity">
+        <Panel title="Recent activity">
+          <PanelTable
+            label="Recent activity"
+            rowHeader={false}
+            rows={activity.rows}
+            rowKey={(row) => row.date}
+            columns={[
+              { header: "Date", cell: (row) => row.date },
+              { header: "Value", align: "right", cell: (row) => fmtNumber(row.value) }
+            ]}
+          />
+        </Panel>
+      </ReadState>
     </main>
   );
 }

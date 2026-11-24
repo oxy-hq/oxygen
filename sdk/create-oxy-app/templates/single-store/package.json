@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@oxy-hq/sdk": "^2.24.0",
+    "@oxy-hq/sdk": "^2.31.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -20,7 +22,8 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.1.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^5.0.3"
   },
   "engines": {
     "node": ">=22.13",

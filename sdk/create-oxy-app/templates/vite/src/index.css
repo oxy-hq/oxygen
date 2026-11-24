@@ -1,24 +1,21 @@
+@import "@oxy-hq/sdk/tailwind.css";
 @import "tailwindcss";
 
-/* Design tokens for the app shell. Dark-only: the tokens ARE the dark values,
-   so there are no `dark:` variants to keep in sync. Swap these hex values to
-   re-skin the whole app — every component below reads them by name. */
-@theme {
-  --color-background: #0a0a0a;
-  --color-foreground: #ededed;
-  --color-card: #1a1a1a;
-  --color-muted: #27272a;
-  --color-muted-foreground: #b6b6c0;
-  --color-border: rgba(255, 255, 255, 0.16);
-  --color-brand: #3550ff;
-  --color-info: #60a5fa;
-  --color-status-success: #22c55e;
-  --color-status-warning: #eab308;
-  --color-status-error: #ef4444;
+/* The palette, the type scale and light/dark are the SDK's. `@oxy-hq/sdk/theme.css`
+   (imported first, in `src/main.tsx`) carries every token in both modes, and
+   `@oxy-hq/sdk/tailwind.css` (above, BEFORE Tailwind, so its first line fixes the layer
+   order) points Tailwind's utilities (`bg-card`, `text-muted-foreground`,
+   `border-border`) at those tokens. Restate none of them here, and decide no light or
+   dark of your own: `tests/design-system.test.ts` holds this file to that with the
+   SDK's guard.
 
-  /* Motion: Oxygen's tokens (from @oxy-hq/sdk/motion.css, which the shell
-     stylesheet loads), so `transition`, `ease-out` and `duration-*` move
-     like Oxygen does. */
+   Hand-written CSS reads `var(--card)`, never `var(--color-card)`: the `--color-*`
+   names are Tailwind's aliases for its utilities, not tokens to read. */
+
+/* Motion: Oxygen's tokens (from @oxy-hq/sdk/motion.css, which the shell
+   stylesheet loads), so `transition`, `ease-out` and `duration-*` move like
+   Oxygen does. */
+@theme {
   --ease-out: var(--oxy-ease-out);
   --ease-in: var(--oxy-ease-in);
   --ease-in-out: var(--oxy-ease-in-out);
@@ -36,31 +33,16 @@ body,
 }
 
 body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
 }
 
-/* Inline code in explanatory prose — a small mono chip on the muted surface. */
+/* Inline code in explanatory prose: a small mono chip on the muted surface. */
 code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--color-muted);
-  color: var(--color-foreground);
+  background: var(--muted);
+  color: var(--foreground);
   padding: 0.05rem 0.3rem;
-}
-
-::selection {
-  background: color-mix(in srgb, var(--color-info) 30%, transparent);
-}
-
-/* Thin scrollbars. */
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-*::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
 }

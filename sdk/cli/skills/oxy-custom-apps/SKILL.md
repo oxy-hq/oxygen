@@ -401,7 +401,7 @@ await ctx.oxygen.sourceUploads.report({ file, fileName, pipeline: "ubereats_tran
   with `reachOf`).
 
 **The dock.** Wrap the app in `<OxyShell>` (every `create-oxy-app` template
-does) so it shows Oxygen's rail: Home and the viewer's apps, each drawn as its
+does) so it shows Oxygen's rail and top bar: Home and the viewer's apps, each drawn as its
 grey mark, opening in this tab and warmed on hover. From SDK 2.34.0 the shell has no
 Chat entry and no Ask (no top-bar button, no ⌘K), as Oxygen's own chrome has none. Pass `hideTopBar` if the app draws its
 own header. From SDK 2.33.0 the viewer opens and closes the rail from its
@@ -429,7 +429,8 @@ own mode. Run `expect(formatSdkUiCopies(checkSdkUiCopies("src"))).toBe("")` ther
 variant kept on purpose says why in the file that defines it, `// oxy-ui-local: <Name> -- <why>`
 (the reason is required). A local that only holds a component (`const Glyph = app.glyph`)
 defines nothing and passes from SDK 2.31.1; 2.31.0 reported it, so rename it there. A piece the SDK lacks is built in the app from the `ui` recipes; a
-defect in a shared piece is fixed in the SDK, so every app gets it.
+defect in a shared piece is fixed in the SDK, so every app gets it. Every `create-oxy-app`
+template starts this way, and its `pnpm test` runs both checks.
 
 SDK 2.31 adds, each opt-in: `Panel`'s fold (`foldable`, `open`, `defaultOpen`), `header`,
 optional `title`, landmark (`as`, `label`, `headingLevel`) and `density="compact"`;

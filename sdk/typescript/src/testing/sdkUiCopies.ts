@@ -1,9 +1,10 @@
 // `checkSdkUiCopies(srcDir)`: the no-copy guard, for an app's own tests. An app takes the shared
 // desk UI from `@oxy-hq/sdk/ui` and never keeps a copy of a piece the SDK ships: a copy looks
 // right on the day it is made and then drifts, as the SDK's piece moves with the design system (a
-// token, a focus ring, light and dark, a phone layout) and the copy stays where it was. The same
-// check as the starter templates' `scripts/sdk-ui-guard.mjs` (oxygen-internal #4251), with its
-// list of names taken from the ui entry itself (`SDK_UI_PIECES`), so it never drifts either.
+// token, a focus ring, light and dark, a phone layout) and the copy stays where it was. The
+// check the starter templates first carried as their own `scripts/sdk-ui-guard.mjs`
+// (oxygen-internal #4251) and now run from here, with its list of names taken from the ui entry
+// itself (`SDK_UI_PIECES`), so it never drifts either.
 //
 // It reads the source files under `srcDir` (tests, `.d.ts` and `node_modules` left out) and finds
 // every place a file DEFINES or EXPORTS a component under the name of an SDK piece:

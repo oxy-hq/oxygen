@@ -4,27 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{APP_DISPLAY_NAME}}</title>
-    <style>
-      /* The page is the dock's full height; the app scrolls beside it. */
-      html, body, #root { height: 100%; }
-      body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #f8fafc;
-        color: #0f172a;
-      }
-      .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
-      h1 { font-size: 1.75rem; margin: 0 0 0.25rem; }
-      .subtle { color: #64748b; font-size: 0.875rem; }
-      .section { margin-top: 1.5rem; padding: 1rem; background: white; border: 1px solid #e2e8f0; border-radius: 8px; }
-      .section h2 { font-size: 1rem; margin: 0 0 0.5rem; color: #475569; }
-      pre { background: #f1f5f9; padding: 0.75rem; border-radius: 6px; font-size: 0.75rem; overflow: auto; }
-      .error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 1rem; border-radius: 8px; margin-top: 1rem; }
-      .error .title { font-weight: 600; }
-      .error .hint { margin-top: 0.75rem; }
-      .muted { color: #94a3b8; text-align: center; padding: 2rem 0; }
-    </style>
   </head>
+  <!-- Styling comes from the SDK's stylesheets and src/index.css, imported by
+       src/main.tsx. Light or dark is the person's one Oxygen-wide choice: the
+       pre-paint vite.config.ts puts in <head> applies it before the first paint. -->
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

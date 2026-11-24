@@ -2,9 +2,25 @@
 // queries — the {{ params.X | sqlquote }} syntax interpolates form state
 // into the SQL on the client; oxy gates execution by your project
 // membership.
+//
+// The pieces on screen (Stat, Panel, PanelTable, DefaultTabs, LoadError,
+// EmptyState, Loading) are the shared desk UI from `@oxy-hq/sdk/ui`: import
+// them, never copy them, so the app moves with Oxygen's design system.
+// `tests/design-system.test.ts` fails on a local copy.
 
 import { useState } from "react";
-import { useQuery } from "@oxy-hq/sdk";
+import { useQuery, type UseQueryResult } from "@oxy-hq/sdk";
+import {
+  DefaultTabs,
+  EmptyState,
+  LoadError,
+  Loading,
+  Panel,
+  PanelTable,
+  Stat,
+  StatGrid,
+  TabPanel
+} from "@oxy-hq/sdk/ui";
 import {
   CartesianGrid,
   Line,
@@ -12,15 +28,48 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis,
+  YAxis
 } from "recharts";
 
 type EntityRow = { entity: string; count: number };
 type KpiRow = { label: string; value: number };
 type TimeSeriesRow = { date: string; value: number };
+type Tab = "trend" | "leaderboard";
+
+/** A warehouse cell as a number for people: a SQL NULL (an empty SUM, a filter that matched nothing) reads "—". */
+const fmtNumber = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString());
+
+/** Loading, a failed read, or nothing to show: the three states every panel has before its data. */
+function ReadState<Row>({
+  query,
+  what,
+  children
+}: {
+  query: UseQueryResult<Row>;
+  what: string;
+  children: React.ReactNode;
+}) {
+  if (query.loading) return <Loading label={`Loading ${what}…`} rows={3} />;
+  if (query.error) {
+    return (
+      <LoadError title={`Couldn't load ${what}`} onRetry={query.refetch}>
+        {query.error.message}
+      </LoadError>
+    );
+  }
+  if (query.rows.length === 0) {
+    return (
+      <EmptyState title={`No ${what} yet`}>
+        Replace the placeholder SQL in <code>src/App.tsx</code> with a query against your warehouse.
+      </EmptyState>
+    );
+  }
+  return <>{children}</>;
+}
 
 export function App() {
   const [selected, setSelected] = useState<string>("all");
+  const [tab, setTab] = useState<Tab>("trend");
 
   const entities = useQuery<EntityRow>({
     sql: "-- TODO: replace with your SQL. Example: SELECT col AS entity, COUNT(*) AS count FROM table GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
@@ -35,69 +84,66 @@ export function App() {
   });
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">{{APP_DISPLAY_NAME}}</h1>
-        <p className="text-sm text-gray-600">Multi-metric dashboard — replace the placeholder SQL.</p>
+    <main className="page">
+      <header>
+        <h1>{{APP_DISPLAY_NAME}}</h1>
+        <p className="lead">Multi-metric dashboard — replace the placeholder SQL.</p>
       </header>
 
-      <section className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {kpis.loading && <p>Loading KPIs…</p>}
-        {kpis.error && <p style={{ color: "red" }}>{kpis.error.message}</p>}
-        {kpis.rows.map((kpi) => (
-          <div key={kpi.label} className="rounded-md border p-4">
-            <div className="text-xs uppercase text-gray-500">{kpi.label}</div>
-            <div className="mt-1 text-2xl font-semibold">{kpi.value}</div>
-          </div>
-        ))}
-      </section>
+      <ReadState query={kpis} what="KPIs">
+        <StatGrid>
+          {kpis.rows.map((kpi) => (
+            <Stat key={kpi.label} boxed label={kpi.label} value={fmtNumber(kpi.value)} />
+          ))}
+        </StatGrid>
+      </ReadState>
 
-      <section className="mb-6">
-        <h2 className="mb-2 text-sm font-medium uppercase text-gray-500">Trend</h2>
-        <div className="h-64 rounded-md border p-2">
-          {trend.loading ? (
-            <p>Loading trend…</p>
-          ) : trend.error ? (
-            <p style={{ color: "red" }}>{trend.error.message}</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend.rows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-sm font-medium uppercase text-gray-500">Leaderboard</h2>
-        <div className="overflow-hidden rounded-md border">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left">Entity</th>
-                <th className="px-3 py-2 text-right">Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entities.rows.map((row) => (
-                <tr
-                  key={row.entity}
-                  className="cursor-pointer border-t hover:bg-gray-50"
-                  onClick={() => setSelected(row.entity)}
-                >
-                  <td className="px-3 py-2 font-mono">{row.entity}</td>
-                  <td className="px-3 py-2 text-right">{row.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <DefaultTabs
+        group="dashboard"
+        label="View"
+        value={tab}
+        onChange={setTab}
+        hasPanel
+        options={[
+          { value: "trend", label: "Trend" },
+          { value: "leaderboard", label: "Leaderboard", count: entities.rows.length || null }
+        ]}
+      />
+      <TabPanel group="dashboard" value={tab}>
+        {tab === "trend" ? (
+          <ReadState query={trend} what="the trend">
+            <Panel title="Trend">
+              <div style={{ height: 256 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trend.rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                    <XAxis dataKey="date" stroke="var(--muted-foreground)" />
+                    <YAxis stroke="var(--muted-foreground)" />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </Panel>
+          </ReadState>
+        ) : (
+          <ReadState query={entities} what="the leaderboard">
+            <Panel title="Leaderboard" right={selected === "all" ? "all entities" : selected}>
+              <PanelTable
+                label="Leaderboard"
+                rows={entities.rows}
+                rowKey={(row) => row.entity}
+                onRowOpen={(row) => setSelected(row.entity)}
+                isSelected={(row) => row.entity === selected}
+                columns={[
+                  { header: "Entity", cell: (row) => row.entity },
+                  { header: "Count", align: "right", cell: (row) => fmtNumber(row.count) }
+                ]}
+              />
+            </Panel>
+          </ReadState>
+        )}
+      </TabPanel>
     </main>
   );
 }

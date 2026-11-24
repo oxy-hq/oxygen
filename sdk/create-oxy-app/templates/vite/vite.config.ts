@@ -1,7 +1,18 @@
+import { OXY_THEME_PREPAINT } from "@oxy-hq/sdk/theme";
 import oxyApp from "@oxy-hq/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+
+// The person's light/dark mode on <html> before the first paint. Without it the
+// page paints light and then flips once <OxyShell> mounts. In <head>, where
+// nothing paints until the stylesheets have loaded.
+function themePrepaint(): Plugin {
+  return {
+    name: "oxy-theme-prepaint",
+    transformIndexHtml: () => [{ tag: "script", children: OXY_THEME_PREPAINT, injectTo: "head" }]
+  };
+}
 
 // `oxyApp()` handles everything Oxy-specific: it validates `oxy-app.json`
 // against the SDK's schema, copies it (and the icon / art it names) into the
@@ -19,5 +30,5 @@ import { defineConfig } from "vite";
 //      an `orgSlug`.
 //   3. `/` — the dev fallback, fine for `pnpm dev` and a standalone build.
 export default defineConfig({
-  plugins: [react(), tailwindcss(), oxyApp()]
+  plugins: [react(), tailwindcss(), oxyApp(), themePrepaint()]
 });

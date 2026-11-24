@@ -20,10 +20,33 @@ literal `SELECT`, so you get a working app before you point it at real data.
 | --- | --- |
 | `oxy-app.json` | The app's identity + launcher-card metadata: `slug`, `name`, `icon`, `art`. Lives at the project root (**not** under `public/`). |
 | `src/App.tsx` | Your UI, and the two data surfaces (`useQuery`, `useSemanticQuery`). Start here. |
-| `src/index.css` | Design tokens. Change the hex values to re-skin the whole app. |
-| `src/chrome/` | Small presentational primitives — `Panel`, `KpiTile`, `Pill`, `Topbar`. |
+| `src/index.css` | The app's own CSS, after the SDK's. The palette and light/dark come from `@oxy-hq/sdk/theme.css`; restate no token here. |
+| `tests/design-system.test.ts` | `pnpm test`: the SDK's theme guard over the CSS (`checkThemeCss()`), and its no-copy check over `src/` (`checkSdkUiCopies()`), both from `@oxy-hq/sdk/testing`. |
 | `vite.config.ts` | Wires `oxyApp()`, which validates + copies the manifest, proxies `/api`, and resolves the served base path. |
 | `public/` | Static assets copied to the bundle root — `icon.svg` and `card.svg`. |
+
+## The design system
+
+The look is Oxygen's, and the app stays on it by importing, never copying:
+
+- **Stylesheets**, in `src/main.tsx`, in this order: `@oxy-hq/sdk/theme.css`
+  (every token, light and dark), `@oxy-hq/sdk/shell.css`, `@oxy-hq/sdk/ui.css`,
+  then `src/index.css`. `src/index.css` imports `@oxy-hq/sdk/tailwind.css`
+  **before** `tailwindcss`, so `bg-card` or `text-muted-foreground` resolve to the
+  theme's tokens.
+- **Pieces** come from `@oxy-hq/sdk/ui`: `Panel`, `Stat`, `DefaultTabs`,
+  `PanelTable`, `LoadError`, `EmptyState`, `SidePanel`, `Modal`, `Button`,
+  `Field` and the rest.
+- **`pnpm test` holds it**, with two checks from `@oxy-hq/sdk/testing`.
+  `checkThemeCss()` fails a stylesheet that restates a theme token or decides
+  light/dark itself, and `checkSdkUiCopies()` fails when `src/` defines a
+  component under the name of an SDK piece (a local `SidePanel`, `LoadError`,
+  `DefaultTabs`), naming the import to use instead. A local variant you keep on
+  purpose says why, in its file:
+
+  ```tsx
+  // oxy-ui-local: SidePanel -- docks left as well as right, which the SDK's does not
+  ```
 
 ## Querying your data
 

@@ -25,6 +25,27 @@ app isn't registered in your local oxy yet, register it (admin UI) or set
 - **`src/App.tsx`** — your UI. Replace the scaffold with whatever you want to
   render.
 
+## The design system
+
+The look is Oxygen's, and the app stays on it by importing, never copying:
+
+- **Stylesheets**, in `src/main.tsx`, in this order: `@oxy-hq/sdk/theme.css`
+  (every token, light and dark), `@oxy-hq/sdk/shell.css`, `@oxy-hq/sdk/ui.css`,
+  then `src/index.css`, which reads the tokens (`var(--card)`) and restates none.
+- **Pieces** come from `@oxy-hq/sdk/ui`: `Panel`, `Stat`, `DefaultTabs`,
+  `PanelTable`, `LoadError`, `EmptyState`, `SidePanel`, `Modal`, `Button`,
+  `Field` and the rest.
+- **`pnpm test` holds it** (`tests/design-system.test.ts`), with two checks from
+  `@oxy-hq/sdk/testing`. `checkThemeCss()` fails a stylesheet (or `index.html`'s
+  `<style>`) that restates a theme token or decides light/dark itself, and
+  `checkSdkUiCopies()` fails when `src/` defines a component under the name of an
+  SDK piece (a local `SidePanel`, `LoadError`, `DefaultTabs`), naming the import
+  to use instead. A local variant you keep on purpose says why, in its file:
+
+  ```tsx
+  // oxy-ui-local: SidePanel -- docks left as well as right, which the SDK's does not
+  ```
+
 ## Launcher-card image
 
 The Oxy HQ home shows each app as a card. The image is the manifest `art`
