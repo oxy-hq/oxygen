@@ -1,0 +1,68 @@
+name: client
+description: |
+  Bank clients (5,369 rows, one per client). `district_id` is the client's
+  HOME district (the district the client lives in); join `client_district`
+  for its name, region, inhabitants and salary. A client reaches accounts only
+  through `disp`: an account owner is the client whose disposition on the
+  account has type 'OWNER'.
+datasource: bird_financial
+table: client
+
+entities:
+  - name: client
+    type: primary
+    description: One client.
+    key: client_id
+  - name: home_district
+    type: foreign
+    description: District the client lives in (joins client_district, not the branch district).
+    key: district_id
+
+dimensions:
+  - name: client_id
+    type: number
+    description: The unique number of the client.
+    expr: client_id
+  - name: gender
+    type: string
+    description: Client gender. 'F' = female, 'M' = male.
+    synonyms: ["sex"]
+    samples: ["F", "M"]
+    expr: gender
+  - name: birth_date
+    type: date
+    description: Client's birth date (real SQL date, 1911..1987).
+    synonyms: ["date of birth", "birthday"]
+    expr: birth_date
+  - name: birth_year
+    type: number
+    description: Calendar year of the client's birth.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.birth_date) AS integer)"
+  - name: district_id
+    type: number
+    description: Id of the client's home district (where the client lives).
+    synonyms: ["home district"]
+    expr: district_id
+
+measures:
+  - name: client_count
+    type: count
+    description: Number of clients.
+  - name: female_client_count
+    type: count
+    description: Number of female clients (gender = 'F').
+    filters:
+      - expr: "{{gender}} = 'F'"
+  - name: male_client_count
+    type: count
+    description: Number of male clients (gender = 'M').
+    filters:
+      - expr: "{{gender}} = 'M'"
+  - name: earliest_birth_date
+    type: min
+    description: Birth date of the oldest client.
+    expr: birth_date
+  - name: latest_birth_date
+    type: max
+    description: Birth date of the youngest client.
+    expr: birth_date

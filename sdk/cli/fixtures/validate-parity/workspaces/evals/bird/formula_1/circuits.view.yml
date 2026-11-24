@@ -1,0 +1,64 @@
+name: circuits
+description: |
+  Race circuits (72 rows, one per circuit). A circuit hosts many races
+  (races.circuitid). `country` uses short English names, e.g. 'UK', 'USA',
+  'UAE', 'Korea', 'Italy', 'Monaco', 'Malaysia'. Location coordinates are
+  (lat, lng). `alt` is empty and not useful.
+datasource: bird_formula_1
+table: circuits
+
+entities:
+  - name: circuit
+    type: primary
+    description: One circuit.
+    key: circuit_id
+
+dimensions:
+  - name: circuit_id
+    type: number
+    description: Unique identification number of the circuit (column circuitid).
+    expr: circuitid
+  - name: circuit_ref
+    type: string
+    description: Circuit reference name, a short lowercase identifier (column circuitref), e.g. 'sepang', 'bahrain'.
+    synonyms: ["circuitRef", "circuit reference name"]
+    expr: circuitref
+  - name: circuit_name
+    type: string
+    description: Full name of the circuit (column name), e.g. 'Sepang International Circuit', 'Bahrain International Circuit'.
+    synonyms: ["name", "circuit name", "track"]
+    expr: name
+  - name: location
+    type: string
+    description: Location (town/city) of the circuit, e.g. 'Kuala Lumpur', 'Sakhir'.
+    synonyms: ["city"]
+    expr: location
+  - name: country
+    type: string
+    description: Country of the circuit. Values are short English names, e.g. 'UK', 'USA', 'UAE', 'Korea', 'Germany', 'Spain'.
+    samples: ["Argentina", "Australia", "Austria", "Azerbaijan", "Bahrain", "Belgium", "Brazil", "Canada", "China", "France", "Germany", "Hungary", "India", "Italy", "Japan", "Korea", "Malaysia", "Mexico", "Monaco", "Morocco", "Netherlands", "Portugal", "Russia", "Singapore", "South Africa", "Spain", "Sweden", "Switzerland", "Turkey", "UAE", "UK", "USA"]
+    expr: country
+  - name: lat
+    type: number
+    description: Latitude of the circuit location. Location coordinates are (lat, lng).
+    synonyms: ["latitude"]
+    expr: lat
+  - name: lng
+    type: number
+    description: Longitude of the circuit location. Location coordinates are (lat, lng).
+    synonyms: ["longitude"]
+    expr: lng
+  - name: alt
+    type: number
+    description: Altitude; empty in this data, not useful.
+    expr: alt
+  - name: circuit_url
+    type: string
+    description: Wikipedia url of the circuit (column url).
+    synonyms: ["url"]
+    expr: url
+
+measures:
+  - name: circuit_count
+    type: count
+    description: Number of circuits.

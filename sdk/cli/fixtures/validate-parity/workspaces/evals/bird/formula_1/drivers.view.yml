@@ -1,0 +1,90 @@
+name: drivers
+description: |
+  Drivers (840 rows, one per driver). `driver_ref` is the driver's reference
+  name, a short lowercase identifier such as 'hamilton'. `code` is the
+  driver's three-letter abbreviation (e.g. 'HAM'); it is NULL for 757 drivers,
+  meaning no abbreviation is on record. `number` (permanent car number) is
+  NULL for 804 drivers. `dob` is the date of birth (birthday), NULL for one
+  driver. Full name = forename + ' ' + surname. Nationality strings are
+  adjectives, e.g. 'British', 'German', 'Brazilian', 'Spanish'.
+datasource: bird_formula_1
+table: drivers
+
+entities:
+  - name: driver
+    type: primary
+    description: One driver.
+    key: driver_id
+
+dimensions:
+  - name: driver_id
+    type: number
+    description: Unique identification number of the driver (column driverid).
+    expr: driverid
+  - name: driver_ref
+    type: string
+    description: Driver reference name = the driver's short identifier (column driverref), lowercase, e.g. 'hamilton'.
+    synonyms: ["driverRef", "reference name", "driver reference name", "short identifier"]
+    expr: driverref
+  - name: driver_number
+    type: number
+    description: Permanent car number of the driver (column number); NULL for 804 of 840 drivers; only 36 recent drivers have one.
+    synonyms: ["number", "car number"]
+    expr: number
+  - name: code
+    type: string
+    description: Abbreviated three-letter driver code, e.g. 'HAM'. NULL means the driver has no code on record.
+    synonyms: ["driver code", "abbreviation", "three-letter code"]
+    expr: code
+  - name: has_code
+    type: boolean
+    description: True when the driver has a three-letter code on record (code IS NOT NULL).
+    expr: "{{TABLE}}.code IS NOT NULL"
+  - name: forename
+    type: string
+    description: Driver's first name (forename).
+    synonyms: ["first name", "given name"]
+    expr: forename
+  - name: surname
+    type: string
+    description: Driver's last name (surname).
+    synonyms: ["last name", "family name"]
+    expr: surname
+  - name: full_name
+    type: string
+    description: Driver's full name = forename || ' ' || surname, e.g. '<forename> <surname>'.
+    synonyms: ["driver name", "name", "driver"]
+    expr: "{{TABLE}}.forename || ' ' || {{TABLE}}.surname"
+  - name: dob
+    type: date
+    description: Date of birth (birthday), a real SQL date.
+    synonyms: ["date of birth", "birthday", "birth date"]
+    expr: dob
+  - name: birth_year
+    type: number
+    description: Calendar year the driver was born.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.dob) AS integer)"
+  - name: driver_nationality
+    type: string
+    description: Nationality of the driver (column nationality), an adjective, e.g. 'British', 'German', 'French', 'Italian', 'Brazilian', 'Japanese', 'American'.
+    synonyms: ["nationality"]
+    samples: ["American", "American-Italian", "Argentine", "Argentine-Italian", "Australian", "Austrian", "Belgian", "Brazilian", "British", "Canadian", "Chilean", "Colombian", "Czech", "Danish", "Dutch", "East German", "Finnish", "French", "German", "Hungarian", "Indian", "Indonesian", "Irish", "Italian", "Japanese", "Liechtensteiner", "Malaysian", "Mexican", "Monegasque", "New Zealander", "Polish", "Portuguese", "Rhodesian", "Russian", "South African", "Spanish", "Swedish", "Swiss", "Thai", "Uruguayan", "Venezuelan"]
+    expr: nationality
+  - name: driver_url
+    type: string
+    description: Introduction website (Wikipedia) of the driver (column url).
+    synonyms: ["url"]
+    expr: url
+
+measures:
+  - name: driver_count
+    type: count
+    description: Number of drivers.
+  - name: earliest_dob
+    type: min
+    description: Earliest date of birth (the oldest driver).
+    expr: dob
+  - name: latest_dob
+    type: max
+    description: Latest date of birth (the youngest driver).
+    expr: dob

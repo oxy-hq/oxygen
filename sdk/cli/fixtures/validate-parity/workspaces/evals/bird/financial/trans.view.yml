@@ -1,0 +1,196 @@
+name: trans
+description: |
+  Account transactions (1,056,320 rows), dated 1993-01-01 .. 1998-12-31.
+  `transaction_type` (+/-): 'PRIJEM' = credit / incoming / deposit (money into
+  the account, "amount received", income); 'VYDAJ' = debit / outgoing payment /
+  withdrawal (money leaves the account, "amount withdrawn", expense); 'VYBER'
+  (16,666 rows, not in the description file) = cash withdrawal, money taken
+  out in cash. Net balance = total income (PRIJEM) - total expense (VYDAJ).
+  `amount` is always positive; direction comes from transaction_type.
+  `balance` is the account balance AFTER the transaction, so the state of an
+  account on a date (e.g. "end of 1995" = 31 December 1995) is the balance of
+  its last transaction on or before that date.
+  `partner_bank` + `partner_account` identify the outside-bank counterparty
+  (external counterparty account at another institution) on transfers: money
+  sent to it (operation 'PREVOD NA UCET') or received from it ('PREVOD Z
+  UCTU'). `k_symbol` is the transaction's characterization (payment purpose).
+datasource: bird_financial
+table: trans
+
+entities:
+  - name: transaction
+    type: primary
+    description: One transaction.
+    key: trans_id
+  - name: account
+    type: foreign
+    description: Account the transaction is booked on.
+    key: account_id
+
+dimensions:
+  - name: trans_id
+    type: number
+    description: Transaction id.
+    expr: trans_id
+  - name: account_id
+    type: number
+    description: Account the transaction is booked on.
+    expr: account_id
+  - name: trans_date
+    type: date
+    description: Date of transaction (column `date`, a real SQL date).
+    synonyms: ["date", "transaction date", "date of transaction"]
+    expr: date
+  - name: trans_year
+    type: number
+    description: Calendar year of the transaction.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.date) AS integer)"
+  - name: trans_month
+    type: string
+    description: Calendar month of the transaction, formatted 'YYYY-MM'.
+    expr: "TO_CHAR({{TABLE}}.date, 'YYYY-MM')"
+  - name: transaction_type
+    type: string
+    description: |
+      +/- transaction (column `type`). 'PRIJEM' = credit, incoming
+      transaction, deposit (money into the account; amount received).
+      'VYDAJ' = debit, outgoing payment, withdrawal (money paid out of /
+      leaving the account; amount withdrawn). 'VYBER' = cash withdrawal
+      (money taken out in cash); it is a distinct code, not counted as VYDAJ.
+    synonyms: ["type", "+/- transaction", "credit or debit"]
+    samples: ["PRIJEM", "VYDAJ", "VYBER"]
+    expr: type
+  - name: transaction_type_label
+    type: string
+    description: English decoding of `transaction_type`. Filter on `transaction_type` with the raw code.
+    expr: "CASE {{TABLE}}.type WHEN 'PRIJEM' THEN 'credit (incoming)' WHEN 'VYDAJ' THEN 'debit (outgoing)' WHEN 'VYBER' THEN 'cash withdrawal' END"
+  - name: operation
+    type: string
+    description: |
+      Mode of transaction. 'VYBER KARTOU' = credit card withdrawal; 'VKLAD' =
+      credit in cash; 'PREVOD Z UCTU' = collection from another bank;
+      'VYBER' = withdrawal in cash; 'PREVOD NA UCET' = remittance to another
+      bank. NULL on interest credits (the UROK rows).
+    synonyms: ["mode of transaction"]
+    samples: ["VYBER KARTOU", "VKLAD", "PREVOD Z UCTU", "VYBER", "PREVOD NA UCET"]
+    expr: operation
+  - name: operation_label
+    type: string
+    description: English decoding of `operation`. Filter on `operation` with the raw code.
+    expr: "CASE {{TABLE}}.operation WHEN 'VYBER KARTOU' THEN 'credit card withdrawal' WHEN 'VKLAD' THEN 'credit in cash' WHEN 'PREVOD Z UCTU' THEN 'collection from another bank' WHEN 'VYBER' THEN 'withdrawal in cash' WHEN 'PREVOD NA UCET' THEN 'remittance to another bank' END"
+  - name: amount
+    type: number
+    description: Amount of money of the transaction (always >= 0; the sign is given by transaction_type).
+    synonyms: ["transaction amount"]
+    expr: amount
+  - name: balance
+    type: number
+    description: |
+      Balance after the transaction. The account's state at a date (e.g. end
+      of 1995 = 31 December 1995) is the balance after its last transaction on
+      or before that date. Can be negative.
+    synonyms: ["balance after transaction", "account balance"]
+    expr: balance
+  - name: k_symbol
+    type: string
+    description: |
+      Characterization of the transaction (payment purpose: the stated reason
+      or note recorded for it). 'POJISTNE' = insurance payment; 'SLUZBY' =
+      payment for statement; 'UROK' = interest credited to the account;
+      'SANKC. UROK' = sanction (penalty) interest charged when the balance is
+      negative — the sanction-interest code built on the UROK interest code;
+      'SIPO' = household payment (household bill payments); 'DUCHOD' =
+      old-age pension; 'UVER' = loan payment. No characterization recorded
+      (the bank did not tag it) appears as NULL or a single space ' '.
+    synonyms: ["characterization", "payment purpose", "purpose", "k symbol"]
+    samples: ["POJISTNE", "SLUZBY", "UROK", "SANKC. UROK", "SIPO", "DUCHOD", "UVER", " "]
+    expr: k_symbol
+  - name: k_symbol_label
+    type: string
+    description: English decoding of `k_symbol`. Filter on `k_symbol` with the raw code.
+    expr: "CASE {{TABLE}}.k_symbol WHEN 'POJISTNE' THEN 'insurance payment' WHEN 'SLUZBY' THEN 'payment for statement' WHEN 'UROK' THEN 'interest credited' WHEN 'SANKC. UROK' THEN 'sanction interest' WHEN 'SIPO' THEN 'household payment' WHEN 'DUCHOD' THEN 'old-age pension' WHEN 'UVER' THEN 'loan payment' ELSE 'no characterization' END"
+  - name: has_characterization
+    type: boolean
+    description: False when no characterization was recorded (k_symbol NULL or blank), i.e. the bank did not tag the transaction.
+    expr: "({{TABLE}}.k_symbol IS NOT NULL AND TRIM({{TABLE}}.k_symbol) <> '')"
+  - name: partner_bank
+    type: string
+    description: |
+      Bank of the partner (column `bank`): two-letter code of the other bank
+      on a transfer (e.g. 'AB' identifies the partner bank AB). NULL when
+      there is no outside counterparty.
+    synonyms: ["bank", "bank of the partner", "counterparty bank"]
+    samples: ["AB", "CD", "EF", "GH", "IJ", "KL", "MN", "OP", "QR", "ST", "UV", "WX", "YZ"]
+    expr: bank
+  - name: partner_account
+    type: number
+    description: Account (number) of the partner at partner_bank (column `account`); with partner_bank it identifies the external counterparty account.
+    synonyms: ["account of the partner", "counterparty account"]
+    expr: account
+
+measures:
+  - name: transaction_count
+    type: count
+    description: Number of transactions.
+  - name: total_amount
+    type: sum
+    description: Sum of transaction amounts regardless of direction.
+    expr: amount
+  - name: avg_amount
+    type: average
+    description: Average transaction amount.
+    expr: amount
+  - name: total_income
+    type: sum
+    description: Total income = sum of amounts of PRIJEM (credit / incoming / deposit) transactions; "amount received".
+    synonyms: ["amount received", "total deposits", "total credits"]
+    expr: amount
+    filters:
+      - expr: "{{transaction_type}} = 'PRIJEM'"
+  - name: total_expense
+    type: sum
+    description: Total expense = sum of amounts of VYDAJ (debit / outgoing / withdrawal) transactions; "amount withdrawn". Excludes VYBER cash withdrawals.
+    synonyms: ["amount withdrawn", "total withdrawals", "total debits", "outgoing payments"]
+    expr: amount
+    filters:
+      - expr: "{{transaction_type}} = 'VYDAJ'"
+  - name: net_balance
+    type: custom
+    description: Net balance = total income - total expense (PRIJEM sum minus VYDAJ sum).
+    expr: "{{trans.total_income}} - {{trans.total_expense}}"
+  - name: total_cash_withdrawal_vyber
+    type: sum
+    description: Sum of amounts of transactions of type 'VYBER' (cash withdrawals).
+    expr: amount
+    filters:
+      - expr: "{{transaction_type}} = 'VYBER'"
+  - name: total_interest_credited
+    type: sum
+    description: Sum of interest credited (k_symbol 'UROK').
+    expr: amount
+    filters:
+      - expr: "{{k_symbol}} = 'UROK'"
+  - name: total_sanction_interest
+    type: sum
+    description: Sum of sanction (penalty) interest charged (k_symbol 'SANKC. UROK').
+    expr: amount
+    filters:
+      - expr: "{{k_symbol}} = 'SANKC. UROK'"
+  - name: total_household_payments
+    type: sum
+    description: Sum of household payments (k_symbol 'SIPO').
+    expr: amount
+    filters:
+      - expr: "{{k_symbol}} = 'SIPO'"
+  - name: avg_balance
+    type: average
+    description: Average balance after transaction.
+    expr: balance
+  - name: min_balance
+    type: min
+    description: Lowest balance after transaction.
+    expr: balance
+  - name: max_balance
+    type: max
+    description: Highest balance after transaction.
+    expr: balance

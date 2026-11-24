@@ -1,0 +1,187 @@
+name: orders
+description: Customer orders with shipping and payment information
+datasource: local
+table: "orders.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # total_order_value / total_shipping_costs are cross-view composite
+  # measures (rolled up live from order_items / order_shipments), same as
+  # net_revenue below — none of these are pre-aggregatable at this grain,
+  # so they're excluded here the same way net_revenue always has been.
+  # covers: kpis_orders task's non-composite measures with order_date
+  # filterable via the monthly time dimension. customer_id ends up in the
+  # rollup GROUP BY because of distinct_customers_with_orders, so the
+  # rollup is at (month, customer_id) grain — re-aggregation collapses it
+  # back to the requested grain.
+  - name: orders_kpis_by_month
+    measures:
+      - total_orders
+      - avg_order_value
+      - distinct_customers_with_orders
+    time_dimension: order_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+  - name: orders_by_month
+    dimensions:
+      - order_status
+    measures:
+      - total_orders
+    time_dimension: order_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+  - name: orders_by_customer
+    dimensions:
+      - customer_id
+      - order_status
+    measures:
+      - total_orders
+    refresh_key:
+      every: 1h
+
+  - name: orders_summary
+    measures:
+      - total_orders
+      - avg_order_value
+      - distinct_customers_with_orders
+    refresh_key:
+      every: 1h
+
+  - name: orders_by_status
+    dimensions:
+      - order_status
+    measures:
+      - total_orders
+    refresh_key:
+      every: 1h
+entities:
+- name: order
+  type: primary
+  description: Primary order entity
+  key: order_id
+  parent: customer
+- name: customer
+  type: foreign
+  description: Customer who placed the order
+  key: customer_id
+- name: shipping_address
+  type: foreign
+  description: Shipping address for the order
+  key: shipping_address_id
+- name: retail_store
+  type: foreign
+  description: Store where the order was placed
+  key: store_id
+dimensions:
+- name: order_id
+  type: number
+  description: Unique order identifier
+  expr: id
+- name: customer_id
+  type: number
+  description: Unique customer identifier
+  expr: customer_id
+- name: shipping_address_id
+  type: number
+  description: Shipping address identifier
+  expr: shipping_address_id
+- name: store_id
+  type: number
+  description: Store where the order was placed
+  expr: store_id
+- name: order_date
+  type: date
+  description: Date when order was placed
+  expr: order_date
+- name: order_status
+  type: string
+  description: Current status of the order
+  expr: status
+- name: channel
+  type: string
+  description: |
+    Sales channel the order came through (in_store / online / mobile_app /
+    phone). Deliberately left segmentable: this is the one dimension on an
+    order that names something a human owns and can go change, which makes it
+    the honest answer to "where is this store's upside?" — unlike order_status,
+    which is an outcome, or the shipping address lines, which are nobody's job.
+  expr: channel
+- name: total_amount
+  type: number
+  description: Total order amount
+  expr: total_amount
+  # Backs gross_revenue. Grouping the measure by its own column is circular.
+  segmentable: false
+- name: shipping_cost
+  type: number
+  description: Cost of shipping
+  expr: shipping_cost
+  # Backs total_shipping_costs; continuous, so it only ever blows the
+  # cardinality cap.
+  segmentable: false
+- name: tax_amount
+  type: number
+  description: Tax amount for the order
+  expr: tax_amount
+  # Backs total_tax_collected; continuous.
+  segmentable: false
+measures:
+- name: total_orders
+  type: count
+  description: Number of orders
+- name: total_order_value
+  type: custom
+  description: |
+    Total value of all orders. Computed live from line items via
+    order_items.total_revenue rather than a denormalized column, so this
+    decomposes down to line-item revenue in the World Model breakdown view.
+  expr: "{{order_items.total_revenue}}"
+- name: gross_revenue
+  type: sum
+  description: |
+    Gross order revenue ($) — a straight SUM of each order's total_amount.
+    Unlike total_order_value (a custom that decomposes to line items), this is
+    an atomic sum on the orders grain with total_orders as its natural row-count
+    denominator, so opportunity sizing normalizes it into revenue-per-order and
+    sizes per-segment upside (e.g. by order_status) instead of comparing raw
+    per-segment totals.
+  expr: total_amount
+- name: avg_order_value
+  type: average
+  description: Average order value
+  expr: total_amount
+- name: total_shipping_costs
+  type: custom
+  description: |
+    Total shipping cost. Computed live from real per-shipment costs via
+    order_shipments.total_shipment_cost rather than a denormalized column.
+  expr: "{{order_shipments.total_shipment_cost}}"
+- name: total_tax_collected
+  type: sum
+  description: Total tax collected
+  expr: tax_amount
+- name: distinct_customers_with_orders
+  type: count_distinct
+  description: Number of distinct customers with orders
+  expr: customer_id
+- name: net_revenue
+  type: custom
+  description: |
+    Net revenue = total order value minus shipping costs and tax.
+    Composite of three additive measures so the metric tree shows
+    component edges for each sub-measure.
+  expr: "{{orders.total_order_value}} - {{orders.total_shipping_costs}} - {{orders.total_tax_collected}}"
+- name: revenue_volume_x_price
+  type: custom
+  description: |
+    Multiplicative composite: order volume × average order price.
+    Mathematically equivalent to total_order_value but expressed as a
+    product so explain_metric runs log-share decomposition — "X% from
+    more orders, Y% from higher avg price".
+  expr: "{{orders.total_orders}} * {{orders.avg_order_value}}"

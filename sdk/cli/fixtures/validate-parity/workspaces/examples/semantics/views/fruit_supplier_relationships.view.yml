@@ -1,0 +1,79 @@
+name: fruit_supplier_relationships
+description: Relationship between fruits and their suppliers with pricing
+datasource: local
+table: fruit_supplier_relationships.csv
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: supplier_scorecard task — relationship measures grouped by supplier_id
+  - name: scorecard_by_supplier
+    dimensions:
+      - supplier_id
+    measures:
+      - total_relationships
+      - avg_wholesale_price
+      - avg_lead_time
+    refresh_key:
+      every: 1h
+
+entities:
+- name: fruit_supplier_relationship
+  type: primary
+  description: Primary fruit-supplier relationship entity
+  key: relationship_id
+  parent: supplier
+- name: fruit
+  type: foreign
+  description: Fruit in this relationship
+  key: fruit_id
+- name: supplier
+  type: foreign
+  description: Supplier in this relationship
+  key: supplier_id
+dimensions:
+- name: relationship_id
+  type: number
+  description: Unique relationship identifier
+  expr: id
+- name: fruit_id
+  type: number
+  description: Fruit identifier
+  expr: fruit_id
+- name: supplier_id
+  type: number
+  description: Supplier identifier
+  expr: supplier_id
+- name: wholesale_price
+  type: number
+  description: Wholesale price from supplier
+  expr: wholesale_price
+- name: minimum_order_quantity
+  type: number
+  description: Minimum order quantity
+  expr: min_order_qty
+- name: lead_time_days
+  type: number
+  description: Lead time in days
+  expr: lead_time_days
+- name: is_primary_supplier
+  type: boolean
+  description: Whether this is the primary supplier for this fruit
+  expr: is_primary_supplier
+measures:
+- name: total_relationships
+  type: count
+  description: Total number of supplier relationships
+- name: avg_wholesale_price
+  type: average
+  description: Average wholesale price
+  expr: wholesale_price
+- name: avg_lead_time
+  type: average
+  description: Average lead time in days
+  expr: lead_time_days
+- name: primary_supplier_relationships
+  type: sum
+  description: Count of primary supplier relationships
+  expr: "CASE WHEN is_primary_supplier THEN 1 ELSE 0 END"

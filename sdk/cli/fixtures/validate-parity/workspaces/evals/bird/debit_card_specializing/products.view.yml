@@ -1,0 +1,42 @@
+name: products
+description: |
+  Products sold at gas stations (591 rows, one per product id). `description`
+  is the product name, mostly in Czech/Slovak and not unique (some names repeat
+  under several ids, e.g. 'Potraviny', 'Service charge').
+  Glossary of common names (translation, not from the description files):
+  'Nafta' / 'Diesel' = diesel fuel; 'Natural' / 'Natural +' / 'Natural Plus' /
+  'Natural Spec' / 'Nat.Super' / 'Super' / 'Special' = gasoline (petrol;
+  "Natural" means unleaded petrol, NOT natural gas); 'LPG' = liquefied
+  petroleum gas; 'CNG' / 'Natural Gas NPG' = compressed natural gas;
+  'Mytí vozidel' = car wash; 'Oleje,tuky' = oils and greases; 'Potraviny' =
+  food; 'Dalnic.popl.' = motorway toll.
+  When a question says "gas" it means gasoline (motor fuel) purchases, not
+  natural gas. Transactions join here on the `product` entity.
+datasource: bird_debit_card_specializing
+table: products
+
+entities:
+  - name: product
+    type: primary
+    description: One product.
+    key: product_id
+
+dimensions:
+  - name: product_id
+    type: number
+    description: Product ID (column `productid`).
+    synonyms: ["productid", "ProductID"]
+    expr: productid
+  - name: product_description
+    type: string
+    description: |
+      Product name (column `description`), as recorded (Czech/Slovak, exact
+      spelling incl. diacritics). See the view description for a glossary;
+      "gas" in a question means gasoline, not natural gas.
+    synonyms: ["description", "product name", "product"]
+    expr: description
+
+measures:
+  - name: product_count
+    type: count
+    description: Number of products.

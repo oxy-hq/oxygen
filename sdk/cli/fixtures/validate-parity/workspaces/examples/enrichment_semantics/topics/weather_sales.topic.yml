@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: weather_sales
+description: >
+  Weather-adjusted restaurant performance. Daily sales per location joined to
+  real Open-Meteo weather (rain, temperature) and location attributes, so you
+  can ask how weather affects sales, channel mix, and which locations are most
+  weather-sensitive. Group sales measures by weather dimensions (rain_flag,
+  temp_bucket) — the semantic model joins sales_daily, weather_daily and
+  location automatically on location + date.
+views:
+  - sales_daily
+  - weather_daily
+  - location

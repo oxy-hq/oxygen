@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+# ETL data landed by an Airway pipeline. Its schema is `raw_toast` because
+# pipelines write to `raw_<source>` — and unlike `app_*` schemas, `raw_*` is
+# analyst-readable by default, since it exists in order to be analysed.
+#
+# Reads the table the pipeline ACTUALLY lands (`oxyc airway run
+# pipelines/oltp_toast.airway.yml`), not the statically-seeded `raw_toast.sales`
+# from `schemas/0003_toast_raw.sql`. Those were two different tables, so the
+# demo's "a pipeline lands data" step and its "ask the agent" step were looking
+# at different rows and the scenario only read as end-to-end.
+#
+# The columns are TEXT because that is what airway can land — its
+# Postgres source converts only String/i64/f64/bool and nulls the rest, so an
+# `integer` or `numeric` column arrives NULL and the load fails. The casts are
+# here rather than in the pipeline for that reason.
+name: toast_sales
+description: >-
+  Daily net sales per location, landed from the Toast POS by an Airway pipeline.
+  Batch-loaded, so it lags the live order table.
+datasource: "oltp"
+table: "raw_toast.demo_pos_sales"
+
+entities:
+  - name: sale
+    type: primary
+    description: "One row per POS sales record."
+    key: sale_id
+
+dimensions:
+  - name: sale_id
+    type: number
+    description: "Unique sales record identifier."
+    expr: ticket_id::bigint
+    synonyms: ["id", "ticket"]
+
+  - name: business_date
+    type: date
+    description: >-
+      Business date the sales belong to. A `date`, not a `datetime` — it is
+      already a local calendar date, so timezone handling does not apply.
+    expr: business_date::date
+    synonyms: ["date", "day"]
+
+  - name: location
+    type: string
+    description: "Restaurant location the sale was recorded at."
+    expr: location
+    synonyms: ["site", "store", "restaurant"]
+
+measures:
+  - name: net_sales
+    type: sum
+    description: "Net sales amount."
+    expr: net_sales::numeric
+    synonyms: ["sales", "revenue", "net revenue"]
+
+  - name: sale_count
+    type: count
+    description: "Number of sales records."
+    expr: ticket_id
+    synonyms: ["transactions", "tickets"]

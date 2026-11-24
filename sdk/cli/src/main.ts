@@ -2138,15 +2138,15 @@ function buildProgram(): Command {
 
   program
     .command("validate")
-    .description("check a workspace's YAML against the schemas, and oxy-app.json's data placement")
+    .description("check a workspace's YAML, its references, and oxy-app.json's data placement")
     .option("-f, --file <path>", "validate one file instead of the whole workspace")
     .option("--json", "emit findings as JSON")
     .addHelpText(
       "after",
-      "\nStructural checks only. `oxy validate` additionally resolves `databases:` and\n" +
-        "`llm.ref` against config.yml, which needs the workspace loaded — where the two\n" +
-        "disagree, that one is right. The schemas here are generated from the same Rust\n" +
-        "types, so they cannot drift from it.\n" +
+      "\nOffline, no token. Each file is checked against its generated schema, then as the\n" +
+        "runtime checks it once loaded: `database:`, `integration:`, `databases:` and `llm.ref`\n" +
+        "against config.yml, automation rules, view and topic variables. It replaced\n" +
+        "`oxy validate` (now a stub). Exit 9 when a check fails.\n" +
         "\nEach oxy-app.json is checked for where its data goes: customerWarehouseWrites,\n" +
         "airhouse, airhouseMigrations (DuckLake-safe, schema-qualified SQL) and secrets\n" +
         "used as state. Its functions' sources are linted for a `ctx.*` call whose\n" +
@@ -2280,7 +2280,7 @@ const EXIT_CODE_HELP = `0  success
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
 9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`,
-   \`oxyc looker test\`, \`oxyc evals run --min-accuracy\`)
+   \`oxyc looker test\`, \`oxyc evals run --min-accuracy\`, \`oxyc validate\`)
 `;
 
 /**

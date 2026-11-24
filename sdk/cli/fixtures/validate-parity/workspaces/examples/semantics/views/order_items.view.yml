@@ -1,0 +1,71 @@
+name: order_items
+description: Order line items with composite primary key (order_id, line_item_id)
+datasource: local
+table: order_items.csv
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: revenue_by_product
+    dimensions:
+      - product_id
+    measures:
+      - total_revenue
+      - total_items
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: order_item
+    type: primary
+    description: "Individual line item within an order - identified by order_id and line_item_id together"
+    keys:
+      - order_id
+      - line_item_id
+    parent: order
+  - name: order
+    type: foreign
+    description: "Order containing this line item"
+    key: order_id
+  - name: fruit
+    type: foreign
+    description: "Product in this line item"
+    key: product_id
+dimensions:
+  - name: order_id
+    type: number
+    description: "Order identifier (part of composite key)"
+    expr: order_id
+  - name: line_item_id
+    type: number
+    description: "Line item identifier within the order (part of composite key)"
+    expr: line_item_id
+  - name: product_id
+    type: number
+    description: "Product identifier"
+    expr: product_id
+  - name: quantity
+    type: number
+    description: "Quantity ordered"
+    expr: quantity
+  - name: unit_price
+    type: number
+    description: "Price per unit"
+    expr: unit_price
+  - name: discount_percent
+    type: number
+    description: "Discount percentage applied"
+    expr: discount_percent
+measures:
+  - name: total_items
+    type: count
+    description: "Total number of line items"
+  - name: total_revenue
+    type: sum
+    description: "Total revenue from line items"
+    expr: quantity * unit_price * (1 - discount_percent / 100)
+  - name: average_quantity
+    type: average
+    description: "Average quantity per line item"
+    expr: quantity

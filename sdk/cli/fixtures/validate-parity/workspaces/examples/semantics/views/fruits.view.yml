@@ -1,0 +1,63 @@
+name: fruits
+description: Fruit catalog data with pricing information
+datasource: local
+table: fruit.csv
+
+refresh_key:
+  sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM 'fruit.csv'"
+
+pre_aggregations:
+  # covers: revenue_by_fruit task — fruit_name dimension joined with order_items measures
+  - name: fruits_by_name
+    dimensions:
+      - fruit_id
+      - fruit_name
+    measures:
+      - total_fruits
+    refresh_key:
+      sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM 'fruit.csv'"
+
+entities:
+- name: fruit
+  type: primary
+  description: Primary fruit entity
+  key: fruit_id
+  label: fruit_name
+  parent: fruit_category
+- name: fruit_category
+  type: foreign
+  description: Category this fruit belongs to
+  key: category_id
+dimensions:
+- name: fruit_id
+  type: number
+  description: Unique fruit identifier
+  expr: id
+- name: category_id
+  type: number
+  description: Category identifier
+  expr: category_id
+- name: fruit_name
+  type: string
+  description: Name of the fruit
+  expr: name
+- name: fruit_price
+  type: number
+  description: Price per unit of fruit
+  expr: price
+measures:
+- name: total_fruits
+  type: count
+  description: Total count of fruit types
+- name: avg_fruit_price
+  type: average
+  description: Average price per fruit
+  expr: price
+- name: min_fruit_price
+  type: min
+  description: Minimum fruit price
+  expr: price
+- name: max_fruit_price
+  type: max
+  description: Maximum fruit price
+  expr: price

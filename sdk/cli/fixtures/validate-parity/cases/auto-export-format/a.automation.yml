@@ -1,0 +1,7 @@
+tasks:
+  - name: f
+    type: formatter
+    template: hi
+    export:
+      path: out.csv
+      format: csv

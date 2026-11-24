@@ -1,0 +1,119 @@
+name: loan
+description: |
+  Loans (682 rows, at most one per account), approved 1993-07-05 .. 1998-12-08.
+  A loan is a credit granted on an account, recorded with the date it was
+  approved. It is repaid over a term that starts on its approval day and lasts
+  `duration` months; the loan is being repaid on every day of that term
+  (approved_date .. end_date). Status codes: 'A' contract finished, paid off
+  (no problems); 'B' contract finished, loan not repaid (default); 'C' running
+  contract, OK so far (active, good standing, being repaid); 'D' running
+  contract, client in debt. C and D are both active (running) contracts. The
+  amount lent on an account is the total of the loans granted on that account.
+datasource: bird_financial
+table: loan
+
+entities:
+  - name: loan
+    type: primary
+    description: One loan.
+    key: loan_id
+  - name: account
+    type: foreign
+    description: Account the loan was granted on.
+    key: account_id
+
+dimensions:
+  - name: loan_id
+    type: number
+    description: Id number identifying the loan.
+    expr: loan_id
+  - name: account_id
+    type: number
+    description: Id number of the account the loan was granted on.
+    expr: account_id
+  - name: approved_date
+    type: date
+    description: Date the loan was approved (column `date`); the first day of the repayment term.
+    synonyms: ["date", "loan date", "approval date", "approval day"]
+    expr: date
+  - name: approved_year
+    type: number
+    description: Calendar year the loan was approved.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.date) AS integer)"
+  - name: end_date
+    type: date
+    description: |
+      Date the repayment term ends = approval date + `duration` months. The
+      loan is being repaid on every day from approved_date through end_date.
+    synonyms: ["term end", "maturity date"]
+    expr: "CAST({{TABLE}}.date + {{TABLE}}.duration * INTERVAL '1 month' AS date)"
+  - name: amount
+    type: number
+    description: Approved (lent) amount of the loan (unit as recorded; described as US dollar).
+    synonyms: ["loan amount", "approved amount", "amount lent"]
+    expr: amount
+  - name: duration
+    type: number
+    description: Loan duration (term) in months.
+    synonyms: ["term", "duration in months"]
+    expr: duration
+  - name: monthly_payments
+    type: number
+    description: Monthly payment amount of the loan (column `payments`).
+    synonyms: ["payments", "monthly payment"]
+    expr: payments
+  - name: status
+    type: string
+    description: |
+      Repayment status. 'A' = contract finished, no problems (paid off);
+      'B' = contract finished, loan not paid (default); 'C' = running
+      contract, OK so far (active, good standing); 'D' = running contract,
+      client in debt. C and D are the active/running contracts.
+    synonyms: ["repayment status", "loan status"]
+    samples: ["A", "B", "C", "D"]
+    expr: status
+  - name: status_label
+    type: string
+    description: English decoding of `status`. Filter on `status` with the raw letter.
+    expr: "CASE {{TABLE}}.status WHEN 'A' THEN 'finished, paid off' WHEN 'B' THEN 'finished, not repaid' WHEN 'C' THEN 'running, OK so far' WHEN 'D' THEN 'running, client in debt' END"
+  - name: is_running
+    type: boolean
+    description: True for running (active) contracts, i.e. status 'C' or 'D'.
+    expr: "{{TABLE}}.status IN ('C', 'D')"
+
+measures:
+  - name: loan_count
+    type: count
+    description: Number of loans.
+  - name: total_loan_amount
+    type: sum
+    description: Total approved amount of the loans (the amount lent; per account = total of the loans granted on that account).
+    synonyms: ["amount lent", "total amount lent"]
+    expr: amount
+  - name: avg_loan_amount
+    type: average
+    description: Average approved loan amount.
+    expr: amount
+  - name: max_loan_amount
+    type: max
+    description: Largest approved loan amount.
+    expr: amount
+  - name: avg_monthly_payments
+    type: average
+    description: Average monthly payment.
+    expr: payments
+  - name: running_loan_count
+    type: count
+    description: Number of running (active) loans, status 'C' or 'D'.
+    filters:
+      - expr: "{{status}} IN ('C', 'D')"
+  - name: in_debt_loan_count
+    type: count
+    description: Number of running loans whose client is in debt (status 'D').
+    filters:
+      - expr: "{{status}} = 'D'"
+  - name: ok_running_loan_count
+    type: count
+    description: Number of running loans OK so far (status 'C').
+    filters:
+      - expr: "{{status}} = 'C'"

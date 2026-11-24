@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: simple_sales_report
+description: A simple workflow that queries sales data and generates a basic report
+
+variables:
+  orders_table:
+    description: The name of the orders table in the semantic model
+    type: string
+    default: orders
+
+tasks:
+  - name: sales_data
+    type: semantic_query
+    topic: fruit_business
+    dimensions:
+      - orders.order_id
+    limit: 5
+    variables:
+      orders_table: "{{orders_table}}"
+    time_dimensions:
+      - dimension: order_shipments.shipped_date
+        granularity: month

@@ -1,0 +1,544 @@
+name: external_factors_correlation
+description: |
+  Advanced correlation analysis between external factors (temperature, fuel prices,
+  unemployment, CPI) and sales performance. Uses statistical methods to quantify
+  relationships and identify which factors most significantly impact sales.
+
+retrieval:
+  include:
+    - "external factors"
+    - "temperature correlation"
+    - "fuel prices impact"
+    - "unemployment analysis"
+
+tasks:
+  # TEMPERATURE CORRELATION: Climate Impact
+  - name: temperature_correlation
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Analyze correlation between temperature and sales
+      WITH temp_buckets AS (
+        SELECT
+          CASE
+            WHEN Temperature < 40 THEN 'Very Cold (< 40°F)'
+            WHEN Temperature >= 40 AND Temperature < 55 THEN 'Cold (40-55°F)'
+            WHEN Temperature >= 55 AND Temperature < 70 THEN 'Moderate (55-70°F)'
+            WHEN Temperature >= 70 AND Temperature < 85 THEN 'Warm (70-85°F)'
+            ELSE 'Hot (≥ 85°F)'
+          END AS temp_range,
+          Temperature,
+          Weekly_Sales,
+          Store,
+          Date
+        FROM 'oxymart.csv'
+      ),
+      temp_aggregates AS (
+        SELECT
+          temp_range,
+          COUNT(*) AS week_count,
+          AVG(Weekly_Sales) AS avg_sales,
+          STDDEV(Weekly_Sales) AS sales_stddev,
+          MIN(Weekly_Sales) AS min_sales,
+          MAX(Weekly_Sales) AS max_sales,
+          AVG(Temperature) AS avg_temp,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Weekly_Sales) AS median_sales
+        FROM temp_buckets
+        GROUP BY temp_range
+      ),
+      overall_stats AS (
+        SELECT
+          AVG(Weekly_Sales) AS overall_avg,
+          CORR(Temperature, Weekly_Sales) AS overall_correlation
+        FROM 'oxymart.csv'
+      ),
+      temp_ordered AS (
+        SELECT
+          temp_range,
+          week_count,
+          avg_sales,
+          sales_stddev,
+          median_sales,
+          min_sales,
+          max_sales,
+          avg_temp,
+          CASE
+            WHEN temp_range = 'Very Cold (< 40°F)' THEN 1
+            WHEN temp_range = 'Cold (40-55°F)' THEN 2
+            WHEN temp_range = 'Moderate (55-70°F)' THEN 3
+            WHEN temp_range = 'Warm (70-85°F)' THEN 4
+            ELSE 5
+          END AS temp_order
+        FROM temp_aggregates
+      )
+      SELECT
+        temp_range,
+        week_count,
+        ROUND(avg_sales, 2) AS avg_sales,
+        ROUND(sales_stddev, 2) AS sales_volatility,
+        ROUND(median_sales, 2) AS median_sales,
+        ROUND(min_sales, 2) AS min_sales,
+        ROUND(max_sales, 2) AS max_sales,
+        ROUND(avg_temp, 1) AS avg_temperature,
+        ROUND((avg_sales - (SELECT overall_avg FROM overall_stats)) /
+              (SELECT overall_avg FROM overall_stats) * 100, 2) AS pct_vs_avg,
+        ROUND((SELECT overall_correlation FROM overall_stats), 3) AS temp_correlation_coef
+      FROM temp_ordered
+      ORDER BY temp_order
+
+  # FUEL PRICE IMPACT: Energy Cost Analysis
+  - name: fuel_price_impact
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Analyze relationship between fuel prices and sales
+      WITH fuel_stats AS (
+        SELECT
+          AVG(Fuel_Price) AS avg_fuel,
+          STDDEV(Fuel_Price) AS stddev_fuel,
+          MIN(Fuel_Price) AS min_fuel,
+          MAX(Fuel_Price) AS max_fuel
+        FROM 'oxymart.csv'
+      ),
+      fuel_buckets AS (
+        SELECT
+          CASE
+            WHEN Fuel_Price < 2.75 THEN 'Very Low (< $2.75)'
+            WHEN Fuel_Price >= 2.75 AND Fuel_Price < 3.00 THEN 'Low ($2.75-$3.00)'
+            WHEN Fuel_Price >= 3.00 AND Fuel_Price < 3.50 THEN 'Moderate ($3.00-$3.50)'
+            WHEN Fuel_Price >= 3.50 AND Fuel_Price < 3.75 THEN 'High ($3.50-$3.75)'
+            ELSE 'Very High (≥ $3.75)'
+          END AS fuel_range,
+          Fuel_Price,
+          Weekly_Sales,
+          Unemployment,
+          Date
+        FROM 'oxymart.csv'
+      ),
+      fuel_analysis AS (
+        SELECT
+          fuel_range,
+          COUNT(*) AS week_count,
+          AVG(Weekly_Sales) AS avg_sales,
+          STDDEV(Weekly_Sales) AS sales_stddev,
+          AVG(Fuel_Price) AS avg_fuel_price,
+          AVG(Unemployment) AS avg_unemployment,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Weekly_Sales) AS median_sales
+        FROM fuel_buckets
+        GROUP BY fuel_range
+      ),
+      correlation AS (
+        SELECT
+          CORR(Fuel_Price, Weekly_Sales) AS fuel_sales_corr,
+          AVG(Weekly_Sales) AS overall_avg
+        FROM 'oxymart.csv'
+      ),
+      fuel_ordered AS (
+        SELECT
+          fuel_range,
+          week_count,
+          avg_sales,
+          sales_stddev,
+          median_sales,
+          avg_fuel_price,
+          avg_unemployment,
+          CASE
+            WHEN fuel_range = 'Very Low (< $2.75)' THEN 1
+            WHEN fuel_range = 'Low ($2.75-$3.00)' THEN 2
+            WHEN fuel_range = 'Moderate ($3.00-$3.50)' THEN 3
+            WHEN fuel_range = 'High ($3.50-$3.75)' THEN 4
+            ELSE 5
+          END AS fuel_order
+        FROM fuel_analysis
+      )
+      SELECT
+        fuel_range,
+        week_count,
+        ROUND(avg_sales, 2) AS avg_sales,
+        ROUND(sales_stddev, 2) AS sales_volatility,
+        ROUND(median_sales, 2) AS median_sales,
+        ROUND(avg_fuel_price, 3) AS avg_fuel_price,
+        ROUND(avg_unemployment, 2) AS avg_unemployment,
+        ROUND((avg_sales - (SELECT overall_avg FROM correlation)) /
+              (SELECT overall_avg FROM correlation) * 100, 2) AS pct_vs_avg,
+        ROUND((SELECT fuel_sales_corr FROM correlation), 3) AS fuel_correlation_coef
+      FROM fuel_ordered
+      ORDER BY fuel_order
+
+  # UNEMPLOYMENT IMPACT: Economic Indicator
+  - name: unemployment_impact
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Analyze unemployment rate impact on sales
+      WITH unemployment_buckets AS (
+        SELECT
+          CASE
+            WHEN Unemployment < 6.0 THEN 'Very Low (< 6%)'
+            WHEN Unemployment >= 6.0 AND Unemployment < 7.0 THEN 'Low (6-7%)'
+            WHEN Unemployment >= 7.0 AND Unemployment < 8.0 THEN 'Moderate (7-8%)'
+            WHEN Unemployment >= 8.0 AND Unemployment < 9.0 THEN 'High (8-9%)'
+            ELSE 'Very High (≥ 9%)'
+          END AS unemployment_range,
+          Unemployment,
+          Weekly_Sales,
+          CPI,
+          Fuel_Price
+        FROM 'oxymart.csv'
+      ),
+      unemployment_analysis AS (
+        SELECT
+          unemployment_range,
+          COUNT(*) AS week_count,
+          AVG(Weekly_Sales) AS avg_sales,
+          STDDEV(Weekly_Sales) AS sales_stddev,
+          AVG(Unemployment) AS avg_unemployment,
+          AVG(CPI) AS avg_cpi,
+          AVG(Fuel_Price) AS avg_fuel,
+          MIN(Weekly_Sales) AS min_sales,
+          MAX(Weekly_Sales) AS max_sales
+        FROM unemployment_buckets
+        GROUP BY unemployment_range
+      ),
+      correlation AS (
+        SELECT
+          CORR(Unemployment, Weekly_Sales) AS unemployment_sales_corr,
+          CORR(CPI, Weekly_Sales) AS cpi_sales_corr,
+          AVG(Weekly_Sales) AS overall_avg
+        FROM 'oxymart.csv'
+      ),
+      unemployment_ordered AS (
+        SELECT
+          unemployment_range,
+          week_count,
+          avg_sales,
+          sales_stddev,
+          avg_unemployment,
+          avg_cpi,
+          avg_fuel,
+          min_sales,
+          max_sales,
+          CASE
+            WHEN unemployment_range = 'Very Low (< 6%)' THEN 1
+            WHEN unemployment_range = 'Low (6-7%)' THEN 2
+            WHEN unemployment_range = 'Moderate (7-8%)' THEN 3
+            WHEN unemployment_range = 'High (8-9%)' THEN 4
+            ELSE 5
+          END AS unemp_order
+        FROM unemployment_analysis
+      )
+      SELECT
+        unemployment_range,
+        week_count,
+        ROUND(avg_sales, 2) AS avg_sales,
+        ROUND(sales_stddev, 2) AS sales_volatility,
+        ROUND(avg_unemployment, 2) AS avg_unemployment_rate,
+        ROUND(avg_cpi, 2) AS avg_cpi,
+        ROUND(avg_fuel, 3) AS avg_fuel_price,
+        ROUND(min_sales, 2) AS min_sales,
+        ROUND(max_sales, 2) AS max_sales,
+        ROUND((avg_sales - (SELECT overall_avg FROM correlation)) /
+              (SELECT overall_avg FROM correlation) * 100, 2) AS pct_vs_avg,
+        ROUND((SELECT unemployment_sales_corr FROM correlation), 3) AS unemployment_corr_coef,
+        ROUND((SELECT cpi_sales_corr FROM correlation), 3) AS cpi_corr_coef
+      FROM unemployment_ordered
+      ORDER BY unemp_order
+
+  # MULTI-FACTOR CORRELATION MATRIX
+  - name: correlation_matrix
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Create correlation matrix between all external factors and sales
+      WITH correlations AS (
+        SELECT
+          'Weekly_Sales' AS factor,
+          1.0 AS sales_corr,
+          CORR(Temperature, Weekly_Sales) AS temp_corr,
+          CORR(Fuel_Price, Weekly_Sales) AS fuel_corr,
+          CORR(CPI, Weekly_Sales) AS cpi_corr,
+          CORR(Unemployment, Weekly_Sales) AS unemployment_corr
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'Temperature' AS factor,
+          CORR(Weekly_Sales, Temperature) AS sales_corr,
+          1.0 AS temp_corr,
+          CORR(Fuel_Price, Temperature) AS fuel_corr,
+          CORR(CPI, Temperature) AS cpi_corr,
+          CORR(Unemployment, Temperature) AS unemployment_corr
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'Fuel_Price' AS factor,
+          CORR(Weekly_Sales, Fuel_Price) AS sales_corr,
+          CORR(Temperature, Fuel_Price) AS temp_corr,
+          1.0 AS fuel_corr,
+          CORR(CPI, Fuel_Price) AS cpi_corr,
+          CORR(Unemployment, Fuel_Price) AS unemployment_corr
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'CPI' AS factor,
+          CORR(Weekly_Sales, CPI) AS sales_corr,
+          CORR(Temperature, CPI) AS temp_corr,
+          CORR(Fuel_Price, CPI) AS fuel_corr,
+          1.0 AS cpi_corr,
+          CORR(Unemployment, CPI) AS unemployment_corr
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'Unemployment' AS factor,
+          CORR(Weekly_Sales, Unemployment) AS sales_corr,
+          CORR(Temperature, Unemployment) AS temp_corr,
+          CORR(Fuel_Price, Unemployment) AS fuel_corr,
+          CORR(CPI, Unemployment) AS cpi_corr,
+          1.0 AS unemployment_corr
+        FROM 'oxymart.csv'
+      )
+      SELECT
+        factor,
+        ROUND(sales_corr, 4) AS weekly_sales,
+        ROUND(temp_corr, 4) AS temperature,
+        ROUND(fuel_corr, 4) AS fuel_price,
+        ROUND(cpi_corr, 4) AS cpi,
+        ROUND(unemployment_corr, 4) AS unemployment
+      FROM correlations
+
+  # COMBINED FACTORS: Interaction Effects
+  - name: combined_factors_analysis
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Analyze combined effects of multiple factors
+      WITH categorized AS (
+        SELECT
+          Weekly_Sales,
+          CASE
+            WHEN Temperature < 55 THEN 'Cold'
+            WHEN Temperature >= 70 THEN 'Hot'
+            ELSE 'Moderate'
+          END AS temp_category,
+          CASE
+            WHEN Fuel_Price < 3.0 THEN 'Low Fuel'
+            WHEN Fuel_Price >= 3.5 THEN 'High Fuel'
+            ELSE 'Med Fuel'
+          END AS fuel_category,
+          CASE
+            WHEN Unemployment < 7.0 THEN 'Low Unemp'
+            WHEN Unemployment >= 8.0 THEN 'High Unemp'
+            ELSE 'Med Unemp'
+          END AS unemployment_category,
+          Holiday_Flag
+        FROM 'oxymart.csv'
+      ),
+      combinations AS (
+        SELECT
+          temp_category,
+          fuel_category,
+          unemployment_category,
+          CASE WHEN Holiday_Flag = 1 THEN 'Holiday' ELSE 'Regular' END AS week_type,
+          COUNT(*) AS week_count,
+          AVG(Weekly_Sales) AS avg_sales,
+          STDDEV(Weekly_Sales) AS sales_stddev
+        FROM categorized
+        GROUP BY temp_category, fuel_category, unemployment_category, week_type
+        HAVING COUNT(*) >= 5
+      ),
+      overall_avg AS (
+        SELECT AVG(Weekly_Sales) AS overall_avg
+        FROM 'oxymart.csv'
+      )
+      SELECT
+        temp_category || ' + ' || fuel_category || ' + ' || unemployment_category || ' (' || week_type || ')' AS factor_combination,
+        week_count,
+        ROUND(avg_sales, 2) AS avg_sales,
+        ROUND(sales_stddev, 2) AS sales_volatility,
+        ROUND((avg_sales - (SELECT overall_avg FROM overall_avg)) /
+              (SELECT overall_avg FROM overall_avg) * 100, 2) AS pct_vs_avg,
+        RANK() OVER (ORDER BY avg_sales DESC) AS performance_rank
+      FROM combinations
+      ORDER BY avg_sales DESC
+
+  # FACTOR SIGNIFICANCE RANKING
+  - name: factor_significance
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Rank external factors by their significance to sales
+      WITH factor_correlations AS (
+        SELECT
+          'Temperature' AS factor_name,
+          ABS(CORR(Temperature, Weekly_Sales)) AS abs_correlation,
+          CORR(Temperature, Weekly_Sales) AS correlation,
+          STDDEV(Temperature) AS factor_stddev,
+          STDDEV(Weekly_Sales) / STDDEV(Temperature) * CORR(Temperature, Weekly_Sales) AS beta_coefficient
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'Fuel Price' AS factor_name,
+          ABS(CORR(Fuel_Price, Weekly_Sales)) AS abs_correlation,
+          CORR(Fuel_Price, Weekly_Sales) AS correlation,
+          STDDEV(Fuel_Price) AS factor_stddev,
+          STDDEV(Weekly_Sales) / STDDEV(Fuel_Price) * CORR(Fuel_Price, Weekly_Sales) AS beta_coefficient
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'CPI' AS factor_name,
+          ABS(CORR(CPI, Weekly_Sales)) AS abs_correlation,
+          CORR(CPI, Weekly_Sales) AS correlation,
+          STDDEV(CPI) AS factor_stddev,
+          STDDEV(Weekly_Sales) / STDDEV(CPI) * CORR(CPI, Weekly_Sales) AS beta_coefficient
+        FROM 'oxymart.csv'
+        UNION ALL
+        SELECT
+          'Unemployment' AS factor_name,
+          ABS(CORR(Unemployment, Weekly_Sales)) AS abs_correlation,
+          CORR(Unemployment, Weekly_Sales) AS correlation,
+          STDDEV(Unemployment) AS factor_stddev,
+          STDDEV(Weekly_Sales) / STDDEV(Unemployment) * CORR(Unemployment, Weekly_Sales) AS beta_coefficient
+        FROM 'oxymart.csv'
+      )
+      SELECT
+        factor_name,
+        ROUND(correlation, 4) AS correlation_coefficient,
+        ROUND(abs_correlation, 4) AS absolute_correlation,
+        ROUND(beta_coefficient, 2) AS regression_coefficient,
+        ROUND(factor_stddev, 4) AS factor_volatility,
+        CASE
+          WHEN abs_correlation >= 0.3 THEN 'Significant'
+          WHEN abs_correlation >= 0.15 THEN 'Moderate'
+          ELSE 'Weak'
+        END AS significance_level,
+        CASE
+          WHEN correlation > 0 THEN 'Positive Impact'
+          WHEN correlation < 0 THEN 'Negative Impact'
+          ELSE 'No Impact'
+        END AS impact_direction,
+        RANK() OVER (ORDER BY abs_correlation DESC) AS importance_rank
+      FROM factor_correlations
+      ORDER BY abs_correlation DESC
+
+  # EXTERNAL FACTORS SUMMARY
+  - name: external_factors_summary
+    type: formatter
+    template: |
+      # External Factors Correlation Analysis
+      Generated: {{ current_date }}
+
+      ## Correlation Matrix Overview
+
+      This analysis examines the statistical relationships between external factors and weekly sales.
+      Correlation coefficients range from -1 (perfect negative) to +1 (perfect positive).
+
+      ### Key Correlations with Sales
+      {% for i in range(factor_significance | length) %}
+      {% if factor_significance.factor_name[i] %}
+      **{{factor_significance.factor_name[i]}}**: {{factor_significance.correlation_coefficient[i]}}
+      - Significance: {{factor_significance.significance_level[i]}}
+      - Impact Direction: {{factor_significance.impact_direction[i]}}
+      - Importance Rank: #{{factor_significance.importance_rank[i]}}
+      {% endif %}
+      {% endfor %}
+
+      ## Temperature Impact Analysis
+
+      ### Temperature Range Performance
+      {% for i in range(temperature_correlation | length) %}
+      {% if temperature_correlation.temp_range[i] %}
+      - **{{temperature_correlation.temp_range[i]}}**: ${{temperature_correlation.avg_sales[i]}} ({{temperature_correlation.pct_vs_avg[i]}}% vs avg)
+        - Sample Size: {{temperature_correlation.week_count[i]}} weeks
+        - Volatility: ${{temperature_correlation.sales_volatility[i]}}
+      {% endif %}
+      {% endfor %}
+
+      **Overall Temperature Correlation**: {{temperature_correlation.temp_correlation_coef[0]}}
+
+      ## Fuel Price Impact Analysis
+
+      ### Fuel Price Range Performance
+      {% for i in range(fuel_price_impact | length) %}
+      {% if fuel_price_impact.fuel_range[i] %}
+      - **{{fuel_price_impact.fuel_range[i]}}**: ${{fuel_price_impact.avg_sales[i]}} ({{fuel_price_impact.pct_vs_avg[i]}}% vs avg)
+        - Average Fuel Price: ${{fuel_price_impact.avg_fuel_price[i]}}
+        - Weeks: {{fuel_price_impact.week_count[i]}}
+      {% endif %}
+      {% endfor %}
+
+      **Overall Fuel Correlation**: {{fuel_price_impact.fuel_correlation_coef[0]}}
+
+      ## Unemployment Impact Analysis
+
+      ### Unemployment Rate Performance
+      {% for i in range(unemployment_impact | length) %}
+      {% if unemployment_impact.unemployment_range[i] %}
+      - **{{unemployment_impact.unemployment_range[i]}}**: ${{unemployment_impact.avg_sales[i]}} ({{unemployment_impact.pct_vs_avg[i]}}% vs avg)
+        - Unemployment Rate: {{unemployment_impact.avg_unemployment_rate[i]}}%
+        - Sample Size: {{unemployment_impact.week_count[i]}} weeks
+      {% endif %}
+      {% endfor %}
+
+      **Unemployment Correlation**: {{unemployment_impact.unemployment_corr_coef[0]}}
+      **CPI Correlation**: {{unemployment_impact.cpi_corr_coef[0]}}
+
+      ## Combined Factors Analysis
+
+      ### Best Performing Combinations (Top 5)
+      {% for i in range(5) %}
+      {% if combined_factors_analysis.factor_combination[i] %}
+      {{i+1}}. {{combined_factors_analysis.factor_combination[i]}}
+          - Average Sales: ${{combined_factors_analysis.avg_sales[i]}}
+          - vs Average: {{combined_factors_analysis.pct_vs_avg[i]}}%
+          - Sample Size: {{combined_factors_analysis.week_count[i]}} weeks
+      {% endif %}
+      {% endfor %}
+
+      ## Statistical Insights
+
+      ### Factor Importance Rankings
+      1. **Most Influential**: {{factor_significance.factor_name[0]}} ({{factor_significance.significance_level[0]}})
+      2. **Second**: {{factor_significance.factor_name[1]}} ({{factor_significance.significance_level[1]}})
+      3. **Third**: {{factor_significance.factor_name[2]}} ({{factor_significance.significance_level[2]}})
+
+      ### Correlation Strength Interpretation
+      - **Strong** (≥0.5): High predictive power
+      - **Moderate** (0.3-0.5): Notable relationship
+      - **Weak** (<0.3): Limited direct impact
+
+      ## Business Recommendations
+
+      ### High Priority Actions
+      1. **Monitor** {{factor_significance.factor_name[0]}} closely - highest correlation
+      2. **Pricing Strategy**: Adjust for {{factor_significance.factor_name[1]}} fluctuations
+      3. **Inventory Planning**: Account for {{factor_significance.factor_name[2]}} variations
+
+      ### Operational Adjustments
+      1. **Weather-Based**: Temperature shows {{temperature_correlation.temp_correlation_coef[0]}} correlation
+      2. **Economic Sensitivity**: {{unemployment_impact.unemployment_corr_coef[0]}} unemployment correlation indicates economic impact
+      3. **Cost Management**: Fuel correlation of {{fuel_price_impact.fuel_correlation_coef[0]}} suggests energy cost monitoring
+
+      ### Strategic Insights
+      1. **Combined Effects**: Best conditions yield {{combined_factors_analysis.pct_vs_avg[0]}}% above average
+      2. **Risk Management**: High volatility in certain combinations requires hedging strategies
+      3. **Predictive Modeling**: Use significant factors (≥0.3) in forecasting models
+
+tests:
+  - type: consistency
+    n: 5
+    task_ref: temperature_correlation
+
+  - type: consistency
+    n: 5
+    task_ref: fuel_price_impact
+
+  - type: consistency
+    n: 5
+    task_ref: unemployment_impact
+
+  - type: consistency
+    n: 5
+    task_ref: correlation_matrix
+
+  - type: consistency
+    n: 5
+    task_ref: factor_significance

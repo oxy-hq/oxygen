@@ -1,0 +1,38 @@
+name: active_users
+description: |
+  This workflow generates a report on active users.
+retrieval:
+  include:
+    - "Create monthly report for active users"
+  exclude:
+    - "Create annual user report"
+variables:
+  month: "{{ dimensions.month }}"
+  # platform: "{{ models.monthly_active_user_by_platform.platform }}"
+  platform: "{{ dimensions.platform }}"
+tasks:
+  - name: query_data
+    type: execute_sql
+    database: local
+    sql_query: |
+      SELECT * FROM monthly_active_user_by_platform.csv
+      WHERE month = '{{ month }}' AND platform = '{{ platform }}'
+
+  - name: report
+    type: agent
+    agent_ref: agents/local.agentic.yml
+    prompt: |
+      Generate a report on active users based on the provided data.
+      The data includes user activity and their last login date.
+
+      [BEGIN DATA]
+      {{ query_data }}
+      [END DATA]
+
+      - Then generate a concise report using the following template:
+
+      Total active users: <total_active_users>
+      Active users by organization: <active_users_by_organization>
+      Analysis: <compare the activity levels of different organizations>
+
+      - Analysis should focus on the activity levels without further judgment.

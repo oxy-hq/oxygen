@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: signal_source
+description: >
+  Provenance registry for external signals (weather first; holidays / events /
+  market data next). One row per signal source, capturing license, attribution,
+  and fetch cadence so downstream consumers know what to credit and how often
+  the underlying feed refreshes. Rounds the "provenance is first-class" claim
+  from the data-enrichment pattern into the semantic model.
+datasource: "local"
+table: "signal_source.csv"
+
+entities:
+  - name: signal_source
+    type: primary
+    key: source_id
+    description: "One row per external signal source (e.g. open_meteo / weather)."
+
+dimensions:
+  - name: source_id
+    type: number
+    expr: source_id
+    description: "Unique source identifier."
+  - name: provider
+    type: string
+    expr: provider
+    description: "Upstream data provider (e.g. open_meteo)."
+    synonyms: ["data provider", "vendor"]
+  - name: signal_type
+    type: string
+    expr: signal_type
+    description: "Class of signal (weather, holidays, events, …)."
+  - name: endpoint
+    type: string
+    expr: endpoint
+    description: "URL or service handle the data was fetched from."
+  - name: license
+    type: string
+    expr: license
+    description: "License governing the data (e.g. CC BY 4.0)."
+  - name: attribution
+    type: string
+    expr: attribution
+    description: "Attribution string to display wherever the data is shown to end users."
+  - name: fetched_cadence
+    type: string
+    expr: fetched_cadence
+    description: "How frequently the upstream feed refreshes (daily, hourly, …)."
+
+measures:
+  - name: source_count
+    type: count_distinct
+    expr: source_id
+    description: "Number of distinct signal sources."
+    synonyms: ["number of sources"]

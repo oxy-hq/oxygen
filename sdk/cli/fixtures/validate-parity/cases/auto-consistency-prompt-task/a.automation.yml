@@ -1,0 +1,6 @@
+tasks:
+  - name: a
+    type: agent
+    agent_ref: x.agentic.yml
+    prompt: hi
+    consistency_prompt: "{% for x in y %}no end"

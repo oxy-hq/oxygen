@@ -1,0 +1,9 @@
+databases:
+  - name: local
+    type: duckdb
+    dataset: data
+models:
+  - name: gpt
+    vendor: openai
+    model_ref: gpt-4o
+    key_var: OPENAI_API_KEY

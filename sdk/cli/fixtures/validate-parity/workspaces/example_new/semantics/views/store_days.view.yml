@@ -1,0 +1,618 @@
+name: store_days
+description: |
+  One row per (location, business date): the operating day. This view exists
+  for the Metric Tree's **scenario simulation** — pin a lever, propagate a
+  delta forward — and it is deliberately shaped so that every case the
+  propagation engine distinguishes actually occurs somewhere in it.
+
+  Why a second BRANCH at all: `checks.view.yml` is a fine decomposition but it
+  is 100% additive. Every edge in it is a `+`, so no matter which measure you
+  pin there, propagation takes exactly one code path (`sign * delta`, exact)
+  and the whole confidence/sizing story is invisible. Propagation branches on
+  the ARITHMETIC OPERATOR of each edge and on whether the edge is a declared
+  driver; the operator is inferred from the character in front of a
+  `{{view.measure}}` ref — except for a LEADING ref, which has nothing before
+  it, so the engine looks FORWARD instead and reads `A` in `A * B` or `A / B`
+  as multiplicative rather than defaulting it to additive. (That forward scan
+  is deliberately conservative: it stops at `,` and `(`, so a ref that is an
+  argument of a multiplicative term, as in `COALESCE({{a}}, 0) * {{b}}`, stays
+  additive.) You get a different case by writing a different expression, and
+  this view writes all of them.
+
+  The cases, and the measure that carries each
+  --------------------------------------------
+    +  exact, sign +1     prime_cost        = labor_cost + food_cost
+    -  exact, sign -1     store_profit      = net_sales - prime_cost
+    *  estimated (log)    annualized_store_profit = store_profit * 365 / operating_days
+    /  estimated (log)    avg_wage, sales_per_check, prime_cost_pct,
+                          sales_per_labor_hour, contribution_margin_pct
+    driver + coefficient  guest_count, promo_redemptions (declared)
+    driver, fitted at run time  marketing_spend -> net_sales
+    driver, shape INFERRED as log-log (no form: declared)
+                          delivery_app_spend -> delivery_orders
+    driver, shape INFERRED as quadratic — turns over, so a lever can HURT
+                          discount_depth -> promo_margin
+    driver, NO coefficient, unfittable  weather_severity_index -> guest_count
+    multiplicative edge, zero child -> "unquantifiable"
+                          banquet_check_average on any trailing window
+                          shorter than 120 days
+
+  A `-` and a `/` are not decoration. `store_profit = net_sales - prime_cost`
+  is the only place in this project where raising a measure LOWERS its parent,
+  and a ratio is the only place where the propagated delta depends on the
+  current values (`delta_parent ~= parent * sign * delta_child/child`), which
+  is what makes the baseline query load-bearing rather than cosmetic: clear the
+  time dimension and every ratio here degrades to "can't size this" while the
+  additive branch keeps answering exactly.
+
+  Two-path convergence, on purpose
+  --------------------------------
+  `contribution_margin_pct = store_profit / net_sales` puts `net_sales` on both
+  sides: a lever on it reaches that node once through `store_profit` and once
+  directly, and the two deltas are summed. Pin `net_sales` and this is the node
+  to read — a propagation that visits each node once would under-count it.
+
+  What is NOT declared here, and why
+  ----------------------------------
+  No `X = A * B` over two measures. A product of two aggregates is not an
+  identity — `SUM(hours) * AVG(wage)` is not `SUM(hours * wage)` — so
+  declaring one would plant a tree whose arithmetic is false and let the
+  simulation report a number nothing can reconcile. The `*` case is carried by
+  `annualized_store_profit`, where the second factor is a constant and the
+  identity is exact. `avg_wage` is written the honest way round, as the
+  quotient it actually is.
+
+  Grain and joins
+  ---------------
+  Sales, covers and food cost are re-derived from the check data at query time
+  rather than stored, so the two grains can never disagree. The join to
+  `checks` happens INSIDE this view's SQL and stops there — no query ever
+  joins the two views.
+
+  One driver edge does cross that line: `checks.net_revenue -> net_sales`, on
+  the measure below. It exists so the workspace has ONE metric tree instead of
+  a scatter of disconnected islands, and it is affordable only because of
+  which way it points. The scenario baseline is a single batched query over
+  everything reachable FORWARD from the pinned lever, so:
+
+    * pin a lever in this view — marketing_spend, discount_depth, anything —
+      and the reachable set is still entirely `store_days.*`. One grain, one
+      query, every case above behaves exactly as documented.
+    * pin a lever on the `checks` side and the reachable set spans both
+      grains. That is ONE query over two views with no join path, so it fails
+      and the values come back empty — see `reachable_values_outcome` in
+      airlayer's `metric_tree_ops`. Impacts here degrade to unquantifiable
+      rather than erroring; the scenario still returns.
+
+      Empty is the OUTCOME THIS FIXTURE RELIES ON, and the server has a
+      splitting executor in front of these queries (`metric_tree_baseline`)
+      that could accidentally take it away. It doesn't, deliberately: the
+      split retries only the mixed-additivity refusal, never a no-join-path
+      one. Retrying this request split would let the `store_days` half run
+      alone under `checks.check_date`, joining on `location_id` with nothing
+      tying the dates — it would succeed and return a whole-window total
+      repeated on every date. That is a populated WRONG number where this is
+      an honest empty, and only the fit would catch it (on zero within-panel
+      variance); the values path has no such check.
+
+  The same applies to an opportunity scan rooted at `checks.net_revenue`: its
+  `downstream` block fetches reachable values and will log a failed query.
+  Expected, not a bug to chase — before this edge that block was simply empty,
+  so nothing that used to be sized has stopped being sized.
+
+  The second case is the price of a connected tree, and it is paid only by
+  levers pinned outside this view.
+
+  Declared, fitted, refused
+  -------------------------
+  Four driver edges, four provenances, on purpose. `promo_redemptions` and
+  `guest_count` declare a coefficient and the engine never refits them — a
+  declared number may come from an experiment, which is knowledge the
+  warehouse does not carry. `marketing_spend` declares none and is measured
+  from the baseline window at query time. `weather_severity_index` declares
+  none and cannot be measured, so it stays inert. A fixture carrying only the
+  first could not show the feature; one carrying only the first two could not
+  show it declining.
+
+  `delivery_app_spend` and `discount_depth` are the fourth and fifth, and they
+  declare neither a coefficient NOR a `form:`. The engine measures the SHAPE from
+  history as well as the magnitude, choosing log-log for the first (beating a
+  straight line by 6,320 AIC) and quadratic for the second (by 945). `form:` is an
+  override for when you want to pin a shape or reach one inference will not
+  select; it is not a prerequisite for asking what a relationship is.
+
+  Between them they also carry every non-linear behaviour worth testing: an
+  elasticity rather than a slope, dropped non-positive rows, a response that
+  TURNS OVER so a lever can eventually hurt, and a refusal when a lever runs past
+  the range the fit observed. Every other edge here is linear, where fitting in
+  levels and fitting in logs agree — so without these two, an engine that ignored
+  the shape entirely would pass every assertion the fixture makes.
+
+  See scripts/gen_restaurant_data.py for how the driver series are built and
+  for the `--check` assertions that re-measure every coefficient below.
+
+datasource: local
+
+# Two aggregates over the check data, joined to the operational table on
+# (location, date). Kept as separate CTEs because rolling sales up through the
+# line-item join would multiply each check's total_amount by its line count.
+sql: |
+  WITH day_sales AS (
+    SELECT
+      c.location_id,
+      c.check_date,
+      COUNT(*)             AS check_count,
+      SUM(c.total_amount)  AS net_sales,
+      SUM(c.party_size)    AS guest_count
+    FROM 'restaurant_checks.csv' c
+    GROUP BY 1, 2
+  ),
+  day_food_cost AS (
+    SELECT
+      c.location_id,
+      c.check_date,
+      SUM(i.quantity * m.unit_cost) AS food_cost
+    FROM 'restaurant_checks.csv' c
+    JOIN 'restaurant_check_items.csv' i ON i.check_id = c.check_id
+    JOIN 'restaurant_menu_items.csv' m ON m.menu_item_id = i.menu_item_id
+    GROUP BY 1, 2
+  )
+  SELECT
+    d.location_id || '-' || d.business_date AS store_day_id,
+    d.location_id,
+    d.business_date,
+    l.location_name,
+    l.region,
+    l.city,
+    d.labor_hours,
+    d.labor_cost,
+    d.marketing_spend,
+    d.promo_redemptions,
+    d.loyalty_signups,
+    d.weather_severity_index,
+    d.banquet_covers,
+    d.banquet_sales,
+    d.delivery_app_spend,
+    d.delivery_orders,
+    d.discount_depth,
+    d.promo_margin,
+    COALESCE(s.net_sales, 0)       AS net_sales,
+    COALESCE(s.check_count, 0)     AS check_count,
+    COALESCE(s.guest_count, 0)     AS guest_count,
+    COALESCE(f.food_cost, 0)       AS food_cost
+  FROM 'restaurant_store_days.csv' d
+  JOIN 'restaurant_locations.csv' l
+    ON l.location_id = d.location_id
+  LEFT JOIN day_sales s
+    ON s.location_id = d.location_id AND s.check_date = d.business_date
+  LEFT JOIN day_food_cost f
+    ON f.location_id = d.location_id AND f.check_date = d.business_date
+
+refresh_key:
+  every: "1h"
+
+entities:
+  - name: store_day
+    type: primary
+    description: "One location's trading on one business date"
+    key: store_day_id
+  - name: location
+    type: foreign
+    description: "Restaurant that traded this day"
+    key: location_id
+
+dimensions:
+  # `business_date` is first on purpose. The scenario UI baselines a lever
+  # against the FIRST time dimension declared on the lever's own view, so a
+  # second date column above this one would silently become the window every
+  # forecast here is measured over.
+  - name: business_date
+    type: date
+    description: "Business date"
+    expr: business_date
+  - name: store_day_id
+    type: string
+    description: "Composite key: location and business date"
+    expr: store_day_id
+  - name: location_id
+    type: number
+    description: "Location identifier"
+    expr: location_id
+  - name: location_name
+    type: string
+    description: "Location name"
+    expr: location_name
+  - name: region
+    type: string
+    description: "Region: midwest, west, northeast, south"
+    expr: region
+  - name: city
+    type: string
+    description: "City"
+    expr: city
+
+measures:
+  # The rate denominator, and the divisor in `annualized_store_profit`. First
+  # count measure on the view, so per-unit sizing here reads as "per store-day".
+  - name: operating_days
+    type: count
+    description: "Store-days traded"
+
+  # ── Atomic leaves: the things a scenario actually pins ──────────────────
+  - name: net_sales
+    type: sum
+    description: |
+      Net sales for the day, re-derived from the checks. Also the node with
+      the most inbound edges in this tree: two declared drivers push into it,
+      and it feeds the additive branch (store_profit) and four ratios, so a
+      lever here is the one that exercises the widest propagation.
+    expr: net_sales
+    drivers:
+      # DELIBERATELY no `coefficient:`. This is the runtime-fitting case: the
+      # engine measures the magnitude from the baseline window itself
+      # (within-location lagged OLS, see airlayer's `metric_tree_fit`) rather
+      # than reading a number a human wrote here. Against this fixture it
+      # recovers 5.786 (t 36.5, n 8592) — the generator independently measures
+      # 5.783 in Python, which is what makes this a real check on the fit and
+      # not a tautology.
+      #
+      # `lag` stays declared because it is a modelling claim, not a
+      # measurement: it says which day's sales this spend is responsible for,
+      # and the fit pairs its rows accordingly. Fitting the lag too would mean
+      # scanning candidate lags and picking the best, which finds a "best" lag
+      # in pure noise.
+      - measure: store_days.marketing_spend
+        form: linear
+        lag: 7
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          Incremental sales dollars per marketing dollar, realised about a
+          week out. Sized from history at query time. The lag is also what
+          makes this the driver to read when checking that a multi-hop path
+          accumulates lag rather than reporting the last edge's.
+      - measure: store_days.guest_count
+        coefficient: 52.0
+        form: linear
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "Average spend per cover (measured, not assumed: 52.007, SE 0.114)."
+      # ── The grain bridge ────────────────────────────────────────────────
+      #
+      # The one edge in this project that crosses grains. `checks.net_revenue`
+      # is this same money at check grain, so the whole category decomposition
+      # hangs off `net_sales` here and the workspace has ONE tree rather than
+      # two.
+      #
+      # Direction is what makes it affordable. Edges point checks -> store_days,
+      # and the scenario baseline walks FORWARD from the pinned lever, so
+      # pinning anything in this view (marketing_spend, guest_count, …) still
+      # batches one query over one grain — unchanged. Only a lever pinned on
+      # the checks side pulls both grains into that query, and there the
+      # multiplicative impacts here may come back unquantifiable. That is the
+      # accepted cost of a connected canvas, not a bug to chase.
+      - measure: checks.net_revenue
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          The same revenue at check grain. Both sides are re-derived from the
+          same checks, so this is an identity wearing a driver edge — written
+          as a driver because the two live at different grains and a component
+          ref across them would claim a join that does not exist.
+      - measure: store_days.banquet_sales
+        direction: positive
+        strength: weak
+        confidence: low
+        description: |
+          Private events are revenue this column does not contain, so the claim
+          is spillover — banquet guests coming back as walk-ins — not
+          arithmetic. Unsized on purpose, and zero on both sides after the
+          2026-03-21 wind-down, which leaves `banquet_check_average`'s
+          unquantifiable case exactly as it was.
+      - measure: store_days.discount_depth
+        direction: positive
+        strength: weak
+        confidence: low
+        description: |
+          A deeper promotion pulls incremental guests through the door. Sales
+          is the wrong measure to read this on — the interesting response is
+          `promo_margin`, which TURNS OVER — so this edge exists to connect
+          the lever, not to be the answer.
+      - measure: locations.total_locations
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "Fleet size. More stores trading, more sales."
+  - name: food_cost
+    type: sum
+    description: "Cost of goods sold, from the line items' menu unit_cost"
+    expr: food_cost
+  - name: labor_cost
+    type: sum
+    description: "Hourly labor dollars"
+    expr: labor_cost
+  - name: labor_hours
+    type: sum
+    description: "Hours worked"
+    expr: labor_hours
+    drivers:
+      - measure: servers.total_servers
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "Headcount on the roster. More servers, more hours to pay for."
+  - name: marketing_spend
+    type: sum
+    description: "Local marketing and advertising spend"
+    expr: marketing_spend
+  - name: check_count
+    type: sum
+    description: "Checks closed"
+    expr: check_count
+    drivers:
+      # A delivery order is a check, so the claim is sound — but the generator
+      # draws `delivery_orders` independently of the check data, so the fit is
+      # offered this window and refuses it. Second refusal in the fixture after
+      # `weather_severity_index`, and a different flavour: that one is a
+      # relationship nobody has measured, this one is a relationship the data
+      # in front of the engine cannot confirm.
+      - measure: store_days.delivery_orders
+        direction: positive
+        strength: moderate
+        confidence: medium
+        description: "Orders placed through the delivery apps close as checks too."
+  - name: guest_count
+    type: sum
+    description: "Covers served"
+    expr: guest_count
+    drivers:
+      - measure: store_days.promo_redemptions
+        coefficient: 2.30
+        form: linear
+        lag: 3
+        direction: positive
+        strength: moderate
+        confidence: medium
+        description: |
+          Covers per redeemed offer, a few days out. Chained behind
+          loyalty_signups on purpose: a lever on signups has to cross two
+          lagged driver edges to reach net_sales, which is the only path here
+          that can show cumulative lag (21 + 3) rather than a single hop's.
+      # Also no coefficient — but unlike marketing_spend above, this one must
+      # stay unsized. The runtime fit is offered the same window and REFUSES
+      # it: the series is drawn independently of everything, so it measures
+      # |t| well under 1 on any window in this fixture, against the engine's
+      # |t| >= 2.0 bar. The edge keeps propagating nothing. That pairing is the point of having both: a fitter that
+      # reports whatever slope it measured would hand the simulation a
+      # confident number manufactured out of noise, and a fixture where every
+      # fit succeeds cannot tell a working refusal gate from an absent one.
+      # `--check` keeps the series genuinely inert so the refusal stays
+      # honest rather than lucky.
+      - measure: store_days.weather_severity_index
+        direction: negative
+        strength: moderate
+        confidence: low
+        description: |
+          Bad weather suppresses covers. Qualitative only — no experiment has
+          ever sized it here, so no coefficient is declared and no scenario
+          may forecast a number from it.
+  - name: promo_redemptions
+    type: sum
+    description: "Loyalty offers redeemed"
+    expr: promo_redemptions
+    drivers:
+      - measure: store_days.loyalty_signups
+        coefficient: 2.33
+        form: linear
+        lag: 21
+        direction: positive
+        strength: moderate
+        confidence: medium
+        description: "Offers a new member redeems over the following three weeks."
+  - name: loyalty_signups
+    type: sum
+    description: "New loyalty members enrolled"
+    expr: loyalty_signups
+  - name: weather_severity_index
+    type: average
+    description: "Weather severity, 0 (clear) to 1 (severe)"
+    expr: weather_severity_index
+
+  # ── The saturating edge: the only non-linear form in this project ─────────
+  - name: delivery_app_spend
+    type: sum
+    description: |
+      Promoted placement spend on the delivery apps. The lever to pin when you
+      want the log-log path: it is the only driver here whose relationship
+      SATURATES, so it is the only one where reading the coefficient as "per
+      unit" is a unit error rather than a wording quibble.
+    expr: delivery_app_spend
+  - name: delivery_orders
+    type: sum
+    description: |
+      Orders placed through the delivery apps. Diminishing returns on
+      `delivery_app_spend` by construction — the generator draws spend
+      log-uniformly over a decade and sets orders to
+      `scale * spend ** 0.45`, per location.
+
+      Downstream it drives `check_count` qualitatively — a delivery order is a
+      check — but it is not a COMPONENT of anything, because `net_sales` is
+      re-derived from the check data and cannot be made to include a column
+      this table invented. What it tests is still the EDGE above, not a path;
+      the multi-hop story is carried by the net_sales branch.
+    expr: delivery_orders
+    drivers:
+      # The third provenance-and-shape combination in this file, and the only
+      # non-linear one. The shape the engine settles on is log-log, which means
+      # the relationship is constant in PROPORTIONS, so the coefficient is an
+      # elasticity (~0.45: +1% spend, +0.45% orders) and not dollars per
+      # dollar. Neither the coefficient NOR the shape is declared — see the
+      # note below — so both are measured at query time.
+      #
+      # Three behaviours only this edge exercises:
+      #   * the fit transforms before demeaning, so the number is an
+      #     elasticity net of panel level, not the log of a level slope. Fitted
+      #     in levels the same rows give ~0.109 — 4.1x away, and every other
+      #     edge in this fixture is linear, where the two spaces agree and the
+      #     distinction is invisible.
+      #   * ~4% of store-days are dark (spend 0). `ln(0)` has no value, so a
+      #     log fit must DROP those pairs and report the count
+      #     (`n_nonpositive`) rather than quietly shrink its own window.
+      #   * being a claim about proportions, it needs current values to size.
+      #     Clear the time dimension and this edge reports `unquantifiable`,
+      #     where the linear `marketing_spend` edge keeps answering — the same
+      #     split the additive-vs-multiplicative component edges above show.
+      # NO `form:`. The shape is measured from history like the magnitude is —
+      # the engine picks log-log over linear by 6,320 AIC on this data and
+      # recovers the same 0.4508 elasticity a declared form gets.
+      - measure: store_days.delivery_app_spend
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          Elasticity of delivery orders to promoted placement spend, measured
+          from history at query time. Saturating: doubling spend does not
+          double orders.
+
+  # ── The turning point: the only lever here that can HURT ──────────────────
+  - name: discount_depth
+    type: average
+    description: |
+      Average dollars off per check on the day's promotion. The lever to pin
+      when you want a recommendation with a CEILING in it: it is the only
+      driver in this project whose effect reverses, so it is the only one where
+      "spend more" is eventually the wrong answer.
+    expr: discount_depth
+  - name: promo_margin
+    type: sum
+    description: |
+      Gross margin dollars attributable to the promotion. An inverted U in
+      `discount_depth` by construction: a shallow discount pulls in
+      incremental guests whose margin more than covers the giveaway, so this
+      climbs. Push deeper and you start paying full-price guests to use a
+      coupon they did not need, the giveaway outruns the incremental volume,
+      and margin falls — eventually below where it started.
+
+      Terminal, like `delivery_orders`, and for the same reason: `net_sales` is
+      re-derived from the checks and cannot be made to include a column this
+      table invented. Its lever `discount_depth` is the end that connects —
+      it drives `net_sales` qualitatively — so the turning point this measure
+      exists to demonstrate stays on an edge nothing else reaches through.
+    expr: promo_margin
+    drivers:
+      # A quadratic shape — TWO coefficients, which is the point. Every other
+      # shape here needs one, and one number can only ever point one way: it
+      # says "per unit, this much", for ever, so a scenario on it always
+      # rewards pushing harder. A slope AND a curvature can say where to stop.
+      #
+      # Declares no `form:` and no coefficients, so the engine picks the shape
+      # AND fits both terms, then derives the turn.
+      # Measured on this fixture (`--check` prints it): slope 0.8402 (t 53.7),
+      # curvature -0.011287 (t 33.5), which puts the peak at +36.5% and
+      # break-even at +73.0% of current depth.
+      #
+      # Four behaviours only this edge exercises:
+      #   * a two-term fit at all. Before `coefficients:` became a vector this
+      #     shape could not be written down, let alone measured.
+      #   * the per-term gate. EVERY basis coefficient must clear |t| >= 2, so
+      #     a curvature indistinguishable from zero is refused by name rather
+      #     than becoming a peak invented from noise.
+      #   * the basis moments. The fit is per store-day and the lever is a
+      #     year-wide total, and a curvature cannot cross that gap without the
+      #     sum of squares — substituting the square of the sum is 42,905x out
+      #     WITH THE SIGN FLIPPED on this same fixture.
+      #   * the domain backstop. The turn sits inside the observed 6.6x spread
+      #     of depth on purpose; a quadratic extrapolated past its own evidence
+      #     will confidently forecast a reversal it never saw, so a lever
+      #     beyond that spread is refused.
+      # NO `form:` either, and this is the stronger demonstration: the engine
+      # FINDS the turning point rather than being told about it. Quadratic beats
+      # the straight line by 945 AIC here, and the coefficients come out
+      # identical to the declared-form fit.
+      - measure: store_days.discount_depth
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          Promo margin against discount depth: rises, flattens, then falls.
+          Both terms measured from history at query time, so the peak is a
+          property of the data rather than a number someone asserted.
+
+  # ── The wound-down banquet program ───────────────────────────────────────
+  #
+  # Both of these are exactly zero from 2026-03-22 onward. On the scenario
+  # default (a trailing 90-day window) that makes `banquet_check_average`'s
+  # multiplicative edges unsizable — %delta is undefined at zero — so the
+  # engine must report "can't size this", which is a different claim from "no
+  # impact". Widen the period to 365 days and the same lever sizes normally.
+  - name: banquet_sales
+    type: sum
+    description: "Private-event banquet revenue (program wound down 2026-03-21)"
+    expr: banquet_sales
+  - name: banquet_covers
+    type: sum
+    description: "Banquet covers served (zero since 2026-03-22)"
+    expr: banquet_covers
+
+  # ── Additive branch: exact propagation, including one negative sign ──────
+  - name: prime_cost
+    type: custom
+    description: "Labor plus food — the two costs a manager controls day to day"
+    expr: "{{store_days.labor_cost}} + {{store_days.food_cost}}"
+  - name: store_profit
+    type: custom
+    description: |
+      Net sales less prime cost, before occupancy and other fixed costs. The
+      `-` is the point: this is the only measure in the project where pushing
+      a child UP pushes the parent DOWN, and it still propagates exactly.
+    expr: "{{store_days.net_sales}} - {{store_days.prime_cost}}"
+
+  # ── Multiplicative branch: sized only against a baseline ─────────────────
+  - name: avg_wage
+    type: custom
+    description: "Blended hourly labor rate"
+    expr: "{{store_days.labor_cost}} / {{store_days.labor_hours}}"
+  - name: sales_per_labor_hour
+    type: custom
+    description: "Sales per labor hour — the productivity line managers run on"
+    expr: "{{store_days.net_sales}} / {{store_days.labor_hours}}"
+  # Named `sales_per_check`, not `avg_check`: `checks.avg_check` already
+  # exists and both views join to `location`, so a second `avg_check` makes
+  # `locations.avg_check` ambiguous between two source views and every query
+  # on it then needs an explicit `through`. `airlayer validate` warns about
+  # exactly this — take the warning, it is not cosmetic.
+  - name: sales_per_check
+    type: custom
+    description: "Average check, at the operating-day grain"
+    expr: "{{store_days.net_sales}} / {{store_days.check_count}}"
+  - name: prime_cost_pct
+    type: custom
+    description: "Prime cost as a share of sales"
+    expr: "{{store_days.prime_cost}} / {{store_days.net_sales}}"
+  - name: contribution_margin_pct
+    type: custom
+    description: |
+      Store profit as a share of sales. The two-path node: `net_sales` reaches
+      it once through `store_profit` and once as the denominator, with
+      opposite signs, so the propagated delta is the SUM of two contributions
+      rather than either one.
+    expr: "{{store_days.store_profit}} / {{store_days.net_sales}}"
+  - name: banquet_check_average
+    type: custom
+    description: |
+      Average banquet spend per cover. Both inputs are zero on any window
+      inside the wind-down, which is exactly when a multiplicative edge cannot
+      be sized.
+    expr: "{{store_days.banquet_sales}} / {{store_days.banquet_covers}}"
+  - name: annualized_store_profit
+    type: custom
+    description: |
+      Store profit put on an annual run rate. The `*` case: the second factor
+      is a constant, never a node, so the tree stays an exact identity while
+      the edge is still multiplicative — a delta on `store_profit` arrives
+      here scaled by 365/operating_days, which falls out of parent/child
+      without the constant ever appearing in the graph.
+    expr: "{{store_days.store_profit}} * 365 / {{store_days.operating_days}}"

@@ -1,0 +1,139 @@
+name: transactions_1k
+description: |
+  Individual fuel-card transactions - a SMALL SAMPLE of 1,000 rows covering
+  only 2012-08-23 .. 2012-08-26. Each row is one product line bought by a
+  customer with one card at one gas station.
+  Joins: `customer` -> customers, `gas_station` -> gasstations (country,
+  chain segment; "in the Czech Republic" = country 'CZE'), `product` ->
+  products (product name; "gas" = gasoline, not natural gas). There is no card
+  table; `card_id` is a plain attribute (each card belongs to one customer).
+  `amount` is the quantity bought (integer, 0 on 91 rows); `price` is a real.
+  The description file states: total price = Amount x Price (measure
+  `total_price`). Caveat: in the data `price` itself already looks like a line
+  total (e.g. 28 units, price 672.64; price/amount is 20-45 on 811 rows, a
+  plausible per-litre fuel price), so `total_price_recorded` = SUM(price) and
+  `unit_price` = price/amount are also provided - choose deliberately.
+  Monthly consumption is NOT derived from this table - use `yearmonth`. Never
+  join this view and `yearmonth` in one query through the customer: each
+  multiplies the other's rows.
+datasource: bird_debit_card_specializing
+table: transactions_1k
+
+entities:
+  - name: transaction
+    type: primary
+    description: One transaction line.
+    key: transaction_id
+  - name: customer
+    type: foreign
+    description: Customer who paid.
+    key: customer_id
+  - name: gas_station
+    type: foreign
+    description: Gas station where the transaction happened.
+    key: gas_station_id
+  - name: product
+    type: foreign
+    description: Product bought.
+    key: product_id
+
+dimensions:
+  - name: transaction_id
+    type: number
+    description: Transaction ID (column `transactionid`).
+    synonyms: ["transactionid", "TransactionID"]
+    expr: transactionid
+  - name: transaction_date
+    type: date
+    description: Date of the transaction (column `date`, a real SQL date; 2012-08-23 .. 2012-08-26).
+    synonyms: ["date", "transaction date"]
+    expr: date
+  - name: transaction_time
+    type: string
+    description: Time of the transaction (column `time`), text formatted 'HH:MM:SS' (e.g. '09:41:00'). Compare as text or cast with `time::time`.
+    synonyms: ["time"]
+    expr: time
+  - name: transaction_hour
+    type: number
+    description: Hour of day (0-23) of the transaction, from the text `time`.
+    expr: "CAST(SUBSTR({{TABLE}}.time, 1, 2) AS integer)"
+  - name: customer_id
+    type: number
+    description: Customer ID (column `customerid`).
+    synonyms: ["customerid", "CustomerID"]
+    expr: customerid
+  - name: card_id
+    type: number
+    description: Card ID (column `cardid`) - the fuel card used. No card table exists.
+    synonyms: ["cardid", "CardID", "card"]
+    expr: cardid
+  - name: gas_station_id
+    type: number
+    description: Gas Station ID (column `gasstationid`).
+    synonyms: ["gasstationid", "GasStationID"]
+    expr: gasstationid
+  - name: product_id
+    type: number
+    description: Product ID (column `productid`).
+    synonyms: ["productid", "ProductID"]
+    expr: productid
+  - name: amount
+    type: number
+    description: Amount (quantity) bought on this line (integer).
+    synonyms: ["quantity"]
+    expr: amount
+  - name: price
+    type: number
+    description: |
+      Price as recorded (column `price`, real). Description file: total
+      price = Amount x Price. In the data the value behaves like the line
+      total (see view description).
+    expr: price
+  - name: line_total_price
+    type: number
+    description: Amount x Price for this line (the description file's "total price" formula).
+    synonyms: ["total price"]
+    expr: "{{TABLE}}.amount * {{TABLE}}.price"
+  - name: unit_price
+    type: number
+    description: price / amount for this line (price per unit if `price` is the line total); NULL when amount is 0.
+    synonyms: ["price per unit", "price per litre"]
+    expr: "{{TABLE}}.price / NULLIF({{TABLE}}.amount, 0)"
+
+measures:
+  - name: transaction_count
+    type: count
+    description: Number of transactions.
+  - name: total_amount
+    type: sum
+    description: Total amount (quantity) bought.
+    expr: amount
+  - name: average_amount
+    type: average
+    description: Average amount per transaction.
+    expr: amount
+  - name: total_price
+    type: sum
+    description: Total price = SUM(Amount x Price), per the description file's formula.
+    synonyms: ["total spent", "total price"]
+    expr: "{{TABLE}}.amount * {{TABLE}}.price"
+  - name: total_price_recorded
+    type: sum
+    description: SUM(price) - the recorded price column summed as-is (equals spend if `price` is the line total).
+    expr: price
+  - name: average_price
+    type: average
+    description: Average of the recorded `price` per transaction.
+    expr: price
+  - name: customer_count
+    type: count_distinct
+    description: Number of distinct customers who transacted.
+    expr: customerid
+  - name: card_count
+    type: count_distinct
+    description: Number of distinct cards used.
+    expr: cardid
+  - name: gas_station_count
+    type: count_distinct
+    description: Number of distinct gas stations with transactions.
+    expr: gasstationid

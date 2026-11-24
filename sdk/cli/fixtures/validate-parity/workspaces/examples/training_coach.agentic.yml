@@ -1,0 +1,19 @@
+databases:
+  - training
+llm:
+  ref: claude-sonnet-4-6
+  max_tokens: 16000
+
+context:
+  - ./semantics/*.view.yml
+  - ./semantics/*.topic.yml
+
+states:
+  clarifying:
+    max_retries: 10
+  specifying:
+    max_retries: 10
+  solving:
+    max_retries: 10
+  interpreting:
+    max_retries: 10

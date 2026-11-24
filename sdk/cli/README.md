@@ -2029,17 +2029,48 @@ oxyc exit-codes
 ```
 
 **`validate`** checks workspace YAML against `json-schemas/*.json`, which are
-generated from the Rust config types. No network, no token.
+generated from the Rust config types, and then as the runtime checks each file
+once it has loaded. No network, no token. It replaced `oxy validate`, which is
+a stub for one release that prints this command and exits `2`.
 
 | File | Schema |
 | --- | --- |
-| `config.yml` / `config.yaml` | `config.json` |
+| `config.yml` / `config.yaml` at a workspace root | `config.json` |
 | `*.automation.yml`, `*.procedure.yml` (`*.workflow.yml` is not a recognised kind; `oxyc migrate-automations` renames it) | `workflow.json` |
 | `*.agentic.yml` | `agentic.json` |
 | `*.agent.test.yml` | `agent-test.json` |
+| `*.view.yml`, `*.topic.yml`, anywhere the compiler finds them (`.yml` only) | `view.json`, `topic.json` |
 
-Structural checks only. `oxy validate` additionally resolves `databases:` and
-`llm.ref` against the loaded workspace, and wins where the two disagree.
+Past the schema:
+
+- **References**, against the `config.yml` of the workspace each file is in (the
+  outermost one the walk finds above it; with `--file`, the nearest one above
+  the directory you run in, as `oxy` read it).
+  An automation's `execute_sql` `database:` and `omni_query` / `looker_query`
+  `integration:` must name an entry of that kind, including inside a
+  `loop_sequential`. An agentic agent's `databases:` and `llm.ref` must name a
+  database and a model; the Rust command never checked those.
+- **Rules** the runtime applies to an automation: a non-empty `tasks:` and task
+  `name:`, an `export:` format the task kind supports, `http_request`
+  `timeout_secs` from 1 to 120, `dry_run_limit` at least 1, and a
+  `consistency_prompt` that parses as a template (a structural check of the
+  template, not minijinja's full grammar).
+- **Views and topics**: no `inherits_from:` or `{{ globals.* }}` (removed), and
+  every `{{variables...}}` well formed.
+
+A `config.yml` nested inside a workspace (an Airform project's, say) is not
+checked as a workspace config. Workspace files with no `config.yml` above them
+are one `missing` finding. Each finding in `--json` has a `kind`: `parse` (the
+file does not load), `ref`, `rule` or `missing`. Where a generated schema is
+stricter or looser than the runtime's deserializer (an alias, `serde(other)`, a
+`deny_unknown_fields` `schemars` cannot see), `src/validate/serde-leniency.ts`
+patches it, and `fixtures/validate-parity/` pins every verdict against the one
+`oxy validate` gave.
+
+**Exit codes:** `0` clean; `9` (`CHECK_FAILED`) at least one finding — `oxy
+validate` exited `1`, so a script testing `$? -eq 1` changes; `1` nothing could
+be read; `2` a kind `--file` cannot check; `5` a `--file` path that does not
+exist.
 
 Every **`oxy-app.json`** it finds is checked for data placement — the shape of
 the data picks the store: facts and history in Airhouse (`ctx.airhouse`),
@@ -2201,7 +2232,8 @@ written in `skills/` here; see `internal-docs/platform-skills.md`.
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and failed or timed out (`oxyc checks run`, `oxyc looker test`)
+9  a check ran and failed or timed out (`oxyc checks run`, `oxyc looker test`,
+   `oxyc validate`)
 ```
 
 `4` almost always means the wrong `--env`. A person logs in again. An agent on

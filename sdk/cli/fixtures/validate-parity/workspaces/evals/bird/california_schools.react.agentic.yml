@@ -1,0 +1,8 @@
+databases:
+  - bird_california_schools
+llm:
+  ref: eval-model
+context:
+  - ./california_schools/*.view.yml
+  - ./california_schools/*.topic.yml
+runtime: react

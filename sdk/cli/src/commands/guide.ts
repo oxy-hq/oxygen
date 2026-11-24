@@ -141,7 +141,7 @@ Your operator approves once in the browser. Then pass \`--token-env OXY_TOKEN\` 
     oxyc <customer>                # a session scoped to one customer
     oxyc assume start --org <o> -r "why"   # staff/partner session, 60 min, not renewable
 
-\`oxyc validate\` is the only one offline; \`oxy validate\` (Rust) also resolves \`databases:\`/\`llm.ref\`.
+\`oxyc validate\` is the only one offline: schemas, references (\`databases:\`, \`llm.ref\`, integrations) and rules; exit 9 on a finding.
 
 ### Traps
 

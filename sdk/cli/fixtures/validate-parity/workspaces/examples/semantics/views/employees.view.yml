@@ -1,0 +1,115 @@
+name: employees
+description: |
+  Monthly headcount and payroll snapshot per department. Sits in the cost
+  half of the metric tree as a negative driver on net_revenue / operating
+  profit. Payroll is the largest fixed cost — sensitivity / predict_impact
+  walks from net_revenue back to fully_loaded_cost and tells you the
+  marginal headcount cost of a department change.
+datasource: local
+table: "employees.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: payroll_by_month
+    measures:
+      - total_headcount
+      - salary_cost
+      - benefits_cost
+      - fully_loaded_cost
+    time_dimension: month
+    granularity: month
+    refresh_key:
+      every: 1h
+
+  - name: payroll_by_department
+    dimensions:
+      - department
+    measures:
+      - total_headcount
+      - salary_cost
+      - benefits_cost
+      - fully_loaded_cost
+    time_dimension: month
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: payroll_snapshot
+    type: primary
+    description: One month × department payroll snapshot
+    keys:
+      - month
+      - department
+  # Payroll is the largest fixed cost feeding operating profit — link it to the
+  # monthly P&L period so it joins the graph instead of floating free.
+  - name: financials_month
+    type: foreign
+    description: Monthly P&L period this payroll snapshot belongs to
+    key: month
+
+dimensions:
+  - name: month
+    type: date
+    description: First-of-month date the snapshot was taken
+    expr: month
+  - name: department
+    type: string
+    description: Department the payroll snapshot rolls up
+    expr: department
+    samples:
+      - "engineering"
+      - "sales"
+      - "marketing"
+      - "customer_success"
+      - "operations"
+      - "g_and_a"
+
+measures:
+  # ── Leaves
+  - name: total_headcount
+    type: sum
+    description: Total headcount across all departments
+    expr: headcount
+  - name: salary_cost
+    type: sum
+    description: Total monthly salary spend ($)
+    expr: salary_cost
+  - name: benefits_cost
+    type: sum
+    description: Total monthly benefits spend ($)
+    expr: benefits_cost
+  - name: avg_salary_per_head
+    type: average
+    description: Average monthly salary per employee ($)
+    expr: avg_salary
+
+  # ── Component composites
+  - name: fully_loaded_cost
+    type: custom
+    description: Total monthly payroll cost including benefits
+    expr: "{{employees.salary_cost}} + {{employees.benefits_cost}}"
+  - name: cost_per_head
+    type: custom
+    description: Fully-loaded monthly cost per employee
+    expr: "{{employees.fully_loaded_cost}} / NULLIF({{employees.total_headcount}}, 0)"
+
+  # ── Driver: department headcount lifts cost (linear, no lag — payroll
+  #    is recognised the month a head is on the books).
+  - name: headcount_driving_cost
+    type: custom
+    description: |
+      Total headcount, exposed as a driver of fully_loaded_cost. The
+      coefficient is the current average cost per head; predict_impact
+      uses it to answer "if we hire N more engineers, what does payroll
+      look like?".
+    expr: "{{employees.total_headcount}}"
+    drivers:
+      - measure: employees.fully_loaded_cost
+        coefficient: 11500.0
+        form: linear
+        description: |
+          ~$11.5k fully-loaded monthly cost per incremental head at the
+          current department mix. Recompute when mix shifts materially.

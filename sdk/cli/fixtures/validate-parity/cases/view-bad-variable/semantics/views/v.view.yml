@@ -1,0 +1,14 @@
+name: orders
+datasource: local
+table: orders
+entities:
+  - name: order
+    type: primary
+    key: id
+dimensions:
+  - name: id
+    type: number
+    expr: "{{variables.1bad}}"
+measures:
+  - name: n
+    type: count

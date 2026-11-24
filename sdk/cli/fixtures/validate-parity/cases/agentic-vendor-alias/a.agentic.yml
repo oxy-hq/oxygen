@@ -1,0 +1,3 @@
+llm:
+  vendor: openai_compat
+  model: llama3

@@ -1,0 +1,6 @@
+tasks:
+  - name: o
+    type: omni_query
+    integration: lk
+    topic: t
+    fields: [a]

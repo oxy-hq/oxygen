@@ -1,0 +1,4 @@
+tasks:
+  - name: w
+    type: airway
+    pipeline: ""

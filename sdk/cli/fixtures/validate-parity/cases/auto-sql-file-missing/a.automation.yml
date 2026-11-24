@@ -1,0 +1,5 @@
+tasks:
+  - name: q
+    type: execute_sql
+    database: local
+    sql_file: nope.sql

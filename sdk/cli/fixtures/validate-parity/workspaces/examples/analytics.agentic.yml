@@ -1,0 +1,26 @@
+llm:
+  # A model this config.yml declares. `claude` is demo_project's name for it,
+  # and this file was copied from there: here it failed at run time with
+  # "Model 'claude' not found in config".
+  ref: claude-sonnet-4-6
+  # max_tokens: 8000
+  thinking: disabled
+  extended_thinking:
+    model: claude-opus-4-6
+    thinking: adaptive
+context:
+  - ./semantics/**/*
+  - ./sales_semantics/**/*
+  - ./airhouse_semantics/**/*
+  # Per-org OLTP Postgres: live app state (app_bookings.orders) alongside
+  # Airway-landed ETL data (raw_toast.sales). Both read-only from here — the
+  # postgres_managed connector always resolves the analyst role.
+  - ./oltp_semantics/**/*
+  - ./enrichment_semantics/**/*
+  - ./workflows/**/*.automation.yml
+  - ./example_sql/*.sql
+states:
+  specifying:
+    max_retries: 10
+  interpreting:
+    thinking: disabled

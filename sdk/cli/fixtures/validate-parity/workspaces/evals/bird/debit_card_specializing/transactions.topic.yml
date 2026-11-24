@@ -1,0 +1,10 @@
+name: transactions
+description: |
+  Card transactions (1,000-row sample, 2012-08-23 .. 2012-08-26) with the
+  paying customer, the gas station (country, chain segment) and the product.
+base_view: transactions_1k
+views:
+  - transactions_1k
+  - customers
+  - gasstations
+  - products

@@ -1,0 +1,88 @@
+name: order_returns
+description: Product returns for order line items (another composite key reference example)
+datasource: local
+table: order_returns.csv
+
+refresh_key:
+  sql: "SELECT MAX(return_id) FROM 'order_returns.csv'"
+
+pre_aggregations:
+  - name: returns_summary
+    measures:
+      - total_returns
+      - total_refund_amount
+
+  - name: returns_by_reason
+    dimensions:
+      - return_reason
+    measures:
+      - total_returns
+      - total_refund_amount
+
+entities:
+  - name: return
+    type: primary
+    description: "Individual return record"
+    key: return_id
+    parent: order_item
+  - name: order_item
+    type: foreign
+    description: "Order line item being returned (composite foreign key)"
+    keys:
+      - order_id
+      - line_item_id
+dimensions:
+  - name: return_id
+    type: number
+    description: "Unique return identifier"
+    expr: return_id
+  - name: order_id
+    type: number
+    description: "Order identifier (part of composite foreign key)"
+    expr: order_id
+  - name: line_item_id
+    type: number
+    description: "Line item identifier (part of composite foreign key)"
+    expr: line_item_id
+  - name: return_date
+    type: date
+    description: "Date when return was initiated"
+    expr: return_date
+  - name: return_reason
+    type: string
+    description: "Reason for return"
+    expr: reason
+    samples:
+      - "defective"
+      - "wrong_item"
+      - "not_as_described"
+      - "changed_mind"
+  - name: return_quantity
+    type: number
+    description: "Quantity being returned"
+    expr: quantity
+  - name: refund_amount
+    type: number
+    description: "Amount refunded"
+    expr: refund_amount
+  - name: return_status
+    type: string
+    description: "Current return status"
+    expr: status
+    samples:
+      - "pending"
+      - "approved"
+      - "rejected"
+      - "refunded"
+measures:
+  - name: total_returns
+    type: count
+    description: "Total number of returns"
+  - name: total_refund_amount
+    type: sum
+    description: "Total amount refunded"
+    expr: refund_amount
+  - name: approved_returns
+    type: count
+    description: "Number of approved returns"
+    expr: "CASE WHEN \"order_returns\".status = 'approved' THEN 1 END"

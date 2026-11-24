@@ -1,0 +1,6 @@
+consistency_prompt: "Hello {{ name"
+tasks:
+  - name: q
+    type: execute_sql
+    database: local
+    sql_query: select 1

@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: fruit_sales_report
+description: |
+  This workflow can answer quest about fruit sales.
+variables: # Variable is fully compatible with JSON Schema(Draft 7).
+  question:
+    type: string
+    description: "The question about fruit sales"
+    default: "What is the sales data for each fruit?"
+
+tasks:
+  - name: query_data
+    type: execute_sql
+    database: primary_database
+    sql_file: data_fruit/example_sales.sql
+    # dry_run_limit: 1
+
+  - name: answer_question
+    type: agent
+    agent_ref: agents/default_gpt.agentic.yml
+    prompt: |
+      {{ question }}

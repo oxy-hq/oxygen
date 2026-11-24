@@ -131,6 +131,8 @@
       "!sdk/cli/skills",
       "!sdk/typescript/src/testing/shape-zoo.json",
       "!sdk/cli/fixtures/evals/results.json",
+      "!sdk/cli/fixtures/validate-parity/cases",
+      "!sdk/cli/fixtures/validate-parity/workspaces",
       "!oxlint-suppressions.json",
       "!**/dist",
       "!**/node_modules",

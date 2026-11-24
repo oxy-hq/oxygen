@@ -735,7 +735,8 @@ aho-corasick = "1.1"
 #     undeclared MEASURE, DIMENSION or TIME_DIMENSION (own-view prefix
 #     stripped; a cross-view prefix is refused) now refuses the whole ENGINE —
 #     every semantic query in that workspace, not just the rollup. Before, a
-#     bad member failed only that rollup's build. `oxy validate` catches it;
+#     bad member failed only that rollup's build. `oxyc validate` does not
+#     catch it (neither did `oxy validate`: neither reads `pre_aggregations:`);
 #     `gate_semantic_write` catches it only as a working→broken regression
 #     (once a layer is broken it stops refusing cross-file errors, so the
 #     builder can repair). Nothing on the compile/promote path catches it, so

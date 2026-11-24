@@ -1,0 +1,68 @@
+name: constructorresults
+description: |
+  Constructor results per race (11,082 rows), one per (race, constructor):
+  the championship points the constructor scored in that single race (not
+  cumulative). `status` is NULL for almost every row; 'D' (17 rows) marks a
+  disqualified result. 239 rows reference a raceid missing from races (no FK
+  constraint), so they drop out when joined to races.
+datasource: bird_formula_1
+table: constructorresults
+
+entities:
+  - name: constructor_result
+    type: primary
+    description: One constructor's result in one race.
+    key: constructor_results_id
+  - name: race
+    type: foreign
+    description: Race.
+    key: race_id
+  - name: constructor
+    type: foreign
+    description: Constructor.
+    key: constructor_id
+
+dimensions:
+  - name: constructor_results_id
+    type: number
+    description: Constructor results id (column constructorresultsid).
+    expr: constructorresultsid
+  - name: race_id
+    type: number
+    description: Race.
+    expr: raceid
+  - name: constructor_id
+    type: number
+    description: Constructor.
+    expr: constructorid
+  - name: points
+    type: number
+    description: Points the constructor scored in this race.
+    expr: points
+  - name: status
+    type: string
+    description: Status of the constructor result. NULL for almost all rows; 'D' = disqualified (17 rows).
+    samples: ["D"]
+    expr: status
+
+measures:
+  - name: constructor_result_count
+    type: count
+    description: Number of constructor race results.
+  - name: total_points
+    type: sum
+    description: Total points scored by constructors in the selected races (per-race points, safe to sum).
+    synonyms: ["points scored"]
+    expr: points
+  - name: avg_points
+    type: average
+    description: Average points per constructor race result.
+    expr: points
+  - name: max_points
+    type: max
+    description: Highest points in a single race.
+    expr: points
+  - name: race_count
+    type: count_distinct
+    description: Number of distinct races.
+    expr: raceid

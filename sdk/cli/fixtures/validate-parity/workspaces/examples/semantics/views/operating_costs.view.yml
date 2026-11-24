@@ -1,0 +1,137 @@
+name: operating_costs
+description: |
+  Daily operating costs broken down by category and region. Region-specific
+  categories (logistics, packaging) carry the same dimension as the
+  marketing funnel so find_opportunities can compare cost density across
+  regions. Categories that aren't region-bound (rent, software_licenses,
+  insurance) report region='global'.
+
+  Negative driver on net_revenue — the metric tree picks these up as
+  cost-side levers when sensitivity / predict_impact walks back from
+  operating profit.
+datasource: local
+table: "operating_costs.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: opex_by_day
+    measures:
+      - total_op_cost
+    time_dimension: cost_date
+    granularity: day
+    refresh_key:
+      every: 1h
+
+  - name: opex_by_category
+    dimensions:
+      - category
+    measures:
+      - total_op_cost
+    time_dimension: cost_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+  - name: opex_by_region
+    dimensions:
+      - region
+    measures:
+      - total_op_cost
+      - logistics_cost
+      - packaging_cost
+    time_dimension: cost_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: opex_event
+    type: primary
+    description: One day × category × region cost rollup
+    keys:
+      - cost_date
+      - category
+      - region
+  # Operating costs share the us/eu/apac/latam region domain — link to region so
+  # the cost entity joins the graph.
+  - name: region
+    type: foreign
+    description: Region the operating cost was incurred in
+    key: region
+
+dimensions:
+  - name: cost_date
+    type: date
+    description: Date the cost was incurred
+    expr: cost_date
+  - name: category
+    type: string
+    description: Cost category
+    expr: category
+    samples:
+      - "rent"
+      - "software_licenses"
+      - "logistics"
+      - "packaging"
+      - "payment_processing_fees"
+      - "customer_support_tooling"
+      - "insurance"
+  - name: region
+    type: string
+    description: Region the cost was incurred in (global for non-region-bound categories)
+    expr: region
+    samples:
+      - "us"
+      - "eu"
+      - "apac"
+      - "latam"
+      - "global"
+
+measures:
+  # ── Leaf: total operating expense, all categories.
+  - name: total_op_cost
+    type: sum
+    description: Total operating expense ($)
+    expr: amount
+
+  # ── Category-specific filtered measures. Letting the LLM pick a single
+  #    category surfaces a real cost lever instead of an aggregate.
+  - name: logistics_cost
+    type: sum
+    description: Daily logistics spend ($)
+    expr: amount
+    filters:
+      - expr: "{{category}} = 'logistics'"
+  - name: packaging_cost
+    type: sum
+    description: Daily packaging spend ($)
+    expr: amount
+    filters:
+      - expr: "{{category}} = 'packaging'"
+  - name: payment_processing_fees
+    type: sum
+    description: Daily payment-processor fees ($)
+    expr: amount
+    filters:
+      - expr: "{{category}} = 'payment_processing_fees'"
+  - name: software_licenses_cost
+    type: sum
+    description: Daily software-licence spend ($)
+    expr: amount
+    filters:
+      - expr: "{{category}} = 'software_licenses'"
+  - name: rent_cost
+    type: sum
+    description: Daily rent spend ($)
+    expr: amount
+    filters:
+      - expr: "{{category}} = 'rent'"
+
+  # ── Component composite: cost-of-fulfilment is logistics + packaging.
+  #    Region-specific costs that move together.
+  - name: fulfilment_cost
+    type: custom
+    description: Combined logistics + packaging spend
+    expr: "{{operating_costs.logistics_cost}} + {{operating_costs.packaging_cost}}"

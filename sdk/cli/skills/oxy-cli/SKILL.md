@@ -96,12 +96,13 @@ failures, `--json` for the `failures` array) — what a customer repo's CI runs.
 yet (connect one in Settings), `6` a failed `git clone`, `8` a non-empty `--dir`.
 
 `oxyc validate` is the one command that works entirely offline. It checks
-`config.yml`, `.automation.yml`, `.agentic.yml` and
-`.agent.test.yml` against the schemas the Rust config types generate. It is
-STRUCTURAL only — `oxy validate` additionally checks an automation's
-`database:` names against `config.yml`, but it too is structural for
-`.agentic.yml` (`databases:` and `llm.ref` are not resolved), so an agent both
-accept can still fail at run time.
+`config.yml`, `.automation.yml`, `.agentic.yml`, `.agent.test.yml`, `.view.yml`
+and `.topic.yml` against the schemas the Rust types generate, then as the
+runtime does once a file loads: an automation's `database:` and `integration:`
+names and an agent's `databases:` and `llm.ref` against `config.yml`, an
+automation's rules (non-empty `tasks:`, timeouts, export formats), and a view's
+removed features and `{{variables.x}}` syntax. Exit `9` on any finding. It
+replaced `oxy validate`, which now only prints the `oxyc` command.
 
 To look at a deployed environment in a browser, navigate your browser tool to
 `$(oxyc login-link --env dev --next /ide)`. It is a one-time link that signs

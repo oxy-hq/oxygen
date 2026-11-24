@@ -1,0 +1,15 @@
+llm:
+  ref: claude-sonnet-4-6
+  thinking: disabled
+  extended_thinking:
+    model: claude-sonnet-4-6
+    thinking: adaptive
+context:
+  - ./semantics/**/*
+  - ./procedures/**/*.automation.yml
+  - ./data/*.sql
+states:
+  specifying:
+    max_retries: 10
+  interpreting:
+    thinking: disabled

@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: simple_sales_report
+description: A simple workflow that queries sales data and generates a basic report
+
+tasks:
+  # Get basic sales metrics
+  - name: sales_data
+    type: semantic_query
+    topic: "fruit_business"
+    measures: ["order_items.total_revenue", "order_items.total_items"]
+    dimensions: ["fruits.fruit_name", "orders.order_id"]
+    filters: []
+    orders: []

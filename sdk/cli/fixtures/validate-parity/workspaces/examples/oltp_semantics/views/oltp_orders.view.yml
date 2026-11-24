@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+# Live application state, written by the `bookings` custom app right now.
+# Its schema is `app_bookings` because the app owns that schema and nothing
+# else — see the oxy-oltp schema module.
+name: oltp_orders
+description: >-
+  Live restaurant orders written by the bookings custom app. Transactional, not
+  a warehouse extract — a row appears the moment a guest orders.
+datasource: "oltp"
+table: "app_bookings.orders"
+
+entities:
+  - name: order
+    type: primary
+    description: "One row per order placed."
+    key: order_id
+
+dimensions:
+  - name: order_id
+    type: number
+    description: "Unique order identifier."
+    expr: id
+    synonyms: ["id", "order number"]
+
+  - name: table_no
+    type: number
+    description: "Table the order was placed from."
+    expr: table_no
+    synonyms: ["table", "table number"]
+
+  - name: status
+    type: string
+    description: "Order lifecycle state, e.g. `open` or `closed`."
+    expr: status
+    synonyms: ["state"]
+
+  - name: placed_at
+    type: datetime
+    description: "When the order was placed."
+    expr: placed_at
+    synonyms: ["ordered at", "order time"]
+
+measures:
+  - name: order_count
+    type: count
+    description: "Number of orders."
+    expr: id
+    synonyms: ["orders", "number of orders"]
+
+  - name: open_order_count
+    # `count` over a CASE rather than a FILTER clause: the measure `type` is
+    # what the loader validates, and the aggregate it wraps has to be one it
+    # knows. (The comment said `count_distinct` while the field said `count` —
+    # they were never the same thing.)
+    #
+    # The CASE goes through airlayer's compile, which treats `expr` as SQL, and
+    # the answer was checked against the table: `oxy agentic run
+    # oltp.agentic.yml --question "how many orders are open right now?"` returns
+    # the same number as `SELECT count(*) … WHERE status = 'open'`. Worth
+    # re-checking if that compile path changes — `agentic-analytics`'s fallback
+    # translator builds `COUNT(<table>.<expr>)`, which a CASE would not survive.
+    type: count
+    description: "Orders not yet closed — a live operational figure."
+    expr: "CASE WHEN status = 'open' THEN id END"
+    synonyms: ["open orders", "orders in progress"]

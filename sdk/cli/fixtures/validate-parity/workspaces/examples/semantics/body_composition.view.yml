@@ -1,0 +1,51 @@
+name: body_composition
+description: Daily body composition measurements — weight and body fat tracking.
+datasource: training
+table: "body_composition.csv"
+
+entities:
+  - name: body_measurement
+    type: primary
+    key: date
+  - name: nutrition_day
+    type: foreign
+    key: date
+
+dimensions:
+  - name: date
+    type: date
+    expr: "CAST(\"Datetime (Local)\" AS DATE)"
+    description: Measurement date (cast from local datetime)
+  - name: week
+    type: date
+    expr: "date_trunc('week', CAST(\"Datetime (Local)\" AS DATE))"
+    description: Week of measurement (Monday-anchored)
+  - name: month
+    type: date
+    expr: "date_trunc('month', CAST(\"Datetime (Local)\" AS DATE))"
+    description: Month of measurement
+
+measures:
+  - name: weight_lbs
+    type: average
+    expr: "\"Weight (lbs)\""
+    description: Body weight in pounds
+  - name: body_fat_caliper
+    type: average
+    expr: "\"Body Fat % (Caliper - Gut)\""
+    description: Body fat percentage measured by caliper (gut)
+  - name: body_fat_omron
+    type: average
+    expr: "\"Body Fat % (Omron)\""
+    description: Body fat percentage measured by Omron device
+  - name: measurement_count
+    type: count
+    description: Number of measurements taken
+  - name: min_weight
+    type: min
+    expr: "\"Weight (lbs)\""
+    description: Minimum recorded weight in lbs
+  - name: max_weight
+    type: max
+    expr: "\"Weight (lbs)\""
+    description: Maximum recorded weight in lbs

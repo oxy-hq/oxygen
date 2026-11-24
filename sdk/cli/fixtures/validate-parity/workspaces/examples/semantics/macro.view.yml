@@ -1,0 +1,47 @@
+name: macro
+description: Daily macronutrient intake — calories, fat, carbs, and protein.
+datasource: training
+table: "macro.csv"
+
+entities:
+  - name: nutrition_day
+    type: primary
+    key: date
+  - name: strength_set
+    type: foreign
+    key: date
+
+dimensions:
+  - name: date
+    type: date
+    expr: "Date"
+    description: Date of intake (M/D/YYYY format)
+
+measures:
+  - name: calories
+    type: sum
+    expr: "\"Calories (kcal)\""
+    description: Total caloric intake in kcal
+  - name: avg_calories
+    type: average
+    expr: "\"Calories (kcal)\""
+    description: Average daily caloric intake in kcal
+  - name: fat_grams
+    type: sum
+    expr: "\"Fat (g)\""
+    description: Total fat intake in grams
+  - name: carbs_grams
+    type: sum
+    expr: "\"Carbs (g)\""
+    description: Total carbohydrate intake in grams
+  - name: protein_grams
+    type: sum
+    expr: "\"Protein (g)\""
+    description: Total protein intake in grams
+  - name: avg_protein
+    type: average
+    expr: "\"Protein (g)\""
+    description: Average daily protein intake in grams
+  - name: tracking_days
+    type: count
+    description: Number of days tracked

@@ -57,7 +57,7 @@ Routes follow the same split: `/automations/:id` is canonical;
 
 - **A misspelled `type:` passes validation and fails only at run time.** An
   unrecognised task type — `type: sql`, `type: execute` — is read as an
-  "unknown" step rather than rejected, so `oxy validate` reports the file valid
+  "unknown" step rather than rejected, so `oxyc validate` reports the file valid
   and the run fails on that step with `unknown task type`. Check every `type:`
   against the task-types page by eye, then *run* the automation; validation
   alone proves nothing here. (A wrong *field* inside a known type, such as

@@ -1,0 +1,96 @@
+name: pitstops
+description: |
+  Pit stops (5,815 rows, races 2011..2017), one per (race, driver, stop).
+  A pit stop is any recorded pit-stop entry made by any driver at a race.
+  Pit stop length / pit stop time = the elapsed time of the stop, from the
+  car arriving at its pit to rejoining the race: `duration` text (seconds,
+  e.g. '12.897'; 94 long stops are 'MM:SS.mmm' and 20 'M:SS.mmm') and
+  `duration_ms` (column milliseconds, always agrees with the text) - use
+  duration_ms / duration_seconds for numbers. `time_of_day` (column `time`)
+  is NOT a duration: it is the clock time 'HH:MM:SS' at which the stop was
+  made.
+datasource: bird_formula_1
+table: pitstops
+
+entities:
+  - name: pit_stop
+    type: primary
+    description: One pit stop (key = raceid-driverid-stop).
+    key: pit_stop_key
+  - name: race
+    type: foreign
+    description: Race.
+    key: race_id
+  - name: driver
+    type: foreign
+    description: Driver.
+    key: driver_id
+
+dimensions:
+  - name: pit_stop_key
+    type: string
+    description: Composite key raceid || '-' || driverid || '-' || stop.
+    expr: "{{TABLE}}.raceid::text || '-' || {{TABLE}}.driverid::text || '-' || {{TABLE}}.stop::text"
+  - name: race_id
+    type: number
+    description: Race.
+    expr: raceid
+  - name: driver_id
+    type: number
+    description: Driver.
+    expr: driverid
+  - name: stop
+    type: number
+    description: Stop number of the driver in that race (1 = first stop).
+    synonyms: ["stop number"]
+    expr: stop
+  - name: lap
+    type: number
+    description: Lap number on which the stop was made.
+    expr: lap
+  - name: time_of_day
+    type: string
+    description: Clock time 'HH:MM:SS' at which the stop was made (column time, "exact time"). Not the stop's length.
+    synonyms: ["time", "exact time"]
+    expr: time
+  - name: duration
+    type: string
+    description: Pit stop length as text (column duration), seconds 'SS.mmm' (e.g. '12.897') or 'M:SS.mmm' / 'MM:SS.mmm' for long stops. Use duration_ms for numbers.
+    synonyms: ["pit stop length", "pit stop time", "duration time"]
+    expr: duration
+  - name: duration_ms
+    type: number
+    description: Pit stop length (pit stop time) in milliseconds (column milliseconds), from arriving at the pit to rejoining the race.
+    synonyms: ["milliseconds", "pit stop length ms"]
+    expr: milliseconds
+  - name: duration_seconds
+    type: number
+    description: Pit stop length in seconds = milliseconds / 1000.
+    expr: "{{TABLE}}.milliseconds / 1000.0"
+
+measures:
+  - name: pit_stop_count
+    type: count
+    description: Number of pit stops.
+    synonyms: ["pit stops", "number of pit stops"]
+  - name: avg_duration_ms
+    type: average
+    description: Average pit stop length in milliseconds.
+    synonyms: ["average pit stop time"]
+    expr: milliseconds
+  - name: min_duration_ms
+    type: min
+    description: Shortest pit stop length in milliseconds.
+    expr: milliseconds
+  - name: max_duration_ms
+    type: max
+    description: Longest pit stop length in milliseconds.
+    expr: milliseconds
+  - name: total_duration_ms
+    type: sum
+    description: Total pit stop time in milliseconds.
+    expr: milliseconds
+  - name: driver_count
+    type: count_distinct
+    description: Number of distinct drivers who pitted.
+    expr: driverid

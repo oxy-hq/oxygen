@@ -1,0 +1,8 @@
+name: training
+description: Complete training and nutrition tracking — strength, climbing, cardio, body composition, and macros.
+views:
+  - strength
+  - climbing
+  - cardio
+  - body_composition
+  - macro

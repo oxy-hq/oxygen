@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+name: anonymize_sample
+description: "This workflow anonymizes sensitive data. ** Note: Report must be show as is. Without any modification. **"
+tasks:
+  - name: execute
+    type: execute_sql
+    database: primary_database
+    sql_file: data/example_anonymize.sql
+  - name: report
+    type: agent
+    agent_ref: agents/duckdb.agentic.yml
+    prompt: |
+      Generate "Responses to the survey by Organization" report using the provided data.
+      The data include total responses by organization and the survey questions.
+
+      [BEGIN DATA]
+      {{execute}}
+      [END DATA]
+
+      - Then generate a concise report using the following template:
+
+      Total responses: <total_responses>
+      Organization: <organization>
+      Analysis: <compare the different response types>
+
+      - Analysis should only focus on the response types differentiation without further judgment.
+
+tests:
+  - type: consistency

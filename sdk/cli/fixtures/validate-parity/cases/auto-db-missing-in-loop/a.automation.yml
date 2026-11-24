@@ -1,0 +1,9 @@
+tasks:
+  - name: l
+    type: loop_sequential
+    values: [1, 2]
+    tasks:
+      - name: q
+        type: execute_sql
+        database: nope
+        sql_query: select 1

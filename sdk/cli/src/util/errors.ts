@@ -36,8 +36,9 @@ export const ExitCode = {
    * A check ran and the answer was no.
    *
    * `oxyc checks run` (a check failed or timed out),
-   * `oxyc bootstrap verify` (a phase of a customer standup has not landed) and
-   * `oxyc looker test` (an integration's credentials check said no).
+   * `oxyc bootstrap verify` (a phase of a customer standup has not landed),
+   * `oxyc looker test` (an integration's credentials check said no) and
+   * `oxyc validate` (a workspace file has a finding).
    * The same code because the RESPONSE is the same — read the report, act on
    * it — which is the rule this table is built on.
    */

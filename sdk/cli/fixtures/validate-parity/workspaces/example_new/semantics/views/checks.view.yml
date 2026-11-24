@@ -1,0 +1,321 @@
+name: checks
+description: |
+  One row per check (ticket), with each menu category's revenue and gross
+  profit denormalized onto the row.
+
+  The category columns are what let the metric tree decompose twice without
+  ever leaving this view:
+
+      net_revenue   = entree_revenue + addon_revenue
+      addon_revenue = sides_revenue + beverages_revenue
+                    + appetizers_revenue + desserts_revenue
+
+  Both levels are exact additive identities, so the children sum to the parent
+  at every level and the drill's concentration shares stay normalized. Doing
+  the second level as a dimension split over `check_items.category` would give
+  the same answer but relies on a cross-view filter; this way the whole tree is
+  one view's arithmetic.
+
+  Every revenue measure has a `*_profit` twin. That pairing is the point of the
+  fixture: ranked on revenue the largest add-on gap is sides, ranked on profit
+  it is beverages, because sides run a 55% food cost and fountain drinks run
+  12%. See scripts/gen_restaurant_data.py.
+
+datasource: local
+
+# Inline SQL: joins locations (for the region segment) and rolls the line items
+# up to check grain. LEFT JOIN on items so a hypothetical empty check survives
+# rather than vanishing from the denominator.
+sql: |
+  SELECT
+    c.check_id,
+    c.location_id,
+    c.check_date,
+    c.daypart,
+    c.party_size,
+    c.total_amount,
+    c.tax_amount,
+    c.server_id,
+    c.order_channel,
+    c.table_section,
+    c.discount_amount,
+    l.location_name,
+    l.region,
+    l.city,
+    COALESCE(SUM(CASE WHEN m.item_type = 'entree' THEN i.quantity * m.unit_price END), 0) AS entree_revenue,
+    COALESCE(SUM(CASE WHEN m.category = 'sides' THEN i.quantity * m.unit_price END), 0) AS sides_revenue,
+    COALESCE(SUM(CASE WHEN m.category = 'beverages' THEN i.quantity * m.unit_price END), 0) AS beverages_revenue,
+    COALESCE(SUM(CASE WHEN m.category = 'appetizers' THEN i.quantity * m.unit_price END), 0) AS appetizers_revenue,
+    COALESCE(SUM(CASE WHEN m.category = 'desserts' THEN i.quantity * m.unit_price END), 0) AS desserts_revenue,
+    COALESCE(SUM(CASE WHEN m.beverage_type = 'alcoholic' THEN i.quantity * m.unit_price END), 0) AS alcoholic_revenue,
+    COALESCE(SUM(CASE WHEN m.beverage_type = 'non_alcoholic' THEN i.quantity * m.unit_price END), 0) AS na_beverage_revenue,
+    COALESCE(SUM(CASE WHEN m.item_type = 'entree' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS entree_profit,
+    COALESCE(SUM(CASE WHEN m.category = 'sides' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS sides_profit,
+    COALESCE(SUM(CASE WHEN m.category = 'beverages' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS beverages_profit,
+    COALESCE(SUM(CASE WHEN m.category = 'appetizers' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS appetizers_profit,
+    COALESCE(SUM(CASE WHEN m.category = 'desserts' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS desserts_profit,
+    COALESCE(SUM(CASE WHEN m.beverage_type = 'alcoholic' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS alcoholic_profit,
+    COALESCE(SUM(CASE WHEN m.beverage_type = 'non_alcoholic' THEN i.quantity * (m.unit_price - m.unit_cost) END), 0) AS na_beverage_profit
+  FROM 'restaurant_checks.csv' c
+  JOIN 'restaurant_locations.csv' l
+    ON l.location_id = c.location_id
+  LEFT JOIN 'restaurant_check_items.csv' i
+    ON i.check_id = c.check_id
+  LEFT JOIN 'restaurant_menu_items.csv' m
+    ON m.menu_item_id = i.menu_item_id
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+
+refresh_key:
+  every: "1h"
+
+entities:
+  - name: check
+    type: primary
+    description: "A single guest check (ticket)"
+    key: check_id
+  - name: location
+    type: foreign
+    description: "Restaurant that rang this check"
+    key: location_id
+  - name: server
+    type: foreign
+    description: "Server who rang this check"
+    key: server_id
+
+dimensions:
+  - name: check_id
+    type: number
+    description: "Check identifier"
+    expr: check_id
+  - name: location_id
+    type: number
+    description: "Location identifier"
+    expr: location_id
+  - name: server_id
+    type: number
+    description: "Server identifier"
+    expr: server_id
+  - name: check_date
+    type: date
+    description: "Business date the check was closed"
+    expr: check_date
+  - name: daypart
+    type: string
+    description: "Service period: lunch, dinner, or late_night"
+    expr: daypart
+  - name: order_channel
+    type: string
+    description: "How the order was placed: dine_in, takeout, delivery, catering, kiosk"
+    expr: order_channel
+  - name: table_section
+    type: string
+    description: |
+      Seating zone the order was rung from. A deliberate null — it has no
+      relationship to any measure, so the significance gate should drop it and
+      report it in segments_dropped_as_noise.
+    expr: table_section
+  # `party_size` is deliberately NOT a dimension, though the column exists and
+  # `total_guests` sums it.
+  #
+  # It mechanically determines the measure: a 6-top spends more than a 2-top by
+  # arithmetic, not by performance. Benchmarked with `best_peer` (party_size=6,
+  # the highest-spending group) against party_size=2 (the largest single
+  # group, 43,563 checks) it produces a gap of $208.49/check against a
+  # $142.21/check average, and since upside is gap x volume that is a $9.08M
+  # upside — it beats the real signal, the midwest add-on attach deficit at
+  # $13.715/check ($305k upside), by ~30x, so the drill would never reach
+  # `region` at all. The resulting "if every 2-top spent like a 6-top" upside
+  # is arithmetic dressed as an opportunity. (Measured 2026-07-20 against the
+  # current 104,000-check fixture — re-measure before trusting these numbers
+  # again; see `gen_restaurant_data.py --check`.)
+  #
+  # This is a workaround, not a modelling truth: party size is a perfectly
+  # reasonable thing to analyse by. Nothing in the semantic model can currently
+  # say "valid to group by, invalid to benchmark across", so the only lever is
+  # to withhold the dimension. Restore it if that distinction ever exists.
+
+measures:
+  # The rate denominator. The drill discovers the first `type: count` measure on
+  # the view and sizes everything per-unit against it, so this being a count of
+  # *checks* is what makes every gap read as "dollars per check".
+  - name: total_checks
+    type: count
+    description: "Number of checks"
+
+  # ── Leaves: one revenue measure per menu category ────────────────────────
+  - name: entree_revenue
+    type: sum
+    description: "Revenue from entrees"
+    expr: entree_revenue
+  - name: sides_revenue
+    type: sum
+    description: "Revenue from sides"
+    expr: sides_revenue
+  - name: alcoholic_revenue
+    type: sum
+    description: "Revenue from beer, wine, and cocktails"
+    expr: alcoholic_revenue
+  - name: na_beverage_revenue
+    type: sum
+    description: "Revenue from soda, tea, coffee, and other non-alcoholic drinks"
+    expr: na_beverage_revenue
+  # `type: custom`, not `type: sum` over the precomputed column: only a custom
+  # measure with {{}} refs produces a Component edge, and without that edge the
+  # drill cannot descend past beverages into the alcohol split.
+  - name: beverages_revenue
+    type: custom
+    description: |
+      Beverage revenue, split into alcoholic and non-alcoholic. This is the
+      third component level — the one that lets a delivery-channel gap resolve
+      to "we sell no alcohol on delivery" rather than stopping at "beverages".
+    expr: "{{checks.alcoholic_revenue}} + {{checks.na_beverage_revenue}}"
+  - name: appetizers_revenue
+    type: sum
+    description: "Revenue from appetizers"
+    expr: appetizers_revenue
+  - name: desserts_revenue
+    type: sum
+    description: "Revenue from desserts"
+    expr: desserts_revenue
+
+  # ── The tree ─────────────────────────────────────────────────────────────
+  #
+  # `type: custom` with {{...}} refs is what produces Component edges — a
+  # `type: sum` over a precomputed column would not, because component edges
+  # are extracted only from pass-through measures.
+  - name: addon_revenue
+    type: custom
+    description: |
+      Add-on revenue: everything that is not the entree. Exact sum of the four
+      category leaves, so the drill can attribute the gap to one of them.
+    expr: "{{checks.sides_revenue}} + {{checks.beverages_revenue}} + {{checks.appetizers_revenue}} + {{checks.desserts_revenue}}"
+  - name: net_revenue
+    type: custom
+    description: |
+      Total check revenue, split into the two branches the decomposition cares
+      about. Entrees are the big line; add-ons are where the gap lives.
+    expr: "{{checks.entree_revenue}} + {{checks.addon_revenue}}"
+    drivers:
+      # Three claims that are NOT components. Each one would change the
+      # top-level identity if folded into `expr` — covers are not dollars,
+      # discounts are netted off a different line, and line-grain revenue is
+      # the same money counted at another grain. As drivers they connect the
+      # nodes without touching the arithmetic the drill relies on.
+      - measure: checks.total_guests
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "More covers, more revenue. Sized from history at query time."
+      - measure: checks.discount_amount
+        direction: negative
+        strength: moderate
+        confidence: medium
+        description: |
+          Comps, promos and delivery commission pull against revenue. The one
+          NEGATIVE driver in this view, and the reason `discount_amount` is
+          reachable at all: it is deliberately not a component of
+          `net_revenue` (that would let the drill follow the discount branch
+          away from the attach story), so a driver edge is the only honest way
+          to connect it.
+      - measure: check_items.total_revenue
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          The same money at line grain. `check_items` carries this view's
+          revenue one level down, so the two move together by construction —
+          if a fit here ever came back anything but ~1.0, one of the two
+          paths has a bug.
+
+  # ── Profit twins ─────────────────────────────────────────────────────────
+  #
+  # Same tree, one level down the P&L. Ranking the add-on leaves by these
+  # instead of by revenue changes which leaf wins — which is the argument for
+  # evaluating a second measure at the leaf.
+  - name: entree_profit
+    type: sum
+    description: "Gross profit from entrees (revenue less food cost)"
+    expr: entree_profit
+  - name: sides_profit
+    type: sum
+    description: "Gross profit from sides"
+    expr: sides_profit
+  - name: alcoholic_profit
+    type: sum
+    description: "Gross profit from beer, wine, and cocktails"
+    expr: alcoholic_profit
+  - name: na_beverage_profit
+    type: sum
+    description: "Gross profit from soda, tea, coffee, and other non-alcoholic drinks"
+    expr: na_beverage_profit
+  # `type: custom`, not `type: sum` over the precomputed column — same reason
+  # as beverages_revenue: only a custom measure with {{}} refs carries a
+  # Component edge into the alcohol split.
+  - name: beverages_profit
+    type: custom
+    description: |
+      Beverage gross profit, split into alcoholic and non-alcoholic. Profit
+      twin of beverages_revenue's third component level.
+    expr: "{{checks.alcoholic_profit}} + {{checks.na_beverage_profit}}"
+  - name: appetizers_profit
+    type: sum
+    description: "Gross profit from appetizers"
+    expr: appetizers_profit
+  - name: desserts_profit
+    type: sum
+    description: "Gross profit from desserts"
+    expr: desserts_profit
+  - name: addon_profit
+    type: custom
+    description: "Gross profit from add-ons — the profit-side twin of addon_revenue"
+    expr: "{{checks.sides_profit}} + {{checks.beverages_profit}} + {{checks.appetizers_profit}} + {{checks.desserts_profit}}"
+  - name: gross_profit
+    type: custom
+    description: "Total gross profit across entrees and add-ons"
+    expr: "{{checks.entree_profit}} + {{checks.addon_profit}}"
+    drivers:
+      # The join between the revenue tree and its profit twin. They are two
+      # exact identities over the same checks, and nothing on the revenue side
+      # reaches this node through components — so the edge connects them
+      # without any path double-counting a dollar.
+      #
+      # No coefficient: the blended retention rate is exactly what the fit
+      # should measure here, and it is a property of the menu mix rather than
+      # a number worth asserting. The category spread that makes it interesting
+      # (~0.88 retained on beverages against ~0.45 on sides) is in
+      # `menu_items.avg_unit_margin`.
+      - measure: checks.net_revenue
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "Gross profit follows revenue at the blended retention rate."
+
+  # ── Convenience ──────────────────────────────────────────────────────────
+  # Written as the quotient it actually is, rather than `type: average` over
+  # `total_amount`. Two reasons: it makes the rate an exact identity the tree
+  # can decompose (a `/` edge, sized only against a baseline), and it is what
+  # pulls `total_checks` — the drill's rate denominator for this whole view —
+  # into the graph instead of leaving it a floating count.
+  #
+  # The number does not move. `gen_restaurant_data.py` asserts
+  # `total_amount == entree + sides + beverages + appetizers + desserts` at
+  # 100%, which is `net_revenue`, so this is the same average by a route the
+  # tree can see. If that generator invariant is ever relaxed, this measure
+  # and `AVG(total_amount)` part company — the invariant is the thing to keep.
+  - name: avg_check
+    type: custom
+    description: "Average check — the tree's top line per check"
+    expr: "{{checks.net_revenue}} / {{checks.total_checks}}"
+  - name: total_guests
+    type: sum
+    description: "Guests served"
+    expr: party_size
+  - name: discount_amount
+    type: sum
+    description: |
+      Comps, promos, and third-party delivery commission. Deliberately NOT a
+      component of net_revenue: folding it in would change the top-level
+      identity and let the drill follow the discount branch away from the
+      attach story. It reaches `net_revenue` as a negative DRIVER instead —
+      connected on the canvas, absent from the arithmetic.
+    expr: discount_amount

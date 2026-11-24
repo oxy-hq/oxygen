@@ -1,0 +1,7 @@
+name: sales
+views:
+  - orders
+default_filters:
+  - field: orders.status
+    eq:
+      value: paid

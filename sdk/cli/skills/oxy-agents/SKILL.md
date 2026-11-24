@@ -268,18 +268,17 @@ thinking. A value you set is used as-is, and thinking tokens count against it.
 ## Validate, run, test
 
 ```bash
-oxyc validate --file agents/sales.agentic.yml   # offline schema check, no server
-oxy validate --file agents/sales.agentic.yml    # the runtime's own parser
+oxyc validate --file agents/sales.agentic.yml   # offline: shape, databases:, llm.ref
 oxyc agentic run agents/sales.agentic.yml -q "Revenue by region last quarter?" --workspace <id>
 oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged evals, on the deployment
 ```
 
-- **Both validators are structural only.** They catch a bad shape (a
-  malformed `thinking`, a wrong type, a duplicate key). `oxyc validate` also
-  rejects the vendor spellings `openai` and `openai_compat`, which the runtime
-  accepts, so write `open_ai` and `open_ai_compat` to satisfy both. Neither
-  validator resolves `databases:` or `llm.ref`, expands globs, reads `${VAR}`
-  placeholders, checks rule names or timezones, or notices unknown keys.
+- **`oxyc validate` checks the shape and the references.** It catches a bad
+  shape (a malformed `thinking`, a wrong type, a duplicate key) and a
+  `databases:` entry or `llm.ref` that names nothing in `config.yml`. It does
+  not expand globs, read `${VAR}` placeholders, check rule names or timezones,
+  or notice unknown keys (the runtime ignores them too). `oxy validate` is a
+  stub now that prints the `oxyc` command.
 - **The first full check is a run.** `oxyc agentic run <path> -q "<question>"
   --workspace <id>` runs the agent on the deployment and streams each state. It
   runs what the workspace has compiled (push first), not your checkout, and

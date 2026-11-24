@@ -1,0 +1,213 @@
+name: check_items
+description: |
+  Line items, denormalized with the menu attributes they were rung at.
+
+  `checks` already decomposes revenue by category as an additive component
+  tree. This view carries the same money at line grain with `category` as a
+  real dimension (`item_type` is reachable the same way, one join away on
+  `menu_items`), which is what a *dimension* split needs — so the same
+  question can be asked either way, and the two answers should agree. When
+  they disagree, one of the two paths has a bug.
+
+  Prices and costs are joined in rather than stored on the line, so a menu
+  reprice moves every historical line with it. That is wrong for a real
+  system and fine for a fixture; it keeps unit economics a property of the
+  menu, so margin by category is exact rather than noisy.
+
+datasource: local
+
+sql: |
+  SELECT
+    i.check_id,
+    i.line_item_id,
+    i.menu_item_id,
+    i.quantity,
+    m.item_name,
+    m.category,
+    m.item_type,
+    m.unit_price,
+    m.unit_cost,
+    m.beverage_type,
+    c.location_id,
+    c.check_date,
+    c.daypart,
+    l.region,
+    l.city
+  FROM 'restaurant_check_items.csv' i
+  JOIN 'restaurant_menu_items.csv' m
+    ON m.menu_item_id = i.menu_item_id
+  JOIN 'restaurant_checks.csv' c
+    ON c.check_id = i.check_id
+  JOIN 'restaurant_locations.csv' l
+    ON l.location_id = c.location_id
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: revenue_by_category
+    dimensions:
+      - category
+      - region
+    measures:
+      - total_revenue
+      - total_cogs
+      - total_line_items
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: check_item
+    type: primary
+    description: "One line on a check — identified by check_id and line_item_id together"
+    keys:
+      - check_id
+      - line_item_id
+    parent: check
+  - name: check
+    type: foreign
+    description: "Check this line belongs to"
+    key: check_id
+  - name: menu_item
+    type: foreign
+    description: "Menu item rung on this line"
+    key: menu_item_id
+  - name: location
+    type: foreign
+    description: "Location that rang this line"
+    key: location_id
+
+dimensions:
+  - name: check_id
+    type: number
+    description: "Check identifier (part of composite key)"
+    expr: check_id
+  - name: line_item_id
+    type: number
+    description: "Line number within the check (part of composite key)"
+    expr: line_item_id
+  - name: menu_item_id
+    type: number
+    description: "Menu item identifier"
+    expr: menu_item_id
+  # Required as a dimension because the `location` foreign entity keys on it —
+  # an entity key that is not also a dimension is a hard schema error.
+  - name: location_id
+    type: number
+    description: "Location identifier"
+    expr: location_id
+  # item_name, item_type, unit_price, unit_cost, beverage_type removed: they
+  # duplicate menu_items' bare dimensions of the same name, reachable through
+  # the menu_item foreign entity above. daypart and city were likewise removed
+  # (owned by checks and locations respectively, reachable through the check
+  # and location foreign entities). Each duplicate pair used to burn two
+  # TOP_K_DIMENSIONS slots for one underlying column — see checks.view.yml for
+  # the same class of fix.
+  #
+  # `category` and `region` are the exception: kept here even though they
+  # duplicate menu_items.category / locations.region, because
+  # pre_aggregations.dimensions below resolves names against ONLY this view's
+  # own `dimensions:` list (airlayer's generate_build_sql does a bare
+  # view.dimensions.iter().find(), no entity-graph traversal — unlike the main
+  # query engine). Removing them would not fail `oxyc validate` (which never
+  # checks pre_aggregations), but would silently drop the columns from the
+  # materialized rollup while the manifest still claims to cover them.
+  - name: category
+    type: string
+    description: "Menu category: entrees, sides, beverages, appetizers, desserts"
+    expr: category
+  - name: quantity
+    type: number
+    description: "Units rung on this line"
+    expr: quantity
+  - name: check_date
+    type: date
+    description: "Business date"
+    expr: check_date
+  - name: region
+    type: string
+    description: "Region of the location"
+    expr: region
+
+measures:
+  - name: total_line_items
+    type: count
+    description: "Number of line items"
+    drivers:
+      # A line only exists on a check, so the count of checks bounds the count
+      # of lines. Left unsized: lines-per-check is menu mix, and the fit is
+      # the right place to learn it from history.
+      - measure: checks.total_checks
+        direction: positive
+        strength: strong
+        confidence: high
+        description: "Every line rides on a check, so the two counts move together."
+  - name: total_revenue
+    type: sum
+    description: "Revenue at menu price"
+    expr: quantity * unit_price
+    drivers:
+      - measure: check_items.units_sold
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          Volume drives revenue at the average price rung. Not a component
+          edge: `units_sold * avg_price_rung` is a product of two aggregates,
+          which is not an identity — see the note in `store_days.view.yml` on
+          why no `X = A * B` is declared anywhere in this project.
+  - name: total_cogs
+    type: sum
+    description: "Food cost"
+    expr: quantity * unit_cost
+  # Named `item_gross_profit`, not `gross_profit`: `checks` owns a measure by
+  # that name, and both promote up to `locations` through their own entity
+  # links. Same name on two views makes the induced measure ambiguous there and
+  # forces every query to disambiguate with `through`.
+  - name: item_gross_profit
+    type: custom
+    description: |
+      Revenue less food cost at line grain. Composite so the metric tree shows
+      the two component edges rather than treating margin as an opaque number.
+    expr: "{{check_items.total_revenue}} - {{check_items.total_cogs}}"
+    drivers:
+      # The menu's unit economics reach the line grain here. Safe on an
+      # identity node: nothing in the `menu_items` view feeds this one through
+      # components, so there is no path that counts a margin dollar twice.
+      - measure: menu_items.avg_unit_margin
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          Reprice the menu or cut a food cost and every line's margin moves
+          with it — this fixture joins price and cost in from the menu rather
+          than storing them on the line, so the link is exact by construction.
+  - name: units_sold
+    type: sum
+    description: "Units sold"
+    expr: quantity
+    drivers:
+      # The weakest claim in the project, and labelled as such. Menu breadth
+      # plausibly lifts units sold, but nothing here measures it and the fit
+      # has no reason to find it — `weak`/`low` is the honest reading, and it
+      # is what keeps `total_menu_items` from being a floating count.
+      - measure: menu_items.total_menu_items
+        direction: positive
+        strength: weak
+        confidence: low
+        description: "A broader menu gives a guest more to add. Unsized, and probably unsizable."
+  # Likewise distinct from `menu_items.avg_unit_price`. This one is weighted by
+  # what was actually rung; that one is the menu price itself.
+  - name: avg_price_rung
+    type: average
+    description: "Average menu price across units actually sold"
+    expr: unit_price
+    drivers:
+      - measure: menu_items.avg_unit_price
+        direction: positive
+        strength: strong
+        confidence: high
+        description: |
+          The same prices, weighted two ways: the menu's own average against
+          the average across units actually sold. A reprice moves both; the
+          gap between them is menu mix.

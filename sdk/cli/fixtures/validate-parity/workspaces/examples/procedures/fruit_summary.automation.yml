@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: fruit_summary
+description: Generates a short sales summary for a single fruit given all sales data.
+variables:
+  fruit:
+    type: string
+    description: "The fruit to summarize"
+    enum:
+      - apple
+      - banana
+      - cherry
+      - orange
+      - kiwi
+    default: apple
+
+tasks:
+  - name: query_all_sales
+    type: execute_sql
+    database: primary_database
+    sql_file: data_fruit/example_sales.sql
+
+  - name: summary
+    type: agent
+    agent_ref: agents/local.agentic.yml
+    prompt: |
+      Using the sales data below, write a short 2–3 sentence summary
+      for {{ fruit }} only. Include total sales and rank
+      compared to the other fruits.
+
+      Sales data:
+      {{ query_all_sales }}

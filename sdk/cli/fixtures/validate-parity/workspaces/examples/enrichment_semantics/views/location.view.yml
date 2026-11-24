@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: location
+description: "Restaurant chain locations (owned business data) with geo coordinates."
+datasource: "local"
+table: "location.csv"
+
+entities:
+  - name: location
+    type: primary
+    key: location_id
+    description: "One row per business location; sales/weather join here on location_id."
+
+dimensions:
+  - name: location_id
+    type: number
+    expr: location_id
+    description: "Unique location identifier."
+    synonyms: ["store", "site", "shop"]
+  - name: location_name
+    type: string
+    expr: name
+    description: "Location name (neighborhood)."
+    synonyms: ["store name", "site name"]
+  - name: brand
+    type: string
+    expr: brand
+    description: "Brand operating the location."
+  - name: city
+    type: string
+    expr: city
+    description: "City the location is in."
+    synonyms: ["market"]
+  - name: state
+    type: string
+    expr: state
+    description: "US state."
+  - name: latitude
+    type: number
+    expr: latitude
+    description: "Latitude (decimal degrees)."
+  - name: longitude
+    type: number
+    expr: longitude
+    description: "Longitude (decimal degrees)."
+  - name: timezone
+    type: string
+    expr: timezone
+    description: "IANA timezone."
+
+measures:
+  - name: location_count
+    type: count_distinct
+    expr: location_id
+    description: "Number of distinct locations."
+    synonyms: ["number of locations", "store count"]

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+# The lever of the pre-registered store and SKU examples (`lever.per: unit`):
+# one run per unit and state. A real lever calls the system that changes the
+# unit (a POS flag, a vendor API); this one only records the call, so its
+# read-back never confirms and a registered run reports every flip unconfirmed.
+# Pricing and registration check that a lever reads `{{ unit }}`, or each flip
+# would switch the whole fleet.
+name: exp_lever_unit
+description: Example experiment lever that switches one unit on or off.
+tasks:
+  - name: flip
+    type: execute_sql
+    database: local
+    sql_query: |
+      SELECT '{{ experiment }}' AS experiment,
+             '{{ unit }}' AS unit,
+             '{{ state }}' AS state

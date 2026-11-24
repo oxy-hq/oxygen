@@ -1,0 +1,92 @@
+name: supplier_scorecard
+description: |
+  Denormalized supplier-relationship view (join of fruit_supplier_relationships
+  and fruit_suppliers) so the `supplier_scorecard` Data App task can be served
+  from a single-view pre-aggregation. Airlayer rollups only cover same-view
+  queries; cross-view queries fall back to the warehouse.
+datasource: local
+sql: |
+  SELECT
+    r.id AS relationship_id,
+    r.fruit_id,
+    r.supplier_id,
+    r.wholesale_price,
+    r.min_order_qty AS minimum_order_quantity,
+    r.lead_time_days,
+    r.is_primary_supplier,
+    s.name AS supplier_name,
+    s.country AS supplier_country,
+    s.rating AS supplier_rating
+  FROM 'fruit_supplier_relationships.csv' r
+  JOIN 'fruit_suppliers.csv' s
+    ON r.supplier_id = s.id
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: supplier_scorecard Data App task
+  - name: scorecard_by_supplier_detail
+    dimensions:
+      - supplier_name
+      - supplier_country
+      - supplier_rating
+    measures:
+      - total_relationships
+      - avg_wholesale_price
+      - avg_lead_time
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: supplier_scorecard
+    type: primary
+    description: Denormalized relationship row keyed by relationship_id
+    key: relationship_id
+
+dimensions:
+  - name: relationship_id
+    type: number
+    description: Unique relationship identifier
+    expr: relationship_id
+  - name: fruit_id
+    type: number
+    description: Fruit identifier
+    expr: fruit_id
+  - name: supplier_id
+    type: number
+    description: Supplier identifier
+    expr: supplier_id
+  - name: supplier_name
+    type: string
+    description: Name of the supplier
+    expr: supplier_name
+  - name: supplier_country
+    type: string
+    description: Supplier country
+    expr: supplier_country
+  - name: supplier_rating
+    type: number
+    description: Supplier quality rating (1-5)
+    expr: supplier_rating
+  - name: wholesale_price
+    type: number
+    description: Wholesale price from supplier
+    expr: wholesale_price
+  - name: lead_time_days
+    type: number
+    description: Lead time in days
+    expr: lead_time_days
+
+measures:
+  - name: total_relationships
+    type: count
+    description: Total number of supplier relationships
+  - name: avg_wholesale_price
+    type: average
+    description: Average wholesale price
+    expr: wholesale_price
+  - name: avg_lead_time
+    type: average
+    description: Average lead time in days
+    expr: lead_time_days

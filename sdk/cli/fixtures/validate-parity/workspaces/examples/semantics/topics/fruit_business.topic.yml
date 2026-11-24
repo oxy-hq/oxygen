@@ -1,0 +1,13 @@
+name: fruit_business
+description: Complete fruit business analytics including customers, products, and sales
+views:
+- customers
+- orders
+- order_items
+- fruits
+- shipping_addresses
+- fruit_suppliers
+- fruit_supplier_relationships
+- supplier_scorecard
+- order_shipments
+- order_returns

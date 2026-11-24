@@ -1,0 +1,162 @@
+name: marketing_funnel
+description: |
+  Daily marketing funnel events broken down by acquisition channel, region,
+  and device. Each row aggregates one day's sessions, leads, signups, and
+  paid signups for one (channel, region, device) combination. Powers the
+  upstream half of the metric tree — net_revenue's drivers chain back
+  through paid_signups → signups → leads → sessions.
+datasource: local
+table: "marketing_funnel.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: funnel_by_day
+    measures:
+      - total_sessions
+      - total_leads
+      - total_signups
+      - total_paid_signups
+    time_dimension: event_date
+    granularity: day
+    refresh_key:
+      every: 1h
+
+  - name: funnel_by_channel
+    dimensions:
+      - channel
+    measures:
+      - total_sessions
+      - total_leads
+      - total_signups
+      - total_paid_signups
+    time_dimension: event_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: funnel_event
+    type: primary
+    description: One day × channel × region × device funnel rollup
+    keys:
+      - event_date
+      - channel
+      - region
+      - device
+  # Funnel activity shares the region domain and is driven by the day×channel
+  # marketing spend — cross-link both so the funnel entity joins the graph.
+  - name: region
+    type: foreign
+    description: Region the funnel activity occurred in
+    key: region
+  - name: spend_event
+    type: foreign
+    description: The day × channel marketing spend behind this funnel activity
+    keys:
+      - event_date
+      - channel
+
+dimensions:
+  - name: event_date
+    type: date
+    description: Date the funnel events were recorded
+    expr: event_date
+  - name: channel
+    type: string
+    description: Acquisition channel
+    expr: channel
+    samples:
+      - "organic"
+      - "paid_search"
+      - "paid_social"
+      - "email"
+      - "referral"
+  - name: region
+    type: string
+    description: Geographic region of the visitor
+    expr: region
+    samples:
+      - "us"
+      - "eu"
+      - "apac"
+      - "latam"
+  - name: device
+    type: string
+    description: Device class of the visitor
+    expr: device
+    samples:
+      - "desktop"
+      - "mobile"
+      - "tablet"
+
+measures:
+  # ── Leaf measures (atomic sums) — these are the airlayer "leaves" the
+  # metric tree walks down to when explain_metric / sensitivity hits
+  # bedrock. Drivers/components above are all derived from these.
+  - name: total_sessions
+    type: sum
+    description: Top-of-funnel sessions
+    expr: sessions
+  - name: total_leads
+    type: sum
+    description: Visitors who became leads
+    expr: leads
+  - name: total_signups
+    type: sum
+    description: Leads who created an account
+    expr: signups
+  - name: total_paid_signups
+    type: sum
+    description: Signups who upgraded to a paid plan
+    expr: paid_signups
+
+  # ── Per-stage conversion rates (ratio composites — component edges)
+  - name: lead_rate
+    type: custom
+    description: Fraction of sessions that become leads
+    expr: "{{marketing_funnel.total_leads}} / NULLIF({{marketing_funnel.total_sessions}}, 0)"
+  - name: signup_rate
+    type: custom
+    description: Fraction of leads that create an account
+    expr: "{{marketing_funnel.total_signups}} / NULLIF({{marketing_funnel.total_leads}}, 0)"
+  - name: paid_conversion_rate
+    type: custom
+    description: Fraction of signups that upgrade to paid
+    expr: "{{marketing_funnel.total_paid_signups}} / NULLIF({{marketing_funnel.total_signups}}, 0)"
+
+  # ── Multiplicative end-to-end conversion. Mathematically the same
+  # number as paid_signups / sessions, but expressed via the three
+  # stage rates so airlayer's metric tree treats it as a multiplicative
+  # composite — explain_metric runs log-share decomposition on it
+  # ("X% from lead_rate, Y% from signup_rate, Z% from paid_conversion_rate").
+  - name: overall_conversion_rate
+    type: custom
+    description: |
+      End-to-end session → paid-signup conversion expressed as the product
+      of the three stage rates. Use this measure when you want explain to
+      attribute a conversion move across funnel stages.
+    expr: "{{marketing_funnel.lead_rate}} * {{marketing_funnel.signup_rate}} * {{marketing_funnel.paid_conversion_rate}}"
+
+  # ── Driver edges — declarative causal relationships. These produce
+  # `driver` edges in the metric tree (vs. the `component` edges above
+  # that come from `{{ref}}` expansion).
+  - name: paid_signups_with_drivers
+    type: custom
+    description: |
+      Total paid signups, with declared upstream drivers so sensitivity /
+      predict_impact can walk the causal chain. Numerically identical to
+      total_paid_signups; the separate measure exists to attach the
+      drivers list without polluting the leaf metric.
+    expr: "{{marketing_funnel.total_paid_signups}}"
+    drivers:
+      - measure: marketing_funnel.total_signups
+        coefficient: 0.20
+        form: linear
+        description: 1 extra signup adds ~0.20 paid signups at the current paid-conversion rate.
+      - measure: marketing_funnel.paid_conversion_rate
+        direction: positive
+        strength: strong
+        confidence: high
+        description: Lifting paid-conversion rate by 1pp moves paid signups proportionally.

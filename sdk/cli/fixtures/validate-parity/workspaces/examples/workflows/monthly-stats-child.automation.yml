@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+#
+# Sub-workflow demo — child half.
+#
+# Designed to be invoked by `parent-multi-metric.automation.yml` as a
+# `type: workflow` step. The parent passes `metric_label` and
+# `aggregation_sql` through the `variables:` block; the child reads
+# both via the standard render context (`{{ metric_label }}`,
+# `{{ aggregation_sql }}`).
+#
+# Standalone runs work too — they fall back to a default aggregation.
+
+name: monthly_stats_child
+description: |
+  Per-metric monthly aggregation. Parameterised by `metric_label`
+  (display name) and `aggregation_sql` (the expression after
+  SELECT in the metric column).
+
+variables:
+  metric_label:
+    default: "Total weekly sales"
+  aggregation_sql:
+    default: "SUM(Weekly_Sales)"
+
+tasks:
+  - name: query
+    type: execute_sql
+    database: local
+    sql_query: |
+      SELECT
+        strftime("Date", '%Y-%m') AS month,
+        ROUND({{ aggregation_sql }}, 2) AS metric_value,
+        COUNT(*) AS num_weeks
+      FROM oxymart.csv
+      GROUP BY 1
+      ORDER BY 1 ASC
+      LIMIT 6
+
+  - name: report
+    type: formatter
+    template: |
+      ### {{ metric_label }} — first 6 months
+
+      | Month | {{ metric_label }} | Weeks |
+      |-------|---------------------|-------|{% for i in range(query|length) %}
+      | {{ query.month[i] }} | {{ query.metric_value[i] }} | {{ query.num_weeks[i] }} |{% endfor %}

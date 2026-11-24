@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: retail_analytics
+description: "Comprehensive retail store analytics covering sales performance, seasonal patterns, holiday effects, environmental factors, and economic indicators"
+base_view: oxymart
+views:
+  - oxymart
+
+# This topic answers the key business questions from the README:
+# 1. Identifying top and underperforming stores based on sales metrics
+# 2. Detecting seasonal patterns and holiday effects on sales
+# 3. Measuring the impact of environmental factors like temperature on consumer behavior
+# 4. Evaluating how economic indicators correlate with purchasing patterns
+# 5. Providing actionable recommendations based on data insights

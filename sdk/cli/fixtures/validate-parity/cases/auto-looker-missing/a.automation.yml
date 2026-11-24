@@ -1,0 +1,7 @@
+tasks:
+  - name: l
+    type: looker_query
+    integration: nope
+    model: m
+    explore: e
+    fields: [a]

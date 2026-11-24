@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/config.json
+defaults:
+  database: local
+  agent: analytics.agentic.yml
+models:
+  - vendor: anthropic
+    name: claude-sonnet-4-6
+    model_ref: claude-sonnet-4-6
+    key_var: ANTHROPIC_API_KEY
+  - vendor: anthropic
+    name: claude
+    model_ref: claude-sonnet-4-6
+    key_var: ANTHROPIC_API_KEY
+
+databases:
+  - name: local
+    dataset: .db/
+    type: duckdb
+  # Airway-writable destination so the New Pipeline wizard has a landing
+  # database (DuckDB is read-only as an ELT sink). Placeholder localhost
+  # creds — never connected by the demo; pipelines only reference it by
+  # name and the agentic pipeline-wizard test reaches the Details step.
+  - name: warehouse
+    type: postgres
+    host: localhost
+    port: "5432"
+    user: oxy
+    password: oxy
+    database: warehouse
+
+# The demo's views are CSV-backed and have no refresh_key wired, so the
+# background preagg refresh worker spins on auto-discovered rollups it
+# can't stale-check (27 skipped: no refresh_key) and 12 of 15 fail every
+# heartbeat. The demo doesn't need pre-aggregation — disable the worker
+# so the coordinator dashboard stays clean.
+pre_aggregations:
+  refresh_worker:
+    enabled: false

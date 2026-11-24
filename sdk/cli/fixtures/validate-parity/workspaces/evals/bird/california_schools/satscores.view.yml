@@ -1,0 +1,159 @@
+name: satscores
+description: |
+  SAT results ("the SAT scores data"): 2,269 rows, one per CDS code (unique).
+  record_type 'S' = a school row (1,749); 'D' = a district-level summary row
+  (520) whose school_name is NULL and whose CDS code is a district row in the
+  directory (school code '0000000'). For per-school questions filter
+  record_type = 'S' (or school_name IS NOT NULL).
+  Average scores and num_ge1500 are NULL when the school had too few test
+  takers (498 S rows); num_test_takers is 0 on 218 rows.
+  Joins to `schools` on satscores.cds = schools.cdscode (no orphans). Only
+  1,782 of the 2,269 rows also have an frpm row; reach `frpm` through
+  `schools`. Schools absent from this table have no SAT data.
+datasource: bird_california_schools
+table: satscores
+
+entities:
+  - name: sat_record
+    type: primary
+    description: One school's (or district's) SAT row (key satscores.cds).
+    key: cds
+  - name: school
+    type: foreign
+    description: The directory row (satscores.cds = schools.cdscode).
+    key: cds
+
+dimensions:
+  - name: cds
+    type: string
+    description: |
+      CDS code (cds) of the school or district, 14-char text with leading
+      zero, e.g. '01100170109835'. Same identifier as schools.cdscode /
+      frpm.cdscode.
+    synonyms: ["cds", "CDS code", "CDSCode", "school identifier"]
+    expr: cds
+  - name: record_type
+    type: string
+    description: "Record type (rtype), documented as 'unuseful'. 'S' = school row, 'D' = district summary row."
+    synonyms: ["rtype"]
+    samples: ["S", "D"]
+    expr: rtype
+  - name: school_name
+    type: string
+    description: School name (sname) in the SAT data; NULL on district ('D') rows.
+    synonyms: ["sname", "school name"]
+    expr: sname
+  - name: district_name
+    type: string
+    description: District name (dname) in the SAT data.
+    synonyms: ["dname", "district name", "district segment"]
+    expr: dname
+  - name: county_name
+    type: string
+    description: County name (cname) in the SAT data.
+    synonyms: ["cname", "county name", "county"]
+    expr: cname
+  - name: enroll12
+    type: number
+    description: Enrollment (1st-12th grade) recorded in the SAT data (enroll12).
+    synonyms: ["enroll12", "enrollment (1st-12nd grade)"]
+    expr: enroll12
+  - name: num_test_takers
+    type: number
+    description: |
+      Number of SAT test takers recorded for the school (NumTstTakr) - "SAT
+      test takers".
+    synonyms: ["NumTstTakr", "number of test takers", "SAT test takers", "test takers"]
+    expr: numtsttakr
+  - name: avg_score_reading
+    type: number
+    description: Average SAT reading score of the school's test takers (AvgScrRead).
+    synonyms: ["AvgScrRead", "average reading score", "average score in reading"]
+    expr: avgscrread
+  - name: avg_score_math
+    type: number
+    description: Average SAT math score (AvgScrMath).
+    synonyms: ["AvgScrMath", "average math score", "average score in math"]
+    expr: avgscrmath
+  - name: avg_score_writing
+    type: number
+    description: Average SAT writing score of the school's test takers (AvgScrWrite) - "SAT writing score".
+    synonyms: ["AvgScrWrite", "average writing score", "SAT writing score"]
+    expr: avgscrwrite
+  - name: num_ge1500
+    type: number
+    description: |
+      Number of test takers whose total SAT score is >= 1500 (NumGE1500) -
+      test takers "scoring at least 1500".
+    synonyms: ["NumGE1500", "number of test takers scoring at least 1500", "scoring at least 1500"]
+    expr: numge1500
+  - name: total_sat_score
+    type: number
+    description: |
+      A school's total / combined SAT score = AvgScrRead + AvgScrMath +
+      AvgScrWrite (sum of its average reading, math and writing scores).
+      NULL when scores are missing.
+    synonyms: ["total SAT score", "combined SAT score", "SAT total"]
+    expr: "{{TABLE}}.avgscrread + {{TABLE}}.avgscrmath + {{TABLE}}.avgscrwrite"
+  - name: sat_performance_level
+    type: string
+    description: |
+      SAT performance level from the SAT total (Reading + Math + Writing):
+      'Below Average' if total < 1200, 'Average' if 1200 to 1500 (inclusive),
+      'Above Average' if > 1500, 'No SAT Data' if no SAT scores are available
+      (scores NULL). A school with no satscores row at all also counts as
+      'No SAT Data' (LEFT JOIN from schools/frpm and COALESCE).
+    synonyms: ["SAT performance level", "SAT performance category"]
+    samples: ["Below Average", "Average", "Above Average", "No SAT Data"]
+    expr: "CASE WHEN {{TABLE}}.avgscrread IS NULL OR {{TABLE}}.avgscrmath IS NULL OR {{TABLE}}.avgscrwrite IS NULL THEN 'No SAT Data' WHEN {{TABLE}}.avgscrread + {{TABLE}}.avgscrmath + {{TABLE}}.avgscrwrite < 1200 THEN 'Below Average' WHEN {{TABLE}}.avgscrread + {{TABLE}}.avgscrmath + {{TABLE}}.avgscrwrite <= 1500 THEN 'Average' ELSE 'Above Average' END"
+  - name: excellence_rate
+    type: number
+    description: |
+      Per-school SAT excellence rate = NumGE1500 / NumTstTakr: the share of
+      SAT test takers scoring at least 1500 (fraction 0-1; NULL when there
+      are no test takers).
+    synonyms: ["SAT excellence rate", "excellence rate"]
+    expr: "CAST({{TABLE}}.numge1500 AS double precision) / NULLIF({{TABLE}}.numtsttakr, 0)"
+
+measures:
+  - name: sat_record_count
+    type: count
+    description: Number of SAT rows (filter record_type 'S' for schools).
+  - name: total_test_takers
+    type: sum
+    description: Sum of NumTstTakr.
+    expr: numtsttakr
+  - name: total_num_ge1500
+    type: sum
+    description: Sum of NumGE1500 (test takers scoring >= 1500).
+    expr: numge1500
+  - name: total_enroll12
+    type: sum
+    description: Sum of enroll12.
+    expr: enroll12
+  - name: avg_reading_score
+    type: average
+    description: Mean of AvgScrRead across rows.
+    expr: avgscrread
+  - name: avg_math_score
+    type: average
+    description: Mean of AvgScrMath across rows.
+    expr: avgscrmath
+  - name: avg_writing_score
+    type: average
+    description: Mean of AvgScrWrite across rows.
+    expr: avgscrwrite
+  - name: avg_total_sat_score
+    type: average
+    description: Mean of the per-school total SAT score (read + math + write).
+    expr: "{{TABLE}}.avgscrread + {{TABLE}}.avgscrmath + {{TABLE}}.avgscrwrite"
+  - name: max_test_takers
+    type: max
+    description: Largest NumTstTakr.
+    expr: numtsttakr
+  - name: group_excellence_rate
+    type: custom
+    description: |
+      Pooled SAT excellence rate over a group = SUM(NumGE1500) /
+      SUM(NumTstTakr). For a single school use the excellence_rate dimension.
+    expr: "CAST({{satscores.total_num_ge1500}} AS double precision) / NULLIF({{satscores.total_test_takers}}, 0)"

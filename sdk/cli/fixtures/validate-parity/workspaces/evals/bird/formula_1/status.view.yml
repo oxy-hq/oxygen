@@ -1,0 +1,46 @@
+name: status
+description: |
+  Lookup of race-result status codes (134 rows), joined from results.statusid.
+  'Finished' (statusid 1) = finished on the lead lap; '+1 Lap', '+2 Laps', ...
+  '+49 Laps' = finished (classified) that many laps behind the winner.
+  Everything else is a non-finish reason, e.g. 'Disqualified', 'Accident'
+  (a crash ends the car's race), 'Collision', 'Collision damage',
+  'Fatal accident', 'Spun off', 'Engine', 'Gearbox', 'Transmission',
+  'Retired', 'Withdrew' (driver withdrew from the race), 'Not classified',
+  'Did not qualify', 'Did not prequalify', '107% Rule', 'Excluded', 'Injury',
+  'Injured', 'Driver unwell', 'Power Unit', 'ERS', 'Puncture', 'Tyre',
+  'Brakes', 'Suspension', 'Hydraulics', 'Electrical', 'Clutch', ...
+  Values are case-sensitive (e.g. 'Withdrew', 'Accident').
+datasource: bird_formula_1
+table: status
+
+entities:
+  - name: status
+    type: primary
+    description: One status code.
+    key: status_id
+
+dimensions:
+  - name: status_id
+    type: number
+    description: Unique identification number of the status (column statusid). 1 = 'Finished'.
+    expr: statusid
+  - name: status
+    type: string
+    description: |
+      Full name of the status. 'Finished' = on the lead lap; '+N Lap'/'+N Laps'
+      = classified N laps behind the winner; 'Accident' = race ended by a
+      crash; 'Withdrew' = driver withdrew; others are retirement /
+      non-finish reasons.
+    synonyms: ["status name", "reason", "retirement reason"]
+    samples: ["Finished", "+1 Lap", "+2 Laps", "Disqualified", "Accident", "Collision", "Engine", "Gearbox", "Spun off", "Retired", "Withdrew", "Not classified", "Did not qualify", "Fatal accident", "Collision damage"]
+    expr: status
+  - name: is_classified_finish
+    type: boolean
+    description: True when the status is a finish, on the lead lap ('Finished') or one or more laps behind ('+N Lap(s)').
+    expr: "({{TABLE}}.status = 'Finished' OR {{TABLE}}.status ~ '^\\+[0-9]+ Laps?$')"
+
+measures:
+  - name: status_count
+    type: count
+    description: Number of status codes.

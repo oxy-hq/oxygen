@@ -1,0 +1,116 @@
+name: strength
+description: Strength training log — each row is one set of an exercise.
+datasource: training
+table: "strength.csv"
+
+entities:
+  - name: strength_set
+    type: primary
+    key: date
+    description: Use to join the strength table on date
+  - name: nutrition_day
+    type: foreign
+    key: date
+    description: Use to join the nutrition table on date
+
+
+dimensions:
+  - name: date
+    type: date
+    expr: "Date"
+    description: Training date (YYYY-MM-DD)
+  - name: day_of_week
+    type: string
+    expr: '"Day of Week"'
+    description: Day of the week (Monday, Tuesday, etc.)
+  - name: exercise
+    type: string
+    expr: '"Exercise"'
+    description: Exercise name (e.g. Flat Barbell Bench Press, Barbell Deadlift)
+  - name: start_time
+    type: string
+    expr: '"Start Time"'
+    description: Time the set started (HH:MM AM/PM)
+  - name: movement_pattern
+    type: string
+    expr: >-
+      CASE
+        WHEN "Exercise" ILIKE '%bench press%' OR "Exercise" ILIKE '%push up%' OR "Exercise" ILIKE '%pushup%'
+             OR "Exercise" ILIKE '%dip%' OR "Exercise" ILIKE '%chest fly%' OR "Exercise" ILIKE '%pec%'
+             OR "Exercise" ILIKE '%floor press%'
+          THEN 'Horizontal Push'
+        WHEN "Exercise" ILIKE '%overhead press%' OR "Exercise" ILIKE '%shoulder press%'
+             OR "Exercise" ILIKE '%military press%' OR "Exercise" ILIKE '%handstand%'
+             OR "Exercise" ILIKE '%lateral raise%' OR "Exercise" ILIKE '%front raise%'
+             OR "Exercise" ILIKE '%arnold press%'
+          THEN 'Vertical Push'
+        WHEN "Exercise" ILIKE '%row%' OR "Exercise" ILIKE '%face pull%'
+             OR "Exercise" ILIKE '%rear delt%' OR "Exercise" ILIKE '%reverse fly%'
+          THEN 'Horizontal Pull'
+        WHEN "Exercise" ILIKE '%pull up%' OR "Exercise" ILIKE '%pullup%' OR "Exercise" ILIKE '%chin up%'
+             OR "Exercise" ILIKE '%chinup%' OR "Exercise" ILIKE '%lat pulldown%'
+             OR "Exercise" ILIKE '%pulldown%' OR "Exercise" ILIKE '%muscle up%'
+             OR "Exercise" ILIKE '%front lever%'
+          THEN 'Vertical Pull'
+        WHEN "Exercise" ILIKE '%squat%' OR "Exercise" ILIKE '%leg press%'
+             OR "Exercise" ILIKE '%lunge%' OR "Exercise" ILIKE '%leg extension%'
+             OR "Exercise" ILIKE '%step up%' OR "Exercise" ILIKE '%pistol%'
+             OR "Exercise" ILIKE '%split squat%'
+          THEN 'Quad Dominant'
+        WHEN "Exercise" ILIKE '%deadlift%' OR "Exercise" ILIKE '%hip thrust%'
+             OR "Exercise" ILIKE '%hamstring%' OR "Exercise" ILIKE '%glute%'
+             OR "Exercise" ILIKE '%good morning%' OR "Exercise" ILIKE '%rdl%'
+             OR "Exercise" ILIKE '%romanian%' OR "Exercise" ILIKE '%back extension%'
+          THEN 'Hip Hinge'
+        WHEN "Exercise" ILIKE '%curl%' OR "Exercise" ILIKE '%tricep%'
+             OR "Exercise" ILIKE '%bicep%' OR "Exercise" ILIKE '%skullcrusher%'
+             OR "Exercise" ILIKE '%pushdown%' OR "Exercise" ILIKE '%wrist%'
+             OR "Exercise" ILIKE '%forearm%' OR "Exercise" ILIKE '%grip%'
+          THEN 'Arms / Isolation'
+        WHEN "Exercise" ILIKE '%plank%' OR "Exercise" ILIKE '%crunch%'
+             OR "Exercise" ILIKE '%ab %' OR "Exercise" ILIKE '%l-sit%'
+             OR "Exercise" ILIKE '%leg raise%' OR "Exercise" ILIKE '%hollow%'
+             OR "Exercise" ILIKE '%core%' OR "Exercise" ILIKE '%oblique%'
+          THEN 'Core'
+        WHEN "Exercise" ILIKE '%calf%' OR "Exercise" ILIKE '%shrug%'
+             OR "Exercise" ILIKE '%neck%'
+          THEN 'Accessory'
+        WHEN "Exercise" ILIKE '%running%' OR "Exercise" ILIKE '%rowing machine%'
+             OR "Exercise" ILIKE '%swimming%' OR "Exercise" ILIKE '%elliptical%'
+             OR "Exercise" ILIKE '%cardio%'
+          THEN 'Cardio'
+        WHEN "Exercise" ILIKE '%stretch%' OR "Exercise" ILIKE '%mobility%'
+             OR "Exercise" ILIKE '%dorsiflexion%' OR "Exercise" ILIKE '%peroneals%'
+          THEN 'Mobility'
+        ELSE 'Other'
+      END
+    description: Movement pattern category derived from exercise name (e.g. Horizontal Push, Hip Hinge, Vertical Pull)
+  - name: notes
+    type: string
+    expr: '"Notes"'
+    description: Free-text notes for the set
+
+measures:
+  - name: weight
+    type: max
+    expr: '"Weight"'
+    description: Weight lifted in lbs (max across sets)
+  - name: reps
+    type: sum
+    expr: '"Reps"'
+    description: Total reps performed
+  - name: set_count
+    type: count
+    description: Number of sets
+  - name: avg_rpe
+    type: average
+    expr: '"RPE"'
+    description: Average Rate of Perceived Exertion (1-10 scale)
+  - name: max_weight
+    type: max
+    expr: '"Weight"'
+    description: Heaviest weight lifted in lbs
+  - name: total_volume
+    type: sum
+    expr: 'CAST("Weight" AS DOUBLE) * CAST("Reps" AS DOUBLE)'
+    description: Total training volume (weight x reps summed across sets)

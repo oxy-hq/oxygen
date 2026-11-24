@@ -1,0 +1,50 @@
+# Row-Level Security Example: ClickHouse Configuration
+#
+# This example demonstrates how to configure ClickHouse with row-level filtering.
+# The filters defined here are applied via ClickHouse session settings and enforced
+# by row policies that you create in your ClickHouse instance.
+
+defaults:
+  database: clickhouse
+
+models:
+  - vendor: openai
+    name: openai-4.1
+    model_ref: gpt-4.1
+    key_var: OPENAI_API_KEY
+    api_url: https://api.openai.com/v1
+
+databases:
+  - name: clickhouse
+    type: clickhouse
+    
+    # Connection parameters
+    # Replace with your actual ClickHouse instance details
+    host: https://server-id.us-east-1.aws.clickhouse.cloud:8443
+    user: clickhouse_username
+    password_var: CLICKHOUSE_PWD
+    database: clickhouse_database_name
+    
+    # ClickHouse role with row policies attached
+    # You must create this role and policies in ClickHouse (see setup.sql)
+    role: app_readonly
+    
+    # Prefix for ClickHouse session settings
+    # Filters will be set as: SET SQL_tenant_id = 12345, SET SQL_project_ids = [100, 101]
+    # Note: This prefix must match the prefix configured on the Clickhouse server for custom SETTINGS 
+    settings_prefix: SQL_
+    
+    # Filter schemas with type validation
+    filters:
+      # Scalar filter: single tenant identifier
+      tenant_id:
+        type: integer
+        default: 0
+      
+      # Array filter: multiple project IDs
+      project_ids:
+        type: array
+        items:
+          type: integer
+        default: []
+

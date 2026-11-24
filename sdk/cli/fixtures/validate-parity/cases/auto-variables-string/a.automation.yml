@@ -1,0 +1,7 @@
+variables:
+  month: "2024-01"
+tasks:
+  - name: q
+    type: execute_sql
+    database: local
+    sql_query: select 1

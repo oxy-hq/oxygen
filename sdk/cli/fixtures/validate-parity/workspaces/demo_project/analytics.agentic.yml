@@ -1,0 +1,15 @@
+llm:
+  ref: claude
+  thinking: disabled
+  extended_thinking:
+    model: claude-sonnet-4-6
+    thinking: adaptive
+context:
+  - ./sales_semantics/**/*
+  - ./workflows/**/*.automation.yml
+  - ./example_sql/*.sql
+states:
+  specifying:
+    max_retries: 10
+  interpreting:
+    thinking: disabled

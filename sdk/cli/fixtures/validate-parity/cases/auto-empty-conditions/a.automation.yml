@@ -1,0 +1,4 @@
+tasks:
+  - name: c
+    type: conditional
+    conditions: []

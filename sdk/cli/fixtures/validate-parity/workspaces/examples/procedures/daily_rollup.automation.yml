@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxy/refs/heads/main/json-schemas/workflow.json
+
+name: restaurant_analytics_daily_rollups
+description: |
+  Daily Restaurant Analytics Rollups Workflow
+
+  Pre-aggregates the flattened Toast tree in `toast_pos` (the schema the
+  toast_pos.airway pipeline lands into) into small daily/hourly rollups
+  so the world-model dashboard reads tiny tables instead of re-scanning
+  orders⨝checks on every tile. Builds, in the airhouse database the steps
+  target (`local-acme` in this example):
+    • toast_pos.sales_daily_metrics   (sql/sales_daily_rollup.sql)   — net/gross/discounts/channel per store-day
+    • toast_pos.labor_daily_metrics   (sql/labors_daily_rollup.sql)  — labor cost/hours/shifts per store-day
+    • toast_pos.orders_daily_metrics  (sql/orders_daily_rollup.sql)  — order_count/check_revenue per store-day
+                                            (serves heartRates, sparklines, ribbonSales, entityMetrics, laborByStoreRevenue)
+    • toast_pos.orders_hourly_metrics (sql/orders_hourly_rollup.sql) — check revenue per store-day-hour (UTC)
+                                            (serves dashHourly, storeHourly)
+  Each is a full CREATE OR REPLACE — the outputs are small (23 stores x N days),
+  so it is idempotent and safe to re-run. Run after the Toast->airhouse pull
+  lands fresh orders/checks/time_entries. (ripplesNewOrders intentionally stays on
+  a bounded raw `orders` scan for freshness, so it is not served from a rollup.)
+
+tasks:
+  - name: sales_rollup
+    type: execute_sql
+    database: local-acme
+    sql_file: procedures/sql/sales_daily_rollup.sql
+
+  - name: labor_rollup
+    type: execute_sql
+    database: local-acme
+    sql_file: procedures/sql/labors_daily_rollup.sql
+
+  - name: orders_daily_rollup
+    type: execute_sql
+    database: local-acme
+    sql_file: procedures/sql/orders_daily_rollup.sql
+
+  - name: orders_hourly_rollup
+    type: execute_sql
+    database: local-acme
+    sql_file: procedures/sql/orders_hourly_rollup.sql

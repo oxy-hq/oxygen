@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: store_performance
+description: "Store performance analytics topic - focused on individual store metrics, rankings, comparisons, and performance consistency analysis"
+base_view: store_performance
+views:
+  - store_performance
+
+# Key business questions this topic addresses:
+# 1. Which stores are top performers vs underperformers?
+# 2. How consistent are individual stores in their sales performance?
+# 3. What is the sales variance and standard deviation for each store?
+# 4. Which stores have the highest/lowest peak performance?
+# 5. How do stores compare in terms of average weekly sales?
+# 6. What tier (Top, Mid, Standard, Underperforming) does each store fall into?

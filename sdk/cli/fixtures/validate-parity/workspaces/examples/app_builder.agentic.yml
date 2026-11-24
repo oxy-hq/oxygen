@@ -1,0 +1,24 @@
+# An analytics agent example, named for the app builder it was first written as.
+# It follows the same YAML structure as analytics.agentic.yml.
+#
+# Database names from config.yml.  All Oxy-supported connector types work here.
+databases:
+  - training
+
+llm:
+  ref: claude-sonnet-4-6
+  max_tokens: 8192
+thinking: adaptive
+
+# App-builder pipeline state configuration.
+# states:
+#   clarifying:
+#     max_retries: 5
+#   specifying:
+#     max_retries: 5
+#   solving:
+#     max_retries: 10
+#   executing:
+#     max_retries: 10
+#   interpreting:
+#     max_retries: 3

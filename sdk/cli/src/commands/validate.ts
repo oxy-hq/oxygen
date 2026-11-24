@@ -9,11 +9,9 @@
  * `AgentConfig` would be a second definition that diverges silently — the
  * exact shape of bug this CLI has spent its whole review finding.
  *
- * DOES NOT REPLACE `oxy validate`. That one builds a real `ConfigBuilder`, so
- * it can resolve `databases:` entries and `llm.ref` against `config.yml` —
- * checks that need the workspace loaded, not just parsed. This is the
- * structural half: schema conformance, fast, no Rust binary, and reachable
- * from `npx`. Where they disagree, the Rust one is right.
+ * IT REPLACED `oxy validate` (now a stub), so past the schema it does what that
+ * did — references and rules, view and topic checks: `src/validate/`. Verdicts
+ * are pinned against the Rust binary's in `validate-parity.test.ts`.
  */
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -37,6 +35,16 @@ import { heading, table } from "../ui/render.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { repoRoot } from "../util/git.js";
+import { afterParse, beforeParse } from "../validate/checks.js";
+import { type Finding, parseFinding, ruleFinding } from "../validate/finding.js";
+import { applySerdeLeniency } from "../validate/serde-leniency.js";
+import {
+  checkPlanned,
+  missingConfig,
+  planRun,
+  type References,
+  WORKSPACE_SCHEMAS
+} from "../validate/workspace.js";
 import { inferOrgApp } from "./publish.js";
 
 /**
@@ -65,13 +73,18 @@ const SCHEMA_KINDS: ReadonlyArray<readonly [stem: string, schema: string]> = [
  * config validates both spellings. A workspace using `.yaml` would have been
  * reported clean without a single file being read.
  */
-const SCHEMA_FOR: ReadonlyArray<readonly [suffix: string, schema: string]> = SCHEMA_KINDS.flatMap(
-  ([stem, schema]) =>
-    [
-      [`${stem}.yml`, schema],
-      [`${stem}.yaml`, schema]
-    ] as const
-);
+const SCHEMA_FOR: ReadonlyArray<readonly [suffix: string, schema: string]> = [
+  ...SCHEMA_KINDS.flatMap(
+    ([stem, schema]) =>
+      [
+        [`${stem}.yml`, schema],
+        [`${stem}.yaml`, schema]
+      ] as const
+  ),
+  // `.yml` ONLY: the compiler serves no `.view.yaml` (the `.workflow.yml` rule).
+  [".view.yml", "view.json"],
+  [".topic.yml", "topic.json"]
+];
 
 /**
  * Directories never walked.
@@ -111,12 +124,6 @@ export interface ValidateFlags {
   file?: string;
   /** Emit findings as JSON. */
   json?: boolean;
-}
-
-interface Finding {
-  file: string;
-  path: string;
-  message: string;
 }
 
 /** The schema a path is governed by, or `undefined` for a file we do not check. */
@@ -441,6 +448,7 @@ function compileAll(): Map<string, ReturnType<Ajv["compile"]>> {
     if (!existsSync(path)) continue;
     try {
       const document = JSON.parse(readFileSync(path, "utf8"));
+      for (const drift of applySerdeLeniency(schema, document)) log.warn(drift);
       formatsInSchemaPosition(document, formats);
       compiled.set(schema, ajv.compile(document));
     } catch (cause) {
@@ -600,6 +608,8 @@ function registerRustFormats(ajv: Ajv): void {
 function describe(file: string, errors: ErrorObject[] | null | undefined): Finding[] {
   return (errors ?? []).map((e) => ({
     file,
+    // A shape the runtime's deserializer rejects: Rust's "Couldn't parse".
+    kind: "parse" as const,
     // `instancePath` is a JSON pointer; a caller wants a YAML path.
     path: e.instancePath ? e.instancePath.replace(/^\//, "").split("/").join(".") : "(root)",
     message:
@@ -618,13 +628,8 @@ function describe(file: string, errors: ErrorObject[] | null | undefined): Findi
  * missing from the installation: `compileAll` skips a schema that is not on
  * disk, this returned no findings, and the caller counted the file anyway.
  */
-function validateFile(
-  root: string,
-  rel: string,
-  compiled: Map<string, ReturnType<Ajv["compile"]>>,
-  warnings: Finding[],
-  notes: Set<string>
-): Finding[] | SkipCode {
+function validateFile(root: string, rel: string, run: Run): Finding[] | SkipCode {
+  const { compiled, warnings, notes } = run;
   const schema = schemaFor(rel);
   // `undefined`, not `[]`, and for the same reason the doc gives: a file with
   // no schema was NOT checked. Unreachable through either door today — `walk`
@@ -716,27 +721,30 @@ function validateFile(
   // The manifest arm, past the same filesystem guards.
   if (manifest || !validate) return validateAppManifest(root, rel, warnings, notes);
 
+  const raw = readFileSync(full, "utf8");
+  const early = beforeParse(schema, rel, raw);
+  if (early) return early;
+
   let parsed: unknown;
   try {
-    parsed = parseYaml(readFileSync(full, "utf8"));
+    parsed = parseYaml(raw);
   } catch (cause) {
     // A YAML syntax error is the commonest finding of all, and reporting it as
     // a schema violation would send the reader looking at the wrong thing.
     return [
-      {
-        file: rel,
-        path: "(parse)",
-        message: (cause as Error).message.split("\n")[0] ?? "unparsable YAML"
-      }
+      parseFinding(rel, "(parse)", (cause as Error).message.split("\n")[0] ?? "unparsable YAML")
     ];
   }
-  // An empty document parses to `null`, which every schema rejects with a
-  // confusing type error. Say what it actually is.
-  if (parsed === null || parsed === undefined) {
-    return [{ file: rel, path: "(root)", message: "the file is empty" }];
-  }
+  const shape = (doc: unknown) => (validate(doc) ? [] : describe(rel, validate.errors));
+  return afterParse({ rel, schema, doc: parsed, shape, refs: run.refs, notes });
+}
 
-  return validate(parsed) ? [] : describe(rel, validate.errors);
+/** What every file's check shares within one run. */
+interface Run {
+  compiled: Map<string, ReturnType<Ajv["compile"]>>;
+  warnings: Finding[];
+  notes: Set<string>;
+  refs: References;
 }
 
 export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
@@ -768,15 +776,15 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   const walked: Walked = single
     ? { files: [relative(root, resolve(base, single))], broken: [] }
     : walk(root);
-  const { files, broken } = walked;
+  const { broken } = walked;
 
-  if (single && !schemaFor(files[0] ?? "")) {
+  if (single && !schemaFor(walked.files[0] ?? "")) {
     throw new CliError(`oxyc validate does not know how to check ${single}`, {
       code: ExitCode.USAGE,
       hint: `it checks ${[...SCHEMA_FOR.map(([s]) => s), APP_MANIFEST].join(", ")}`
     });
   }
-  if (files.length === 0 && broken.length === 0) {
+  if (walked.files.length === 0 && broken.length === 0) {
     // STILL A DOCUMENT ON STDOUT. `--json` promises one, and an empty stdout
     // makes `oxyc validate --json | jq` fail on the one workspace shape where
     // the answer is simply "nothing to check".
@@ -790,20 +798,14 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
     return;
   }
 
-  const findings: Finding[] = [];
-  const warnings: Finding[] = [];
-  const notes = new Set<string>();
-  const checked: string[] = [];
-  const unchecked: SkippedFile<SkipCode>[] = [];
-  for (const rel of files) {
-    const result = validateFile(root, rel, compiled, warnings, notes);
-    if (typeof result === "string") {
-      unchecked.push({ path: rel, code: result });
-      continue;
-    }
-    checked.push(rel);
-    findings.push(...result);
-  }
+  // Each file against the config of the workspace it is in, configs first
+  // (`validate/workspace.ts`). `--file`'s is the one above the cwd, as `oxy` found it.
+  const plan = planRun(walked.files, single ? configAbove(root, walked.files[0] ?? "") : undefined);
+  const run: Run = { compiled, warnings: [], notes: plan.notes, refs: plan.refs };
+  const outcome = checkPlanned<SkipCode>(plan, (rel) => validateFile(root, rel, run));
+  const { checked, unchecked } = outcome;
+  const findings = [...missingConfig(checked, schemaFor, plan.refs), ...outcome.findings];
+  const { warnings, notes } = run;
 
   // NOTHING READ, BUT SOMETHING NAMED. The commit that changed the word left the
   // number saying `valid`: with every file in `unchecked` or `broken`, stderr
@@ -879,7 +881,6 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
       { header: "PROBLEM", value: (f) => f.message }
     ])}\n`
   );
-  log.info("structural checks only — `oxy validate` also resolves databases: and llm.ref");
   throw silentFailure(findings.length, checked.length);
 }
 
@@ -908,10 +909,10 @@ function validateAppManifest(
   try {
     parsed = JSON.parse(readFileSync(full, "utf8"));
   } catch (cause) {
-    return [{ file: rel, path: "(parse)", message: (cause as Error).message.split("\n")[0] ?? "" }];
+    return [parseFinding(rel, "(parse)", (cause as Error).message.split("\n")[0] ?? "")];
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return [{ file: rel, path: "(root)", message: "the top level must be an object" }];
+    return [parseFinding(rel, "(root)", "the top level must be an object")];
   }
   const manifest = parsed as Record<string, unknown>;
   const appDir = dirname(full);
@@ -924,7 +925,7 @@ function validateAppManifest(
   const prefix = dirname(rel) === "." ? "" : `${dirname(rel)}/`;
   const findings: Finding[] = [];
   for (const issue of checkAppPlacement(appDir, manifest, slug)) {
-    const finding = { file: `${prefix}${issue.file}`, path: issue.path, message: issue.message };
+    const finding = ruleFinding(`${prefix}${issue.file}`, issue.path, issue.message);
     (issue.level === "error" ? findings : warnings).push(finding);
   }
 
@@ -932,7 +933,7 @@ function validateAppManifest(
   // one check `oxyc publish` and the Vite plugin make, in the same words. An
   // unknown field is a warning here as there — said, never counted.
   for (const issue of validateOxyAppManifest(manifest)) {
-    const entry = { file: `${prefix}${APP_MANIFEST}`, path: issue.path, message: issue.message };
+    const entry = ruleFinding(`${prefix}${APP_MANIFEST}`, issue.path, issue.message);
     (issue.level === "error" ? findings : warnings).push(entry);
   }
 
@@ -942,16 +943,13 @@ function validateAppManifest(
     embedEventSchemas(appDir, manifest as unknown as OxyAppManifest);
   } catch (cause) {
     if (!(cause instanceof CliError)) throw cause;
-    findings.push({ file: `${prefix}${APP_MANIFEST}`, path: "events", message: cause.message });
+    findings.push(ruleFinding(`${prefix}${APP_MANIFEST}`, "events", cause.message));
   }
 
   const lint = lintAppFunctions(appDir, manifest);
   for (const issue of lint.issues) {
-    const entry = {
-      file: `${prefix}${issue.file}`,
-      path: issue.path,
-      message: `[function-lint/${issue.rule}] ${issue.message}`
-    };
+    const message = `[function-lint/${issue.rule}] ${issue.message}`;
+    const entry = ruleFinding(`${prefix}${issue.file}`, issue.path, message);
     (issue.level === "error" ? findings : warnings).push(entry);
   }
   for (const line of lint.skipped) notes.add(`${prefix}${APP_MANIFEST}: ${line}`);
@@ -1069,14 +1067,20 @@ function nothingReadFailure(named: number): CliError {
  * else — a second copy of the list on stderr would just be noise.
  */
 function silentFailure(findings: number, files: number): CliError {
-  // FAILURE (1), not REQUEST (6). The contract documents 6 as "the server
-  // answered 4xx" and this command never makes a request — an agent branching
-  // on 6 would conclude its own call was malformed rather than that the
-  // workspace has findings. Same mismatch as `launch` reporting a missing
-  // `claude` as USAGE, fixed in an earlier round.
+  // CHECK_FAILED (9), as `oxyc checks run` answers: the check ran and failed.
+  // `oxy validate` exited 1 (the README says so). Never REQUEST (6): that is
+  // "the server answered 4xx", and this command makes no request.
   return new CliError(`${findings} problem(s) across ${files} file(s)`, {
-    code: ExitCode.FAILURE
+    code: ExitCode.CHECK_FAILED
   });
+}
+
+/** `--file`'s owner, for a kind that reads one: the `config.yml` above the cwd. */
+function configAbove(root: string, rel: string): string[] {
+  if (!WORKSPACE_SCHEMAS.has(schemaFor(rel) ?? "")) return [];
+  const dir = findWorkspace(root);
+  const name = ["config.yml", "config.yaml"].find((n) => existsSync(join(dir, n)));
+  return name ? [relative(root, join(dir, name))] : [];
 }
 
 /**

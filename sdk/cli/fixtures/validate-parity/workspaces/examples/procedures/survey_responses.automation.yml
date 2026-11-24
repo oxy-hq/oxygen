@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+name: survey_responses
+description: "This workflow processes survey responses by different interval month year day. ** Note: Report must be shown as is. Without any modification. **"
+retrieval:
+  include:
+    - "Create monthly survey report"
+  exclude:
+    - "Create weekly survey report"
+tasks:
+  - name: intervals
+    type: execute_sql
+    database: primary_database
+    sql_file: data/example_intervals.sql
+
+  - name: schedules
+    type: loop_sequential
+    values: "{{ intervals.intervals }}"
+    concurrency: 10
+    tasks:
+      - name: metrics
+        type: loop_sequential
+        values:
+          - "responses"
+          - "rejected"
+        tasks:
+          - name: table
+            type: execute_sql
+            database: primary_database
+            sql_file: data/example_{{schedules.value}}_{{metrics.value}}.sql
+            variables:
+              variable_a: "1000"
+              variable_b: "{{ metrics.value }}"
+              variable_c: "{{ metrics.value }}"
+
+          - name: report
+            type: agent
+            prompt: |
+              Generate a detail {{schedules.value}} report using {{metrics.value}} metrics:
+              {{table}}
+            agent_ref: agents/local.agentic.yml
+
+      - name: metric_reports
+        type: formatter
+        template: |
+          {% for metric in metrics %}
+          -- Metric: {{metric.value}} --
+          {{metric.report}}
+          -- End of Metric: {{metric.value}} --
+          {% endfor %}
+
+  - name: formatter
+    type: formatter
+    template: |
+      # Debugging
+      Row-based display:
+      {{intervals}}
+      Column-based display:
+      {{intervals.intervals}}
+
+      # Survey Responses Report
+      {% for schedule in schedules %}
+      -- Schedule: {{schedule.value}} --
+      {{schedule.metric_reports}}
+      -- End of Schedule: {{schedule.value}} --
+      {% endfor %}

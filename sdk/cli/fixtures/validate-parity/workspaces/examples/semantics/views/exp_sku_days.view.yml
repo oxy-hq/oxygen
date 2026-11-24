@@ -1,0 +1,44 @@
+name: exp_sku_days
+description: |
+  One row per SKU per day, 2026-04-06 to 2026-11-01: the panel the SKU
+  experiments in examples/experiments/ estimate on. Planted
+  (examples/scripts/gen_experiments_data.py): a Labor Day deal on three kits
+  (+40% conversion 2026-09-07 to 09-20, with two sibling kits cannibalised),
+  and a search badge on ten tools and power SKUs (+15% conversion from
+  2026-06-15, traffic unchanged).
+datasource: local
+table: exp_sku_days.csv
+
+entities:
+- name: exp_sku
+  type: foreign
+  description: The SKU this day belongs to
+  key: sku
+
+dimensions:
+- name: sku
+  type: string
+  description: SKU code
+  expr: sku
+- name: sale_date
+  type: date
+  description: Sale date
+  expr: sale_date
+
+measures:
+- name: units
+  type: sum
+  description: Units sold
+  expr: units
+- name: revenue
+  type: sum
+  description: Revenue ($)
+  expr: revenue
+- name: page_views
+  type: sum
+  description: Product page views; the denominator of a conversion-rate outcome
+  expr: page_views
+- name: promo_days
+  type: sum
+  description: SKU-days with a promotion live; a SKU lever's read-back
+  expr: on_promo

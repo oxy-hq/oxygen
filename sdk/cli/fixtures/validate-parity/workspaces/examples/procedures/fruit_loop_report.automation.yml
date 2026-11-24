@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: fruit_loop_report
+description: |
+  This workflow iterates over a hardcoded list of fruits using a loop,
+  generates a per-fruit sales summary, then combines all results into a final report.
+
+tasks:
+  - name: per_fruit
+    type: loop_sequential
+    values:
+      - apple
+      - banana
+      - cherry
+      - orange
+      - kiwi
+    concurrency: 4
+    tasks:
+      - name: summary
+        type: workflow
+        src: procedures/fruit_summary.automation.yml
+        variables:
+          fruit: "{{ per_fruit.value }}"
+
+  - name: final_report
+    type: formatter
+    template: |
+      # Fruit Sales Report
+
+      {% for item in per_fruit %}
+      ## {{ item.summary.summary }}
+      {% endfor %}

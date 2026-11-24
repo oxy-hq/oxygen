@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: astronauts
+description: "Astronaut corps analytics: who flew, for which agency, how often, and how long in space."
+base_view: astronauts
+views:
+  - astronauts
+
+# Example questions this topic answers:
+# - How many astronauts has each agency flown?
+# - Who has the most EVA hours?
+# - Which decade produced the most first-flight astronauts?
+# - What is the average age at first spaceflight?
+# - Breakdown of astronauts by status (Active / Retired / Deceased).

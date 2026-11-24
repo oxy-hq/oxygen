@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxy/refs/heads/main/json-schemas/config.json
+#
+# Workspace config for __NAME__.
+#
+# Minimal and valid on purpose: this compiles clean on day one, before a single
+# view, topic, pipeline or automation exists. `models:` must be present even
+# when empty — the compile fails with "missing field `models`" without the
+# key. `databases:` may be omitted entirely (the compiler synthesizes an empty
+# list), and is spelled out here only so there is an obvious place to add one.
+#
+# EVERYTHING COMMENTED OUT BELOW IS A SHAPE, NOT A WORKING DEFAULT. Any value
+# written as <replace-me-...> is a placeholder and will not work as written.
+#
+# Secrets are never written in this file. A `*_var` field names an ENVIRONMENT
+# VARIABLE, resolved from the workspace secret store at runtime — never the
+# secret itself.
+
+models: []
+# models:
+#   - vendor: anthropic
+#     name: <replace-me-model-name>          # how this workspace refers to it
+#     model_ref: claude-sonnet-4-6           # the vendor's own model id
+#     key_var: ANTHROPIC_API_KEY
+#     api_url: https://api.anthropic.com/v1
+
+databases: []
+# databases:
+#   - name: <replace-me-database-name>
+#     type: clickhouse
+#     host_var: CLICKHOUSE_HOST
+#     user_var: CLICKHOUSE_USERNAME
+#     password_var: CLICKHOUSE_PASSWORD
+#     database_var: CLICKHOUSE_DATABASE
+#
+#   # A managed Airhouse warehouse takes no *_var fields at all — its
+#   # credentials are brokered at runtime.
+#   - name: <replace-me-database-name>
+#     type: airhouse_managed
+
+# defaults:
+#   database: <replace-me-database-name>     # must name an entry above; note
+#                                            # that the compile does NOT
+#                                            # check this reference, so a typo
+#                                            # here surfaces at query time
+
+# No `health_check:` block, deliberately. An absent block means this workspace
+# is never evaluated by Workspace Health, which is the honest state of one
+# nobody has tuned. It does not mean "healthy" — an unevaluated workspace is
+# absent from the admin health table rather than shown green. Add a block when
+# someone owns the thresholds; a guessed interval reads as a real opinion.
+
+# No `integrations:` either. Every entry is one specific vendor's credentials,
+# and this workspace has no vendor yet.

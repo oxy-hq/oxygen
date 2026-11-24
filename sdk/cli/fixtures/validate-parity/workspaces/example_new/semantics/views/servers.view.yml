@@ -1,0 +1,53 @@
+name: servers
+description: |
+  The service staff roster — 15 servers at each of the 24 locations.
+
+  `tenure_band` is the usable dimension here. `server_id` reaches 360 distinct
+  values and is deliberately expected to be *skipped* by the opportunity scan:
+  the engine drops any dimension at 25+ values as a high-cardinality
+  identifier, and an individual server is not an actionable segment anyway.
+  Four tenure bands are, and they are distributed identically across regions so
+  staffing never confounds the regional signal.
+
+datasource: local
+table: restaurant_servers.csv
+
+refresh_key:
+  every: "1h"
+
+entities:
+  - name: server
+    type: primary
+    description: "A member of the service staff"
+    key: server_id
+  - name: location
+    type: foreign
+    description: "Location this server works at"
+    key: location_id
+
+dimensions:
+  - name: server_id
+    type: number
+    description: "Server identifier"
+    expr: server_id
+  - name: server_name
+    type: string
+    description: "Server display name"
+    expr: server_name
+  - name: location_id
+    type: number
+    description: "Location identifier"
+    expr: location_id
+  - name: hire_date
+    type: date
+    description: "Date the server was hired"
+    expr: hire_date
+  - name: tenure_band
+    type: string
+    description: "Tenure bucket: under_3mo, 3_12mo, 1_3yr, over_3yr"
+    expr: tenure_band
+
+measures:
+  - name: total_servers
+    type: count
+    description: "Number of servers"

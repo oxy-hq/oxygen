@@ -38,7 +38,7 @@ An instruction-only agent (`instructions`, and no `databases`, `context` or
 | --- | --- | --- |
 | `ref` | none | A `name:` under config.yml `models:`. Supplies the vendor, key (a workspace secret in the cloud), base URL, Azure settings and headers |
 | `model` | from `ref`, else the first config.yml model | A provider model ID. Setting `model` without `ref` skips config.yml entirely, so the key must come from `api_key` or the server environment |
-| `vendor` | from `ref`, else `anthropic` | `anthropic`, `open_ai` (Responses API) or `open_ai_compat` (`/chat/completions`). The runtime also accepts `openai` and `openai_compat`; `oxyc validate` does not |
+| `vendor` | from `ref`, else `anthropic` | `anthropic`, `open_ai` (Responses API) or `open_ai_compat` (`/chat/completions`). The runtime also accepts `openai` and `openai_compat`, and so does `oxyc validate` |
 | `api_key` | from `ref`, else `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` on the server | Prefer `ref` |
 | `base_url` | from `ref`, else the provider default | `open_ai_compat` defaults to `http://localhost:11434/v1` |
 | `max_tokens` | 4,096 without thinking; 16,384 (or budget + 4,096) with thinking | A value you set is used as-is, and thinking tokens count against it |
@@ -180,8 +180,7 @@ or the engine is unreachable at run start, the run fails.
 
 | Command | Checks |
 | --- | --- |
-| `oxyc validate --file <path>` | JSON-schema shape, offline. Catches wrong types, a malformed `thinking` and vendor spelling. Misses unknown keys, `ref`, databases, globs, rule names, env vars |
-| `oxy validate --file <path>` | parses with the runtime's own parser. Structural only, with the same blind spots |
+| `oxyc validate --file <path>` | offline: the shape (wrong types, a malformed `thinking`), and `databases:` / `llm.ref` against `config.yml`. Misses unknown keys (the runtime ignores them too), globs, rule names, env vars. Exit `9` on a finding. (`oxy validate` is a stub that prints this command) |
 | `oxyc agentic run <path> -q "<question>" --workspace <id>` | the real build and run on the deployment, of what it has compiled (push first), streamed by state. `--json`, `--thinking-mode extended_thinking`. A question exits `0` (answer with `oxyc agentic answer <run_id> -a "..."`); `error` / `cancelled` exit `1` |
 | `oxyc evals run [<file>.test.yml] --workspace <id>` | LLM-judged evals on the deployment, against the compiled (pushed) test files and agents; with no file, every compiled `*.test.yml`; exit `9` under `--min-accuracy` |
 

@@ -1,0 +1,58 @@
+# Row-Level Security Example: Snowflake Configuration
+#
+# This example demonstrates how to configure Snowflake with row-level filtering.
+# The filters defined here are applied via Snowflake session variables using SET statements
+# before each query execution.
+
+defaults:
+  database: snowflake
+
+models:
+  - vendor: openai
+    name: openai-4.1
+    model_ref: gpt-4.1
+    key_var: OPENAI_API_KEY
+    api_url: https://api.openai.com/v1
+
+databases:
+  - name: snowflake
+    type: snowflake
+    
+    # Connection parameters
+    # Replace with your actual Snowflake account details
+    account: account-identifier  # e.g., xy12345.us-east-1
+    username: snowflake_username
+    password_var: SNOWFLAKE_PASSWORD
+    warehouse: snowflake_wh
+    database: snowflake_db
+    
+    # Optional: Snowflake role with row policies attached
+    # You must create this role and policies in Snowflake (see Snowflake docs)
+    role: app_readonly
+    
+    # Optional: Private key authentication (alternative to password)
+    # Uncomment to use certificate-based authentication:
+    # private_key_path: /path/to/private/key.p8
+    
+    # Filter schemas with type validation
+    # NOTE: Snowflake has a 256-byte total limit for session variable values
+    # Ensure your combined filter values stay within this limit
+    filters:
+      # Scalar filter: single tenant identifier
+      tenant_id:
+        type: integer
+        default: 0
+      
+      # Array filter: multiple company IDs
+      company_ids:
+        type: array
+        items:
+          type: integer
+        default: []
+      
+      # String filter: region code
+      region:
+        type: string
+        default: ""
+
+

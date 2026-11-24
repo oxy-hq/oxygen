@@ -1,0 +1,30 @@
+name: fruit_categories
+description: Top-level product taxonomy — groups fruits into broad category families
+datasource: local
+table: fruit_categories.csv
+
+entities:
+- name: fruit_category
+  type: primary
+  description: A top-level fruit category (tropical, asian, berry, citrus & melon, exotic)
+  key: category_id
+  label: category_name
+
+dimensions:
+- name: category_id
+  type: number
+  description: Unique category identifier
+  expr: id
+- name: category_name
+  type: string
+  description: Human-readable category name
+  expr: name
+- name: category_description
+  type: string
+  description: Description of the category
+  expr: description
+
+measures:
+- name: total_categories
+  type: count
+  description: Total number of fruit categories

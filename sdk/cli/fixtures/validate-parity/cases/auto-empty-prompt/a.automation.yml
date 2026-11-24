@@ -1,0 +1,5 @@
+tasks:
+  - name: a
+    type: agent
+    agent_ref: x.agentic.yml
+    prompt: ""

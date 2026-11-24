@@ -1,0 +1,102 @@
+name: marketing_spend
+description: |
+  Daily marketing spend, clicks, and impressions per acquisition channel.
+  Sits above marketing_funnel in the metric tree — spend drives sessions,
+  sessions drive leads, etc. Provides the inputs for CAC / CPC / CTR
+  ratio metrics and the top of the predict_impact chain.
+datasource: local
+table: "marketing_spend.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: spend_by_day
+    measures:
+      - total_spend
+      - total_clicks
+      - total_impressions
+    time_dimension: event_date
+    granularity: day
+    refresh_key:
+      every: 1h
+
+  - name: spend_by_channel
+    dimensions:
+      - channel
+    measures:
+      - total_spend
+      - total_clicks
+      - total_impressions
+    time_dimension: event_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: spend_event
+    type: primary
+    description: One day × channel spend rollup
+    keys:
+      - event_date
+      - channel
+
+dimensions:
+  - name: event_date
+    type: date
+    description: Date spend was recorded
+    expr: event_date
+  - name: channel
+    type: string
+    description: Acquisition channel
+    expr: channel
+    samples:
+      - "organic"
+      - "paid_search"
+      - "paid_social"
+      - "email"
+      - "referral"
+
+measures:
+  - name: total_spend
+    type: sum
+    description: Total marketing spend ($)
+    expr: spend
+  - name: total_clicks
+    type: sum
+    description: Total paid clicks
+    expr: clicks
+  - name: total_impressions
+    type: sum
+    description: Total ad impressions
+    expr: impressions
+
+  # ── Unit-economics ratios (component edges)
+  - name: cost_per_click
+    type: custom
+    description: Average paid cost per click
+    expr: "{{marketing_spend.total_spend}} / NULLIF({{marketing_spend.total_clicks}}, 0)"
+  - name: click_through_rate
+    type: custom
+    description: Fraction of impressions that became clicks
+    expr: "{{marketing_spend.total_clicks}} / NULLIF({{marketing_spend.total_impressions}}, 0)"
+
+  # ── Driver chain top: spend drives sessions, with a declared linear
+  # coefficient so predict_impact / sensitivity can propagate a budget
+  # change all the way through to revenue.
+  - name: spend_driving_sessions
+    type: custom
+    description: |
+      Marketing spend, expressed as a driver of sessions. Numerically
+      identical to total_spend; the separate measure exists so the
+      coefficient (sessions per $1 of spend) lives in one place.
+    expr: "{{marketing_spend.total_spend}}"
+    drivers:
+      - measure: marketing_funnel.total_sessions
+        coefficient: 0.55
+        form: linear
+        lag: 1
+        description: |
+          ~0.55 incremental sessions per $1 of paid spend at the current
+          channel mix. One-day lag because spend reported on day D drives
+          most of its traffic on D+1.

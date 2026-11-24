@@ -1,0 +1,198 @@
+name: subscriptions
+description: |
+  Monthly recurring-revenue movements by plan, segment, and region. One row per
+  (month, plan, segment, region) with the four MRR movement flows — new,
+  expansion, contraction, churn — plus the ending recurring base.
+
+  This view is the canonical stress test for the metric tree's sign and
+  multiplicative propagation:
+
+    - net_new_mrr is a FOUR-TERM subtraction composite
+      (new + expansion − contraction − churn). Raising churned_mrr must LOWER
+      net_new_mrr; the component edges carry sign −1 so predict / sensitivity
+      report that instead of a spurious +1. (This is the "why does more churn
+      raise net new MRR?" reproducer.)
+
+    - arr = mrr × 12 is a CONSTANT-MULTIPLIER composite. A +$1 move in mrr is
+      +$12 of ARR, not +$1 — the factor 12 is not a node in the tree, it falls
+      out of parent/child. Without current values predict cannot size it and
+      reports it as "unquantifiable" rather than guessing ×1.
+
+    - gross_churn_rate / expansion_rate / net_revenue_retention are per-unit
+      RATES (non-additive), so the segment-spread surface will compare them
+      across segments — SMB churns far worse than enterprise, which is real
+      addressable headroom rather than a size artifact.
+datasource: local
+table: "subscription_movements.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: mrr_by_month
+    measures:
+      - new_mrr
+      - expansion_mrr
+      - contraction_mrr
+      - churned_mrr
+      - total_mrr
+    time_dimension: month
+    granularity: month
+    refresh_key:
+      every: 1h
+  - name: mrr_by_segment
+    dimensions:
+      - segment
+    measures:
+      - starting_mrr
+      - churned_mrr
+      - expansion_mrr
+      - total_mrr
+    time_dimension: month
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: subscription_month
+    type: primary
+    description: One month × plan × segment × region recurring-revenue rollup
+    keys:
+      - month
+      - plan
+      - segment
+      - region
+  # Cross-links so the MRR entity joins the world-model graph rather than
+  # floating free: it rolls up into the monthly P&L (financials) by month and
+  # shares the us/eu/apac/latam region domain with the region entity.
+  - name: financials_month
+    type: foreign
+    description: Monthly P&L period this MRR movement belongs to
+    key: month
+  - name: region
+    type: foreign
+    description: Billing region (shared us / eu / apac / latam domain)
+    key: region
+
+dimensions:
+  - name: month
+    type: date
+    description: First-of-month bucket
+    expr: month
+  - name: plan
+    type: string
+    description: Subscription plan tier
+    expr: plan
+    samples:
+      - "starter"
+      - "pro"
+      - "business"
+      - "enterprise"
+  - name: segment
+    type: string
+    description: Customer size segment
+    expr: segment
+    samples:
+      - "smb"
+      - "mid_market"
+      - "enterprise"
+  - name: region
+    type: string
+    description: Billing region
+    expr: region
+    samples:
+      - "us"
+      - "eu"
+      - "apac"
+      - "latam"
+
+measures:
+  # ── Atomic monthly MRR movement flows (additive over time and over the
+  # plan / segment / region dimensions). ────────────────────────────────────
+  - name: starting_mrr
+    type: sum
+    description: Recurring revenue at the start of the month
+    expr: starting_mrr
+  - name: new_mrr
+    type: sum
+    description: MRR added from new logos this month
+    expr: new_mrr
+  - name: expansion_mrr
+    type: sum
+    description: MRR added from existing accounts upgrading
+    expr: expansion_mrr
+  - name: contraction_mrr
+    type: sum
+    description: MRR lost from existing accounts downgrading
+    expr: contraction_mrr
+  - name: churned_mrr
+    type: sum
+    description: MRR lost from accounts cancelling
+    expr: churned_mrr
+  - name: total_mrr
+    type: sum
+    description: Recurring revenue base at month end (the MRR stock)
+    expr: ending_mrr
+
+  # ── Account counts, for logo churn and ARPA. ──────────────────────────────
+  - name: new_accounts
+    type: sum
+    description: Count of new accounts added this month
+    expr: new_accounts
+  - name: churned_accounts
+    type: sum
+    description: Count of accounts that cancelled this month
+    expr: churned_accounts
+  - name: active_accounts
+    type: sum
+    description: Count of active accounts at month end
+    expr: active_accounts
+
+  # ── Four-term subtraction composite. new + expansion enter with sign +1,
+  # contraction + churn with sign −1. This is where predict / sensitivity used
+  # to claim that more churn raises net new MRR. ────────────────────────────
+  - name: net_new_mrr
+    type: custom
+    description: |
+      Net new MRR = new + expansion − contraction − churn. The two negative
+      terms carry sign −1 through the metric tree, so a what-if that raises
+      churned_mrr correctly lowers net_new_mrr.
+    expr: "{{subscriptions.new_mrr}} + {{subscriptions.expansion_mrr}} - {{subscriptions.contraction_mrr}} - {{subscriptions.churned_mrr}}"
+
+  # ── Constant-multiplier composite. dArr/d(mrr) = 12, recovered from
+  # parent/child; the literal 12 is never a node. ───────────────────────────
+  - name: arr
+    type: custom
+    description: |
+      Annual recurring revenue = month-end MRR × 12. A multiplicative composite
+      with a constant factor: sizing a move in mrr requires the current mrr
+      value, so predict reports arr as "unquantifiable" unless run with a period.
+    expr: "{{subscriptions.total_mrr}} * 12"
+    drivers:
+      # Quantified lever: one extra dollar of net new MRR is worth ~12 of ARR.
+      # Gives the what-if a coefficient-based path distinct from the mrr factor.
+      - measure: subscriptions.net_new_mrr
+        coefficient: 12.0
+        form: linear
+        description: Each $1 of net new MRR annualizes to ~$12 of ARR.
+
+  # ── Per-unit rates (non-additive). Segment-spread compares these across
+  # segments; opportunity sizes the headroom. ───────────────────────────────
+  - name: gross_churn_rate
+    type: custom
+    description: Churned MRR as a fraction of starting MRR (monthly gross revenue churn)
+    expr: "{{subscriptions.churned_mrr}} / NULLIF({{subscriptions.starting_mrr}}, 0)"
+  - name: expansion_rate
+    type: custom
+    description: Expansion MRR as a fraction of starting MRR
+    expr: "{{subscriptions.expansion_mrr}} / NULLIF({{subscriptions.starting_mrr}}, 0)"
+  - name: net_revenue_retention
+    type: custom
+    description: |
+      Net revenue retention = (starting + expansion − contraction − churn) /
+      starting. Above 1.0 means the existing base grows without new logos.
+    expr: "({{subscriptions.starting_mrr}} + {{subscriptions.expansion_mrr}} - {{subscriptions.contraction_mrr}} - {{subscriptions.churned_mrr}}) / NULLIF({{subscriptions.starting_mrr}}, 0)"
+  - name: logo_churn_rate
+    type: custom
+    description: Churned accounts as a fraction of active accounts
+    expr: "{{subscriptions.churned_accounts}} / NULLIF({{subscriptions.active_accounts}}, 0)"

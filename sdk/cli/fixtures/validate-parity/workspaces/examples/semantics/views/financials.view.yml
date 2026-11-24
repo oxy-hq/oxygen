@@ -1,0 +1,155 @@
+name: financials
+description: |
+  Monthly P&L bottom-line, computed at query time from the underlying
+  orders / employees / operating_costs CSVs. Each side aggregates to month
+  and the three are joined by month — no precomputed CSV, no fake daily
+  spread of monthly payroll. operating_profit is a real composite of the
+  three sums, not a relabel of net_revenue.
+
+  Sits at the bottom of the metric tree as the actual leaf the cost-side
+  drivers add up to.
+
+datasource: local
+
+# View backed by an inline SQL aggregate. Each branch reads one of the
+# CSV fixtures, rolls up to the first of month, and the FULL OUTER JOIN
+# keeps months where one side is empty (e.g. a month with zero orders).
+# date_trunc + ::DATE matches DuckDB's date semantics.
+sql: |
+  SELECT
+    COALESCE(o.month, e.month, c.month) AS month,
+    COALESCE(o.gross_revenue, 0)        AS gross_revenue,
+    COALESCE(o.tax, 0)                  AS tax,
+    COALESCE(o.shipping, 0)             AS shipping,
+    COALESCE(o.gross_revenue, 0)
+      - COALESCE(o.tax, 0)
+      - COALESCE(o.shipping, 0)         AS net_revenue,
+    COALESCE(e.payroll, 0)              AS payroll,
+    COALESCE(c.total_op_cost, 0)        AS total_op_cost,
+    (COALESCE(o.gross_revenue, 0)
+      - COALESCE(o.tax, 0)
+      - COALESCE(o.shipping, 0))
+      - COALESCE(e.payroll, 0)
+      - COALESCE(c.total_op_cost, 0)    AS operating_profit
+  FROM (
+    SELECT date_trunc('month', order_date)::DATE AS month,
+           SUM(total_amount)                     AS gross_revenue,
+           SUM(tax_amount)                       AS tax,
+           SUM(shipping_cost)                    AS shipping
+    FROM 'orders.csv'
+    GROUP BY 1
+  ) o
+  FULL OUTER JOIN (
+    SELECT date_trunc('month', month)::DATE AS month,
+           SUM(salary_cost + benefits_cost) AS payroll
+    FROM 'employees.csv'
+    GROUP BY 1
+  ) e ON e.month = o.month
+  FULL OUTER JOIN (
+    SELECT date_trunc('month', cost_date)::DATE AS month,
+           SUM(amount)                          AS total_op_cost
+    FROM 'operating_costs.csv'
+    GROUP BY 1
+  ) c ON c.month = COALESCE(o.month, e.month)
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: financials_by_month
+    measures:
+      - gross_revenue
+      - net_revenue
+      - payroll
+      - total_op_cost
+      - operating_profit
+    time_dimension: month
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: financials_month
+    type: primary
+    description: One row per accounting month
+    key: month
+
+dimensions:
+  - name: month
+    type: date
+    description: First-of-month bucket
+    expr: month
+
+measures:
+  # ── Atomic monthly sums (already aggregated inside the SQL above —
+  # we still declare them as sum measures so airlayer can window /
+  # re-aggregate to quarter, year, etc.)
+  - name: gross_revenue
+    type: sum
+    description: Monthly gross order revenue
+    expr: gross_revenue
+  - name: tax
+    type: sum
+    description: Monthly tax collected
+    expr: tax
+  - name: shipping
+    type: sum
+    description: Monthly shipping cost
+    expr: shipping
+  - name: net_revenue
+    type: sum
+    description: Monthly net revenue (gross − tax − shipping)
+    expr: net_revenue
+  - name: payroll
+    type: sum
+    description: Monthly fully-loaded payroll
+    expr: payroll
+  - name: total_op_cost
+    type: sum
+    description: Monthly operating expense
+    expr: total_op_cost
+
+  # ── Real bottom-line composite. Composes the three sums; no fake
+  # daily spread, no declarative coefficient that doesn't compute.
+  - name: operating_profit
+    type: sum
+    description: |
+      Monthly operating profit = net_revenue − payroll − total_op_cost.
+      Pre-aggregated inside the view's SQL so airlayer rolls it up
+      additively when you query at quarter / year grain.
+    expr: operating_profit
+    # Coefficients make this a fully sizable what-if: operating_profit is a
+    # linear sum, so ∂profit/∂input is exactly +1 / −1. A dollar less payroll is
+    # a dollar more profit; predict / what-if now returns a real number instead
+    # of an unquantified "moves it down".
+    drivers:
+      - measure: financials.net_revenue
+        coefficient: 1.0
+        form: linear
+        description: Net revenue is the additive positive input (∂profit/∂net_revenue = +1).
+      - measure: financials.payroll
+        coefficient: -1.0
+        form: linear
+        description: Payroll is the largest fixed-cost input (∂profit/∂payroll = −1).
+      - measure: financials.total_op_cost
+        coefficient: -1.0
+        form: linear
+        description: Operating expenses reduce profit dollar-for-dollar (∂profit/∂op_cost = −1).
+
+  # ── Constant-multiplier composite (retail counterpart to subscriptions.arr).
+  # Exercises multiplicative propagation on the retail tree: a $1 move in
+  # monthly operating_profit is $12 of annual run-rate, and predict cannot size
+  # it without current values. ──────────────────────────────────────────────
+  - name: annualized_operating_profit
+    type: custom
+    description: |
+      Operating profit projected to an annual run-rate (monthly × 12). A
+      constant-multiplier composite: the factor 12 is recovered from
+      parent/child, and predict reports it as "unquantifiable" without a period.
+    expr: "{{financials.operating_profit}} * 12"
+
+  # ── Margin composite
+  - name: operating_margin
+    type: custom
+    description: Operating profit as a fraction of net revenue
+    expr: "{{financials.operating_profit}} / NULLIF({{financials.net_revenue}}, 0)"

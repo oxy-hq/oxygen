@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+name: anonymize_sample
+description: "This workflow ensures data consistency. ** Note: Report must be show as is. Without any modification. **"
+tasks:
+  - name: execute
+    type: execute_sql
+    warehouse: primary_warehouse
+    sql_file: data/example_anonymize.sql
+    database: primary_database
+  - name: report
+    type: agent
+    consistency_run: 5
+    agent_ref: agents/default.agentic.yml
+    prompt: |
+      how many users?
+
+  - name: formatter
+    type: formatter
+    template: |
+      # Debugging
+      Row-based report:
+      {{ report.value }}
+
+      Consistency score:
+      {{ report.score }}

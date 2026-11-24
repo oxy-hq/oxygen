@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+# The lever of the grouped example (`assign_by: exp_skus.brand`): the unit is a
+# brand, and `{{ members }}` lists the SKUs pinned to it at registration.
+# Records the call only; see exp_lever_unit.
+name: exp_lever_group
+description: Example experiment lever that switches every SKU of one brand on or off.
+tasks:
+  - name: flip
+    type: execute_sql
+    database: local
+    sql_query: |
+      SELECT '{{ experiment }}' AS experiment,
+             '{{ unit }}' AS brand,
+             '{{ members }}' AS skus,
+             '{{ state }}' AS state

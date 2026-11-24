@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: economic_impact
+description: "Economic and environmental factors topic - focused on how external factors like temperature, fuel prices, CPI, and unemployment affect retail sales"
+base_view: economic_factors
+views:
+  - economic_factors
+
+# Key business questions this topic addresses:
+# 1. How does temperature affect sales? What's the correlation?
+# 2. How do fuel prices impact consumer purchasing behavior?
+# 3. Is there a relationship between unemployment rates and sales?
+# 4. How does inflation (CPI) correlate with sales performance?
+# 5. What are the combined effects of multiple economic factors?
+# 6. Which economic conditions (Favorable/Mixed/Challenging) drive better sales?
+# 7. What is the overall economic sensitivity of sales?

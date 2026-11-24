@@ -1,0 +1,88 @@
+name: yearmonth
+description: |
+  Monthly fuel consumption per customer (383,282 rows; one row per customer per
+  month; unique on (customerid, date)). This is THE consumption table:
+  "consumption" = the monthly consumption amount recorded per customer = the
+  total fuel a customer purchased in that month on their fuel card = the
+  amount spent through the customer's fuel cards. A customer counts for a
+  month (or "consumed any fuel" in a year) if they have a row for that month
+  (in at least one month of that year). "Gas" means gasoline (motor fuel),
+  not natural gas.
+  `year_month` (column `date`) is TEXT 'YYYYMM' (e.g. '201309'), not a date;
+  use `year` / `month` or `LIKE '2013%'` / `SUBSTR`. Months present: 201112 ..
+  201209 and 201301 .. 201311 (201210-201212 are absent).
+  Data notes: consumption is a real (single precision), so
+  `total_consumption` casts it to double precision before summing; 152 rows are negative and 28 are zero
+  (rows still exist for those months - no filter is applied). Only 30,566 of
+  the 32,461 customers have any row.
+  Joins to customers on `customer` (segment, currency). Do not join with
+  `transactions_1k` in the same query (row fan-out through the customer).
+datasource: bird_debit_card_specializing
+table: yearmonth
+
+entities:
+  - name: customer_month
+    type: primary
+    description: One customer in one month ('<customerid>-<YYYYMM>').
+    key: customer_month_key
+  - name: customer
+    type: foreign
+    description: The customer whose consumption this is.
+    key: customer_id
+
+dimensions:
+  - name: customer_month_key
+    type: string
+    description: Synthetic key '<customerid>-<YYYYMM>' (the table's unique key is (date, customerid)).
+    expr: "CAST({{TABLE}}.customerid AS text) || '-' || {{TABLE}}.date"
+  - name: customer_id
+    type: number
+    description: Customer ID (column `customerid`).
+    synonyms: ["customerid", "CustomerID"]
+    expr: customerid
+  - name: year_month
+    type: string
+    description: Month of the record (column `date`), TEXT formatted 'YYYYMM' (e.g. '201201'). Filter with e.g. year_month = '201309' or year_month LIKE '2012%'.
+    synonyms: ["date", "month", "yearmonth", "period"]
+    expr: date
+  - name: year
+    type: number
+    description: Calendar year of the record (first 4 chars of `date`).
+    expr: "CAST(SUBSTR({{TABLE}}.date, 1, 4) AS integer)"
+  - name: month
+    type: number
+    description: Calendar month number 1-12 of the record (chars 5-6 of `date`).
+    synonyms: ["month number"]
+    expr: "CAST(SUBSTR({{TABLE}}.date, 5, 2) AS integer)"
+  - name: consumption
+    type: number
+    description: The customer's consumption in this month (real; can be 0 or negative on a few rows).
+    synonyms: ["monthly consumption", "fuel consumed", "amount spent"]
+    expr: consumption
+
+measures:
+  - name: total_consumption
+    type: sum
+    description: Total consumption (sum of monthly consumption amounts, summed in double precision).
+    synonyms: ["consumption", "total spent", "fuel consumption"]
+    expr: "CAST({{TABLE}}.consumption AS double precision)"
+  - name: average_consumption
+    type: average
+    description: Average consumption per customer-month row. For an average per customer over a period, divide total_consumption by consuming_customer_count.
+    expr: consumption
+  - name: max_monthly_consumption
+    type: max
+    description: Largest single customer-month consumption.
+    expr: consumption
+  - name: min_monthly_consumption
+    type: min
+    description: Smallest single customer-month consumption.
+    expr: consumption
+  - name: customer_month_count
+    type: count
+    description: Number of customer-month rows (months with consumption recorded).
+  - name: consuming_customer_count
+    type: count_distinct
+    description: Number of distinct customers with consumption recorded (a customer counts for a period if they have at least one month row in it).
+    synonyms: ["customers who consumed"]
+    expr: customerid

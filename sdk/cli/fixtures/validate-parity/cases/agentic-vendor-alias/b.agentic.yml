@@ -1,0 +1,3 @@
+llm:
+  vendor: openai
+  model: gpt-5

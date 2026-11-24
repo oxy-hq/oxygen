@@ -58,7 +58,9 @@ const REQUIRED = [
   "json-schemas/config.json",
   "json-schemas/agentic.json",
   "json-schemas/workflow.json",
-  "json-schemas/agent-test.json"
+  "json-schemas/agent-test.json",
+  "json-schemas/view.json",
+  "json-schemas/topic.json"
 ];
 
 /** A file whose presence means the rename regressed. */

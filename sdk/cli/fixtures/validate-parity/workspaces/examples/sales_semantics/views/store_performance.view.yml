@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: store_performance
+description: "Store-level performance analysis focusing on individual store metrics, rankings, and comparisons"
+datasource: "local"
+table: "oxymart.csv"
+
+entities:
+  - name: store
+    type: primary
+    description: "Retail store location - primary entity for store-level analysis"
+    keys: ["store_id", "week_date"]
+
+dimensions:
+  - name: store_id
+    type: number
+    description: "Unique identifier for each retail store"
+    expr: Store
+    synonyms: ["store", "store number", "location", "shop", "branch"]
+
+  - name: week_date
+    type: date
+    description: "Week ending date for sales reporting period"
+    expr: Date
+    synonyms: ["date", "week", "period"]
+
+measures:
+  - name: total_store_sales
+    type: sum
+    description: "Total lifetime sales for a store"
+    expr: Weekly_Sales
+    synonyms: ["cumulative sales", "all-time sales", "total revenue"]
+
+  - name: average_weekly_sales
+    type: average
+    description: "Average weekly sales per store - key performance indicator"
+    expr: Weekly_Sales
+    synonyms: ["avg weekly revenue", "typical weekly sales"]
+
+  - name: sales_variance
+    type: custom
+    description: "Variance in weekly sales - measures consistency"
+    expr: "VARIANCE(Weekly_Sales)"
+    synonyms: ["sales volatility", "sales spread"]
+
+  - name: sales_stddev
+    type: custom
+    description: "Standard deviation of weekly sales"
+    expr: "STDDEV(Weekly_Sales)"
+    synonyms: ["sales standard deviation"]
+
+  - name: coefficient_of_variation
+    type: custom
+    description: "Coefficient of variation (CV) - normalized measure of sales consistency"
+    expr: "STDDEV(Weekly_Sales) / AVG(Weekly_Sales) * 100"
+    synonyms: ["cv", "relative variability", "consistency score"]
+
+  - name: max_weekly_sales
+    type: max
+    description: "Peak weekly sales achieved by a store"
+    expr: Weekly_Sales
+    synonyms: ["peak sales", "best week", "highest sales"]
+
+  - name: min_weekly_sales
+    type: min
+    description: "Lowest weekly sales recorded"
+    expr: Weekly_Sales
+    synonyms: ["worst week", "minimum sales", "lowest performance"]
+
+  - name: sales_range
+    type: custom
+    description: "Range between highest and lowest weekly sales"
+    expr: "MAX(Weekly_Sales) - MIN(Weekly_Sales)"
+    synonyms: ["performance range", "sales spread"]
+
+  - name: store_count
+    type: count_distinct
+    description: "Number of unique stores"
+    expr: Store
+    synonyms: ["number of stores", "total stores"]
+
+  - name: observation_count
+    type: count
+    description: "Number of weekly observations per store"
+    synonyms: ["weeks of data", "data points"]

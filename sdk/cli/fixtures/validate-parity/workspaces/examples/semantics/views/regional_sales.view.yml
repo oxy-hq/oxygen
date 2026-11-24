@@ -1,0 +1,95 @@
+name: regional_sales
+description: |
+  Per-sale revenue by region and channel — a transactional-grain view built to
+  exercise volume-aware opportunity sizing. Regions use the canonical
+  us / eu / apac / latam domain, so each sale joins the region entity (the top of
+  the store-location hierarchy) and this view links into the world-model graph.
+
+  One row per sale, so total_sales (COUNT(*)) is the real volume denominator:
+  total_revenue is sized on a per-sale RATE (revenue ÷ sales), the rate is
+  benchmarked across regions / channels, and the upside is that rate gap applied
+  to each segment's OWN sale count — (benchmark_rate − rate) × sales. Regions and
+  channels carry genuinely different revenue-per-sale, and the low-rate segments
+  are not the smallest, so the sizing surfaces real headroom rather than a size
+  artifact. (US has the lowest revenue-per-sale AND the most sales, so it is the
+  biggest lever — precisely the case a raw total-to-total comparison misses,
+  since EU carries the highest per-sale rate yet no addressable upside.)
+datasource: local
+table: "regional_sales.csv"
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  - name: revenue_by_region
+    dimensions:
+      - region
+    measures:
+      - total_sales
+      - total_revenue
+    time_dimension: sale_date
+    granularity: month
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: sale
+    type: primary
+    description: One completed sale
+    key: sale_id
+  # Sales share the us/eu/apac/latam region domain — link to region so the sale
+  # entity joins the graph and per-sale measures promote up into their region.
+  - name: region
+    type: foreign
+    description: Region the sale was made in
+    key: region
+
+dimensions:
+  - name: sale_id
+    type: number
+    description: Unique sale identifier
+    expr: sale_id
+  - name: sale_date
+    type: date
+    description: Date of the sale
+    expr: sale_date
+  - name: region
+    type: string
+    description: Sales region
+    expr: region
+    samples:
+      - "us"
+      - "eu"
+      - "apac"
+      - "latam"
+  - name: channel
+    type: string
+    description: Sales channel
+    expr: channel
+    samples:
+      - "wholesale"
+      - "online"
+      - "retail"
+
+measures:
+  # ── total_sales is the row-count denominator that lets an additive sum be
+  # sized on a per-unit rate. Without a count measure the opportunity engine
+  # refuses to size an additive total. ──────────────────────────────────────
+  - name: total_sales
+    type: count
+    description: Number of sales (the volume denominator for rate-based sizing)
+
+  - name: total_revenue
+    type: sum
+    description: Total sale revenue ($). Sized per-sale, benchmarked across segments.
+    expr: revenue
+
+  - name: total_units
+    type: sum
+    description: Total units sold. Also sizable (units per sale × volume).
+    expr: units
+
+  - name: avg_sale_value
+    type: average
+    description: Average revenue per sale — the per-unit rate, shown as a spread diagnostic.
+    expr: revenue

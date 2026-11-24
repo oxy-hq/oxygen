@@ -1,0 +1,142 @@
+name: stores
+description: |
+  Physical retail stores — one row per store, with location, size, rent, and
+  staffing. Region values (us / eu / apac / latam) align with operating_costs
+  and the marketing views, so the store entity clusters with the cost side of
+  the world model. Backed by a parquet fixture (stores.parquet).
+
+  Shape is deliberate and load-bearing: 4 regions → 3 cities each → 2 stores
+  each = 24 stores. Every level branches, so a drill scoped to one city still
+  has a real split to make; and every dimension stays under airlayer's
+  MAX_DIMENSION_CARDINALITY of 25, so store_name (24 values) survives as a
+  global lever instead of being dropped as high-cardinality. Regenerate with
+  examples/scripts/gen_stores_data.py, which owns that shape and refuses to
+  write a fixture that violates it.
+datasource: local
+table: main.stores
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: store counts / footprint / payroll rolled up by region
+  - name: stores_by_region
+    dimensions:
+      - region
+    measures:
+      - total_stores
+      - total_square_feet
+      - avg_square_feet
+      - total_monthly_rent
+      - total_staff
+    refresh_key:
+      every: 1h
+
+  # covers: store-level detail (name, city, region) for a store scorecard
+  - name: store_detail
+    dimensions:
+      - store_id
+      - store_name
+      - city
+      - region
+    measures:
+      - total_stores
+    refresh_key:
+      every: 1h
+
+entities:
+# Named `retail_store` (not `store`) to avoid colliding with the `store`
+# primary entity in sales_semantics/store_performance.view.yml. Primary entity
+# names are the global join/lookup anchors in the semantic model, so two views
+# both declaring `store` makes entity→view resolution ambiguous — the world
+# model instance picker would resolve to the wrong view.
+- name: retail_store
+  type: primary
+  description: Primary store entity
+  key: store_id
+  label: store_name
+  parent: city
+- name: city
+  type: foreign
+  description: City the store is located in
+  key: city
+- name: region
+  type: foreign
+  description: Region the store operates in
+  key: region
+dimensions:
+- name: store_id
+  type: number
+  description: Unique store identifier
+  expr: store_id
+- name: store_name
+  type: string
+  description: Name of the store
+  expr: store_name
+- name: region
+  type: string
+  description: Region the store operates in
+  expr: region
+- name: city
+  type: string
+  description: City the store is located in
+  expr: city
+- name: opened_date
+  type: date
+  description: Date the store opened
+  expr: opened_date
+- name: square_feet
+  type: number
+  description: Retail floor area in square feet
+  expr: square_feet
+  # Continuous store attribute — no repeated values to compare, so it costs
+  # an aggregate and is then discarded.
+  segmentable: false
+- name: monthly_rent
+  type: number
+  description: Monthly rent for the store ($)
+  expr: monthly_rent
+  # Continuous store attribute; same as square_feet. (staff_count stays a
+  # lever: it is discrete and you can act on it.)
+  segmentable: false
+- name: staff_count
+  type: number
+  description: Number of staff working at the store
+  expr: staff_count
+measures:
+- name: total_stores
+  type: count
+  description: Total number of stores
+- name: total_square_feet
+  type: sum
+  description: Total retail floor area across stores (sq ft)
+  expr: square_feet
+- name: avg_square_feet
+  type: average
+  description: Average store floor area (sq ft)
+  expr: square_feet
+- name: total_monthly_rent
+  type: sum
+  description: Total monthly rent across stores ($)
+  expr: monthly_rent
+- name: avg_monthly_rent
+  type: average
+  description: Average monthly rent per store ($)
+  expr: monthly_rent
+- name: total_staff
+  type: sum
+  description: Total store staff headcount
+  expr: staff_count
+- name: avg_staff_per_store
+  type: average
+  description: Average staff per store
+  expr: staff_count
+- name: stores_by_region
+  type: count_distinct
+  description: Number of distinct regions with stores
+  expr: region
+# ── Component composite: rent per square foot, a store-productivity ratio.
+- name: rent_per_square_foot
+  type: custom
+  description: Average monthly rent per square foot of retail space ($/sq ft)
+  expr: "{{stores.total_monthly_rent}} / NULLIF({{stores.total_square_feet}}, 0)"

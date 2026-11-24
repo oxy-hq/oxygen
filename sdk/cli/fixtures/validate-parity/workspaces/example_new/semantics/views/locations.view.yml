@@ -1,0 +1,46 @@
+name: locations
+description: |
+  The restaurant fleet: 24 locations across 4 regions.
+
+  `region` is the segment axis the demo benchmarks on — `midwest` against the
+  rest. It is a minority of the fleet (5 of 24) on purpose: a segment that is
+  most of the chain makes the benchmark mostly itself and collapses the gap
+  you are trying to measure.
+
+datasource: local
+table: restaurant_locations.csv
+
+refresh_key:
+  every: "1h"
+
+entities:
+  - name: location
+    type: primary
+    description: "A restaurant location"
+    key: location_id
+  # No `region` foreign entity: region is a plain dimension, not a modeled
+  # entity, because no view owns it as a primary. Declaring a foreign entity
+  # with no matching primary silently disables the join rather than erroring.
+
+dimensions:
+  - name: location_id
+    type: number
+    description: "Location identifier"
+    expr: location_id
+  - name: location_name
+    type: string
+    description: "Location name"
+    expr: location_name
+  - name: region
+    type: string
+    description: "Region: midwest, west, northeast, south"
+    expr: region
+  - name: city
+    type: string
+    description: "City"
+    expr: city
+
+measures:
+  - name: total_locations
+    type: count
+    description: "Number of locations"

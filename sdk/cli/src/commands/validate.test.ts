@@ -127,6 +127,9 @@ function mkfifo(path: string): void {
 /** A workspace root — `findWorkspace` looks for `config.yml`, so it needs one. */
 const MINIMAL_CONFIG = "databases: []\nmodels: []\n";
 
+/** Valid with references resolved (a formatter names nothing); `tasks: []` is a rule failure. */
+const VALID_AUTOMATION = "tasks:\n  - name: say\n    type: formatter\n    template: hi\n";
+
 // ── data placement in oxy-app.json ──────────────────────────────────────────
 
 /**
@@ -555,11 +558,11 @@ describe("oxyc validate on an oxy-app.json", () => {
   it("fails the run on a placement error, and prints the schema to use", () => {
     const root = workspace(BAD_MIGRATION);
     const human = oxycValidate(root, []);
-    expect(human.status).toBe(ExitCode.FAILURE);
+    expect(human.status).toBe(ExitCode.CHECK_FAILED);
     expect(human.stdout).toContain("2 problem(s) in 1 file(s)");
 
     const r = oxycValidate(root, ["--json"]);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     const report = JSON.parse(r.stdout);
     // The document's shape does not move: warnings are stderr's, never a key.
     expect(Object.keys(report)).toEqual(["checked", "unchecked", "broken", "findings"]);
@@ -628,12 +631,13 @@ describe("oxyc validate on an oxy-app.json", () => {
       }
     });
     const r = oxycValidate(root, ["--json"]);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     const report = JSON.parse(r.stdout);
     expect(report.findings).toEqual([
       {
         file: "oxy-app.json",
         path: "notifications.categories.a/b/c/d",
+        kind: "rule",
         message: 'Category "a/b/c/d" is 4 levels deep; at most 3 are allowed.'
       },
       expect.objectContaining({ path: "notifications.kinds.late.category" }),
@@ -649,7 +653,7 @@ describe("oxyc validate on an oxy-app.json", () => {
       app({ slug: "store-ops", calls: { Locations: ["lookup"], billing: [] } }),
       ["--json"]
     );
-    expect(bad.status).toBe(ExitCode.FAILURE);
+    expect(bad.status).toBe(ExitCode.CHECK_FAILED);
     expect(JSON.parse(bad.stdout).findings.map((f: { path: string }) => f.path)).toEqual(
       expect.arrayContaining(["calls.Locations", "calls.billing"])
     );
@@ -681,7 +685,7 @@ describe("oxyc validate on an oxy-app.json", () => {
   it("reports unparsable JSON as a finding rather than ending the walk", () => {
     const root = workspace({ "oxy-app.json": "{", "config.yml": MINIMAL_CONFIG });
     const r = oxycValidate(root, ["--json"]);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     const report = JSON.parse(r.stdout);
     expect(report.checked).toBe(2);
     expect(report.findings).toEqual([
@@ -716,7 +720,7 @@ describe("oxyc validate lints an app's functions", () => {
   it("fails the run on a call whose capability the manifest lacks, naming file, line, call and fix", () => {
     const root = fixtureWorkspace("capability-violating");
     const human = oxycValidate(root, []);
-    expect(human.status).toBe(ExitCode.FAILURE);
+    expect(human.status).toBe(ExitCode.CHECK_FAILED);
     expect(human.stdout).toContain("11 problem(s) in 1 file(s)");
     expect(human.stdout).toContain("functions/sync.ts");
     expect(human.stdout).toContain("line 3");
@@ -726,25 +730,26 @@ describe("oxyc validate lints an app's functions", () => {
     );
 
     const r = oxycValidate(root, ["--json"]);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     const report = JSON.parse(r.stdout);
     expect(report.findings[0]).toEqual({
       file: "functions/sync.ts",
       path: "line 3",
+      kind: "rule",
       message: expect.stringMatching(/^\[function-lint\/capability\] `ctx\.secrets\.set\(`/)
     });
   });
 
   it("fails on a global the isolate does not have, and on a write outside destinations", () => {
     const globals = oxycValidate(fixtureWorkspace("globals-violating"), ["--json"]);
-    expect(globals.status).toBe(ExitCode.FAILURE);
+    expect(globals.status).toBe(ExitCode.CHECK_FAILED);
     const rules = (JSON.parse(globals.stdout).findings as Array<{ message: string }>).map(
       (f) => f.message.split("]")[0]
     );
     expect(new Set(rules)).toEqual(new Set(["[function-lint/isolate-global"]));
 
     const destinations = oxycValidate(fixtureWorkspace("destinations-violating"), []);
-    expect(destinations.status).toBe(ExitCode.FAILURE);
+    expect(destinations.status).toBe(ExitCode.CHECK_FAILED);
     expect(destinations.stdout).toContain("declares no `destinations`");
     expect(destinations.stdout).toContain("not in `functions.other.destinations`");
   });
@@ -777,49 +782,6 @@ function readManifest(dir: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(dir, "oxy-app.json"), "utf8"));
 }
 
-describe("schemaFor", () => {
-  it("maps each file kind to its own schema", () => {
-    expect(schemaFor("orders.automation.yml")).toBe("workflow.json");
-    expect(schemaFor("analyst.agentic.yml")).toBe("agentic.json");
-    expect(schemaFor("config.yml")).toBe("config.json");
-  });
-
-  /**
-   * `.procedure.yml` is the legacy spelling of `.automation.yml` the platform
-   * still accepts, so a validator that skipped it would report a workspace as
-   * clean without checking it. `.workflow.yml` is not a recognised kind at all
-   * (the walker does not compile it), so it is not validated: a clean report
-   * would suggest a file that never runs is fine.
-   */
-  it("accepts the legacy procedure spelling and not the retired workflow one", () => {
-    expect(schemaFor("x.procedure.yml")).toBe("workflow.json");
-    expect(schemaFor("x.workflow.yml")).toBeUndefined();
-  });
-
-  it("ignores YAML it has no schema for", () => {
-    expect(schemaFor("docker-compose.yml")).toBeUndefined();
-    expect(schemaFor("semantics/views/orders.view.yml")).toBeUndefined();
-  });
-
-  /** The manifest's schema is the SDK's, compiled in — named so the walk and `--file` treat it like the rest. */
-  it("names the SDK's schema for oxy-app.json, in any directory", () => {
-    expect(schemaFor("oxy-app.json")).toBe("oxy-app.schema.json");
-    expect(schemaFor("apps/acme/sales/oxy-app.json")).toBe("oxy-app.schema.json");
-    expect(schemaFor("not-oxy-app.json")).toBeUndefined();
-  });
-
-  /** `config.yml` is matched as a whole name, in any directory. */
-  it("finds config.yml in a subdirectory", () => {
-    expect(schemaFor("oxy/config.yml")).toBe("config.json");
-  });
-
-  /** …but not a file that merely ends in those letters. */
-  it("does not match a lookalike name", () => {
-    expect(schemaFor("myconfig.yml")).toBeUndefined();
-    expect(schemaFor("notanapp.yml")).toBeUndefined();
-  });
-});
-
 describe("the walk", () => {
   it("finds every validatable file and nothing else", () => {
     const dir = workspace({
@@ -832,7 +794,8 @@ describe("the walk", () => {
     expect(listValidatable(dir)).toEqual([
       "apps/sales.automation.yml",
       "config.yml",
-      "flows/orders.automation.yml"
+      "flows/orders.automation.yml",
+      "semantics/views/orders.view.yml"
     ]);
   });
 
@@ -892,18 +855,19 @@ describe("the verdict", () => {
   });
 
   /**
-   * FINDINGS ARE A FAILURE, NOT A REQUEST ERROR. `REQUEST` (6) means the
+   * FINDINGS ARE A FAILED CHECK (9), NOT A REQUEST ERROR. `REQUEST` (6) means the
    * deployment refused the call; nothing here talks to a deployment, and an
    * agent branching on 6 would go looking at the network for a YAML problem.
    */
-  it("exits FAILURE on a violation, not REQUEST", () => {
+  it("exits CHECK_FAILED on a violation, not REQUEST or FAILURE", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
       "broken.automation.yml": "tasks: not-a-list\n"
     });
     const r = oxycValidate(root, []);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     expect(r.status).not.toBe(ExitCode.REQUEST);
+    expect(r.status).not.toBe(ExitCode.FAILURE);
     expect(r.stdout + r.stderr).toMatch(/broken\.automation\.yml/);
   });
 
@@ -913,7 +877,7 @@ describe("the verdict", () => {
       "bad.automation.yml": "tasks: [\n  unclosed\n"
     });
     const r = oxycValidate(root, []);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     expect(r.stdout + r.stderr).toMatch(/bad\.automation\.yml/);
   });
 });
@@ -923,7 +887,7 @@ describe("--file", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
       // `workflow.json` requires both `display` and `tasks`.
-      "ok.automation.yml": "tasks: []\n",
+      "ok.automation.yml": VALID_AUTOMATION,
       "broken.automation.yml": "tasks: not-a-list\n"
     });
     const r = oxycValidate(root, ["--file", "ok.automation.yml"]);
@@ -948,7 +912,7 @@ describe("--file", () => {
   it("decides a symlinked file's kind the same way the walk does", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "tpl/base.yml": "tasks: []\n"
+      "tpl/base.yml": VALID_AUTOMATION
     });
     symlinkSync(join(root, "tpl", "base.yml"), join(root, "my.automation.yml"), "file");
 
@@ -1092,7 +1056,7 @@ describe("both branches answer one condition the same way", () => {
   it.skipIf(!CAN_MKFIFO)("does not let a FIFO named .automation.yml abort the walk", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.automation.yml": "tasks: []\n"
+      "good.automation.yml": VALID_AUTOMATION
     });
     mkfifo(join(root, "pipe.automation.yml"));
 
@@ -1112,7 +1076,7 @@ describe("both branches answer one condition the same way", () => {
   it.skipIf(!CAN_MKFIFO)("does not let a link to a FIFO abort the walk either", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.automation.yml": "tasks: []\n"
+      "good.automation.yml": VALID_AUTOMATION
     });
     const pipes = workspace({});
     mkfifo(join(pipes, "pipe"));
@@ -1168,7 +1132,7 @@ describe("files it could not check", () => {
   it("names them instead of counting them as valid", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.automation.yml": "tasks: []\n"
+      "dash.automation.yml": VALID_AUTOMATION
     });
     // `workflow.json` withheld: `dash.automation.yml` maps to a schema this install lacks.
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
@@ -1182,7 +1146,7 @@ describe("files it could not check", () => {
   it("reports the same split in --json", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.automation.yml": "tasks: []\n"
+      "dash.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(JSON.parse(r.stdout)).toEqual({
@@ -1233,7 +1197,7 @@ describe("symlinked directories in the walk", () => {
   it("still checks a link's target when the target is inside the root", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "shared/x.automation.yml": "tasks: []\n"
+      "shared/x.automation.yml": VALID_AUTOMATION
     });
     symlinkSync(join(root, "shared"), join(root, "apps"), "dir");
 
@@ -1252,7 +1216,7 @@ describe("symlinked directories in the walk", () => {
    */
   it("does not walk a link out of the root, though --file reads through it", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    const outside = workspace({ "x.automation.yml": "tasks: []\n" });
+    const outside = workspace({ "x.automation.yml": VALID_AUTOMATION });
     symlinkSync(outside, join(root, "apps"), "dir");
 
     const walked = oxycValidate(root, ["--json"]);
@@ -1275,7 +1239,7 @@ describe("a broken symlink in the walk", () => {
   it("does not stop the run, and still checks every other file", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.automation.yml": "tasks: []\n"
+      "good.automation.yml": VALID_AUTOMATION
     });
     symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.automation.yml"), "file");
 
@@ -1412,7 +1376,7 @@ describe("why a file was not checked", () => {
   it("tells a file with a missing schema to reinstall", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.automation.yml": "tasks: []\n"
+      "dash.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
     expect(r.stderr).toMatch(/the schema is not in this installation/);
@@ -1424,7 +1388,7 @@ describe("why a file was not checked", () => {
   it("carries the reason into --json, the way broken already did", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.automation.yml": "tasks: []\n"
+      "dash.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(JSON.parse(r.stdout).unchecked).toEqual([
@@ -1497,7 +1461,7 @@ describe("why a file was not checked", () => {
   it("warns about nothing when every file was checked", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "ok.automation.yml": "tasks: []\n"
+      "ok.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
@@ -1532,8 +1496,8 @@ describe("why a file was not checked", () => {
   it("puts the remedy on its own line, once, below the paths", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "a.automation.yml": "tasks: []\n",
-      "b.automation.yml": "tasks: []\n"
+      "a.automation.yml": VALID_AUTOMATION,
+      "b.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
 
@@ -1562,7 +1526,7 @@ describe("why a file was not checked", () => {
    */
   it("says how many it elided when there are more than ten", () => {
     const files: Record<string, string> = { "config.yml": MINIMAL_CONFIG };
-    for (let i = 0; i < 12; i++) files[`a${i}.automation.yml`] = "tasks: []\n";
+    for (let i = 0; i < 12; i++) files[`a${i}.automation.yml`] = VALID_AUTOMATION;
     const r = oxycValidate(workspace(files), [], partialSchemas(["config.json"]));
     expect(r.stderr).toMatch(/12 file\(s\) NOT checked/);
     expect(r.stderr).toMatch(/… and 2 more/);
@@ -1580,7 +1544,7 @@ describe("nothing read is not success", () => {
   it("fails when --file named a file whose schema this installation lacks", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.automation.yml": "tasks: []\n"
+      "dash.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(
       root,
@@ -1605,8 +1569,8 @@ describe("nothing read is not success", () => {
 
   it("fails when a whole workspace was walked and nothing in it could be read", () => {
     const root = workspace({
-      "a.automation.yml": "tasks: []\n",
-      "b.automation.yml": "tasks: []\n"
+      "a.automation.yml": VALID_AUTOMATION,
+      "b.automation.yml": VALID_AUTOMATION
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
     expect(r.status).toBe(ExitCode.FAILURE);
@@ -1614,7 +1578,7 @@ describe("nothing read is not success", () => {
   });
 
   it("reports the same verdict under --json", () => {
-    const root = workspace({ "a.automation.yml": "tasks: []\n" });
+    const root = workspace({ "a.automation.yml": VALID_AUTOMATION });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(r.status).toBe(ExitCode.FAILURE);
     // The document is still emitted — the exit code is the only thing that moved.
@@ -1656,7 +1620,7 @@ describe("the workspace walk", () => {
       "apps/broken.automation.yml": "tasks: not-a-list\n"
     });
     const r = oxycValidate(join(root, "apps"), []);
-    expect(r.status).toBe(ExitCode.FAILURE);
+    expect(r.status).toBe(ExitCode.CHECK_FAILED);
     expect(r.stdout + r.stderr).toMatch(/apps\/broken\.automation\.yml/);
   });
 

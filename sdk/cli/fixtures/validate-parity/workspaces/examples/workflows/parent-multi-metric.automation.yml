@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+#
+# Sub-workflow demo — parent half.
+#
+# Invokes `monthly-stats-child.automation.yml` three times with
+# different `variables:` payloads. Demonstrates the `type: workflow`
+# task — variables passed to the child override its declared
+# defaults, render context resolves through the standard
+# `{{ child_step.report.text }}` lookup, and the orchestrator
+# fan-out + commit boundary is the same one the analytics SQL-gen
+# demo exercises.
+
+name: parent_multi_metric
+description: |
+  Fan out to a child sub-workflow three times to aggregate three
+  different metrics. Concatenates the child outputs into a single
+  report.
+
+tasks:
+  - name: sales
+    type: workflow
+    src: workflows/monthly-stats-child.automation.yml
+    variables:
+      metric_label: Total weekly sales
+      aggregation_sql: SUM(Weekly_Sales)
+
+  - name: avg_temperature
+    type: workflow
+    src: workflows/monthly-stats-child.automation.yml
+    variables:
+      metric_label: Average store temperature
+      aggregation_sql: AVG(Temperature)
+
+  - name: avg_fuel_price
+    type: workflow
+    src: workflows/monthly-stats-child.automation.yml
+    variables:
+      metric_label: Average fuel price
+      aggregation_sql: AVG(Fuel_Price)
+
+  - name: combined_report
+    type: formatter
+    template: |
+      # Monthly metric roll-up
+
+      {{ sales.report.text }}
+
+      {{ avg_temperature.report.text }}
+
+      {{ avg_fuel_price.report.text }}
+
+      _Each section above was produced by an independent child
+      sub-workflow run. Same procedure file, three different
+      `variables:` blocks._

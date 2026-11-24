@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: restaurant_ops
+description: >-
+  Restaurant operations across both halves of the per-org OLTP database — live
+  order state written by the bookings app, and daily sales landed from Toast by
+  an Airway pipeline.
+base_view: toast_sales
+views:
+  - toast_sales
+  - oltp_orders
+
+# Example questions this topic answers:
+# - What were net sales by location last week?
+# - How many orders are open right now?
+# - Which location had the highest average ticket?
+#
+# NOTE ON JOINING THE TWO VIEWS
+# `toast_sales` (raw_toast.sales) and `orders` (app_bookings.orders) share no
+# join key — one is batch-landed POS history, the other is live app state at a
+# different grain. Joining them fans out and inflates every sum. Ask for them
+# side by side (each aggregated on its own grain) rather than joined.

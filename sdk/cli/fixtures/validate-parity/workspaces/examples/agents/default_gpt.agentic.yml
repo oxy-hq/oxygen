@@ -1,0 +1,6 @@
+# Translated from agents/default_gpt.agent.yml by `oxy migrate-agents`.
+# A personal assistant agent for general tasks.
+llm:
+  ref: openai-4o-mini
+instructions: |
+  You are a personal assistant.

@@ -1,0 +1,175 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: time_analysis
+description: "Temporal analysis of retail sales including seasonal patterns, trends, and holiday effects"
+datasource: "local"
+table: "oxymart.csv"
+
+entities:
+  - name: time_period
+    type: primary
+    description: "Time-based entity for temporal analysis"
+    keys: ["store_id", "week_date"]
+
+dimensions:
+  - name: week_date
+    type: date
+    description: "Week ending date"
+    expr: Date
+    synonyms: ["date", "week", "period"]
+
+  - name: store_id
+    type: number
+    description: "Store identifier"
+    expr: Store
+
+  - name: year
+    type: number
+    description: "Calendar year"
+    expr: "EXTRACT(YEAR FROM CAST(Date AS DATE))"
+    synonyms: ["yr", "calendar year"]
+
+  - name: month
+    type: number
+    description: "Month number (1-12)"
+    expr: "EXTRACT(MONTH FROM CAST(Date AS DATE))"
+    synonyms: ["month number", "mo"]
+    samples: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
+
+  - name: month_name
+    type: string
+    description: "Full name of the month"
+    expr: "STRFTIME(CAST(Date AS DATE), '%B')"
+    synonyms: ["month"]
+    samples: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+  - name: quarter
+    type: number
+    description: "Fiscal quarter (1-4)"
+    expr: "EXTRACT(QUARTER FROM CAST(Date AS DATE))"
+    synonyms: ["qtr", "fiscal quarter", "q"]
+    samples: ["1", "2", "3", "4"]
+
+  - name: quarter_name
+    type: string
+    description: "Quarter with year label"
+    expr: "'Q' || EXTRACT(QUARTER FROM CAST(Date AS DATE)) || ' ' || EXTRACT(YEAR FROM CAST(Date AS DATE))"
+    synonyms: ["quarter label"]
+
+  - name: week_of_year
+    type: number
+    description: "Week number within the year (1-52)"
+    expr: "EXTRACT(WEEK FROM CAST(Date AS DATE))"
+    synonyms: ["week number", "woy"]
+
+  - name: day_of_week
+    type: number
+    description: "Day of week (1=Monday, 7=Sunday)"
+    expr: "EXTRACT(DOW FROM CAST(Date AS DATE))"
+
+  - name: is_holiday_week
+    type: boolean
+    description: "Indicates if the week contains a major holiday"
+    expr: "Holiday_Flag = 1"
+    synonyms: ["holiday week", "holiday period"]
+
+  - name: holiday_status
+    type: string
+    description: "Week categorization by holiday presence"
+    expr: |
+      CASE
+        WHEN Holiday_Flag = 1 THEN 'Holiday Week'
+        ELSE 'Non-Holiday Week'
+      END
+    synonyms: ["holiday type", "week type"]
+    samples: ["Holiday Week", "Non-Holiday Week"]
+
+  - name: season
+    type: string
+    description: "Season based on month"
+    expr: |
+      CASE
+        WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (12, 1, 2) THEN 'Winter'
+        WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (3, 4, 5) THEN 'Spring'
+        WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+      END
+    synonyms: ["seasonal period", "time of year"]
+    samples: ["Winter", "Spring", "Summer", "Fall"]
+
+  - name: year_half
+    type: string
+    description: "First or second half of the year"
+    expr: |
+      CASE
+        WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) <= 6 THEN 'H1'
+        ELSE 'H2'
+      END
+    synonyms: ["half year", "semester"]
+    samples: ["H1", "H2"]
+
+measures:
+  - name: total_sales
+    type: sum
+    description: "Total sales for the time period"
+    expr: Weekly_Sales
+    synonyms: ["revenue", "sales amount"]
+
+  - name: average_sales
+    type: average
+    description: "Average sales across time periods"
+    expr: Weekly_Sales
+    synonyms: ["avg sales", "mean sales"]
+
+  - name: holiday_sales
+    type: sum
+    description: "Total sales during holiday weeks only"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 1
+    synonyms: ["holiday revenue"]
+
+  - name: non_holiday_sales
+    type: sum
+    description: "Total sales during non-holiday weeks"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 0
+    synonyms: ["regular week sales"]
+
+  - name: holiday_average_sales
+    type: average
+    description: "Average weekly sales during holidays"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 1
+    synonyms: ["avg holiday sales"]
+
+  - name: non_holiday_average_sales
+    type: average
+    description: "Average weekly sales during non-holidays"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 0
+    synonyms: ["avg regular sales"]
+
+  - name: holiday_lift_pct
+    type: custom
+    description: "Percentage increase in sales during holidays vs non-holidays"
+    expr: |
+      (AVG(CASE WHEN Holiday_Flag = 1 THEN Weekly_Sales END) -
+       AVG(CASE WHEN Holiday_Flag = 0 THEN Weekly_Sales END)) /
+       NULLIF(AVG(CASE WHEN Holiday_Flag = 0 THEN Weekly_Sales END), 0) * 100
+    synonyms: ["holiday boost", "holiday impact", "holiday uplift"]
+
+  - name: week_count
+    type: count
+    description: "Number of weeks in the period"
+    synonyms: ["period count", "weeks"]
+
+  - name: holiday_week_count
+    type: count
+    description: "Number of holiday weeks"
+    filters:
+      - expr: Holiday_Flag = 1
+    synonyms: ["holiday periods"]

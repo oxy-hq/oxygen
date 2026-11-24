@@ -339,8 +339,8 @@ compiled. Check the files you edited, push them to the branch the workspace serv
 the deployment to compile it, then re-run:
 
 ```bash
-oxy validate agents/sales.agentic.yml
-oxy validate semantics/views/orders.view.yml
+oxyc validate --file agents/sales.agentic.yml
+oxyc validate --file semantics/views/orders.view.yml
 oxyc evals run <file> --workspace <id> --case <name> --output-json   # after the push compiled
 ```
 

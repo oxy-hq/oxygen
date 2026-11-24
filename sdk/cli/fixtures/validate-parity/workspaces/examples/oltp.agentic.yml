@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agentic.json
+
+# Ask questions about the per-org OLTP Postgres.
+#
+# Scoped to the OLTP semantic model ONLY, deliberately. `analytics.agentic.yml`
+# also pulls in `semantics/`, `sales_semantics/` and `airhouse_semantics/`,
+# which need BigQuery and Airhouse credentials — on a fresh checkout those fail
+# to load and the agent is unusable for reasons that have nothing to do with
+# OLTP. This one works with nothing but a provisioned database.
+#
+# Every query it runs resolves to `oxy_analyst_ro`, read-only, because that is
+# what `type: postgres_managed` returns regardless of who is asking
+# (the oxy connector). The agent cannot write here even if it
+# decides it wants to — which is the point, since the alternative is an LLM with
+# UPDATE on a customer's live business records.
+#
+# Try:
+#   "What were net sales by location last week?"
+#   "How many orders are open right now?"
+#   "Which location had the highest average ticket?"
+
+llm:
+  # A model this config.yml declares (a ref missing from the models list loads,
+  # then fails at run time with "Model '…' not found in config").
+  ref: openai-4o-mini
+  thinking: disabled
+
+context:
+  - ./oltp_semantics/**/*
+
+states:
+  specifying:
+    max_retries: 10
+  interpreting:
+    thinking: disabled

@@ -1,0 +1,10 @@
+tasks:
+  - name: c
+    type: conditional
+    conditions:
+      - if: "true"
+        tasks:
+          - name: q
+            type: execute_sql
+            database: nope
+            sql_query: select 1

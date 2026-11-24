@@ -1,0 +1,56 @@
+name: card
+description: |
+  Credit cards (892 rows), issued 1993-11-07 .. 1998-12-29. A card is issued
+  on a disposition (disp_id); its holder is the client of that disposition,
+  and in this data every card sits on an OWNER disposition. Path to the
+  account: card -> disp -> account; to the holder: card -> disp -> client.
+  A gold card / gold credit card is card type 'gold'.
+datasource: bird_financial
+table: card
+
+entities:
+  - name: card
+    type: primary
+    description: One credit card.
+    key: card_id
+  - name: disposition
+    type: foreign
+    description: Disposition the card was issued on.
+    key: disp_id
+
+dimensions:
+  - name: card_id
+    type: number
+    description: Id number of the credit card.
+    expr: card_id
+  - name: disp_id
+    type: number
+    description: Disposition id the card belongs to.
+    expr: disp_id
+  - name: card_type
+    type: string
+    description: |
+      Type (class) of credit card (column `type`): 'junior' = junior class,
+      'classic' = standard class, 'gold' = high-level credit card (gold card).
+    synonyms: ["type", "card class", "credit card type"]
+    samples: ["junior", "classic", "gold"]
+    expr: type
+  - name: issued_date
+    type: date
+    description: Date the credit card was issued (real SQL date).
+    synonyms: ["issued", "issue date"]
+    expr: issued
+  - name: issued_year
+    type: number
+    description: Calendar year the card was issued.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.issued) AS integer)"
+
+measures:
+  - name: card_count
+    type: count
+    description: Number of credit cards.
+  - name: gold_card_count
+    type: count
+    description: Number of gold cards (card type 'gold').
+    filters:
+      - expr: "{{card_type}} = 'gold'"

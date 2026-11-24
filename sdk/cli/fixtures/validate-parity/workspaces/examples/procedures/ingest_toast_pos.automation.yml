@@ -1,0 +1,9 @@
+name: ingest_toast_pos
+description: Ingest and rollup data for Toast POS
+tasks:
+  - name: ingest
+    type: airway
+    pipeline: pipelines/toast_pos.airway.yml
+  - name: rollup
+    type: workflow
+    src: procedures/daily_rollup.automation.yml

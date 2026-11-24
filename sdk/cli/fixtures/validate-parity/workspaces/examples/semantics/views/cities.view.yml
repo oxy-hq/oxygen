@@ -1,0 +1,39 @@
+name: cities
+description: |
+  Cities the business operates stores in — the middle of the store location
+  hierarchy (region → city → store). Each city belongs to exactly one region.
+  Derived from stores.parquet so there is a single source of truth; store
+  measures promote up into their city, and cities promote up into their region.
+datasource: local
+sql: |
+  SELECT DISTINCT city, region FROM main.stores
+
+refresh_key:
+  every: "1h"
+
+entities:
+- name: city
+  type: primary
+  description: A city containing one or more stores
+  key: city
+  label: city
+  parent: region
+- name: region
+  type: foreign
+  description: Region the city belongs to
+  key: region
+
+dimensions:
+- name: city
+  type: string
+  description: City name
+  expr: city
+- name: region
+  type: string
+  description: Region the city belongs to
+  expr: region
+
+measures:
+- name: total_cities
+  type: count
+  description: Total number of cities

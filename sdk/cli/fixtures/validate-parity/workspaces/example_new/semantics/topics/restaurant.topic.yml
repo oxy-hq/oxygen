@@ -1,0 +1,29 @@
+name: restaurant
+description: |
+  Restaurant chain performance: checks, line items, the menu, and the fleet.
+
+  Scoping the drill to this topic keeps the decomposition inside one coherent
+  domain. Start it at `checks.net_revenue` segmented on `locations.region` to walk
+  the intended path: revenue splits into entrees and add-ons, the gap lands
+  almost entirely in add-ons, and the add-on leaves rank one way on revenue and
+  another way on profit.
+
+  `store_days` is the other branch, at the operating-day grain — labor,
+  marketing, the loyalty program — built for scenario simulation rather than
+  the opportunity drill. One driver edge joins the two, `checks.net_revenue`
+  into `store_days.net_sales`, so the workspace has a single connected metric
+  tree.
+
+  That edge is a metric-tree relationship, NOT a join. `store_days` still has
+  no join path to `checks` (it rolls the check data up inside its own SQL
+  instead), so a QUESTION that mixes a `checks.*` measure with a
+  `store_days.*` one still has nowhere to go and will fail; ask each grain
+  separately. The edge only tells the tree the two measures are the same
+  money.
+views:
+  - checks
+  - check_items
+  - menu_items
+  - locations
+  - servers
+  - store_days

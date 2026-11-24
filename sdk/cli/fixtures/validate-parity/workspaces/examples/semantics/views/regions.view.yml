@@ -1,0 +1,30 @@
+name: regions
+description: |
+  Geographic regions the business operates stores in — the top of the store
+  location hierarchy (region → city → store). Derived from stores.parquet so
+  there is a single source of truth; store measures promote up into their
+  region via the store entity's parent chain.
+datasource: local
+sql: |
+  SELECT DISTINCT region FROM main.stores
+
+refresh_key:
+  every: "1h"
+
+entities:
+- name: region
+  type: primary
+  description: A geographic region (us / eu / apac / latam)
+  key: region
+  label: region
+
+dimensions:
+- name: region
+  type: string
+  description: Region code
+  expr: region
+
+measures:
+- name: total_regions
+  type: count
+  description: Total number of regions

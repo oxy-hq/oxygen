@@ -1,0 +1,552 @@
+{
+  "recorded": "`oxy validate` (oxy-app 0.5.161, debug build of 3a0be468f) run in each directory on 2026-11-24, before it became a stub. `kind` classes Rust's error: \"Couldn't parse\" / \"Parsing error\" / \"YAML parse error\" -> parse; \"Invalid automation\" -> ref when its detail says \"not found\", else rule; \"Validation error\" -> rule; \"Could not find config.yml\" -> missing. `rust` is the message it printed, for the reader.",
+  "cases": {
+    "agentic-db-missing": {
+      "exit": 0,
+      "failures": []
+    },
+    "agentic-llm-ref-missing": {
+      "exit": 0,
+      "failures": []
+    },
+    "agentic-unknown-field": {
+      "exit": 0,
+      "failures": []
+    },
+    "agentic-vendor-alias": {
+      "exit": 0,
+      "failures": []
+    },
+    "agentic-yaml-syntax": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.agentic.yml",
+          "kind": "parse",
+          "rust": "YAML parse error: llm: invalid type: sequence, expected struct LlmConfigYaml at line 1 column 6"
+        }
+      ]
+    },
+    "auto-consistency-prompt": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "consistency_prompt: Invalid consistency prompt template syntax: syntax error: unexpected end of input, expected end of variable block (in test:1)"
+        }
+      ]
+    },
+    "auto-consistency-prompt-ok": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-consistency-prompt-task": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].consistency_prompt: Invalid consistency prompt template syntax: syntax error: unexpected end of input, expected end of block (in test:1)"
+        }
+      ]
+    },
+    "auto-db-missing": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].database: Database not found (nope)"
+        }
+      ]
+    },
+    "auto-db-missing-in-condition": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-db-missing-in-else": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-db-missing-in-loop": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].tasks[0].task_type[0].database: Database not found (nope)"
+        }
+      ]
+    },
+    "auto-dry-run-zero": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].dry_run_limit: lower than 1"
+        }
+      ]
+    },
+    "auto-empty-airway-pipeline": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].pipeline: length is lower than 1"
+        }
+      ]
+    },
+    "auto-empty-conditions": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].conditions: length is lower than 1"
+        }
+      ]
+    },
+    "auto-empty-file": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file a.automation.yml: missing field `tasks`"
+        }
+      ]
+    },
+    "auto-empty-prompt": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].prompt: length is lower than 1"
+        }
+      ]
+    },
+    "auto-empty-sql-query": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].sql.sql_query: length is lower than 1"
+        }
+      ]
+    },
+    "auto-empty-task-name": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].name: length is lower than 1"
+        }
+      ]
+    },
+    "auto-empty-tasks": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks: length is lower than 1"
+        }
+      ]
+    },
+    "auto-export-format": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type: Invalid export format: CSV, only supports [TXT, DOCX] for Formatter task"
+        }
+      ]
+    },
+    "auto-export-format-sql": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type: Invalid export format: TXT, only supports [JSON, CSV, SQL] for ExecuteSQL task"
+        }
+      ]
+    },
+    "auto-http-timeout-high": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].timeout_secs: greater than 120"
+        }
+      ]
+    },
+    "auto-http-timeout-zero": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "rule",
+          "rust": "tasks[0].task_type[0].timeout_secs: lower than 1"
+        }
+      ]
+    },
+    "auto-in-build-dir": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "build/a.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file build/a.automation.yml: did not find expected node content at line 2 column 1, while parsing a flow node"
+        }
+      ]
+    },
+    "auto-looker-missing": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].integration: Looker integration not found (nope)"
+        }
+      ]
+    },
+    "auto-looker-ok": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-no-tasks": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file a.automation.yml: missing field `tasks`"
+        }
+      ]
+    },
+    "auto-omni-missing": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].integration: Integration not found (nope)"
+        }
+      ]
+    },
+    "auto-omni-names-looker": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].integration: Integration not found (lk)"
+        }
+      ]
+    },
+    "auto-procedure-spelling": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.procedure.yml",
+          "kind": "ref",
+          "rust": "tasks[0].task_type[0].database: Database not found (nope)"
+        }
+      ]
+    },
+    "auto-root-name-key": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-sql-file-missing": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-unknown-root-field": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file a.automation.yml: unknown field `tests`"
+        }
+      ]
+    },
+    "auto-unknown-task-type": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-variables-number": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-variables-string": {
+      "exit": 0,
+      "failures": []
+    },
+    "auto-yaml-syntax": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "a.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file a.automation.yml: tasks[0]: invalid type: string \"unclosed\", expected struct Task at line 2 column 3"
+        }
+      ]
+    },
+    "config-data-repos-alias": {
+      "exit": 0,
+      "failures": []
+    },
+    "config-empty": {
+      "exit": 0,
+      "failures": []
+    },
+    "config-missing": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "config.yml",
+          "kind": "missing",
+          "rust": "Could not find config.yml"
+        }
+      ]
+    },
+    "config-missing-nothing": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "config.yml",
+          "kind": "missing",
+          "rust": "Could not find config.yml"
+        }
+      ]
+    },
+    "config-unknown-field": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "config.yml",
+          "kind": "parse",
+          "rust": "Failed to deserialize config: unknown field `not_a_field`, expected one of `defaults`, `models`, `databases`, `builder_agent`, `timezone`, `integrations`, `slack`, `mcp`, `health_check`, `protected_branches`, `base_branch`, `data_repos`, `repositories`, `pre_aggregations`, `admins` at line 10 column 1"
+        }
+      ]
+    },
+    "config-yaml-syntax": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "config.yml",
+          "kind": "parse",
+          "rust": "Failed to deserialize config: did not find expected node content at line 2 column 3, while parsing a flow node"
+        }
+      ]
+    },
+    "ok-baseline": {
+      "exit": 0,
+      "failures": []
+    },
+    "topic-bad-variable": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/topics/t.topic.yml",
+          "kind": "rule",
+          "rust": "Validation error: Topic in semantics/topics/t.topic.yml.description contains invalid variable syntax: '{{variables.}}'. Variables must use format: {{variables.name}}"
+        }
+      ]
+    },
+    "topic-default-filters": {
+      "exit": 0,
+      "failures": []
+    },
+    "topic-missing-views": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/topics/t.topic.yml",
+          "kind": "parse",
+          "rust": "Parsing error: Failed to deserialize topic from semantics/topics/t.topic.yml: missing field `views`"
+        }
+      ]
+    },
+    "view-avg-alias": {
+      "exit": 0,
+      "failures": []
+    },
+    "view-bad-measure-type": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "parse",
+          "rust": "Parsing error: Failed to deserialize view from semantics/views/v.view.yml: unknown variant `tally`, expected one of `count`, `sum`, `average`, `avg`, `min`, `max`, `count_distinct`, `count_distinct_ap"
+        }
+      ]
+    },
+    "view-bad-variable": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "rule",
+          "rust": "Validation error: Dimension in semantics/views/v.view.yml contains invalid variable syntax: '{{variables.1bad}}'. Variables must use format: {{variables.name}}"
+        }
+      ]
+    },
+    "view-good-variable": {
+      "exit": 0,
+      "failures": []
+    },
+    "view-incomplete-variable": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "rule",
+          "rust": "Validation error: Table reference in semantics/views/v.view.yml contains invalid variable syntax: '{{variables}}'. Variables must use format: {{variables.name}}; Table reference in semantics/views/v.v"
+        }
+      ]
+    },
+    "view-legacy-globals": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "parse",
+          "rust": "Parsing error: semantics/views/v.view.yml uses removed semantic-model features (`inherits_from:` and/or `{{ globals.* }}`). The semantics.yml registry has been removed; inline the referenced values di"
+        }
+      ]
+    },
+    "view-legacy-inherits": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "parse",
+          "rust": "Parsing error: semantics/views/v.view.yml uses removed semantic-model features (`inherits_from:` and/or `{{ globals.* }}`). The semantics.yml registry has been removed; inline the referenced values di"
+        }
+      ]
+    },
+    "view-missing-entities": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "parse",
+          "rust": "Parsing error: Failed to deserialize view from semantics/views/v.view.yml: missing field `entities`"
+        }
+      ]
+    },
+    "view-outside-semantics": {
+      "exit": 0,
+      "failures": []
+    },
+    "view-unknown-field": {
+      "exit": 0,
+      "failures": []
+    },
+    "view-yaml-syntax": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "semantics/views/v.view.yml",
+          "kind": "parse",
+          "rust": "Parsing error: Failed to parse YAML in semantics/views/v.view.yml at line 2, column 1: did not find expected node content at line 2 column 1, while parsing a flow node"
+        }
+      ]
+    }
+  },
+  "workspaces": {
+    "tests/fixtures/oxy_example": {
+      "exit": 0,
+      "failures": []
+    },
+    "crates/core/tests/fixtures/invalid_config": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "config.yml",
+          "kind": "parse",
+          "rust": "Failed to deserialize config: models: missing field `model_ref` at line 9 column 3"
+        }
+      ]
+    },
+    "crates/core/tests/fixtures/a2a_test": {
+      "exit": 0,
+      "failures": []
+    },
+    "crates/core/tests/fixtures/clickhouse_filters": {
+      "exit": 0,
+      "failures": []
+    },
+    "examples": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "procedures/anonymize.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file procedures/anonymize.automation.yml: unknown field `tests` at line 3 column 1"
+        },
+        {
+          "file": "workflows/store-deep-dive-analysis.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file workflows/store-deep-dive-analysis.automation.yml: unknown field `tests`"
+        },
+        {
+          "file": "workflows/external-factors-correlation.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file workflows/external-factors-correlation.automation.yml: unknown field `tests`"
+        }
+      ]
+    },
+    "examples/row_level_security/clickhouse": {
+      "exit": 0,
+      "failures": []
+    },
+    "examples/row_level_security/snowflake": {
+      "exit": 0,
+      "failures": []
+    },
+    "example_new": {
+      "exit": 0,
+      "failures": []
+    },
+    "demo_project": {
+      "exit": 1,
+      "failures": [
+        {
+          "file": "workflows/store-deep-dive-analysis.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file workflows/store-deep-dive-analysis.automation.yml: unknown field `tests`"
+        },
+        {
+          "file": "workflows/external-factors-correlation.automation.yml",
+          "kind": "parse",
+          "rust": "Couldn't parse automation file workflows/external-factors-correlation.automation.yml: unknown field `tests`"
+        }
+      ]
+    },
+    "evals/bird": {
+      "exit": 0,
+      "failures": []
+    },
+    "sdk/cli/template": {
+      "exit": 0,
+      "failures": []
+    },
+    "crates/app": {
+      "exit": 0,
+      "failures": []
+    }
+  }
+}

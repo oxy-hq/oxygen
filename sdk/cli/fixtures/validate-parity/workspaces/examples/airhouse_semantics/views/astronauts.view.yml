@@ -1,0 +1,177 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: astronauts
+description: "Catalog of astronauts with flight history, EVA hours, and time in space."
+datasource: "airhouse"
+table: "main.astronauts"
+
+entities:
+  - name: astronaut
+    type: primary
+    description: "One row per astronaut."
+    key: astronaut_id
+
+dimensions:
+  - name: astronaut_id
+    type: number
+    description: "Unique astronaut identifier."
+    expr: astronaut_id
+    synonyms: ["id"]
+
+  - name: name
+    type: string
+    description: "Astronaut full name."
+    expr: name
+    synonyms: ["astronaut name", "full name"]
+
+  - name: nationality
+    type: string
+    description: "Country of citizenship."
+    expr: nationality
+    synonyms: ["country", "citizenship"]
+
+  - name: agency
+    type: string
+    description: "Space agency the astronaut flew for (e.g. NASA, Roscosmos, ESA)."
+    expr: agency
+    synonyms: ["space agency", "organization"]
+
+  - name: status
+    type: string
+    description: "Current status of the astronaut."
+    expr: status
+    synonyms: ["state"]
+    samples: ["Active", "Retired", "Deceased"]
+
+  - name: birth_date
+    type: date
+    description: "Date of birth."
+    expr: birth_date
+    synonyms: ["dob", "date of birth"]
+
+  - name: birth_year
+    type: number
+    description: "Year of birth."
+    expr: "EXTRACT(YEAR FROM birth_date)"
+    synonyms: ["yob"]
+
+  - name: birth_decade
+    type: number
+    description: "Decade of birth (e.g. 1930, 1940)."
+    expr: "(EXTRACT(YEAR FROM birth_date) / 10) * 10"
+
+  - name: first_flight_date
+    type: date
+    description: "Date of first spaceflight."
+    expr: first_flight
+    synonyms: ["debut flight", "first mission"]
+
+  - name: first_flight_year
+    type: number
+    description: "Year of first spaceflight."
+    expr: "EXTRACT(YEAR FROM first_flight)"
+
+  - name: first_flight_decade
+    type: number
+    description: "Decade of first spaceflight."
+    expr: "(EXTRACT(YEAR FROM first_flight) / 10) * 10"
+
+  - name: age_at_first_flight
+    type: number
+    description: "Age in years at first spaceflight."
+    expr: "EXTRACT(YEAR FROM first_flight) - EXTRACT(YEAR FROM birth_date)"
+    synonyms: ["debut age"]
+
+  - name: eva_bucket
+    type: string
+    description: "Bucketed EVA (extra-vehicular activity) hours for grouping."
+    expr: |
+      CASE
+        WHEN total_eva_hours = 0 THEN 'None (0h)'
+        WHEN total_eva_hours < 10 THEN 'Light (<10h)'
+        WHEN total_eva_hours < 50 THEN 'Moderate (10-50h)'
+        ELSE 'Heavy (50h+)'
+      END
+    samples: ["None (0h)", "Light (<10h)", "Moderate (10-50h)", "Heavy (50h+)"]
+
+  - name: veteran_flag
+    type: boolean
+    description: "True for astronauts with 3+ flights."
+    expr: "total_flights >= 3"
+    synonyms: ["veteran", "experienced"]
+
+measures:
+  - name: astronaut_count
+    type: count
+    description: "Number of astronauts."
+    synonyms: ["count", "total astronauts"]
+
+  - name: agency_count
+    type: count_distinct
+    description: "Number of distinct agencies represented."
+    expr: agency
+
+  - name: nationality_count
+    type: count_distinct
+    description: "Number of distinct nationalities represented."
+    expr: nationality
+
+  - name: total_flights
+    type: sum
+    description: "Sum of all spaceflights."
+    expr: total_flights
+    synonyms: ["flights"]
+
+  - name: avg_flights
+    type: average
+    description: "Average number of spaceflights per astronaut."
+    expr: total_flights
+
+  - name: max_flights
+    type: max
+    description: "Most spaceflights by a single astronaut."
+    expr: total_flights
+
+  - name: total_eva_hours
+    type: sum
+    description: "Total EVA (extra-vehicular activity) hours across astronauts."
+    expr: total_eva_hours
+    synonyms: ["spacewalk hours", "eva hours"]
+
+  - name: avg_eva_hours
+    type: average
+    description: "Average EVA hours per astronaut."
+    expr: total_eva_hours
+
+  - name: max_eva_hours
+    type: max
+    description: "Most EVA hours by a single astronaut."
+    expr: total_eva_hours
+
+  - name: total_space_days
+    type: sum
+    description: "Total days spent in space across astronauts."
+    expr: total_space_days
+    synonyms: ["days in space"]
+
+  - name: avg_space_days
+    type: average
+    description: "Average days in space per astronaut."
+    expr: total_space_days
+
+  - name: max_space_days
+    type: max
+    description: "Most days in space by a single astronaut."
+    expr: total_space_days
+
+  - name: active_count
+    type: count
+    description: "Number of astronauts currently active."
+    filters:
+      - expr: "status = 'Active'"
+
+  - name: retired_count
+    type: count
+    description: "Number of retired astronauts."
+    filters:
+      - expr: "status = 'Retired'"

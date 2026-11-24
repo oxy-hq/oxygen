@@ -1,0 +1,5 @@
+tasks:
+  - name: h
+    type: http_request
+    url: https://example.com
+    timeout_secs: 0

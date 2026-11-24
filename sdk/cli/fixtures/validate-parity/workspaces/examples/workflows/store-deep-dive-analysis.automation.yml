@@ -1,0 +1,538 @@
+name: store_deep_dive_analysis
+description: |
+  Comprehensive store-by-store analysis using loop_sequential to iterate through
+  top performing stores and generate detailed individual reports for each.
+  This workflow demonstrates advanced looping capabilities and nested task execution.
+
+retrieval:
+  include:
+    - "store analysis"
+    - "individual store performance"
+    - "store deep dive"
+
+tasks:
+  # STEP 1: Identify Top Stores for Analysis
+  - name: identify_top_stores
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Identify top performing stores to analyze
+      WITH store_rankings AS (
+        SELECT
+          Store,
+          SUM(Weekly_Sales) AS total_sales,
+          AVG(Weekly_Sales) AS avg_weekly_sales,
+          COUNT(*) AS weeks_active,
+          RANK() OVER (ORDER BY SUM(Weekly_Sales) DESC) AS sales_rank
+        FROM 'oxymart.csv'
+        GROUP BY Store
+      )
+      SELECT
+        Store,
+        ROUND(total_sales, 2) AS total_sales,
+        ROUND(avg_weekly_sales, 2) AS avg_weekly_sales,
+        weeks_active,
+        sales_rank
+      FROM store_rankings
+      WHERE sales_rank <= 10
+      ORDER BY sales_rank
+
+  # STEP 2: Loop Through Each Store for Deep Analysis
+  - name: analyze_each_store
+    type: loop_sequential
+    concurrency: 3
+    values: [20, 4, 14, 13, 2, 10, 27, 6, 1, 39]
+    tasks:
+      # Task 2.1: Store Performance Metrics
+      - name: store_performance_metrics
+        type: execute_sql
+        database: local
+        sql_query: |
+          -- Detailed performance metrics for Store {{ analyze_each_store.value }}
+          WITH store_data AS (
+            SELECT
+              Store,
+              Date,
+              Weekly_Sales,
+              Holiday_Flag,
+              Temperature,
+              Fuel_Price,
+              CPI,
+              Unemployment,
+              EXTRACT(YEAR FROM CAST(Date AS DATE)) AS year,
+              EXTRACT(MONTH FROM CAST(Date AS DATE)) AS month,
+              EXTRACT(QUARTER FROM CAST(Date AS DATE)) AS quarter
+            FROM 'oxymart.csv'
+            WHERE Store = {{ analyze_each_store.value }}
+          ),
+          metrics AS (
+            SELECT
+              Store,
+              COUNT(*) AS total_weeks,
+              SUM(Weekly_Sales) AS total_sales,
+              AVG(Weekly_Sales) AS avg_weekly_sales,
+              STDDEV(Weekly_Sales) AS sales_volatility,
+              MIN(Weekly_Sales) AS min_weekly_sales,
+              MAX(Weekly_Sales) AS max_weekly_sales,
+              PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY Weekly_Sales) AS q1_sales,
+              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Weekly_Sales) AS median_sales,
+              PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY Weekly_Sales) AS q3_sales,
+              AVG(Temperature) AS avg_temperature,
+              AVG(Fuel_Price) AS avg_fuel_price,
+              AVG(CPI) AS avg_cpi,
+              AVG(Unemployment) AS avg_unemployment
+            FROM store_data
+            GROUP BY Store
+          ),
+          yearly_breakdown AS (
+            SELECT
+              year,
+              SUM(Weekly_Sales) AS yearly_sales,
+              AVG(Weekly_Sales) AS avg_weekly_sales
+            FROM store_data
+            GROUP BY year
+          ),
+          year_counts AS (
+            SELECT COUNT(DISTINCT year) AS years_active
+            FROM store_data
+          )
+          SELECT
+            m.Store,
+            m.total_weeks,
+            ROUND(m.total_sales, 2) AS total_sales,
+            ROUND(m.avg_weekly_sales, 2) AS avg_weekly_sales,
+            ROUND(m.sales_volatility, 2) AS sales_volatility,
+            ROUND(m.min_weekly_sales, 2) AS min_weekly_sales,
+            ROUND(m.max_weekly_sales, 2) AS max_weekly_sales,
+            ROUND(m.median_sales, 2) AS median_sales,
+            ROUND(m.q1_sales, 2) AS q1_sales,
+            ROUND(m.q3_sales, 2) AS q3_sales,
+            ROUND(m.avg_temperature, 1) AS avg_temperature,
+            ROUND(m.avg_fuel_price, 3) AS avg_fuel_price,
+            ROUND(m.avg_cpi, 2) AS avg_cpi,
+            ROUND(m.avg_unemployment, 2) AS avg_unemployment,
+            (SELECT years_active FROM year_counts) AS years_active,
+            ROUND(m.max_weekly_sales - m.min_weekly_sales, 2) AS sales_range,
+            ROUND((m.q3_sales - m.q1_sales), 2) AS iqr
+          FROM metrics m
+
+      # Task 2.2: Store Holiday Analysis
+      - name: store_holiday_analysis
+        type: execute_sql
+        database: local
+        sql_query: |
+          -- Holiday performance analysis for Store {{ analyze_each_store.value }}
+          WITH store_holiday_data AS (
+            SELECT
+              Store,
+              Holiday_Flag,
+              Weekly_Sales,
+              Date,
+              EXTRACT(MONTH FROM CAST(Date AS DATE)) AS month
+            FROM 'oxymart.csv'
+            WHERE Store = {{ analyze_each_store.value }}
+          ),
+          holiday_metrics AS (
+            SELECT
+              CASE WHEN Holiday_Flag = 1 THEN 'Holiday' ELSE 'Non-Holiday' END AS week_type,
+              COUNT(*) AS week_count,
+              AVG(Weekly_Sales) AS avg_sales,
+              STDDEV(Weekly_Sales) AS sales_stddev,
+              MIN(Weekly_Sales) AS min_sales,
+              MAX(Weekly_Sales) AS max_sales
+            FROM store_holiday_data
+            GROUP BY Holiday_Flag
+          ),
+          holiday_lift AS (
+            SELECT
+              h.avg_sales AS holiday_avg,
+              n.avg_sales AS non_holiday_avg,
+              (h.avg_sales - n.avg_sales) / n.avg_sales * 100 AS lift_pct
+            FROM
+              (SELECT avg_sales FROM holiday_metrics WHERE week_type = 'Holiday') h,
+              (SELECT avg_sales FROM holiday_metrics WHERE week_type = 'Non-Holiday') n
+          ),
+          top_holiday_weeks AS (
+            SELECT
+              Date,
+              Weekly_Sales,
+              RANK() OVER (ORDER BY Weekly_Sales DESC) AS sales_rank
+            FROM store_holiday_data
+            WHERE Holiday_Flag = 1
+          )
+          SELECT
+            {{ analyze_each_store.value }} AS Store,
+            hm.week_type,
+            hm.week_count,
+            ROUND(hm.avg_sales, 2) AS avg_sales,
+            ROUND(hm.sales_stddev, 2) AS sales_stddev,
+            ROUND(hm.max_sales, 2) AS peak_sales,
+            CASE
+              WHEN hm.week_type = 'Holiday' THEN ROUND((SELECT lift_pct FROM holiday_lift), 2)
+              ELSE NULL
+            END AS holiday_lift_pct
+          FROM holiday_metrics hm
+          ORDER BY hm.week_type DESC
+
+      # Task 2.3: Store Seasonal Patterns
+      - name: store_seasonal_patterns
+        type: execute_sql
+        database: local
+        sql_query: |
+          -- Seasonal pattern analysis for Store {{ analyze_each_store.value }}
+          WITH store_seasonal AS (
+            SELECT
+              EXTRACT(MONTH FROM CAST(Date AS DATE)) AS month,
+              CASE
+                WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (12, 1, 2) THEN 'Winter'
+                WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (3, 4, 5) THEN 'Spring'
+                WHEN EXTRACT(MONTH FROM CAST(Date AS DATE)) IN (6, 7, 8) THEN 'Summer'
+                ELSE 'Fall'
+              END AS season,
+              EXTRACT(QUARTER FROM CAST(Date AS DATE)) AS quarter,
+              Weekly_Sales,
+              Temperature
+            FROM 'oxymart.csv'
+            WHERE Store = {{ analyze_each_store.value }}
+          ),
+          quarterly_performance AS (
+            SELECT
+              quarter,
+              COUNT(*) AS weeks,
+              AVG(Weekly_Sales) AS avg_sales,
+              STDDEV(Weekly_Sales) AS sales_stddev,
+              SUM(Weekly_Sales) AS total_sales
+            FROM store_seasonal
+            GROUP BY quarter
+          ),
+          seasonal_performance AS (
+            SELECT
+              season,
+              COUNT(*) AS weeks,
+              AVG(Weekly_Sales) AS avg_sales,
+              STDDEV(Weekly_Sales) AS sales_stddev,
+              AVG(Temperature) AS avg_temp
+            FROM store_seasonal
+            GROUP BY season
+          ),
+          monthly_performance AS (
+            SELECT
+              month,
+              AVG(Weekly_Sales) AS avg_sales
+            FROM store_seasonal
+            GROUP BY month
+          ),
+          best_periods AS (
+            SELECT
+              (SELECT season FROM seasonal_performance ORDER BY avg_sales DESC LIMIT 1) AS best_season,
+              (SELECT quarter FROM quarterly_performance ORDER BY avg_sales DESC LIMIT 1) AS best_quarter,
+              (SELECT month FROM monthly_performance ORDER BY avg_sales DESC LIMIT 1) AS best_month
+          )
+          SELECT
+            {{ analyze_each_store.value }} AS Store,
+            'Quarter ' || qp.quarter AS period_type,
+            qp.weeks,
+            ROUND(qp.avg_sales, 2) AS avg_sales,
+            ROUND(qp.sales_stddev, 2) AS sales_volatility,
+            ROUND(qp.total_sales, 2) AS total_sales,
+            NULL AS avg_temperature,
+            bp.best_season,
+            bp.best_quarter,
+            bp.best_month
+          FROM quarterly_performance qp
+          CROSS JOIN best_periods bp
+
+          UNION ALL
+
+          SELECT
+            {{ analyze_each_store.value }} AS Store,
+            sp.season AS period_type,
+            sp.weeks,
+            ROUND(sp.avg_sales, 2) AS avg_sales,
+            ROUND(sp.sales_stddev, 2) AS sales_volatility,
+            NULL AS total_sales,
+            ROUND(sp.avg_temp, 1) AS avg_temperature,
+            bp.best_season,
+            bp.best_quarter,
+            bp.best_month
+          FROM seasonal_performance sp
+          CROSS JOIN best_periods bp
+
+      # Task 2.4: Store Factor Correlations
+      - name: store_factor_correlations
+        type: execute_sql
+        database: local
+        sql_query: |
+          -- Factor correlation analysis for Store {{ analyze_each_store.value }}
+          WITH store_data AS (
+            SELECT
+              Weekly_Sales,
+              Temperature,
+              Fuel_Price,
+              CPI,
+              Unemployment
+            FROM 'oxymart.csv'
+            WHERE Store = {{ analyze_each_store.value }}
+          ),
+          correlations AS (
+            SELECT
+              {{ analyze_each_store.value }} AS Store,
+              'Temperature' AS factor,
+              CORR(Temperature, Weekly_Sales) AS correlation,
+              ABS(CORR(Temperature, Weekly_Sales)) AS abs_correlation
+            FROM store_data
+            UNION ALL
+            SELECT
+              {{ analyze_each_store.value }} AS Store,
+              'Fuel Price' AS factor,
+              CORR(Fuel_Price, Weekly_Sales) AS correlation,
+              ABS(CORR(Fuel_Price, Weekly_Sales)) AS abs_correlation
+            FROM store_data
+            UNION ALL
+            SELECT
+              {{ analyze_each_store.value }} AS Store,
+              'CPI' AS factor,
+              CORR(CPI, Weekly_Sales) AS correlation,
+              ABS(CORR(CPI, Weekly_Sales)) AS abs_correlation
+            FROM store_data
+            UNION ALL
+            SELECT
+              {{ analyze_each_store.value }} AS Store,
+              'Unemployment' AS factor,
+              CORR(Unemployment, Weekly_Sales) AS correlation,
+              ABS(CORR(Unemployment, Weekly_Sales)) AS abs_correlation
+            FROM store_data
+          )
+          SELECT
+            Store,
+            factor,
+            ROUND(correlation, 4) AS correlation_coefficient,
+            ROUND(abs_correlation, 4) AS absolute_correlation,
+            CASE
+              WHEN abs_correlation >= 0.5 THEN 'Strong'
+              WHEN abs_correlation >= 0.3 THEN 'Moderate'
+              WHEN abs_correlation >= 0.1 THEN 'Weak'
+              ELSE 'Negligible'
+            END AS correlation_strength,
+            CASE
+              WHEN correlation > 0 THEN 'Positive'
+              WHEN correlation < 0 THEN 'Negative'
+              ELSE 'None'
+            END AS correlation_direction,
+            RANK() OVER (ORDER BY abs_correlation DESC) AS importance_rank
+          FROM correlations
+          ORDER BY abs_correlation DESC
+
+      # Task 2.5: Store Individual Report
+      - name: store_individual_report
+        type: formatter
+        template: |
+          # Store {{ analyze_each_store.value }} - Detailed Performance Report
+          Generated: {{ current_date }}
+
+          ## Performance Overview
+
+          **Store ID**: {{ analyze_each_store.value }}
+          **Analysis Period**: {{store_performance_metrics.total_weeks[0]}} weeks across {{store_performance_metrics.years_active[0]}} years
+
+          ### Key Metrics
+          - **Total Sales**: ${{store_performance_metrics.total_sales[0]}}
+          - **Average Weekly Sales**: ${{store_performance_metrics.avg_weekly_sales[0]}}
+          - **Median Sales**: ${{store_performance_metrics.median_sales[0]}}
+          - **Sales Volatility**: ${{store_performance_metrics.sales_volatility[0]}} (σ)
+
+          ### Sales Range
+          - **Minimum Week**: ${{store_performance_metrics.min_weekly_sales[0]}}
+          - **Maximum Week**: ${{store_performance_metrics.max_weekly_sales[0]}}
+          - **Range**: ${{store_performance_metrics.sales_range[0]}}
+          - **Interquartile Range (IQR)**: ${{store_performance_metrics.iqr[0]}}
+
+          ## Holiday Performance
+
+          ### Impact Analysis
+          - **Holiday Average**: ${{store_holiday_analysis.avg_sales[0]}}
+          - **Non-Holiday Average**: ${{store_holiday_analysis.avg_sales[1]}}
+          - **Holiday Lift**: {{store_holiday_analysis.holiday_lift_pct[0]}}%
+
+          ### Holiday Weeks
+          - **Total Holiday Weeks**: {{store_holiday_analysis.week_count[0]}}
+          - **Peak Holiday Sale**: ${{store_holiday_analysis.peak_sales[0]}}
+
+          ## Seasonal Patterns
+
+          ### Best Performing Periods
+          - **Best Season**: {{store_seasonal_patterns.best_season[0]}}
+          - **Best Quarter**: Quarter {{store_seasonal_patterns.best_quarter[0]}}
+          - **Best Month**: Month {{store_seasonal_patterns.best_month[0]}}
+
+          ### Quarterly Performance
+          {% for i in range(4) %}
+          {% if store_seasonal_patterns.period_type[i] and 'Quarter' in store_seasonal_patterns.period_type[i] %}
+          - **{{store_seasonal_patterns.period_type[i]}}**: ${{store_seasonal_patterns.avg_sales[i]}} avg (${{store_seasonal_patterns.total_sales[i]}} total)
+          {% endif %}
+          {% endfor %}
+
+          ## External Factor Sensitivity
+
+          ### Correlation Analysis
+          The following external factors show varying degrees of correlation with sales:
+
+          {% for i in range(store_factor_correlations | length) %}
+          {% if store_factor_correlations.factor[i] %}
+          **{{store_factor_correlations.factor[i]}}** (Rank #{{store_factor_correlations.importance_rank[i]}})
+          - Correlation: {{store_factor_correlations.correlation_coefficient[i]}} ({{store_factor_correlations.correlation_direction[i]}})
+          - Strength: {{store_factor_correlations.correlation_strength[i]}}
+          {% endif %}
+          {% endfor %}
+
+          ## Environmental Context
+
+          - **Average Temperature**: {{store_performance_metrics.avg_temperature[0]}}°F
+          - **Average Fuel Price**: ${{store_performance_metrics.avg_fuel_price[0]}}
+          - **Average CPI**: {{store_performance_metrics.avg_cpi[0]}}
+          - **Average Unemployment**: {{store_performance_metrics.avg_unemployment[0]}}%
+
+          ## Strategic Recommendations
+
+          ### Priority Actions
+          1. **Holiday Strategy**: {% if store_holiday_analysis.holiday_lift_pct[0] > 15 %}Significant {{store_holiday_analysis.holiday_lift_pct[0]}}% holiday lift - maximize holiday investments{% else %}Moderate holiday impact - maintain standard preparations{% endif %}
+
+          2. **Seasonal Planning**: Focus on {{store_seasonal_patterns.best_season[0]}} with enhanced inventory and marketing
+
+          3. **Factor Monitoring**: Closely track {{store_factor_correlations.factor[0]}} (highest correlation)
+
+          ### Operational Insights
+          - **Consistency**: {% if store_performance_metrics.sales_volatility[0] > 100000 %}High volatility suggests varied performance - implement stabilization strategies{% else %}Relatively stable performance - maintain current operations{% endif %}
+
+          - **Growth Opportunity**: {% if store_performance_metrics.avg_weekly_sales[0] > 1500000 %}High-performing store - potential flagship location{% else %}Room for growth - analyze top performer strategies{% endif %}
+
+          ### Risk Factors
+          - Sales range of ${{store_performance_metrics.sales_range[0]}} indicates potential vulnerability
+          - Monitor {{store_factor_correlations.factor[0]}} closely due to {{store_factor_correlations.correlation_strength[0]}} correlation
+
+          ---
+          *This report provides comprehensive analysis for Store {{ analyze_each_store.value }} based on historical data.*
+
+  # STEP 3: Aggregate Insights Across All Analyzed Stores
+  - name: aggregate_store_insights
+    type: execute_sql
+    database: local
+    sql_query: |
+      -- Aggregate insights from all analyzed stores
+      WITH analyzed_stores AS (
+        SELECT Store
+        FROM 'oxymart.csv'
+        WHERE Store IN (20, 4, 14, 13, 2, 10, 27, 6, 1, 39)
+        GROUP BY Store
+      ),
+      store_metrics AS (
+        SELECT
+          om.Store,
+          SUM(om.Weekly_Sales) AS total_sales,
+          AVG(om.Weekly_Sales) AS avg_weekly_sales,
+          STDDEV(om.Weekly_Sales) AS sales_volatility,
+          AVG(CASE WHEN om.Holiday_Flag = 1 THEN om.Weekly_Sales END) AS holiday_avg,
+          AVG(CASE WHEN om.Holiday_Flag = 0 THEN om.Weekly_Sales END) AS non_holiday_avg
+        FROM 'oxymart.csv' om
+        JOIN analyzed_stores ast ON om.Store = ast.Store
+        GROUP BY om.Store
+      )
+      SELECT
+        Store,
+        ROUND(total_sales, 2) AS total_sales,
+        ROUND(avg_weekly_sales, 2) AS avg_weekly_sales,
+        ROUND(sales_volatility, 2) AS sales_volatility,
+        ROUND(holiday_avg, 2) AS holiday_avg_sales,
+        ROUND(non_holiday_avg, 2) AS non_holiday_avg_sales,
+        ROUND((holiday_avg - non_holiday_avg) / non_holiday_avg * 100, 2) AS holiday_lift_pct,
+        RANK() OVER (ORDER BY total_sales DESC) AS total_sales_rank,
+        RANK() OVER (ORDER BY avg_weekly_sales DESC) AS avg_sales_rank,
+        RANK() OVER (ORDER BY (holiday_avg - non_holiday_avg) / non_holiday_avg DESC) AS holiday_sensitivity_rank
+      FROM store_metrics
+      ORDER BY total_sales DESC
+
+  # STEP 4: Executive Summary
+  - name: deep_dive_executive_summary
+    type: formatter
+    template: |
+      # Store Deep Dive Analysis - Executive Summary
+      Generated: {{ current_date }}
+
+      ## Analysis Overview
+
+      This comprehensive analysis examined the top 10 performing stores in detail,
+      generating individual reports for each store covering:
+      - Performance metrics and statistical distributions
+      - Holiday impact and sensitivity
+      - Seasonal patterns and best-performing periods
+      - External factor correlations
+      - Strategic recommendations
+
+      ## Aggregate Insights
+
+      ### Top Performers Summary
+      {% for i in range(5) %}
+      {% if aggregate_store_insights.Store[i] %}
+      **#{{i+1}}: Store {{aggregate_store_insights.Store[i]}}**
+      - Total Sales: ${{aggregate_store_insights.total_sales[i]}}
+      - Average Weekly: ${{aggregate_store_insights.avg_weekly_sales[i]}}
+      - Holiday Lift: {{aggregate_store_insights.holiday_lift_pct[i]}}%
+      - Volatility: ${{aggregate_store_insights.sales_volatility[i]}}
+      {% endif %}
+      {% endfor %}
+
+      ## Key Findings
+
+      ### Performance Distribution
+      - Analyzed stores represent the top revenue generators
+      - Average sales range from ${{aggregate_store_insights.avg_weekly_sales[0]}} to ${{aggregate_store_insights.avg_weekly_sales[9]}}
+      - Sales volatility varies significantly by location
+
+      ### Holiday Sensitivity
+      - Most holiday-sensitive: Store {{aggregate_store_insights.Store[0]}} ({{aggregate_store_insights.holiday_lift_pct[0]}}% lift)
+      - Holiday performance varies by store characteristics and location
+      - Strategic holiday investments should prioritize high-sensitivity stores
+
+      ### Operational Excellence
+      - Top performers demonstrate consistent patterns
+      - Seasonal strategies vary significantly by store
+      - External factor correlations differ by location
+
+      ## Strategic Recommendations
+
+      ### Store-Specific Actions
+      1. **High Performers**: Analyze success factors for replication across network
+      2. **Holiday Champions**: Increase holiday marketing budget proportionally to lift
+      3. **Seasonal Leaders**: Align inventory and staffing with seasonal peaks
+
+      ### Network-Wide Improvements
+      1. **Best Practice Sharing**: Document and share strategies from top stores
+      2. **Targeted Support**: Provide additional resources to stores with growth potential
+      3. **Performance Monitoring**: Implement real-time dashboards for key metrics
+
+      ### Investment Priorities
+      1. **Technology**: Deploy tools used by top performers to all locations
+      2. **Training**: Share best practices through comprehensive training programs
+      3. **Infrastructure**: Upgrade facilities at high-potential locations
+
+      ## Individual Store Reports
+
+      A detailed report was produced for each of the 10 stores (see the `store_individual_report` step output):
+      {% for i in range(aggregate_store_insights | length) %}
+      {% if aggregate_store_insights.Store[i] %}
+      - Store {{aggregate_store_insights.Store[i]}}
+      {% endif %}
+      {% endfor %}
+
+      ---
+      *This executive summary synthesizes insights from 10 individual store analyses.*
+      *Review individual store reports for detailed recommendations and action plans.*
+
+tests:
+  - type: consistency
+    n: 3
+    task_ref: identify_top_stores
+
+  - type: consistency
+    n: 3
+    task_ref: aggregate_store_insights

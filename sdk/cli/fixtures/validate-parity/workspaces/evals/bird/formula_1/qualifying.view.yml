@@ -1,0 +1,152 @@
+name: qualifying
+description: |
+  Qualifying results (6,967 rows, 319 races, 1994..2017), one per driver per
+  race they took part in qualifying for ((race, driver) is unique). Formula 1
+  qualifying is run in three timed knockout sessions, Q1, Q2 and Q3, before
+  the race; `position` is the qualifying position = the starting slot the
+  driver earned. Completing a session means the driver recorded a lap time in
+  it, and only drivers who complete a session move on to the next: all
+  drivers run Q1, roughly the top 15 go to Q2, the top 10 to Q3 (the final
+  part, whose times decide the front of the starting grid; the fastest Q3 time
+  earns pole position). Q1/Q2/Q3 times are text 'M:SS.mmm' (measured to the
+  thousandth of a second); a missing time is NULL or, in 23 (q2) / 28 (q3)
+  rows, an empty string '' - both mean "no time". One q2 value is
+  mistyped '1:48:552' (colon for the decimal point); q2_seconds reads it as
+  108.552. Q2 times exist only from
+  2005 and Q3 from 2006, so before then a missing Q2/Q3 means the session
+  did not exist. Use the *_seconds dimensions for comparisons.
+  "Eliminated after the first qualifying session" (knocked out in Q1) = took
+  part in qualifying but did not go out in Q2 (no Q2 time):
+  `is_eliminated_in_q1`.
+datasource: bird_formula_1
+table: qualifying
+
+entities:
+  - name: qualifying_entry
+    type: primary
+    description: One driver's qualifying record for one race.
+    key: qualify_id
+  - name: race
+    type: foreign
+    description: Race the qualifying was held for.
+    key: race_id
+  - name: driver
+    type: foreign
+    description: Driver who qualified.
+    key: driver_id
+  - name: constructor
+    type: foreign
+    description: Constructor the driver qualified for.
+    key: constructor_id
+
+dimensions:
+  - name: qualify_id
+    type: number
+    description: Unique identification number of the qualifying record (column qualifyid).
+    expr: qualifyid
+  - name: race_id
+    type: number
+    description: Race the qualifying was for.
+    expr: raceid
+  - name: driver_id
+    type: number
+    description: Driver.
+    expr: driverid
+  - name: constructor_id
+    type: number
+    description: Constructor.
+    expr: constructorid
+  - name: car_number
+    type: number
+    description: Car number (column number).
+    synonyms: ["number"]
+    expr: number
+  - name: position
+    type: number
+    description: Qualifying position = the starting slot the driver earned in the qualifying session before the race (1 = pole position).
+    synonyms: ["qualifying position", "qualifying rank", "starting slot"]
+    expr: position
+  - name: q1
+    type: string
+    description: Q1 time = the lap time the driver set in the first qualifying session (Q1), text 'M:SS.mmm', e.g. '1:15.259'. One per race the driver took part in. NULL = no Q1 time.
+    synonyms: ["qualifying 1", "Q1 time", "first qualifying session time"]
+    expr: q1
+  - name: q2
+    type: string
+    description: Q2 time = lap time set in the second qualifying session (after Q1), text 'M:SS.mmm' (to the thousandth of a second). NULL or '' = no Q2 time (did not take part in Q2). Only from 2005.
+    synonyms: ["qualifying 2", "Q2 time", "second qualifying session time"]
+    expr: q2
+  - name: q3
+    type: string
+    description: Q3 time = lap time the driver set in the third and final qualifying session, whose times decide the top starting grid positions (fastest Q3 = pole). NULL or '' = the driver did not take part in Q3. Only from 2006.
+    synonyms: ["qualifying 3", "Q3 time", "third qualifying session time", "final qualifying session time"]
+    expr: q3
+  - name: q1_seconds
+    type: number
+    description: Q1 time in seconds (minutes*60 + seconds), NULL when no time.
+    expr: "CASE WHEN {{TABLE}}.q1 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q1, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q1, strpos({{TABLE}}.q1, ':') + 1), ':', '.')::numeric END"
+  - name: q2_seconds
+    type: number
+    description: Q2 time in seconds (minutes*60 + seconds), NULL when no time ('' treated as no time).
+    expr: "CASE WHEN {{TABLE}}.q2 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q2, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q2, strpos({{TABLE}}.q2, ':') + 1), ':', '.')::numeric END"
+  - name: q3_seconds
+    type: number
+    description: Q3 time in seconds (minutes*60 + seconds), NULL when no time ('' treated as no time).
+    expr: "CASE WHEN {{TABLE}}.q3 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q3, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q3, strpos({{TABLE}}.q3, ':') + 1), ':', '.')::numeric END"
+  - name: has_q1_time
+    type: boolean
+    description: True when the driver completed Q1 (recorded a Q1 lap time).
+    expr: "NULLIF({{TABLE}}.q1, '') IS NOT NULL"
+  - name: has_q2_time
+    type: boolean
+    description: True when the driver completed Q2 (recorded a Q2 lap time, i.e. went out in Q2).
+    expr: "NULLIF({{TABLE}}.q2, '') IS NOT NULL"
+  - name: has_q3_time
+    type: boolean
+    description: True when the driver took part in Q3 (recorded a Q3 lap time).
+    expr: "NULLIF({{TABLE}}.q3, '') IS NOT NULL"
+  - name: is_eliminated_in_q1
+    type: boolean
+    description: Eliminated after the first qualifying session = took part in qualifying but did not go out in Q2 (no Q2 time, NULL or ''). Only meaningful from 2005 when Q2 exists.
+    synonyms: ["knocked out in Q1", "eliminated in Q1", "eliminated after the first qualifying session"]
+    expr: "NULLIF({{TABLE}}.q2, '') IS NULL"
+  - name: is_eliminated_in_q2
+    type: boolean
+    description: Took part in Q2 but did not go out in Q3 (has a Q2 time, no Q3 time). Only meaningful from 2006.
+    synonyms: ["knocked out in Q2", "eliminated in Q2"]
+    expr: "NULLIF({{TABLE}}.q2, '') IS NOT NULL AND NULLIF({{TABLE}}.q3, '') IS NULL"
+
+measures:
+  - name: qualifying_entry_count
+    type: count
+    description: Number of qualifying records (driver-race pairs).
+  - name: driver_count
+    type: count_distinct
+    description: Number of distinct drivers.
+    expr: driverid
+  - name: race_count
+    type: count_distinct
+    description: Number of distinct races with qualifying data.
+    expr: raceid
+  - name: q1_eliminated_count
+    type: count
+    description: Number of drivers eliminated after Q1 (no Q2 time).
+    filters:
+      - expr: "NULLIF({{q2}}, '') IS NULL"
+  - name: q3_participant_count
+    type: count
+    description: Number of drivers with a Q3 time.
+    filters:
+      - expr: "NULLIF({{q3}}, '') IS NOT NULL"
+  - name: min_q1_seconds
+    type: min
+    description: Fastest Q1 time in seconds.
+    expr: "CASE WHEN {{TABLE}}.q1 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q1, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q1, strpos({{TABLE}}.q1, ':') + 1), ':', '.')::numeric END"
+  - name: min_q2_seconds
+    type: min
+    description: Fastest Q2 time in seconds.
+    expr: "CASE WHEN {{TABLE}}.q2 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q2, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q2, strpos({{TABLE}}.q2, ':') + 1), ':', '.')::numeric END"
+  - name: min_q3_seconds
+    type: min
+    description: Fastest Q3 time in seconds (the pole time of a race).
+    expr: "CASE WHEN {{TABLE}}.q3 ~ '^[0-9]+:[0-9]+([.:][0-9]+)?$' THEN split_part({{TABLE}}.q3, ':', 1)::numeric * 60 + replace(substr({{TABLE}}.q3, strpos({{TABLE}}.q3, ':') + 1), ':', '.')::numeric END"

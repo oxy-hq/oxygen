@@ -1,0 +1,218 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: economic_factors
+description: "Analysis of economic and environmental factors affecting retail sales including temperature, fuel prices, CPI, and unemployment"
+datasource: "local"
+table: "oxymart.csv"
+
+entities:
+  - name: economic_observation
+    type: primary
+    description: "Economic data point at store-week level"
+    keys: ["store_id", "week_date"]
+
+dimensions:
+  - name: store_id
+    type: number
+    description: "Store identifier"
+    expr: Store
+    synonyms: ["store", "location"]
+
+  - name: week_date
+    type: date
+    description: "Week date for economic observation"
+    expr: Date
+
+  # Temperature dimensions
+  - name: temperature
+    type: number
+    description: "Average temperature in Fahrenheit"
+    expr: Temperature
+    synonyms: ["temp", "weather", "degrees"]
+
+  - name: temperature_range
+    type: string
+    description: "Temperature categorized into ranges"
+    expr: |
+      CASE
+        WHEN Temperature < 40 THEN 'Cold (<40F)'
+        WHEN Temperature BETWEEN 40 AND 60 THEN 'Cool (40-60F)'
+        WHEN Temperature BETWEEN 60 AND 75 THEN 'Mild (60-75F)'
+        WHEN Temperature BETWEEN 75 AND 85 THEN 'Warm (75-85F)'
+        ELSE 'Hot (>85F)'
+      END
+    synonyms: ["temp range", "weather category", "temperature bucket"]
+    samples: ["Cold (<40F)", "Cool (40-60F)", "Mild (60-75F)", "Warm (75-85F)", "Hot (>85F)"]
+
+  - name: temperature_tercile
+    type: string
+    description: "Temperature divided into thirds"
+    expr: |
+      CASE
+        WHEN Temperature <= 50 THEN 'Low'
+        WHEN Temperature <= 70 THEN 'Medium'
+        ELSE 'High'
+      END
+    synonyms: ["temperature level"]
+    samples: ["Low", "Medium", "High"]
+
+  # Fuel price dimensions
+  - name: fuel_price
+    type: number
+    description: "Average regional fuel price per gallon"
+    expr: Fuel_Price
+    synonyms: ["gas price", "fuel cost", "gasoline price"]
+
+  - name: fuel_price_range
+    type: string
+    description: "Fuel price categorized into ranges"
+    expr: |
+      CASE
+        WHEN Fuel_Price < 2.5 THEN 'Very Low (<$2.50)'
+        WHEN Fuel_Price BETWEEN 2.5 AND 3.0 THEN 'Low ($2.50-$3.00)'
+        WHEN Fuel_Price BETWEEN 3.0 AND 3.5 THEN 'Medium ($3.00-$3.50)'
+        WHEN Fuel_Price BETWEEN 3.5 AND 4.0 THEN 'High ($3.50-$4.00)'
+        ELSE 'Very High (>$4.00)'
+      END
+    synonyms: ["gas price range", "fuel cost category"]
+    samples: ["Very Low (<$2.50)", "Low ($2.50-$3.00)", "Medium ($3.00-$3.50)", "High ($3.50-$4.00)", "Very High (>$4.00)"]
+
+  # CPI dimensions
+  - name: cpi
+    type: number
+    description: "Consumer Price Index - inflation indicator"
+    expr: CPI
+    synonyms: ["consumer price index", "inflation index"]
+
+  - name: cpi_category
+    type: string
+    description: "CPI categorized into economic health buckets"
+    expr: |
+      CASE
+        WHEN CPI < 180 THEN 'Low Inflation'
+        WHEN CPI BETWEEN 180 AND 200 THEN 'Moderate Inflation'
+        WHEN CPI BETWEEN 200 AND 220 THEN 'Elevated Inflation'
+        ELSE 'High Inflation'
+      END
+    synonyms: ["inflation level", "price level category"]
+    samples: ["Low Inflation", "Moderate Inflation", "Elevated Inflation", "High Inflation"]
+
+  # Unemployment dimensions
+  - name: unemployment_rate
+    type: number
+    description: "Regional unemployment rate as percentage"
+    expr: Unemployment
+    synonyms: ["unemployment", "jobless rate"]
+
+  - name: unemployment_category
+    type: string
+    description: "Unemployment categorized by economic health"
+    expr: |
+      CASE
+        WHEN Unemployment < 5.0 THEN 'Healthy (<5%)'
+        WHEN Unemployment BETWEEN 5.0 AND 7.0 THEN 'Moderate (5-7%)'
+        WHEN Unemployment BETWEEN 7.0 AND 9.0 THEN 'Elevated (7-9%)'
+        ELSE 'Critical (>9%)'
+      END
+    synonyms: ["unemployment level", "job market health"]
+    samples: ["Healthy (<5%)", "Moderate (5-7%)", "Elevated (7-9%)", "Critical (>9%)"]
+
+  - name: economic_conditions
+    type: string
+    description: "Combined economic health indicator"
+    expr: |
+      CASE
+        WHEN Unemployment < 6 AND CPI < 200 THEN 'Favorable'
+        WHEN Unemployment > 8 OR CPI > 220 THEN 'Challenging'
+        ELSE 'Mixed'
+      END
+    synonyms: ["economic health", "market conditions"]
+    samples: ["Favorable", "Mixed", "Challenging"]
+
+measures:
+  - name: total_sales
+    type: sum
+    description: "Total sales"
+    expr: Weekly_Sales
+
+  - name: avg_sales
+    type: average
+    description: "Average sales"
+    expr: Weekly_Sales
+
+  # Temperature measures
+  - name: avg_temperature
+    type: average
+    description: "Average temperature"
+    expr: Temperature
+    synonyms: ["mean temp"]
+
+  - name: min_temperature
+    type: min
+    description: "Minimum temperature recorded"
+    expr: Temperature
+
+  - name: max_temperature
+    type: max
+    description: "Maximum temperature recorded"
+    expr: Temperature
+
+  - name: temp_sales_correlation
+    type: custom
+    description: "Correlation between temperature and sales (-1 to 1)"
+    expr: "CORR(Temperature, Weekly_Sales)"
+    synonyms: ["temperature correlation", "weather impact"]
+
+  # Fuel price measures
+  - name: avg_fuel_price
+    type: average
+    description: "Average fuel price"
+    expr: Fuel_Price
+    synonyms: ["mean gas price"]
+
+  - name: fuel_sales_correlation
+    type: custom
+    description: "Correlation between fuel prices and sales"
+    expr: "CORR(Fuel_Price, Weekly_Sales)"
+    synonyms: ["fuel correlation", "gas price impact"]
+
+  # CPI measures
+  - name: avg_cpi
+    type: average
+    description: "Average Consumer Price Index"
+    expr: CPI
+    synonyms: ["mean CPI"]
+
+  - name: cpi_sales_correlation
+    type: custom
+    description: "Correlation between CPI and sales"
+    expr: "CORR(CPI, Weekly_Sales)"
+    synonyms: ["inflation correlation", "cpi impact"]
+
+  # Unemployment measures
+  - name: avg_unemployment
+    type: average
+    description: "Average unemployment rate"
+    expr: Unemployment
+    synonyms: ["mean unemployment"]
+
+  - name: unemployment_sales_correlation
+    type: custom
+    description: "Correlation between unemployment and sales"
+    expr: "CORR(Unemployment, Weekly_Sales)"
+    synonyms: ["unemployment correlation", "jobless impact"]
+
+  # Combined economic measures
+  - name: economic_sensitivity_index
+    type: custom
+    description: "Combined index of how sensitive sales are to economic factors"
+    expr: |
+      ABS(CORR(Fuel_Price, Weekly_Sales)) +
+      ABS(CORR(Unemployment, Weekly_Sales)) +
+      ABS(CORR(CPI, Weekly_Sales))
+    synonyms: ["economic impact score"]
+
+  - name: observation_count
+    type: count
+    description: "Number of observations"
+    synonyms: ["data points", "record count"]

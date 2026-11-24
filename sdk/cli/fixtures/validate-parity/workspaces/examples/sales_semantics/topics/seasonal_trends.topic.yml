@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/topic.json
+
+name: seasonal_trends
+description: "Seasonal and temporal trends topic - focused on time-based patterns, holiday effects, year-over-year comparisons, and seasonality analysis"
+base_view: time_analysis
+views:
+  - time_analysis
+
+# Key business questions this topic addresses:
+# 1. What are the seasonal sales patterns throughout the year?
+# 2. How do holiday weeks compare to non-holiday weeks?
+# 3. What is the year-over-year sales growth?
+# 4. Which quarters/months have the highest sales?
+# 5. What is the holiday sales lift percentage?
+# 6. How do sales vary by season (Winter, Spring, Summer, Fall)?
+# 7. What are the weekly/monthly trend patterns?

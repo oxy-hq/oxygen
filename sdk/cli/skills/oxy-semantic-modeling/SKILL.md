@@ -311,15 +311,16 @@ pre_aggregations:
 
 ## Validating a change
 
-- **`oxy validate --file semantics/views/orders.view.yml`** parses one view or
-  topic file and reports where it fails — a bare boolean in `samples`, a
-  missing `entities:` or `dimensions:` list, a removed feature. Run it on every
-  file you touch. It does **not** look inside `pre_aggregations:` or
+- **`oxyc validate --file semantics/views/orders.view.yml`** checks one view or
+  topic file offline and reports where it fails — a bare boolean in `samples`,
+  a missing `entities:` or `dimensions:` list, a removed feature
+  (`inherits_from:`, `{{ globals.* }}`), a malformed `{{variables.x}}`. Run it
+  on every file you touch. It does **not** look inside `pre_aggregations:` or
   `refresh_key:`; mistakes there surface only when the model is loaded for a
-  query.
-- Bare **`oxy validate`** (every file) only looks in `semantics/views/` and
-  `semantics/topics/`, while views and topics anywhere in the workspace
-  compile. A view kept elsewhere is only checked with `--file`.
+  query. (`oxy validate` is a stub now that prints this command.)
+- Bare **`oxyc validate`** (every file) checks views and topics wherever they
+  are, as the compiler finds them — not only under `semantics/`. It exits `9`
+  when anything fails.
 - Neither checks **cross-file** wiring — an entity join that matches nothing,
   a topic naming a view that does not exist, a measure that a twin lacks. Run
   a real query through the topic before calling it done.

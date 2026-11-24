@@ -1,0 +1,91 @@
+name: climbing
+description: Bouldering session log — each row is one climb attempt.
+datasource: training
+table: "climbing.csv"
+
+entities:
+  - name: climb
+    type: primary
+    key: date
+  - name: nutrition_day
+    type: foreign
+    key: date
+
+dimensions:
+  - name: date
+    type: date
+    expr: date
+    description: Climbing session date
+  - name: week
+    type: date
+    expr: "date_trunc('week', date)"
+    description: Week of climbing session (Monday-anchored)
+  - name: month
+    type: date
+    expr: "date_trunc('month', date)"
+    description: Month of climbing session
+  - name: ascent_type
+    type: string
+    expr: ascent_type
+    description: "Ascent style: Onsight, Flash, Redpoint, or Repeat"
+    samples:
+      - Onsight
+      - Flash
+      - Redpoint
+      - Repeat
+  - name: grade
+    type: string
+    expr: grade
+    description: "Boulder grade (V-scale: vB, vIntro, v0-v6)"
+    samples:
+      - vB
+      - v0
+      - v1
+      - v2
+      - v3
+      - v4
+      - v5
+      - v6
+  - name: color
+    type: string
+    expr: color
+    description: Hold color of the route
+  - name: climb_name
+    type: string
+    expr: climb_name
+    description: Named route (if any)
+  - name: gym
+    type: string
+    expr: gym
+    description: Climbing gym name
+    samples:
+      - Movement Belmont
+      - Movement Sunnyvale
+      - Movement Mountain View
+      - Touchstone Dogpatch Boulders
+      - Touchstone Hyperion
+  - name: stiffness
+    type: number
+    expr: stiffness
+    description: Self-reported stiffness level before climbing (0 = none)
+  - name: rating
+    type: number
+    expr: rating
+    description: Self-rated quality of the climb
+
+measures:
+  - name: climb_count
+    type: count
+    description: Number of climbs logged
+  - name: total_attempts
+    type: sum
+    expr: attempts
+    description: Total number of attempts across climbs
+  - name: avg_attempts
+    type: average
+    expr: attempts
+    description: Average attempts per climb
+  - name: session_count
+    type: count_distinct
+    expr: date
+    description: Number of distinct climbing sessions

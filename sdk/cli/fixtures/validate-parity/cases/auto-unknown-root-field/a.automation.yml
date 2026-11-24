@@ -1,0 +1,7 @@
+tasks:
+  - name: q
+    type: execute_sql
+    database: local
+    sql_query: select 1
+tests:
+  - x

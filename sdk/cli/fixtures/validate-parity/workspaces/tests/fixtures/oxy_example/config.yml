@@ -1,0 +1,20 @@
+databases:
+  - name: primary_database
+    type: bigquery
+    key_path: bigquery-sample.key
+    datasets:
+      dbt_prod_metrics:
+        - "monthly_active_*"
+
+  - name: local
+    type: duckdb
+    dataset: .db/
+
+models:
+  - name: openai-4o-mini
+    vendor: openai
+    model_ref: gpt-4o-mini
+    key_var: OPENAI_API_KEY
+
+defaults:
+  database: local

@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/config.json
+
+databases:
+  - name: duck
+    type: duckdb
+    dataset: duckdb_sample
+
+models:
+  - name: llama3.2
+    vendor: ollama
+    api_url: http://localhost:11434/v1
+    api_key: secret
+
+defaults:
+  database: primary_database
+  agent: default.agent.yml

@@ -1,0 +1,51 @@
+name: cardio
+description: Cardio training log — treadmill and stairmaster sessions with heart rate zones.
+datasource: training
+table: "cardio_4_4.csv"
+
+entities:
+  - name: cardio_session
+    type: primary
+    key: date
+  - name: nutrition_day
+    type: foreign
+    key: date
+
+dimensions:
+  - name: date
+    type: date
+    expr: "Date"
+    description: Cardio session date
+  - name: week
+    type: date
+    expr: "date_trunc('week', \"Date\")"
+    description: Week of cardio session (Monday-anchored)
+  - name: month
+    type: date
+    expr: "date_trunc('month', \"Date\")"
+    description: Month of cardio session
+  - name: notes
+    type: string
+    expr: "Notes"
+    description: Free-text session notes
+
+measures:
+  - name: treadmill_incline
+    type: max
+    expr: "\"Treadmill Incline (%)\""
+    description: Treadmill incline percentage
+  - name: treadmill_speed
+    type: max
+    expr: "\"Treadmill Speed (mph)\""
+    description: Treadmill speed in mph
+  - name: stairmaster_speed
+    type: max
+    expr: "\"Stairmaster Speed\""
+    description: Stairmaster speed setting
+  - name: max_heart_rate
+    type: max
+    expr: "\"Max Heart Rate\""
+    description: Maximum heart rate reached during session
+  - name: session_count
+    type: count
+    description: Number of cardio sessions

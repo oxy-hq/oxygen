@@ -1,0 +1,74 @@
+name: fruit_suppliers
+description: Suppliers who provide fruits to the business
+datasource: local
+table: fruit_suppliers.csv
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: suppliers_by_country task (country + total_suppliers + avg_supplier_rating)
+  - name: suppliers_by_country
+    dimensions:
+      - country
+    measures:
+      - total_suppliers
+      - avg_supplier_rating
+    refresh_key:
+      every: 1h
+
+  # covers: supplier_scorecard task — supplier-level detail with name, country, rating
+  - name: supplier_detail
+    dimensions:
+      - supplier_id
+      - supplier_name
+      - country
+      - rating
+    measures:
+      - total_suppliers
+    refresh_key:
+      every: 1h
+
+entities:
+- name: supplier
+  type: primary
+  description: Primary supplier entity
+  key: supplier_id
+  label: supplier_name
+dimensions:
+- name: supplier_id
+  type: number
+  description: Unique supplier identifier
+  expr: id
+- name: supplier_name
+  type: string
+  description: Name of the supplier
+  expr: name
+- name: contact_email
+  type: string
+  description: Supplier contact email
+  expr: contact_email
+- name: contact_phone
+  type: string
+  description: Supplier contact phone
+  expr: contact_phone
+- name: country
+  type: string
+  description: Supplier country
+  expr: country
+- name: rating
+  type: number
+  description: Supplier quality rating (1-5)
+  expr: rating
+measures:
+- name: total_suppliers
+  type: count
+  description: Total number of suppliers
+- name: avg_supplier_rating
+  type: average
+  description: Average supplier rating
+  expr: rating
+- name: suppliers_by_country
+  type: count_distinct
+  description: Number of distinct countries with suppliers
+  expr: country

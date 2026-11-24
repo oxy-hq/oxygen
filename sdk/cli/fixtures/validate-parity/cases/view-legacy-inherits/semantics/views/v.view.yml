@@ -1,0 +1,15 @@
+inherits_from: base
+name: orders
+datasource: local
+table: orders
+entities:
+  - name: order
+    type: primary
+    key: id
+dimensions:
+  - name: id
+    type: number
+    expr: id
+measures:
+  - name: n
+    type: count

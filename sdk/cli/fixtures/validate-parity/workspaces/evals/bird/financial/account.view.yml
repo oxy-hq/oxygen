@@ -1,0 +1,76 @@
+name: account
+description: |
+  Bank accounts (4,500 rows, one per account), opened 1993-01-01 .. 1997-12-29.
+  An account belongs to the branch in `district_id` ("the district of an
+  account" = the district where the account's branch is located; join the
+  `district` view). People are linked to an account through `disp`
+  (dispositions): the account OWNER is the client whose disposition type is
+  'OWNER'; a 'DISPONENT' is a co-holder/user who does not own it. Loans,
+  standing (permanent) payment orders and transactions all hang off account_id.
+  The bank's first month of operation is the calendar month in which its
+  earliest account was opened (see `first_account_opened_date` /
+  `opened_month`).
+datasource: bird_financial
+table: account
+
+entities:
+  - name: account
+    type: primary
+    description: One bank account.
+    key: account_id
+  - name: district
+    type: foreign
+    description: Branch district holding the account (NOT the client's home district).
+    key: district_id
+
+dimensions:
+  - name: account_id
+    type: number
+    description: The id of the account.
+    expr: account_id
+  - name: district_id
+    type: number
+    description: Location of the branch holding the account (district id of the account's branch).
+    synonyms: ["branch district", "location of branch"]
+    expr: district_id
+  - name: frequency
+    type: string
+    description: |
+      Statement issuance frequency of the account (raw Czech codes).
+      'POPLATEK MESICNE' = monthly issuance (monthly statement issuance);
+      'POPLATEK TYDNE' = weekly issuance (weekly statement issuance);
+      'POPLATEK PO OBRATU' = issuance after transaction.
+    synonyms: ["statement frequency", "issuance frequency", "statement issuance"]
+    samples: ["POPLATEK MESICNE", "POPLATEK TYDNE", "POPLATEK PO OBRATU"]
+    expr: frequency
+  - name: frequency_label
+    type: string
+    description: English decoding of `frequency` (monthly / weekly / after transaction). Filter on `frequency` with the raw code.
+    samples: ["monthly", "weekly", "after transaction"]
+    expr: "CASE {{TABLE}}.frequency WHEN 'POPLATEK MESICNE' THEN 'monthly' WHEN 'POPLATEK TYDNE' THEN 'weekly' WHEN 'POPLATEK PO OBRATU' THEN 'after transaction' END"
+  - name: opened_date
+    type: date
+    description: Creation (opening) date of the account (column `date`, a real SQL date).
+    synonyms: ["account date", "creation date", "opening date", "date"]
+    expr: date
+  - name: opened_year
+    type: number
+    description: Calendar year the account was opened.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.date) AS integer)"
+  - name: opened_month
+    type: string
+    description: Calendar month the account was opened, formatted 'YYYY-MM'.
+    expr: "TO_CHAR({{TABLE}}.date, 'YYYY-MM')"
+
+measures:
+  - name: account_count
+    type: count
+    description: Number of accounts.
+  - name: first_account_opened_date
+    type: min
+    description: Opening date of the earliest account; its calendar month is the bank's first month of operation.
+    expr: date
+  - name: last_account_opened_date
+    type: max
+    description: Opening date of the most recently opened account.
+    expr: date

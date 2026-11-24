@@ -1,0 +1,9 @@
+name: consumption
+description: |
+  Monthly fuel consumption per customer (yearmonth) with the customer's
+  client segment and currency. "Consumption" questions belong here, not on
+  transactions_1k.
+base_view: yearmonth
+views:
+  - yearmonth
+  - customers

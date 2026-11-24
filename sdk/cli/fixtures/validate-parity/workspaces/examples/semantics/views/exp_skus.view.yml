@@ -1,0 +1,38 @@
+name: exp_skus
+description: |
+  The 90 SKUs of the experiment examples (examples/experiments/): 6 categories
+  of 15, each category split into 3 brands of 5. Owns the `exp_sku` entity a
+  SKU experiment's `for_each` names; `brand` is what a grouped design
+  randomises with `assign_by`.
+datasource: local
+table: exp_skus.csv
+
+entities:
+- name: exp_sku
+  type: primary
+  description: A SKU in the experiment examples
+  key: sku
+  label: sku_name
+
+dimensions:
+- name: sku
+  type: string
+  description: SKU code (KIT-01, TOL-04, ...); the unit name in every SKU experiment
+  expr: sku
+- name: sku_name
+  type: string
+  description: SKU display name
+  expr: sku_name
+- name: category
+  type: string
+  description: kits / tools / safety / power / storage / lighting
+  expr: category
+- name: brand
+  type: string
+  description: Brand, five SKUs each (kits_a, kits_b, ...)
+  expr: brand
+
+measures:
+- name: sku_count
+  type: count
+  description: Number of SKUs

@@ -1,0 +1,16 @@
+databases:
+  - name: local
+    type: duckdb
+    dataset: data
+models:
+  - name: gpt
+    vendor: openai
+    model_ref: gpt-4o
+    key_var: OPENAI_API_KEY
+integrations:
+  - name: lk
+    type: looker
+    base_url: https://looker.example.com
+    client_id_var: LOOKER_ID
+    client_secret_var: LOOKER_SECRET
+    explores: []

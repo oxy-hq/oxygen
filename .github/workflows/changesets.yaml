@@ -150,6 +150,10 @@ jobs:
               # what `web-app` already does one filter up.
               - "scripts/ci/verify-sdk-scripts.mjs"
               - "scripts/ci/verify-cli-package.mjs"
+              # The schemas `oxyc validate` checks against live outside sdk/
+              # (its parity corpus and the validator are under sdk/cli). A schema
+              # change moves its verdicts, so it runs the suite that pins them.
+              - "json-schemas/**"
               # `ci.yaml` is listed HERE and not on `web-app`, though both jobs
               # live in it, because this one DERIVES from it: the gate reads
               # which scripts the steps run. "its steps are in the file" would

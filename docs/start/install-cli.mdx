@@ -71,7 +71,6 @@ any subcommand. The commands you'll reach for most:
 
 | Command | What it does |
 | --- | --- |
-| `oxy validate` | Check `config.yml`, automations, and agents for errors |
 | `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
 | `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
 
@@ -81,12 +80,15 @@ Agent tests (`.test.yml` files) run on your deployment with
 
 ### Validate your config
 
-Check your `config.yml`, automation files, and agent definitions for syntax and
-schema errors before running anything:
+Checking your `config.yml`, automations, agents, views and topics is
+`oxyc validate`, in the `@oxy-hq/cli` package (`npm i -g @oxy-hq/cli`). It runs
+offline, needs no login, and exits `9` when it finds a problem:
 
 ```bash
-oxy validate
+oxyc validate
 ```
+
+`oxy validate` still parses for one release, and prints that command.
 
 ### Run an automation
 

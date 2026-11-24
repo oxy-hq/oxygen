@@ -1,0 +1,355 @@
+name: frpm
+description: |
+  The Free or Reduced Price Meal (FRPM) report ("the meal program report"),
+  academic year 2014-2015 only: 9,986 rows, one per school CDS code (unique).
+  FRPM = the Free or Reduced Price Meal program; FRPM count = number of
+  students eligible for free or reduced-price meals; free meal count =
+  students eligible for FREE meals only. Counts and enrollment come in two
+  age bands: K-12 (kindergarten through grade 12) and Ages 5-17.
+  Joins to the directory view `schools` on frpm.cdscode = schools.cdscode
+  (every frpm row has a directory row). Reach `satscores` through `schools`.
+  RATES: the per-school rate dimensions below (eligible_free_rate_k12,
+  ..._pct_k12, etc.) compute count / enrollment for ONE school - use them to
+  rank / filter schools. The `*_rate` measures compute SUM(count) /
+  SUM(enrollment) over a group. "Rate" = fraction (0-1); "percentage" /
+  "percent" = the same fraction x 100. The stored columns named
+  "Percent (%) Eligible ..." are FRACTIONS (0-1), not x100, despite the name.
+  School/district names, school type and charter fields repeat the directory
+  but are the meal report's own copy (they differ from schools on a few
+  hundred rows); use them when the question is about the meal report.
+datasource: bird_california_schools
+table: frpm
+
+entities:
+  - name: frpm_record
+    type: primary
+    description: One school's 2014-2015 FRPM row (key frpm.cdscode).
+    key: cds_code
+  - name: school
+    type: foreign
+    description: The directory row of this school (frpm.cdscode = schools.cdscode).
+    key: cds_code
+
+dimensions:
+  - name: cds_code
+    type: string
+    description: |
+      CDS code of the school (CDSCode), 14-char text with leading zero, e.g.
+      '01100170109835'; a 13-digit code in a question is this with the leading
+      zero dropped (1612590136051 -> '01612590136051').
+    synonyms: ["CDSCode", "CDS code", "cdscode", "school identifier", "identification number"]
+    expr: cdscode
+  - name: academic_year
+    type: string
+    description: Academic year (Academic Year); always '2014-2015'.
+    synonyms: ["Academic Year"]
+    samples: ["2014-2015"]
+    expr: '{{TABLE}}."Academic Year"'
+  - name: county_code
+    type: string
+    description: County code (County Code), 2-digit text e.g. '01'.
+    synonyms: ["County Code"]
+    expr: '{{TABLE}}."County Code"'
+  - name: district_code
+    type: number
+    description: District code (District Code), integer e.g. 10017.
+    synonyms: ["District Code"]
+    expr: '{{TABLE}}."District Code"'
+  - name: school_code
+    type: string
+    description: |
+      School code (School Code): the 7-digit school part of the CDS code,
+      stored as zero-padded TEXT (e.g. '0109835'). It is a number: compare
+      numerically with CAST(... AS bigint) (see school_code_number).
+    synonyms: ["School Code"]
+    expr: '{{TABLE}}."School Code"'
+  - name: school_code_number
+    type: number
+    description: School Code cast to a number (leading zeros dropped).
+    expr: 'CAST({{TABLE}}."School Code" AS bigint)'
+  - name: county_name
+    type: string
+    description: County name (County Name) in the meal report, e.g. 'Alameda'.
+    synonyms: ["County Name", "county"]
+    expr: '{{TABLE}}."County Name"'
+  - name: district_name
+    type: string
+    description: District name (District Name) in the meal report.
+    synonyms: ["District Name", "district"]
+    expr: '{{TABLE}}."District Name"'
+  - name: school_name
+    type: string
+    description: School name (School Name) in the meal report.
+    synonyms: ["School Name", "school"]
+    expr: '{{TABLE}}."School Name"'
+  - name: district_type
+    type: string
+    description: |
+      District type (District Type) - the meal report's label of the
+      district ownership category: 'County Office of Education (COE)',
+      'Elementary School District', 'High School District',
+      'Non-School Locations', 'State Board of Education',
+      'State Special Schools', 'Statewide Benefit Charter',
+      'Unified School District'. (Directory equivalent: schools.doc_type.)
+    synonyms: ["District Type"]
+    samples: ["County Office of Education (COE)", "Elementary School District", "High School District", "Non-School Locations", "State Board of Education", "State Special Schools", "Statewide Benefit Charter", "Unified School District"]
+    expr: '{{TABLE}}."District Type"'
+  - name: school_type
+    type: string
+    description: |
+      School type (School Type) in the meal report; same labels as
+      schools.soc_type, e.g. 'Elementary Schools (Public)',
+      'High Schools (Public)', 'Intermediate/Middle Schools (Public)',
+      'K-12 Schools (Public)', 'Continuation High Schools',
+      'Youth Authority Facilities', 'State Special Schools'. NULL on 45 rows.
+    synonyms: ["School Type"]
+    expr: '{{TABLE}}."School Type"'
+  - name: educational_option_type
+    type: string
+    description: |
+      Educational option type (Educational Option Type), same labels as
+      schools.edops_name: 'Traditional', 'Alternative School of Choice',
+      'Community Day School', 'Continuation School', 'County Community School',
+      'District Special Education Consortia School', 'Home and Hospital',
+      'Juvenile Court School', 'Opportunity School', 'Special Education School',
+      'State Special School', 'Youth Authority School'.
+    synonyms: ["Educational Option Type", "education option"]
+    samples: ["Traditional", "Alternative School of Choice", "Community Day School", "Continuation School", "County Community School", "District Special Education Consortia School", "Home and Hospital", "Juvenile Court School", "Opportunity School", "Special Education School", "State Special School", "Youth Authority School"]
+    expr: '{{TABLE}}."Educational Option Type"'
+  - name: nslp_provision_status
+    type: string
+    description: |
+      NSLP Provision Status: the National School Lunch Program (NSLP)
+      provision category the school participates in. Provision 2 is a federal
+      NSLP provision letting a school serve meals at no charge to all students
+      regardless of family income. Exact values (distinct!): 'Provision 2'
+      (a "Provision 2 school"), 'Breakfast Provision 2', 'Lunch Provision 2',
+      'Provision 1', 'Provision 3', 'CEP', 'Multiple Provision Types'; NULL
+      (8,139 rows) = no provision. "Breakfast Provision 2" means exactly
+      'Breakfast Provision 2'.
+    synonyms: ["NSLP Provision Status", "provision status", "NSLP"]
+    samples: ["Provision 2", "Breakfast Provision 2", "Lunch Provision 2", "Provision 1", "Provision 3", "CEP", "Multiple Provision Types"]
+    expr: '{{TABLE}}."NSLP Provision Status"'
+  - name: charter_school_yn
+    type: number
+    description: |
+      Charter School (Y/N) in the meal report: 1 = Yes (charter), 0 = No.
+      NULL on 45 rows. (Directory copy: schools.charter.)
+    synonyms: ["Charter School (Y/N)", "charter school", "charter"]
+    samples: ["0", "1"]
+    expr: '{{TABLE}}."Charter School (Y/N)"'
+  - name: charter_school_number
+    type: string
+    description: Charter school number (Charter School Number), zero-padded 4-char text e.g. '0756'.
+    synonyms: ["Charter School Number", "charter number"]
+    expr: '{{TABLE}}."Charter School Number"'
+  - name: charter_funding_type
+    type: string
+    description: |
+      Charter funding type (Charter Funding Type): 'Directly funded',
+      'Locally funded' (the two charter funding categories), or
+      'Not in CS funding model'. NULL for non-charters.
+    synonyms: ["Charter Funding Type", "funding type"]
+    samples: ["Directly funded", "Locally funded", "Not in CS funding model"]
+    expr: '{{TABLE}}."Charter Funding Type"'
+  - name: irc
+    type: number
+    description: IRC flag (0/1); documented as "not useful".
+    synonyms: ["IRC"]
+    expr: irc
+  - name: low_grade
+    type: string
+    description: |
+      Lowest grade (Low Grade), TEXT: '1'..'12', 'K' (kindergarten),
+      'P' (P stands for preschool), 'Adult'. "Grades 9 through 12" means
+      low_grade = '9' AND high_grade = '12'. Use low_grade_number for numeric
+      comparisons.
+    synonyms: ["Low Grade", "lowest grade"]
+    samples: ["P", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "Adult"]
+    expr: '{{TABLE}}."Low Grade"'
+  - name: high_grade
+    type: string
+    description: |
+      Highest grade of enrollment (High Grade), TEXT: the highest grade level
+      the school enrolls (e.g. '8' for a K-8 school). Values '1'..'13', 'K',
+      'P' (preschool), 'Adult', 'Post Secondary'. Use high_grade_number for
+      numeric max/comparisons (text sorts '9' > '12').
+    synonyms: ["High Grade", "highest grade", "highest grade of enrollment"]
+    samples: ["P", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "Adult", "Post Secondary"]
+    expr: '{{TABLE}}."High Grade"'
+  - name: low_grade_number
+    type: number
+    description: Low Grade as a number (K = 0, P = -1, Adult = NULL).
+    expr: "CASE WHEN {{TABLE}}.\"Low Grade\" ~ '^[0-9]+$' THEN CAST({{TABLE}}.\"Low Grade\" AS integer) WHEN {{TABLE}}.\"Low Grade\" = 'K' THEN 0 WHEN {{TABLE}}.\"Low Grade\" = 'P' THEN -1 END"
+  - name: high_grade_number
+    type: number
+    description: High Grade as a number (K = 0, P = -1, Adult / Post Secondary = NULL).
+    expr: "CASE WHEN {{TABLE}}.\"High Grade\" ~ '^[0-9]+$' THEN CAST({{TABLE}}.\"High Grade\" AS integer) WHEN {{TABLE}}.\"High Grade\" = 'K' THEN 0 WHEN {{TABLE}}.\"High Grade\" = 'P' THEN -1 END"
+  - name: enrollment_k12
+    type: number
+    description: Enrollment (K-12) - students enrolled kindergarten through grade 12 at the school.
+    synonyms: ["Enrollment (K-12)", "K-12 enrollment", "enrollment"]
+    expr: '{{TABLE}}."Enrollment (K-12)"'
+  - name: free_meal_count_k12
+    type: number
+    description: Free Meal Count (K-12) - K-12 students eligible for free meals ("K-12 free-meal recipients").
+    synonyms: ["Free Meal Count (K-12)", "free meal count"]
+    expr: '{{TABLE}}."Free Meal Count (K-12)"'
+  - name: frpm_count_k12
+    type: number
+    description: FRPM Count (K-12) - K-12 students eligible for free or reduced-price meals.
+    synonyms: ["FRPM Count (K-12)", "free or reduced price meal count", "FRPM count"]
+    expr: '{{TABLE}}."FRPM Count (K-12)"'
+  - name: percent_eligible_free_k12_stored
+    type: number
+    description: |
+      Stored column "Percent (%) Eligible Free (K-12)". Despite the name it is
+      a FRACTION 0-1, equal to free_meal_count_k12 / enrollment_k12 (=
+      eligible_free_rate_k12).
+    synonyms: ["Percent (%) Eligible Free (K-12)"]
+    expr: '{{TABLE}}."Percent (%) Eligible Free (K-12)"'
+  - name: percent_eligible_frpm_k12_stored
+    type: number
+    description: Stored column "Percent (%) Eligible FRPM (K-12)" - a FRACTION 0-1 = frpm_count_k12 / enrollment_k12.
+    synonyms: ["Percent (%) Eligible FRPM (K-12)"]
+    expr: '{{TABLE}}."Percent (%) Eligible FRPM (K-12)"'
+  - name: enrollment_ages_5_17
+    type: number
+    description: Enrollment (Ages 5-17) - students aged 5 through 17 enrolled at the school (0 on 14 rows).
+    synonyms: ["Enrollment (Ages 5-17)", "enrollment ages 5-17"]
+    expr: '{{TABLE}}."Enrollment (Ages 5-17)"'
+  - name: free_meal_count_ages_5_17
+    type: number
+    description: Free Meal Count (Ages 5-17) - students aged 5-17 eligible for free meals.
+    synonyms: ["Free Meal Count (Ages 5-17)"]
+    expr: '{{TABLE}}."Free Meal Count (Ages 5-17)"'
+  - name: frpm_count_ages_5_17
+    type: number
+    description: |
+      FRPM Count (Ages 5-17) - "free or reduced-price meal recipients ages
+      5-17": the count in the meal program report of students aged 5-17
+      receiving (eligible for) free or reduced-price meals.
+    synonyms: ["FRPM Count (Ages 5-17)", "free or reduced-price meal recipients ages 5-17"]
+    expr: '{{TABLE}}."FRPM Count (Ages 5-17)"'
+  - name: percent_eligible_free_ages_5_17_stored
+    type: number
+    description: Stored column "Percent (%) Eligible Free (Ages 5-17)" - a FRACTION 0-1.
+    synonyms: ["Percent (%) Eligible Free (Ages 5-17)"]
+    expr: '{{TABLE}}."Percent (%) Eligible Free (Ages 5-17)"'
+  - name: percent_eligible_frpm_ages_5_17_stored
+    type: number
+    description: Stored column "Percent (%) Eligible FRPM (Ages 5-17)" - a FRACTION 0-1.
+    synonyms: ["Percent (%) Eligible FRPM (Ages 5-17)"]
+    expr: '{{TABLE}}."Percent (%) Eligible FRPM (Ages 5-17)"'
+  - name: calpads_fall1_certification_status
+    type: number
+    description: 2013-14 CALPADS Fall 1 Certification Status (always 1).
+    synonyms: ["2013-14 CALPADS Fall 1 Certification Status"]
+    expr: '{{TABLE}}."2013-14 CALPADS Fall 1 Certification Status"'
+  # ---- per-school rates (fraction) and percentages (x100) ----
+  - name: eligible_free_rate_k12
+    type: number
+    description: |
+      Per-school K-12 free meal rate (eligible free rate) = Free Meal Count
+      (K-12) / Enrollment (K-12), a fraction 0-1 ("free meal rate",
+      "K-12 free-meal eligibility rate").
+    synonyms: ["free meal rate", "eligible free rate", "K-12 free-meal eligibility rate"]
+    expr: 'CAST({{TABLE}}."Free Meal Count (K-12)" AS double precision) / NULLIF({{TABLE}}."Enrollment (K-12)", 0)'
+  - name: eligible_free_pct_k12
+    type: number
+    description: |
+      Per-school K-12 free meal percentage = Free Meal Count (K-12) /
+      Enrollment (K-12) * 100 ("free meal percentage", "K-12 free-meal
+      eligibility percentage").
+    synonyms: ["free meal percentage", "percent eligible free K-12", "K-12 free-meal eligibility percentage"]
+    expr: 'CAST({{TABLE}}."Free Meal Count (K-12)" AS double precision) * 100.0 / NULLIF({{TABLE}}."Enrollment (K-12)", 0)'
+  - name: eligible_frpm_rate_k12
+    type: number
+    description: |
+      Per-school K-12 FRPM (free or reduced-price meal) eligibility rate =
+      FRPM Count (K-12) / Enrollment (K-12), fraction 0-1 ("eligible FRPM
+      rate", "free or reduced-price meal eligibility").
+    synonyms: ["eligible FRPM rate", "FRPM rate", "free or reduced price meal rate"]
+    expr: 'CAST({{TABLE}}."FRPM Count (K-12)" AS double precision) / NULLIF({{TABLE}}."Enrollment (K-12)", 0)'
+  - name: eligible_frpm_pct_k12
+    type: number
+    description: |
+      Per-school K-12 FRPM eligibility percentage = FRPM Count (K-12) /
+      Enrollment (K-12) * 100 ("FRPM percentage", "K-12 eligible percentage").
+    synonyms: ["FRPM percentage", "FRPM eligibility percentage", "percent eligible FRPM K-12"]
+    expr: 'CAST({{TABLE}}."FRPM Count (K-12)" AS double precision) * 100.0 / NULLIF({{TABLE}}."Enrollment (K-12)", 0)'
+  - name: eligible_free_rate_ages_5_17
+    type: number
+    description: Per-school ages 5-17 free meal rate = Free Meal Count (Ages 5-17) / Enrollment (Ages 5-17), fraction.
+    synonyms: ["free meal rate ages 5-17"]
+    expr: 'CAST({{TABLE}}."Free Meal Count (Ages 5-17)" AS double precision) / NULLIF({{TABLE}}."Enrollment (Ages 5-17)", 0)'
+  - name: eligible_free_pct_ages_5_17
+    type: number
+    description: Per-school ages 5-17 free meal percentage = Free Meal Count (Ages 5-17) / Enrollment (Ages 5-17) * 100.
+    expr: 'CAST({{TABLE}}."Free Meal Count (Ages 5-17)" AS double precision) * 100.0 / NULLIF({{TABLE}}."Enrollment (Ages 5-17)", 0)'
+  - name: eligible_frpm_rate_ages_5_17
+    type: number
+    description: Per-school ages 5-17 FRPM rate = FRPM Count (Ages 5-17) / Enrollment (Ages 5-17), fraction.
+    synonyms: ["FRPM rate ages 5-17"]
+    expr: 'CAST({{TABLE}}."FRPM Count (Ages 5-17)" AS double precision) / NULLIF({{TABLE}}."Enrollment (Ages 5-17)", 0)'
+  - name: eligible_frpm_pct_ages_5_17
+    type: number
+    description: |
+      Per-school ages 5-17 FRPM eligibility percentage = FRPM Count (Ages
+      5-17) / Enrollment (Ages 5-17) * 100 (recipients divided by same-age-band
+      enrollment, times 100).
+    synonyms: ["FRPM percentage ages 5-17"]
+    expr: 'CAST({{TABLE}}."FRPM Count (Ages 5-17)" AS double precision) * 100.0 / NULLIF({{TABLE}}."Enrollment (Ages 5-17)", 0)'
+
+measures:
+  - name: frpm_school_count
+    type: count
+    description: Number of schools in the meal report.
+  - name: total_enrollment_k12
+    type: sum
+    description: Sum of Enrollment (K-12).
+    expr: 'CAST({{TABLE}}."Enrollment (K-12)" AS double precision)'
+  - name: total_free_meal_count_k12
+    type: sum
+    description: Sum of Free Meal Count (K-12).
+    expr: 'CAST({{TABLE}}."Free Meal Count (K-12)" AS double precision)'
+  - name: total_frpm_count_k12
+    type: sum
+    description: Sum of FRPM Count (K-12).
+    expr: 'CAST({{TABLE}}."FRPM Count (K-12)" AS double precision)'
+  - name: total_enrollment_ages_5_17
+    type: sum
+    description: Sum of Enrollment (Ages 5-17).
+    expr: 'CAST({{TABLE}}."Enrollment (Ages 5-17)" AS double precision)'
+  - name: total_free_meal_count_ages_5_17
+    type: sum
+    description: Sum of Free Meal Count (Ages 5-17).
+    expr: 'CAST({{TABLE}}."Free Meal Count (Ages 5-17)" AS double precision)'
+  - name: total_frpm_count_ages_5_17
+    type: sum
+    description: Sum of FRPM Count (Ages 5-17) (free or reduced-price meal recipients ages 5-17).
+    expr: 'CAST({{TABLE}}."FRPM Count (Ages 5-17)" AS double precision)'
+  - name: avg_enrollment_k12
+    type: average
+    description: Mean Enrollment (K-12) per school.
+    expr: 'CAST({{TABLE}}."Enrollment (K-12)" AS double precision)'
+  - name: max_enrollment_k12
+    type: max
+    description: Largest Enrollment (K-12).
+    expr: 'CAST({{TABLE}}."Enrollment (K-12)" AS double precision)'
+  - name: free_meal_rate_k12
+    type: custom
+    description: Group K-12 free meal rate = SUM(Free Meal Count (K-12)) / SUM(Enrollment (K-12)), fraction (x100 for a percentage).
+    expr: "{{frpm.total_free_meal_count_k12}} / NULLIF({{frpm.total_enrollment_k12}}, 0)"
+  - name: frpm_rate_k12
+    type: custom
+    description: Group K-12 FRPM rate = SUM(FRPM Count (K-12)) / SUM(Enrollment (K-12)), fraction (x100 for a percentage).
+    expr: "{{frpm.total_frpm_count_k12}} / NULLIF({{frpm.total_enrollment_k12}}, 0)"
+  - name: frpm_rate_ages_5_17
+    type: custom
+    description: Group ages 5-17 FRPM rate = SUM(FRPM Count (Ages 5-17)) / SUM(Enrollment (Ages 5-17)), fraction.
+    expr: "{{frpm.total_frpm_count_ages_5_17}} / NULLIF({{frpm.total_enrollment_ages_5_17}}, 0)"
+  - name: free_meal_rate_ages_5_17
+    type: custom
+    description: Group ages 5-17 free meal rate = SUM(Free Meal Count (Ages 5-17)) / SUM(Enrollment (Ages 5-17)), fraction.
+    expr: "{{frpm.total_free_meal_count_ages_5_17}} / NULLIF({{frpm.total_enrollment_ages_5_17}}, 0)"

@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../json-schemas/workflow.json
+
+name: enum_test_workflow
+description: "What are the top {{top_n}} {{category_type}} categories for {{asset}} by counterparty exposure?"
+
+variables:
+  top_n:
+    type: integer
+    description: "Number of top categories to analyze"
+    default: 5
+  category_type:
+    type: string
+    description: "Type of risk category to analyze"
+    enum:
+      - "high-risk"
+      - "medium-risk"
+      - "low-risk"
+      - "risky"
+    default: "high-risk"
+  asset:
+    type: string
+    description: "Cryptocurrency asset to analyze"
+    enum:
+      - "Bitcoin"
+      - "Ethereum"
+      - "Tether"
+      - "XRP"
+    default: "Bitcoin"
+
+retrieval:
+  include:
+    - "Analysis of {{category_type}} investments in {{asset}}"
+    - "Top {{top_n}} {{category_type}} categories for {{asset}} exposure"
+    - "{{asset}} {{category_type}} counterparty risk data"
+  exclude:
+    - "Low-priority {{asset}} data"
+    - "Non-{{category_type}} {{asset}} investments"
+
+tasks:
+  - name: test_task
+    type: formatter
+    template: "This is a test for {{asset}} {{category_type}} analysis (top {{top_n}})"

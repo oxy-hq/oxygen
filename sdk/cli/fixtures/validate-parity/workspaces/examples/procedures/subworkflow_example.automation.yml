@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+name: random_fruit_sales
+description: "This workflow demonstrates subworkflow usage. ** Note: Report must be show as is. Without any modification. **"
+tasks:
+  - name: random_fruit
+    type: execute_sql
+    sql_query: |
+      SELECT fruit
+      FROM (
+        SELECT fruit FROM (VALUES ('apple'), ('orange'), ('banana'), ('kiwi')) AS fruits(fruit)
+        ORDER BY RANDOM()
+      ) AS shuffled
+      LIMIT 1;
+    database: local
+
+  - name: calories
+    type: execute_sql
+    sql_file: data_fruit/example_food_calories.sql
+    database: local
+
+  - name: subworkflow
+    src: procedures/fruit_sales_report.automation.yml
+    type: workflow
+    variables:
+      fruit: "{{ random_fruit.fruit[0] }}"
+      calories: "{{ calories.calories }}"
+
+  - name: report
+    type: formatter
+    template: |
+      Sales report for {{ random_fruit.fruit }}:
+      {{ subworkflow.report }}

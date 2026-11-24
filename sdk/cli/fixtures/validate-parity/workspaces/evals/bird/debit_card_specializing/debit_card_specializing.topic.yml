@@ -1,0 +1,17 @@
+name: debit_card_specializing
+description: |
+  Czech fuel-card company (BIRD "debit_card_specializing"): customers (client
+  segment, currency), gas stations (country, chain segment), products, a
+  4-day sample of card transactions, and monthly consumption per customer.
+  Join paths: transactions_1k -> customers (customer), -> gasstations
+  (gas_station), -> products (product); yearmonth -> customers (customer).
+  yearmonth and transactions_1k are siblings under customers: never combine
+  them in one query (row fan-out) - use the `consumption` topic for monthly
+  consumption and the `transactions` topic for transaction questions.
+base_view: customers
+views:
+  - customers
+  - gasstations
+  - products
+  - transactions_1k
+  - yearmonth

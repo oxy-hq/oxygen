@@ -1,0 +1,27 @@
+# Test config for ClickHouse with filter schema support
+
+databases:
+  - name: clickhouse_test
+    type: clickhouse
+    host: https://test.clickhouse.cloud:8443
+    user: test_user
+    password_var: CLICKHOUSE_PASSWORD
+    database: test_db
+    role: app_readonly
+    settings_prefix: SQL_
+    filters:
+      account_id:
+        type: integer
+      user_id:
+        type: integer
+      opening_ids:
+        type: array
+        items:
+          type: integer
+        default: []
+
+models:
+  - name: test_model
+    vendor: openai
+    model_ref: gpt-4
+    key_var: OPENAI_API_KEY

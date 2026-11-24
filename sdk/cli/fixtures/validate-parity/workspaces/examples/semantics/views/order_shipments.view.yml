@@ -1,0 +1,96 @@
+name: order_shipments
+description: Shipment tracking for order line items (demonstrates foreign reference to composite key)
+datasource: local
+table: order_shipments.csv
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: shipments_by_status task
+  - name: shipments_by_status
+    dimensions:
+      - shipment_status
+    measures:
+      - total_shipments
+      - delivered_shipments
+      - on_time_shipments
+      - total_shipment_cost
+    refresh_key:
+      every: 1h
+
+entities:
+  - name: shipment
+    type: primary
+    description: "Individual shipment record"
+    key: shipment_id
+    label: tracking_number
+    parent: order_item
+  - name: order_item
+    type: foreign
+    description: "Order line item being shipped (composite foreign key)"
+    keys:
+      - order_id
+      - line_item_id
+dimensions:
+  - name: shipment_id
+    type: number
+    description: "Unique shipment identifier"
+    expr: shipment_id
+  - name: order_id
+    type: number
+    description: "Order identifier (part of composite foreign key)"
+    expr: order_id
+  - name: line_item_id
+    type: number
+    description: "Line item identifier (part of composite foreign key)"
+    expr: line_item_id
+  - name: tracking_number
+    type: string
+    description: "Carrier tracking number"
+    expr: tracking_number
+  - name: carrier
+    type: string
+    description: "Shipping carrier"
+    expr: carrier
+  - name: shipped_date
+    type: date
+    description: "Date when shipment was dispatched"
+    expr: shipped_date
+  - name: estimated_delivery
+    type: date
+    description: "Estimated delivery date"
+    expr: estimated_delivery
+  - name: actual_delivery
+    type: date
+    description: "Actual delivery date"
+    expr: actual_delivery
+  - name: shipment_status
+    type: string
+    description: "Current shipment status"
+    expr: status
+    samples:
+      - "pending"
+      - "in_transit"
+      - "delivered"
+      - "delayed"
+  - name: shipping_cost
+    type: number
+    description: "Cost of this individual shipment"
+    expr: shipping_cost
+measures:
+  - name: total_shipments
+    type: count
+    description: "Total number of shipments"
+  - name: delivered_shipments
+    type: count
+    description: "Number of delivered shipments"
+    expr: "CASE WHEN {{order_shipments.shipment_status}} = 'delivered' THEN 1 END"
+  - name: on_time_shipments
+    type: count
+    description: "Shipments delivered on or before estimated date"
+    expr: "CASE WHEN actual_delivery <= estimated_delivery THEN 1 END"
+  - name: total_shipment_cost
+    type: sum
+    description: "Total cost of shipments — rolls up to order/customer as an induced measure"
+    expr: shipping_cost

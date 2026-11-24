@@ -1,0 +1,58 @@
+name: customers
+description: Customer data for fruit sales analysis
+datasource: local
+table: customer.csv
+
+refresh_key:
+  every: "1h"
+
+pre_aggregations:
+  # covers: top_customers task — customer_name dimension joined with orders measures
+  - name: customers_by_name
+    dimensions:
+      - customer_id
+      - customer_name
+    measures:
+      - total_customers
+    refresh_key:
+      every: 1h
+
+entities:
+- name: customer
+  type: primary
+  description: Primary customer entity
+  key: customer_id
+  label: customer_name
+dimensions:
+- name: customer_id
+  type: number
+  description: Unique customer identifier
+  expr: id
+- name: customer_name
+  type: string
+  description: Customer name
+  expr: name
+  # One value per customer. Not a lever, and wide.
+  segmentable: false
+- name: gender
+  type: string
+  description: Customer gender
+  expr: gender
+  # A protected attribute. There is no action behind a gender gap in order
+  # value, and framing one as 'addressable upside' is not a thing this
+  # product should say.
+  segmentable: false
+measures:
+- name: total_customers
+  type: count
+  description: Total count of customers
+- name: distinct_customers
+  type: count_distinct
+  description: Count of distinct customers
+  expr: id
+- name: male_count
+  type: count
+  description: Count
+  expr: id
+  filters:
+    - expr: "gender = 'M'"

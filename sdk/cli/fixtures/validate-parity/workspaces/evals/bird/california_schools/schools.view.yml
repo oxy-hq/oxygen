@@ -1,0 +1,466 @@
+name: schools
+description: |
+  The California school directory ("the state directory", "the school
+  directory"): 17,686 rows, one per CDS code. Most rows are schools, but
+  1,369 rows are districts / county offices / other administrative
+  authorities themselves; those have school_name NULL (and NULL charter,
+  soc and eil_code). To count or list SCHOOLS, filter
+  `is_school_record = true` (school_name IS NOT NULL) unless the question is
+  about districts or authorities.
+  This is the hub view: `frpm` (2014-2015 free/reduced-price meal report) and
+  `satscores` (SAT results) each join here 1:1 on the CDS code
+  (frpm.cdscode = schools.cdscode, satscores.cds = schools.cdscode).
+  frpm and satscores have no direct edge; a query touching both goes
+  frpm -> schools -> satscores. For "the school directory" / "state directory"
+  attributes (status, address, mailing address, phone, website, dates,
+  charter / funding / ownership codes, virtual, magnet, administrators, NCES
+  ids, grade span) use this view. Names and charter attributes are repeated
+  in frpm and satscores; a few dozen rows differ, so take each attribute from
+  the source the question names (directory = schools, meal report = frpm,
+  SAT data = satscores).
+datasource: bird_california_schools
+table: schools
+
+entities:
+  - name: school
+    type: primary
+    description: One CDS code (school, district or administrative authority). Key schools.cdscode.
+    key: cds_code
+
+dimensions:
+  - name: cds_code
+    type: string
+    description: |
+      CDS (County-District-School) code: the identification number the
+      California Department of Education assigns to each county, district and
+      school; "the identification number" / "school identifier". Stored as
+      14-character text WITH a leading zero, e.g. '01100170109835'. A CDS code
+      quoted with 13 digits (e.g. 1612590136051) is the stored value with its
+      leading zero dropped: compare as cdscode = '01612590136051' (or
+      LPAD(..., 14, '0')). Positions 1-2 = county code, 3-7 = district code,
+      8-14 = school code ('0000000' for a district/authority row).
+    synonyms: ["CDSCode", "CDS code", "cdscode", "school identifier", "identification number", "school id"]
+    expr: cdscode
+  - name: nces_district_id
+    type: string
+    description: |
+      7-digit National Center for Education Statistics (NCES) school district
+      identification number (NCESDist); first 2 digits = state, last 5 = district.
+      Stored as text with leading zero, e.g. '0613360' (NCES district 0613360).
+    synonyms: ["NCESDist", "NCES district identification number", "NCES district id"]
+    expr: ncesdist
+  - name: nces_school_id
+    type: string
+    description: |
+      5-digit NCES school identification number (NCESSchool), text, e.g. '10546'.
+      NCESDist + NCESSchool together form a unique 12-digit school id. NULL for 5,040 rows.
+    synonyms: ["NCESSchool", "NCES school identification number", "NCES school id"]
+    expr: ncesschool
+  - name: status_type
+    type: string
+    description: |
+      Status of the school/district (StatusType): 'Active' = in operation and
+      providing instruction; 'Closed' = not in operation; 'Merged' = combined
+      with another district/school; 'Pending' = not open yet, plans to open
+      within 9-12 months.
+    synonyms: ["StatusType", "status"]
+    samples: ["Active", "Closed", "Merged", "Pending"]
+    expr: statustype
+  - name: county
+    type: string
+    description: County name (County), e.g. 'Alameda', 'Los Angeles'.
+    synonyms: ["County", "county name"]
+    expr: county
+  - name: district
+    type: string
+    description: District name (District) in the directory, e.g. 'Oakland Unified'.
+    synonyms: ["District", "district name"]
+    expr: district
+  - name: school_name
+    type: string
+    description: School name (School). NULL on the 1,369 district/authority rows.
+    synonyms: ["School", "school", "school name"]
+    expr: school
+  - name: is_school_record
+    type: boolean
+    description: True when the row is a school (school_name IS NOT NULL); false for a district/authority row.
+    expr: "({{TABLE}}.school IS NOT NULL)"
+  - name: street
+    type: string
+    description: Unabbreviated street address of the physical location (Street).
+    synonyms: ["Street", "street address", "address"]
+    expr: street
+  - name: street_abr
+    type: string
+    description: Abbreviated street address of the physical location (StreetAbr). Some closed/retired records have none.
+    synonyms: ["StreetAbr", "abbreviated street address"]
+    expr: streetabr
+  - name: city
+    type: string
+    description: City of the physical location (City).
+    synonyms: ["City"]
+    expr: city
+  - name: zip
+    type: string
+    description: Zip code of the physical location (Zip), text, often ZIP+4 e.g. '94560-5359'.
+    synonyms: ["Zip", "zip code"]
+    expr: zip
+  - name: state
+    type: string
+    description: State of the physical location (State), 'CA'.
+    synonyms: ["State"]
+    expr: state
+  - name: mail_street
+    type: string
+    description: Unabbreviated mailing street address (MailStreet); filled with Street where the entity gave none.
+    synonyms: ["MailStreet", "mailing street", "mailing address"]
+    expr: mailstreet
+  - name: mail_street_abr
+    type: string
+    description: Abbreviated mailing street address (MailStrAbr); filled with StreetAbr where none given.
+    synonyms: ["MailStrAbr", "mailing street address"]
+    expr: mailstrabr
+  - name: mail_city
+    type: string
+    description: |
+      Mailing city (MailCity): the city in the school's mailing address
+      ("a school's mailing city"). Filled with City where none given.
+    synonyms: ["MailCity", "mailing city"]
+    expr: mailcity
+  - name: mail_zip
+    type: string
+    description: Mailing zip code (MailZip); filled with Zip where none given.
+    synonyms: ["MailZip", "mailing zip"]
+    expr: mailzip
+  - name: mail_state
+    type: string
+    description: Mailing state (MailState); filled with State where none given.
+    synonyms: ["MailState", "mailing state"]
+    expr: mailstate
+  - name: phone
+    type: string
+    description: Phone number (Phone), formatted '(510) 596-8901'. NULL when not recorded.
+    synonyms: ["Phone", "phone number", "telephone"]
+    expr: phone
+  - name: ext
+    type: string
+    description: Phone number extension (Ext).
+    synonyms: ["Ext", "extension", "phone extension"]
+    expr: ext
+  - name: website
+    type: string
+    description: Website address (Website).
+    synonyms: ["Website", "web site", "url"]
+    expr: website
+  - name: open_date
+    type: date
+    description: Date the school opened (OpenDate).
+    synonyms: ["OpenDate", "opening date", "date opened"]
+    expr: opendate
+  - name: open_year
+    type: number
+    description: Calendar year of OpenDate.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.opendate) AS integer)"
+  - name: closed_date
+    type: date
+    description: Date the school closed (ClosedDate); NULL if not closed.
+    synonyms: ["ClosedDate", "closing date", "date closed"]
+    expr: closeddate
+  - name: closed_year
+    type: number
+    description: Calendar year of ClosedDate.
+    expr: "CAST(EXTRACT(YEAR FROM {{TABLE}}.closeddate) AS integer)"
+  - name: charter
+    type: number
+    description: |
+      Directory charter indicator (Charter): 1 = the school is a charter school
+      ("charter status recorded as 1"); 0 = not a charter. NULL on
+      district/authority rows. (frpm."Charter School (Y/N)" is the meal-report
+      copy; it disagrees on 7 schools.)
+    synonyms: ["Charter", "charter school", "charter status", "charter indicator"]
+    samples: ["0", "1"]
+    expr: charter
+  - name: charter_number
+    type: string
+    description: |
+      4-digit state-issued charter school number (CharterNum), stored as
+      zero-padded TEXT: charter number 756 is charternum = '0756'.
+    synonyms: ["CharterNum", "charter number", "charter school number"]
+    expr: charternum
+  - name: funding_type
+    type: string
+    description: |
+      Charter school funding type (FundingType): 'Directly funded' (receives
+      funding directly from the state rather than through its district),
+      'Locally funded', or 'Not in CS funding model'. NULL for non-charter
+      schools. The data spells the third value 'Not in CS funding model'.
+    synonyms: ["FundingType", "charter funding type", "funding type"]
+    samples: ["Directly funded", "Locally funded", "Not in CS funding model"]
+    expr: fundingtype
+  - name: doc
+    type: string
+    description: |
+      District Ownership Code (DOC), 2-digit text: category of the
+      Administrative Authority. '00' County Office of Education (COE);
+      '02' State Board of Education (schools run or chartered by the State
+      Board of Education); '03' Statewide Benefit Charter (charter network
+      authorized directly by the State Board to operate statewide; charters
+      authorized by a district or county office are NOT this); '31' State
+      Special Schools; '34' Non-School Locations; '52' Elementary School
+      District; '54' Unified School District; '56' High School District;
+      '98' Regional Occupation Center/Program (ROC/P).
+      Present in data but not in the documentation: '42' Joint Powers
+      Authority (JPA), '58' Community College District, '99' Administration
+      Only. A "school district" (local education agency running K-12 public
+      schools) is DOC '52', '54' or '56' (see is_school_district).
+    synonyms: ["DOC", "District Ownership Code", "district ownership type"]
+    samples: ["00", "02", "03", "31", "34", "42", "52", "54", "56", "58", "98", "99"]
+    expr: doc
+  - name: doc_type
+    type: string
+    description: |
+      District Ownership Code Type (DOCType): text label of DOC. Exact values:
+      'County Office of Education (COE)', 'State Board of Education',
+      'Statewide Benefit Charter', 'State Special Schools',
+      'Non-School Locations', 'Joint Powers Authority (JPA)',
+      'Elementary School District', 'Unified School District',
+      'High School District', 'Community College District',
+      'Regional Occupation Center/Program (ROC/P)', 'Administration Only'.
+    synonyms: ["DOCType", "district ownership code type", "district ownership type"]
+    samples: ["County Office of Education (COE)", "State Board of Education", "Statewide Benefit Charter", "State Special Schools", "Non-School Locations", "Joint Powers Authority (JPA)", "Elementary School District", "Unified School District", "High School District", "Community College District", "Regional Occupation Center/Program (ROC/P)", "Administration Only"]
+    expr: doctype
+  - name: is_school_district
+    type: boolean
+    description: |
+      True when the administrative authority is a school district: an
+      elementary (DOC '52'), unified ('54') or high school ('56') district.
+    synonyms: ["school district"]
+    expr: "({{TABLE}}.doc IN ('52', '54', '56'))"
+  - name: soc
+    type: string
+    description: |
+      School Ownership Code (SOC), 2-digit text: type of school. '08'
+      Preschool; '09' Special Education Schools (Public); '11' Youth Authority
+      Facilities (CEA); '13' Opportunity Schools; '14' Juvenile Court Schools;
+      '15' Other County or District Programs; '31' State Special Schools;
+      '60' Elementary School (Public); '61' Elementary School in 1 School
+      District (Public); '62' Intermediate/Middle Schools (Public);
+      '63' Alternative Schools of Choice; '64' Junior High Schools (Public);
+      '65' K-12 Schools (Public); '66' High Schools (Public); '67' High Schools
+      in 1 School District (Public); '68' Continuation High Schools;
+      '69' District Community Day Schools; '70' Adult Education Centers;
+      '98' Regional Occupational Center/Program (ROC/P).
+      Present in data but not documented: '10' County Community.
+      NULL on district/authority rows.
+    synonyms: ["SOC", "School Ownership Code", "school type code"]
+    samples: ["08", "09", "10", "11", "13", "14", "15", "31", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "70", "98"]
+    expr: soc
+  - name: soc_type
+    type: string
+    description: |
+      School Ownership Code Type (SOCType): text description of the type of
+      school. Exact stored labels differ slightly from the documentation:
+      'Preschool', 'Special Education Schools (Public)', 'County Community',
+      'Youth Authority Facilities', 'Opportunity Schools',
+      'Juvenile Court Schools', 'Other County Or District Programs',
+      'State Special Schools', 'Elementary Schools (Public)',
+      'Elemen Schools In 1 School Dist. (Public)',
+      'Intermediate/Middle Schools (Public)', 'Alternative Schools of Choice',
+      'Junior High Schools (Public)', 'K-12 Schools (Public)',
+      'High Schools (Public)', 'High Schools In 1 School Dist. (Public)',
+      'Continuation High Schools', 'District Community Day Schools',
+      'Adult Education Centers', 'ROC/ROP'.
+      A Youth Authority school (the state directory classifies it as a Youth
+      Authority Facility) is soc_type = 'Youth Authority Facilities'
+      (soc '11', 43 rows). The narrower education-option code
+      edops_code = 'YTH' ('Youth Authority School') marks only 6 of them.
+    synonyms: ["SOCType", "school ownership code type", "school type"]
+    samples: ["Preschool", "Special Education Schools (Public)", "County Community", "Youth Authority Facilities", "Opportunity Schools", "Juvenile Court Schools", "Other County Or District Programs", "State Special Schools", "Elementary Schools (Public)", "Elemen Schools In 1 School Dist. (Public)", "Intermediate/Middle Schools (Public)", "Alternative Schools of Choice", "Junior High Schools (Public)", "K-12 Schools (Public)", "High Schools (Public)", "High Schools In 1 School Dist. (Public)", "Continuation High Schools", "District Community Day Schools", "Adult Education Centers", "ROC/ROP"]
+    expr: soctype
+  - name: edops_code
+    type: string
+    description: |
+      Education Option Code (EdOpsCode): short code for the type of education
+      offered. 'ALTSOC' Alternative School of Choice; 'COMM' County Community
+      School; 'COMMDAY' Community Day School; 'CON' Continuation School;
+      'JUV' Juvenile Court School; 'OPP' Opportunity School; 'YTH' Youth
+      Authority School; 'SSS' State Special School; 'SPEC' Special Education
+      School; 'TRAD' Traditional; 'ROP' Regional Occupational Program;
+      'HOMHOS' Home and Hospital; 'SPECON' District Consortia Special
+      Education School. NULL for 5,711 rows.
+      A state special school (state-operated school for students with special
+      needs, e.g. the schools for the deaf or blind) is edops_code = 'SSS' /
+      soc '31' (the same 3 schools: California School for the Blind and the
+      two California Schools for the Deaf); DOC '31' additionally covers their
+      3 authority rows.
+    synonyms: ["EdOpsCode", "Education Option Code", "educational option code"]
+    samples: ["ALTSOC", "COMM", "COMMDAY", "CON", "HOMHOS", "JUV", "OPP", "ROP", "SPEC", "SPECON", "SSS", "TRAD", "YTH"]
+    expr: edopscode
+  - name: edops_name
+    type: string
+    description: |
+      Educational Option Name (EdOpsName): long text of the education option,
+      e.g. 'Traditional', 'Continuation School', 'Youth Authority School',
+      'State Special School', 'District Special Education Consortia School', 'ROP'.
+    synonyms: ["EdOpsName", "Educational Option Name", "educational option type"]
+    expr: edopsname
+  - name: eil_code
+    type: string
+    description: |
+      Educational Instruction Level Code (EILCode): institution type relative
+      to the grade range served. 'A' Adult; 'ELEM' Elementary; 'ELEMHIGH'
+      Elementary-High Combination; 'HS' High School; 'INTMIDJR'
+      Intermediate/Middle/Junior High; 'PS' Preschool; 'UG' Ungraded.
+      A high school is eil_code = 'HS'. A middle school (the level between
+      elementary and high school) is eil_code = 'INTMIDJR' (1,845 rows); the
+      ownership-type label soc_type = 'Intermediate/Middle Schools (Public)'
+      (1,652 rows) is the narrower public-school classification.
+    synonyms: ["EILCode", "Educational Instruction Level Code", "instruction level"]
+    samples: ["A", "ELEM", "ELEMHIGH", "HS", "INTMIDJR", "PS", "UG"]
+    expr: eilcode
+  - name: eil_name
+    type: string
+    description: |
+      Educational Instruction Level Name (EILName): 'Adult', 'Elementary',
+      'Elementary-High Combination', 'High School',
+      'Intermediate/Middle/Junior High', 'Preschool', 'Ungraded'.
+    synonyms: ["EILName", "Educational Instruction Level Name"]
+    samples: ["Adult", "Elementary", "Elementary-High Combination", "High School", "Intermediate/Middle/Junior High", "Preschool", "Ungraded"]
+    expr: eilname
+  - name: grade_span_offered
+    type: string
+    description: |
+      Grade span offered (GSoffered): lowest and highest grade offered or
+      supported, as 'low-high' text, e.g. 'K-5', '9-12', 'K-12', 'P' (P =
+      preschool), 'Adult', 'P-Adult'. May differ from the span served.
+    synonyms: ["GSoffered", "grade span offered", "grades offered"]
+    expr: gsoffered
+  - name: grade_span_served
+    type: string
+    description: |
+      Grade span served (GSserved): lowest and highest grade of student
+      enrollment per the latest certified CALPADS Fall 1 collection (K-12
+      only), e.g. 'K-5', '9-12'. May differ from grade_span_offered.
+    synonyms: ["GSserved", "grade span served", "grades served"]
+    expr: gsserved
+  - name: virtual
+    type: string
+    description: |
+      Type of virtual instruction offered (Virtual). Codes: 'F' = Exclusively
+      Virtual (no physical building; all instruction virtual) - "exclusively
+      virtual" / "exclusive-virtual" schools are virtual = 'F'; 'V' = Primarily
+      Virtual; 'C' = Primarily Classroom; 'N' = Not Virtual; 'P' = Partial
+      Virtual (offers some but not all instruction virtually; retired from
+      2016-17). Data holds only 'F' (69), 'P' (1,046), 'N' (9,703) and NULL
+      (6,868, not reported); 'V' and 'C' never occur. Here 'P' means partial
+      virtual, NOT preschool.
+    synonyms: ["Virtual", "virtual instruction type", "virtual category"]
+    samples: ["F", "N", "P"]
+    expr: virtual
+  - name: virtual_label
+    type: string
+    description: Decoded Virtual code ('Exclusively Virtual', 'Primarily Virtual', 'Primarily Classroom', 'Not Virtual', 'Partial Virtual').
+    expr: "CASE {{TABLE}}.virtual WHEN 'F' THEN 'Exclusively Virtual' WHEN 'V' THEN 'Primarily Virtual' WHEN 'C' THEN 'Primarily Classroom' WHEN 'N' THEN 'Not Virtual' WHEN 'P' THEN 'Partial Virtual' END"
+  - name: magnet
+    type: number
+    description: |
+      Magnet indicator (Magnet): 1 = magnet school and/or offers a magnet
+      program ("magnet school"); 0 = not magnet. NULL for preschools, adult
+      education centers and authority rows.
+    synonyms: ["Magnet", "magnet school", "magnet program"]
+    samples: ["0", "1"]
+    expr: magnet
+  - name: latitude
+    type: number
+    description: Latitude in degrees (angular distance north of the equator).
+    synonyms: ["Latitude"]
+    expr: latitude
+  - name: longitude
+    type: number
+    description: Longitude in degrees (angular distance from the prime meridian, west negative).
+    synonyms: ["Longitude"]
+    expr: longitude
+  - name: admin_first_name_1
+    type: string
+    description: First administrator's (superintendent's or principal's) first name (AdmFName1). Only active/pending entities show administrators.
+    synonyms: ["AdmFName1", "administrator first name", "principal first name", "superintendent first name"]
+    expr: admfname1
+  - name: admin_last_name_1
+    type: string
+    description: First administrator's last name (AdmLName1).
+    synonyms: ["AdmLName1", "administrator last name", "principal last name"]
+    expr: admlname1
+  - name: admin_email_1
+    type: string
+    description: First administrator's email address (AdmEmail1).
+    synonyms: ["AdmEmail1", "administrator email"]
+    expr: admemail1
+  - name: admin_first_name_2
+    type: string
+    description: Second administrator's first name (AdmFName2).
+    synonyms: ["AdmFName2"]
+    expr: admfname2
+  - name: admin_last_name_2
+    type: string
+    description: Second administrator's last name (AdmLName2).
+    synonyms: ["AdmLName2"]
+    expr: admlname2
+  - name: admin_email_2
+    type: string
+    description: Second administrator's email address (AdmEmail2).
+    synonyms: ["AdmEmail2"]
+    expr: admemail2
+  - name: admin_first_name_3
+    type: string
+    description: Third administrator's first name (AdmFName3); description says "not useful".
+    synonyms: ["AdmFName3"]
+    expr: admfname3
+  - name: admin_last_name_3
+    type: string
+    description: Third administrator's last name (AdmLName3); "not useful".
+    synonyms: ["AdmLName3"]
+    expr: admlname3
+  - name: admin_email_3
+    type: string
+    description: Third administrator's email address (AdmEmail3); "not useful".
+    synonyms: ["AdmEmail3"]
+    expr: admemail3
+  - name: last_update
+    type: date
+    description: Date the record was last updated (LastUpdate).
+    synonyms: ["LastUpdate", "last updated"]
+    expr: lastupdate
+
+measures:
+  - name: record_count
+    type: count
+    description: Number of directory rows (schools AND district/authority rows).
+  - name: school_count
+    type: count
+    description: Number of schools (rows with a school name; excludes district/authority rows).
+    synonyms: ["number of schools"]
+    filters:
+      - expr: "{{school_name}} IS NOT NULL"
+  - name: charter_school_count
+    type: count
+    description: Number of directory charter schools (charter = 1).
+    filters:
+      - expr: "{{charter}} = 1"
+  - name: exclusively_virtual_school_count
+    type: count
+    description: Number of exclusively virtual schools (virtual = 'F').
+    filters:
+      - expr: "{{virtual}} = 'F'"
+  - name: magnet_school_count
+    type: count
+    description: Number of magnet schools (magnet = 1).
+    filters:
+      - expr: "{{magnet}} = 1"
+  - name: avg_latitude
+    type: average
+    description: Mean latitude.
+    expr: latitude
+  - name: avg_longitude
+    type: average
+    description: Mean longitude.
+    expr: longitude

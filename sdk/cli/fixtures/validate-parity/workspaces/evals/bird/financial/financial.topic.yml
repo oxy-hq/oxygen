@@ -1,0 +1,19 @@
+name: financial
+description: |
+  Czech bank (BIRD "financial"): accounts and their branch districts, clients
+  and their home districts, dispositions linking clients to accounts
+  (OWNER / DISPONENT), credit cards, loans, standing payment orders and
+  transactions. Join paths: account -> district (branch district);
+  client -> client_district (home district); client <- disp -> account;
+  card -> disp; loan / orders / trans -> account.
+base_view: account
+views:
+  - account
+  - district
+  - disp
+  - client
+  - client_district
+  - card
+  - loan
+  - orders
+  - trans

@@ -109,7 +109,7 @@ dimensions:
   # pre_aggregations.dimensions below resolves names against ONLY this view's
   # own `dimensions:` list (airlayer's generate_build_sql does a bare
   # view.dimensions.iter().find(), no entity-graph traversal — unlike the main
-  # query engine). Removing them would not fail `oxy validate` (which never
+  # query engine). Removing them would not fail `oxyc validate` (which never
   # checks pre_aggregations), but would silently drop the columns from the
   # materialized rollup while the manifest still claims to cover them.
   - name: category

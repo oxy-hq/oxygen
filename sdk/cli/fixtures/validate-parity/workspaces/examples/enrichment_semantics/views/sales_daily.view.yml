@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: sales_daily
+description: >
+  Daily sales per location (the fact table). Joins to weather_daily on
+  loc_date and to location on location_id, enabling weather-adjusted sales
+  analysis (rain-day lift, sales by temperature bucket, etc.).
+datasource: "local"
+table: "sales_daily.csv"
+
+entities:
+  - name: sale_day
+    type: primary
+    key: loc_date
+    description: "One row per location-day of sales."
+  - name: weather_day
+    type: foreign
+    key: loc_date
+    description: "Join to weather_daily on location + date."
+  - name: location
+    type: foreign
+    key: location_id
+    description: "Join to the location dimension on location_id."
+
+dimensions:
+  - name: loc_date
+    type: string
+    expr: loc_date
+    description: "Join key: location_id + local date."
+  - name: location_id
+    type: number
+    expr: location_id
+    description: "Location identifier (joins to the location view)."
+    synonyms: ["store", "site"]
+  - name: sales_date
+    type: date
+    expr: "CAST(date AS DATE)"
+    description: "Calendar date of the sales day."
+    synonyms: ["date", "day"]
+  - name: day_of_week
+    type: string
+    expr: "STRFTIME(CAST(date AS DATE), '%A')"
+    description: "Day of week (Monday, Tuesday, ...)."
+    samples: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  - name: month
+    type: number
+    expr: "EXTRACT(MONTH FROM CAST(date AS DATE))"
+    description: "Calendar month (1-12)."
+
+measures:
+  - name: net_sales
+    type: sum
+    expr: net_sales
+    description: "Total net sales (USD)."
+    synonyms: ["revenue", "total sales", "sales"]
+  - name: order_count
+    type: sum
+    expr: order_count
+    description: "Total number of orders."
+    synonyms: ["orders", "number of orders"]
+  - name: avg_daily_sales
+    type: average
+    expr: net_sales
+    description: "Average sales per location-day."
+    synonyms: ["average daily revenue"]
+  - name: dine_in_sales
+    type: sum
+    expr: dine_in_sales
+    description: "Total dine-in sales (USD)."
+  - name: delivery_sales
+    type: sum
+    expr: delivery_sales
+    description: "Total delivery sales (USD)."
+  - name: delivery_mix_pct
+    type: custom
+    expr: "100.0 * SUM(delivery_sales) / NULLIF(SUM(net_sales), 0)"
+    description: "Delivery share of net sales (%)."
+    synonyms: ["delivery mix", "delivery share"]

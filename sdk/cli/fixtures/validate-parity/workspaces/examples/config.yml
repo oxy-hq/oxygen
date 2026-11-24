@@ -1,0 +1,305 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/config.json
+
+pre_aggregations:
+  schema: AIRLAYER
+  database: local
+  refresh_worker:
+    enabled: true
+    heartbeat: "600s"
+    renewal_threshold: "300s"
+
+databases:
+  - name: primary_database
+    type: bigquery
+    key_path: bigquery-sample.key
+    datasets:
+      airbyte:
+        - "typeform_forms__links"
+      dbt_prod_core:
+        - "*"
+      dbt_prod_metrics:
+        - "monthly_active_*"
+      python_prod:
+        - "v1_*"
+
+    # dry_run_limit: 1
+
+  # The workspace's own Airhouse tenant. `oxy dev seed` loads every file in
+  # `.db/` and `.training_data/` into it, under the names a file DuckDB gave
+  # them (`orders.csv` is the table `main.orders`, with views
+  # `main."orders.csv"` and `orders.csv`), so `FROM 'orders.csv'`,
+  # `FROM "orders.csv"` and `FROM orders` all resolve. `local`, `training`
+  # and `local-acme` are the same tenant under three names.
+  - name: local
+    type: airhouse_managed
+
+  - name: training
+    type: airhouse_managed
+
+  - name: local-acme
+    type: airhouse_managed
+
+  # Per-org OLTP Postgres. No fields: host, database, user and password are
+  # resolved from this workspace's org via `oltp_tenants`. Always resolves the
+  # read-only analyst role — writes reach it only from published app code.
+  # Provision with: oxyc oltp provision --org <org-slug> --writer app:bookings
+  # Ask questions about it: oxy agentic run oltp -q "how many orders are open?"
+  - name: oltp
+    type: postgres_managed
+
+  - name: snowflake
+    type: snowflake
+    account: jla01554
+    username: ryi
+    password_var: SNOWFLAKE_PASSWORD
+    warehouse: COMPUTE_WH
+    database: DEMO_DB
+
+  - name: postgres
+    type: postgres
+    host: "localhost"
+    port: "5432"
+    user: "admin"
+    password_var: POSTGRES_PASSWORD
+    database: "default"
+
+  # Airhouse: Postgres wire protocol, DuckDB SQL dialect.
+  - name: airhouse
+    type: airhouse
+    host: "localhost"
+    port: "5445"
+    user: "airhouse"
+    password_var: AIRHOUSE_PASSWORD
+    database: "airhouse"
+
+  - name: mysql
+    type: mysql
+    host: "localhost"
+    port: "3306"
+    user: "admin"
+    password_var: MYSQL_PASSWORD
+    database: "default"
+
+  - name: clickhouse
+    type: clickhouse
+    host: localhost
+    user: default
+    password_var: CLICKHOUSE_PASSWORD
+    database: default
+    schemas:
+      default:
+        - "hacker_news_*"
+
+  - name: domo
+    type: domo
+    dataset_id: 6ecc3faa-9368-4711-a1ad-b14dca55db53
+    developer_token_var: DOMO_DEVELOPER_TOKEN
+    instance: hyperquery-ai
+
+models:
+  - name: openai-4o-mini
+    vendor: openai
+    model_ref: gpt-4o-mini
+    key_var: OPENAI_API_KEY
+  - name: gpt-5-mini-2025-08-07
+    vendor: openai
+    model_ref: gpt-5-mini-2025-08-07
+    key_var: OPENAI_API_KEY
+  - name: openai-4o
+    vendor: openai
+    model_ref: gpt-4o
+    key_var: OPENAI_API_KEY
+  - name: openai-5.2
+    vendor: openai
+    model_ref: gpt-5.2
+    key_var: OPENAI_API_KEY
+  - name: openai-4.1
+    vendor: openai
+    model_ref: gpt-4.1
+    key_var: OPENAI_API_KEY
+  - name: openai-4o-with-headers
+    vendor: openai
+    model_ref: gpt-4o
+    key_var: OPENAI_API_KEY
+    headers:
+      # Direct header value
+      X-Custom-Client: "oxygen-internal-client"
+      # Header value from environment variable (for sensitive data like API keys)
+      X-API-Secret:
+        env_var: OPENAI_CUSTOM_SECRET
+      # Another direct header
+      User-Agent: "OxyApp/1.0"
+
+  # - name: openai-4o-mini-azure
+  #   vendor: openai
+  #   model_ref: openai-4o-mini-azure
+  #   api_url: something
+  #   azure_deployment_id: "SMART-Automated-gpt-4o"
+  #   azure_api_version: "2024-08-01-preview"
+  #   key_var: OPENAI_AZURE_KEY
+  # ── OpenAI-compatible gateways ─────────────────────────────────────────
+  # `openai_compat` calls {api_url}/chat/completions, where `openai` calls
+  # {api_url}/responses. Most gateways implement Chat Completions only, so
+  # pointing `vendor: openai` at one returns a 404 that looks like an auth
+  # failure. `api_url` is required — there is no default host for a gateway.
+  - name: langdock-o4-mini
+    vendor: openai_compat
+    model_ref: o4-mini
+    key_var: LANGDOCK_API_KEY
+    api_url: https://api.langdock.com/openai/eu/v1
+  - name: groq-llama3
+    vendor: openai_compat
+    model_ref: llama-3.3-70b-versatile
+    key_var: GROQ_API_KEY
+    api_url: https://api.groq.com/openai/v1
+  - name: litellm-proxy
+    vendor: openai_compat
+    model_ref: gpt-4.1
+    key_var: LITELLM_KEY
+    api_url: http://localhost:4000/v1
+  # Gateways that authenticate or route on their own header rather than the
+  # bearer token. Values are inline or pulled from a secret via `env_var`.
+  - name: portkey-gpt
+    vendor: openai_compat
+    model_ref: gpt-4.1
+    key_var: PORTKEY_API_KEY
+    api_url: https://api.portkey.ai/v1
+    headers:
+      x-portkey-provider: openai
+      x-portkey-virtual-key:
+        env_var: PORTKEY_VIRTUAL_KEY
+  # Anthropic-compatible proxy. `api_url` is the API root, same as the OpenAI
+  # vendors — Oxy appends /messages.
+  # - name: claude-via-proxy
+  #   vendor: anthropic
+  #   model_ref: claude-sonnet-4-6
+  #   key_var: ANTHROPIC_PROXY_KEY
+  #   api_url: https://proxy.internal/v1
+
+  - name: llama3.2
+    vendor: ollama
+    model_ref: llama3.2:latest
+    api_url: http://localhost:11434/v1
+    api_key: secret
+  - name: gemini1.5pro
+    key_var: GEMINI_API_KEY
+    model_ref: gemini-1.5-pro
+    vendor: google
+  - vendor: anthropic
+    name: claude-3-7-sonnet
+    model_ref: claude-3-7-sonnet-20250219
+    key_var: ANTHROPIC_API_KEY
+  - vendor: anthropic
+    name: claude-sonnet-4-6
+    model_ref: claude-sonnet-4-6
+    key_var: ANTHROPIC_API_KEY
+  - vendor: anthropic
+    name: claude-haiku-4-5
+    model_ref: claude-haiku-4-5
+    key_var: ANTHROPIC_API_KEY
+
+defaults:
+  database: local
+  agent: _analytics.agentic.yml
+
+# ── Workspace health monitoring ────────────────────────────────────────────
+# Drives the admin "Workspace health" tab. `interval` is how often the passive
+# rollup (job liveness, pipeline, anomalies, queue, reconciliation) is
+# recomputed. `smoke_test` runs ACTIVE probes of this workspace's own artifacts
+# on its own slower cadence — every probe is a real round-trip, so it defaults
+# far slower than the rollup.
+#
+# This example turns on all three probes to show the full surface. In practice
+# only `connections` is on by default (a zero-scan `SELECT 1`); the rest are
+# opt-in because they cost real warehouse bytes or LLM tokens on every run:
+#   - semantic: reads each measure's full column (a LIMIT can't shrink an
+#     aggregate scan), so cost tracks your data volume, not topic count
+#   - agents:   a real LLM round-trip plus whatever SQL the agent writes
+#
+# `semantic` takes either a bool (sweep everything) or a list naming exactly
+# what to probe. On a real warehouse, prefer the list — a
+# sweep's cost scales with every topic's data volume, while a named list is a
+# bill you chose. This example project is tiny, so it sweeps.
+health_check:
+  interval: 10m # passive rollup cadence, clamped to [10m, 24h]
+  smoke_test:
+    enabled: true
+    interval: 6h # probe cadence, clamped to [10m, 7d]
+    connections: true # SELECT 1 against every database above
+    semantic: true # one measure query per .topic.yml
+    max_targets: 25 # per-probe cap; skipped targets are reported, never silent
+    agents: # each entry is a separate end-to-end probe, with its own verdict
+      - agent_ref: _analytics.agentic.yml
+        prompt: How many fruits are in the catalog?
+      - agent_ref: _analytics.agentic.yml
+        name: fruit prices # names the verdict; without it this would show as "#2"
+        prompt: What is the average price of a fruit?
+#
+# The narrower, cheaper shape — probe only what you name. The block is a list
+# of targets, each carrying its own settings:
+#
+#   smoke_test:
+#     semantic:
+#       - topic: fruit_business
+#         measures: # omit to auto-pick one, as the sweep does
+#           - fruits.total_count # pin to columns you know are small
+#           - fruits.avg_price # all of a topic's measures ride in ONE query
+#       - topic: orders
+#
+# A topic named here that doesn't exist is reported Unhealthy, not
+# skipped: you asserted it should be probed, so a rename must not read as OK.
+
+mcp:
+  tools:
+    - semantics/topics/fruit_business.topic.yml
+    - data/*.sql
+    - agents/*.agentic.yml
+    - procedures/*.automation.yml
+
+
+# ── Git branch workflow ────────────────────────────────────────────────────
+# When the workspace is a git repository, Oxy's IDE can auto-create a new
+# feature branch on save instead of writing directly to a protected branch.
+#
+# Uncomment and adjust the two fields below to opt in.  See
+# https://docs.oxy.tech/reference/branch-configuration for full details.
+#
+# Scenario A — single long-lived branch (simplest):
+#   protected_branches are guarded, new work forks from whatever Oxy has
+#   checked out (usually the same branch).  `base_branch` can stay unset.
+#
+# protected_branches:
+#   - main
+#
+# Scenario B — deployment branch split from integration branch:
+#   Oxy serves from `deploy` (e.g. because your cluster points at that ref),
+#   but you want new work to fork from `main` so feature branches start from
+#   the latest integration commits, not from whatever was last deployed.
+#
+# protected_branches:
+#   - deploy
+# base_branch: main
+#
+# Note: in single-workspace mode (`oxy serve --local`) the protected-branch
+# guard is disabled entirely — a single developer on their own checkout writes
+# directly to the current branch regardless of these settings.
+
+# ── Asset storage ──────────────────────────────────────────────────────────
+# Oxy persists generated assets (chart JSON today, more later) so the web app
+# and integrations can read them back. The default backend is local disk
+# under the project state directory — no config needed, you get that for
+# free when this section is omitted.
+#
+# Configure an S3 backend only when an integration (e.g. Slack unfurls)
+# needs the assets to be reachable at a public URL. AWS credentials are
+# resolved via the standard SDK credential chain (env vars, shared config,
+# IAM role) — do NOT put access keys in this file.
+#
+# storage:
+#   backend: s3                                # "local" (default) or "s3"
+#   s3:
+#     bucket: my-oxy-assets                    # required
+#     region: us-east-1                        # optional; SDK default otherwise
+#     prefix: charts                           # optional key prefix inside the bucket
+#     public_url_base: https://cdn.example.com # optional CDN; else virtual-hosted S3 URL
+#     acl: public-read                         # optional; leave unset if bucket has ACLs disabled

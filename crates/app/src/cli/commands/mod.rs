@@ -10,6 +10,7 @@ mod migrate_agents;
 mod migrate_automations;
 pub mod run;
 mod sync;
+mod validate;
 
 /// The compile `oxy dev seed` runs on each seeded workspace (`oxy-server`'s
 /// `dev::seed::seed_compile`), the same entry point as `oxy compile`.
@@ -27,14 +28,10 @@ use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
 use ::oxy::theme::StyledText;
-use clap::Parser;
 use model::{Automation, Config};
 use std::backtrace;
 use std::error::Error;
-use std::path::PathBuf;
 use std::process::exit;
-
-use ::oxy::config::WorkingCopy;
 
 // The one-shot subcommands `oxy` runs, in the order `--help` lists them after
 // `oxy-server`'s own (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
@@ -69,11 +66,13 @@ pub enum SubCommand {
     /// them. This stub stays for one release so an old invocation is told what
     /// to type instead.
     Sync(SyncArgs),
-    /// Validate configuration files for syntax and structure
+    /// Moved to `oxyc validate` (prints the command and exits 2)
     ///
-    /// Check your config.yml, automation files, and agent configurations
-    /// for errors and compliance with the expected schema.
-    Validate(ValidateArgs),
+    /// Checking a workspace's YAML is `oxyc validate [--file <path>]` now
+    /// (`npm i -g @oxy-hq/cli`): offline, no login, and it exits 9 when a check
+    /// fails. This stub stays for one release so an old invocation is told
+    /// what to type instead.
+    Validate(validate::ValidateArgs),
     /// Migrate the database schema to the latest version
     Migrate,
     /// Moved to `oxyc migrate-automations` (prints the command and exits 2)
@@ -110,84 +109,6 @@ pub enum SubCommand {
     Agentic(agentic_cli::AgenticArgs),
 }
 
-#[derive(Parser, Debug)]
-pub struct ValidateArgs {
-    /// Validate a specific file instead of all configuration files
-    ///
-    /// Provide a path to an automation (.automation.yml) or agentic agent
-    /// (.agentic.yml) file to validate just that file.
-    ///
-    /// Note: .agentic.yml validation is structural only — the file is parsed
-    /// against the AgentConfig schema, but `databases:` entries and `llm.ref`
-    /// are not resolved against config.yml, so a structurally valid file can
-    /// still fail at runtime if those references don't exist.
-    #[clap(long, short)]
-    file: Option<std::path::PathBuf>,
-}
-
-/// Validates a single file based on its extension.
-fn validate_single_file(file_path: &PathBuf, config: &Config) -> Result<(), String> {
-    let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-    match () {
-        _ if file_name.ends_with(".procedure.yml") || file_name.ends_with(".automation.yml") => {
-            let automation = config.load_workflow(file_path).map_err(|e| e.to_string())?;
-            config
-                .validate_workflow(&automation)
-                .map_err(|e| e.to_string())
-        }
-        _ if file_name.ends_with(".agentic.yml") => {
-            agentic_analytics::config::AgentConfig::from_file(file_path)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }
-        _ if file_name.ends_with(".view.yml") || file_name.ends_with(".topic.yml") => {
-            let parser_config = oxy_semantic::ParserConfig::new(
-                file_path
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .unwrap_or(&config.workspace_path),
-            );
-            let parser = oxy_semantic::SemanticLayerParser::new(parser_config);
-            if file_name.ends_with(".view.yml") {
-                parser
-                    .parse_view_file(file_path)
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            } else {
-                parser
-                    .parse_topic_file(file_path)
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
-        }
-        _ => Err(format!(
-            "Unknown file type: {}. Expected .automation.yml, .procedure.yml, .agentic.yml, .view.yml, or .topic.yml",
-            file_path.display()
-        )),
-    }
-}
-
-/// Collect all `.view.yml` and `.topic.yml` files under `semantics/`.
-fn list_semantic_files(project_path: &std::path::Path) -> Vec<PathBuf> {
-    let semantics_dir = project_path.join("semantics");
-    let mut files = Vec::new();
-    for sub in &["views", "topics"] {
-        let dir = semantics_dir.join(sub);
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                    && (name.ends_with(".view.yml") || name.ends_with(".topic.yml"))
-                {
-                    files.push(path);
-                }
-            }
-        }
-    }
-    files
-}
-
 /// The committed JSON Schemas, and the Rust types they are generated from.
 ///
 /// ONE LIST, TWO READERS: `just gen-schemas` writes these files (the test below
@@ -219,6 +140,18 @@ pub fn config_schemas() -> Vec<(&'static str, String)> {
         (
             "agent-test.json",
             serde_json::to_string_pretty(&schemars::schema_for!(TestFileConfig))
+                .unwrap_or_default(),
+        ),
+        // `.view.yml` / `.topic.yml`, as `oxy_semantic` deserializes them — the
+        // model `oxy validate` parsed them with, before it moved to `oxyc`.
+        (
+            "view.json",
+            serde_json::to_string_pretty(&schemars::schema_for!(oxy_semantic::View))
+                .unwrap_or_default(),
+        ),
+        (
+            "topic.json",
+            serde_json::to_string_pretty(&schemars::schema_for!(oxy_semantic::Topic))
                 .unwrap_or_default(),
         ),
     ]
@@ -362,69 +295,8 @@ pub async fn run(
             exit(sync::MOVED_EXIT_CODE);
         }
         SubCommand::Validate(args) => {
-            let config: ::oxy::config::ConfigManager<WorkingCopy> = ConfigBuilder::new()
-                .with_workspace_path(&resolve_local_workspace_path()?)?
-                .build_with_working_copy(Origin::Disk, OnMissing::Fail)
-                .await?;
-
-            if let Some(file_path) = args.file {
-                let validation_result = validate_single_file(&file_path, config.get_config());
-                match validation_result {
-                    Ok(_) => println!("{}", format!("{} is valid", file_path.display()).success()),
-                    Err(e) => {
-                        println!("{}", e.error());
-                        exit(1)
-                    }
-                }
-            } else {
-                // Validate all files, collecting all errors
-                let cfg = config.get_config();
-                let mut errors: Vec<String> = Vec::new();
-                let mut valid_count = 0;
-
-                for automation_file in cfg.list_workflows(&cfg.workspace_path) {
-                    match validate_single_file(&automation_file, cfg) {
-                        Ok(_) => valid_count += 1,
-                        Err(e) => errors.push(format!("{}: {}", automation_file.display(), e)),
-                    }
-                }
-
-                for agentic_file in cfg.list_agentic_agents(&cfg.workspace_path) {
-                    match validate_single_file(&agentic_file, cfg) {
-                        Ok(_) => valid_count += 1,
-                        Err(e) => errors.push(format!("{}: {}", agentic_file.display(), e)),
-                    }
-                }
-
-                // Validate semantic model files (.view.yml, .topic.yml)
-                for semantic_file in list_semantic_files(&cfg.workspace_path) {
-                    match validate_single_file(&semantic_file, cfg) {
-                        Ok(_) => valid_count += 1,
-                        Err(e) => errors.push(format!("{}: {}", semantic_file.display(), e)),
-                    }
-                }
-
-                if errors.is_empty() {
-                    println!(
-                        "{}",
-                        format!("All {} config files are valid", valid_count).success()
-                    );
-                } else {
-                    for err in &errors {
-                        println!("{}", err.error());
-                    }
-                    println!(
-                        "{}",
-                        format!(
-                            "\n{} file(s) failed validation, {} file(s) valid",
-                            errors.len(),
-                            valid_count
-                        )
-                        .error()
-                    );
-                    exit(1)
-                }
-            }
+            eprintln!("{}", validate::moved_message(&args).warning());
+            exit(validate::MOVED_EXIT_CODE);
         }
         SubCommand::Migrate => {
             if let Err(e) = migrate().await {

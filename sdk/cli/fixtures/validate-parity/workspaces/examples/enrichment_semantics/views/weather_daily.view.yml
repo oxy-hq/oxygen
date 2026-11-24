@@ -1,0 +1,89 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: weather_daily
+description: >
+  Daily weather observations per location from Open-Meteo (external signal:
+  not business-owned, keyed by location + date, provenance-tracked). Sales
+  join here on loc_date for weather-adjusted analysis.
+datasource: "local"
+table: "weather_daily.csv"
+
+entities:
+  - name: weather_day
+    type: primary
+    key: loc_date
+    description: "One row per location-day; sales join on loc_date."
+
+dimensions:
+  - name: loc_date
+    type: string
+    expr: loc_date
+    description: "Join key: location_id + local date (e.g. '5-2026-03-14')."
+  - name: weather_date
+    type: date
+    expr: "CAST(date AS DATE)"
+    description: "Local calendar date of the observation."
+    synonyms: ["date", "day"]
+  - name: temp_max
+    type: number
+    expr: temp_max
+    description: "Daily maximum temperature (°C)."
+    synonyms: ["high temp", "max temperature"]
+  - name: temp_min
+    type: number
+    expr: temp_min
+    description: "Daily minimum temperature (°C)."
+  - name: precip
+    type: number
+    expr: precip
+    description: "Total daily precipitation (mm)."
+    synonyms: ["rainfall", "precipitation"]
+  - name: rain_flag
+    type: boolean
+    expr: "precip > 1.0"
+    description: "True if measurable rain fell (>1mm)."
+    synonyms: ["rainy day", "rain", "wet day"]
+  - name: heavy_rain_flag
+    type: boolean
+    expr: "precip > 10.0"
+    description: "True on heavy-rain days (>10mm)."
+  - name: temp_bucket
+    type: string
+    expr: |
+      CASE
+        WHEN temp_max < 5 THEN 'Cold (<5C)'
+        WHEN temp_max < 15 THEN 'Cool (5-15C)'
+        WHEN temp_max < 25 THEN 'Mild (15-25C)'
+        WHEN temp_max < 33 THEN 'Warm (25-33C)'
+        ELSE 'Hot (>33C)'
+      END
+    description: "Daily max temperature bucketed."
+    samples: ["Cold (<5C)", "Cool (5-15C)", "Mild (15-25C)", "Warm (25-33C)", "Hot (>33C)"]
+  - name: weather_code
+    type: number
+    expr: weather_code
+    description: "WMO weather interpretation code."
+  - name: wind_max
+    type: number
+    expr: wind_max
+    description: "Maximum daily wind speed (km/h)."
+
+measures:
+  - name: avg_temp_max
+    type: average
+    expr: temp_max
+    description: "Average daily maximum temperature (°C)."
+    synonyms: ["average temperature", "avg high"]
+  - name: total_precip
+    type: sum
+    expr: precip
+    description: "Total precipitation (mm)."
+  - name: rain_days
+    type: count
+    filters:
+      - expr: "precip > 1.0"
+    description: "Number of location-days with measurable rain (>1mm)."
+  - name: avg_wind
+    type: average
+    expr: wind_max
+    description: "Average maximum wind speed (km/h)."

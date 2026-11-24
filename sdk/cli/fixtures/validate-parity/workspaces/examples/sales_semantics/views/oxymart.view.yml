@@ -1,0 +1,286 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/view.json
+
+name: oxymart
+description: "Retail store weekly sales data with environmental and economic factors"
+datasource: "local"
+table: "oxymart.csv"
+
+# Core entities in the data model
+entities:
+  - name: store_week
+    type: primary
+    description: "Individual store-week observation (grain of the data)"
+    keys: ["store_id", "week_date"]
+
+# Dimensions - Attributes for grouping, filtering, and segmenting
+dimensions:
+  # Store Dimensions
+  - name: store_id
+    type: number
+    description: "Unique identifier for each retail store location"
+    expr: Store
+    synonyms: ["store", "store number", "location", "shop"]
+
+  # Time Dimensions
+  - name: week_date
+    type: date
+    description: "Week ending date for sales reporting period"
+    expr: Date
+    synonyms: ["date", "week", "period", "week ending"]
+
+  - name: year
+    type: number
+    description: "Calendar year extracted from week date"
+    expr: "EXTRACT(YEAR FROM CAST(Date AS DATE))"
+    synonyms: ["yr", "calendar year"]
+
+  - name: month
+    type: number
+    description: "Month number (1-12) extracted from week date"
+    expr: "EXTRACT(MONTH FROM CAST(Date AS DATE))"
+    synonyms: ["month number", "mo"]
+    samples: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
+
+  - name: quarter
+    type: number
+    description: "Quarter (1-4) of the year"
+    expr: "EXTRACT(QUARTER FROM CAST(Date AS DATE))"
+    synonyms: ["qtr", "fiscal quarter"]
+    samples: ["1", "2", "3", "4"]
+
+  - name: month_name
+    type: string
+    description: "Full name of the month"
+    expr: "STRFTIME(CAST(Date AS DATE), '%B')"
+    synonyms: ["month"]
+    samples: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+  # Holiday Dimensions
+  - name: is_holiday_week
+    type: boolean
+    description: "Indicator if the week contains a major holiday"
+    expr: "Holiday_Flag = 1"
+    synonyms: ["holiday week", "holiday period", "holiday flag"]
+
+  - name: holiday_status
+    type: string
+    description: "Categorization of week as holiday or non-holiday"
+    expr: |
+      CASE
+        WHEN Holiday_Flag = 1 THEN 'Holiday Week'
+        ELSE 'Non-Holiday Week'
+      END
+    synonyms: ["holiday type", "week type"]
+    samples: ["Holiday Week", "Non-Holiday Week"]
+
+  # Environmental Dimensions
+  - name: temperature
+    type: number
+    description: "Average temperature in Fahrenheit during the week"
+    expr: Temperature
+    synonyms: ["temp", "weather", "degrees"]
+
+  - name: temperature_range
+    type: string
+    description: "Temperature categorized into ranges"
+    expr: |
+      CASE
+        WHEN Temperature < 40 THEN 'Cold (<40°F)'
+        WHEN Temperature BETWEEN 40 AND 60 THEN 'Cool (40-60°F)'
+        WHEN Temperature BETWEEN 60 AND 75 THEN 'Mild (60-75°F)'
+        WHEN Temperature BETWEEN 75 AND 85 THEN 'Warm (75-85°F)'
+        ELSE 'Hot (>85°F)'
+      END
+    synonyms: ["temp range", "weather category"]
+    samples: ["Cold (<40°F)", "Cool (40-60°F)", "Mild (60-75°F)", "Warm (75-85°F)", "Hot (>85°F)"]
+
+  # Economic Dimensions
+  - name: fuel_price
+    type: number
+    description: "Average regional fuel price per gallon in dollars"
+    expr: Fuel_Price
+    synonyms: ["gas price", "fuel cost", "gasoline price"]
+
+  - name: fuel_price_range
+    type: string
+    description: "Fuel price categorized into low, medium, and high ranges"
+    expr: |
+      CASE
+        WHEN Fuel_Price < 3.0 THEN 'Low (<$3.00)'
+        WHEN Fuel_Price BETWEEN 3.0 AND 3.5 THEN 'Medium ($3.00-$3.50)'
+        ELSE 'High (>$3.50)'
+      END
+    synonyms: ["gas price range", "fuel cost category"]
+    samples: ["Low (<$3.00)", "Medium ($3.00-$3.50)", "High (>$3.50)"]
+
+  - name: unemployment_rate
+    type: number
+    description: "Regional unemployment rate as a percentage"
+    expr: Unemployment
+    synonyms: ["unemployment", "jobless rate", "unemployment percentage"]
+
+  - name: unemployment_category
+    type: string
+    description: "Unemployment rate categorized by economic health"
+    expr: |
+      CASE
+        WHEN Unemployment < 5.0 THEN 'Low (<5%)'
+        WHEN Unemployment BETWEEN 5.0 AND 7.0 THEN 'Moderate (5-7%)'
+        WHEN Unemployment BETWEEN 7.0 AND 9.0 THEN 'High (7-9%)'
+        ELSE 'Very High (>9%)'
+      END
+    synonyms: ["unemployment level", "job market health"]
+    samples: ["Low (<5%)", "Moderate (5-7%)", "High (7-9%)", "Very High (>9%)"]
+
+  - name: cpi
+    type: number
+    description: "Consumer Price Index - measures inflation and purchasing power"
+    expr: CPI
+    synonyms: ["consumer price index", "inflation index", "price index"]
+
+  - name: cpi_category
+    type: string
+    description: "CPI categorized into ranges"
+    expr: |
+      CASE
+        WHEN CPI < 180 THEN 'Low (<180)'
+        WHEN CPI BETWEEN 180 AND 200 THEN 'Medium (180-200)'
+        WHEN CPI BETWEEN 200 AND 220 THEN 'High (200-220)'
+        ELSE 'Very High (>220)'
+      END
+    samples: ["Low (<180)", "Medium (180-200)", "High (200-220)", "Very High (>220)"]
+
+# Measures - Quantitative metrics and aggregations
+measures:
+  # Sales Performance Measures
+  - name: total_sales
+    type: sum
+    description: "Total sales revenue across all stores and time periods"
+    expr: Weekly_Sales
+    synonyms: ["total revenue", "gross sales", "sales revenue"]
+
+  - name: average_weekly_sales
+    type: average
+    description: "Average sales per week - benchmark for typical performance"
+    expr: Weekly_Sales
+    synonyms: ["avg sales", "mean sales", "typical sales"]
+
+  - name: median_weekly_sales
+    type: median
+    description: "Median weekly sales - represents middle performance level"
+    expr: Weekly_Sales
+    synonyms: ["median sales", "middle sales"]
+
+  - name: max_weekly_sales
+    type: max
+    description: "Highest weekly sales achieved - peak performance indicator"
+    expr: Weekly_Sales
+    synonyms: ["maximum sales", "peak sales", "highest sales"]
+
+  - name: min_weekly_sales
+    type: min
+    description: "Lowest weekly sales recorded - identifies underperformance"
+    expr: Weekly_Sales
+    synonyms: ["minimum sales", "lowest sales"]
+
+  # Holiday-Specific Measures
+  - name: holiday_average_sales
+    type: average
+    description: "Average sales during holiday weeks only"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 1
+    synonyms: ["holiday sales avg", "avg holiday revenue"]
+
+  - name: non_holiday_average_sales
+    type: average
+    description: "Average sales during non-holiday weeks only"
+    expr: Weekly_Sales
+    filters:
+      - expr: Holiday_Flag = 0
+    synonyms: ["non-holiday sales avg", "regular week sales"]
+
+  - name: holiday_sales_lift_pct
+    type: custom
+    description: "Percentage increase in sales during holidays vs non-holidays"
+    expr: |
+      (AVG(CASE WHEN Holiday_Flag = 1 THEN Weekly_Sales END) -
+       AVG(CASE WHEN Holiday_Flag = 0 THEN Weekly_Sales END)) /
+       AVG(CASE WHEN Holiday_Flag = 0 THEN Weekly_Sales END) * 100
+    synonyms: ["holiday lift", "holiday boost", "holiday impact percentage"]
+
+  # Environmental Measures
+  - name: average_temperature
+    type: average
+    description: "Average temperature across all weeks"
+    expr: Temperature
+    synonyms: ["avg temp", "mean temperature"]
+
+  - name: temperature_sales_correlation
+    type: custom
+    description: "Correlation coefficient between temperature and sales (-1 to 1)"
+    expr: "CORR(Temperature, Weekly_Sales)"
+    synonyms: ["temp correlation", "temperature relationship"]
+
+  # Economic Measures
+  - name: average_fuel_price
+    type: average
+    description: "Average fuel price per gallon across all weeks"
+    expr: Fuel_Price
+    synonyms: ["avg fuel price", "mean gas price"]
+
+  - name: average_unemployment
+    type: average
+    description: "Average unemployment rate across all weeks"
+    expr: Unemployment
+    synonyms: ["avg unemployment", "mean unemployment rate"]
+
+  - name: average_cpi
+    type: average
+    description: "Average Consumer Price Index across all weeks"
+    expr: CPI
+    synonyms: ["avg CPI", "mean CPI"]
+
+  - name: unemployment_sales_correlation
+    type: custom
+    description: "Correlation between unemployment rate and sales"
+    expr: "CORR(Unemployment, Weekly_Sales)"
+    synonyms: ["unemployment correlation", "jobless rate impact"]
+
+  - name: fuel_price_sales_correlation
+    type: custom
+    description: "Correlation between fuel prices and sales"
+    expr: "CORR(Fuel_Price, Weekly_Sales)"
+    synonyms: ["fuel correlation", "gas price impact"]
+
+  # Counting Measures
+  - name: total_weeks
+    type: count
+    description: "Total number of weeks in the dataset"
+    synonyms: ["week count", "number of weeks", "weeks of data"]
+
+  - name: store_count
+    type: count_distinct
+    description: "Number of unique stores in the dataset"
+    expr: Store
+    synonyms: ["number of stores", "store locations"]
+
+  - name: holiday_week_count
+    type: count
+    description: "Number of holiday weeks in the dataset"
+    filters:
+      - expr: Holiday_Flag = 1
+    synonyms: ["number of holiday weeks"]
+
+  # Store Performance Measures
+  - name: sales_per_store
+    type: custom
+    description: "Average total sales per store (store productivity metric)"
+    expr: "SUM(Weekly_Sales) / COUNT(DISTINCT Store)"
+    synonyms: ["avg sales per store", "store productivity"]
+
+  - name: weeks_per_store
+    type: custom
+    description: "Average number of weeks of data per store"
+    expr: "COUNT(*) / COUNT(DISTINCT Store)"
+    synonyms: ["avg weeks per store"]

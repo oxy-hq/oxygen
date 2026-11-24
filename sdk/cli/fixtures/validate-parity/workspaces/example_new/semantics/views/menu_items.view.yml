@@ -1,0 +1,73 @@
+name: menu_items
+description: |
+  The menu. One row per sellable item, carrying the unit economics that make
+  margin analysis possible at all — `unit_cost` alongside `unit_price`.
+
+  This column is the thing the fruit fixture never had: no COGS anywhere on
+  the transaction path, so no margin measure could be built no matter how the
+  semantic model was configured. Ranking add-on categories by profit needs
+  cost at the grain the revenue is measured at, and this is where it lives.
+
+datasource: local
+table: restaurant_menu_items.csv
+
+refresh_key:
+  every: "1h"
+
+entities:
+  - name: menu_item
+    type: primary
+    description: "A sellable menu item"
+    key: menu_item_id
+  # No `menu_category` foreign entity — category is a dimension, not an entity
+  # owned by any view. See the note in locations.view.yml.
+
+dimensions:
+  - name: menu_item_id
+    type: number
+    description: "Menu item identifier"
+    expr: menu_item_id
+  - name: item_name
+    type: string
+    description: "Item name as printed on the menu"
+    expr: item_name
+  - name: category
+    type: string
+    description: "Menu category: entrees, sides, beverages, appetizers, desserts"
+    expr: category
+  - name: item_type
+    type: string
+    description: "entree or add_on"
+    expr: item_type
+  - name: unit_price
+    type: number
+    description: "Menu price"
+    expr: unit_price
+  - name: unit_cost
+    type: number
+    description: "Food cost per unit"
+    expr: unit_cost
+  - name: beverage_type
+    type: string
+    description: "For beverages: alcoholic or non_alcoholic. Empty for other categories."
+    expr: beverage_type
+
+measures:
+  - name: total_menu_items
+    type: count
+    description: "Number of menu items"
+  - name: avg_unit_price
+    type: average
+    description: "Average menu price"
+    expr: unit_price
+  - name: avg_unit_cost
+    type: average
+    description: "Average food cost"
+    expr: unit_cost
+  - name: avg_unit_margin
+    type: custom
+    description: |
+      Average retained margin per unit. The spread across categories is the
+      whole reason revenue and profit rank add-ons differently — roughly 0.88
+      retained on beverages against 0.45 on sides.
+    expr: "{{menu_items.avg_unit_price}} - {{menu_items.avg_unit_cost}}"

@@ -1,0 +1,76 @@
+name: shipping_addresses
+description: Customer shipping addresses for order delivery
+datasource: local
+table: shipping_addresses.csv
+entities:
+- name: shipping_address
+  type: primary
+  description: Primary shipping address entity
+  key: shipping_address_id
+  label: city
+  parent: customer
+- name: customer
+  type: foreign
+  description: Customer who owns this address
+  key: customer_id
+dimensions:
+- name: shipping_address_id
+  type: number
+  description: Unique shipping address identifier
+  expr: id
+- name: customer_id
+  type: number
+  description: Customer identifier
+  expr: customer_id
+- name: address_line_1
+  type: string
+  description: First line of address
+  expr: address_line_1
+  # A street address is one order per value — never a lever, and wide enough
+  # to blow the cardinality cap after paying for the aggregate.
+  segmentable: false
+- name: address_line_2
+  type: string
+  description: Second line of address
+  expr: address_line_2
+  # Apartment/floor line. Segments cleanly into a handful of values, which
+  # is exactly why it slipped past the cardinality cap and got ranked as a
+  # revenue lever. Nobody can act on it.
+  segmentable: false
+- name: city
+  type: string
+  description: City name
+  expr: city
+- name: state
+  type: string
+  description: State or province
+  expr: state
+- name: postal_code
+  type: string
+  description: Postal or ZIP code
+  expr: postal_code
+  # Geography at a grain nobody owns; city/state carry the actionable
+  # version.
+  segmentable: false
+- name: country
+  type: string
+  description: Country name
+  expr: country
+- name: is_default
+  type: boolean
+  description: Whether this is the default shipping address
+  expr: is_default
+  # A flag about the address record, not about the order.
+  segmentable: false
+measures:
+- name: total_addresses
+  type: count
+  description: Total number of shipping addresses
+- name: distinct_customers_with_addresses
+  type: count_distinct
+  description: Number of distinct customers with addresses
+  expr: customer_id
+- name: default_addresses_count
+  type: sum
+  description: Count of default addresses
+  expr: "CASE WHEN {{shipping_addresses.is_default}} THEN 1 ELSE 0 END"
