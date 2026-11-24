@@ -57,8 +57,9 @@ with extension fallback:
 3. If neither exists, return the original path (produces a clear error)
 
 A path that exists but resolves outside `base_dir` once symlinks are followed is
-refused too. The CLI (`oxy agentic run`) turns an absolute path inside the
-workspace into the relative name before it calls the builder.
+refused too. `oxyc agentic run` (over `POST /analytics/runs`) takes only the
+relative name; the Rust `oxy agentic run`, which turned an absolute path inside
+the workspace into it, is a stub since 2026-11-24.
 
 ## Platform Boundary
 

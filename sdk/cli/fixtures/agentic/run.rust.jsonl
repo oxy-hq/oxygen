@@ -1,0 +1,13 @@
+{"seq":1,"event_type":"step_start","payload":{"label":"Clarifying","summary":null,"sub_spec_index":null}}
+{"seq":4,"event_type":"tool_call","payload":{"name":"search_catalog","input":"{\"query\":\"revenue by region\"}","llm_duration_ms":812,"sub_spec_index":null}}
+{"seq":5,"event_type":"tool_result","payload":{"name":"search_catalog","output":"orders.revenue, orders.region","duration_ms":14,"is_error":false,"sub_spec_index":null}}
+{"seq":7,"event_type":"step_end","payload":{"label":"Clarifying","outcome":"advanced","sub_spec_index":null}}
+{"seq":7,"event_type":"step_start","payload":{"label":"Solving","summary":"revenue by region","sub_spec_index":null}}
+{"seq":9,"event_type":"query_generated","payload":{"sql":"SELECT region, SUM(revenue) FROM orders GROUP BY 1"}}
+{"seq":10,"event_type":"analytics_validation_failed","payload":{"state":"solving","reason":"the query groups by a column the spec did not name","model_response":"QuerySpec { .. }"}}
+{"seq":12,"event_type":"query_executed","payload":{"query":"SELECT region, SUM(revenue) FROM orders GROUP BY 1","row_count":2,"duration_ms":31,"success":true,"error":null,"columns":["region","revenue"],"rows":[["west",1.0],["east",1234.5]],"source":"llm","is_preagg":false}}
+{"seq":13,"event_type":"step_end","payload":{"label":"Solving","outcome":"advanced","sub_spec_index":null}}
+{"seq":15,"event_type":"text_delta","payload":{"token":"West: $1.00; ","sub_spec_index":null}}
+{"seq":16,"event_type":"text_delta","payload":{"token":"east: $1,234.50 — «ünïcode»","sub_spec_index":null}}
+{"seq":17,"event_type":"llm_usage","payload":{"prompt_tokens":1200,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":900,"duration_ms":2100,"model":"claude-sonnet","sub_spec_index":null}}
+{"seq":18,"event_type":"done","payload":{}}

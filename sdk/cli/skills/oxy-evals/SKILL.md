@@ -281,10 +281,10 @@ The results JSON has only the final answer. To see the path, run the same prompt
 and read the events:
 
 ```bash
-oxy agentic run <path/to/agent.agentic.yml> -q "<the case's prompt>" --json
+oxyc agentic run <path/to/agent.agentic.yml> -q "<the case's prompt>" --json --workspace <id>
 ```
 
-This streams the run's events as JSON lines and needs `OXY_DATABASE_URL`. Look at
+This runs the deployed agent, as the evals do, and streams the run's events as JSON lines. Look at
 `query_executed`: its `query`, its `rows`, and its `source`. `source` is `semantic` (compiled
 by the semantic model), `llm` (SQL the model wrote), `verified_sql` (a Verified Query), or
 `vendor`. Also look at `analytics_validation_failed`, the checks that bounced the agent. If

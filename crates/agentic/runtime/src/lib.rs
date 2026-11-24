@@ -2,7 +2,7 @@
 //!
 //! Provides run lifecycle management, event persistence, SSE streaming support,
 //! and the `EventRegistry` for domain-aware event processing. Used by both the
-//! HTTP server (`agentic-http`) and CLI (`oxy agentic`).
+//! HTTP server (`agentic-http`) and the worker fleet that drives queued runs.
 //!
 //! This crate is **domain-agnostic** — it never imports analytics, builder, or
 //! any domain-specific types. Domain behavior is injected via callbacks and

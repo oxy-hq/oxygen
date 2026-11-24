@@ -8,7 +8,7 @@ description: >-
   agent can't see a database", "which tools can a state call", "set thinking, effort,
   budget_tokens or extended thinking", "per-state model or max_retries", "validation rules",
   "Cube or Looker semantic_engine", "analytics vs app-builder agent", "`.agent.yml` or
-  `.agentic.yml`", and validating, running (`oxy agentic run`) or testing (`oxyc evals run`) an agent.
+  `.agentic.yml`", and validating, running (`oxyc agentic run`) or testing (`oxyc evals run`) an agent.
   Not for writing the semantic model itself (views, topics) or automations.
 ---
 
@@ -270,7 +270,7 @@ thinking. A value you set is used as-is, and thinking tokens count against it.
 ```bash
 oxyc validate --file agents/sales.agentic.yml   # offline schema check, no server
 oxy validate --file agents/sales.agentic.yml    # the runtime's own parser
-oxy agentic run agents/sales.agentic.yml -q "Revenue by region last quarter?"
+oxyc agentic run agents/sales.agentic.yml -q "Revenue by region last quarter?" --workspace <id>
 oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged evals, on the deployment
 ```
 
@@ -280,14 +280,15 @@ oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged eva
   accepts, so write `open_ai` and `open_ai_compat` to satisfy both. Neither
   validator resolves `databases:` or `llm.ref`, expands globs, reads `${VAR}`
   placeholders, checks rule names or timezones, or notices unknown keys.
-- **The first full check is a run.** `oxy agentic run <path> -q "<question>"`
-  builds the agent exactly as the server does and streams each state. It runs
-  in a workspace directory and needs Oxy's Postgres database (`OXY_DATABASE_URL`),
-  like `oxy serve`. Add `--json` for JSONL events, or `--thinking-mode
-  extended_thinking`. A CLI run that pauses to ask the user something can't be
-  usefully resumed from the CLI, because `oxy agentic answer` only marks the
-  run as running and does not deliver the text. Ask a more specific question,
-  or continue in the app.
+- **The first full check is a run.** `oxyc agentic run <path> -q "<question>"
+  --workspace <id>` runs the agent on the deployment and streams each state. It
+  runs what the workspace has compiled (push first), not your checkout, and
+  each run opens a chat thread in your history. Add `--json` for JSONL events,
+  or `--thinking-mode extended_thinking`. A run that stops to ask something
+  exits `0` with the question; answer it with `oxyc agentic answer <run_id>
+  --answer "..."` and follow the rest with `oxyc agentic events <run_id>`. An
+  `error` or `cancelled` run exits `1`. (The Rust `oxy agentic run` ran a local
+  file against `OXY_DATABASE_URL`; it is a stub that prints this command.)
 - **`oxyc evals run`** runs `.test.yml` evals against an agent on the
   deployment and scores each case with an LLM judge. It runs what the workspace
   has compiled (push first), not your checkout, and exits `9` under

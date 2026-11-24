@@ -126,11 +126,12 @@ jq -r '.[].errors[]' "$R"
 The results only show answers. To see the route an answer took, replay the prompt:
 
 ```bash
-oxy agentic run <path/to/agent.agentic.yml> -q "<prompt>" --json
+oxyc agentic run <path/to/agent.agentic.yml> -q "<prompt>" --json --workspace <id>
 ```
 
-This needs `OXY_DATABASE_URL` (a Postgres URL; the command records the run there). It prints
-one JSON object per line, `{"seq", "event_type", "payload"}`. The events that matter for
+It runs the agent the deployment has compiled (push first), as the evals do, and needs only an
+`oxyc` login. It prints one JSON object per line, `{"seq", "event_type", "payload"}`; each
+`payload` also carries the run's `attempt`. The events that matter for
 diagnosis:
 
 | `event_type` | What to read in `payload` |

@@ -876,6 +876,58 @@ shows the holder and asks first; with no terminal it refuses (exit `8`) unless
 is released and it exits `6` naming who holds it now. Both need a workspace
 admin; staff act inside a tenant through `oxyc assume`.
 
+## Agentic agents
+
+Ask a workspace's agentic agent a question on a deployment, follow and steer
+its run, and read the workspace's runs. These replaced the Rust `oxy agentic`
+(a one-release stub since 2026-11-24 that prints the `oxyc` command and exits
+`2`), which ran a `.agentic.yml` from a local checkout with the database URL
+and the LLM keys in your shell.
+
+```bash
+oxyc agentic run <agent> -q <question> --workspace <id> [--thinking-mode auto|extended_thinking] [--json]
+oxyc agentic events <run_id> --workspace <id> [--after-seq <n>] [--json]
+oxyc agentic answer <run_id> --answer <text> --workspace <id>
+oxyc agentic cancel <run_id> --workspace <id>
+oxyc agentic list --workspace <id> [--limit <n>] [--json]
+oxyc agentic inspect <run_id> --workspace <id> [--json]
+oxyc agentic status --workspace <id> [--active] [--watch <s>] [--json]
+```
+
+`run` starts the agent the deployment has **compiled** for the workspace's
+served revision (`POST …/analytics/runs`, the chat's route), with the
+workspace's own secrets and LLM keys — never a file on your machine, so push a
+change before running it. `<agent>` is the agent's path inside the workspace
+(`agents/sales.agentic.yml`, or `agents/sales`). Each run is a chat: it opens a
+thread in your history, as the web app does. It streams the run's events
+(`GET …/runs/{id}/events`) until `done` (exit `0`), `error` or `cancelled`
+(exit `1`; the Rust command exited `0`), or a question: a run that stops to ask
+something is suspended, and `run` exits `0` once the stream has been quiet for
+a moment after it, naming `oxyc agentic answer`. `--json` prints the Rust
+command's lines, one compact `{"seq","event_type","payload"}` object per event,
+with three additions from the route: `attempt` in each payload, a
+`recovery_resumed` event when the run was re-driven after a restart, and a
+terminal event built from the run row when the run ended without one. A start
+the agent cannot make answers `400` (exit `6`); a workspace not compiled yet
+`503` (exit `7`).
+
+`events` replays a run (from `--after-seq`), and follows it when it is still
+going; it exits `0` whatever the run did. `answer` delivers the text and the run
+resumes on the deployment (the Rust command only marked the row running); a run
+not waiting for one is exit `6`. `cancel` asks the run's driver to stop.
+
+`list`, `inspect` and `status` read the Orchestrator Dashboard
+(`…/analytics/coordinator/{runs, active-runs, runs/{id}/tree}`), an Oxygen
+Nexus surface: org owners and admins, Oxy staff, and members Oxy granted the
+workspace; anyone else is `403 factory_access_required` (exit `4`). Their
+`--json` keeps the Rust keys the routes carry: `list` is
+`[{run_id, status, source_type, question, created_at}]`; `inspect` drops
+`metadata`, `event_count` and `extension` and adds `agent_id`, `task_status`,
+`attempt`, `trigger` and `llm_usage`; `status` drops `event_count` and adds
+`task_status`. Timestamps are RFC 3339. `status` reads one run tree per listed
+run, so it expands at most 20 runs, four at a time, and `--watch` refreshes no
+faster than every 2 s.
+
 ## Running SQL and automations
 
 Run a `.sql` file or an automation on a deployment. It replaced the Rust

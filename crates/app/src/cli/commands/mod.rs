@@ -100,11 +100,13 @@ pub enum SubCommand {
     /// This stub stays for one release so an old invocation is told what to
     /// type instead.
     Looker(looker::LookerArgs),
-    /// Run and debug agentic analytics pipelines
+    /// Moved to `oxyc agentic` (prints the command and exits 2)
     ///
-    /// Execute agentic pipelines with interactive debugging and event streaming.
-    /// Supports analytics and builder domains. Use --json for LLM-readable output.
-    /// Requires OXY_DATABASE_URL to be set.
+    /// Running and reading agentic runs is
+    /// `oxyc agentic run | list | events | answer | cancel | inspect | status
+    /// --workspace <id>` now (`npm i -g @oxy-hq/cli`), against the deployed
+    /// agent. This stub stays for one release so an old invocation is told
+    /// what to type instead.
     Agentic(agentic_cli::AgenticArgs),
 }
 
@@ -455,7 +457,8 @@ pub async fn run(
             exit(looker::MOVED_EXIT_CODE);
         }
         SubCommand::Agentic(agentic_args) => {
-            agentic_cli::handle_agentic_command(agentic_args).await?;
+            eprintln!("{}", agentic_cli::moved_message(&agentic_args).warning());
+            exit(agentic_cli::MOVED_EXIT_CODE);
         }
     }
 

@@ -6,6 +6,7 @@
  */
 
 import type { Command } from "commander";
+import { registerAgentic } from "./agentic-cli.js";
 import { registerAirway } from "./airway-cli.js";
 import { registerEvals } from "./evals-cli.js";
 import type { Wiring } from "./flags-cli.js";
@@ -15,6 +16,7 @@ import { registerSync } from "./sync-cli.js";
 
 export function registerPorted(program: Command, w: Wiring): void {
   registerAirway(program, w);
+  registerAgentic(program, w);
   registerEvals(program, w);
   registerRun(program, w);
   registerSync(program, w);

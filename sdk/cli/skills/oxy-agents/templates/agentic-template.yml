@@ -5,7 +5,8 @@
 # `.test.` in the file name; those paths are not deployed.
 #
 # Check the shape offline:   oxyc validate --file <path>
-# First real check is a run: oxy agentic run <path> -q "<question>"
+# First real check is a run: oxyc agentic run <path> -q "<question>" --workspace <id>
+#   (on the deployment, so push first)
 #
 # Every key is optional. Unknown keys, at any level, are ignored without a
 # warning by the runtime and by both validators, so spell them exactly.

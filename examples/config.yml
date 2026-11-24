@@ -43,7 +43,7 @@ databases:
   # resolved from this workspace's org via `oltp_tenants`. Always resolves the
   # read-only analyst role — writes reach it only from published app code.
   # Provision with: oxyc oltp provision --org <org-slug> --writer app:bookings
-  # Ask questions about it: oxy agentic run oltp -q "how many orders are open?"
+  # Ask questions about it: oxyc agentic run oltp -q "how many orders are open?" --workspace <id>
   - name: oltp
     type: postgres_managed
 

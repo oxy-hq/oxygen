@@ -6735,54 +6735,6 @@ metric = "abc"
 value = 40.47221268969612
 
 [[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 701.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "cmd_inspect"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "cmd_list"
-metric = "cognitive"
-value = 17.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "cmd_run"
-metric = "abc"
-value = 60.315835400000886
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "cmd_run"
-metric = "cognitive"
-value = 35.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "render_event_pretty"
-metric = "abc"
-value = 50.25932749251625
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "render_event_pretty"
-metric = "cognitive"
-value = 21.0
-
-[[entry]]
-path = "crates/app/src/cli/commands/agentic_cli.rs"
-qualified = "render_event_pretty"
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
 path = "crates/app/src/cli/commands/compile.rs"
 qualified = "run_compile"
 metric = "abc"

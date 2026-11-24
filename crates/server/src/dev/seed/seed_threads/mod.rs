@@ -323,8 +323,8 @@ async fn ensure_thread(
     // transaction already committed, so the thread still renders — only
     // `thinking_mode` comes back null. Hard-erroring here would be the worse
     // trade: this is exactly the call that fails when the analytics migrator
-    // hasn't run (it is reachable only from `serve`/`admin`/`airway`/
-    // `agentic_cli`, never from the seed path), and it would abort the whole
+    // hasn't run (it is reachable only from `serve`, never from the seed
+    // path), and it would abort the whole
     // seed over a cosmetic field.
     if let Err(e) = agentic_analytics::insert_run_meta(
         conn,

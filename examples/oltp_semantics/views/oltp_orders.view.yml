@@ -56,7 +56,8 @@ measures:
     #
     # The CASE goes through airlayer's compile, which treats `expr` as SQL, and
     # the answer was checked against the table: `oxy agentic run
-    # oltp.agentic.yml --question "how many orders are open right now?"` returns
+    # oltp.agentic.yml --question "how many orders are open right now?"` (now
+    # `oxyc agentic run … --workspace <id>`, on the deployment) returns
     # the same number as `SELECT count(*) … WHERE status = 'open'`. Worth
     # re-checking if that compile path changes — `agentic-analytics`'s fallback
     # translator builds `COUNT(<table>.<expr>)`, which a CASE would not survive.

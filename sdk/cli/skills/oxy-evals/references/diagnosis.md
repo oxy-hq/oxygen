@@ -4,8 +4,8 @@ Diagnose before editing. For every failing or flaky case, collect:
 
 1. Every run's `actual_output`, `cot` and `choice` from the results JSON
    ([results-json.md](results-json.md)).
-2. The route the agent took, from `oxy agentic run <agent> -q "<prompt>" --json`. Run it two
-   or three times if the case is flaky. Read `query_executed.source` and `query`, and any
+2. The route the agent took, from `oxyc agentic run <agent> -q "<prompt>" --json --workspace <id>`.
+   It runs the deployed (pushed) agent, as `oxyc evals run` does. Run it two or three times if the case is flaky. Read `query_executed.source` and `query`, and any
    `analytics_validation_failed` events.
 3. The files the agent actually loads: the `context:` globs in its `.agentic.yml`, resolved
    relative to that file's directory. A view, doc or SQL file outside those globs doesn't
