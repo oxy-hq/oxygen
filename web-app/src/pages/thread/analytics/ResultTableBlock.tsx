@@ -9,10 +9,11 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/shadcn/table";
-import { extractResultTables, type SseEvent } from "@/hooks/useAnalyticsRun";
+import { extractResultCharts, extractResultTables, type SseEvent } from "@/hooks/useAnalyticsRun";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import { AnalyticsService, type ResultTableData } from "@/services/api/analytics";
+import { ResultChartBlock } from "./ResultChartBlock";
 
 /** Rows per page. The answer's row carries the first page; the rest are fetched. */
 export const PAGE_ROWS = 50;
@@ -166,9 +167,17 @@ export function ResultTableBlock({ runId, table }: { runId: string; table: Resul
   );
 }
 
-/** Every answer table of a run (its `result_table` rows), in order. */
-export function RunResultTables({ events, runId }: { events: SseEvent[]; runId: string }) {
-  return extractResultTables(events).map((table) => (
-    <ResultTableBlock key={table.result_id} runId={runId} table={table} />
-  ));
+/** A run's charts (`result_chart` rows), then its answer tables (`result_table`), each in order. */
+export function RunResults({ events, runId }: { events: SseEvent[]; runId: string }) {
+  return (
+    <>
+      {extractResultCharts(events).map((chart, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows only append, and two charts may share a result
+        <ResultChartBlock key={i} chart={chart} index={i} />
+      ))}
+      {extractResultTables(events).map((table) => (
+        <ResultTableBlock key={table.result_id} runId={runId} table={table} />
+      ))}
+    </>
+  );
 }

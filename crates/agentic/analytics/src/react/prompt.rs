@@ -29,7 +29,9 @@ const ANSWER_RULES: &str = "- Answer from query results only. Never state a numb
     express them, not by hand in the answer.\n\
     - When the question limits what counts (only some months, records or rows), look at the \
     rows that limit applies to before answering.\n\
-    - Ask the user only when the context cannot settle an ambiguity.";
+    - Ask the user only when the context cannot settle an ambiguity.\n\
+    - Call `chart` only when the user asks for a chart, or when the answer is a trend over \
+    time or a comparison across a few categories. Never chart a single number.";
 
 /// For an agent with an `llm.advisor`. Sonnet-class models cannot be forced
 /// to call it, so the prompt says when. Only when stuck: on BIRD a call on

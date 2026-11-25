@@ -8,14 +8,14 @@ use agentic_core::events::Event;
 use agentic_core::react::{DoneHook, EventSink, Tool, Toolset, Turn};
 use agentic_runtime::react::{
     AskUser, Budgets, MEMORY_TOOLS, MemoryGate, Nudge, REFLECT_PROMPT, Reflect, ResultStore,
-    RunMemory, column_kinds, memory_tools, notes_section,
+    RunMemory, memory_tools, notes_section,
 };
 use async_trait::async_trait;
 
 use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
 use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
-use super::tools::{QueryDeps, QueryTool, ReadTool, SearchTool};
+use super::tools::{ChartTool, QueryDeps, QueryTool, ReadTool, SearchTool};
 use crate::events::AnalyticsEvent;
 use crate::semantic::SemanticCatalog;
 
@@ -36,6 +36,10 @@ pub struct ReactInputs {
 /// What the loop needs to run one analytics question.
 pub struct ReactAnalytics {
     pub toolset: Toolset,
+    /// The run's results: `query` writes them through the loop's
+    /// `ToolCx::results`, and `chart` reads them here, so the loop must be
+    /// given this same store (`LoopConfig::results`).
+    pub results: Arc<ResultStore>,
     pub budgets: Budgets,
     /// With an advisor: the loop tells the model to call it after the third
     /// query, or at the first failed one.
@@ -67,6 +71,7 @@ impl ReactAnalytics {
             semantic_only: inputs.semantic_only,
             advisor: inputs.advisor,
         });
+        let results = Arc::new(ResultStore::new());
         let tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(SearchTool::new(inputs.files.clone())),
             Arc::new(ReadTool::new(inputs.files.clone())),
@@ -76,6 +81,7 @@ impl ReactAnalytics {
                 default_connector: inputs.default_connector,
                 semantic_only: inputs.semantic_only,
             })),
+            Arc::new(ChartTool::new(results.clone())),
             Arc::new(AskUser),
         ];
         Self {
@@ -83,6 +89,7 @@ impl ReactAnalytics {
                 system_prompt,
                 tools,
             },
+            results,
             budgets: Budgets {
                 max_turns: 30,
                 max_tokens: 2_000_000,

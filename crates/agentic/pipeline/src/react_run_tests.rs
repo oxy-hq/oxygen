@@ -17,7 +17,7 @@ use agentic_core::react::{
 };
 use agentic_core::result::{CellValue, QueryResult, QueryRow};
 use agentic_core::tools::ToolDef;
-use agentic_runtime::react::{LoopOutcome, ResultStore};
+use agentic_runtime::react::LoopOutcome;
 use serde_json::{Value, json};
 
 use super::*;
@@ -180,7 +180,6 @@ pub(crate) fn react_run(script: Vec<Decision>, dir: &std::path::Path) -> ReactRu
         engine: Box::new(Scripted(Mutex::new(script.into()))),
         system: analytics.toolset.system_prompt.clone(),
         analytics,
-        results: Arc::new(ResultStore::new()),
         after_done: None,
     }
 }

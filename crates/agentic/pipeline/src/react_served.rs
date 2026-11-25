@@ -162,7 +162,8 @@ pub(crate) fn with_archive(
     run_id: &str,
 ) -> Result<ReactRun, String> {
     if let (Ok(run), Some(archive)) = (&built, platform.result_archive()) {
-        run.results
+        run.analytics
+            .results
             .attach_archive(archive, platform.workspace_id(), run_id);
     }
     built

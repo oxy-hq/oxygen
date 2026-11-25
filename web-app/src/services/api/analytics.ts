@@ -510,6 +510,27 @@ type ResultTableBlock = {
   payload: ResultTableData;
 };
 
+/**
+ * A chart the react `chart` tool drew. `rows` are its own points, `[x, series?, ...y]` per row
+ * of the result as the query returned it: nothing was summed, grouped or sorted, and the
+ * server refused any spec whose (x, series) pair repeats.
+ */
+export type ResultChartData = {
+  result_id: string;
+  kind: "line" | "bar" | "pie" | "scatter";
+  title?: string;
+  x: string;
+  series?: string;
+  y: string[];
+  rows: unknown[][];
+};
+
+type ResultChartBlock = {
+  seq: number;
+  event_type: "result_chart";
+  payload: ResultChartData;
+};
+
 /** One page of a stored react result (`GET …/runs/{id}/results/{result_id}`). */
 export type ResultPage = {
   columns: string[];
@@ -540,6 +561,7 @@ export type UiBlock =
   | RuntimeSelectedBlock
   | AnswerResultBlock
   | ResultTableBlock
+  | ResultChartBlock
   | ReactTurnBlock
   | ReactToolResultBlock
   | ReactSuspendedBlock

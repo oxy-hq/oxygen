@@ -13,7 +13,9 @@ pub mod tools;
 
 pub use files::{FileEntry, FileKind, WorkspaceFiles};
 pub use read_only::check_read_only;
-pub use tools::{QueryDeps, QueryTool, ReadTool, SearchTool};
+pub use tools::{
+    ChartKind, ChartSpec, ChartTool, MAX_CHART_ROWS, QueryDeps, QueryTool, ReadTool, SearchTool,
+};
 
 /// The FSM's day-only date hint (`Today is YYYY-MM-DD.`) in `tz`, else UTC,
 /// for `EngineConfig::system_date_hint`. One wording for both runtimes.
@@ -21,6 +23,8 @@ pub fn date_hint(tz: Option<chrono_tz::Tz>) -> String {
     crate::solver::AnalyticsSolver::current_date_hint(tz)
 }
 
+#[cfg(test)]
+mod chart_tests;
 #[cfg(test)]
 mod query_routing_tests;
 #[cfg(test)]

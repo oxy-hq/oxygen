@@ -1,6 +1,7 @@
 //! The answer's table: a react run stores each query result as it is made,
 //! so the `result_table` row is written even when the answer comes from
-//! another process after a park, and from memory when storing failed.
+//! another process after a park, and from memory when storing failed. A
+//! `chart` call after a resume reads the stored result the same way.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -123,4 +124,57 @@ async fn a_failed_store_still_tables_the_answer_from_memory() {
     );
     let rows = rows(&db, &run_id).await;
     assert_eq!(table_rows(&rows).len(), 1, "{rows:?}");
+}
+
+/// The `chart` tool reads the run's one result store: after a park, a fresh
+/// host draws `r1` from the stored copy, its points the rows as stored.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_run_charts_a_result_stored_before_the_park() {
+    let db = db().await;
+    let ws = Uuid::new_v4();
+    let kept: Arc<Kept> = Arc::default();
+    let run_id = queued_chat(&db, ws).await;
+    let starter = host(kept.clone(), vec![query(), ask_user()]);
+    latency_pass(&db, ws, &starter).await;
+    until(&db, &run_id, "the react run never parked", |r| {
+        r.task_status.as_deref() == Some("awaiting_input") && r.driver_id.is_none()
+    })
+    .await;
+    let stored = async {
+        while kept.0.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), stored)
+        .await
+        .expect("r1 was never stored");
+
+    queue_answer(&db, &run_id, "2024").await.unwrap();
+    let chart = ToolCallReq {
+        id: "c1".into(),
+        name: "chart".into(),
+        input: json!({"result_id": "r1", "kind": "bar", "x": "n", "y": ["n"]}),
+    };
+    let reply = Decision::Reply(turn("It is 5 {{result:r1|primary}}.", vec![]));
+    let resumer = host(
+        kept,
+        vec![Decision::CallTools(turn("", vec![chart])), reply],
+    );
+    latency_pass(&db, ws, &resumer).await;
+    let run = until(&db, &run_id, "the resumed run never ended", ended).await;
+    assert_eq!(
+        run.task_status.as_deref(),
+        Some("done"),
+        "{:?}",
+        run.error_message
+    );
+    let rows = rows(&db, &run_id).await;
+    let charts: Vec<&Value> = rows
+        .iter()
+        .filter(|(t, _)| t == "result_chart")
+        .map(|(_, p)| p)
+        .collect();
+    assert_eq!(charts.len(), 1, "{rows:?}");
+    assert_eq!(charts[0]["kind"], "bar");
+    assert_eq!(charts[0]["rows"], json!([[5.0, 5.0]]));
 }

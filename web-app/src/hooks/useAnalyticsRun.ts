@@ -6,6 +6,7 @@ import { previewRequestHeaders } from "@/libs/utils/preview";
 import type {
   ChartConfig,
   HumanInputQuestion,
+  ResultChartData,
   ResultTableData,
   ThinkingMode,
   UiBlock
@@ -201,6 +202,11 @@ export function extractAnswer(events: SseEvent[]): string {
         .map((s) => s.text)
         .join("");
   return stripResultRefs(text).trim();
+}
+
+/** The charts (`result_chart`) of a react run, in emission order. */
+export function extractResultCharts(events: SseEvent[]): ResultChartData[] {
+  return events.filter((ev) => ev.type === "result_chart").map((ev) => ev.data as ResultChartData);
 }
 
 /** The answer tables (`result_table`) of a react run, in emission order. */

@@ -52,6 +52,22 @@ pub enum AnalyticsEvent {
         truncated: bool,
     },
 
+    /// A chart the `chart` tool drew from result `result_id`. `rows` are its
+    /// own points, `[x, series?, y…]` per result row as the query returned
+    /// it (at most 500), so the chart still draws after the stored result
+    /// expires. Nothing was summed or grouped. A react run only.
+    ResultChart {
+        result_id: String,
+        kind: crate::react::ChartKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        x: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        series: Option<String>,
+        y: Vec<String>,
+        rows: Vec<Vec<serde_json::Value>>,
+    },
+
     /// The schema catalog was resolved: these tables will be referenced.
     SchemaResolved { tables: Vec<String> },
 

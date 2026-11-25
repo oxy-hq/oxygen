@@ -22,7 +22,7 @@ use agentic_core::events::{CoreEvent, Event};
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::react::{Engine, EventSink, PriorTurn, Transcript};
 use agentic_llm::LlmEngine;
-use agentic_runtime::react::{LoopConfig, LoopOutcome, ResultStore, RunMemory, run_loop};
+use agentic_runtime::react::{LoopConfig, LoopOutcome, RunMemory, run_loop};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -34,9 +34,9 @@ use crate::react_config::{default_connector, dynamic_hint, engine_config, refuse
 pub(crate) struct ReactRun {
     /// `LlmEngine` in production; tests substitute a scripted engine.
     pub engine: Box<dyn Engine>,
+    /// Its `results` are the run's one store: the loop's tools, `chart` and
+    /// the [`AnswerFinisher`] all read it.
     pub analytics: ReactAnalytics,
-    /// Shared by the loop's tools and [`finish`], which reads the cited SQL.
-    pub results: Arc<ResultStore>,
     pub system: String,
     /// A served run that may write notes queues a merge when they overflow
     /// (`queued_run::memory_merge`). `None` elsewhere.
@@ -166,7 +166,6 @@ pub(crate) async fn build_react_run(
         engine,
         system: analytics.toolset.system_prompt.clone(),
         analytics,
-        results: Arc::new(ResultStore::new()),
         after_done: None,
     })
 }
@@ -263,9 +262,9 @@ pub(crate) fn loop_config(run: &ReactRun, run_id: String) -> LoopConfig {
     LoopConfig {
         budgets: run.analytics.budgets.clone(),
         run_id,
-        results: run.results.clone(),
+        results: run.analytics.results.clone(),
         on_done: Some(Arc::new(AnswerFinisher {
-            results: run.results.clone(),
+            results: run.analytics.results.clone(),
         })),
         nudge: run.analytics.nudge.clone(),
         reflect: run.analytics.reflect.clone(),
