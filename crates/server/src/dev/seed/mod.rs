@@ -13,6 +13,7 @@
 //! The files keep the names they had in `oxy-app` (`seed.rs`, `seed_partners.rs`,
 //! …), so the `super::seed_*` paths between them did not change in the move.
 
+mod retire_workspaces;
 mod seed;
 mod seed_airhouse;
 mod seed_compile;
@@ -103,12 +104,26 @@ pub struct SeedArgs {
     /// only from a GitHub import. Reuses the org's workspace when it has one.
     #[clap(long, conflicts_with_all = ["clear", "no_compile", "llm_keys", "fixtures"])]
     pub org_workspace: Option<String>,
+    /// Delete the workspaces an earlier seed made that an org may no longer
+    /// have — one per org is a rule of the table (`uq_workspaces_org_id`), and
+    /// `oxy start` refuses to migrate a database where any org has two. Removes
+    /// only rows this seed made, by their derived ids. Local DB only.
+    #[clap(
+        long,
+        conflicts_with_all = ["clear", "no_compile", "llm_keys", "fixtures", "org_workspace"]
+    )]
+    pub retire_extra_workspaces: bool,
 }
 
 pub(crate) async fn handle_seed_command(
     seed_args: SeedArgs,
     example_apps: Option<ExampleAppsSeam>,
 ) -> Result<(), OxyError> {
+    if seed_args.retire_extra_workspaces {
+        return retire_workspaces::retire_extra_workspaces()
+            .await
+            .map(|_| ());
+    }
     if let Some(slug) = seed_args.org_workspace.as_deref() {
         return seed_org_workspace::seed_org_workspace(slug)
             .await

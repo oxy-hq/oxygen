@@ -28,7 +28,13 @@ use crate::common::{Schema, fresh_db};
 use oxy_app::server::api::custom_apps_gates::frontline_worker_with_app_grant;
 use oxy_custom_apps::org_directory::org_directory;
 
-/// One org, two workspaces, one app in each.
+/// Two orgs with a workspace each, and one app of `org`'s in each workspace.
+///
+/// An org has one workspace (`uq_workspaces_org_id`), so "another workspace"
+/// is always another org's. Both apps still belong to `org`: a staff
+/// `transfer-org` moves only the workspace row, so an app whose workspace sits
+/// in another org is the shape the table leaves behind — and the gate reads
+/// `apps.project_id`, which is the join these cases are about.
 struct Fx {
     org: Uuid,
     workspace_a: Uuid,
@@ -55,32 +61,46 @@ async fn user(db: &DatabaseConnection, name: &str, email: Option<String>) -> Uui
     id
 }
 
-async fn seed(db: &DatabaseConnection) -> Fx {
-    let org = Uuid::new_v4();
+async fn seed_org(db: &DatabaseConnection, name: &str) -> Uuid {
+    let id = Uuid::new_v4();
     organizations::ActiveModel {
-        id: ActiveValue::Set(org),
-        name: ActiveValue::Set("Poke".into()),
-        slug: ActiveValue::Set(format!("poke-{}", &org.simple().to_string()[..8])),
+        id: ActiveValue::Set(id),
+        name: ActiveValue::Set(name.into()),
+        slug: ActiveValue::Set(format!(
+            "{}-{}",
+            name.to_lowercase().replace(' ', "-"),
+            &id.simple().to_string()[..8]
+        )),
         ..Default::default()
     }
     .insert(db)
     .await
     .expect("seed org");
+    id
+}
 
-    let mut ws = Vec::new();
-    for label in ["a", "b"] {
-        let id = Uuid::new_v4();
-        entity::workspaces::ActiveModel {
-            id: ActiveValue::Set(id),
-            org_id: ActiveValue::Set(Some(org)),
-            name: ActiveValue::Set(format!("workspace {label}")),
-            ..Default::default()
-        }
-        .insert(db)
-        .await
-        .expect("seed workspace");
-        ws.push(id);
+async fn workspace(db: &DatabaseConnection, org: Uuid, label: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    entity::workspaces::ActiveModel {
+        id: ActiveValue::Set(id),
+        org_id: ActiveValue::Set(Some(org)),
+        name: ActiveValue::Set(format!("workspace {label}")),
+        ..Default::default()
     }
+    .insert(db)
+    .await
+    .expect("seed workspace");
+    id
+}
+
+async fn seed(db: &DatabaseConnection) -> Fx {
+    let org = seed_org(db, "Poke").await;
+    // One workspace per org, so workspace b needs an org of its own. Both apps
+    // stay in `org`: see [`Fx`].
+    let ws = vec![
+        workspace(db, org, "a").await,
+        workspace(db, seed_org(db, "Poke West").await, "b").await,
+    ];
 
     let mut app = Vec::new();
     for (i, project) in ws.iter().enumerate() {

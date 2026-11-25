@@ -372,6 +372,15 @@ fn publish_tokens_are_fenced_to_their_minter() {
     );
 }
 
+/// Files searched for a handler body although they mount no router of their own:
+/// the org logo trio, and `transfer_org`, which left the workspaces section when
+/// the one-per-org index gave it a coded refusal and that file went over the size
+/// limit (the workspaces section still mounts its route).
+const DELEGATES: &[&str] = &[
+    "crates/api-tenancy/src/org_logo.rs",
+    "crates/api-tenancy/src/admin/workspace_transfer.rs",
+];
+
 /// Every org-scoped route on the admin surface must resolve to a fenced handler.
 ///
 /// Derived from the MERGE LIST, not from a hardcoded pair of routers. The previous
@@ -472,6 +481,7 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
     );
     // Handlers can live outside their router's file (the logo trio, and `org_logo` is
     // reached through the org section), so search the admin tree plus its delegates.
+    // `DELEGATES` are the files that hold a handler but mount no router.
     let in_tree: Vec<String> = routers
         .iter()
         .map(|r| format!("crates/server/src/admin/{r}.rs"))
@@ -482,14 +492,11 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         .cloned()
         .chain(extracted_sections.iter().map(|f| f.to_string()))
         .collect();
-    let searched: Vec<String> = router_files
+    let bodies: String = router_files
         .iter()
-        .cloned()
-        .chain(["crates/api-tenancy/src/org_logo.rs".to_string()])
-        .collect();
-    let bodies: String = searched
-        .iter()
-        .map(|f| read(f))
+        .map(String::as_str)
+        .chain(DELEGATES.iter().copied())
+        .map(read)
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -616,9 +623,12 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             &[
                 "delete_workspace",
                 "update_workspace",
-                "transfer_org",
                 "get_workspace_detail",
             ],
+        ),
+        (
+            "crates/api-tenancy/src/admin/workspace_transfer.rs",
+            &["transfer_org"],
         ),
         (
             // Named explicitly because the router sweep above cannot see this

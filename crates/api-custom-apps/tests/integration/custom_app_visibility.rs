@@ -53,6 +53,11 @@ pub(super) async fn seed_org(conn: &DatabaseConnection) -> Uuid {
 }
 
 pub(super) async fn seed_workspace(conn: &DatabaseConnection, org_id: Uuid) -> Uuid {
+    // Several workspaces in one org, which the table forbids
+    // (`uq_workspaces_org_id`): what is under test is keyed by workspace, so one
+    // workspace per org is the shape that cannot show it. The state is made
+    // rather than seeded — see `allow_several_workspaces_per_org`.
+    crate::common::allow_several_workspaces_per_org(conn).await;
     let id = Uuid::new_v4();
     workspaces::ActiveModel {
         id: ActiveValue::Set(id),

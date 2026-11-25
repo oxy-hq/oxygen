@@ -12,16 +12,27 @@
 
 use std::path::Path;
 
+use axum::Json;
+use axum::extract::Path as PathParam;
+use axum::http::StatusCode;
 use entity::organizations;
 use entity::workspaces::{self, WorkspaceStatus};
 use oxy::github::GitHubRepository;
+use oxy_api_tenancy::admin::workspace_transfer::{TransferOrgBody, transfer_org};
 use oxy_api_tenancy::workspace_provisioning::adopt::{self, ImportTarget};
 use oxy_api_tenancy::workspace_provisioning::{
     NewWorkspaceRow, ProvisionError, RepositoryOrigin, register_workspace,
 };
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
+use oxy_auth::types::AuthenticatedUser;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, SqlErr,
+    TransactionTrait,
+};
 use uuid::Uuid;
 
+use crate::admin_staff_scope_directories::fixture::{
+    Reply, as_actor, reply, seed_org as seed_named_org, world,
+};
 use crate::common::{Schema, fresh_db};
 use crate::workspace_repository_columns::seed_namespace;
 
@@ -43,8 +54,8 @@ async fn seed_org(db: &DatabaseConnection) -> Uuid {
     org
 }
 
-async fn register(
-    db: &DatabaseConnection,
+async fn register<C: ConnectionTrait>(
+    db: &C,
     org: Option<Uuid>,
     name: &str,
 ) -> Result<Uuid, ProvisionError> {
@@ -105,6 +116,140 @@ async fn a_second_workspace_in_an_org_is_refused() {
     register(&db, Some(other), "Default")
         .await
         .expect("other org");
+}
+
+/// A workspace row written straight to the table, past every check.
+async fn insert_row(db: &DatabaseConnection, org: Option<Uuid>, name: &str) -> Result<(), DbErr> {
+    let now = chrono::Utc::now().fixed_offset();
+    workspaces::ActiveModel {
+        id: ActiveValue::Set(Uuid::new_v4()),
+        name: ActiveValue::Set(name.into()),
+        org_id: ActiveValue::Set(org),
+        status: ActiveValue::Set(WorkspaceStatus::Ready),
+        created_at: ActiveValue::Set(now),
+        updated_at: ActiveValue::Set(now),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .map(|_| ())
+}
+
+/// The rule is the table's too (`uq_workspaces_org_id`): a second row in an org
+/// is refused even when nothing checks first. Rows with no org (local mode) are
+/// not judged.
+#[tokio::test]
+async fn the_table_refuses_a_second_workspace_in_an_org() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+
+    insert_row(&db, Some(org), "Default").await.expect("first");
+    let second = insert_row(&db, Some(org), "Staging").await.unwrap_err();
+    assert!(
+        matches!(second.sql_err(), Some(SqlErr::UniqueConstraintViolation(ref m)) if m.contains("uq_workspaces_org_id")),
+        "refused by the one-per-org index: {second}"
+    );
+
+    insert_row(&db, None, "local a").await.expect("org-less");
+    insert_row(&db, None, "local b")
+        .await
+        .expect("a second org-less row is not judged");
+}
+
+/// Sessions waiting on a lock in this database.
+async fn lock_waiters(db: &DatabaseConnection) -> i64 {
+    db.query_one_raw(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Postgres,
+        "SELECT count(*)::bigint AS n FROM pg_stat_activity \
+         WHERE datname = current_database() AND wait_event_type = 'Lock'",
+    ))
+    .await
+    .expect("read pg_stat_activity")
+    .expect("one row")
+    .try_get::<i64>("", "n")
+    .expect("n")
+}
+
+/// Two creates in one org that both pass `register_workspace`'s check, which
+/// reads committed rows only: the index refuses the second, and it reads as the
+/// same `409 org_has_workspace`, not a database error.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_creates_racing_past_the_check_end_in_one_workspace() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+
+    let first = db.begin().await.expect("begin");
+    register(&first, Some(org), "Default")
+        .await
+        .expect("first, not yet committed");
+    let second = tokio::spawn({
+        let db = db.clone();
+        async move { register(&db, Some(org), "Staging").await }
+    });
+    // The second create's check cannot see the uncommitted first, so it reaches
+    // the insert, which waits on the index entry the first holds. Without that
+    // wait the check would refuse it after the commit, and this would prove
+    // nothing about the index.
+    let mut waiting = false;
+    for _ in 0..500 {
+        if lock_waiters(&db).await > 0 {
+            waiting = true;
+            break;
+        }
+        if second.is_finished() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        waiting,
+        "the second create never waited on the first's index entry"
+    );
+    first.commit().await.expect("commit the first");
+
+    let refused = second.await.expect("join").unwrap_err();
+    assert!(
+        matches!(refused, ProvisionError::OrgHasWorkspace),
+        "the index's refusal is the same 409: {refused}"
+    );
+    assert_eq!(refused.status_code(), StatusCode::CONFLICT);
+}
+
+async fn transfer(actor: &AuthenticatedUser, workspace: Uuid, org: Uuid) -> Reply {
+    reply(
+        transfer_org(
+            as_actor(actor),
+            PathParam(workspace),
+            Json(TransferOrgBody { new_org_id: org }),
+        )
+        .await,
+    )
+    .await
+}
+
+/// Staff `transfer-org` keeps the rule: a target org that has its workspace is
+/// the same `409 org_has_workspace`, and a new org, which has none, takes one.
+#[tokio::test]
+async fn transfer_org_refuses_a_target_that_has_its_workspace() {
+    let w = world().await;
+
+    let crowded = transfer(&w.owner, w.ws_orphan, w.org_a).await;
+    assert_eq!(crowded.status, StatusCode::CONFLICT, "{}", crowded.body);
+    assert_eq!(crowded.body["error"], "org_has_workspace");
+    assert_eq!(load(&w.db, w.ws_orphan).await.org_id, None, "nothing moved");
+
+    // Into the org it is already in: not a second workspace.
+    assert_eq!(
+        transfer(&w.owner, w.ws_a, w.org_a).await.status,
+        StatusCode::NO_CONTENT
+    );
+
+    let fresh = seed_named_org(&w.db, "fresh").await;
+    assert_eq!(
+        transfer(&w.owner, w.ws_orphan, fresh).await.status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(load(&w.db, w.ws_orphan).await.org_id, Some(fresh));
 }
 
 #[tokio::test]

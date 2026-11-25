@@ -67,6 +67,15 @@ pub async fn ensure_local_org_seeded(local_workspace_id: Uuid) -> Result<(), Oxy
     // 3. Insert the nil-UUID workspace if missing. The airhouse_tenants and
     //    airhouse_users FK constraints reference workspaces(id), so the local
     //    workspace must exist in the DB when Airhouse provision is called.
+    //
+    //    **It belongs to no org.** An org has one workspace, as a rule of the
+    //    table (`uq_workspaces_org_id`), and the Local org's workspace is
+    //    whatever `oxy dev seed` or a GitHub import made — so claiming the org
+    //    here would be a second one and the insert would fail. A nil-UUID row
+    //    with no org is also what it already is to every cloud surface: the
+    //    workspace list filters it out by id (`api-workspaces`), and
+    //    `workspace_org` calls an org-less workspace `Orphaned`. Nothing resolves
+    //    it through the org — local mode knows it by the nil id.
     if Workspaces::find_by_id(local_workspace_id)
         .one(&conn)
         .await
@@ -84,7 +93,7 @@ pub async fn ensure_local_org_seeded(local_workspace_id: Uuid) -> Result<(), Oxy
             path: ActiveValue::Set(None),
             last_opened_at: ActiveValue::Set(None),
             created_by: ActiveValue::Set(None),
-            org_id: ActiveValue::Set(Some(LOCAL_ORG_ID)),
+            org_id: ActiveValue::Set(None),
             status: ActiveValue::Set(WorkspaceStatus::Ready),
             error: ActiveValue::Set(None),
             monthly_vlm_budget_micros: ActiveValue::Set(None),

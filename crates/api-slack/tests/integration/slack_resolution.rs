@@ -3,6 +3,17 @@
 //! These tests drive `resolution::workspace_agent::resolve` against a real
 //! PostgreSQL database. They skip automatically when `OXY_DATABASE_URL` is unset.
 //!
+//! **`Resolution::PickerNeeded` is no longer reachable.** `resolve` lists the
+//! workspaces of the installation's org, and an org has one
+//! (`uq_workspaces_org_id`), so the picker can never have two to offer. The
+//! case that covered it is gone with the state it needed: these tests share one
+//! database, so it could not make that state the way a per-test database can.
+//! Removing the picker itself is its own change
+//! (`internal-docs/2026-11-10-org-vs-workspace-grain.md` §7); until then the
+//! two cases below pin what comes *before* it in the cascade, which is what
+//! decides the workspace today: a channel default first, then the user's
+//! stored preference.
+//!
 //! To run locally:
 //!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-api-slack --test integration -E 'test(slack_resolution)'
 
@@ -194,15 +205,12 @@ async fn resolves_no_workspaces_when_user_has_none() {
     );
 }
 
-/// User with 2 workspaces and a stored preference → Resolved with that preference.
+/// A stored preference → Resolved with that preference.
 ///
 /// NOTE: `list_agents_and_default` requires a workspace filesystem (config.yml) to
-/// enumerate agents; workspaces without a path return an empty agent list. Because
-/// we seed workspaces without a filesystem, the single-workspace silent path
-/// (Resolution::Resolved) cannot be exercised purely via DB seeding.
-///
-/// This test seeds a preference row directly and verifies that `resolve` honors it,
-/// bypassing the filesystem-dependent `list_agents_and_default` call.
+/// enumerate agents; workspaces without a path return an empty agent list. The
+/// preference branch runs before that call, so it resolves anyway — which is what
+/// this pins, and why the org's one workspace is enough to show it.
 #[tokio::test]
 async fn resolves_from_user_preferences_when_set() {
     if db_unavailable() {
@@ -216,11 +224,9 @@ async fn resolves_from_user_preferences_when_set() {
     let slack_user_id = format!("U{}", &Uuid::new_v4().simple().to_string()[..8]);
     let user_link = seed_user_link(installation.id, &slack_user_id, user_id).await;
 
-    // Seed two workspaces, add user to both.
+    // The org's one workspace.
     let ws1 = seed_workspace(org_id, "workspace-alpha").await;
-    let ws2 = seed_workspace(org_id, "workspace-beta").await;
     add_workspace_member(ws1, user_id).await;
-    add_workspace_member(ws2, user_id).await;
 
     // Store a preference: user prefers ws1 with a specific agent.
     let preferred_agent = "agents/my-agent.agentic.yml".to_string();
@@ -253,56 +259,19 @@ async fn resolves_from_user_preferences_when_set() {
     }
 }
 
-/// User with 2 workspaces and no preferences → PickerNeeded with both workspaces.
+/// A channel default decides the workspace, ahead of every other branch — and
+/// only within the installation's org.
 ///
-/// NOTE: Because workspaces have no filesystem (path is None), `list_agents_and_default`
-/// returns an empty agent list for each, so the single-workspace branch does not
-/// silently resolve. With 2 workspaces and no prefs, we expect PickerNeeded.
-#[tokio::test]
-async fn resolves_picker_needed_when_multiple_workspaces_no_prefs() {
-    if db_unavailable() {
-        eprintln!("Skipping: OXY_DATABASE_URL not set");
-        return;
-    }
-    set_test_encryption_key();
-
-    let (org_id, user_id) = seed_org_user().await;
-    let installation = seed_installation(org_id, user_id).await;
-    let slack_user_id = format!("U{}", &Uuid::new_v4().simple().to_string()[..8]);
-    let user_link = seed_user_link(installation.id, &slack_user_id, user_id).await;
-
-    // Seed 2 workspaces, user is member of both.
-    let ws1 = seed_workspace(org_id, "ws-picker-1").await;
-    let ws2 = seed_workspace(org_id, "ws-picker-2").await;
-    add_workspace_member(ws1, user_id).await;
-    add_workspace_member(ws2, user_id).await;
-
-    let resolution =
-        oxy_api_slack::resolution::workspace_agent::resolve(&installation, &user_link, "")
-            .await
-            .expect("resolve should not error");
-
-    match resolution {
-        Resolution::PickerNeeded { workspaces } => {
-            assert_eq!(
-                workspaces.len(),
-                2,
-                "should include both workspaces in picker"
-            );
-            let ids: Vec<Uuid> = workspaces.iter().map(|w| w.id).collect();
-            assert!(ids.contains(&ws1), "ws1 should be in picker");
-            assert!(ids.contains(&ws2), "ws2 should be in picker");
-        }
-        other => panic!("expected PickerNeeded, got: {other:?}"),
-    }
-}
-
-/// A channel default bypasses the picker: with 2 workspaces and a channel default
-/// pointing to ws1, resolve returns Resolved(ws1) without showing a picker.
+/// With one workspace per org, the workspace a default picks is the same one the
+/// single-workspace fallback would pick, so the branch cannot be told apart by
+/// that. What tells it apart is the second half: a default naming another org's
+/// workspace is looked up in the org's own workspaces, misses, and is ignored,
+/// so the answer is still this org's. That is a live case — a `transfer-org`
+/// leaves the Slack defaults pointing across orgs (grain memo §7.2).
 ///
-/// NOTE: Because workspaces have no filesystem, `list_agents` returns an empty
-/// list → WorkspaceHasNoAgents is returned instead of Resolved. We verify that
-/// the channel default branch was taken (not PickerNeeded) by checking the variant.
+/// NOTE: Because the workspace has no filesystem, `list_agents` returns an empty
+/// list → WorkspaceHasNoAgents is returned instead of Resolved. Either variant
+/// names the workspace, which is what both halves assert on.
 #[tokio::test]
 async fn channel_default_resolves_without_picker() {
     if db_unavailable() {
@@ -316,11 +285,9 @@ async fn channel_default_resolves_without_picker() {
     let slack_user_id = format!("U{}", &Uuid::new_v4().simple().to_string()[..8]);
     let user_link = seed_user_link(installation.id, &slack_user_id, user_id).await;
 
-    // Seed 2 workspaces (no filesystem path → no agents).
+    // The org's one workspace (no filesystem path → no agents).
     let ws1 = seed_workspace(org_id, "ws-channel-default-1").await;
-    let ws2 = seed_workspace(org_id, "ws-channel-default-2").await;
     add_workspace_member(ws1, user_id).await;
-    add_workspace_member(ws2, user_id).await;
 
     // Seed a channel default pointing to ws1.
     let channel_id = format!("C{}", Uuid::new_v4().simple().to_string()[..8].to_string());
@@ -343,27 +310,53 @@ async fn channel_default_resolves_without_picker() {
             .await
             .expect("resolve should not error");
 
-    // The channel default is set → resolve should NOT return PickerNeeded.
-    // With no filesystem, it returns WorkspaceHasNoAgents for ws1 — that's fine,
-    // the key assertion is that PickerNeeded was not returned.
-    assert!(
-        !matches!(resolution, Resolution::PickerNeeded { .. }),
-        "channel default should prevent PickerNeeded, got: {resolution:?}"
+    // With no filesystem it returns WorkspaceHasNoAgents for ws1 — that's fine,
+    // the assertion is that the answer is about ws1, the channel's default.
+    assert_eq!(
+        resolved_workspace(&resolution),
+        ws1,
+        "should resolve to channel-default workspace"
     );
-    // It should resolve to ws1 specifically (WorkspaceHasNoAgents or Resolved).
-    match &resolution {
-        Resolution::WorkspaceHasNoAgents { workspace_id, .. } => {
-            assert_eq!(
-                *workspace_id, ws1,
-                "should resolve to channel-default workspace"
-            );
-        }
-        Resolution::Resolved { workspace_id, .. } => {
-            assert_eq!(
-                *workspace_id, ws1,
-                "should resolve to channel-default workspace"
-            );
-        }
+
+    // Another channel, whose default names a workspace of a DIFFERENT org: the
+    // branch looks the id up among this org's workspaces, so it is ignored and
+    // the answer is this org's workspace, never the stranger's.
+    let (other_org, _) = seed_org_user().await;
+    let foreign = seed_workspace(other_org, "ws-another-orgs").await;
+    let other_channel = format!("C{}", &Uuid::new_v4().simple().to_string()[..8]);
+    slack_channel_defaults::ActiveModel {
+        id: ActiveValue::Set(Uuid::new_v4()),
+        installation_id: ActiveValue::Set(installation.id),
+        slack_channel_id: ActiveValue::Set(other_channel.clone()),
+        workspace_id: ActiveValue::Set(foreign),
+        set_by_user_link_id: ActiveValue::Set(Some(user_link.id)),
+        created_at: ActiveValue::NotSet,
+        updated_at: ActiveValue::NotSet,
+    }
+    .insert(&conn)
+    .await
+    .expect("seed a channel default across orgs");
+
+    let resolution = oxy_api_slack::resolution::workspace_agent::resolve(
+        &installation,
+        &user_link,
+        &other_channel,
+    )
+    .await
+    .expect("resolve should not error");
+
+    assert_eq!(
+        resolved_workspace(&resolution),
+        ws1,
+        "a channel default outside the org is ignored, not honoured: {resolution:?}"
+    );
+}
+
+/// The workspace a resolution names, whether or not the workspace has agents.
+fn resolved_workspace(resolution: &Resolution) -> Uuid {
+    match resolution {
+        Resolution::WorkspaceHasNoAgents { workspace_id, .. }
+        | Resolution::Resolved { workspace_id, .. } => *workspace_id,
         other => panic!("unexpected resolution: {other:?}"),
     }
 }

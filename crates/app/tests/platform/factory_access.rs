@@ -43,7 +43,10 @@ struct Fx {
     granted: AuthenticatedUser,
     /// An Oxy staff member who is also a plain member of the org.
     staff: AuthenticatedUser,
-    /// A member granted ANOTHER workspace of the same org.
+    /// A member granted ANOTHER org's workspace. An org has one workspace
+    /// (`uq_workspaces_org_id`), so "another workspace" is always another
+    /// org's, which is the stronger shape for this: a grant is for one
+    /// workspace and reaches nothing else, across orgs included.
     granted_elsewhere: AuthenticatedUser,
 }
 
@@ -109,7 +112,27 @@ async fn grant(db: &DatabaseConnection, ws: Uuid, user: &AuthenticatedUser, by: 
     .expect("seed grant");
 }
 
-/// Seed the org, two workspaces, and one caller of each shape.
+async fn seed_org(db: &DatabaseConnection, name: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now().fixed_offset();
+    organizations::ActiveModel {
+        id: ActiveValue::Set(id),
+        name: ActiveValue::Set(name.into()),
+        slug: ActiveValue::Set(format!("{name}-{}", id.simple())),
+        logo: ActiveValue::NotSet,
+        logo_content_type: ActiveValue::NotSet,
+        created_at: ActiveValue::Set(now),
+        updated_at: ActiveValue::Set(now),
+    }
+    .insert(db)
+    .await
+    .expect("seed org");
+    id
+}
+
+/// Seed two orgs with a workspace each, and one caller of each shape in the
+/// first. The second org is only there to hold the other workspace: an org has
+/// one workspace, so the grant that must open nothing here lives in its own.
 async fn setup() -> Fx {
     let db = crate::common::test_db().await;
     // SAFETY: nextest runs each test in its own process; set before any request.
@@ -119,23 +142,9 @@ async fn setup() -> Fx {
     // A serve replica: no working copy, so the middleware attaches no manager.
     oxy::workspace_fs_probe::set_process_owns_workspace_files(false);
 
-    let now = chrono::Utc::now().fixed_offset();
-    let org = Uuid::new_v4();
-    organizations::ActiveModel {
-        id: ActiveValue::Set(org),
-        name: ActiveValue::Set("acme".into()),
-        slug: ActiveValue::Set(format!("acme-{}", org.simple())),
-        logo: ActiveValue::NotSet,
-        logo_content_type: ActiveValue::NotSet,
-        created_at: ActiveValue::Set(now),
-        updated_at: ActiveValue::Set(now),
-    }
-    .insert(&db)
-    .await
-    .expect("seed org");
-
+    let org = seed_org(&db, "acme").await;
     let ws = workspace(&db, org).await;
-    let other_ws = workspace(&db, org).await;
+    let other_ws = workspace(&db, seed_org(&db, "beta").await).await;
     let fx = Fx {
         ws,
         member: user(&db, org, "member@acme.test", OrgRole::Member).await,

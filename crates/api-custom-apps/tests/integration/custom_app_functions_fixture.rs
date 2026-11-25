@@ -102,6 +102,12 @@ pub(crate) async fn seeded_tenant() -> Tenant {
     seed::seed_demo(Some(examples_path()))
         .await
         .expect("seed_demo");
+    // The seed gives the Local org its demo workspace, and the fixtures built on
+    // this tenant then add one of their own — two in one org, which
+    // `uq_workspaces_org_id` refuses. Nothing here is about the org's workspace
+    // count, so this database does without the rule (the drop reaches no other
+    // test; see `allow_several_workspaces_per_org`).
+    crate::common::allow_several_workspaces_per_org(&db).await;
     let org_id = Organizations::find()
         .filter(organizations::Column::Slug.eq(ORG_SLUG))
         .one(&db)

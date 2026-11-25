@@ -602,6 +602,18 @@ async fn the_restricted_seeded_app_is_hidden_from_an_ungranted_member() {
     );
 }
 
+/// The workspace the seeded app belongs to, in `org`.
+async fn seeded_app_workspace(db: &DatabaseConnection, org: Uuid) -> Uuid {
+    Apps::find()
+        .filter(apps::Column::OrgId.eq(org))
+        .filter(apps::Column::Slug.eq(APP_SLUG))
+        .one(db)
+        .await
+        .expect("query app")
+        .expect("acme's app")
+        .project_id
+}
+
 /// An extra workspace that sorts before the seeded one must not steal the app.
 ///
 /// The app seed used to resolve its target with `ORDER BY name ASC LIMIT 1`. That
@@ -622,16 +634,15 @@ async fn an_alphabetically_earlier_workspace_does_not_steal_the_seeded_app() {
         .expect("acme seeded");
 
     // Where the seed put the apps the first time.
-    let seeded_ws = Apps::find()
-        .filter(apps::Column::OrgId.eq(org.id))
-        .filter(apps::Column::Slug.eq(APP_SLUG))
-        .one(&db)
-        .await
-        .expect("query app")
-        .expect("acme's app")
-        .project_id;
+    let seeded_ws = seeded_app_workspace(&db, org.id).await;
 
-    // A workspace that sorts ahead of "Acme Internal Analytics" under any collation.
+    // A workspace that sorts ahead of "Acme Internal Analytics" under any
+    // collation — a second one in acme's org, which the table forbids
+    // (`uq_workspaces_org_id`). That is the whole case: the seed must name its
+    // own workspace rather than take the first by sort order, and a developer
+    // (or a database seeded before the rule) can still hold such a row. The
+    // state is made rather than seeded; see `allow_several_workspaces_per_org`.
+    crate::common::allow_several_workspaces_per_org(&db).await;
     let intruder = Uuid::new_v4();
     entity::workspaces::ActiveModel {
         id: ActiveValue::Set(intruder),
@@ -648,14 +659,7 @@ async fn an_alphabetically_earlier_workspace_does_not_steal_the_seeded_app() {
         .await
         .expect("re-seed");
 
-    let after = Apps::find()
-        .filter(apps::Column::OrgId.eq(org.id))
-        .filter(apps::Column::Slug.eq(APP_SLUG))
-        .one(&db)
-        .await
-        .expect("query app")
-        .expect("acme's app")
-        .project_id;
+    let after = seeded_app_workspace(&db, org.id).await;
     assert_eq!(
         after, seeded_ws,
         "a re-seed moved the app onto a workspace that merely sorts earlier"

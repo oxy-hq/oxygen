@@ -27,6 +27,13 @@ use uuid::Uuid;
 use crate::common::test_db;
 
 /// Two orgs: A owns the app and two workspaces, B owns one workspace.
+///
+/// Two in A, which the table forbids (`uq_workspaces_org_id`): the move this
+/// PATCH is *for* — an app onto another workspace of its own org — needs them,
+/// and with one workspace per org no live database can hold the state. The
+/// handler still draws the line, so [`seed`] makes the state rather than
+/// seeding it (see `allow_several_workspaces_per_org`); the refusal it is
+/// mostly about, a workspace of org B, is unaffected.
 struct Fixture {
     owner: users::Model,
     org_a: Uuid,
@@ -64,13 +71,9 @@ async fn seed_workspace(db: &DatabaseConnection, org_id: Uuid) -> Uuid {
     id
 }
 
-async fn seed(db: &DatabaseConnection) -> Fixture {
-    let org_a = seed_org(db).await;
-    let org_b = seed_org(db).await;
-    let workspace_a1 = seed_workspace(db, org_a).await;
-    let workspace_a2 = seed_workspace(db, org_a).await;
-    let workspace_b = seed_workspace(db, org_b).await;
-
+/// The staff user `OXY_OWNER` names, so the handlers below run with Global
+/// Owner standing.
+async fn seed_global_owner(db: &DatabaseConnection) -> users::Model {
     let user_id = Uuid::new_v4();
     let email = format!("staff-{user_id}@example.com");
     let owner = users::ActiveModel {
@@ -87,6 +90,18 @@ async fn seed(db: &DatabaseConnection) -> Fixture {
     .expect("seed staff user");
     // SAFETY: process-per-test (asserted by `test_db`), before any request runs.
     unsafe { std::env::set_var("OXY_OWNER", &email) };
+    owner
+}
+
+async fn seed(db: &DatabaseConnection) -> Fixture {
+    crate::common::allow_several_workspaces_per_org(db).await;
+    let org_a = seed_org(db).await;
+    let org_b = seed_org(db).await;
+    let workspace_a1 = seed_workspace(db, org_a).await;
+    let workspace_a2 = seed_workspace(db, org_a).await;
+    let workspace_b = seed_workspace(db, org_b).await;
+
+    let owner = seed_global_owner(db).await;
 
     let app_id = Uuid::new_v4();
     apps::ActiveModel {

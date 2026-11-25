@@ -38,6 +38,7 @@ pub mod oltp;
 pub mod org_subdomains;
 pub mod orgs;
 pub mod partners;
+pub mod workspace_transfer;
 pub mod workspaces;
 
 #[cfg(test)]

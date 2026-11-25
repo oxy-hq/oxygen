@@ -25,6 +25,13 @@ use sea_orm::{
 use uuid::Uuid;
 
 /// An org, an Admin who may publish into it, and two of its workspaces.
+///
+/// Two, which the table forbids (`uq_workspaces_org_id`): `ProjectMismatch` is
+/// reached only when the app's workspace and the requested one are both live
+/// workspaces of the app's org, so with one workspace per org the branch is
+/// unreachable in a live database. It is still in the product, so
+/// [`seed_tenant`] makes the state instead of seeding it — see
+/// `allow_several_workspaces_per_org`.
 struct Tenant {
     org_id: Uuid,
     user_id: Uuid,
@@ -34,6 +41,7 @@ struct Tenant {
 }
 
 async fn seed_tenant(db: &DatabaseConnection) -> Tenant {
+    crate::common::allow_several_workspaces_per_org(db).await;
     let org_id = Uuid::new_v4();
     organizations::ActiveModel {
         id: ActiveValue::Set(org_id),

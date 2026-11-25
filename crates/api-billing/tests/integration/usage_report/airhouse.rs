@@ -5,8 +5,10 @@
 //! The Airhouse is `usage_fixtures::FakeAirhouse`: an in-memory DuckDB per
 //! workspace that runs the SQL the sink and the reads send. The apps are spread
 //! over two workspaces so that, half way through, one workspace answers from
-//! Airhouse and the other from Postgres, and an org's people are still counted
-//! once across both.
+//! Airhouse and the other from Postgres. An org has one workspace
+//! (`uq_workspaces_org_id`), so those two are two orgs' — and the people count
+//! stays the per-org claim it is in the report, over the three apps of the
+//! first.
 
 use std::time::Duration;
 
@@ -26,15 +28,46 @@ async fn copy(w: &World, fake: &FakeAirhouse, workspace: Uuid) {
     assert!(matches!(pass, Pass::Finished { .. }), "{pass:?}");
 }
 
+/// The numbers [`history`] seeds, as the report must read them: the org's three
+/// people this week and three the week before (Ana, Ben and Cy; Ana, Ben and
+/// Dev), and `app`'s own two weeks.
+fn assert_fixture_numbers(org: &oxy_usage_report::model::OrgUsage, app: Uuid) {
+    assert_eq!(
+        (org.people, org.prev_people),
+        (3, 3),
+        "Ana, Ben and Cy this week; Ana, Ben and Dev the week before"
+    );
+    let usage = org.apps.iter().find(|a| a.app_id == app).unwrap();
+    assert_eq!(
+        (
+            usage.current.views,
+            usage.current.people,
+            usage.current.sessions,
+            usage.current.error_sessions
+        ),
+        (7, 3, 4, 2)
+    );
+    assert_eq!(
+        (
+            usage.previous.views,
+            usage.previous.people,
+            usage.previous.sessions,
+            usage.previous.error_sessions
+        ),
+        (4, 3, 3, 1)
+    );
+}
+
 /// The same history in both stores gives the report the same numbers, for a
 /// workspace read from Postgres, from Airhouse, and for a mix of the two.
 #[tokio::test]
 async fn usage_report_is_identical_in_postgres_and_airhouse() {
     let w = World::new().await;
     let org = w.org("Poke House").await;
-    let (first, second) = (w.workspace(org).await, w.workspace(org).await);
+    let west = w.org("Poke House West").await;
+    let (first, second) = (w.workspace(org).await, w.workspace(west).await);
     let store_ops = w.app_in(org, first, "Store Ops", true).await;
-    let checklists = w.app_in(org, second, "Checklists", true).await;
+    let checklists = w.app_in(west, second, "Checklists", true).await;
     let old_tool = w.app_in(org, first, "Old Tool", true).await;
     let crew_board = w.app_in(org, first, "Crew Board", true).await;
     let users = [
@@ -44,8 +77,9 @@ async fn usage_report_is_identical_in_postgres_and_airhouse() {
         (w.user("dev@poke.test").await, "dev@poke.test".to_string()),
     ];
 
-    // Two apps in two workspaces, opened by the same four people: the org's
-    // people are counted once across them, in whichever store each is read.
+    // Two apps in two workspaces of two orgs, opened by the same four people:
+    // each org's people are counted once across its apps, in whichever store
+    // it is read from.
     let anchor = w.period.end - Hours::hours(1);
     for app_id in [store_ops, checklists] {
         let rows = history(
@@ -77,36 +111,20 @@ async fn usage_report_is_identical_in_postgres_and_airhouse() {
     // Nothing copied: Postgres answers, and its numbers are the fixture's.
     let from_postgres = collect(&w.db, w.period).await.unwrap();
     assert_eq!(fake.queries(), 0, "no workspace is finished");
-    assert_eq!(from_postgres.orgs.len(), 1);
-    let org_usage = &from_postgres.orgs[0];
-    assert_eq!(
-        (org_usage.people, org_usage.prev_people),
-        (3, 3),
-        "Ana, Ben and Cy this week; Ana, Ben and Dev the week before"
-    );
-    for app in [store_ops, checklists] {
-        let usage = org_usage.apps.iter().find(|a| a.app_id == app).unwrap();
-        assert_eq!(
-            (
-                usage.current.views,
-                usage.current.people,
-                usage.current.sessions,
-                usage.current.error_sessions
-            ),
-            (7, 3, 4, 2)
-        );
-        assert_eq!(
-            (
-                usage.previous.views,
-                usage.previous.people,
-                usage.previous.sessions,
-                usage.previous.error_sessions
-            ),
-            (4, 3, 3, 1)
-        );
+    assert_eq!(from_postgres.orgs.len(), 2);
+    let org_usage = |id: Uuid| {
+        from_postgres
+            .orgs
+            .iter()
+            .find(|o| o.org_id == id)
+            .expect("both orgs are in the report")
+    };
+    for (id, app) in [(org, store_ops), (west, checklists)] {
+        assert_fixture_numbers(org_usage(id), app);
     }
+    // Old Tool and Crew Board are the first org's, and only Ana opened them.
     let first_week = |name: &str| {
-        org_usage
+        org_usage(org)
             .apps
             .iter()
             .find(|a| a.name == name)
@@ -116,8 +134,8 @@ async fn usage_report_is_identical_in_postgres_and_airhouse() {
     assert!(first_week("Crew Board"));
     assert!(!first_week("Old Tool"));
 
-    // One workspace copied: its apps are read from Airhouse, the other's from
-    // Postgres, and the report does not change.
+    // One workspace copied: its org's apps are read from Airhouse, the other
+    // org's from Postgres, and the report does not change.
     copy(&w, &fake, first).await;
     let mixed = collect(&w.db, w.period).await.unwrap();
     assert!(fake.queries() > 0, "the copied workspace answered");

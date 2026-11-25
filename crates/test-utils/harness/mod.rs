@@ -290,6 +290,30 @@ pub async fn test_db() -> DatabaseConnection {
     test_db_with(Schema::Central).await
 }
 
+/// Let one org hold several workspaces in **this test's** database, by dropping
+/// the one-per-org index (`uq_workspaces_org_id`, from
+/// `m20261118_000100_workspaces_one_per_org`).
+///
+/// An org has one workspace, as a rule of the table. A handful of cases pin
+/// behaviour that only a database without that rule can reach — the
+/// first-versus-later audience of a `workspace_ready` notice, publish's
+/// `ProjectMismatch`, a token grant narrowed to one workspace of an org that
+/// has two. Those branches are still in the product, so their tests stay; what
+/// the index changed is that no live database can produce the state, so the
+/// state is **made** here rather than seeded. Deleting the branches is its own
+/// change (`internal-docs/2026-11-10-org-vs-workspace-grain.md` §7).
+///
+/// Only for a database this test owns — [`fresh_db`], [`test_db`] and
+/// [`test_db_with`] each hand out a clone of the per-run template, so the drop
+/// reaches no other test. **Never on the shared `OXY_DATABASE_URL` database**
+/// (the `serial-db` group): there it would take the rule away from every other
+/// test in the run.
+pub async fn allow_several_workspaces_per_org(db: &DatabaseConnection) {
+    db.execute_unprepared("DROP INDEX IF EXISTS uq_workspaces_org_id")
+        .await
+        .expect("drop the one-per-org index");
+}
+
 /// [`test_db`] over a chosen schema — for a test whose code under test also
 /// reads a side migrator's tables, such as a queued function run's
 /// `agentic_runs` / `agentic_task_queue` rows (`Schema::All`).

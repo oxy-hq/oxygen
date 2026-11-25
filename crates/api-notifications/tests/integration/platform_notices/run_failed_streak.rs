@@ -197,6 +197,9 @@ async fn platform_notices_run_failed_streak_ends_on_success_not_on_cancel() {
 #[tokio::test]
 async fn platform_notices_run_failed_streaks_are_per_source() {
     let (db, _url) = fresh_db(Schema::All).await;
+    // Two workspaces in one org: the table forbids it, so this makes the state
+    // (see `allow_several_workspaces_per_org`).
+    crate::common::allow_several_workspaces_per_org(&db).await;
     let org = seed_org(&db).await;
     let ws = seed_workspace(&db, org.id, "Ops", WorkspaceStatus::Ready, None).await;
     let other_ws = seed_workspace(&db, org.id, "Sales", WorkspaceStatus::Ready, None).await;

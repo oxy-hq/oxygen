@@ -66,7 +66,17 @@ async fn seed_org(conn: &DatabaseConnection) -> Uuid {
     id
 }
 
+/// An app of its own workspace in `org_id`.
+///
+/// **A workspace each, which the table forbids** (`uq_workspaces_org_id`): the
+/// decision under test is workspace-keyed — an event may name only an app of
+/// the sender's workspace — so two apps of one org in one workspace is the one
+/// shape that cannot show it (`NotYours` never happens). With an org holding one
+/// workspace those two apps are two orgs' in production; here the state is made
+/// instead, so each case keeps the sharper form (see
+/// `allow_several_workspaces_per_org`).
 async fn seed_app(conn: &DatabaseConnection, org_id: Uuid) -> apps::Model {
+    crate::common::allow_several_workspaces_per_org(conn).await;
     let workspace_id = Uuid::new_v4();
     workspaces::ActiveModel {
         id: ActiveValue::Set(workspace_id),

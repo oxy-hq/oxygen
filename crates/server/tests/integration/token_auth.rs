@@ -172,7 +172,17 @@ pub(crate) async fn seed_org(db: &DatabaseConnection) -> Uuid {
 }
 
 /// Another workspace in `org_id`.
+///
+/// Many cases here narrow a token, a service account or a CI trust policy to
+/// one workspace of an org that has two, and `uq_workspaces_org_id` forbids
+/// that second row: an org has one workspace, so narrowing to a workspace and
+/// narrowing to its org now reach the same thing. The grant machinery is still
+/// in the product and still keyed by workspace, so these keep testing it — by
+/// making the state (see `allow_several_workspaces_per_org`) rather than
+/// seeding it. Each fixture owns its database, so the drop reaches no other
+/// test.
 pub(crate) async fn seed_workspace_in(db: &DatabaseConnection, org_id: Uuid) -> Uuid {
+    common::allow_several_workspaces_per_org(db).await;
     let now = Utc::now().fixed_offset();
     let workspace_id = Uuid::new_v4();
     workspaces::ActiveModel {

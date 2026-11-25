@@ -40,7 +40,7 @@ struct Fx {
     staging_rev: Uuid,
     /// Still compiling.
     compiling_rev: Uuid,
-    /// A ready staging revision of ANOTHER workspace.
+    /// A ready staging revision of ANOTHER workspace, in another org.
     foreign_rev: Uuid,
     /// A ready `draft` revision — not a kind a preview may pin.
     draft_rev: Uuid,
@@ -152,13 +152,13 @@ async fn workspace(db: &DatabaseConnection, org: Uuid) -> Uuid {
     ws
 }
 
-async fn seed(db: &DatabaseConnection) -> Fx {
+async fn seed_org(db: &DatabaseConnection, name: &str) -> Uuid {
     let now = chrono::Utc::now().fixed_offset();
     let org = Uuid::new_v4();
     organizations::ActiveModel {
         id: ActiveValue::Set(org),
-        name: ActiveValue::Set("acme".into()),
-        slug: ActiveValue::Set(format!("acme-{}", org.simple())),
+        name: ActiveValue::Set(name.into()),
+        slug: ActiveValue::Set(format!("{name}-{}", org.simple())),
         logo: ActiveValue::NotSet,
         logo_content_type: ActiveValue::NotSet,
         created_at: ActiveValue::Set(now),
@@ -167,6 +167,11 @@ async fn seed(db: &DatabaseConnection) -> Fx {
     .insert(db)
     .await
     .expect("seed org");
+    org
+}
+
+async fn seed(db: &DatabaseConnection) -> Fx {
+    let org = seed_org(db, "acme").await;
     let ws = workspace(db, org).await;
     let main_rev = revision(db, ws, "main", "ready", "main").await;
     let mut row: workspaces::ActiveModel = workspaces::Entity::find_by_id(ws)
@@ -178,7 +183,9 @@ async fn seed(db: &DatabaseConnection) -> Fx {
     row.current_revision_id = ActiveValue::Set(Some(main_rev));
     row.update(db).await.expect("promote main");
 
-    let other_ws = workspace(db, org).await;
+    // An org has one workspace (`uq_workspaces_org_id`), so the other workspace
+    // is another org's — the stronger form of "not this workspace's revision".
+    let other_ws = workspace(db, seed_org(db, "beta").await).await;
     let fx = Fx {
         org,
         ws,

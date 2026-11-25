@@ -38,6 +38,9 @@ mod run_failed_streak;
 #[tokio::test]
 async fn platform_notices_workspace_ready_tells_who_is_waiting() {
     let (db, _url) = fresh_db(Schema::All).await;
+    // Two workspaces in one org: the table forbids it, so this makes the state
+    // (see `allow_several_workspaces_per_org`).
+    crate::common::allow_several_workspaces_per_org(&db).await;
     let org = seed_org(&db).await;
     let cloning = seed_workspace(&db, org.id, "Later", WorkspaceStatus::Cloning, None).await;
     assert!(
@@ -109,6 +112,9 @@ async fn platform_notices_workspace_ready_tells_who_is_waiting() {
 #[tokio::test]
 async fn platform_notices_mutes_apply_per_kind_and_channel() {
     let (db, _url) = fresh_db(Schema::All).await;
+    // Two workspaces in one org: the table forbids it, so this makes the state
+    // (see `allow_several_workspaces_per_org`).
+    crate::common::allow_several_workspaces_per_org(&db).await;
     let org = seed_org(&db).await;
     seed_workspace(&db, org.id, "Default", WorkspaceStatus::Ready, None).await;
     assert_eq!(

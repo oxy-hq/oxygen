@@ -173,6 +173,19 @@ const DECLARED: &[(&str, &str, Why)] = &[
     ),
     (
         "central",
+        "m20261118_000100_workspaces_one_per_org",
+        Why::Phase2 {
+            after: "#4050: register_workspace, the insert every creating door goes through, \
+                    refuses a second workspace in an org (409 org_has_workspace), so the \
+                    previous deploy writes one only through staff transfer-org into an org \
+                    that already has a workspace, which this index refuses as intended (and \
+                    this PR's transfer-org refuses with the same 409). The migration itself \
+                    refuses to run while any org has two; it leaves draft only once every \
+                    deployment's /api/admin/orgs-meta shows none (grain memo §7.3)",
+        },
+    ),
+    (
+        "central",
         "m20261020_000001_experiment_flips_due_at",
         Why::Phase2 {
             after: "nothing deployed ever used them: experiment_flips.due_on, confirmed_on and \

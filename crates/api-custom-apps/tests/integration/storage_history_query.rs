@@ -98,6 +98,11 @@ async fn seed_app_with_org(conn: &DatabaseConnection) -> (Uuid, Uuid) {
 /// mints a fresh org, so it cannot express "two apps, one org" — which is the
 /// only shape that distinguishes a correctly narrowed count from a saturated one.
 async fn seed_app_into_org(conn: &DatabaseConnection, org_id: Uuid, app_id: Uuid) {
+    // Several workspaces in one org, which the table forbids
+    // (`uq_workspaces_org_id`): what is under test is keyed by workspace, so one
+    // workspace per org is the shape that cannot show it. The state is made
+    // rather than seeded — see `allow_several_workspaces_per_org`.
+    crate::common::allow_several_workspaces_per_org(conn).await;
     let workspace_id = Uuid::new_v4();
     workspaces::ActiveModel {
         id: ActiveValue::Set(workspace_id),

@@ -76,6 +76,22 @@ fn query_failed(e: DbErr) -> ProvisionError {
     ProvisionError::Database(format!("Failed to query workspaces: {e}"))
 }
 
+/// The partial unique index that makes one workspace per org a rule of the
+/// table (`m20261118_000100_workspaces_one_per_org`).
+const ONE_PER_ORG_INDEX: &str = "uq_workspaces_org_id";
+
+/// A failed insert. The one-per-org index refusing it is the same answer as
+/// [`register_workspace`]'s own check: that check runs before the insert, so two
+/// creates in one org can both pass it, and the index then refuses the second.
+fn insert_failed(e: DbErr, name: &str) -> ProvisionError {
+    if let Some(sea_orm::SqlErr::UniqueConstraintViolation(msg)) = e.sql_err()
+        && msg.contains(ONE_PER_ORG_INDEX)
+    {
+        return ProvisionError::OrgHasWorkspace;
+    }
+    ProvisionError::Database(format!("Failed to register workspace '{name}' in DB: {e}"))
+}
+
 /// `<state_dir>/workspaces/<workspace_id>`, created if needed. The workspace
 /// UUID as the directory name guarantees uniqueness with no collision logic.
 pub fn resolve_project_dir(workspace_id: Uuid) -> Result<PathBuf, ProvisionError> {
@@ -231,12 +247,7 @@ pub async fn register_workspace<C: ConnectionTrait>(
     }
     .insert(conn)
     .await
-    .map_err(|e| {
-        ProvisionError::Database(format!(
-            "Failed to register workspace '{}' in DB: {e}",
-            row.name
-        ))
-    })?;
+    .map_err(|e| insert_failed(e, row.name))?;
     tracing::info!("Registered workspace '{}' at '{}'", row.name, path);
     Ok(Registered {
         id: workspace_id,

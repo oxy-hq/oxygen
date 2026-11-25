@@ -39,7 +39,7 @@ pub(crate) fn router() -> Router<AppState> {
         )
         .route(
             "/workspaces/{workspace_id}/transfer-org",
-            post(transfer_org),
+            post(super::workspace_transfer::transfer_org),
         )
         .route(
             "/workspaces/{workspace_id}/factory-access",
@@ -105,11 +105,6 @@ pub struct ListWorkspacesQuery {
 #[derive(Deserialize)]
 pub struct UpdateWorkspaceBody {
     pub name: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct TransferOrgBody {
-    pub new_org_id: Uuid,
 }
 
 /// `GET /admin/workspaces-meta` — the workspace directory.
@@ -380,63 +375,6 @@ pub async fn delete_workspace(
         admin_email = %actor.label(),
         target_id = %workspace_id,
         action = "delete_workspace",
-        "admin tenant action"
-    );
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// Move a workspace under a different organization. Updates the workspace
-/// row's `org_id` and bumps `updated_at`; **does not touch
-/// `workspace_members`**.
-///
-/// Policy rationale (membership reconciliation is intentional non-action):
-/// - `workspace_members` is keyed on (workspace_id, user_id). The FK is to
-///   the workspace and the user, not to the org, so existing memberships
-///   stay valid against the new org without any modification.
-/// - If a member of the *old* org isn't a member of the *new* org, we
-///   deliberately preserve their workspace access. Scrubbing those rows
-///   would silently break setups where a workspace is being shared across
-///   orgs intentionally (e.g. a consultant in the previous org continuing
-///   work on the transferred workspace).
-/// - Operators who *do* want to audit per-member access after a transfer
-///   should pair this endpoint with the per-workspace member list
-///   (`GET /admin/workspaces/{workspace_id}/detail`) and the per-user org
-///   membership list (`GET /admin/users/{user_id}/org-memberships`) — both
-///   already enumerate every membership row this handler is leaving
-///   untouched.
-pub async fn transfer_org(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
-    Path(workspace_id): Path<Uuid>,
-    Json(body): Json<TransferOrgBody>,
-) -> Result<StatusCode, StatusCode> {
-    let db = establish_connection().await.map_err(internal)?;
-    // Both ends: fencing only the source would let a bounded grant move a workspace it
-    // legitimately holds INTO an org it has no reach over.
-    scope::deny_out_of_scope(&db, &actor, body.new_org_id).await?;
-    organizations::Entity::find_by_id(body.new_org_id)
-        .one(&db)
-        .await
-        .map_err(internal)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let ws = workspaces::Entity::find_by_id(workspace_id)
-        .one(&db)
-        .await
-        .map_err(internal)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    // Scope: keyed by the workspace's OWNING org, resolved above — a workspace is not
-    // itself scopeable, so the fence has to read through it. See `admin::scope`.
-    scope::deny_out_of_scope_opt(&db, &actor, ws.org_id).await?;
-
-    let mut active: workspaces::ActiveModel = ws.into();
-    active.org_id = Set(Some(body.new_org_id));
-    active.updated_at = Set(Utc::now().fixed_offset());
-    active.update(&db).await.map_err(internal)?;
-    tracing::info!(
-        admin_email = %actor.label(),
-        target_id = %workspace_id,
-        new_org_id = %body.new_org_id,
-        action = "transfer_workspace_org",
         "admin tenant action"
     );
     Ok(StatusCode::NO_CONTENT)
@@ -744,7 +682,7 @@ fn status_label(status: &WorkspaceStatus) -> String {
     }
 }
 
-fn internal<E: std::fmt::Display>(e: E) -> StatusCode {
+pub(super) fn internal<E: std::fmt::Display>(e: E) -> StatusCode {
     tracing::error!("workspaces_admin internal error: {e}");
     StatusCode::INTERNAL_SERVER_ERROR
 }

@@ -124,7 +124,13 @@ pub async fn seed_org(db: &DatabaseConnection, tag: &str) -> Uuid {
 
 /// A workspace with a `path` and no promoted revision — so it is also a candidate
 /// for the compile backfill.
+///
+/// Several in one org, which the table forbids (`uq_workspaces_org_id`): the
+/// cases here are about staff reach and grants *per workspace*, which one
+/// workspace per org cannot tell from reach over the org. The state is made
+/// rather than seeded — see [`crate::common::allow_several_workspaces_per_org`].
 pub async fn seed_workspace(db: &DatabaseConnection, tag: &str, org: Option<Uuid>) -> Uuid {
+    crate::common::allow_several_workspaces_per_org(db).await;
     let id = Uuid::new_v4();
     workspaces::ActiveModel {
         id: ActiveValue::Set(id),

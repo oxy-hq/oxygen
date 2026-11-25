@@ -56,8 +56,9 @@ struct OrgSeed {
     name: &'static str,
     /// Members to generate besides the owner (person 0).
     members: usize,
-    /// Workspace display names; each is pointed at the demo project.
-    workspaces: &'static [&'static str],
+    /// The org's workspace display name, pointed at the demo project. One per
+    /// org: `uq_workspaces_org_id` makes that a rule of the table.
+    workspace: &'static str,
     /// Teams inside the org — the audiences app access is granted to.
     teams: &'static [TeamSeed],
 }
@@ -162,7 +163,7 @@ const ORGS: &[OrgSeed] = &[
         slug: "acme",
         name: "Acme Consulting",
         members: 6,
-        workspaces: &["Acme Internal Analytics"],
+        workspace: "Acme Internal Analytics",
         // The crowded case: three teams, overlapping membership (person 1 is in two),
         // and one person (6) in none — so the grant picker, the member counts, and
         // the "belongs to no team" case all have real data.
@@ -188,7 +189,7 @@ const ORGS: &[OrgSeed] = &[
         slug: "northwind",
         name: "Northwind Traders",
         members: 2,
-        workspaces: &["Northwind Analytics", "Northwind Sandbox"],
+        workspace: "Northwind Analytics",
         // One team that does NOT include the owner — the case that proves officer
         // break-glass is doing the work rather than the grant.
         teams: &[TeamSeed {
@@ -201,7 +202,7 @@ const ORGS: &[OrgSeed] = &[
         slug: "globex",
         name: "Globex Corporation",
         members: 2,
-        workspaces: &["Globex Analytics", "Globex Sandbox"],
+        workspace: "Globex Analytics",
         teams: &[TeamSeed {
             name: "Store Managers",
             description: "Regional managers with store-level access",
@@ -213,14 +214,14 @@ const ORGS: &[OrgSeed] = &[
         slug: "initech",
         name: "Initech",
         members: 2,
-        workspaces: &["Initech Analytics"],
+        workspace: "Initech Analytics",
         teams: &[],
     },
     OrgSeed {
         slug: "umbrella",
         name: "Umbrella Industries",
         members: 1,
-        workspaces: &["Umbrella Analytics"],
+        workspace: "Umbrella Analytics",
         teams: &[],
     },
     // Deliberately UNMANAGED — no partner, and no teams. The admin UI should show
@@ -229,7 +230,7 @@ const ORGS: &[OrgSeed] = &[
         slug: "vandelay",
         name: "Vandelay Industries",
         members: 1,
-        workspaces: &["Vandelay Analytics"],
+        workspace: "Vandelay Analytics",
         teams: &[],
     },
 ];
@@ -354,7 +355,7 @@ pub async fn seed_partner_tenants(demo_path: &str) -> Result<(), OxyError> {
     Ok(())
 }
 
-/// Ensure one org, its owner + generated members, and its workspaces exist.
+/// Ensure one org, its owner + generated members, and its workspace exist.
 async fn seed_org(conn: &Conn, org: &OrgSeed, demo_path: &str) -> Result<(), OxyError> {
     let org_id = ensure_org(conn, org.slug, org.name).await?;
 
@@ -369,12 +370,10 @@ async fn seed_org(conn: &Conn, org: &OrgSeed, demo_path: &str) -> Result<(), Oxy
         };
         ensure_org_member(conn, org_id, uid, role).await?;
     }
-    // First one is the landing workspace — the same one `seeded_workspace_id`
-    // resolves and the example apps deploy to, so the org's home page opens on the
-    // workspace that actually holds them.
-    for (i, name) in org.workspaces.iter().enumerate() {
-        ensure_workspace(conn, org_id, name, demo_path, i == 0).await?;
-    }
+    // The org's one workspace is its landing workspace — the same one
+    // `seeded_workspace_id` resolves and the example apps deploy to, so the
+    // org's home page opens on the workspace that actually holds them.
+    ensure_workspace(conn, org_id, org.workspace, demo_path, true).await?;
     for team in org.teams {
         seed_team(conn, org_id, org.slug, team).await?;
     }
@@ -448,20 +447,18 @@ async fn seed_team(
 /// app belongs in.
 ///
 /// The app seed used to resolve its target with `ORDER BY name ASC LIMIT 1`, which
-/// is only correct while the org has exactly the workspaces the seed made. A
+/// is only correct while the org holds exactly the workspace the seed made. A
 /// developer who adds one (or a client who does) can sort ahead of it — `"AAA"`
 /// beats `"Acme Internal Analytics"` — and a re-seed then silently moves the apps
 /// onto that workspace, off the one the org subdomain names as default. The symptom
 /// is the org's home page rendering an empty grid with no error anywhere.
+/// `uq_workspaces_org_id` now refuses the second row, but a database seeded
+/// before it can still hold one.
 ///
 /// The seeded workspace has a derived id (`seed_id("workspace", "<org>:<name>")`),
 /// so name it directly instead of guessing by sort order.
 pub fn seeded_workspace_id(org_slug: &str, org_id: Uuid) -> Option<Uuid> {
-    let name = ORGS
-        .iter()
-        .find(|o| o.slug == org_slug)?
-        .workspaces
-        .first()?;
+    let name = ORGS.iter().find(|o| o.slug == org_slug)?.workspace;
     Some(workspace_seed_id(org_id, name))
 }
 
@@ -469,11 +466,11 @@ pub fn seeded_workspace_id(org_slug: &str, org_id: Uuid) -> Option<Uuid> {
 /// and this reader so the two cannot drift. A divergence wouldn't error; it would
 /// send the app seed back to its sort-order fallback, which is the bug
 /// `seeded_workspace_id` exists to retire.
-fn workspace_seed_id(org_id: Uuid, name: &str) -> Uuid {
+pub(super) fn workspace_seed_id(org_id: Uuid, name: &str) -> Uuid {
     seed_id("workspace", &format!("{org_id}:{name}"))
 }
 
-/// Every workspace this seed creates, as (`<org> / <name>`, id), for orgs that
+/// Every workspace this seed creates — one per org — as (`<org> / <name>`, id), for orgs that
 /// exist — what `oxy dev seed` compiles and stores LLM keys on. Empty on a non-local
 /// DB, matching the skip in [`seed_partner_tenants`].
 pub(crate) async fn seeded_workspace_ids(conn: &Conn) -> Result<Vec<(String, Uuid)>, OxyError> {
@@ -485,12 +482,10 @@ pub(crate) async fn seeded_workspace_ids(conn: &Conn) -> Result<Vec<(String, Uui
         let Some(org_id) = find_org_id(conn, org.slug).await? else {
             continue;
         };
-        for name in org.workspaces {
-            ids.push((
-                format!("{} / {name}", org.slug),
-                workspace_seed_id(org_id, name),
-            ));
-        }
+        ids.push((
+            format!("{} / {}", org.slug, org.workspace),
+            workspace_seed_id(org_id, org.workspace),
+        ));
     }
     Ok(ids)
 }
@@ -599,7 +594,7 @@ async fn ensure_org(conn: &Conn, slug: &str, name: &str) -> Result<Uuid, OxyErro
     Ok(id)
 }
 
-async fn find_org_id(conn: &Conn, slug: &str) -> Result<Option<Uuid>, OxyError> {
+pub(super) async fn find_org_id(conn: &Conn, slug: &str) -> Result<Option<Uuid>, OxyError> {
     Ok(Organizations::find()
         .filter(organizations::Column::Slug.eq(slug))
         .one(conn)
@@ -842,7 +837,7 @@ async fn ensure_binding(conn: &Conn, org_member_id: Uuid) -> Result<Uuid, OxyErr
 
 fn print_summary() {
     let users: usize = ORGS.iter().map(|o| o.members + 1).sum();
-    let workspaces: usize = ORGS.iter().map(|o| o.workspaces.len()).sum();
+    let workspaces = ORGS.len();
     println!(
         "{} seeded {} orgs, {} users, {} workspaces, {} partnership(s)",
         "✅".success(),

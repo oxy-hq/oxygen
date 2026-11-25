@@ -170,16 +170,18 @@ async fn seed_workspace(
 #[tokio::test]
 async fn compiled_config_resolves_toast_integration_without_a_working_copy() {
     let db = setup_db().await;
-    let org_id = seed_org(&db).await;
 
     // The secret lives in the workspace secret store; the env fallback stands
     // in for it here. Either way it is NOT on the filesystem.
     // SAFETY: set before the resolver reads it, single-threaded.
     unsafe { std::env::set_var(WEBHOOK_SECRET_VAR, WEBHOOK_SECRET_VALUE) };
 
+    // Each workspace gets an org of its own: an org has one workspace
+    // (`uq_workspaces_org_id`), and nothing here is about the org — the compile
+    // boundary resolves a workspace by its id.
     let configured = seed_workspace(
         &db,
-        org_id,
+        seed_org(&db).await,
         Some(json!([{
             "name": "toast",
             "type": "toast",
@@ -206,7 +208,7 @@ async fn compiled_config_resolves_toast_integration_without_a_working_copy() {
     // Control: a workspace with no promoted revision (and no working copy)
     // still resolves to `None`, so the handler keeps failing closed rather
     // than accepting unsigned payloads.
-    let unpromoted = seed_workspace(&db, org_id, None).await;
+    let unpromoted = seed_workspace(&db, seed_org(&db).await, None).await;
     let resolved = load_toast_config(unpromoted)
         .await
         .expect("load_toast_config must not error for an unpromoted workspace");
@@ -218,7 +220,7 @@ async fn compiled_config_resolves_toast_integration_without_a_working_copy() {
     // Control: a promoted workspace whose compiled config declares no
     // integrations is the genuine "customer never set Toast up" case that the
     // 401 is actually meant to describe.
-    let no_integrations = seed_workspace(&db, org_id, Some(json!([]))).await;
+    let no_integrations = seed_workspace(&db, seed_org(&db).await, Some(json!([]))).await;
     let resolved = load_toast_config(no_integrations)
         .await
         .expect("load_toast_config must not error for a workspace with no integrations");
