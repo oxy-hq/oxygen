@@ -1261,6 +1261,18 @@ jobs:
         if: runner.environment != 'github-hosted'
         run: |
           swapon --show
+          # Decide on the RAM the machine actually has, not on who hosts it.
+          # The top-up exists because test-compile peaked at 22.2 GB and was
+          # OOM-killed on a 15.3 GiB WarpBuild runner. A 32 GiB fleet 4x clears
+          # that peak with headroom and a 64 GiB 8x is not close, so there the
+          # swapfile is dead weight that also claims 16 GiB of the disk the
+          # build is using. Keep the guard rather than deleting the step: a
+          # 16 GiB runner would need it again, and this notices by itself.
+          ram=$(free -m | awk '/^Mem:/ { print $2 }')
+          if ((ram >= 24576)); then
+            echo "${ram} MiB of RAM clears the 22.2 GB compile peak; no swapfile"
+            exit 0
+          fi
           have=$(free -m | awk '/^Swap:/ { print $2 }')
           add=$((16384 - have))
           disk_free=$(df -m --output=avail / | tail -1)
@@ -1458,6 +1470,18 @@ jobs:
         if: runner.environment != 'github-hosted'
         run: |
           swapon --show
+          # Decide on the RAM the machine actually has, not on who hosts it.
+          # The top-up exists because test-compile peaked at 22.2 GB and was
+          # OOM-killed on a 15.3 GiB WarpBuild runner. A 32 GiB fleet 4x clears
+          # that peak with headroom and a 64 GiB 8x is not close, so there the
+          # swapfile is dead weight that also claims 16 GiB of the disk the
+          # build is using. Keep the guard rather than deleting the step: a
+          # 16 GiB runner would need it again, and this notices by itself.
+          ram=$(free -m | awk '/^Mem:/ { print $2 }')
+          if ((ram >= 24576)); then
+            echo "${ram} MiB of RAM clears the 22.2 GB compile peak; no swapfile"
+            exit 0
+          fi
           have=$(free -m | awk '/^Swap:/ { print $2 }')
           add=$((16384 - have))
           disk_free=$(df -m --output=avail / | tail -1)
