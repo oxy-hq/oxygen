@@ -48,7 +48,10 @@ export function ResultTableBlock({ runId, table }: { runId: string; table: Resul
   const { project } = useCurrentProjectBranch();
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<Sort>(null);
-  const local = offset === 0 && sort === null;
+  // The row carries the first page only when it holds a full one (a `result_table` row
+  // does; a query's 10-row preview does not), else page 1 is fetched too.
+  const local =
+    offset === 0 && sort === null && table.rows.length >= Math.min(PAGE_ROWS, table.row_count);
   const [page, setPage] = useState<Page>({ rows: table.rows });
   const [loading, setLoading] = useState(false);
 
@@ -66,7 +69,14 @@ export function ResultTableBlock({ runId, table }: { runId: string; table: Resul
       desc: sort?.desc
     })
       .then((p) => live && setPage({ rows: p.rows }))
-      .catch((err) => live && setPage({ rows: [], notice: pageNotice(err) }))
+      .catch(
+        (err) =>
+          live &&
+          setPage({
+            rows: offset === 0 && sort === null ? table.rows : [],
+            notice: pageNotice(err)
+          })
+      )
       .finally(() => live && setLoading(false));
     return () => {
       live = false;

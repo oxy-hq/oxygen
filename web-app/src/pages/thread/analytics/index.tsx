@@ -49,8 +49,8 @@ import { AnalyticsService } from "@/services/api/analytics";
 import { consumePendingThinkingMode } from "@/stores/analyticsThinkingMode";
 import type { ThreadItem } from "@/types/chat";
 import AcceptedChangePills from "./AcceptedChangePills";
-import AnalyticsArtifactSidebar from "./AnalyticsArtifactSidebar";
 import AnalyticsReasoningTrace from "./AnalyticsReasoningTrace";
+import { ArtifactSidebar } from "./ArtifactSidebar";
 import { AnalyticsDisplayBlockItem } from "./analyticsArtifactHelpers";
 import BuilderActivityPanel from "./BuilderActivityPanel";
 import BuilderDelegationPanel from "./BuilderDelegationPanel";
@@ -769,8 +769,8 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
             <>
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={20} maxSize={70}>
-                <AnalyticsArtifactSidebar
-                  item={selectedArtifact.item}
+                <ArtifactSidebar
+                  selected={selectedArtifact}
                   displayBlocks={selectedDisplayBlocks}
                   runEvents={selectedRunEvents}
                   isRunning={isStreaming && selectedArtifact.runId === currentRunId}

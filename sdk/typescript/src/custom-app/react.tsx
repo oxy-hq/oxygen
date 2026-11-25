@@ -1056,7 +1056,7 @@ export interface AgentSqlArtifact {
    *  flavor in case the renderer wants a badge. */
   source: string;
   sql: string;
-  /** Present when the SQL was executed and rows came back. */
+  /** Present when rows came back: `rows` may be a preview, `rowCount` is the full count. */
   results?: {
     columns: string[];
     rows: unknown[][];
@@ -1991,8 +1991,8 @@ function SqlArtifactBlock(props: {
   const { artifact, maxRows } = props;
   const [open, setOpen] = React.useState(false);
   const results = artifact.results;
-  const truncated = results ? results.rows.length > maxRows : false;
   const visibleRows = results ? results.rows.slice(0, maxRows) : [];
+  const hidden = results ? Math.max(results.rowCount, results.rows.length) - visibleRows.length : 0;
   const sourceLabel =
     artifact.source === "verified_sql"
       ? "Verified query"
@@ -2044,9 +2044,9 @@ function SqlArtifactBlock(props: {
                   ))}
                 </tbody>
               </table>
-              {truncated ? (
+              {hidden > 0 ? (
                 <div style={styles.truncatedNote}>
-                  +{results.rows.length - maxRows} more rows. Open the thread in Oxy to see all.
+                  +{hidden} more rows. Open the thread in Oxy to see all.
                 </div>
               ) : null}
             </div>

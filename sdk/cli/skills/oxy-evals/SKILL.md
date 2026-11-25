@@ -285,7 +285,9 @@ oxyc agentic run <path/to/agent.agentic.yml> -q "<the case's prompt>" --json --w
 ```
 
 This runs the deployed agent, as the evals do, and streams the run's events as JSON lines. Look at
-`query_executed`: its `query`, its `rows`, and its `source`. `source` is `semantic` (compiled
+`query_executed`: its `query`, its `rows`, its `row_count` and its `source`. `rows` is only a
+preview (a react run sends the first 10; `row_count` is the full count), so judge a result's
+size by `row_count`, not by counting `rows`. `source` is `semantic` (compiled
 by the semantic model), `llm` (SQL the model wrote), `verified_sql` (a Verified Query), or
 `vendor`. Also look at `analytics_validation_failed`, the checks that bounced the agent. If
 the project exports traces to Oxy's observability, the run's trace shows the same steps.

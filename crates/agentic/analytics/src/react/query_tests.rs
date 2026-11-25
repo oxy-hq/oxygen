@@ -12,7 +12,7 @@ use agentic_runtime::react::ResultStore;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::tools::{QueryDeps, QueryTool};
+use super::tools::{EVENT_PREVIEW_ROWS, QueryDeps, QueryTool};
 use crate::SemanticCatalog;
 
 /// Table `t(id, name)` of `rows` rows; refuses nothing, records everything.
@@ -195,7 +195,11 @@ async fn query_runs_sql_and_stores_the_result() {
     let p = &a.payload;
     assert_eq!(p["query"], "select * from t");
     assert_eq!(p["row_count"], 30);
-    assert_eq!(p["rows"].as_array().unwrap().len(), 30);
+    assert_eq!(
+        p["rows"].as_array().unwrap().len(),
+        EVENT_PREVIEW_ROWS,
+        "the row carries a preview; row_count is the full count"
+    );
     assert_eq!(p["rows"][3], json!([3.0, "n3"]));
     assert_eq!(p["columns"], json!(["id", "name"]));
     assert_eq!(p["success"], true);
@@ -219,14 +223,14 @@ async fn query_runs_on_the_read_only_path() {
 }
 
 #[tokio::test]
-async fn query_preview_artifact_is_capped_at_100() {
+async fn query_preview_artifact_is_capped_at_the_event_preview() {
     let t = tool(&[("warehouse", Fake::new(150))], None);
     let reply = run(&t, json!({"sql": "select * from t", "limit": 500}))
         .await
         .unwrap();
     let p = &reply.artifacts[0].payload;
     assert_eq!(p["row_count"], 150);
-    assert_eq!(p["rows"].as_array().unwrap().len(), 100);
+    assert_eq!(p["rows"].as_array().unwrap().len(), EVENT_PREVIEW_ROWS);
     // `limit` is clamped to 100 rows shown.
     assert!(reply.text.ends_with("… 50 more rows"), "{}", reply.text);
 }

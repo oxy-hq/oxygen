@@ -14,7 +14,6 @@ use agentic_core::events::Event;
 use agentic_core::react::{Artifact, Effect, Tool, ToolCx, ToolFailure, ToolReply};
 use agentic_core::result::CellValue;
 use agentic_core::tools::ToolDef;
-use agentic_runtime::react::DEFAULT_PREVIEW_ROWS;
 use agentic_semantic::config::SemanticQueryConfig;
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -30,6 +29,11 @@ use crate::{AnalyticsEvent, QuerySource, SemanticCatalog};
 /// The most rows a result keeps: the platform's cap. The model sees only its
 /// `limit`; the rest are for the answer's table.
 const SAMPLE_LIMIT: u64 = 10_000;
+/// Rows a `query_executed` row carries: enough for a glance in the trace.
+/// The rest are in the stored result, which `result_table` pages
+/// (`GET …/runs/{id}/results/{result_id}`); `row_count` is always the full
+/// count, so a reader says "first 10 of N".
+pub const EVENT_PREVIEW_ROWS: usize = 10;
 const DEFAULT_SHOWN: usize = 20;
 const MAX_SHOWN: usize = 100;
 const MAX_CANDIDATES: usize = 5;
@@ -302,7 +306,7 @@ fn success_reply(
     let columns = exec.result.columns.clone();
     let row_count = rows.len();
     let table = render_table(&columns, &rows, limit);
-    let preview: Vec<Vec<Value>> = rows.iter().take(DEFAULT_PREVIEW_ROWS).cloned().collect();
+    let preview: Vec<Vec<Value>> = rows.iter().take(EVENT_PREVIEW_ROWS).cloned().collect();
     let artifact = query_executed(&p, duration_ms, Ok((columns.clone(), preview, row_count)));
     let id = cx.results.put(p.sql.clone(), columns, rows);
     let mut text = format!("result {id}: {}", row_count_text(&exec, row_count));

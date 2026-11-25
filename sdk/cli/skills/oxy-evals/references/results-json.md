@@ -139,7 +139,9 @@ diagnosis:
 | `semantic_shortcut_attempted` / `semantic_shortcut_resolved` | whether the semantic model answered directly |
 | `spec_resolved` | the tables, joins and assumptions the agent settled on |
 | `query_generated` | SQL the model wrote |
-| `query_executed` | `query`, `row_count`, `rows` (a preview), `error`, and `source`: `semantic`, `llm`, `verified_sql` or `vendor` |
+| `query_executed` | `query`, `row_count` (the full count), `rows` (a preview: a react run sends the first 10), `error`, and `source`: `semantic`, `llm`, `verified_sql` or `vendor` |
+| `result_table` | a react run only: the answer's result, its first 50 `rows`, `columns`, `column_kinds`, and `row_count` |
+| `result_chart` | a react run only: a chart the agent drew, `kind`, `x`, `y`, `series`, and its own `rows` as `[x, series?, y…]` |
 | `analytics_validation_failed` | `state`, `reason`: a check that sent the agent back to retry |
 
 Run it two or three times for a flaky case. Different `source` values or different SQL across

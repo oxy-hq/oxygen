@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`OxyAnswer` counts a SQL artifact's hidden rows from `rowCount`.** `artifacts[].results.rows`
+  is a preview: a react run sends the first 10 rows of a result, with `rowCount` the full
+  count. The "+N more rows" note counted the preview, so a 30-row result sent as 10 rows showed
+  no note at all; it now reads "+20 more rows" (`oxyAnswer.artifacts.test.tsx`). A preview that
+  holds the whole result renders as before.
+
 ## [2.35.0] - 2026-11-24
 
 ### Added
