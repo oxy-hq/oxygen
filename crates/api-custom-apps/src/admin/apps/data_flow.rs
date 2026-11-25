@@ -22,6 +22,11 @@
 //! | a function's `airhouse` / `oltp` capability | function `writes` → the app's own schema |
 //! | a function's `on: { table }` | the watched table `triggers` → function |
 //! | a function's `oxygen.sourceUploads` | function `triggers` → pipeline, `approved` when an org admin's grant (`app_platform_grants`) stands |
+//! | the caller's `calls` | caller app `calls` → the callee's function (`ctx.apps.call` and `ctx.apps.send` share the declaration) |
+//! | a function's `on: "<app>/<event>"` | each function whose `events.publish` names the event `publishes` → the subscriber |
+//!
+//! The app-to-app edges are [`messaging`]'s; a declaration the platform would
+//! refuse is drawn with its reason in `problems`.
 //!
 //! Edges point the way the data moves. The live build is production's, else
 //! staging's for an app never promoted; each app node says which.
@@ -43,6 +48,7 @@
 
 mod assemble;
 mod load;
+mod messaging;
 mod shape;
 
 use std::collections::BTreeSet;
@@ -166,6 +172,12 @@ pub enum EdgeKind {
     Triggers,
     /// The platform copies `from` into `to` (the OLTP change stream relay).
     Ships,
+    /// `from` runs `to`, another app's function: `ctx.apps.call` (answered
+    /// now) or `ctx.apps.send` (queued). One `calls` declaration admits both.
+    Calls,
+    /// `from` publishes events `to` listens to (`on: "<app>/<event>"`),
+    /// delivered later by the event relay.
+    Publishes,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -177,17 +189,30 @@ pub struct FlowEdge {
     pub declared: bool,
     /// What declared it: `airway`, `airhouseMigrations`, `migrations`,
     /// `oltpChanges`, `destinations`, `airhouse`, `oltp`, `on`,
-    /// `oxygen.sourceUploads`.
+    /// `oxygen.sourceUploads`, `calls`, `events`.
     pub via: BTreeSet<String>,
     /// The tables it names, at schema level.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub tables: BTreeSet<String>,
-    /// The functions folded into an app-level edge.
+    /// The functions folded into the `from` app: on a `publishes` edge, the
+    /// publishers.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
-    pub functions: BTreeSet<String>,
+    pub from_functions: BTreeSet<String>,
+    /// The functions folded into the `to` app: on a `publishes` edge, the
+    /// subscribers; on a `calls` edge, the functions called.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub to_functions: BTreeSet<String>,
     /// For an upload into a pipeline: whether an org admin approved it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved: Option<bool>,
+    /// The event types a `publishes` edge carries.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub events: BTreeSet<String>,
+    /// Why the platform would refuse what this edge declares:
+    /// `app_not_found`, `function_not_found`, `not_callable`, `not_in_catalog`,
+    /// `never_published`. Empty for an edge that would run.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub problems: BTreeSet<String>,
 }
 
 /// The query, checked.

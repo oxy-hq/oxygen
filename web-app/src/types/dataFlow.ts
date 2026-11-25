@@ -15,7 +15,15 @@ export type DataFlowNodeType =
   | "function";
 
 /** Which way the data moves along an edge, and who moves it. */
-export type DataFlowEdgeKind = "reads" | "writes" | "triggers" | "ships";
+export type DataFlowEdgeKind = "reads" | "writes" | "triggers" | "ships" | "calls" | "publishes";
+
+/** Why the platform would refuse what an edge declares. */
+export type DataFlowEdgeProblem =
+  | "app_not_found"
+  | "function_not_found"
+  | "not_callable"
+  | "not_in_catalog"
+  | "never_published";
 
 export type DataFlowLevel = "schema" | "table";
 
@@ -39,13 +47,20 @@ export interface DataFlowEdge {
   /** Always true until observed edges ship. */
   declared: boolean;
   /** What declared it: `airway`, `airhouseMigrations`, `migrations`, `oltpChanges`,
-   *  `destinations`, `airhouse`, `oltp`, `on`, `oxygen.sourceUploads`. */
+   *  `destinations`, `airhouse`, `oltp`, `on`, `oxygen.sourceUploads`, `calls`, `events`. */
   via: string[];
   tables?: string[];
-  /** The functions folded into an app-level edge. */
-  functions?: string[];
+  /** The functions folded into the `from` app: a `publishes` edge's publishers. */
+  from_functions?: string[];
+  /** The functions folded into the `to` app: a `publishes` edge's subscribers,
+   *  a `calls` edge's functions called. */
+  to_functions?: string[];
   /** An upload into a pipeline: whether an org admin approved it. */
   approved?: boolean;
+  /** The event types a `publishes` edge carries. */
+  events?: string[];
+  /** Absent for an edge the platform would run. */
+  problems?: DataFlowEdgeProblem[];
 }
 
 export interface DataFlow {

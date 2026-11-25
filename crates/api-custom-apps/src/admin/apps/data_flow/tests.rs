@@ -486,13 +486,14 @@ fn unfocused_functions_fold_into_their_app_and_keep_their_names() {
         EdgeKind::Writes,
     );
     assert_eq!(own.via, set(&["airhouseMigrations", "airhouse"]));
-    assert_eq!(own.functions, set(&["on-orders", "record"]));
+    assert_eq!(own.from_functions, set(&["on-orders", "record"]));
     let watch = find(
         &format!("schema:{WS}:warehouse:toast"),
         &app_id(),
         EdgeKind::Triggers,
     );
-    assert_eq!(watch.functions, set(&["on-orders"]));
+    assert_eq!(watch.to_functions, set(&["on-orders"]));
+    assert!(watch.from_functions.is_empty());
     // Folding never invents an endpoint.
     let ids: BTreeSet<&str> = shaped.nodes.iter().map(|n| n.id.as_str()).collect();
     assert!(
@@ -524,7 +525,7 @@ fn a_folded_upload_is_approved_only_when_every_one_is() {
         .find(|e| e.from == app_id() && e.to == format!("pipe:{WS}:toast_orders"))
         .unwrap();
     assert_eq!(upload.approved, Some(false));
-    assert_eq!(upload.functions, set(&["upload", "upload-2"]));
+    assert_eq!(upload.from_functions, set(&["upload", "upload-2"]));
 }
 
 #[test]

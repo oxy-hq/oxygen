@@ -4,7 +4,9 @@ const LINES: { label: string; stroke: string; dash?: string }[] = [
   { label: "reads / writes", stroke: "var(--muted-foreground)" },
   { label: "triggers", stroke: "var(--muted-foreground)", dash: "6 4" },
   { label: "ships (change stream)", stroke: "var(--primary)", dash: "2 3" },
-  { label: "upload not approved", stroke: "var(--warning)", dash: "6 4" }
+  { label: "calls (call or send)", stroke: "var(--foreground)" },
+  { label: "publishes (events)", stroke: "var(--foreground)", dash: "8 3 2 3" },
+  { label: "refused or not approved", stroke: "var(--warning)", dash: "6 4" }
 ];
 
 /** The columns, left to right, and what each kind of line means. */

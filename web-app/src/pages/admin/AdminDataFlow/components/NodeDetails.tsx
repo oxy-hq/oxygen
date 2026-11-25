@@ -1,10 +1,18 @@
-import { ArrowLeft, ArrowRight, Crosshair } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronsDownUp, Crosshair } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import ROUTES from "@/libs/utils/routes";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
-import type { DataFlow, DataFlowEdge, DataFlowNode } from "@/types/dataFlow";
-import { captionOf, describeEdge, EDGE_KIND_WORDS, flagsOf, neighboursOf } from "../dataFlowModel";
+import type { DataFlowEdge, DataFlowNode } from "@/types/dataFlow";
+import {
+  captionOf,
+  describeEdge,
+  EDGE_KIND_WORDS,
+  type Flow,
+  flagsOf,
+  neighboursOf
+} from "../dataFlowModel";
+import type { ViewEdge } from "../dataFlowView";
 
 const EdgeRow = ({
   edge,
@@ -12,7 +20,7 @@ const EdgeRow = ({
   direction,
   onSelect
 }: {
-  edge: DataFlowEdge;
+  edge: DataFlowEdge & Pick<ViewEdge, "count">;
   other: DataFlowNode | undefined;
   direction: "in" | "out";
   onSelect: (id: string) => void;
@@ -23,7 +31,9 @@ const EdgeRow = ({
     <li className='flex flex-col gap-0.5 py-1.5' data-testid='admin-data-flow-details-edge'>
       <div className='flex items-center gap-1.5'>
         <Arrow className='size-3 shrink-0 text-muted-foreground' />
-        <span className='shrink-0 text-muted-foreground'>{EDGE_KIND_WORDS[edge.kind]}</span>
+        <span className='shrink-0 text-muted-foreground'>
+          {EDGE_KIND_WORDS[direction][edge.kind]}
+        </span>
         <button
           type='button'
           className='min-w-0 truncate font-medium text-foreground hover:underline'
@@ -35,11 +45,12 @@ const EdgeRow = ({
       </div>
       <p
         className={
-          edge.approved === false
+          edge.approved === false || (edge.problems?.length ?? 0) > 0
             ? `pl-4.5 ${ADMIN_TONE.warn.text}`
             : "pl-4.5 text-muted-foreground"
         }
       >
+        {edge.count && edge.count > 1 ? `${edge.count} edges · ` : ""}
         {describeEdge(edge)}
       </p>
     </li>
@@ -68,14 +79,17 @@ export const NodeDetails = ({
   orgSlug,
   focused,
   onFocus,
-  onSelect
+  onSelect,
+  onCollapse
 }: {
-  flow: DataFlow;
+  flow: Flow;
   node: DataFlowNode;
   orgSlug: string;
   focused: boolean;
   onFocus: (id: string) => void;
   onSelect: (id: string) => void;
+  /** Fold the group this node was opened out of, when it was opened by hand. */
+  onCollapse?: () => void;
 }) => {
   const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
   const { incoming, outgoing } = neighboursOf(flow, node.id);
@@ -102,6 +116,16 @@ export const NodeDetails = ({
         {!focused && (
           <Button size='sm' variant='outline' onClick={() => onFocus(node.id)}>
             <Crosshair className='size-3' /> Focus
+          </Button>
+        )}
+        {onCollapse && (
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={onCollapse}
+            data-testid='admin-data-flow-collapse-group'
+          >
+            <ChevronsDownUp className='size-3' /> Collapse group
           </Button>
         )}
         {node.type === "app" && slug && (

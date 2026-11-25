@@ -10,8 +10,22 @@ describe("readParams", () => {
       workspace: null,
       focus: "app:a1",
       depth: DEFAULT_DEPTH,
-      level: "schema"
+      level: "schema",
+      hide: [],
+      q: "",
+      open: []
     });
+  });
+
+  it("reads the view: hidden kinds it knows, the search, the open groups", () => {
+    expect(
+      read("org=o&hide=source,bogus,app&q=toast&open=group%3Aoltp,group%3Aapp%3Aw")
+    ).toMatchObject({
+      hide: ["source", "app"],
+      q: "toast",
+      open: ["group:oltp", "group:app:w"]
+    });
+    expect(read("org=o&open=all").open).toBe("all");
   });
 
   it("falls back to the default for a value it cannot use", () => {
@@ -42,6 +56,15 @@ describe("toQuery", () => {
 describe("patchSearch", () => {
   const patched = (query: string, patch: Parameters<typeof patchSearch>[1]) =>
     patchSearch(new URLSearchParams(query), patch).toString();
+
+  it("drops an empty view setting from the URL", () => {
+    expect(patched("org=o&hide=app&q=x&open=all", { hide: [], q: " ", open: [] })).toBe("org=o");
+    expect(patched("org=o", { open: ["group:oltp"] })).toBe("org=o&open=group%3Aoltp");
+  });
+
+  it("never sends the view to the server", () => {
+    expect(toQuery(read("org=o&hide=app&q=x&open=all"))).toEqual({ org_id: "o" });
+  });
 
   it("sets what the patch names and keeps the rest", () => {
     expect(patched("org=o&level=table", { focus: "app:a" })).toBe(

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { DataFlowLevel, DataFlowQuery } from "@/types/dataFlow";
+import { HIDEABLE_KINDS, type HideableKind } from "./dataFlowView";
 
 /** The server's default, sent only when the caller names another. */
 export const DEFAULT_DEPTH = 2;
@@ -11,6 +12,12 @@ export type DataFlowParams = {
   focus: string | null;
   depth: number;
   level: DataFlowLevel;
+  /** Kinds left off the canvas. Drawn only: the server is asked for the same graph. */
+  hide: HideableKind[];
+  /** Keep the nodes matching this, and their neighbours. */
+  q: string;
+  /** Groups unfolded by hand, or every group. */
+  open: string[] | "all";
 };
 
 const KEYS: Record<keyof DataFlowParams, string> = {
@@ -18,8 +25,14 @@ const KEYS: Record<keyof DataFlowParams, string> = {
   workspace: "workspace",
   focus: "focus",
   depth: "depth",
-  level: "level"
+  level: "level",
+  hide: "hide",
+  q: "q",
+  open: "open"
 };
+
+const KINDS = new Set<string>(HIDEABLE_KINDS.map((k) => k.kind));
+const list = (value: string | null) => (value ? value.split(",").filter(Boolean) : []);
 
 /** `?org=&workspace=&focus=&depth=&level=`, read leniently: an unreadable value is its default. */
 export function readParams(search: URLSearchParams): DataFlowParams {
@@ -29,7 +42,10 @@ export function readParams(search: URLSearchParams): DataFlowParams {
     workspace: search.get(KEYS.workspace) || null,
     focus: search.get(KEYS.focus) || null,
     depth: Number.isInteger(depth) && depth >= 1 && depth <= 6 ? depth : DEFAULT_DEPTH,
-    level: search.get(KEYS.level) === "table" ? "table" : "schema"
+    level: search.get(KEYS.level) === "table" ? "table" : "schema",
+    hide: list(search.get(KEYS.hide)).filter((k): k is HideableKind => KINDS.has(k)),
+    q: search.get(KEYS.q) ?? "",
+    open: search.get(KEYS.open) === "all" ? "all" : list(search.get(KEYS.open))
   };
 }
 
@@ -45,6 +61,24 @@ export function toQuery(params: DataFlowParams): DataFlowQuery | null {
   };
 }
 
+const joinedOrNull = (list: string[]) => (list.length ? list.join(",") : null);
+
+/** Each setting as the URL writes it; `null` (its default) leaves it out. */
+const ENCODE: { [K in keyof DataFlowParams]: (value: DataFlowParams[K]) => string | null } = {
+  org: (v) => v,
+  workspace: (v) => v,
+  focus: (v) => v,
+  depth: (v) => (v === DEFAULT_DEPTH ? null : String(v)),
+  level: (v) => (v === "schema" ? null : v),
+  hide: joinedOrNull,
+  q: (v) => (v.trim() ? v : null),
+  open: (v) => (v === "all" ? "all" : joinedOrNull(v))
+};
+
+function encode<K extends keyof DataFlowParams>(key: K, value: DataFlowParams[K] | undefined) {
+  return value === undefined || value === null ? null : ENCODE[key](value);
+}
+
 /**
  * `current` with `patch` applied: a key in the patch is set, or dropped when it is
  * `null` or its default, so a view's URL carries only what it changed.
@@ -54,17 +88,11 @@ export function patchSearch(
   patch: Partial<DataFlowParams>
 ): URLSearchParams {
   const next = new URLSearchParams(current);
-  const put = (key: keyof DataFlowParams, value: string | null) => {
+  for (const key of Object.keys(patch) as (keyof DataFlowParams)[]) {
+    const value = encode(key, patch[key]);
     if (value === null) next.delete(KEYS[key]);
     else next.set(KEYS[key], value);
-  };
-  for (const key of ["org", "workspace", "focus"] as const) {
-    if (key in patch) put(key, patch[key] ?? null);
   }
-  if (patch.depth !== undefined) {
-    put("depth", patch.depth === DEFAULT_DEPTH ? null : String(patch.depth));
-  }
-  if (patch.level !== undefined) put("level", patch.level === "schema" ? null : patch.level);
   return next;
 }
 

@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import {
   AppWindow,
+  ChevronsUpDown,
   Database,
   Layers,
   type LucideIcon,
@@ -38,6 +39,10 @@ export type DataFlowNodeData = {
   selected: boolean;
   /** Something else is selected and this is not next to it. */
   dimmed: boolean;
+  /** The search matched it. */
+  matched?: boolean;
+  /** A folded group: how many nodes it holds. Clicking it opens it. */
+  count?: number;
 };
 
 /**
@@ -69,13 +74,20 @@ export const DataFlowNodeCard = ({ data }: NodeProps) => {
   return (
     <div
       className={cn(
-        "flex h-13 w-52 cursor-pointer items-center gap-2 rounded-md border bg-background px-2.5 shadow-sm transition-opacity",
+        // Cards arrive with a short fade and rise, so opening a group reads as the group unfolding.
+        "flex h-13 w-52 cursor-pointer items-center gap-2 rounded-md border bg-background px-2.5 shadow-sm transition-[opacity,translate] duration-(--duration-slow) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0",
         frameClasses(d),
+        d.count !== undefined && "border-dashed bg-muted/40",
+        d.matched && "ring-2 ring-primary",
         d.selected && "ring-2 ring-primary/40",
         d.dimmed && "opacity-35"
       )}
-      title={flag ? `${d.node.id}\n${flag.hint}` : d.node.id}
-      data-testid={`admin-data-flow-node-${d.node.type}`}
+      title={
+        d.count !== undefined ? "Click to expand" : flag ? `${d.node.id}\n${flag.hint}` : d.node.id
+      }
+      data-testid={
+        d.count !== undefined ? "admin-data-flow-group" : `admin-data-flow-node-${d.node.type}`
+      }
     >
       {HANDLES}
       <Icon className='size-3.5 shrink-0 text-muted-foreground' />
@@ -85,6 +97,9 @@ export const DataFlowNodeCard = ({ data }: NodeProps) => {
           {flag ? <span className={ADMIN_TONE[flag.tone].text}>{flag.label}</span> : d.caption}
         </div>
       </div>
+      {d.count !== undefined && (
+        <ChevronsUpDown className='size-3 shrink-0 text-muted-foreground' />
+      )}
     </div>
   );
 };

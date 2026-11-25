@@ -45,12 +45,23 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+const Graph = () => (
+  <DataFlowGraph
+    flow={flow}
+    focus={null}
+    selected={null}
+    matches={new Set()}
+    onSelect={vi.fn()}
+    onExpand={vi.fn()}
+  />
+);
+
 describe("DataFlowGraph", () => {
   it("draws ELK's placement when it answers", async () => {
     vi.mocked(layoutColumns).mockImplementation(async (nodes) =>
       nodes.map((n, i) => ({ ...n, position: { x: i * 10, y: 7 } }))
     );
-    render(<DataFlowGraph flow={flow} focus={null} selected={null} onSelect={vi.fn()} />);
+    render(<Graph />);
     expect(await screen.findByText("pipe:w:s@10,7")).toBeTruthy();
     expect(screen.queryByTestId("admin-data-flow-layout-failed")).toBeNull();
   });
@@ -58,7 +69,7 @@ describe("DataFlowGraph", () => {
   it("stacks the nodes by column and says why when ELK refuses the graph", async () => {
     vi.mocked(layoutColumns).mockRejectedValue(new Error("partition constraint violated"));
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    render(<DataFlowGraph flow={flow} focus={null} selected={null} onSelect={vi.fn()} />);
+    render(<Graph />);
 
     const note = await screen.findByTestId("admin-data-flow-layout-failed");
     expect(note.textContent).toContain("partition constraint violated");

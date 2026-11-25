@@ -31,6 +31,8 @@ pub(crate) struct Inputs {
     /// revision. All of them, whatever the filter: an upload names a pipeline,
     /// never a workspace, so finding it takes the whole org.
     pub pipelines: Vec<PipelineIn>,
+    /// Every app of the org, whatever the filter: a call or an event names an
+    /// app by slug, and the other end may live in another workspace.
     pub apps: Vec<AppIn>,
 }
 
@@ -108,8 +110,11 @@ impl Graph {
                 declared: true,
                 via: BTreeSet::new(),
                 tables: BTreeSet::new(),
-                functions: BTreeSet::new(),
+                from_functions: BTreeSet::new(),
+                to_functions: BTreeSet::new(),
                 approved: None,
+                events: BTreeSet::new(),
+                problems: BTreeSet::new(),
             });
         edge.via.insert(via.to_string());
         edge
@@ -208,7 +213,9 @@ pub(crate) fn assemble(inputs: &Inputs) -> Graph {
     for app in inputs.apps.iter().filter(|a| wanted(a.workspace_id)) {
         builder.add_app(app);
     }
-    builder.graph
+    let mut graph = builder.graph;
+    super::messaging::add_messaging(&mut graph, &inputs.apps, |a| wanted(a.workspace_id));
+    graph
 }
 
 struct Builder<'a> {

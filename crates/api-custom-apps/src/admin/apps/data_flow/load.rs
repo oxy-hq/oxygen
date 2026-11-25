@@ -125,14 +125,12 @@ async fn load_pipelines(
         .collect())
 }
 
-/// The org's apps (in the workspace, when one is named), each with the build
-/// it serves: production's, else staging's.
+/// Every app of the org, each with the build it serves: production's, else
+/// staging's. The workspace filter is the assembler's: a call or an event
+/// names an app by slug, and it may sit in another workspace.
 async fn load_apps(db: &DatabaseConnection, params: &Params) -> Result<Vec<AppIn>, ScopeError> {
-    let mut query = apps::Entity::find().filter(apps::Column::OrgId.eq(params.org_id));
-    if let Some(workspace) = params.workspace_id {
-        query = query.filter(apps::Column::ProjectId.eq(workspace));
-    }
-    let rows = query
+    let rows = apps::Entity::find()
+        .filter(apps::Column::OrgId.eq(params.org_id))
         .order_by_asc(apps::Column::Name)
         .all(db)
         .await

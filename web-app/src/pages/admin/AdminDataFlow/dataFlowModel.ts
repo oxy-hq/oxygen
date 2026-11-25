@@ -7,6 +7,7 @@ import type {
   DataFlow,
   DataFlowEdge,
   DataFlowEdgeKind,
+  DataFlowEdgeProblem,
   DataFlowNode,
   DataFlowNodeType
 } from "@/types/dataFlow";
@@ -25,6 +26,9 @@ export const COLUMN: Record<DataFlowNodeType, number> = {
 export const COLUMN_LABELS = ["Sources", "Pipelines", "Stores", "Functions", "Apps"] as const;
 
 export const columnOf = (node: Pick<DataFlowNode, "type">) => COLUMN[node.type];
+
+/** What the canvas draws: the server's answer, or the view folded out of it. */
+export type Flow = Pick<DataFlow, "nodes" | "edges">;
 
 /** One drawn line: a data edge, or a function's membership of its app. */
 export type FlowLink = {
@@ -119,6 +123,19 @@ export function captionOf(node: DataFlowNode): string {
 
 export type NodeFlag = { tone: "warn" | "danger"; label: string; hint: string };
 
+const MISSING: Record<"app" | "pipeline", NodeFlag> = {
+  pipeline: {
+    tone: "warn",
+    label: "not compiled",
+    hint: "An app uploads into this pipeline, but no workspace of the org compiles one by this name."
+  },
+  app: {
+    tone: "warn",
+    label: "no such app",
+    hint: "Another app calls or listens to an app by this slug, but no app of the org holds it."
+  }
+};
+
 /** What is wrong with a node's declaration, if anything. */
 export function flagsOf(node: DataFlowNode): NodeFlag[] {
   const flags: NodeFlag[] = [];
@@ -129,13 +146,7 @@ export function flagsOf(node: DataFlowNode): NodeFlag[] {
       hint: "The compiled .airway.yml does not read as a pipeline, so nothing it declares is drawn."
     });
   }
-  if (node.meta.missing === true) {
-    flags.push({
-      tone: "warn",
-      label: "not compiled",
-      hint: "An app uploads into this pipeline, but no workspace of the org compiles one by this name."
-    });
-  }
+  if (node.meta.missing === true) flags.push(MISSING[node.type === "app" ? "app" : "pipeline"]);
   if (node.meta.ambiguous === true) {
     flags.push({
       tone: "warn",
@@ -146,38 +157,103 @@ export function flagsOf(node: DataFlowNode): NodeFlag[] {
   return flags;
 }
 
-/** A line's look. Colours are theme variables, so both themes hold. */
-export type LinkStyle = { stroke: string; dash?: string; arrow: boolean };
+/**
+ * A line's look. Colours are theme variables, so both themes hold. `moving` lines
+ * carry a travelling dot: the ones where something is sent between systems (the
+ * change stream, a call, an event), and any line lit by a selection.
+ */
+export type LinkStyle = { stroke: string; dash?: string; arrow: boolean; moving: boolean };
 
 const DASH: Record<DataFlowEdgeKind, string | undefined> = {
   reads: undefined,
   writes: undefined,
   triggers: "6 4",
-  ships: "2 3"
+  ships: "2 3",
+  calls: undefined,
+  publishes: "8 3 2 3"
+};
+
+/** Between systems rather than into a store: drawn moving. */
+const SENT: ReadonlySet<DataFlowEdgeKind> = new Set(["ships", "calls", "publishes"]);
+
+const STROKE: Partial<Record<DataFlowEdgeKind, string>> = {
+  ships: "var(--primary)",
+  calls: "var(--foreground)",
+  publishes: "var(--foreground)"
 };
 
 export function linkStyle(link: FlowLink): LinkStyle {
-  if (!link.edge) return { stroke: "var(--border)", dash: "2 3", arrow: false };
-  if (link.edge.approved === false) {
-    return { stroke: "var(--warning)", dash: "6 4", arrow: true };
+  if (!link.edge) return { stroke: "var(--border)", dash: "2 3", arrow: false, moving: false };
+  const { kind, approved, problems } = link.edge;
+  // Refused as declared: an unapproved upload, a call or event the platform would not run.
+  if (approved === false || problems?.length) {
+    return { stroke: "var(--warning)", dash: "6 4", arrow: true, moving: false };
   }
-  const stroke = link.edge.kind === "ships" ? "var(--primary)" : "var(--muted-foreground)";
-  return { stroke, dash: DASH[link.edge.kind], arrow: true };
+  return {
+    stroke: STROKE[kind] ?? "var(--muted-foreground)",
+    dash: DASH[kind],
+    arrow: true,
+    moving: SENT.has(kind)
+  };
 }
 
-export const EDGE_KIND_WORDS: Record<DataFlowEdgeKind, string> = {
-  reads: "reads",
-  writes: "writes",
-  triggers: "triggers",
-  ships: "ships"
+/**
+ * An edge in words from the selected node's side: `out` when it is the edge's
+ * source, `in` when it is the target, so "called by billing" never reads as
+ * "calls billing".
+ */
+export const EDGE_KIND_WORDS: Record<"in" | "out", Record<DataFlowEdgeKind, string>> = {
+  out: {
+    reads: "read by",
+    writes: "writes",
+    triggers: "triggers",
+    ships: "ships to",
+    calls: "calls",
+    publishes: "publishes to"
+  },
+  in: {
+    reads: "reads",
+    writes: "written by",
+    triggers: "triggered by",
+    ships: "shipped from",
+    calls: "called by",
+    publishes: "hears from"
+  }
+};
+
+const PROBLEM_WORDS: Record<DataFlowEdgeProblem, string> = {
+  app_not_found: "no app of the org has this slug",
+  function_not_found: "the callee has no function by this name",
+  not_callable: "the function is not marked callable",
+  not_in_catalog: "the event is not in the publisher's catalogue",
+  never_published: "no function of the publisher may publish it"
+};
+
+/**
+ * How each end's folded functions are named: a `publishes` edge carries the
+ * publishers on one side and the subscribers on the other, and one mixed list
+ * would not say which is which.
+ */
+const FUNCTION_SIDE_DEFAULT: [string, string] = ["from functions", "to functions"];
+const FUNCTION_SIDE_WORDS: Partial<Record<DataFlowEdgeKind, [string, string]>> = {
+  publishes: ["published by", "heard by"],
+  calls: ["called from", "functions called"],
+  writes: ["written by", "written to"],
+  reads: ["read from", "read by"],
+  triggers: ["triggered from", "functions run"]
 };
 
 /** One edge in words, for the details list: what declared it and what it names. */
 export function describeEdge(edge: DataFlowEdge): string {
   const parts = [`via ${edge.via.join(", ")}`];
+  if (edge.kind === "calls") parts.push("call (now) or send (queued)");
+  if (edge.events?.length) parts.push(`events: ${edge.events.join(", ")}`);
   if (edge.tables?.length) parts.push(`tables: ${edge.tables.join(", ")}`);
-  if (edge.functions?.length) parts.push(`functions: ${edge.functions.join(", ")}`);
+  const [fromWord, toWord] = FUNCTION_SIDE_WORDS[edge.kind] ?? FUNCTION_SIDE_DEFAULT;
+  if (edge.from_functions?.length) parts.push(`${fromWord}: ${edge.from_functions.join(", ")}`);
+  if (edge.to_functions?.length) parts.push(`${toWord}: ${edge.to_functions.join(", ")}`);
   if (edge.approved === false) parts.push("not approved by an org admin");
+  for (const p of edge.problems ?? []) parts.push(`refused: ${PROBLEM_WORDS[p]}`);
   return parts.join(" · ");
 }
 

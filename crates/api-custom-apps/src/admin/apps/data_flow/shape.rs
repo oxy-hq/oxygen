@@ -69,7 +69,8 @@ fn expanded_app(graph: &Graph, focus: &str) -> Option<String> {
 }
 
 /// Every function not of `expanded` replaced by its app: its node dropped,
-/// its edges moved onto the app and merged with the app's own.
+/// its edges moved onto the app and merged with the app's own, each
+/// edge keeping which end's functions it came from.
 fn fold_functions(graph: &mut Graph, expanded: Option<&str>) {
     let folded: HashMap<String, (String, String)> = graph
         .nodes
@@ -84,11 +85,13 @@ fn fold_functions(graph: &mut Graph, expanded: Option<&str>) {
         graph.nodes.remove(id);
     }
     for (_, mut edge) in std::mem::take(&mut graph.edges) {
-        for end in [&mut edge.from, &mut edge.to] {
-            if let Some((app, function)) = folded.get(end.as_str()) {
-                edge.functions.insert(function.clone());
-                *end = app.clone();
-            }
+        if let Some((app, function)) = folded.get(edge.from.as_str()) {
+            edge.from_functions.insert(function.clone());
+            edge.from = app.clone();
+        }
+        if let Some((app, function)) = folded.get(edge.to.as_str()) {
+            edge.to_functions.insert(function.clone());
+            edge.to = app.clone();
         }
         merge(graph, edge);
     }
@@ -104,7 +107,10 @@ fn merge(graph: &mut Graph, edge: FlowEdge) {
         Some(seen) => {
             seen.via.extend(edge.via);
             seen.tables.extend(edge.tables);
-            seen.functions.extend(edge.functions);
+            seen.from_functions.extend(edge.from_functions);
+            seen.to_functions.extend(edge.to_functions);
+            seen.events.extend(edge.events);
+            seen.problems.extend(edge.problems);
             // Approved only when every folded upload is.
             seen.approved = match (seen.approved, edge.approved) {
                 (Some(a), Some(b)) => Some(a && b),

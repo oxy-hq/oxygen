@@ -7,6 +7,7 @@ import {
   columnPlacement,
   countFlow,
   describeEdge,
+  EDGE_KIND_WORDS,
   flagsOf,
   layoutEdges,
   linkStyle,
@@ -128,17 +129,58 @@ describe("words", () => {
     expect(flagsOf(node("pipe:w:y", "pipeline", { invalid: true }))[0].tone).toBe("danger");
   });
 
+  it("words an edge from the selected node's side", () => {
+    expect(EDGE_KIND_WORDS.out.calls).toBe("calls");
+    expect(EDGE_KIND_WORDS.in.calls).toBe("called by");
+    expect(EDGE_KIND_WORDS.in.publishes).toBe("hears from");
+  });
+
+  it("names a missing app as an app, not a pipeline", () => {
+    expect(flagsOf(node("app:missing:x", "app", { missing: true }))[0].label).toBe("no such app");
+  });
+
+  it("says a call may be either kind, and why one would be refused", () => {
+    expect(describeEdge(edge("app:a", "fn:b:f", "calls", { via: ["calls"] }))).toBe(
+      "via calls · call (now) or send (queued)"
+    );
+    expect(
+      describeEdge(
+        edge("fn:a:p", "fn:b:s", "publishes", {
+          via: ["events", "on"],
+          events: ["order.placed"],
+          problems: ["not_in_catalog"]
+        })
+      )
+    ).toBe(
+      "via events, on · events: order.placed · refused: the event is not in the publisher's catalogue"
+    );
+  });
+
   it("describes an edge by what declared it and what it names", () => {
     const text = describeEdge(
       edge("a", "b", "writes", {
         via: ["airhouseMigrations", "airhouse"],
         tables: ["t"],
-        functions: ["f"],
+        from_functions: ["f"],
         approved: false
       })
     );
     expect(text).toBe(
-      "via airhouseMigrations, airhouse · tables: t · functions: f · not approved by an org admin"
+      "via airhouseMigrations, airhouse · tables: t · written by: f · not approved by an org admin"
+    );
+  });
+
+  it("names a publishes edge's publishers and subscribers apart", () => {
+    const text = describeEdge(
+      edge("app:shop", "app:shipping", "publishes", {
+        via: ["events", "on"],
+        events: ["order.placed"],
+        from_functions: ["place-order"],
+        to_functions: ["on-order-placed"]
+      })
+    );
+    expect(text).toBe(
+      "via events, on · events: order.placed · published by: place-order · heard by: on-order-placed"
     );
   });
 });
@@ -163,6 +205,27 @@ describe("linkStyle", () => {
     expect(styleOf("writes:pipe:w:toast->schema:w:toast").dash).toBeUndefined();
     expect(styleOf("triggers:schema:w:toast->fn:a:sync").dash).toBeDefined();
     expect(styleOf("member:fn:a:sync").arrow).toBe(false);
+  });
+
+  const solo = (e: DataFlowEdge) =>
+    linkStyle({ id: "x", source: e.from, target: e.to, edge: e, backward: false });
+
+  it("moves the lines that send between systems, and nothing else", () => {
+    expect(solo(edge("app:a", "fn:b:f", "calls")).moving).toBe(true);
+    expect(solo(edge("fn:a:p", "fn:b:s", "publishes", { events: ["e.x"] })).moving).toBe(true);
+    expect(styleOf("ships:oltp:app_x->schema:w:oltp_x").moving).toBe(true);
+    expect(styleOf("writes:pipe:w:toast->schema:w:toast").moving).toBe(false);
+    expect(styleOf("member:fn:a:sync").moving).toBe(false);
+  });
+
+  it("draws a call the platform would refuse in the warning colour, still", () => {
+    const refused = solo(edge("app:a", "fn:b:f", "calls", { problems: ["not_callable"] }));
+    expect(refused).toMatchObject({ stroke: "var(--warning)", moving: false });
+  });
+
+  it("tells a call from an event by its dash", () => {
+    expect(solo(edge("app:a", "fn:b:f", "calls")).dash).toBeUndefined();
+    expect(solo(edge("fn:a:p", "fn:b:s", "publishes")).dash).toBeDefined();
   });
 });
 

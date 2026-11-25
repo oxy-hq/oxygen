@@ -1,5 +1,4 @@
 import { Workflow } from "lucide-react";
-import { useState } from "react";
 import { useDataFlow } from "@/hooks/api/customApps/useDataFlow";
 import { cn } from "@/libs/shadcn/utils";
 import type { DataFlow } from "@/types/dataFlow";
@@ -8,10 +7,9 @@ import { AdminEmptyState } from "../components/AdminEmptyState";
 import { AdminKpiStrip } from "../components/AdminKpiStrip";
 import { AdminPage } from "../components/AdminPage";
 import { ADMIN_TONE } from "../components/adminTone";
-import { DataFlowGraph } from "./components/DataFlowGraph";
+import { DataFlowCanvas } from "./components/DataFlowCanvas";
 import { DataFlowLegend } from "./components/DataFlowLegend";
 import { DataFlowToolbar } from "./components/DataFlowToolbar";
-import { NodeDetails, NodeDetailsEmpty } from "./components/NodeDetails";
 import { countFlow } from "./dataFlowModel";
 import { toQuery, useDataFlowParams } from "./useDataFlowParams";
 
@@ -23,7 +21,9 @@ const INFO = (
     stream (<code>oltpChanges</code>), each function&rsquo;s <code>destinations</code>, watched
     tables (<code>on</code>) and pipeline uploads (<code>oxygen.sourceUploads</code>). What runs
     actually touched is not drawn yet. Functions fold into their app unless the app is focused; past
-    500 nodes the graph is cut.
+    500 nodes the graph is cut. On the canvas, more than three sources, pipelines or apps of a
+    workspace, or schemas of one database, fold into one card until you click it. The search keeps
+    its matches and their neighbours.
   </>
 );
 
@@ -60,15 +60,11 @@ const FlowKpis = ({ flow }: { flow: DataFlow }) => {
 export default function AdminDataFlow() {
   const { params, update } = useDataFlowParams();
   const flow = useDataFlow(toQuery(params));
-  const [selected, setSelected] = useState<string | null>(null);
   const data = flow.data;
-  const selectedNode = data?.nodes.find((n) => n.id === selected) ?? null;
   const focusLabel = data?.nodes.find((n) => n.id === params.focus)?.label ?? null;
-
-  const change = (patch: Parameters<typeof update>[0]) => {
-    setSelected(null);
-    update(patch);
-  };
+  // A new org or workspace is a new graph: what was opened in the last one means nothing here.
+  const change = (patch: Parameters<typeof update>[0]) =>
+    update("org" in patch || "workspace" in patch ? { open: [], q: "", ...patch } : patch);
 
   return (
     <AdminPage
@@ -118,31 +114,13 @@ export default function AdminDataFlow() {
                 </p>
               )}
               <DataFlowLegend />
-              <div
-                className={cn(
-                  "flex min-w-0 overflow-hidden rounded-lg border border-border/60 bg-card",
-                  flow.isPlaceholderData && "opacity-60"
-                )}
-              >
-                <DataFlowGraph
-                  flow={d}
-                  focus={params.focus}
-                  selected={selected}
-                  onSelect={setSelected}
-                />
-                {selectedNode ? (
-                  <NodeDetails
-                    flow={d}
-                    node={selectedNode}
-                    orgSlug={d.org.slug}
-                    focused={selectedNode.id === params.focus}
-                    onFocus={(id) => change({ focus: id })}
-                    onSelect={setSelected}
-                  />
-                ) : (
-                  <NodeDetailsEmpty />
-                )}
-              </div>
+              <DataFlowCanvas
+                key={d.org.id}
+                flow={d}
+                params={params}
+                placeholder={flow.isPlaceholderData}
+                onChange={change}
+              />
             </div>
           )}
         </AdminAsync>
