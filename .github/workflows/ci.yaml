@@ -48,9 +48,30 @@ env:
   # to work with the version that made it.
   NEXTEST_VERSION: "0.9.148"
 
+# A run on main gets its own group, per commit, and is never cancelled.
+#
+# main is the only ref that writes the cargo cache (`save-if` in
+# .github/actions/setup-rust-ci), and every PR restores from that one entry.
+# This block is what actually decides it: a workflow-level group with
+# cancel-in-progress cancels the WHOLE earlier run, in-progress jobs included,
+# whatever those jobs set for themselves -- so making the Rust jobs
+# uncancellable means nothing until this is conditional too.
+#
+# Keying main's group on the SHA rather than the ref means successive merges do
+# not share a group at all, so the second does not evict the first and a third
+# does not evict a pending second. Each merge's run finishes, reports, and
+# saves the cache. PRs keep cancelling on their number, which is what you want
+# there: only the latest push to a PR is interesting.
+#
+# EVERY job-level `concurrency.group` below is keyed the same way, and it has to
+# be. This block only decides whether runs collide; the job-level groups are
+# global names, so leaving them on `github.ref` would give two overlapping main
+# runs one shared group per job -- and with cancel-in-progress true on the jobs
+# that still have it, the newer merge would cancel the older merge's jobs one by
+# one and lose exactly the signal this block is here to preserve.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -95,7 +116,7 @@ jobs:
     name: Format web
     needs: [changesets]
     concurrency:
-      group: fmt-web-${{ github.event.pull_request.number || github.ref }}
+      group: fmt-web-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # `ci-scripts` too: this is the ONLY Biome invocation in CI, so without it a
     # counter-only diff formats nothing — which would leave `.github/scripts/**`
@@ -140,7 +161,7 @@ jobs:
     name: Build web
     needs: [changesets]
     concurrency:
-      group: build-web-${{ github.event.pull_request.number || github.ref }}
+      group: build-web-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.web-app == 'true'
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
@@ -214,7 +235,7 @@ jobs:
     name: Web unit tests (Vitest)
     needs: [changesets]
     concurrency:
-      group: vitest-${{ github.event.pull_request.number || github.ref }}
+      group: vitest-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # Own job, off the critical path (nothing `needs:` it). Gated on the web-app
     # changeset like fmt-web/build-web.
@@ -341,7 +362,7 @@ jobs:
     name: SDK typecheck (ratchet)
     needs: [changesets]
     concurrency:
-      group: sdk-typecheck-${{ github.event.pull_request.number || github.ref }}
+      group: sdk-typecheck-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # Its own job rather than a step on `vitest`: an SDK-only diff pays for one
     # `pnpm install` and a `tsc`, not the whole web-app unit suite it shares
@@ -448,7 +469,7 @@ jobs:
     name: SDK packages (typecheck, lint, test, build)
     needs: [changesets]
     concurrency:
-      group: sdk-${{ github.event.pull_request.number || github.ref }}
+      group: sdk-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.sdk == 'true'
     # Warp arm64 like the other jobs that run tests. `sdk/cli`'s suite spawns
@@ -592,7 +613,7 @@ jobs:
     name: Scaffold templates
     needs: [changesets]
     concurrency:
-      group: templates-${{ github.event.pull_request.number || github.ref }}
+      group: templates-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # BOTH filters, because this job scaffolds against @oxy-hq/sdk,
     # @oxy-hq/vite-plugin and @oxy-hq/create-oxy-app. `sdk/**` was dropped from
@@ -636,7 +657,7 @@ jobs:
     name: Typecheck CI scripts
     needs: [changesets]
     concurrency:
-      group: typecheck-ci-scripts-${{ github.event.pull_request.number || github.ref }}
+      group: typecheck-ci-scripts-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: |
       inputs.agentic_only != true &&
@@ -708,7 +729,7 @@ jobs:
     name: Code metrics (no new complexity offenders)
     needs: [changesets]
     concurrency:
-      group: code-metrics-${{ github.event.pull_request.number || github.ref }}
+      group: code-metrics-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # One filter, `code-metrics`, which mirrors bca.toml's `paths`. Not the
     # union of oxy/web-app/sdk/ci-scripts this started as: that missed
@@ -822,7 +843,7 @@ jobs:
     name: Lint for bugs (Biome + type-aware Oxlint)
     needs: [changesets]
     concurrency:
-      group: lint-bugs-${{ github.event.pull_request.number || github.ref }}
+      group: lint-bugs-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: |
       inputs.agentic_only != true &&
@@ -890,7 +911,7 @@ jobs:
     name: Format cargo (rustfmt --check)
     needs: [changesets]
     concurrency:
-      group: cargo-fmt-${{ github.event.pull_request.number || github.ref }}
+      group: cargo-fmt-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # Own quick job (not folded into the heavy check/test matrix) so a formatting
     # failure gives a fast, isolated signal and never masks the clippy/nextest run.
@@ -1064,8 +1085,17 @@ jobs:
   cargo-clippy:
     name: Format cargo, check & test (check)
     concurrency:
-      group: cargo-clippy-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      group: cargo-clippy-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+      # Never cancel on main. main is the only ref that WRITES the cargo cache
+      # (`save-if` in .github/actions/setup-rust-ci), and every PR restores from
+      # that one entry. Cancelling main's run kills the post step that saves it,
+      # so the cache is never written and every later run pays a cold build --
+      # which makes the jobs slower, which makes the next merge cancel them
+      # sooner. Observed on 2026-11-25: three consecutive main runs cancelled at
+      # 6-12 minutes, merges arriving every 7-12, cold Rust jobs needing ~20, and
+      # an empty cache bucket. A cancelled main run also gives no signal, so
+      # there is nothing to save by cancelling it.
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     needs: [changesets]
     if: |
       inputs.agentic_only != true && (
@@ -1163,8 +1193,9 @@ jobs:
   cargo-check-and-test:
     name: Build oxy
     concurrency:
-      group: cargo-check-and-test-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      group: cargo-check-and-test-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+      # Same as cargo-clippy above: main must finish to write the cache.
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     needs: [changesets]
     # In agentic_only mode the agentic-tests matrix needs the binary
     # this job produces, so force it to run even if
@@ -1336,8 +1367,9 @@ jobs:
   cargo-test-archive:
     name: Archive Rust tests
     concurrency:
-      group: cargo-test-archive-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+      group: cargo-test-archive-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+      # Same as cargo-clippy above: main must finish to write the cache.
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     needs: [changesets]
     if: |
       inputs.agentic_only != true && (
@@ -1580,7 +1612,7 @@ jobs:
     if: needs.cargo-test-archive.outputs.run-tests == 'true'
     concurrency:
       group: cargo-test-partition-${{ matrix.partition }}-${{
-        github.event.pull_request.number || github.ref }}
+        github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     strategy:
       # Every partition reports: one red slice should not hide another's.
@@ -1912,7 +1944,7 @@ jobs:
     name: Custom-app canary (checkpoint 1)
     needs: [changesets, cargo-check-and-test]
     concurrency:
-      group: custom-app-canary-${{ github.event.pull_request.number || github.ref }}
+      group: custom-app-canary-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     # Checkpoint 1 of the custom-app guard
     # (internal-docs/2026-09-14-custom-app-verification-design.md §3): this
