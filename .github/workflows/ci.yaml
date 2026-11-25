@@ -56,50 +56,26 @@ defaults:
   run:
     shell: bash
 
-# Runner gate for the four heaviest Rust jobs, off by default.
+# Runner gate for the four heaviest Rust jobs.
 #
-# Format cargo, check & test (check), Build oxy, Archive Rust tests and Rust
-# tests are 4,206 of the 7,221 WarpBuild minutes we burn in a day -- $920 of
-# the $1,279 monthly bill -- so they are the only jobs where a cheaper runner
-# is worth any complexity at all.
+# These four are 4,206 of the 7,221 WarpBuild minutes a day -- $920 of the
+# $1,279 monthly bill -- so they are the only jobs where a cheaper runner is
+# worth any complexity. CI_RUST_RUNNER_4X (clippy, build oxy, the test
+# partitions) and CI_RUST_RUNNER_8X (the archive) each hold a plain `runs-on`
+# label, used verbatim; both are set to RunsOn Fleet labels today. Unset one
+# and that size returns to WarpBuild, which is the rollback, with no deploy.
 #
-#   CI_RUST_RUNNER_4X   clippy, build oxy, the test partitions
-#   CI_RUST_RUNNER_8X   the test archive
+# Not in scope: `cargo-test` ("...(test)") is the required status branch
+# protection binds -- it only reads the others' results and is GitHub-hosted.
+# Careful: its name shares a prefix with `cargo-clippy`, which is the job that
+# actually costs 4x minutes, so read the job key, not the display name.
 #
-# Each holds a plain `runs-on` label, used verbatim -- a RunsOn Fleet label
-# (`runs-on/fleet=rust-4x/env=ci`), a Ubicloud size, a GitHub larger runner.
-# Unset, which is how this lands, every job resolves to exactly the WarpBuild
-# label it used before: this file changes no behaviour until someone sets a
-# variable, and unsetting one is the rollback, per size, with no deploy.
+# The swap top-up these jobs carry is sized for WarpBuild's 15.3 GiB runners;
+# on a 32 GiB instance it is dead weight, not a hazard.
 #
-# A spec-shaped variant was carried here for RunsOn Flex, whose label IS the
-# instance spec. Fleet was the mode adopted, and a Fleet label is plain, so
-# that branch could never be exercised and is gone. If Flex is ever revisited,
-# it needs `format('runs-on={0}/{1}', github.run_id, spec)` back -- that prefix
-# is the part worth remembering.
-#
-# Deliberately out of scope:
-#   - `cargo-test` ("Format cargo, check & test (test)") is the status branch
-#     protection binds. It only reads the other jobs' results and is
-#     GitHub-hosted, so it stays where it is. Its name shares a prefix with
-#     `cargo-clippy`, which is the job that actually costs 4x minutes -- read
-#     the job key, not the display name, before moving either.
-#   - The `nextest-archive` and `oxy-binary-ci` hand-offs stay on GitHub
-#     artifacts, so the trial's egress lands on the AWS bill as a measured
-#     number rather than a modelled one.
-#   - Every other job, the small 2x ones included, where a fresh-VM boot would
-#     cost more than the per-minute saving.
-#
-# The swap top-up the 4x and 8x jobs carry is sized for WarpBuild's 15.3 GiB
-# runners. On a 32 GiB instance it is dead weight, not a hazard -- it warns and
-# carries on when the disk is tight.
-#
-# These four also run on a change to ci.yaml itself, through the `oxy-ci`
-# filter in changesets.yaml -- a PR that rewrites one of their `runs-on` lines
-# has to run it. That filter is theirs alone and deliberately not an entry in
-# `oxy`; the reason is written where it is defined.
-#
-# Each job's own `runs-on` comment still owns why it is that size.
+# These four also run on a ci.yaml edit, through the `oxy-ci` filter in
+# changesets.yaml, so a PR rewriting one of their `runs-on` lines has to run
+# it. Each job's own comment still owns why it is that size.
 
 jobs:
   # Every other job needs this one, so the repository gate here keeps the public
@@ -1074,32 +1050,17 @@ jobs:
           pnpm exec tsc --noEmit -p tsconfig.json
           pnpm exec tsc --noEmit -p functions/tsconfig.json
 
-  # ── Rust: clippy, then build → archive → partitioned tests ─────────────────
+  # ── Rust: clippy, then build → archive → partitioned tests ──
   #
-  # The critical path used to be one 4-vCPU job: `cargo build`, then nextest
-  # compiling and running every test, ~45 minutes on a cold-ish cache (run
-  # 39779472634: build 14m, test compile 13m, 10,406 tests 16m). It is now:
+  # This was one 4-vCPU job doing build + compile + run, ~45 minutes. Now:
+  # cargo-check-and-test builds `oxy` and uploads it; cargo-test-archive (8x,
+  # beside it) compiles and archives only the tests this PR can affect;
+  # cargo-test-partition runs one slice each against its own services; and
+  # cargo-test is the required status, green only when every partition is.
   #
-  #   cargo-check-and-test   4x runner: build `oxy` and upload it
-  #   cargo-test-archive     8x runner, beside it: pick the tests this PR can
-  #                          affect, compile and `nextest archive` only those
-  #   cargo-test-partition   1–4 4x runners, each running one `slice:` of the
-  #                          archive against its own Postgres/ClickHouse/MinIO
-  #   cargo-test             the required "Format cargo, check & test (test)"
-  #                          status: green only when every partition is
-  #
-  # Downstream jobs that need the binary (agentic-tests, custom-app-canary) wait
-  # on `cargo-check-and-test` alone, so they start as soon as it is built
-  # rather than after the test compile or the test run. One consequence: a red test no longer
-  # skips them. Their results stand on their own, and the required status is
-  # still red.
-  #
-  # Which tests: on a pull request, scripts/ci/test-selection (guppy's
-  # determinator, configured in .config/test-selection.toml) maps the diff to
-  # the packages it can affect, reverse dependencies included, and only those
-  # are compiled and run. `main`, dispatches and any change to that tool, its
-  # config or this workflow run everything. internal-docs/rust-build-performance.md
-  # has the design and the measurements.
+  # Jobs needing the binary wait on cargo-check-and-test alone, so a red test
+  # no longer skips them. Test selection, its config and the measurements:
+  # internal-docs/rust-build-performance.md
   cargo-clippy:
     name: Format cargo, check & test (check)
     concurrency:
@@ -1270,14 +1231,10 @@ jobs:
           cache-key: test
           save-cache: "false"
 
-      # `cargo build` embeds the web-app dist into the oxy binary via
-      # `include_dir!` in crates/server/src/commands/serve.rs. The dist
-      # path is a committed symlink: `crates/server/dist -> ../../web-app/dist`.
-      # If `web-app/dist` is empty when cargo runs, the binary serves 404
-      # on `/` — every Playwright/agentic flow then fails because the
-      # frontend never loads. Build the web-app first so the symlink
-      # resolves to populated content. cargo-test-archive does the same for
-      # the test binaries that link oxy-app.
+      # The dist is embedded by `include_dir!` through the committed symlink
+      # crates/server/dist -> ../../web-app/dist. An empty web-app/dist makes
+      # the binary serve 404 on `/`, failing every browser flow -- so the
+      # web-app is built before cargo, here and in cargo-test-archive.
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.0.9
         with:
@@ -1292,17 +1249,10 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           pnpm install --frozen-lockfile --prefer-offline
-          # Bundle only (skip `tsc -b`): the cargo build just needs the `dist/`
-          # bytes for the `include_dir!` embed. Typechecking is covered in
-          # parallel by the `build-web` job (full `pnpm build`), so running
-          # `tsc -b` here too would duplicate the slowest part of the web build
-          # on this job's critical path for no added signal.
-          #
-          # `build-web` is the whole of it, despite what this comment used to
-          # say: `lint:ts` is not run by any job here, and for `oxy-web` it was
-          # `tsc --noEmit` against a `files: []` solution tsconfig, which
-          # type-checks zero files. It is `tsc -b` now, but it is still not
-          # wired into CI — `build-web` is the enforcer.
+          # Bundle only (skip `tsc -b`): cargo needs the dist bytes, and
+          # `build-web` is the job that typechecks, in parallel. Running it here
+          # too would put the slowest part of the web build on this job's
+          # critical path for no added signal.
           pnpm --filter oxy-web exec vite build
 
       # The same swap top-up as cargo-test-archive's (see there). A binary build
@@ -1466,14 +1416,9 @@ jobs:
             echo
           } >>"$GITHUB_STEP_SUMMARY"
 
-      # `cargo build` embeds the web-app dist into the oxy binary via
-      # `include_dir!` in crates/server/src/commands/serve.rs. The dist
-      # path is a committed symlink: `crates/server/dist -> ../../web-app/dist`.
-      # If `web-app/dist` is empty when cargo runs, the binary serves 404
-      # on `/` — every Playwright/agentic flow then fails because the
-      # frontend never loads. Build the web-app first so the symlink
-      # resolves to populated content. Here because the test binaries that
-      # link oxy-app embed the same bytes as the binary job's `oxy`.
+      # Same embed as the binary job: the test binaries that link oxy-app carry
+      # the same dist bytes through the crates/server/dist symlink, and an empty
+      # web-app/dist serves 404 on `/`. Build the web-app before cargo.
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.0.9
         with:
@@ -1488,17 +1433,10 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           pnpm install --frozen-lockfile --prefer-offline
-          # Bundle only (skip `tsc -b`): the cargo build just needs the `dist/`
-          # bytes for the `include_dir!` embed. Typechecking is covered in
-          # parallel by the `build-web` job (full `pnpm build`), so running
-          # `tsc -b` here too would duplicate the slowest part of the web build
-          # on this job's critical path for no added signal.
-          #
-          # `build-web` is the whole of it, despite what this comment used to
-          # say: `lint:ts` is not run by any job here, and for `oxy-web` it was
-          # `tsc --noEmit` against a `files: []` solution tsconfig, which
-          # type-checks zero files. It is `tsc -b` now, but it is still not
-          # wired into CI — `build-web` is the enforcer.
+          # Bundle only (skip `tsc -b`): cargo needs the dist bytes, and
+          # `build-web` is the job that typechecks, in parallel. Running it here
+          # too would put the slowest part of the web build on this job's
+          # critical path for no added signal.
           pnpm --filter oxy-web exec vite build
 
       # Swap behind the memory peak, which is test-compile: oxy-app's lib tests
