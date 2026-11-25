@@ -161,6 +161,7 @@ const AdminWorkspaceDetail = React.lazy(
 );
 const AdminWorkspaceHealth = React.lazy(() => import("./pages/admin/AdminWorkspaceHealth"));
 const AdminAirway = React.lazy(() => import("./pages/admin/AdminAirway"));
+const AdminDataFlow = React.lazy(() => import("./pages/admin/AdminDataFlow"));
 const AdminObservability = React.lazy(() => import("./pages/admin/AdminObservability"));
 const AdminSettings = React.lazy(() => import("./pages/admin/AdminSettings"));
 
@@ -725,6 +726,9 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 ownerOnly gate and AdminLayout's APP_ADMIN_ROUTE_PREFIXES, which
                 deliberately omits this route). */}
             <Route path='admin/airway' element={<AdminAirway />} />
+            {/* ROUTES.ADMIN.DATA_FLOW — one org's declared data flow, beside
+                Airway and gated like it (`operate_platform`). */}
+            <Route path='admin/data-flow' element={<AdminDataFlow />} />
             {/* The weekly usage report is a view of Observability now. Emails sent
                 before the move link here, often to an org's anchor, which the
                 redirect carries across. */}

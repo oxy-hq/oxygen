@@ -27,6 +27,7 @@ export const FunctionsPage = ({
   <div className='flex flex-col gap-3' data-testid='apps-console-page-functions'>
     <AppMapPanel
       appId={app.id}
+      orgId={app.org_id}
       environment={environment}
       scope={scope}
       selected={selected}

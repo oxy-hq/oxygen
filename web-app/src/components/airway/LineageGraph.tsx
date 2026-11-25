@@ -31,8 +31,9 @@ import type { AirwayRunView, ResourceRow, ResourceStatus } from "@/utils/airwayR
 const COL_W = 240;
 const ROW_H = 84;
 
-/** Border/text classes per status — semantic tokens only. */
-const STATUS_CLASSES: Record<ResourceStatus, string> = {
+/** Border/text classes per status — semantic tokens only. Exported for the admin
+ *  Data flow canvas, so the two graphs mark a node the same way. */
+export const STATUS_CLASSES: Record<ResourceStatus, string> = {
   pending: "border-border text-muted-foreground",
   extracting: "border-primary",
   normalizing: "border-primary",
@@ -40,6 +41,16 @@ const STATUS_CLASSES: Record<ResourceStatus, string> = {
   done: "border-primary bg-primary/10",
   error: "border-destructive text-destructive"
 };
+
+/** xyflow's <Controls> ships light-mode defaults; these map its CSS variables to
+ *  the shadcn theme tokens so the buttons follow dark/light mode. */
+export const XY_CONTROLS_THEME = {
+  "--xy-controls-button-background-color": "var(--background)",
+  "--xy-controls-button-background-color-hover": "var(--muted)",
+  "--xy-controls-button-color": "var(--foreground)",
+  "--xy-controls-button-color-hover": "var(--foreground)",
+  "--xy-controls-button-border-color": "var(--border)"
+} as React.CSSProperties;
 
 const num = (n?: number) => (n == null ? "—" : n.toLocaleString());
 
@@ -178,21 +189,7 @@ const LineageGraph: React.FC<{ view: AirwayRunView }> = ({ view }) => {
   }
 
   return (
-    <div
-      className='h-[420px] w-full'
-      // xyflow's <Controls> ships light-mode defaults; map its CSS
-      // variables to the shadcn theme tokens so the buttons follow
-      // dark/light mode.
-      style={
-        {
-          "--xy-controls-button-background-color": "var(--background)",
-          "--xy-controls-button-background-color-hover": "var(--muted)",
-          "--xy-controls-button-color": "var(--foreground)",
-          "--xy-controls-button-color-hover": "var(--foreground)",
-          "--xy-controls-button-border-color": "var(--border)"
-        } as React.CSSProperties
-      }
-    >
+    <div className='h-[420px] w-full' style={XY_CONTROLS_THEME}>
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}

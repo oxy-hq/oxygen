@@ -17,6 +17,8 @@ pub mod access;
 pub(crate) mod agent_scope;
 /// A read-only browser of an app's own OLTP data, in one environment.
 pub mod data;
+/// The org's declared data flow: sources, pipelines, stores and apps.
+pub mod data_flow;
 mod dto;
 /// The `?environment=` parameter and who may name a non-production one.
 pub mod environment_scope;
@@ -104,7 +106,22 @@ where
 
 /// Every admin app handler, paths relative to `/api/customer-apps`.
 pub(crate) fn router() -> Router<AppState> {
-    core_routes().merge(console_routes())
+    core_routes()
+        .merge(console_routes())
+        .merge(data_flow_routes())
+}
+
+/// The org's declared data flow, across its apps and Airway pipelines: the
+/// admin Data flow page. `PlatformOperate` on top of the stack, the page's gate
+/// beside Airway's, since it reads pipelines as well as apps. Platform DB only
+/// — FleetOk.
+fn data_flow_routes() -> Router<AppState> {
+    Router::new().route(
+        "/data-flow",
+        get(data_flow::get_data_flow).route_layer(middleware::from_fn(
+            platform_cap_guard::require(Action::PlatformOperate),
+        )),
+    )
 }
 
 /// The registry, publish, functions, read-back, access, builds and storage routes.

@@ -2,7 +2,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AxiosError, AxiosHeaders } from "axios";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { UserService } from "@/services/api";
 import { CustomAppsService } from "@/services/api/customApps";
 import type { RecentTraces } from "@/types/appRecentTraces";
 import type { AppFunctionSummary, AppSecrets } from "@/types/apps";
@@ -13,6 +15,10 @@ vi.mock("@/services/api/customApps", () => ({
     listRecentTraces: vi.fn(),
     listSecrets: vi.fn()
   }
+}));
+// Who is looking decides whether the Data flow link shows.
+vi.mock("@/services/api", () => ({
+  UserService: { getCurrentUser: vi.fn() }
 }));
 
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
@@ -95,13 +101,16 @@ const renderPanel = (onOpenFunction = vi.fn()) => {
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
-      <AppMapPanel
-        appId='app-1'
-        environment='staging'
-        scope={{ label: "Staging", warn: true }}
-        selected={null}
-        onOpenFunction={onOpenFunction}
-      />
+      <MemoryRouter>
+        <AppMapPanel
+          appId='app-1'
+          orgId='org-1'
+          environment='staging'
+          scope={{ label: "Staging", warn: true }}
+          selected={null}
+          onOpenFunction={onOpenFunction}
+        />
+      </MemoryRouter>
     </QueryClientProvider>
   );
   return onOpenFunction;
@@ -158,6 +167,35 @@ describe("AppMapPanel", () => {
     const row = screen.getByTestId("admin-app-map-list-sync");
     expect(within(row).getByText(/analytics/)).toBeTruthy();
     expect(within(row).getByText(/runs not read yet/)).toBeTruthy();
+  });
+
+  it("links to the org's Data flow, focused on the app, for whoever may open it", async () => {
+    vi.mocked(CustomAppsService.listFunctions).mockResolvedValue([sync]);
+    vi.mocked(CustomAppsService.listRecentTraces).mockResolvedValue(traces);
+    vi.mocked(CustomAppsService.listSecrets).mockResolvedValue(secrets);
+    vi.mocked(UserService.getCurrentUser).mockResolvedValue({
+      is_owner: false,
+      platform_capabilities: ["operate_platform"]
+    } as unknown as Awaited<ReturnType<typeof UserService.getCurrentUser>>);
+    renderPanel();
+
+    const link = await screen.findByTestId("admin-app-map-data-flow-link");
+    expect(link.getAttribute("href")).toBe("/admin/data-flow?org=org-1&focus=app%3Aapp-1");
+  });
+
+  it("offers no Data flow link to an App Operator, whom the page would refuse", async () => {
+    vi.mocked(CustomAppsService.listFunctions).mockResolvedValue([sync]);
+    vi.mocked(CustomAppsService.listRecentTraces).mockResolvedValue(traces);
+    vi.mocked(CustomAppsService.listSecrets).mockResolvedValue(secrets);
+    vi.mocked(UserService.getCurrentUser).mockResolvedValue({
+      is_owner: false,
+      platform_capabilities: ["manage_apps"]
+    } as unknown as Awaited<ReturnType<typeof UserService.getCurrentUser>>);
+    renderPanel();
+
+    await screen.findByTestId("admin-app-map-list-sync");
+    await waitFor(() => expect(UserService.getCurrentUser).toHaveBeenCalled());
+    expect(screen.queryByTestId("admin-app-map-data-flow-link")).toBeNull();
   });
 
   it("says there is nothing to map for a build with no functions", async () => {

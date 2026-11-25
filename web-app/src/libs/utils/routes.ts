@@ -156,6 +156,14 @@ const ROUTES = {
     WORKSPACE_HEALTH: "/admin/workspace-health",
     AIRWAY: "/admin/airway",
     /**
+     * One org's declared data flow: ingestion sources → Airway pipelines → stores →
+     * custom apps. `?org=` picks the org, `?workspace=` narrows it, `?focus=<node id>`
+     * keeps one node's neighbourhood (`app:<id>` from an app console).
+     */
+    DATA_FLOW: "/admin/data-flow",
+    DATA_FLOW_FOCUS: (orgId: string, focus: string) =>
+      `/admin/data-flow?org=${encodeURIComponent(orgId)}&focus=${encodeURIComponent(focus)}`,
+    /**
      * What an org costs us and how its apps perform. A fleet list and a
      * per-org console on one route, the shape `/admin/apps` settled on: the
      * list answers "what is out there?" before the console answers "which one

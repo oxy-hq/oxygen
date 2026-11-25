@@ -1,5 +1,6 @@
 import type { PaginationState } from "@tanstack/react-table";
 import type { AppInvocationQuery } from "@/types/apps";
+import type { DataFlowQuery } from "@/types/dataFlow";
 import type { InboxFilter } from "@/types/notifications";
 
 const agentKeys = {
@@ -619,6 +620,8 @@ const customAppKeys = {
       : (["customApps", "recentTraces", id] as const),
   /** The app's failures grouped per `(function, fingerprint)`, over `days`. */
   issues: (id: string, days: number) => ["customApps", "issues", id, days] as const,
+  /** One org's declared data flow, for one query (workspace, focus, depth, level). */
+  dataFlow: (query: DataFlowQuery) => ["customApps", "dataFlow", query] as const,
   /** Every event type of an org, with each listener's queue health. Keyed by the org's
    *  slug: one read serves every app of the org. */
   eventTypes: (orgSlug: string) => ["customApps", "eventTypes", orgSlug] as const,

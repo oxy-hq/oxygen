@@ -1,7 +1,12 @@
+import { Workflow } from "lucide-react";
 import { useMemo, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useAppFunctions } from "@/hooks/api/customApps/useAppFunctions";
 import { useAppSecrets } from "@/hooks/api/customApps/useAppSecrets";
 import { useRecentTraces } from "@/hooks/api/customApps/useRecentTraces";
+import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import ROUTES from "@/libs/utils/routes";
+import { navItemReachable } from "@/pages/admin/AdminLayout/adminNav";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import { ConsolePanel } from "../../ConsolePanel";
 import { layoutAppMap, MIN_DIAGRAM_WIDTH } from "./appMapLayout";
@@ -11,6 +16,29 @@ import { AppMapFreshness } from "./components/AppMapFreshness";
 import { AppMapList } from "./components/AppMapList";
 import { useElementWidth } from "./useElementWidth";
 import { useSeenOnce } from "./useSeenOnce";
+
+/**
+ * The org-wide Data flow page, focused on this app: where its data comes from and
+ * goes beyond the app itself. Shown only to whoever may open that page, so an App
+ * Operator is not handed a link the server would refuse.
+ */
+const DataFlowLink = ({ appId, orgId }: { appId: string; orgId: string }) => {
+  const { data: user } = useCurrentUser();
+  const standing = {
+    isOwner: user?.is_owner ?? false,
+    capabilities: user?.platform_capabilities ?? []
+  };
+  if (!navItemReachable(ROUTES.ADMIN.DATA_FLOW, standing)) return null;
+  return (
+    <Link
+      to={ROUTES.ADMIN.DATA_FLOW_FOCUS(orgId, `app:${appId}`)}
+      className='flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground'
+      data-testid='admin-app-map-data-flow-link'
+    >
+      <Workflow className='size-3' /> Data flow
+    </Link>
+  );
+};
 
 /**
  * The app as a diagram, for the environment the console's switch names: what starts
@@ -24,12 +52,15 @@ import { useSeenOnce } from "./useSeenOnce";
  */
 export const AppMapPanel = ({
   appId,
+  orgId,
   environment,
   scope,
   selected,
   onOpenFunction
 }: {
   appId: string;
+  /** The app's org: the Data flow link opens that org's graph focused on this app. */
+  orgId: string;
   /** The console's environment (`production` when the switch is at rest). */
   environment: string;
   scope: { label: string; warn?: boolean };
@@ -58,6 +89,7 @@ export const AppMapPanel = ({
       title='App map'
       info='What starts each function (a route, a schedule, an event, a check) and what its recent runs touched: tables, secrets, other functions, outside hosts. Touches come from each function’s latest recorded runs.'
       scope={scope}
+      actions={<DataFlowLink appId={appId} orgId={orgId} />}
     >
       <div ref={frame} className='min-w-0' data-testid='admin-app-map'>
         <AdminAsync

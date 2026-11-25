@@ -23,7 +23,8 @@ import {
   Telescope,
   Users,
   Warehouse,
-  Waypoints
+  Waypoints,
+  Workflow
 } from "lucide-react";
 import type { ComponentType } from "react";
 import ROUTES from "@/libs/utils/routes";
@@ -173,6 +174,16 @@ export const ADMIN_NAV: AdminNavItem[] = [
     icon: Warehouse,
     // Same gate as OLTP: both provision a tenant's data plane, and a grant that
     // could create one but not the other would need a story for why.
+    capability: "operate_platform",
+    group: "tenants"
+  },
+  // One org's declared data flow, across its pipelines, stores and apps. Gated
+  // like Airway: the endpoint adds `cap(Action::PlatformOperate)` on top of the
+  // custom-apps stack, since it reads pipelines as well as apps.
+  {
+    to: ROUTES.ADMIN.DATA_FLOW,
+    label: "Data flow",
+    icon: Workflow,
     capability: "operate_platform",
     group: "tenants"
   },

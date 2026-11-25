@@ -25,6 +25,7 @@ import type {
   InvocationCalls,
   OxyAccessRow
 } from "@/types/apps";
+import type { DataFlow, DataFlowQuery } from "@/types/dataFlow";
 import { apiClient } from "./axios";
 
 /** What setting an app secret did: stored a key the app did not have, or
@@ -75,6 +76,18 @@ export const CustomAppsService = {
     const response = await apiClient.get(
       `/customer-apps/fleet-health${suffix ? `?${suffix}` : ""}`
     );
+    return response.data;
+  },
+
+  /**
+   * One org's declared data flow: sources → pipelines → stores → apps. `focus` +
+   * `depth` keep one node's neighbourhood; `level: "table"` splits schemas into the
+   * tables edges name. The server caps the graph and says `truncated`.
+   */
+  async dataFlow(query: DataFlowQuery): Promise<DataFlow> {
+    const response = await apiClient.get<DataFlow>("/customer-apps/data-flow", {
+      params: query
+    });
     return response.data;
   },
 

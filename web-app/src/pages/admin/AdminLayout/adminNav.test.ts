@@ -73,6 +73,21 @@ describe("canReachAdminRoute", () => {
     expect(canReachAdminRoute(ROUTES.ADMIN.AIRWAY, nobody)).toBe(false);
   });
 
+  it("gates Data flow on operate_platform, matching the endpoint", () => {
+    // `GET /customer-apps/data-flow` adds `cap(Action::PlatformOperate)` on top of
+    // the custom-apps stack: it reads Airway pipelines as well as apps, and an App
+    // Operator ships apps and nothing else.
+    const route = ROUTES.ADMIN.DATA_FLOW;
+    expect(canReachAdminRoute(route, staff("operate_platform"))).toBe(true);
+    expect(canReachAdminRoute(route, owner)).toBe(true);
+    expect(canReachAdminRoute(route, staff("manage_apps"))).toBe(false);
+    expect(canReachAdminRoute(route, nobody)).toBe(false);
+    expect(adminPageTitle(route)).toBe("Data flow");
+    expect(adminPageGroup(route)).toBe("tenants");
+    // The console's deep link lands on the same page.
+    expect(adminPageTitle(route, "?org=o&focus=app%3Aa")).toBe("Data flow");
+  });
+
   it("gates OLTP on operate_platform, matching the endpoint", () => {
     // The nav and the route gate must name the same capability. The server
     // mounts these routes under `cap(Action::PlatformOltp)`, which resolves to

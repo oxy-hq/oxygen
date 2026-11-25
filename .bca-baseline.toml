@@ -13513,7 +13513,7 @@ value = 121.75795661885921
 path = "web-app/src/App.tsx"
 qualified = "getCloudRouter"
 metric = "abc"
-value = 148.02702455970666
+value = 150.0266642967176
 
 [[entry]]
 path = "web-app/src/components/AppPreview/Displays/DataTableBlock.tsx"
