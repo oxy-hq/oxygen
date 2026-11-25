@@ -58,3 +58,45 @@ fn no_handler_doc_lives_in_an_unwatched_oxy_server_file() {
          Add the handler's dir to DOC_DIRS in crates/route-catalog/build_route_catalog.rs."
     );
 }
+
+/// `oxy-app`'s tree left `DOC_DIRS` in decompose Z0 (no handler doc was left
+/// in it). While the crate still exists, walk it again in the slot it held,
+/// first, and require the same catalog: a doc that only it supplied, or one
+/// that won a tie there, would otherwise vanish from `oxyc routes` silently.
+/// Goes vacuous with the crate itself (decompose DEL).
+#[test]
+fn dropping_the_oxy_app_tree_changes_no_route() {
+    const APP_SRC: &str = "crates/app/src";
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if !root.join(APP_SRC).is_dir() {
+        return;
+    }
+    assert!(
+        !walker::DOC_DIRS.contains(&APP_SRC),
+        "DOC_DIRS names `{APP_SRC}` again; it left in decompose Z0"
+    );
+    let mut with_app = vec![APP_SRC];
+    with_app.extend_from_slice(walker::DOC_DIRS);
+
+    // Every field `build.rs` writes into the served table.
+    let key = |r: &walker::Route| {
+        (
+            r.method.clone(),
+            r.path.clone(),
+            r.handler.clone(),
+            r.surface,
+            r.description.clone(),
+            r.note.clone(),
+        )
+    };
+    let now: Vec<_> = walker::collect(&root, walker::DOC_DIRS)
+        .iter()
+        .map(key)
+        .collect();
+    let before: Vec<_> = walker::collect(&root, &with_app).iter().map(key).collect();
+    assert_eq!(
+        now, before,
+        "walking `{APP_SRC}` changes the catalog, so a route took its description \
+         from oxy-app; move that handler's doc to the crate that owns it"
+    );
+}

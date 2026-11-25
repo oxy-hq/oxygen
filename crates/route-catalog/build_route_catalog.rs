@@ -744,9 +744,9 @@ const SEEDS: &[Seed] = &[
 /// edit went 12.8 s to 21.4 s, decompose P1). `tests::doc_dirs_watched`
 /// fails if a handler doc lives in an oxy-server file outside these dirs.
 pub const DOC_DIRS: &[&str] = &[
-    "crates/app/src",
     // `oxy-server`: the handlers `core_routes` and the router mount (`healthcheck`,
-    // `local_setup`); here, where `crates/app/src`'s walk met the router (same order).
+    // `local_setup`); first, in the slot of `crates/app/src` (no handler doc left;
+    // dropped in decompose Z0, and `tests::doc_dirs_watched` pins that it changed no route).
     "crates/server/src/core_routes",
     "crates/server/src/router",
     "crates/agentic/http/src",

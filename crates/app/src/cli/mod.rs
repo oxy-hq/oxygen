@@ -1,7 +1,6 @@
 //! CLI command-line interface
 
 pub mod commands;
-pub mod render;
 
 /// `oxy dev compile` (`dev-tools` feature), composed into `oxy dev` by
 /// `oxy-server` with its own `seed` and `oxy-api-eval`'s `test`.
