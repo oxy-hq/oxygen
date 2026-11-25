@@ -7,7 +7,7 @@ Check:
   records an app edits, files, events, webhook payloads) instead of the workspace's
   Airhouse, the org OLTP database or storage.
 - A table a migrator creates that is not placed in
-  `crates/app/tests/platform/data_placement.rs`.
+  `crates/workspace-runtime/tests/integration/data_placement.rs`.
 - A write to a customer warehouse. Those are read-only to apps unless
   `customerWarehouseWrites` lists them.
 - OLTP provisioning automated where it must stay manual.

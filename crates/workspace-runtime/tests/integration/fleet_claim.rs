@@ -9,7 +9,7 @@
 //! interval does.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(fleet_claim)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(fleet_claim)'`
 
 use std::time::Duration;
 

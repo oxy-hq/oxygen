@@ -6777,7 +6777,7 @@ metric = "cyclomatic"
 value = 18.0
 
 [[entry]]
-path = "crates/app/tests/authz/authz_loader_differential.rs"
+path = "crates/workspace-runtime/tests/integration/authz_loader_differential.rs"
 qualified = "loader_separates_managed_orgs_from_the_develop_apps_data_plane"
 metric = "abc"
 value = 41.60528812542944
@@ -6813,19 +6813,19 @@ metric = "abc"
 value = 85.21150157109074
 
 [[entry]]
-path = "crates/app/tests/platform/factory_access.rs"
+path = "crates/workspace-runtime/tests/integration/factory_access.rs"
 qualified = "app"
 metric = "abc"
 value = 49.040799340956916
 
 [[entry]]
-path = "crates/app/tests/platform/frontline_app_grant.rs"
+path = "crates/workspace-runtime/tests/integration/frontline_app_grant.rs"
 qualified = "seed"
 metric = "abc"
 value = 46.2709412050371
 
 [[entry]]
-path = "crates/app/tests/platform/migration_rollback_safety.rs"
+path = "crates/workspace-runtime/tests/integration/migration_rollback_safety.rs"
 qualified = "losses"
 metric = "cognitive"
 value = 16.0
@@ -6849,25 +6849,25 @@ metric = "abc"
 value = 44.181444068749045
 
 [[entry]]
-path = "crates/app/tests/platform/queued_chat_run.rs"
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
 qualified = "a_latency_pass_drives_a_queued_chat_to_a_terminal_event"
 metric = "abc"
 value = 40.570925550201586
 
 [[entry]]
-path = "crates/app/tests/platform/queued_chat_run.rs"
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
 qualified = "a_queued_chat_start_is_driven_by_whichever_driver_claims_it"
 metric = "abc"
 value = 49.05099387372289
 
 [[entry]]
-path = "crates/app/tests/platform/queued_chat_run.rs"
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
 qualified = "a_workflow_started_for_a_requester_is_driven_from_the_queue"
 metric = "abc"
 value = 73.76313442364011
 
 [[entry]]
-path = "crates/app/tests/platform/queued_chat_run.rs"
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
 qualified = "fixture"
 metric = "abc"
 value = 43.289721643826724

@@ -220,7 +220,7 @@ pub mod agent_definitions;
 pub mod airway_pipelines;
 // `app_definitions` (compiled `.app.yml`) has no entity: Data Apps are retired
 // and nothing writes or reads the table. It is dropped by a later migration
-// (internal-docs/legacy-removal.md); `tests/platform/data_placement.rs` still
+// (internal-docs/legacy-removal.md); `crates/workspace-runtime/tests/integration/data_placement.rs` still
 // places it until then.
 pub mod automation_definitions;
 pub mod backfill_checkpoints;

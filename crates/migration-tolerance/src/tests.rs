@@ -1,7 +1,7 @@
 //! Unit tests. No database: everything here runs on canned ledger rows.
 //!
 //! The real read (SQL, quoting, ordering) is covered end-to-end against
-//! Postgres by `crates/app/tests/migration_rollback_tolerance.rs`.
+//! Postgres by `crates/workspace-runtime/tests/integration/migration_rollback_tolerance.rs`.
 
 use std::collections::HashSet;
 
@@ -443,7 +443,7 @@ mod every_migrator {
              the whole migration run and wedges the revert — the other seven buy nothing. Add \
              the macro after `migration_table_name()`, add the crate to the migrator's \
              Cargo.toml, and add its ledger table to LEDGERS in \
-             `crates/app/tests/platform/migration_rollback_tolerance.rs`.",
+             `crates/workspace-runtime/tests/integration/migration_rollback_tolerance.rs`.",
             untolerated.join("\n  ")
         );
     }

@@ -7,14 +7,11 @@
 //! of files — add a case as a `mod` here, not as a new `tests/*.rs`.
 //!
 //! The in-process half of this binary (the source scans) moved to `oxy-guards`
-//! in decompose GRD (2026-11-24). What is left, `authz_loader_differential` and
-//! `audit_append_only`, call
-//! `establish_connection()` against the raw shared `OXY_DATABASE_URL` with no
-//! per-test database, so `.config/nextest.toml` pins those two (and
-//! `oxy-api-slack`'s six, `oxy-api-identity`'s `admin_membership_audit` and
-//! `oxy-api-tenancy`'s `org_invitations`) into `serial-db`. They skip when the
-//! var is unset, which is why a laptop run looks clean and only CI would show
-//! the race. `oxy-guards`' `shared_db_registry` fails the build if that list drifts.
+//! in decompose GRD (2026-11-24), and the two shared-database modules left,
+//! `authz_loader_differential` and `audit_append_only`, to
+//! `oxy-workspace-runtime`'s integration group in decompose R-d (2026-11-25),
+//! with their `serial-db` pin. This binary has no tests left; decompose DEL
+//! removes it.
 //!
 //! The API-token suite (`token_auth`) moved to `oxy-server`'s integration tests:
 //! it drives the served flat tree, and `/orgs` is now `oxy-api-tenancy`'s.
@@ -27,8 +24,10 @@ mod common;
 // `app_scope_boundary`, `authz_boundaries`, `document_write_guards` and
 // `shared_db_registry` (source scans, no database) moved to `oxy-guards`'
 // integration group (decompose GRD, 2026-11-24).
-mod audit_append_only;
-mod authz_loader_differential;
+// `audit_append_only` and `authz_loader_differential` moved to
+// `oxy-workspace-runtime`'s integration group, and their `serial-db` pin with
+// them (decompose R-d, 2026-11-25). Nothing is left here; decompose DEL
+// removes this file.
 // `org_invitations` moved to `oxy-api-tenancy`'s integration group, beside
 // the invitation handlers it pins (decompose T-small, 2026-11-24).
 // `thread_role_guards` moved to `oxy-api-threads`' integration group with

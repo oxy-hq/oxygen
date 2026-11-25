@@ -58,6 +58,12 @@ fn crates_root() -> PathBuf {
 /// `oxy-app`'s package name — the key its own binaries are filed under.
 const APP_PACKAGE: &str = "oxy-app";
 
+/// The package that holds the shared-database modules `oxy-app` used to:
+/// `authz_loader_differential` and `audit_append_only` moved into
+/// `oxy-workspace-runtime`'s integration group in decompose R-d, with their
+/// `serial-db` pin. Its override must exist, and its scan must find them.
+const SERIAL_ANCHOR_PACKAGE: &str = "oxy-workspace-runtime";
+
 /// What a sibling's integration group names to `#[path]`-include the shared
 /// harness (`crates/test-utils/harness/`; oxy-app's own `tests/common` until
 /// decompose HAR). A crate that includes it shares the harness's databases, so
@@ -85,20 +91,54 @@ const SHARED_HARNESS: &str = "test-utils/harness";
 /// zero.
 ///
 /// oxy-app's groups are not `tests/integration`, so the sibling scan below does
-/// not find them; this is what keeps `audit_append_only` and
-/// `authz_loader_differential` (still `oxy-app`'s `authz` binary) checked.
-/// (`airhouse` left for `oxy-workspace-runtime` in decompose R-a and `routing`
-/// emptied in GRD; both drop out of this list by themselves.)
+/// not find them; this is what would keep a module added back to one of them
+/// checked. Since decompose R-d none is left: R-b, R-c and R-d moved every
+/// `platform` and `authz` module to `oxy-workspace-runtime`, and the list comes
+/// back empty. (`airhouse` left in decompose R-a and `routing` emptied in GRD.)
+///
+/// A group whose `main.rs` is all that is left is skipped: it has no module to
+/// scan, and decompose DEL deletes it. `authz` and `platform` both became one in
+/// decompose R-d, when their last modules (`audit_append_only` and
+/// `authz_loader_differential` among them) moved to
+/// `oxy-workspace-runtime`, where the sibling scan finds them.
 fn app_groups() -> Vec<PathBuf> {
     let tests_dir = crates_root().join("app").join("tests");
     let mut groups: Vec<PathBuf> = std::fs::read_dir(&tests_dir)
         .unwrap_or_else(|e| panic!("read {}: {e}", tests_dir.display()))
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.join("main.rs").is_file())
+        .filter(|p| p.join("main.rs").is_file() && has_a_module_besides_main(p))
         .collect();
     groups.sort();
     groups
+}
+
+/// True when `group` holds a source file other than its `main.rs`, directly
+/// or inside a module directory. An empty directory is not a module: git does
+/// not track one, so a checkout never has it, but a working tree that a
+/// `git mv` emptied still does.
+fn has_a_module_besides_main(group: &Path) -> bool {
+    let rs_files = |dir: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let has_module_file = rs_files(group).iter().any(|p| !p.ends_with("main.rs"));
+    let has_module_dir = std::fs::read_dir(group)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .any(|p| p.is_dir() && !rs_files(&p).is_empty())
+        })
+        .unwrap_or(false);
+    has_module_file || has_module_dir
 }
 
 /// Ways a test reaches a database.
@@ -303,9 +343,11 @@ fn positive_alternation(block: &str) -> Option<&str> {
 
 /// Modules pinned into `serial-db` by `package`'s override in nextest's config.
 ///
-/// `oxy-app` must have one — its absence means the serialization was dropped.
-/// A sibling crate starts with none, which is correct while none of its modules
-/// reach the shared database; the first that does has to add one.
+/// [`SERIAL_ANCHOR_PACKAGE`] must have one — its absence means the
+/// serialization was dropped (`oxy-app` was the anchor until decompose R-d moved
+/// its two shared-database modules there). Any other crate starts with none,
+/// which is correct while none of its modules reach the shared database; the
+/// first that does has to add one.
 fn modules_pinned_serial(package: &str) -> BTreeSet<String> {
     let config = repo_root().join(".config/nextest.toml");
     let src = std::fs::read_to_string(&config).expect("read .config/nextest.toml");
@@ -325,13 +367,13 @@ fn modules_pinned_serial(package: &str) -> BTreeSet<String> {
         .find(|b| b.contains(&package_filter) && positive_alternation(b).is_some());
     let block = match block {
         Some(block) => block,
-        None if package != APP_PACKAGE => return BTreeSet::new(),
+        None if package != SERIAL_ANCHOR_PACKAGE => return BTreeSet::new(),
         None => {
             panic!(
-                "no oxy-app module-list override found in {}. If the shared-DB \
-                 tests were ported to `common::fresh_db`, delete this test with \
-                 them; otherwise the serialization was dropped and the race is \
-                 back.",
+                "no {SERIAL_ANCHOR_PACKAGE} module-list override found in {}. If \
+                 the shared-DB tests were ported to `common::fresh_db`, delete \
+                 this test with them; otherwise the serialization was dropped and \
+                 the race is back.",
                 config.display()
             )
         }
@@ -347,7 +389,14 @@ fn modules_pinned_serial(package: &str) -> BTreeSet<String> {
 
 #[test]
 fn shared_db_tests_are_pinned_to_the_serial_group() {
-    for (package, using) in modules_using_shared_db() {
+    let using_by_package = modules_using_shared_db();
+    assert!(
+        using_by_package.contains_key(SERIAL_ANCHOR_PACKAGE),
+        "{SERIAL_ANCHOR_PACKAGE} was not scanned, so its serial-db override is \
+         checked against nothing. Scanned: {:?}",
+        using_by_package.keys().collect::<Vec<_>>()
+    );
+    for (package, using) in using_by_package {
         assert_pinned_both_ways(&package, &using, &modules_pinned_serial(&package));
     }
 }
@@ -409,8 +458,9 @@ fn the_scan_is_not_vacuous() {
     );
 
     assert!(
-        dirs.contains_key(APP_PACKAGE) && !modules_using_shared_db()[APP_PACKAGE].is_empty(),
-        "found no modules reaching the shared database at all; the detection \
-         probably broke rather than the problem disappearing"
+        dirs.contains_key(SERIAL_ANCHOR_PACKAGE)
+            && !modules_using_shared_db()[SERIAL_ANCHOR_PACKAGE].is_empty(),
+        "found no modules reaching the shared database in {SERIAL_ANCHOR_PACKAGE}; \
+         the detection probably broke rather than the problem disappearing"
     );
 }

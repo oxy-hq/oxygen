@@ -379,7 +379,7 @@ async fn platform_notices_ask_finished_a_late_request_sends_only_the_ask_notice(
 
 /// The workspace the request is scoped to — what the workspace middleware hands
 /// every agentic route, with nothing on it reachable from the notify route. A
-/// copy of `oxy-app`'s `run_routes_workspace_scope::Platform` (a test module of
+/// copy of `oxy-workspace-runtime`'s `run_routes_workspace_scope::Platform` (a test module of
 /// another binary, which this one cannot name).
 struct Platform {
     workspace_id: Uuid,

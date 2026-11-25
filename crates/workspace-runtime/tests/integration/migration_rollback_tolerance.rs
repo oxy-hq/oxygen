@@ -12,7 +12,7 @@
 //! the synthetic row goes into all eight. See
 //! `internal-docs/revert-safe-migrations.md`.
 //!
-//! A `mod` of the `platform` group, not a `tests/*.rs` of its own: a new
+//! A `mod` of this crate's `integration` group, not a `tests/*.rs` of its own: a new
 //! top-level test target links DuckDB, DataFusion, Arrow and the AWS SDK all
 //! over again, on every full run.
 //!

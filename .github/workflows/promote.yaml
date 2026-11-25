@@ -463,7 +463,7 @@ jobs:
           # (internal-docs/revert-safe-migrations.md):
           #
           #  * SCHEMA — the binary rolled back to must read what it finds. The
-          #    guard crates/app/tests/platform/migration_rollback_safety.rs keeps
+          #    guard crates/workspace-runtime/tests/integration/migration_rollback_safety.rs keeps
           #    every migration additive, so one step back holds by construction.
           #  * LEDGER — the binary rolled back to must TOLERATE the candidate's
           #    ledger rows, or its migrate step aborts before it serves anything

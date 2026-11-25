@@ -19,7 +19,8 @@
 # affected. Tested whenever anything is.
 always-test = [
   "entity",                  # typed_column_guard walks crates/; schema_guard reads crates/migration
-  "oxy-app",                 # data_placement walks every migrator
+  "oxy-app",                 # no scans left (rollout_gates went in R-b, data_placement in R-d); DEL drops it
+  "oxy-workspace-runtime",   # data_placement and migration_rollback_safety walk every migrator; rollout_gates reads crates/server/src
   "oxy-guards",              # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …: it depends on nothing it scans
   "oxy-app-core",            # audit::call_sites_guard walks crates/
   "oxy-custom-apps",         # usage_reads walks crates/

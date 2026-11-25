@@ -37,14 +37,26 @@
 //!   and `compile_oltp_promote` (`oxy_compile_runtime::oltp`). Control plane on
 //!   a per-test database ([`common::Schema::CentralOltp`]); the tenant plane is
 //!   real databases on the same cluster through `common::admin_url`.
+//! * The rest of `oxy-app`'s `platform` binary that is not the compile or OLTP
+//!   cluster (decompose R-d): the staff-scope fences, the run routes'
+//!   workspace scope and the coordinator on any replica, the queued chat run,
+//!   the Factory and frontline gates, the fleet claim, the master-key checks,
+//!   migration rollback safety and tolerance, and `data_placement`.
+//! * What was left of `oxy-app`'s `authz` binary (decompose R-d):
+//!   `authz_loader_differential` and `audit_append_only`.
 //!
-//! Every database-backed test here gets its own database from a per-run
-//! template ([`common::fresh_db`]), so this binary sits in the `db-per-test`
-//! group (`max-threads = 4`) in `.config/nextest.toml`, not the
-//! fully-serialized `serial-db` group. A module that reaches the *shared*
-//! `OXY_DATABASE_URL` instead (`establish_connection()`, `api_router(..)`)
-//! needs a `serial-db` pin; `oxy-app`'s `authz::shared_db_registry` finds this
-//! group through its harness include and fails the build if one is missing.
+//! Every database-backed test here but two gets its own database from a
+//! per-run template ([`common::fresh_db`]), so this binary sits in the
+//! `db-per-test` group (`max-threads = 4`) in `.config/nextest.toml`, not the
+//! fully-serialized `serial-db` group. The two are `authz_loader_differential`
+//! and `audit_append_only`: they call `establish_connection()` against the raw
+//! shared `OXY_DATABASE_URL` with no per-test database, so the config carves
+//! them out of this binary's `db-per-test` override and pins them into
+//! `serial-db`. They skip when the var is unset, which is why a laptop run looks
+//! clean and only CI would show the race. A module that reaches the *shared*
+//! database (`establish_connection()`, `api_router(..)`) needs the same pin;
+//! `oxy-guards`' `shared_db_registry` finds this group through its harness
+//! include and fails the build if one is missing or stale.
 //!
 //! Anything folded in here that touches cwd, environment variables or another
 //! process-global needs `#[serial_test::serial]`: a guard private to one file
@@ -59,6 +71,7 @@
 #[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
+mod admin_staff_scope;
 mod airhouse_broker;
 mod airhouse_broker_preview;
 mod airhouse_lifecycle;
@@ -69,6 +82,9 @@ mod airhouse_pool_reuse;
 mod airhouse_provisioner;
 mod airway_compile_boundary;
 mod airway_fleet_control;
+mod analytics_run_thread_access;
+mod audit_append_only;
+mod authz_loader_differential;
 mod compile_first;
 mod compile_from_git;
 mod compile_oltp_promote;
@@ -79,10 +95,20 @@ mod compile_self_heal;
 mod compiled_reader_semantic;
 mod connector_vars_from_workspace_secrets;
 mod context_documents_boundary;
+mod coordinator_any_replica;
+mod data_placement;
+mod encryption_key_check;
 mod env_pins;
 mod eval_tests_boundary;
+mod factory_access;
 mod feature_flag_refresh;
 mod file_credentials_at_compile;
+mod fleet_claim;
+mod frontline_app_grant;
+mod frontline_pin;
+mod master_key_kms;
+mod migration_rollback_safety;
+mod migration_rollback_tolerance;
 mod oltp_branches;
 mod oltp_branches_env;
 mod oltp_branches_guards;
@@ -94,8 +120,10 @@ mod oltp_env_branches_recut;
 mod oltp_env_branches_stale;
 mod oltp_provisioner;
 mod preagg_promote_nudge;
+mod queued_chat_run;
 mod revision_miss_not_from_disk;
 mod rollout_gates;
+mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 mod sentry_surface_gate;
 mod worker_ctx_follows_promote;

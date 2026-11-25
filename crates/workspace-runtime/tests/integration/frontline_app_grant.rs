@@ -25,8 +25,8 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
-use oxy_app::server::api::custom_apps_gates::frontline_worker_with_app_grant;
 use oxy_custom_apps::org_directory::org_directory;
+use oxy_workspace_runtime::custom_apps_gates::frontline_worker_with_app_grant;
 
 /// Two orgs with a workspace each, and one app of `org`'s in each workspace.
 ///
@@ -341,8 +341,8 @@ async fn the_directory_names_whoever_can_reach_this_app() {
 /// enrolled to use.
 #[tokio::test]
 async fn the_model_and_both_gates_agree_about_a_worker() {
-    use oxy_app::server::authz::{Action, Resource, allows, enforce, loader};
     use oxy_custom_apps::auth::user_can_access_app;
+    use oxy_server_authz::{Action, Resource, allows, enforce, loader};
 
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;
@@ -393,7 +393,7 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
         // "" is what the gate passes for a worker: they have no address.
         let facts = loader::load_principal_facts_scoped(
             &db,
-            &oxy_app::server::authz::Caller::without_credential(who, ""),
+            &oxy_server_authz::Caller::without_credential(who, ""),
             false,
         )
         .await
@@ -426,7 +426,7 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
         assert_eq!(
             user_can_access_app(
                 &db,
-                &oxy_app::server::authz::Caller::without_credential(who, ""),
+                &oxy_server_authz::Caller::without_credential(who, ""),
                 &app_row
             )
             .await
@@ -455,7 +455,7 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
     );
     let facts = loader::load_principal_facts_scoped(
         &db,
-        &oxy_app::server::authz::Caller::without_credential(granted, ""),
+        &oxy_server_authz::Caller::without_credential(granted, ""),
         false,
     )
     .await
@@ -481,7 +481,7 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
     assert!(
         !user_can_access_app(
             &db,
-            &oxy_app::server::authz::Caller::without_credential(granted, ""),
+            &oxy_server_authz::Caller::without_credential(granted, ""),
             &draft
         )
         .await

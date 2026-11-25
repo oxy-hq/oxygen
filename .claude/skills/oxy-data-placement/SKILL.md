@@ -40,7 +40,7 @@ with Airway if it must join facts.
 ## Non-negotiables
 
 - **A new table in `crates/migration` must be placed** in
-  `crates/app/tests/platform/data_placement.rs`. `Control("why")` only when the
+  `crates/workspace-runtime/tests/integration/data_placement.rs`. `Control("why")` only when the
   rule above says so. `Backlog { holds, belongs }` is a reviewable admission
   that org data is landing in Oxy's database — challenge it, don't rubber-stamp it.
 - **No automatic OLTP provisioning.** A store is a paid provider resource,

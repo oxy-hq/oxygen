@@ -1,6 +1,6 @@
 //! Where an invocation's call trace ([`crate::call_trace`]) is kept:
 //! `app_function_invocation_calls`, one row per invocation that reached
-//! tenant code, Control-placed (`crates/app/tests/platform/data_placement.rs`).
+//! tenant code, Control-placed (`crates/workspace-runtime/tests/integration/data_placement.rs`).
 //!
 //! **Off the request path.** [`spawn_write`] hands the row to a task of its
 //! own and returns at once, so a `/fn` answer never waits on the INSERT (the

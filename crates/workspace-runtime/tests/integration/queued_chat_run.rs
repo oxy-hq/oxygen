@@ -15,7 +15,7 @@
 //! when the pod driving a chat is killed mid-run.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(queued_chat_run)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(queued_chat_run)'`
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -33,9 +33,9 @@ use agentic_runtime::state::RuntimeState;
 use agentic_runtime::worker::{CustomTaskRegistry, ExecutingTask, TaskExecutor};
 use entity::workspace_members::WorkspaceRole;
 use entity::{organizations, users, workspaces};
-use oxy_app::server::queued_analytics::INTERRUPTED_MESSAGE;
-use oxy_app::server::queued_analytics::caller::CallerRunResolver;
-use oxy_app::server::queued_analytics::chat::{ChatRunExecutor, prepare};
+use oxy_workspace_runtime::queued_analytics::INTERRUPTED_MESSAGE;
+use oxy_workspace_runtime::queued_analytics::caller::CallerRunResolver;
+use oxy_workspace_runtime::queued_analytics::chat::{ChatRunExecutor, prepare};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
 };
@@ -296,7 +296,7 @@ async fn a_latency_pass_drives_a_queued_chat_to_a_terminal_event() {
     // Stands in for the tick's platform; what matters is that the resolver
     // replaces it with the requester's.
     let base: Arc<dyn PlatformContext> = Arc::new(
-        oxy_app::server::queued_analytics::requester::requester_context(
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
             db,
             f.workspace_id,
             &requester(&f, None),
@@ -352,7 +352,7 @@ async fn recovery_drives_a_run_that_records_its_requester_as_them() {
     let f = fixture().await;
     let resolver = CallerRunResolver::new(f.db.clone(), Arc::new(IdentityResolver));
     let base: Arc<dyn PlatformContext> = Arc::new(
-        oxy_app::server::queued_analytics::requester::requester_context(
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
             &f.db,
             f.workspace_id,
             &requester(&f, None),
@@ -381,7 +381,7 @@ async fn recovery_drives_a_run_that_records_its_requester_as_them() {
 }
 
 /// A member's context, wrapped to answer as a workspace preview's does.
-struct PreviewOf(oxy_app::agentic_wiring::OxyProjectContext);
+struct PreviewOf(oxy_workspace_runtime::project_ctx::OxyProjectContext);
 
 #[async_trait::async_trait]
 impl agentic_pipeline::platform::ProjectContext for PreviewOf {
@@ -452,7 +452,7 @@ async fn only_a_plain_chat_with_a_requester_is_started_on_the_queue() {
 
     let f = fixture().await;
     let member = || async {
-        oxy_app::server::queued_analytics::requester::requester_context(
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
             &f.db,
             f.workspace_id,
             &requester(&f, Some("member")),
@@ -500,9 +500,13 @@ async fn a_queued_chat_start_is_driven_by_whichever_driver_claims_it() {
     let db = &f.db;
     let who = requester(&f, Some("member"));
     let platform: Arc<dyn PlatformContext> = Arc::new(
-        oxy_app::server::queued_analytics::requester::requester_context(db, f.workspace_id, &who)
-            .await
-            .expect("a member's context"),
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
+            db,
+            f.workspace_id,
+            &who,
+        )
+        .await
+        .expect("a member's context"),
     );
     let chat = |agent: &str| agentic_pipeline::queued_run::ChatStart {
         workspace_id: f.workspace_id,
@@ -600,9 +604,13 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
     .unwrap();
     let who = requester(&f, Some("member"));
     let context = Arc::new(
-        oxy_app::server::queued_analytics::requester::requester_context(db, f.workspace_id, &who)
-            .await
-            .expect("a member's context"),
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
+            db,
+            f.workspace_id,
+            &who,
+        )
+        .await
+        .expect("a member's context"),
     );
     let platform: Arc<dyn PlatformContext> = context;
     let state = Arc::new(
@@ -712,7 +720,7 @@ async fn workflow_app(
     )
     .unwrap();
     let context = Arc::new(
-        oxy_app::server::queued_analytics::requester::requester_context(
+        oxy_workspace_runtime::queued_analytics::requester::requester_context(
             &f.db,
             f.workspace_id,
             &requester(f, Some("member")),
@@ -777,7 +785,7 @@ async fn only_a_workflow_started_for_a_requester_off_any_branch_is_queued() {
     use agentic_pipeline::queued_run::AutomationAdmission;
 
     let f = fixture().await;
-    let member = oxy_app::server::queued_analytics::requester::requester_context(
+    let member = oxy_workspace_runtime::queued_analytics::requester::requester_context(
         &f.db,
         f.workspace_id,
         &requester(&f, Some("member")),

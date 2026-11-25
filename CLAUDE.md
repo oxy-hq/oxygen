@@ -110,7 +110,7 @@ tests share one binary per crate. So scope down, always:
 | Everything | `just test` — CI's job, rarely yours |
 
 Integration tests live in **grouped** binaries, and this is workspace-wide, not an
-`oxy-app` quirk: `oxy-app` has its last two by domain (`tests/authz/`, `tests/platform/`),
+`oxy-app` quirk: `oxy-app` has its last one (`tests/platform/`; `tests/authz/` is an empty husk),
 and **every other crate with
 integration tests runs a single `tests/integration/` group**. The workspace-wide source
 and manifest guards are the test-only `oxy-guards` crate's (`crates/guards`). Add a new case as a `mod`
@@ -250,7 +250,7 @@ and CI fails if it grows. Where the code is right and the rule is not, say so at
 - **Org data never goes in Oxy's Postgres, and its shape picks the store.** Facts and history →
   the workspace's Airhouse (`ctx.airhouse`); records an app edits → org OLTP (`ctx.oltp`); files →
   `ctx.storage`; customer warehouses are read-only. Every table a migrator creates must be placed in
-  `crates/app/tests/platform/data_placement.rs`, which fails the build otherwise. Invoke the
+  `crates/workspace-runtime/tests/integration/data_placement.rs`, which fails the build otherwise. Invoke the
   `oxy-data-placement` skill; rule and backlog: `internal-docs/data-placement.md`.
 
 ## Authorization

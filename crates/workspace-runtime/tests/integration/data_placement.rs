@@ -28,7 +28,7 @@
 //! does a row naming a table that no longer exists, so the list cannot drift
 //! into describing a database nobody has.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test platform -E 'test(data_placement)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(data_placement)'`
 
 use std::collections::BTreeSet;
 
@@ -907,7 +907,7 @@ async fn every_table_in_oxys_database_has_a_placement() {
         .collect();
     assert!(
         unplaced.is_empty(),
-        "tables with no placement in tests/platform/data_placement.rs: {unplaced:?}\n\n\
+        "tables with no placement in tests/integration/data_placement.rs: {unplaced:?}\n\n\
          Oxy's Postgres is the control plane. A table holding identity, access, \
          configuration, job bookkeeping, billing, audit or a signal goes in as \
          Control, with the reason. A table holding anything an org's systems or \

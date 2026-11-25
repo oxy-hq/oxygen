@@ -29,7 +29,7 @@
 //!
 //! The reverse direction — a table the migrators leave in the database with no
 //! entity — is not judged here. It needs a migrated database to be exact
-//! (`crates/app/tests/platform/data_placement.rs` has one and already requires
+//! (`crates/workspace-runtime/tests/integration/data_placement.rs` has one and already requires
 //! every such table to be listed with a reason), and from source it would be an
 //! allowlist of every raw-SQL table, which is the kind of list that only grows.
 //!

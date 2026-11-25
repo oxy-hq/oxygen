@@ -12,7 +12,7 @@
 //! `db-per-test` nextest group with the other database-backed platform cases.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(frontline_pin)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(frontline_pin)'`
 
 use chrono::{Duration, Utc};
 use entity::{organizations, user_credentials};

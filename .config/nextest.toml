@@ -154,15 +154,14 @@ retries = 2
 # `oxy-workspace-runtime`'s integration group (decompose R, 2026-11-24): the
 # database-backed tests that leave oxy-app, on the same harness, so the same
 # per-binary rule. The `airhouse` binary came first (R-a); `platform` follows
-# in R-b..R-d.
+# in R-b..R-d, and R-d brought the `authz` binary's two modules too.
 #
-# The negated alternation is not a list of what runs here today: nextest takes
-# the FIRST matching override per setting, so the two shared-database modules
-# R-d brings (`authz_loader_differential`, `audit_append_only`, which call
-# `establish_connection()`) would otherwise land in this group at
-# `max-threads = 4` and never reach their `serial-db` pin. That pin is added
-# with them: `authz::shared_db_registry` fails on a pin naming a module that is
-# not in the group yet.
+# The negated alternation carves out those two shared-database modules
+# (`authz_loader_differential`, `audit_append_only`, which call
+# `establish_connection()`): nextest takes the FIRST matching override per
+# setting, so without it they would land in this group at `max-threads = 4`
+# and never reach their `serial-db` pin below. `oxy-guards`'
+# `shared_db_registry` fails the build if the pin and the modules drift apart.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & !test(/^(authz_loader_differential|audit_append_only)::/)"
 test-group = "db-per-test"
@@ -422,7 +421,8 @@ retries = 2
 # querying those tables mid-DDL.
 #
 # Two routes in:
-#   * two call `oxy::database::client::establish_connection()` directly (and
+#   * two call `oxy::database::client::establish_connection()` directly (now
+#     `oxy-workspace-runtime`'s, which were oxy-app's `authz` binary's; and
 #     the six that were the `slack` binary's, now `oxy-api-slack`'s,
 #     `admin_membership_audit`, now `oxy-api-identity`'s, and
 #     `org_invitations`, now `oxy-api-tenancy`'s, below);
@@ -445,7 +445,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|audit_append_only)::/)"
+filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & test(/^(authz_loader_differential|audit_append_only)::/)"
 test-group = "serial-db"
 retries = 2
 

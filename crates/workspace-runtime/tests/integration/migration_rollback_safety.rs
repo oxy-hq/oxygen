@@ -56,7 +56,7 @@
 //! that made it. Do that if you ever doubt the walk is wired up.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(migration_rollback_safety)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(migration_rollback_safety)'`
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -531,7 +531,7 @@ async fn migrations_are_rollback_safe() {
          remove the column in a later deploy. That is the expand/contract pair, and it is the \
          answer nearly every time.\n\n\
          2. If an earlier deploy already stopped using it, declare this as phase 2 in \
-         crates/app/tests/platform/migration_rollback_safety.rs:\n\n\
+         crates/workspace-runtime/tests/integration/migration_rollback_safety.rs:\n\n\
          \x20    (\"{}\", \"{}\", Phase2 {{ after: \"<what stopped using it>\" }}),\n",
         undeclared.len(),
         undeclared

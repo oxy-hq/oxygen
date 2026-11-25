@@ -3,7 +3,7 @@
 //! Skips automatically when `OXY_DATABASE_URL` is unset (i.e. pure unit-test builds).
 //!
 //! To run locally:
-//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-app --test authz -E 'test(authz_loader_differential)'
+//!   OXY_DATABASE_URL=postgres://... cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(authz_loader_differential)'
 //!
 //! ## Why this exists
 //!
@@ -38,8 +38,8 @@ async fn load_principal_facts(
     user_id: Uuid,
     email: &str,
 ) -> Option<oxy_authz::PrincipalFacts> {
-    let caller = oxy_app::server::authz::Caller::without_credential(user_id, email);
-    oxy_app::server::authz::loader::load_principal_facts(conn, &caller).await
+    let caller = oxy_server_authz::Caller::without_credential(user_id, email);
+    oxy_server_authz::loader::load_principal_facts(conn, &caller).await
 }
 
 fn db_unavailable() -> bool {
@@ -960,8 +960,8 @@ async fn load_facts_as_token(
         status: users::UserStatus::Active,
         credential: None,
     };
-    let caller = oxy_app::server::authz::Caller::of(&user, Some(&credential));
-    oxy_app::server::authz::loader::load_principal_facts(conn, &caller)
+    let caller = oxy_server_authz::Caller::of(&user, Some(&credential));
+    oxy_server_authz::loader::load_principal_facts(conn, &caller)
         .await
         .expect("the loader must resolve a token's facts against a live seeded database")
 }

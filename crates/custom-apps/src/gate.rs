@@ -491,7 +491,7 @@ async fn shipped_workspace_access(
 /// exemption that skipped the ring for them. `Ring::WorkspaceData` reads the
 /// fact the loader now derives for a worker — the workspaces their app grants
 /// were published from — so the conjunction holds and the model decides,
-/// here as everywhere. `tests/platform/frontline_app_grant.rs` holds the two
+/// here as everywhere. `oxy-workspace-runtime`'s `tests/integration/frontline_app_grant.rs` holds the two
 /// sides to each other against real rows.
 ///
 /// The load is scoped (no workspace-override query, which this ring never
@@ -550,7 +550,7 @@ fn user_lookup_failure_code(e: &OxyError) -> &'static str {
 /// It is also the shipped check that ring is differenced against — the loader
 /// derives `frontline_workspace_grants` from the same join, and
 /// `the_model_and_both_gates_agree_about_a_worker` in
-/// `tests/platform/frontline_app_grant.rs` asserts the two never disagree.
+/// `oxy-workspace-runtime`'s `tests/integration/frontline_app_grant.rs` asserts the two never disagree.
 ///
 /// Scoped to the WORKSPACE the gate was called for, not to the org. A grant on
 /// some other workspace's app is not access to this one — that is the whole
@@ -560,7 +560,7 @@ fn user_lookup_failure_code(e: &OxyError) -> &'static str {
 ///
 /// Errors are `false`. A worker who cannot be checked is not admitted.
 ///
-/// `pub` so `tests/platform/frontline_app_grant.rs` can drive it against a real
+/// `pub` so `oxy-workspace-runtime`'s `tests/integration/frontline_app_grant.rs` can drive it against a real
 /// database. It is the whole decision — the gate above it is one guard line —
 /// and two rounds of review found defects in exactly this logic that no unit
 /// test could have reached.
