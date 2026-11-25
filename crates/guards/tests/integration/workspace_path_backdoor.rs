@@ -12,9 +12,9 @@
 //! capability parameter never saw it, because the path never came from a manager.
 //!
 //! A `clippy.toml` ban is the wrong tool here — `disallowed-methods` is
-//! workspace-wide and cannot be scoped to the handler layer, and
-//! `crates/app/src/server` has ~100 legitimate `fs::` calls against the state
-//! dir and temp files. This list is small enough to be read instead.
+//! workspace-wide and cannot be scoped to the handler layer, and the server
+//! crates have ~100 legitimate `fs::` calls against the state dir and temp
+//! files (oxy-app's `src/server` alone did, before decompose DEL). This list is small enough to be read instead.
 
 /// Call sites permitted to resolve a workspace path directly, and why.
 ///
@@ -113,8 +113,7 @@ fn resolves_a_workspace_path(src: &str) -> bool {
 
 #[test]
 fn nothing_new_resolves_a_workspace_path_by_hand() {
-    let manifest = crate::app_root();
-    let root = manifest.join("src");
+    let manifest = crate::guards_root();
     let allowed: Vec<&str> = ALLOWED.iter().map(|(path, _)| *path).collect();
 
     let mut offenders = Vec::new();
@@ -124,8 +123,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
     // `oxy-api-operating-graph` and `oxy-api-world-model` likewise, and
     // `oxy-world-model`, where the
     // World Model Graph's cores went down to.
+    // oxy-app's own `src` was the first root until decompose DEL deleted the
+    // crate (2026-11-25).
     let mut walk = vec![
-        root.clone(),
         manifest.join("../api-documents/src"),
         manifest.join("../api-airway/src"),
         manifest.join("../api-slack/src"),
@@ -265,7 +265,7 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
 /// dead weight that makes the real list harder to read.
 #[test]
 fn the_allowlist_has_no_stale_entries() {
-    let base = crate::app_root();
+    let base = crate::guards_root();
     let stale: Vec<&str> = ALLOWED
         .iter()
         .filter(|(rel, _)| {

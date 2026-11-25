@@ -6,9 +6,10 @@
 //! `server::api::middlewares::sentry_surface` on 2026-11-21, when the
 //! production half moved down to `oxy-telemetry`, then from `oxy-app`'s
 //! `tests/routing/` into `oxy-guards` (decompose GRD, 2026-11-24). Every walked
-//! root and every path the walks compare against is still relative to
-//! `crates/app` ([`crate::app_root`]), so `src/server`, `../api-*` and
-//! `../agentic` read exactly as they did there. The `sentry_surface.rs`
+//! root and every path the walks compare against is relative to a sibling of
+//! the old `crates/app` ([`crate::guards_root`]), so `../api-*` and
+//! `../agentic` read exactly as they did there; oxy-app's own `src/server`
+//! went with the crate in decompose DEL (2026-11-25). The `sentry_surface.rs`
 //! filename filter in [`server_sources`] left out that module while it was a
 //! re-export; the re-export went with the router in decompose LIFT
 //! (2026-11-23), and the filter stays so the name cannot come back into the
@@ -480,9 +481,10 @@ fn oxy_server_sources(crate_root: &Path, files: &mut Vec<PathBuf>) {
 /// reports in a deterministic order. This module is left out: it defines
 /// the bindings and names every detector in its own tests.
 fn server_sources() -> Vec<(String, String)> {
-    let crate_root = &crate::app_root();
+    let crate_root = &crate::guards_root();
     let mut files = Vec::new();
-    rust_files(&crate::app_dir("src/server"), &mut files);
+    // oxy-app's `src/server` was walked first until decompose DEL deleted the
+    // crate (2026-11-25); it held only re-exports by then.
     rust_files(&crate_root.join("../api-custom-apps/src"), &mut files);
     // The world model's customer-app twins, which enter through
     // `enter_semantic_boundary` from `oxy-api-world-model`.

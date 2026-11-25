@@ -221,8 +221,7 @@ export const HIGH_RISK: readonly RiskArea[] = [
     paths: [
       "crates/authz/**",
       "crates/auth/**",
-      "crates/server-authz/**",
-      "crates/app/src/server/authz/**"
+      "crates/server-authz/**"
     ]
   },
   {
@@ -253,7 +252,7 @@ export const HIGH_RISK: readonly RiskArea[] = [
 // or this file, which spells out every pattern, must not trigger a lens.
 export const PATCH_EXCLUDE: readonly string[] = ["**/*.md", "**/*.mdx", "scripts/review/**"];
 
-const SERVER = ["crates/app/src/server/**", "crates/api-*/**"];
+const SERVER = ["crates/server/src/**", "crates/api-*/**"];
 
 // Focused passes, run when the diff triggers them, highest priority first. `paths`
 // match any changed file; `patch` is tested against added lines, only in files
@@ -266,7 +265,6 @@ export const LENSES: readonly Lens[] = [
       "crates/authz/**",
       "crates/auth/**",
       "crates/server-authz/**",
-      "crates/app/src/server/authz/**",
       "**/role_guards*"
     ],
     patch:

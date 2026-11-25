@@ -1,6 +1,6 @@
 Focus: background work (it has to survive an instance dying)
 
-Read first: `crates/app/.claude/skills/oxy-task-spec-default/SKILL.md` and `internal-docs/task-spec-registry.md`.
+Read first: `crates/server/.claude/skills/oxy-task-spec-default/SKILL.md` and `internal-docs/task-spec-registry.md`.
 
 Check:
 - New long-running or periodic work started with `tokio::spawn` (or a loop) inside an

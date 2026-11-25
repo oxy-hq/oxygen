@@ -8,7 +8,7 @@
 //! (a `Cloning` row that never finishes), or runs once per replica when it was meant
 //! to run once (a seat sync, a sweep), and nothing can poll or retry it. The rule that
 //! replaces it — long-running or fire-and-forget work is a `TaskSpec` on
-//! `agentic_task_queue` (`crates/app/.claude/skills/oxy-task-spec-default`) — has been
+//! `agentic_task_queue` (`crates/server/.claude/skills/oxy-task-spec-default`) — has been
 //! written down since the fleet existed and was still being bypassed one reasonable
 //! shortcut at a time. So the objection is made mechanical: a spawn in a file this
 //! test does not list fails the build.
@@ -35,9 +35,10 @@
 //!
 //! ## Scope and precision
 //!
-//! The walk covers `crates/app/src/server/api/**` (and the part of it that went up
-//! into `oxy-server` with the router: `server/src/{admin,router/middlewares}/**`
-//! and `server/src/router/local_setup.rs`), every `crates/api-*/src/**`
+//! The walk covers the handler layer that went up into `oxy-server` with the
+//! router (`server/src/{admin,router/middlewares}/**` and
+//! `server/src/router/local_setup.rs`; `crates/app/src/server/api/**` was walked
+//! until decompose DEL deleted oxy-app), every `crates/api-*/src/**`
 //! (`crates/app/src/integrations/**` too, until its last request path, the OAuth
 //! connects, left for `oxy-api-workspace-config` on 2026-11-21), and the request-path
 //! cores in `crates/world-model/src/{graph,cohort}/**` that the World Model handlers
@@ -60,7 +61,7 @@ use std::path::{Path, PathBuf};
 const NEEDLES: &[&str] = &["tokio::spawn(", "tokio::task::spawn("];
 
 /// Files permitted to spawn, and why. Paths are relative to the workspace `crates/`
-/// root and so are crate-qualified (`app/src/…`, `api-tenancy/src/…`), one entry per
+/// root and so are crate-qualified (`server/src/…`, `api-tenancy/src/…`), one entry per
 /// file. A reason that begins `backlog:` is work that should become a `TaskSpec`.
 ///
 /// **Shrinking this list is the migration.** Before adding to it, check you are not
@@ -157,13 +158,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "api-metric-monitoring/src/anomaly_notify/executor.rs",
         "a queue executor's own task: `AnomalyNotifyExecutor::execute` runs the \
          insights delivery under a spawn and reports through the task's channels",
-    ),
-    (
-        "app/src/server/api/modeling.rs",
-        "only pumps this request's own SSE stream (an Airform run/compile/test's \
-         progress events). The whole modeling surface is being deleted by a sibling \
-         PR; the entry goes with the file — see the missing-file rule in \
-         `every_allowlist_entry_still_covers_a_spawn`",
     ),
     (
         "api-custom-apps/src/agent_ask/start.rs",
@@ -494,8 +488,9 @@ fn scan_roots() -> Vec<PathBuf> {
     // the handler layer: Slack's (`oxy-api-slack` now), the eval runner's
     // (`oxy-api-eval`) and last the OAuth connects (`oxy-api-workspace-config`,
     // 2026-11-21), each covered as an `api-*` crate below. The directory is gone.
+    // `app/src/server/api`, oxy-app's handler layer, was the first root until
+    // decompose DEL deleted the crate (2026-11-25); no handler was left in it.
     let mut roots = vec![
-        crates.join("app/src/server/api"),
         // What of `app/src/server/api` went up into `oxy-server` with the router
         // (decompose LIFT, 2026-11-23): the console shell and the router-only
         // middlewares, with `local_setup.rs` (see `scanned_files`). Not the
@@ -700,8 +695,14 @@ fn handlers_do_not_spawn_outside_the_allowlist() {
     assert!(
         files
             .iter()
-            .any(|f| rel_of(f).starts_with("app/src/server/api/")),
-        "walk did not cover oxy-app's handler layer"
+            .any(|f| rel_of(f).starts_with("server/src/admin/")),
+        "walk did not cover oxy-server's handler layer (the console shell)"
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| rel_of(f).starts_with("server/src/router/middlewares/")),
+        "walk did not cover oxy-server's router-only middlewares"
     );
     assert!(
         files.iter().any(|f| rel_of(f).starts_with("api-")),
@@ -732,7 +733,7 @@ fn handlers_do_not_spawn_outside_the_allowlist() {
          `agentic_task_queue`, not a `tokio::spawn`: a spawn dies with the pod that \
          took the request, runs once per replica when it was meant to run once, and \
          nothing can poll or retry it. Invoke the `oxy-task-spec-default` skill \
-         (`crates/app/.claude/skills/`): add the kind, its executor (registered in \
+         (`crates/server/.claude/skills/`): add the kind, its executor (registered in \
          `drivers/recovery.rs`), an idempotency key, and its line in \
          `internal-docs/task-spec-registry.md`, then enqueue from the handler.\n\n\
          A spawn that only drives this request's own SSE stream — feeds the response's \

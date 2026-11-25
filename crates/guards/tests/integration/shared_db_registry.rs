@@ -20,7 +20,8 @@
 //! laptop run stays green and only CI — which does set it — would ever surface
 //! the race, as a flake, somewhere unrelated. That is worth a build gate.
 //!
-//! The scan also reaches past `oxy-app`. An extracted surface crate
+//! The scan reached past `oxy-app` (deleted in decompose DEL, 2026-11-25), and
+//! now that crate is gone it is the whole scan. An extracted surface crate
 //! (`oxy-api-frontline` first, `oxy-api-documents` next) keeps using the shared
 //! DB harness by `#[path]`-including `crates/test-utils/harness` into its one
 //! `tests/integration` group, and its DB-backed modules carry exactly the race
@@ -55,9 +56,6 @@ fn crates_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// `oxy-app`'s package name — the key its own binaries are filed under.
-const APP_PACKAGE: &str = "oxy-app";
-
 /// The package that holds the shared-database modules `oxy-app` used to:
 /// `authz_loader_differential` and `audit_append_only` moved into
 /// `oxy-workspace-runtime`'s integration group in decompose R-d, with their
@@ -70,76 +68,12 @@ const SERIAL_ANCHOR_PACKAGE: &str = "oxy-workspace-runtime";
 /// it is scanned; a crate with its own harness is not this registry's business.
 const SHARED_HARNESS: &str = "test-utils/harness";
 
-/// **Every** `oxy-app` *grouped* integration binary: each directory under
-/// `crates/app/tests` with a `main.rs`. Not a curated subset.
-///
-/// The scan is `read_dir` over these directories, so a top-level `tests/*.rs` is
-/// outside it by construction — invisible here, and one more link on every full
-/// run.
-///
-/// This was a hand-kept list (`MIXED_BINARIES`) until decompose GRD, and it was
-/// twice too short, both times for the same reason: a binary was
-/// left out because its tests were "already grouped", and grouping was mistaken
-/// for serialization. It isn't — nextest test-groups are independent semaphores,
-/// so a `max-threads` cap in one group constrains nothing against another, and a
-/// `db-per-test` member can run concurrently with the `serial-db` tests whose
-/// rows it rewrites. `platform` was the live example; `custom_apps` (now
-/// `oxy-api-custom-apps`' `tests/integration`, found by the sibling scan) and
-/// `airhouse` were the same hole still open. Derived now, so a group that the
-/// delete-oxy-app PRs empty and remove drops out, and a new one is in on the day
-/// it is created. The cost of scanning a binary that turns out to be clean is
-/// zero.
-///
-/// oxy-app's groups are not `tests/integration`, so the sibling scan below does
-/// not find them; this is what would keep a module added back to one of them
-/// checked. Since decompose R-d none is left: R-b, R-c and R-d moved every
-/// `platform` and `authz` module to `oxy-workspace-runtime`, and the list comes
-/// back empty. (`airhouse` left in decompose R-a and `routing` emptied in GRD.)
-///
-/// A group whose `main.rs` is all that is left is skipped: it has no module to
-/// scan, and decompose DEL deletes it. `authz` and `platform` both became one in
-/// decompose R-d, when their last modules (`audit_append_only` and
-/// `authz_loader_differential` among them) moved to
-/// `oxy-workspace-runtime`, where the sibling scan finds them.
-fn app_groups() -> Vec<PathBuf> {
-    let tests_dir = crates_root().join("app").join("tests");
-    let mut groups: Vec<PathBuf> = std::fs::read_dir(&tests_dir)
-        .unwrap_or_else(|e| panic!("read {}: {e}", tests_dir.display()))
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.join("main.rs").is_file() && has_a_module_besides_main(p))
-        .collect();
-    groups.sort();
-    groups
-}
-
-/// True when `group` holds a source file other than its `main.rs`, directly
-/// or inside a module directory. An empty directory is not a module: git does
-/// not track one, so a checkout never has it, but a working tree that a
-/// `git mv` emptied still does.
-fn has_a_module_besides_main(group: &Path) -> bool {
-    let rs_files = |dir: &Path| -> Vec<PathBuf> {
-        std::fs::read_dir(dir)
-            .map(|entries| {
-                entries
-                    .filter_map(Result::ok)
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let has_module_file = rs_files(group).iter().any(|p| !p.ends_with("main.rs"));
-    let has_module_dir = std::fs::read_dir(group)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .any(|p| p.is_dir() && !rs_files(&p).is_empty())
-        })
-        .unwrap_or(false);
-    has_module_file || has_module_dir
-}
+// `oxy-app`'s grouped binaries (`crates/app/tests/*/main.rs`) were scanned
+// here as their own set (`app_groups`, the hand-kept `MIXED_BINARIES` before
+// decompose GRD) because none was a `tests/integration` group the sibling scan
+// below finds. R-a..R-d moved every module out, and decompose DEL (2026-11-25)
+// deleted the crate, so that set went with it. Every remaining shared-database
+// group is a `tests/integration` and is found by [`harness_sharing_siblings`].
 
 /// Ways a test reaches a database.
 ///
@@ -156,11 +90,10 @@ fn has_a_module_besides_main(group: &Path) -> bool {
 const DB_ENTRY_POINTS: &[&str] = &["establish_connection", "api_router("];
 
 /// Every directory the registry scans, keyed by the package whose nextest
-/// overrides must pin what it finds: `oxy-app`'s grouped binaries ([`app_groups`]), plus each
-/// sibling crate's `tests/integration` group that includes [`SHARED_HARNESS`].
+/// overrides must pin what it finds: each crate's `tests/integration` group
+/// that includes [`SHARED_HARNESS`] or reaches the shared database.
 fn scanned_dirs() -> BTreeMap<String, Vec<PathBuf>> {
     let mut dirs = BTreeMap::new();
-    dirs.insert(APP_PACKAGE.to_string(), app_groups());
     for (package, dir) in harness_sharing_siblings() {
         dirs.entry(package).or_insert_with(Vec::new).push(dir);
     }
@@ -176,7 +109,7 @@ fn harness_sharing_siblings() -> Vec<(String, PathBuf)> {
     let mut crate_dirs = Vec::new();
     find_crate_dirs(&crates_root(), 0, &mut crate_dirs);
     // No self-exclusion: `oxy-app` was excluded while this file lived there
-    // (its groups are [`app_groups`], and none is `tests/integration`). This
+    // (its groups were scanned separately, and none was `tests/integration`). This
     // crate's own group is scanned like any other — it names
     // [`SHARED_HARNESS`] only in this file, which `scan_group` skips, so it is
     // held to the same rule the day a case here reaches the database.
@@ -431,6 +364,17 @@ fn assert_pinned_both_ways(package: &str, using: &BTreeSet<String>, pinned: &BTr
 #[test]
 fn the_scan_is_not_vacuous() {
     let dirs = scanned_dirs();
+    // A floor, not a target: about 25 groups share the harness or reach the shared
+    // database today (decompose DEL, 2026-11-25, when oxy-app's own groups left
+    // the scan). It only has to stay below the real count, so it catches a
+    // discovery that silently collapsed to a handful.
+    assert!(
+        dirs.len() >= 20,
+        "the shared-DB scan found only {} packages; sibling discovery broke. \
+         Scanned: {:?}",
+        dirs.len(),
+        dirs.keys().collect::<Vec<_>>()
+    );
     for dir in dirs.values().flatten() {
         let count = std::fs::read_dir(dir)
             .expect("read test group dir")

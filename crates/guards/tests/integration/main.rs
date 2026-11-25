@@ -16,9 +16,10 @@
 //!
 //! Paths: `CARGO_MANIFEST_DIR` is `crates/guards`, so `..` is still `crates/`
 //! and `../..` the repo root, exactly as from `crates/app`. The scanners that
-//! walked oxy-app's own `src` (and key their rows relative to `crates/app`) take
-//! [`app_root`] instead of `CARGO_MANIFEST_DIR`, so they keep walking oxy-app's
-//! tree rather than this crate's empty `src`.
+//! walked oxy-app's own `src` (and key their rows `../<crate>/src/…`) take
+//! [`guards_root`]. Their oxy-app self-roots went with the crate in decompose
+//! DEL (2026-11-25); none of them walks this crate's empty `src`, which would
+//! pass by finding nothing.
 
 use std::path::PathBuf;
 
@@ -39,31 +40,20 @@ mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;
 
-/// `crates/app`, the root the oxy-app-relative scanners key their walks and
-/// rows from (they ran with `CARGO_MANIFEST_DIR = crates/app` before GRD).
+/// `crates/guards`, the anchor the scanners key their walks and rows from:
+/// every row reads `../<crate>/src/…`, as it did from `crates/app` before
+/// decompose DEL deleted that crate (2026-11-25).
 ///
-/// Fails closed: if oxy-app's `src` is gone, a walk rooted here would find
-/// nothing and pass, so this panics instead. When decompose DEL deletes
-/// `crates/app`, it deletes this and repoints every caller.
-fn app_root() -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../app");
+/// Never join `src` onto this: `crates/guards/src` is an empty `lib.rs`, and a
+/// walk rooted there passes by scanning nothing. Fails closed if the anchor
+/// stops being a sibling of the crates the scanners walk.
+fn guards_root() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     assert!(
-        root.join("src").is_dir(),
-        "{} has no src: oxy-app moved, and the scanners rooted on it would pass \
-         by walking nothing. Repoint them.",
+        root.join("../server/src").is_dir() && root.join("../app-core/src").is_dir(),
+        "{} is no longer beside crates/server and crates/app-core: the scanners \
+         rooted on it would pass by walking nothing. Repoint them.",
         root.display()
     );
     root
-}
-
-/// A directory under [`app_root`] that a scanner walks with a silent
-/// `let Ok(..) = read_dir(..) else { return }`. Asserts it exists, so the day
-/// a later PR empties it the walk fails instead of shrinking.
-fn app_dir(rel: &str) -> PathBuf {
-    let dir = app_root().join(rel);
-    assert!(
-        dir.is_dir(),
-        "oxy-app's {rel} is gone: repoint the walk that reads it"
-    );
-    dir
 }

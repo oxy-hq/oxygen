@@ -2,7 +2,7 @@
 name = "oxy-app-core"
 version.workspace = true
 authors.workspace = true
-description = "Shared seam for the oxy-app HTTP layer: audit trail, serve-mode detection, org and custom-app subdomain dispatch, and member-role authorization"
+description = "Shared seam for the HTTP layer (oxy-server and the api-* surfaces): audit trail, serve-mode detection, org and custom-app subdomain dispatch, and member-role authorization"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

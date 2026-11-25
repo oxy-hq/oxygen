@@ -47,7 +47,7 @@ const INCIDENTS: [string, string, string][] = [
   ["duckdb-open", "crates/core/src/db.rs", "let conn = duckdb::Connection::open(path)?;"],
   [
     "per-request-scan",
-    "crates/app/src/server/auth/lookup.rs",
+    "crates/server/src/auth/lookup.rs",
     '.filter(Expr::cust("LOWER(email)").eq(email))'
   ],
   [
@@ -83,7 +83,7 @@ test("checklist items stay quiet outside their paths and in prose", () => {
 });
 
 test("an unfiltered Sea-ORM read in a handler is a per-request scan; a filtered one is not", () => {
-  const handler = "crates/app/src/server/api/users.rs";
+  const handler = "crates/api-identity/src/users.rs";
   assert.ok(
     picked([diffOf(handler, ["let all = User::find().all(db).await?;"])]).includes(
       "per-request-scan"

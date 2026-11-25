@@ -2,7 +2,7 @@
 name = "oxy-custom-apps"
 version.workspace = true
 authors.workspace = true
-description = "Custom Apps domain crate: the modules of the custom-apps surface that need no oxy-app or HTTP types (publish authority, environment pointer writes and resolution, access decisions and the serve caches). Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3)"
+description = "Custom Apps domain crate: the modules of the custom-apps surface that need no HTTP types (publish authority, environment pointer writes and resolution, access decisions and the serve caches). Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

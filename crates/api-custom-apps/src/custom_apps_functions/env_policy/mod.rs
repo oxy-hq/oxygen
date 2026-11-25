@@ -109,6 +109,9 @@ mod golden;
 mod held;
 pub mod homes;
 mod oltp_branch_sql;
+/// The connection `ctx.oltp` opens for its admitted home; out of the V8-gated
+/// `host` (decompose DEL), since the console's data browser reads it too.
+pub mod oltp_connection;
 mod oltp_home;
 mod oltp_sandbox_sql;
 mod oltp_sql;

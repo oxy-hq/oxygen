@@ -24,13 +24,14 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// Every file under `src/server/api` — or under a sibling surface crate's `src`
-/// (`crates/api-*`, extracted from there and mounted under the same `/api`
-/// nest) — that builds a paginated response. The document library's handlers,
+/// Every file under a surface crate's `src` (`crates/api-*`, extracted from
+/// oxy-app's `src/server/api` and mounted under the same `/api` nest) — that builds a paginated response. The document library's handlers,
 /// where this bug first shipped, now live in `crates/api-documents`.
 fn adopters() -> Vec<(PathBuf, String)> {
-    let manifest = crate::app_root();
-    let mut stack = vec![manifest.join("src/server/api")];
+    let manifest = crate::guards_root();
+    // oxy-app's `src/server/api` was walked first until decompose DEL deleted
+    // the crate (2026-11-25); no handler was left in it.
+    let mut stack = vec![];
     for entry in fs::read_dir(manifest.join("..")).expect("read the crates directory") {
         let path = entry.expect("a directory entry").path();
         let is_surface = path
@@ -67,11 +68,11 @@ fn a_paginated_handler_takes_original_uri() {
     // pass by finding nothing — which is how a check quietly stops checking.
     assert!(
         adopters.len() >= 7,
-        "expected the known paginated handlers under src/server/api and crates/api-*, found {}",
+        "expected the known paginated handlers under crates/api-*, found {}",
         adopters.len()
     );
-    // src/server/api alone holds five adopters, so the floor above would still pass
-    // if the crates/api-* scan matched nothing. Pin the crate where this bug shipped.
+    // The floor alone would still pass if the scan matched seven handlers in one
+    // crate and none elsewhere. Pin the crate where this bug shipped.
     assert!(
         adopters
             .iter()

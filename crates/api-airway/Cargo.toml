@@ -3,8 +3,8 @@ name = "oxy-api-airway"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog was moved above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Airway's HTTP surface: the boundary-backed pipeline listing, the sp_api marketplace list, and source-report uploads into the S3 landing zone file-based sources read. A sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -50,7 +50,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # `migration` is for the integration group's per-test harness below.
 migration = { workspace = true }
 agentic-runtime = { workspace = true }
-# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# The integration group (`tests/integration/`) reuses the shared per-test
 # database harness (`crates/test-utils/harness/mod.rs`, included by `#[path]`),
 # as `oxy-api-automations`' does, so it needs that harness's dependencies too.
 airhouse = { workspace = true }

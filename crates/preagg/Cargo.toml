@@ -2,7 +2,7 @@
 name = "oxy-preagg"
 version.workspace = true
 authors.workspace = true
-description = "The pre-aggregation runtime's domain half: deciding a rollup is stale, rebuilding it (CTAS, pull, manifest, cache), retracting it, the builder-generation sweep, the cycle that drives them and the post-promote nudge. Below oxy-app; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The pre-aggregation runtime's domain half: deciding a rollup is stale, rebuilding it (CTAS, pull, manifest, cache), retracting it, the builder-generation sweep, the cycle that drives them and the post-promote nudge. Below oxy-server; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

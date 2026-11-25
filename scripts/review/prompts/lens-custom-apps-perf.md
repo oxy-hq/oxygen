@@ -1,6 +1,6 @@
 Focus: custom-app serving and data-plane performance
 
-Read first: `crates/app/.claude/skills/oxy-customer-apps-perf/SKILL.md` and `internal-docs/customer-apps-performance.md`.
+Read first: `crates/api-custom-apps/.claude/skills/oxy-customer-apps-perf/SKILL.md` and `internal-docs/customer-apps-performance.md`.
 
 Check:
 - A `/customer-apps/**` serving route without the right `Cache-Control`, or with

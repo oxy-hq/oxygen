@@ -77,7 +77,7 @@ const BANNED: &[Banned] = &[
 ];
 
 /// Files permitted to contain a banned shape, and why. Paths are relative to the workspace
-/// `crates/` root and so are crate-qualified (`app/src/…`) — the walk is workspace-wide (see
+/// `crates/` root and so are crate-qualified (`server/src/…`) — the walk is workspace-wide (see
 /// `authorization_does_not_scatter_outside_the_allowlist`) so authz code that moves into a
 /// sibling crate cannot slip past this test.
 ///
@@ -223,7 +223,7 @@ fn every_allowlist_entry_still_covers_a_banned_shape() {
 
 #[test]
 fn authorization_does_not_scatter_outside_the_allowlist() {
-    // Workspace-wide (not just oxy-app): authz enforcement is being pulled into sibling crates
+    // Workspace-wide (it began as oxy-app only): authz enforcement is being pulled into sibling crates
     // (a future `oxy-server-authz`), and a banned decision must be caught wherever it lands.
     let crates_root = crates_root();
     let mut files = Vec::new();
@@ -237,17 +237,17 @@ fn authorization_does_not_scatter_outside_the_allowlist() {
          broken, and a boundary test that silently scans nothing is worse than no test",
         files.len()
     );
-    // Prove the walk actually widened beyond oxy-app: if it silently collapsed back to one
-    // crate, extracted authz code would leave the test's reach unnoticed — the exact failure
-    // this widening exists to prevent.
-    assert!(
-        files.iter().any(|f| rel_of(f).starts_with("app/src/")),
-        "walk did not cover oxy-app"
-    );
-    assert!(
-        files.iter().any(|f| !rel_of(f).starts_with("app/src/")),
-        "walk covered only oxy-app — a sibling crate would escape the boundary test"
-    );
+    // Prove the walk is workspace-wide: if it silently collapsed to one crate, extracted
+    // authz code would leave the test's reach unnoticed — the exact failure this widening
+    // exists to prevent. It anchored on oxy-app's `app/src/` until decompose DEL deleted
+    // that crate (2026-11-25); now on the binary and the app-side authz crate, two crates
+    // the walk must reach separately.
+    for anchor in ["server/src/", "server-authz/src/"] {
+        assert!(
+            files.iter().any(|f| rel_of(f).starts_with(anchor)),
+            "walk did not cover crates/{anchor} — a sibling crate would escape the boundary test"
+        );
+    }
 
     let mut violations = Vec::new();
     for path in &files {

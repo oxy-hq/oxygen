@@ -3,8 +3,8 @@ name = "oxy-api-admin"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app: oxy-app never depends on it.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "The staff console's own surface: the cross-context staff machinery no tenant context owns, starting with the durable task fleet's operator console (/api/admin/internal-jobs) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -38,7 +38,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 # The staff-scope cases (moved from oxy-app's `platform` group with the
-# handlers, admin split PR 7) reuse oxy-app's per-test harness
+# handlers, admin split PR 7) reuse the shared per-test harness
 # (`#[path]`-included from crates/test-utils/harness), which clones a per-run
 # template database and needs every migrator `Schema::All` can apply — the
 # same list as oxy-api-identity — and the staff-scope fixture, included the

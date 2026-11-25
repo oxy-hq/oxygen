@@ -3,8 +3,8 @@ name = "oxy-api-tenancy"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog sits above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Tenancy HTTP surface — org onboarding (workspace create/demo/import, readiness, uploads) and the partner console — mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -56,7 +56,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # No oxy-app, not even here: the route-role tests moved up to oxy-server
 # (decompose TR).
 tower = { workspace = true, features = ["util"] }
-# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# The DB-backed integration tests reuse the shared harness (`#[path]`-included
 # from crates/test-utils/harness), which clones a per-run template database and
 # needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
 migration = { workspace = true }

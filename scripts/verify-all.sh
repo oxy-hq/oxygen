@@ -293,7 +293,7 @@ bold "4. Cloud-backed flows (oxy dev seed, then the admin surfaces)"
 # `.env` is dotenvx-shaped and not shell-sourceable; read single values out.
 OWNER=$(grep -E '^OXY_OWNER=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"'' || true)
 GLOBAL_ADMINS=$(grep -E '^OXY_GLOBAL_ADMINS=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"'' || true)
-# `oxy start`'s own container (crates/app/src/cli/commands/status.rs).
+# `oxy start`'s own container (crates/core/src/database/docker.rs).
 CLOUD_DB="${OXY_CLOUD_DATABASE_URL:-postgresql://postgres:postgres@localhost:15432/oxy}"
 if [ "$DRY" = 1 ]; then
   CLOUD_UP=1

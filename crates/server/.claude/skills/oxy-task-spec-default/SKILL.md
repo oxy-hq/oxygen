@@ -1,6 +1,6 @@
 ---
 name: oxy-task-spec-default
-description: Use when adding or modifying code in `crates/app/src/server/` or HTTP handlers that involves long-running compute, periodic schedules, multi-step pipelines, or any work that must survive instance death. Triggers include "spawn a background task", "schedule periodically", "run async after returning", "long-running operation", "fire and forget", "tokio::spawn", "background job", "queue this", or PRs that add new work to HTTP handlers. Also triggers when designing features that touch LLM APIs, git clones, embedding builds, or any operation taking >5 seconds.
+description: Use when adding or modifying code in `crates/server/src/` (the router, the drivers in `src/drivers/`), a `crates/api-*` surface, or any HTTP handler that involves long-running compute, periodic schedules, multi-step pipelines, or any work that must survive instance death. Triggers include "spawn a background task", "schedule periodically", "run async after returning", "long-running operation", "fire and forget", "tokio::spawn", "background job", "queue this", or PRs that add new work to HTTP handlers. Also triggers when designing features that touch LLM APIs, git clones, embedding builds, or any operation taking >5 seconds.
 ---
 
 # Default long-running work to TaskSpec on the worker fleet

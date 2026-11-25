@@ -2,7 +2,7 @@
 name = "oxy-feature-flags"
 version.workspace = true
 authors.workspace = true
-description = "The feature-flag runtime's domain half: the flag registry, targeting rules, evaluation, the flag table's store, the in-process cache and its refresh, exposures and rollout gates. Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The feature-flag runtime's domain half: the flag registry, targeting rules, evaluation, the flag table's store, the in-process cache and its refresh, exposures and rollout gates. Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

@@ -155,7 +155,7 @@ mod tests {
             Err("working copy not on disk")
         );
         // A real directory that isn't a workspace. Not CARGO_MANIFEST_DIR:
-        // `crates/app/config.yml` is a tracked fixture.
+        // `crates/app/config.yml` was a tracked fixture (until decompose DEL).
         let empty = tempfile::tempdir().expect("tempdir");
         assert_eq!(
             working_copy(Some(empty.path())),

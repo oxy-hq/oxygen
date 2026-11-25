@@ -22,7 +22,7 @@
 //!
 //! Text scans, not rendered gates (§7, answer 4): it needs neither the
 //! `custom-app-functions` feature nor a database, runs in
-//! `cargo nextest run -p oxy-app --lib` in every configuration, and a rename
+//! `cargo nextest run -p oxy-api-custom-apps --lib` in every configuration, and a rename
 //! of any scanned file is a compile error rather than a scan of nothing.
 
 use std::collections::BTreeSet;

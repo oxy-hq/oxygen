@@ -2,7 +2,7 @@
 name = "oxy-route-catalog"
 version.workspace = true
 authors.workspace = true
-description = "The generated HTTP route table `GET /api/_catalog` serves, and its types. Its build script reads oxy-app and every surface crate without depending on them, so editing a surface re-runs this build script instead of rebuilding oxy-app (internal-docs/domain-boundaries.md S7)"
+description = "The generated HTTP route table `GET /api/_catalog` serves, and its types. Its build script reads oxy-server and every surface crate without depending on them, so editing a surface re-runs this build script instead of rebuilding them (internal-docs/domain-boundaries.md S7)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

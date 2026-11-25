@@ -3,8 +3,8 @@ name = "oxy-api-workspace-health"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog sits above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Workspace health HTTP surface — the staff console's rollup, eval trigger and history routes, the health_eval_workspace task executor, and the live reconcile and smoke runners — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true

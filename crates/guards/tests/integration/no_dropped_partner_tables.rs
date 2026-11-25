@@ -31,7 +31,7 @@ const ALLOWED: [&str; 0] = [];
 
 #[test]
 fn no_source_references_a_dropped_partner_table() {
-    // Workspace-wide (not just oxy-app): code is being pulled out into sibling crates
+    // Workspace-wide (it began as oxy-app only): code is being pulled out into sibling crates
     // (`oxy-app-core`, and the per-surface crates to follow), and a query against a
     // dropped table must be caught wherever it lands. `CARGO_MANIFEST_DIR` is
     // `crates/guards`; its parent is the `crates/` root.
@@ -41,7 +41,10 @@ fn no_source_references_a_dropped_partner_table() {
         .to_path_buf();
     let mut offenders = Vec::new();
     let mut scanned = 0usize;
-    let mut reached_beyond_app = false;
+    // It anchored on reaching past oxy-app's `app/` until decompose DEL deleted
+    // that crate (2026-11-25); now on two crates the walk must reach separately.
+    let mut reached_server = false;
+    let mut reached_app_core = false;
 
     visit(&src, &mut |path, text| {
         let rel = path
@@ -51,8 +54,11 @@ fn no_source_references_a_dropped_partner_table() {
             .to_string()
             .replace('\\', "/");
         scanned += 1;
-        if !rel.starts_with("app/") {
-            reached_beyond_app = true;
+        if rel.starts_with("server/src/") {
+            reached_server = true;
+        }
+        if rel.starts_with("app-core/src/") {
+            reached_app_core = true;
         }
         if ALLOWED.contains(&rel.as_str()) {
             return;
@@ -66,7 +72,7 @@ fn no_source_references_a_dropped_partner_table() {
         }
     });
 
-    // A scan that silently walks nothing (or only oxy-app, after the walk root was
+    // A scan that silently walks nothing (or only one crate, after the walk root was
     // widened) reports a false green — worse than no test at all. 500 is a floor,
     // not a target: it only has to stay below the real count (~1450 today), so a
     // future split that moves crates out of this workspace lowers it rather than
@@ -77,8 +83,9 @@ fn no_source_references_a_dropped_partner_table() {
          is broken, and a boundary test that silently scans nothing is worse than no test"
     );
     assert!(
-        reached_beyond_app,
-        "walk covered only oxy-app — a sibling crate would escape this test"
+        reached_server && reached_app_core,
+        "walk did not cover both crates/server/src and crates/app-core/src — a sibling \
+         crate would escape this test"
     );
 
     assert!(

@@ -8,9 +8,11 @@
 > minute belongs in the code or a crate-local `CLAUDE.md`, not here.
 
 Oxy (brand: **Oxygen**) is a Rust workspace + web frontend. The `oxy` CLI/server
-binary lives in the `server` crate (`oxy-server`, the default workspace member) — a
-thin composition root that mounts API surfaces over the `app` crate (`oxy-app`), the
-CLI + HTTP-server library where almost all the code lives.
+binary lives in the `server` crate (`oxy-server`, the default workspace member): the
+CLI commands, the router assembly and the long-lived commands, mounting the API surfaces
+(`crates/api-*`) over the domain and runtime crates below them. (`oxy-app`, the library
+that once held almost all the code, was decomposed into those crates and deleted on
+2026-11-25: `internal-docs/domain-boundaries.md`, "End state: no `oxy-app`".)
 
 - **Rust** · **async** Tokio · **ORM** Sea-ORM (PostgreSQL) · **HTTP** Axum
 - **Frontend** Vite + React + TypeScript, **pnpm** (never npm/yarn)
@@ -20,19 +22,19 @@ CLI + HTTP-server library where almost all the code lives.
 ```
 crates/
   server/                   # (oxy-server) the `oxy` BINARY — composition root (main.rs + router
-                            #   assembly) that mounts the API surfaces, and the long-lived
-                            #   commands serve/start/worker. Default member.
-  app/                      # (oxy-app) CLI + HTTP server LIBRARY (the bulk of the code; lib-only)
+                            #   assembly) that mounts the API surfaces, the CLI commands, the
+                            #   background drivers, and the long-lived commands serve/start/worker.
+                            #   Default member.
   api-<context>/            # (oxy-api-*) HTTP surface crates oxy-server mounts — one bounded context
                             #   each (github, tenancy, documents, frontline, custom-apps, airway,
-                            #   experiment); oxy-app does NOT depend on them. Placement rules S1–S7 and the
+                            #   experiment); no surface depends on another. Placement rules S1–S7 and the
                             #   per-crate review: internal-docs/domain-boundaries.md
-  route-catalog/             # (oxy-route-catalog) generated GET /api/_catalog table; sits ABOVE oxy-app
-                            #   so a surface edit doesn't rebuild oxy-app. oxy-server hands it in
+  route-catalog/             # (oxy-route-catalog) generated GET /api/_catalog table; its build script
+                            #   reads the surfaces without depending on them. oxy-server hands it in
   app-core/                 # (oxy-app-core) What every surface needs, nothing a context owns:
                             #   request state, authz plumbing, audit, seams. Scoped (S9)
   tenancy/                  # (oxy-tenancy) Tenancy domain logic shared across contexts: org teams +
-                            #   app-access grants. Below oxy-app and the api-* surfaces; no routes
+                            #   app-access grants. Below oxy-server and the api-* surfaces; no routes
   core/                     # (oxy) Core platform library, published as "oxy"
   auth/                     # (oxy-auth) Authentication — who you are
   authz/                    # (oxy-authz) Authorization — what you may do. THE authority model
@@ -64,21 +66,21 @@ web-app/                    # Frontend (see web-app/CLAUDE.md)
 sdk/cli/                    # (@oxy-hq/cli) the `oxyc` CLI — the gh-api-style client for
                             #   the HTTP API, plus the customer-account tooling. TypeScript,
                             #   NOT Rust: it replaced `oxy api`, which was deleted from
-                            #   crates/app. See internal-docs/oxy-api-cli.md
+                            #   the Rust CLI. See internal-docs/oxy-api-cli.md
 sdk/cli/skills/             # THE Oxy platform skills — published to oxy-hq/skills and installed
                             #   by customers' agents. Update one in the PR that changes the
                             #   behaviour it describes. internal-docs/platform-skills.md
 ```
 
 Many crates carry their own `CLAUDE.md` — all `agentic/*`, `authz`, `cameras`,
-`integration/unifi`, `app-core`, plus the two largest (`core`, `app`). Read the local one first.
+`integration/unifi`, `app-core`, plus the largest (`core`). Read the local one first.
 
 ## Build & Test
 
 - **Never `--release`** locally or in CI checks — debug only.
 - **`cargo nextest run`**, never `cargo test`.
 - **Check every affected package.** A change usually lands in two: `cargo check -p oxy`
-  *and* `-p oxy-app`, or `--workspace`.
+  *and* `-p oxy-server` (or the `crates/api-*` surface you touched), or `--workspace`.
 - After CLI changes, exercise the binary: `cargo build && ./target/debug/oxy <command>`.
 - **After any dependency or feature change, run `just hakari`** (regenerates
   `crates/workspace-hack`). CI fails otherwise.
@@ -103,16 +105,14 @@ tests share one binary per crate. So scope down, always:
 
 | Verifying | Run |
 | --------- | --- |
-| Logic in `src/**` (the common case) | `just unit oxy-app` → `cargo nextest run -p oxy-app --lib` |
-| One crate end to end | `just test-crate oxy-app` |
+| Logic in `src/**` (the common case) | `just unit oxy-server` → `cargo nextest run -p oxy-server --lib` |
+| One crate end to end | `just test-crate oxy-server` |
 | A named area | `just test-filter 'test(authz)'` |
-| It still *compiles* | `cargo check --tests -p oxy-app`, or `just test-build` |
+| It still *compiles* | `cargo check --tests -p oxy-server`, or `just test-build` |
 | Everything | `just test` — CI's job, rarely yours |
 
-Integration tests live in **grouped** binaries, and this is workspace-wide, not an
-`oxy-app` quirk: `oxy-app` has its last one (`tests/platform/`; `tests/authz/` is an empty husk),
-and **every other crate with
-integration tests runs a single `tests/integration/` group**. The workspace-wide source
+Integration tests live in **grouped** binaries, and this is workspace-wide: **every crate
+with integration tests runs a single `tests/integration/` group**. The workspace-wide source
 and manifest guards are the test-only `oxy-guards` crate's (`crates/guards`). Add a new case as a `mod`
 inside the matching group — **a new top-level `tests/*.rs` adds a whole new link to every
 full run.** A module is not a target, so run one with
@@ -262,11 +262,11 @@ Every authorization decision goes through **`oxy-authz`** (`crates/authz`) — o
 
 - **Never decide access by hand.** No `matches!(role, Owner | Admin)` in a handler, no
   reading `OXY_OWNER` / the `app_admins` table. Take a `role_guards::*` extractor (there
-  are 9), or call `server::authz::enforce_guard(..)`. `crates/guards/tests/integration/authz_boundaries.rs`
+  are 9), or call `oxy_server_authz::enforce_guard(..)`. `crates/guards/tests/integration/authz_boundaries.rs`
   **fails the build** otherwise — its allowlist is a backlog, not an exemption list.
 - **Platform standing** (`is_owner` / `is_app_admin`) is read **only** by
-  `server::authz::globals`: one door for a decision, one for a flag to display.
-- **The crate owns the model; the app owns fact-loading** (`server::authz::loader`) —
+  `oxy_server_authz::globals`: one door for a decision, one for a flag to display.
+- **The crate owns the model; the app owns fact-loading** (`oxy_server_authz::loader`) —
   loading needs DB primitives, so it can't live in the crate. Keep `oxy-authz` on
   `uuid` + `tracing`: that's what lets the model be tested without a database.
 - **Decisions are `existing_allow && allows(..)`**, so the model can only ever *subtract*
@@ -295,7 +295,7 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 | Skill | Governs — invoke when… | Non-negotiable |
 | ----- | ---------------------- | -------------- |
 | `oxy-scaling-design` | multi-instance / worker fleet / lease table / `OXY_ROLE` / stateless serve | code-first is sacred; git is source of truth; task-claim ≠ workspace-ownership (two leases) |
-| `oxy-task-spec-default` ¹ | background work in `crates/app/src/server/` (`tokio::spawn`, periodic loops, LLM calls, clones >5s) | new long-running work is a `TaskSpec` in `agentic_task_queue`, **not** a spawn in an HTTP handler |
+| `oxy-task-spec-default` ² | background work in `crates/server/src/` or a `crates/api-*` handler (`tokio::spawn`, periodic loops, LLM calls, clones >5s) | new long-running work is a `TaskSpec` in `agentic_task_queue`, **not** a spawn in an HTTP handler |
 | `oxy-compile-boundary` | new `.foo.yml` file type, or any per-request read that walks the workspace FS | every workspace artifact is a `*_definitions` Postgres row keyed by `revision_id`, not an FS read |
 | `oxy-route-classification` ² | add/move a route under `crates/server/src/router/`, or a handler touching disk/`.git`/state dir | FS-touching routes MUST be `IdeOnly` in `role_manifest.rs`; persisted-data reads MUST stay `FleetOk` |
 | `oxy-customer-apps-perf` ¹ | add/move a `/customer-apps/**` route or custom-app data endpoint; any per-request read on that hot path | serving routes need Cache-Control + SSE-safe compression; result caches keyed `project_id`-first, read after auth gates, honor `?refresh` |
@@ -305,16 +305,20 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 
 PRs that violate the right-hand column should be challenged through the matching skill.
 
-¹ **Scoped to `crates/app/`** (`crates/app/.claude/skills/`): Claude Code loads a nested skill
-the first time it reads or edits a file under that directory, not at startup, so read the
-relevant `crates/app` file before reaching for it; it is invoked as `/crates/app:<name>`.
+¹ **Scoped to `crates/api-custom-apps/`** (`crates/api-custom-apps/.claude/skills/`): Claude
+Code loads a nested skill the first time it reads or edits a file under that directory, not at
+startup, so read a `crates/api-custom-apps` file (the `/customer-apps` serving routes live
+there) before reaching for it; it is invoked as `/crates/api-custom-apps:<name>`. It was
+`crates/app`'s until decompose DEL deleted that crate (2026-11-25).
 Area-only skills live next to their area this way (`web-app/.claude/skills/` too) so they cost
 no context elsewhere. The platform skills in `sdk/cli/skills/` are symlinked the same way into
 the crates that implement them — see `internal-docs/platform-skills.md`.
 
-² **Scoped to `crates/server/`** (`crates/server/.claude/skills/`), the same way: it moved there
-with the router assembly (decompose LIFT, 2026-11-23), so read a `crates/server` file first; it
-is invoked as `/crates/server:oxy-route-classification`.
+² **Scoped to `crates/server/`** (`crates/server/.claude/skills/`), the same way: read a
+`crates/server` file first; each is invoked as `/crates/server:<name>`.
+`oxy-route-classification` moved there with the router assembly (decompose LIFT, 2026-11-23),
+and `oxy-task-spec-default` from `crates/app` when decompose DEL deleted that crate
+(2026-11-25).
 
 ## Docs
 
@@ -359,7 +363,7 @@ ast-grep -p '<pat>' -l <lang> --json=compact | jq -r '.[] | "\(.file):\(.range.s
 ```
 
 A match is a whole AST node, so `tokio::spawn($$$)` returns every spawned block in
-full: 36 call sites in `crates/app/src/server/` = **258 KB** raw, vs 4.5 KB for
+full: 36 call sites in what was `crates/app/src/server/` = **258 KB** raw, vs 4.5 KB for
 `rg -n` and 2.5 KB filtered. Filtered it's the cheapest of the three; raw it's a
 context bomb. Same shape for `outline`: `world_model_graph/handlers.rs` is 117 KB,
 its outline 624 bytes.

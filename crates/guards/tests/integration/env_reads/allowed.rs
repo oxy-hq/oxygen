@@ -16,32 +16,32 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_AIRHOUSE_POOL_CONNS_PER_IDENTITY",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_DISABLED",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_IDLE_SECS",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_APP_IDENTITIES",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_IDENTITIES",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_POOL_MAX_PREVIEW_IDENTITIES",
         "crates/workspace-runtime/src/airhouse_pool.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AIRHOUSE_SNAPSHOT_WINDOW_HOURS",
@@ -51,7 +51,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_APNS_TOPIC",
         "crates/api-notifications/src/simulator_push.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_ADMINS",
@@ -66,17 +66,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_APP_EMAIL_FROM",
         "crates/app-core/src/emails/app_emailer.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_EMAIL_LOCAL_TEST",
         "crates/app-core/src/emails/app_emailer.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_EMAIL_REGION",
         "crates/app-core/src/emails/app_emailer.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_ENV_OLTP_BRANCHES_MAX",
@@ -111,27 +111,27 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_AUDIT_ANCHOR_INTERVAL_SECS",
         "crates/app-core/src/audit/anchor.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_KEY_PREFIX",
         "crates/app-core/src/audit/anchor.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_RETENTION_DAYS",
         "crates/app-core/src/audit/anchor.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_S3_BUCKET",
         "crates/app-core/src/audit/anchor.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUTH_ALLOW_LOCALHOST_RETURN",
         "crates/app-core/src/session/ops.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_BIN",
@@ -306,7 +306,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_COMPILE_MAINTENANCE_INTERVAL_SECS",
         "crates/compile-runtime/src/maintenance.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_COMPILE_REFUSE_FILE_CREDENTIALS",
@@ -326,12 +326,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_COMPILE_RETENTION_DAYS",
         "crates/compile-runtime/src/maintenance.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_COMPILE_STUCK_TIMEOUT_SECS",
         "crates/compile-runtime/src/maintenance.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_CUSTOMER_APPS_FETCH_MAX_BYTES",
@@ -521,7 +521,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_DEV_LOGIN_EMAILS",
         "crates/api-identity/src/sign_in/dev_login.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_DISABLE_INPROCESS_WORKERS",
@@ -546,12 +546,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_FCM_SERVICE_ACCOUNT_JSON",
         "crates/api-notifications/src/fcm.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_FEATURE_FLAG_REFRESH_MS",
         "crates/feature-flags/src/cache.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_FLEET_CLAIM_SALT",
@@ -606,7 +606,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_GLOBAL_ADMINS",
         "crates/api-identity/src/sign_in/dev_login.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_GLOBAL_ADMINS",
@@ -616,27 +616,27 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_HEALTH_FAIL_RATE_DEGRADED",
         "crates/workspace-health/src/evaluator.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_FAIL_RATE_UNHEALTHY",
         "crates/workspace-health/src/evaluator.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_MIN_RUNS",
         "crates/workspace-health/src/evaluator.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_REALERT_HOURS",
         "crates/workspace-health/src/alert.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_WINDOW_HOURS",
         "crates/workspace-health/src/evaluator.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_IDE_DEFER_AIRWAY",
@@ -691,17 +691,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_MAX_INFLIGHT_PER_WORKSPACE",
         "crates/server/src/admission.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_MAX_INFLIGHT_REQUESTS",
         "crates/server/src/admission.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_METRICS_PORT",
         "crates/server/src/metrics_server.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_MIN_EDGE_PROTOCOL_VERSION",
@@ -716,7 +716,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_OAUTH_REDIRECT_ORIGIN",
         "crates/api-identity/src/sign_in/ops.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_OBSERVABILITY_BACKEND",
@@ -726,7 +726,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_OBSERVABILITY_BACKEND",
         "crates/server/src/observability_boot.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_OBSERVABILITY_BACKEND",
@@ -791,12 +791,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_OPS_SLACK_BOT_TOKEN",
         "crates/workspace-health/src/eval_pass.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_OPS_SLACK_CHANNEL",
         "crates/workspace-health/src/eval_pass.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_OTEL_FILTER",
@@ -816,32 +816,32 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_PREVIEW_DIFF_MAX_ROWS",
         "crates/api-previews/src/compare/table.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_MAINTENANCE_INTERVAL_SECS",
         "crates/api-previews/src/maintenance.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_RUNS",
         "crates/previews/src/queue/run.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_RUN_MAX_MINUTES",
         "crates/previews/src/queue/ceiling.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_SAMPLE_MAX_SECS",
         "crates/api-previews/src/sample.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_SCHEMA_TTL_HOURS",
         "crates/previews/src/registry/mod.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_SQL_CORPUS",
@@ -856,17 +856,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_RECONCILE_PCT_UNHEALTHY",
         "crates/api-workspace-health/src/reconcile_runner.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_RECONCILE_REPORT_TIMEOUT_SECS",
         "crates/api-workspace-health/src/reconcile_runner.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_REQUEST_TIMEOUT_SECS",
         "crates/server/src/router/middlewares/timeout.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_ROLE",
@@ -901,12 +901,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_SESSION_COOKIE_DOMAIN",
         "crates/app-core/src/session/ops.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SESSION_COOKIE_FORCE_SECURE",
         "crates/app-core/src/session/ops.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SKIP_MIGRATIONS",
@@ -916,22 +916,22 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_SMOKE_AGENT_TIMEOUT_SECS",
         "crates/workspace-health/src/smoke/config.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_CONCURRENCY",
         "crates/workspace-health/src/smoke/config.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_PROBE_TIMEOUT_SECS",
         "crates/workspace-health/src/smoke/config.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_TOTAL_TIMEOUT_SECS",
         "crates/workspace-health/src/smoke/config.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SOURCE_UPLOAD_ZONE",
@@ -991,7 +991,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_TOAST_BASE_URL",
         "crates/workspace-health/src/reconcile/toast/mod.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_UPDATE_GOLDEN",
@@ -1001,17 +1001,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_VAPID_PRIVATE_KEY",
         "crates/api-notifications/src/web_push.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_VAPID_PUBLIC_KEY",
         "crates/api-notifications/src/web_push.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_VAPID_SUBJECT",
         "crates/api-notifications/src/web_push.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_WORKER_HEALTH_PORT",
@@ -1026,7 +1026,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_WORKER_MAX_INFLIGHT",
         "crates/server/src/worker_metrics.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
+        "read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_WORKER_RECOVERY_INTERVAL_SECS",

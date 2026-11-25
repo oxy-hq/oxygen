@@ -48,7 +48,6 @@ mod fallback_secrets;
 mod held_log;
 mod notify_op;
 mod oltp_guard;
-mod oltp_home;
 mod oltp_ops;
 mod oltp_sign;
 mod outbox;
@@ -62,8 +61,8 @@ mod uploads;
 mod warehouse_home;
 
 pub use super::audience::{Audience, app_audience};
+pub use super::env_policy::oltp_connection::writer_connection;
 use super::env_policy::{Capability, EnvPolicy, HeldTarget, HostOp};
-pub use oltp_home::writer_connection;
 
 // Visible to the rest of custom_apps_functions so the preflight judges live
 // manifests with the host's own write rule, not a copy of it.

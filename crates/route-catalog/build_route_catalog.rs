@@ -731,7 +731,7 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-automations/src`, `crates/api-workspace-config/src`,
 /// `crates/api-threads/src`, `crates/api-workspaces/src`,
 /// `crates/api-semantic/src` and `crates/api-eval/src`, none of
-/// which `oxy-app` depends on (`oxy-server` mounts them as siblings). Editing
+/// which `oxy-app` depended on (`oxy-server` mounts them as siblings). Editing
 /// one re-runs this build script, ~2 s in series before `oxy-server`'s lib.
 /// It is the price of listing their routes at all: not watching them means
 /// `oxyc routes` omits or stale-lists those surfaces, the exact failure this
@@ -745,8 +745,8 @@ const SEEDS: &[Seed] = &[
 /// fails if a handler doc lives in an oxy-server file outside these dirs.
 pub const DOC_DIRS: &[&str] = &[
     // `oxy-server`: the handlers `core_routes` and the router mount (`healthcheck`,
-    // `local_setup`); first, in the slot of `crates/app/src` (no handler doc left;
-    // dropped in decompose Z0, and `tests::doc_dirs_watched` pins that it changed no route).
+    // `local_setup`); first, in the slot of `crates/app/src` (dropped in Z0, deleted
+    // in DEL; `tests::doc_dirs_watched` pins that neither list names it again).
     "crates/server/src/core_routes",
     "crates/server/src/router",
     "crates/agentic/http/src",
@@ -781,8 +781,8 @@ pub const DOC_DIRS: &[&str] = &[
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
     // `resolver`, `migration`, …) into the `FnDoc` pool. Free to watch —
-    // `oxy-app` already depends on this crate, so editing it recompiles
-    // `oxy-app` regardless and the marginal cost is one build-script re-run.
+    // `oxy-server` already depends on this crate, so editing it recompiles
+    // `oxy-server` regardless and the marginal cost is one build-script re-run.
     "crates/oltp/src/api",
 ];
 
@@ -833,7 +833,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the
     // catalog, which is exactly what this list exists to prevent. Free to
-    // watch: `oxy-app` already depends on `oxy-oltp`, so it costs no rebuild
+    // watch: `oxy-server` already depends on `oxy-oltp`, so it costs no rebuild
     // the way the sibling API crates do.
     "crates/oltp/src/api",
 ];
@@ -1305,7 +1305,7 @@ fn module_segments(
             continue;
         }
         if !after_src {
-            // Crate directory. `crates/app` builds `oxy-app`, `crates/agentic/http`
+            // Crate directory. `crates/server` builds `oxy-server`, `crates/agentic/http`
             // builds `agentic-http` — the on-disk layout does not carry the
             // package name, so reconstruct it from the path segments.
             continue;
@@ -1331,8 +1331,8 @@ fn module_segments(
 
 /// `crates/<dir…> -> package ident`, read from each crate's `Cargo.toml`.
 ///
-/// The on-disk layout does not carry the package name (`crates/app` builds
-/// `oxy-app`, `crates/agentic/http` builds `agentic-http`), and a hand-written
+/// The on-disk layout does not carry the package name (`crates/server` builds
+/// `oxy-server`, `crates/agentic/http` builds `agentic-http`), and a hand-written
 /// mapping is one more list to forget when a crate is added — which is exactly
 /// how a new API crate goes missing from the catalog without a word.
 fn crate_idents(repo_root: &Path) -> HashMap<PathBuf, String> {

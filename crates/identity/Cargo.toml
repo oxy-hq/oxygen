@@ -2,7 +2,7 @@
 name = "oxy-identity"
 version.workspace = true
 authors.workspace = true
-description = "Identity domain logic shared across bounded contexts (the personal-token lifecycle audit, user display labels). Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
+description = "Identity domain logic shared across bounded contexts (the personal-token lifecycle audit, user display labels). Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

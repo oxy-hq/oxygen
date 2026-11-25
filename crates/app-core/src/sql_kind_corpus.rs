@@ -6,7 +6,7 @@
 //!
 //! ```sh
 //! OXY_PREVIEW_SQL_CORPUS=/path/to/pokehouse-oxy \
-//!   cargo nextest run -p oxy-app --lib --run-ignored only -E 'test(sql_kind::corpus)'
+//!   cargo nextest run -p oxy-app-core --lib --run-ignored only -E 'test(sql_kind::corpus)'
 //! ```
 //!
 //! It reads every `execute_sql` step under `oxy/**/*.{procedure,automation}.yml`

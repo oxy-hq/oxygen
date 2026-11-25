@@ -53,12 +53,12 @@ const FLEET_OK_DESPITE_EXTRACTOR: &[(&str, &str)] = &[
 /// its files are keyed under. Before decompose LIFT (2026-11-23) this was
 /// `oxy-app`'s `src/server/api` alone; the router took its own handler files up
 /// into `oxy-server` with it (`router/local_setup.rs` and the router-only
-/// middlewares, `admin/mod.rs`), so those directories are walked beside what is
-/// left of `oxy-app`'s.
+/// middlewares, `admin/mod.rs`), so those directories were walked beside what
+/// was left of `oxy-app`'s, until decompose DEL deleted that crate
+/// (2026-11-25) with no handler left in it.
 fn api_roots() -> Vec<(&'static str, PathBuf)> {
     let server = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     vec![
-        ("", server.join("../app/src/server/api")),
         ("router/", server.join("src/router")),
         ("admin/", server.join("src/admin")),
     ]

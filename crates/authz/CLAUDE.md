@@ -22,9 +22,10 @@ Authentication (who you are) is `oxy-auth`. This is authorization (what you may 
 | | Lives in | Says |
 | --- | --- | --- |
 | **The model** | `oxy-authz` (this crate) | what a principal is *entitled to* |
-| **The facts** | `oxy-app` (`server::authz::loader`) | what is *true of* the principal |
+| **The facts** | `oxy-server-authz` (`loader`) | what is *true of* the principal |
 
-The loader stays in `oxy-app` because it reaches app primitives — org membership, partner
+The loader stays in `oxy-server-authz` (`oxy-app`'s `server::authz` until it was extracted)
+because it reaches app primitives — org membership, partner
 standings, the `app_admins` table. This crate depends on `uuid` + `tracing` and nothing
 else, which is what lets the whole model be tested without a database.
 
@@ -105,7 +106,7 @@ real gate is a *real* owner/admin with the override rejected).
 | `require(facts, action, resource)` | `allows(..)` | No legacy check exists (a new surface), or its legacy term was retired. |
 | `authorize(..)` | `allows(..)`, legacy observed only | **Currently unwired, deliberately.** Drops the fail-safe. |
 
-From `oxy-app`, prefer the wrappers in `server::authz`: `enforce_guard` (in a guard,
+From the app side, prefer the wrappers in `oxy-server-authz`: `enforce_guard` (in a guard,
 memoized facts), `enforce_for` (a call site holding a DB handle + identity),
 `partner_allows` (the partner tier).
 
@@ -128,7 +129,7 @@ existing check, use `require` and say so.
    it lands in the `authz` tracing output.
 3. Map it to a `Ring` in `ring()`. Skipping this fails the build; that exhaustiveness is
    the point of the enum.
-4. Add a case to `server::authz::differential` asserting the ring matches the shipped
+4. Add a case to `oxy_server_authz::differential` asserting the ring matches the shipped
    check across every caller shape. Reuse an existing ring rather than inventing one —
    two rings that mean the same thing is how drift restarts.
 5. Write its arm in `sandbox_agent::covers`, which will not compile without one. That
@@ -164,7 +165,7 @@ legacy oracle, which is what caught every real bug.
 | Suite | Proves |
 | --- | --- |
 | `crates/authz` unit tests (41) | the model's own arithmetic |
-| `server::authz::differential` | the ring agrees with the shipped guard across the caller-shape space |
+| `oxy_server_authz::differential` | the ring agrees with the shipped guard across the caller-shape space |
 | `crates/workspace-runtime/tests/integration/authz_loader_differential.rs` | the **real loader** against seeded rows (needs `OXY_DATABASE_URL`; skips without) |
 | `crates/guards/tests/integration/authz_boundaries.rs` | nothing outside the allowlist decides access by hand |
 

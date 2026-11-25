@@ -51,7 +51,7 @@ assets/
 sdk/
 # ...but the build needs two things out of it, and finding that out took two
 # failed builds: the pnpm workspace manifests, and the three custom-app
-# templates `crates/app/src/custom_app_template/registry.rs` embeds with
+# templates `crates/api-custom-apps/src/custom_app_template/registry.rs` embeds with
 # `include_dir!`. Excluding either fails the build, which is how you learn no
 # workflow has ever built this image.
 !sdk/*/package.json
@@ -63,7 +63,6 @@ sdk/
 
 
 # tests
-crates/app/tests/
 crates/guards/tests/
 crates/core/tests/
 crates/semantic/tests/

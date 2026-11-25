@@ -86,7 +86,8 @@ path = "junit.xml"
 #     files another asserted on. Since 2026-11-21 they render in memory (`oxyc
 #     sync` does the writing) and no longer need the group for that.
 #
-# `db-per-test` — the `oxy-app` integration binaries that touch Postgres. These
+# `db-per-test` — the integration groups that touch Postgres through the shared
+# harness (oxy-app's binaries first, until decompose DEL deleted it). These
 # do NOT share a schema: `crates/test-utils/harness/mod.rs` gives every test its own database,
 # cloned from a per-run template, and serializes the only genuinely shared step
 # (building/cloning that template) behind a Postgres advisory lock rather than
@@ -126,14 +127,16 @@ filter = "kind(test) & package(=oxy-cameras)"
 test-group = "db-per-test"
 retries = 2
 
-# `oxy-app`'s integration tests are grouped into one binary per domain
-# (`tests/<domain>/main.rs`). The tests matched here reach Postgres through
-# `crates/test-utils/harness/mod.rs`, so each owns its database and they contend for the
-# server rather than for a schema.
-#
-# The grouping is per binary, coarser than the evidence strictly supports — a
-# few tests' worth of parallelism, and it buys a rule that stays true when
-# someone adds a harness-backed test to one of those files.
+# Each crate's integration tests are one grouped binary (`tests/integration/`).
+# The tests matched by the `db-per-test` overrides below reach Postgres through
+# `crates/test-utils/harness/mod.rs`, so each owns its database and they contend
+# for the server rather than for a schema. The grouping is per binary, coarser
+# than the evidence strictly supports — a few tests' worth of parallelism, and
+# it buys a rule that stays true when someone adds a harness-backed test to one
+# of those files. (`oxy-app`'s `platform` binary had the first such override;
+# R-b..R-d moved its modules to
+# `oxy-workspace-runtime`, and decompose DEL deleted the crate and the override,
+# 2026-11-25.)
 #
 # `oxy-guards` (the workspace-wide source and manifest scans, out of oxy-app's
 # `authz`, `platform` and `routing` binaries in decompose GRD, which emptied
@@ -142,17 +145,13 @@ retries = 2
 # parallelism. Its `shared_db_registry` scans its own group along with the rest
 # and fails the build the day that stops being true.
 #
-# (The exclusion this override carried, `local_mode_router`, went up into
+# (The exclusion oxy-app's override carried, `local_mode_router`, went up into
 # `oxy-server`'s integration group with the router in decompose LIFT,
 # 2026-11-23, and its exclusion and `serial-db` pin with it: see the
 # `oxy-server` overrides below.)
-[[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & binary(=platform)"
-test-group = "db-per-test"
-retries = 2
 
 # `oxy-workspace-runtime`'s integration group (decompose R, 2026-11-24): the
-# database-backed tests that leave oxy-app, on the same harness, so the same
+# database-backed tests that left oxy-app, on the same harness, so the same
 # per-binary rule. The `airhouse` binary came first (R-a); `platform` follows
 # in R-b..R-d, and R-d brought the `authz` binary's two modules too.
 #
@@ -253,7 +252,7 @@ test-group = "db-per-test"
 retries = 2
 
 # `oxy-api-airway`'s integration group: the lease routes' tests (2026-11-21, when
-# `oxy airway leases | release-lease` became routes) take oxy-app's harness
+# `oxy airway leases | release-lease` became routes) take the shared harness
 # (`common::test_db_with`, their own database per test); the admin-mount and
 # route-role modules beside them open no database at all.
 [[profile.default.overrides]]
@@ -273,7 +272,7 @@ retries = 2
 
 # `oxy-api-workspaces`' integration group: `workspace_list`, rehomed from
 # `oxy-api-tenancy`'s `org_default_workspace` with `list_workspaces`
-# (2026-11-16) — oxy-app's harness (`common::test_db`, its own database per
+# (2026-11-16) — the shared harness (`common::test_db`, its own database per
 # test), same group. `meta_canary` and `workspace_details_fields` (from
 # oxy-app's `routing` and `platform` binaries) open no database and stay
 # ungrouped, as they were there.
@@ -284,7 +283,7 @@ retries = 2
 
 # `oxy-api-workspace-config`'s integration group: the tenant secrets tests,
 # rehomed from `oxy-api-custom-apps` with the secrets handlers (2026-11-15) —
-# oxy-app's harness, same group.
+# the shared harness, same group.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-workspace-config) & binary(=integration)"
 test-group = "db-per-test"
@@ -292,7 +291,7 @@ retries = 2
 
 # `oxy-api-observability`'s integration group: `admin_staff_scope_llm_usage`,
 # which moved out of oxy-app's `platform` binary with Admin → Metrics (admin
-# split, PR 1) — oxy-app's harness (`common::test_db_with`, its own database per
+# split, PR 1) — the shared harness (`common::test_db_with`, its own database per
 # test), same group.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-observability) & binary(=integration)"
@@ -318,7 +317,7 @@ retries = 2
 
 # `oxy-server`'s integration binary: the API-token suite (`token_auth`), which
 # drives the served flat tree and owns a database cloned from the per-run
-# template (`common::test_db`, `oxy-app`'s harness by path), so it contends for
+# template (`common::test_db`, the shared harness by path), so it contends for
 # the server, not a schema. `route_roles` (the surfaces' route-role tests, moved
 # up from five surface crates in decompose TR) opens no database, so it is
 # carved out as it was in each surface's override: full parallelism, no retries.
@@ -392,7 +391,7 @@ retries = 2
 
 # `oxy-api-identity`'s integration group: the user directory's staff-scope
 # cases, which moved out of oxy-app's `platform` binary with the handlers
-# (admin split, PR 5), use oxy-app's harness by path (`common::test_db_with`,
+# (admin split, PR 5), use the shared harness by path (`common::test_db_with`,
 # own database each), so they contend for the server, not a schema. The
 # exception is `admin_membership_audit` (from oxy-app's `authz` binary): it
 # calls `establish_connection()` on the shared database, so it is pinned
@@ -404,20 +403,21 @@ retries = 2
 
 # `oxy-api-github`'s integration group: the installation-ownership tests drive
 # the real GitHub routes against a database cloned from the per-run template
-# (`common::test_db`, `oxy-app`'s harness by path), so they contend for the
+# (`common::test_db`, the shared harness by path), so they contend for the
 # server, not a schema.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-github) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 
-# The `authz` and `platform` binaries are mixed, and the difference is
+# Some integration groups are mixed (oxy-app's `authz` and `platform` binaries
+# were the first), and the difference is
 # not cosmetic: these modules do NOT use `crates/test-utils/harness/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read
 # and write the same `public` schema as the `serial-db` members above — which run
 # `Migrator::up` on it. Running them in parallel is the `CREATE TABLE` /
 # `pg_type_typname_nsp_index` race described at the top of this section, and
-# serializing `oxy` against itself doesn't help if oxy-app's tests are
+# serializing `oxy` against itself doesn't help if another package's tests are
 # querying those tables mid-DDL.
 #
 # Two routes in:

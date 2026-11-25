@@ -1,17 +1,17 @@
 # `oxy` — Core Platform Library (`crates/core`)
 
 The published core library (crate name **`oxy`**, path `crates/core`, ~39k LOC). It is the
-shared platform layer that the `oxy-app` binary and most other crates build on:
+shared platform layer that the `oxy` binary (`oxy-server`) and most other crates build on:
 config/project modeling, warehouse connectors, the execution engine, the semantic loader,
 templating, and cross-cutting services (secrets, DB pool, observability). It is a **library
-only** — no CLI, no Axum server (those live in `oxy-app`).
+only** — no CLI, no Axum server (those live in `oxy-server` and the `api-*` surfaces).
 
 ## Layering
 
 `oxy` sits below the transport/agentic layers and above `oxy-shared`:
 
 ```
-oxy-app (CLI + server)  ┐
+oxy-server, api-*      ┐
 agentic-pipeline/http   ┤── may import →  oxy  ── imports →  oxy-shared, entity, external
 other domain crates     ┘
 ```
@@ -54,4 +54,4 @@ other domain crates     ┘
   files are legacy exceptions, not a license to add more). New surface → new module.
 - Warehouse code paths must respect the DuckDB pool's serialized init (concurrent open →
   SIGSEGV) and each connector must short-circuit its empty-result shape.
-- Run `cargo check -p oxy` after edits; the app library is `cargo check -p oxy-app` and the `oxy` binary is `cargo check -p oxy-server`.
+- Run `cargo check -p oxy` after edits; the `oxy` binary (CLI and server) is `cargo check -p oxy-server`.

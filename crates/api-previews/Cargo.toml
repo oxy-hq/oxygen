@@ -2,7 +2,7 @@
 name = "oxy-api-previews"
 version.workspace = true
 authors.workspace = true
-# Editing this crate does NOT rebuild oxy-app: oxy-app never depends on it.
+# Editing this crate rebuilds only oxy-server, which mounts it.
 description = "Workspace previews' surface (staff open a branch on the real product): the /{workspace_id}/previews routes, the change check, compares, Airway samples, schema drops, the run sweep and maintenance — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true

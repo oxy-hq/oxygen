@@ -24,7 +24,7 @@ use sea_orm_migration::sea_orm::{ConnectionTrait, Statement};
 /// milliseconds; and the check and the build then see the same rows.
 ///
 /// **Rollback-safe as phase 2** of #4050: declared in
-/// `crates/app/tests/platform/migration_rollback_safety.rs`. The previous deploy
+/// `crates/workspace-runtime/tests/integration/migration_rollback_safety.rs`. The previous deploy
 /// writes a second workspace in an org only through staff `transfer-org`, which
 /// this index then refuses, as intended.
 #[derive(DeriveMigrationName)]

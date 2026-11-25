@@ -70,15 +70,14 @@ fn server_files() -> Vec<(String, String)> {
             }
         }
     }
-    let manifest = crate::app_root();
+    let manifest = crate::guards_root();
     let mut out = Vec::new();
-    walk(&crate::app_dir("src/server"), &manifest, &mut out);
-    // Request paths that live outside `src/server`: the agent-run host
-    // (`src/agentic_wiring`). `src/integrations` was walked here too (Slack
-    // once ran an agent from a working-copy path on fleet pods) until its
-    // last code, the OAuth connects, left for `oxy-api-workspace-config` on
-    // 2026-11-21; that crate is walked below.
-    walk(&crate::app_dir("src/agentic_wiring"), &manifest, &mut out);
+    // oxy-app's `src/server` and `src/agentic_wiring` were walked first until
+    // decompose DEL deleted the crate (2026-11-25). The agent-run host they
+    // held is `oxy-workspace-runtime`'s, walked below. `src/integrations` was
+    // walked too (Slack once ran an agent from a working-copy path on fleet
+    // pods) until its last code, the OAuth connects, left for
+    // `oxy-api-workspace-config` on 2026-11-21; that crate is walked below.
     // Extracted from `src/server/api/documents`; still a request path of this
     // server, so still in scope. Labelled `../api-documents/src/…`.
     walk(&manifest.join("../api-documents/src"), &manifest, &mut out);

@@ -169,8 +169,8 @@ fmt-check:
 # runs. Unit tests all share ONE binary per crate, which is why `unit` is an
 # order of magnitude cheaper than anything that builds `tests/`.
 #
-#   just unit oxy-app     <- default inner loop; ~1.3k tests, one link
-#   just test-crate oxy-app
+#   just unit oxy-server  <- default inner loop; one link
+#   just test-crate oxy-server
 #   just test             <- whole workspace; CI does this, you rarely need to
 
 # Run all tests with nextest (whole workspace — slow; prefer `unit` / `test-crate`)
@@ -179,11 +179,11 @@ test:
 
 # Unit tests only (`src/**` `#[cfg(test)]`) for one crate — ONE binary, one link.
 # This is the right verification loop for almost every change.
-unit crate="oxy-app":
+unit crate="oxy-server":
     {{lease}} cargo nextest run -p {{crate}} --lib
 
 # Every test for one crate, unit + integration binaries.
-test-crate crate="oxy-app":
+test-crate crate="oxy-server":
     {{lease}} cargo nextest run -p {{crate}}
 
 # Run tests matching a nextest filterset, e.g.

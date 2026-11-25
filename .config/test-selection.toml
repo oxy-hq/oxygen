@@ -9,7 +9,7 @@
 # so forgetting a rule costs a full run, never a skipped test.
 #
 # What the graph cannot see goes here. When a test starts reading a file outside
-# its own crate (`include_str!("../../other/…")`, `#[path = "../../app/…"]`, a
+# its own crate (`include_str!("../../other/…")`, `#[path = "../../test-utils/…"]`, a
 # walk from CARGO_MANIFEST_DIR's parent), add the rule in the same PR. A test
 # that is missed here still runs on `main`, so the failure lands one merge late
 # rather than never.
@@ -19,8 +19,7 @@
 # affected. Tested whenever anything is.
 always-test = [
   "entity",                  # typed_column_guard walks crates/; schema_guard reads crates/migration
-  "oxy-app",                 # no scans left (rollout_gates went in R-b, data_placement in R-d); DEL drops it
-  "oxy-workspace-runtime",   # data_placement and migration_rollback_safety walk every migrator; rollout_gates reads crates/server/src
+  "oxy-workspace-runtime",   # data_placement and migration_rollback_safety walk every migrator; rollout_gates and airhouse_duckdb read crates/server/src
   "oxy-guards",              # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …: it depends on nothing it scans
   "oxy-app-core",            # audit::call_sites_guard walks crates/
   "oxy-custom-apps",         # usage_reads walks crates/
@@ -37,7 +36,7 @@ always-test = [
 # next rule's readers).
 [[determinator.path-rule]]
 globs = ["crates/server/src/main.rs", "crates/server/src/lib.rs"]
-mark-changed = ["oxy-app", "oxy-guards", "oxy-api-custom-apps", "oxy-route-catalog"]
+mark-changed = ["oxy-guards", "oxy-api-custom-apps", "oxy-route-catalog", "oxy-workspace-runtime"]
 post-rule = "skip-rules"
 
 # api-custom-apps and route-catalog tests scan crates/server/src, and
@@ -46,31 +45,21 @@ post-rule = "skip-rules"
 # read it too (`app_scope_boundary` reads `admin/mod.rs`; `handler_spawns`,
 # `sentry_hub_scan` and the workspace-path scans walk `router/` and `admin/`),
 # oxy-workspace-runtime's `rollout_gates` reads `commands/{serve,worker}.rs` and
-# `cli/commands/compile.rs` (up from oxy-app in decompose CLI), and its
+# `cli/commands/compile.rs` (up from oxy-app in decompose CLI), its
 # `workspace_context_tests` include_str!s
-# `router/middlewares/local_context.rs`.
+# `router/middlewares/local_context.rs`, and its `airhouse_duckdb` scan walks
+# the whole of `crates/server/src` (since decompose DEL).
 [[determinator.path-rule]]
 globs = ["crates/server/src/**"]
-mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog", "oxy-app", "oxy-guards", "oxy-workspace-runtime"]
+mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog", "oxy-guards", "oxy-workspace-runtime"]
 post-rule = "skip-rules"
 
 # oxy-route-catalog's build script reads every api-* crate's routes (it depends
-# normally only on oxy-app-core, so nothing else marks it).
+# normally only on oxy-app-core, so nothing else marks it), and
+# oxy-workspace-runtime's `airhouse_duckdb` scan walks every api-* crate's `src`
+# (since decompose DEL; it depends on none of them).
 [[determinator.path-rule]]
 globs = ["crates/api-*/src/**"]
-mark-changed = ["oxy-route-catalog"]
-post-rule = "skip-rules"
-
-# ...and oxy-app's sources (`DOC_DIRS`), which it reads with no dependency at
-# all: none since decompose RC, and no dev-dependency since decompose RT (its
-# router-building tests went up to oxy-server). The router itself, the
-# `SOURCE_DIRS` entry this rule was for, is `crates/server/src/router` since
-# decompose LIFT (the rule above). oxy-workspace-runtime stays marked for
-# `airhouse_duckdb`'s in-source scan, which walks `crates/app/src`; its
-# `rollout_gates` read of `cli/commands/compile.rs` left with the CLI (decompose
-# CLI) and is covered by the `crates/server/src/**` rule above.
-[[determinator.path-rule]]
-globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog", "oxy-workspace-runtime"]
 post-rule = "skip-rules"
 
@@ -81,7 +70,6 @@ post-rule = "skip-rules"
 [[determinator.path-rule]]
 globs = ["crates/test-utils/harness/**"]
 mark-changed = [
-  "oxy-app",
   "oxy-server",
   "oxy-api-admin",
   "oxy-api-airway",
@@ -124,17 +112,17 @@ globs = ["sdk/**"]
 mark-changed = ["oxy-api-custom-apps"]
 
 # web-app is the `oxy-web` package (changelog only), but its built dist/ is
-# embedded into oxy-app by include_dir!, so a frontend change reaches every test
-# binary that links oxy-app.
+# embedded into oxy-server by include_dir! (`static_assets`), so a frontend
+# change reaches every test binary that links oxy-server.
 [[determinator.path-rule]]
 globs = ["web-app/**"]
-mark-changed = ["oxy-app"]
+mark-changed = ["oxy-server"]
 post-rule = "skip-rules"
 
 # The demo workspace is compiled into oxy-project through a symlink the graph
 # cannot see: crates/project/demo_project (the workspace creator's
 # include_dir!). Without this rule a demo edit selected the whole workspace
-# (PR #3824); with it, oxy-project and its dependents (oxy-app among them).
+# (PR #3824); with it, oxy-project and its dependents (oxy-server among them).
 [[determinator.path-rule]]
 globs = ["demo_project/**"]
 mark-changed = ["oxy-project"]
@@ -159,10 +147,10 @@ globs = [
 ]
 mark-changed = "all"
 
-# oxy-app's fleet_routes_table reads it.
+# oxy-server's fleet_routes_table reads it.
 [[determinator.path-rule]]
 globs = ["scripts/fleet-routes.tsv"]
-mark-changed = ["oxy-app"]
+mark-changed = ["oxy-server"]
 
 # Read by no Rust test: other scripts and workflows, agent guidance, docs.
 [[determinator.path-rule]]

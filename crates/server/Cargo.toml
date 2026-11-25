@@ -39,16 +39,14 @@ custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 # The seed itself (`src/dev/seed`, up from oxy-app in decompose SD) is this
 # crate's, and the dependencies only it uses come with the feature. The dev
 # `compile` (`src/cli/commands/dev.rs`) is gated on it too, since decompose CLI
-# brought it up from oxy-app (whose own `dev-tools` this used to forward to).
+# brought it up from oxy-app (deleted in decompose DEL).
 dev-tools = [
     "dep:oxy-authz",
 ]
 
 [dependencies]
-# oxy-app is the library this binary drives; default-features off so the feature
-# forwarding above is the single switch for the V8 runtime. Not a workspace dep
-# (only this crate consumes it), so it is a direct path dependency.
-oxy-app = { path = "../app", default-features = false }
+# (`oxy-app`, the library this binary drove, was deleted in decompose DEL,
+# 2026-11-25: every piece of it lives in this crate or a crate below it.)
 oxy-api-admin = { path = "../api-admin" }
 oxy-api-billing = { path = "../api-billing" }
 oxy-api-github = { path = "../api-github" }
@@ -190,8 +188,8 @@ chrono = { workspace = true }
 # against what sentry-tracing actually does rather than against a reading of it.
 sentry = { workspace = true, features = ["test"] }
 # The API-token suite (`tests/integration/token_auth`) drives the served flat
-# tree, oxy-app's routes and the surfaces' together, which only this crate can
-# compose. It reuses oxy-app's harness (`#[path]`-included from
+# tree, this crate's routes and the surfaces' together, which only this crate can
+# compose. It reuses the shared harness (`#[path]`-included from
 # crates/test-utils/harness), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
 oxy-authz = { workspace = true }

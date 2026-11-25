@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`). Below oxy-app, above oxy-compile, oxy-app-core, oxy-preagg and oxy-previews; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`). Below oxy-server, above oxy-compile, oxy-app-core, oxy-preagg and oxy-previews; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

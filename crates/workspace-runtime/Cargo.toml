@@ -2,7 +2,7 @@
 name = "oxy-workspace-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The workspace runtime: what builds and runs an OxyProjectContext, below oxy-app and above oxy-app-core. Started with the leaves (the Airhouse connection pool, ctx.airhouse, typed-stream sinks, the runtime-artifact S3 mirror); the rest of oxy-app's agentic_wiring follows (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The workspace runtime: what builds and runs an OxyProjectContext, below oxy-server and above oxy-app-core. Started with the leaves (the Airhouse connection pool, ctx.airhouse, typed-stream sinks, the runtime-artifact S3 mirror); the rest of oxy-app's agentic_wiring follows (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -127,7 +127,7 @@ tokio = { workspace = true, features = ["test-util"] }
 # needs every migrator `Schema::All` can apply: `migration` and `oxy-cameras`
 # here, the agentic and airhouse ones through normal dependencies. None of these
 # depends on this crate (its reverse dependencies are the api-* crates,
-# oxy-app, route-catalog and oxy-server), so there is no cycle.
+# route-catalog and oxy-server), so there is no cycle.
 migration = { workspace = true }
 oxy-cameras = { workspace = true }
 # The harness's OLTP admin URL rewrite (`url::Url`).

@@ -64,7 +64,7 @@ To run nextest directly (e.g. to scope to a crate or a single test):
 
 ```bash
 cargo nextest run                 # whole workspace
-cargo nextest run -p oxy-app      # a single crate
+cargo nextest run -p oxy-server   # a single crate
 cargo nextest run <test_name>     # a single test by name
 ```
 

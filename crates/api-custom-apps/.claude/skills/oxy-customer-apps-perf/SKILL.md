@@ -1,6 +1,6 @@
 ---
 name: oxy-customer-apps-perf
-description: Use when adding or modifying a custom-app serving route (crates/app/src/server/api/custom_apps_serve/ — mod.rs, sources.rs, headers.rs — and the /customer-apps/{*path} mount, built in crates/server/src/custom_apps_seams.rs) or a custom-app data endpoint (api-custom-apps/src/data_plane/query.rs, data_plane/semantic_query.rs). Encodes the serve-plane + data-plane performance guardrails so every custom app stays fast. Triggers on "custom-app cache", "Cache-Control", "ETag", "compression on customer-apps", "result cache", "project-scoped cache", or a new per-request read on the custom-app hot path.
+description: Use when adding or modifying a custom-app serving route (crates/api-custom-apps/src/serve/ — mod.rs, sources.rs, headers.rs — and the /customer-apps/{*path} mount, built in crates/server/src/custom_apps_seams.rs) or a custom-app data endpoint (api-custom-apps/src/data_plane/query.rs, data_plane/semantic_query.rs). Encodes the serve-plane + data-plane performance guardrails so every custom app stays fast. Triggers on "custom-app cache", "Cache-Control", "ETag", "compression on customer-apps", "result cache", "project-scoped cache", or a new per-request read on the custom-app hot path.
 ---
 
 # Customer-apps performance (serve + data plane)
@@ -10,7 +10,7 @@ The perf baseline every custom-app request must keep, established by PR #2634
 When you touch the serve or data path, preserve these — they are cheap to keep and
 expensive to retrofit under load.
 
-## Serve plane — `custom_apps_serve/`, `crates/server/src/custom_apps_seams.rs`
+## Serve plane — `crates/api-custom-apps/src/serve/`, `crates/server/src/custom_apps_seams.rs`
 
 - **Content-hashed assets → immutable Cache-Control.** URLs under `assets/`
   (Vite / Astro / Rsbuild / SvelteKit) and `_next/static/` (Next) change only when

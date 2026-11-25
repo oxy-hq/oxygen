@@ -3,8 +3,8 @@ name = "oxy-api-identity"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog was moved above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Identity HTTP surface (sign-in, the user routes, personal tokens, legacy API keys, org API access, oxyc login, OIDC exchange, leak response) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -57,7 +57,7 @@ oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }
 # The DB-backed integration tests (the user directory's, moved from oxy-app
-# with the handlers in the admin split, PR 5) reuse oxy-app's harness
+# with the handlers in the admin split, PR 5) reuse the shared harness
 # (`#[path]`-included from crates/test-utils/harness), which clones a per-run
 # template database and needs every migrator `Schema::All` can apply — same
 # list as oxy-api-frontline.

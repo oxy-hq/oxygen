@@ -30,7 +30,7 @@ use oxy_oltp::schema::WriterRef;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use super::super::env_policy::{EnvBranchHome, OltpHome, REFUSED_LABEL, SandboxHome};
+use super::{EnvBranchHome, OltpHome, REFUSED_LABEL, SandboxHome};
 
 /// The app writer `writer_name`'s connection in `org_id`, on `home`. Public so
 /// the environments' differential test resolves both homes exactly as the

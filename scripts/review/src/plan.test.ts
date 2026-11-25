@@ -57,7 +57,7 @@ test("lockfiles and binaries are ignored; workflows and manifests are reviewed",
 });
 
 test("a lens fires on an added pattern only inside its patchPaths", () => {
-  const server = diffOf("crates/app/src/server/api/x.rs", ["tokio::spawn(async move {});"]);
+  const server = diffOf("crates/server/src/drivers/x.rs", ["tokio::spawn(async move {});"]);
   const cli = diffOf("crates/core/src/cli.rs", ["tokio::spawn(async move {});"]);
   assert.deepEqual(
     selectLenses([server], config.LENSES, 5).selected.map((l) => l.id),

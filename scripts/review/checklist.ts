@@ -75,7 +75,7 @@ export const CHECKLIST: readonly ChecklistItem[] = [
   {
     id: "per-request-scan",
     patch: /\bLOWER\(|\blower\(|\bILIKE\b|Expr::cust|::find\(\)\s*\.all\(/,
-    patchPaths: ["crates/app/src/server/**", "crates/api-*/**"],
+    patchPaths: ["crates/server/src/**", "crates/api-*/**"],
     check:
       "Does a request path now run a query whose cost grows with tenant data: no indexed filter, a function around an indexed column (`LOWER(email)`) with no matching expression index, an unfiltered `find().all()`, or a query per item in a loop?",
     source:

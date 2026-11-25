@@ -135,5 +135,5 @@ Edit and re-run `oxy seed`. The build id is a content hash, so changed bytes bec
 build and the bundle cache can't serve a stale page. **If you touch `assets/app-*.css` or
 `assets/app-*.js`, rename it to its new content hash and update the `<link>`/`<script>` in
 `index.html`** — see *Why the filenames carry a hash* above; a stale hash pins returning
-visitors to old bytes under the year-long `immutable` cache. `cargo nextest run -p oxy-app
+visitors to old bytes under the year-long `immutable` cache. `cargo nextest run -p oxy-api-custom-apps
 seed_apps` holds the bundle to the contracts the serve path enforces.

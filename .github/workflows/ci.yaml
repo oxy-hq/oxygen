@@ -1170,8 +1170,9 @@ jobs:
           # for whoever runs them — which is how the seam-trait regression this guards
           # against reached main. `clippy` (not `check`) so the workspace-member
           # fingerprints from the line above are reused; the check pass runs first, so
-          # an E0433 fails it identically.
-          cargo clippy --no-default-features -p oxy-app
+          # an E0433 fails it identically. It checked `-p oxy-app` until decompose
+          # DEL deleted that crate; oxy-server is where every piece of it went.
+          cargo clippy --no-default-features --features dev-tools -p oxy-server
           # The release shape (`.github/actions/build-oxy-cli`): no `dev-tools`,
           # so no `oxy dev seed | compile | test`. Only oxy-server's own code
           # differs from the line above (its `dev` module is compiled out).

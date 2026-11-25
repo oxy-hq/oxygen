@@ -27,15 +27,14 @@ git-fetch-with-cli = true
 # across the whole dep graph, not deno_core. The real link/codegen levers are in
 # `[profile.dev]` (`debug = "line-tables-only"`), not feature-trimming. Keep
 # these aliases for the Functions-inert convenience, not for a build-time win.
-# `cf` checks the oxy-app library (where ~all code lives — the fastest inner
-# loop, no binary link). `bf`/`rf` build/run the `oxy` binary (now the
-# `oxy-server` crate); their `--no-default-features` drops V8 — every oxy-app
-# dependent in the binary's graph (oxy-server, oxy-api-github) sets
-# `default-features = false`, and oxy-server's own `custom-app-functions` feature
-# is the single switch that turns V8 back on for the default build. `bf`/`rf`
-# put `dev-tools` back (`oxy dev seed | compile | test`), which
-# `--no-default-features` would otherwise drop with V8.
-cf = "check --no-default-features -p oxy-app"
+# `cf` checks the `oxy-server` crate without linking (the fastest inner loop;
+# it checked the oxy-app library until decompose DEL deleted it). `bf`/`rf`
+# build/run the `oxy` binary (the `oxy-server` crate). All three pass
+# `--no-default-features`, which drops V8: oxy-server's own
+# `custom-app-functions` feature is the single switch that turns V8 back on for
+# the default build. They put `dev-tools` back (`oxy dev seed | compile |
+# test`), which `--no-default-features` would otherwise drop with V8.
+cf = "check --no-default-features --features dev-tools -p oxy-server"
 bf = "build --no-default-features --features dev-tools -p oxy-server"
 rf = "run   --no-default-features --features dev-tools -p oxy-server"
 

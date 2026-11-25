@@ -3,8 +3,8 @@ name = "oxy-api-slack"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog was moved above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "The Slack integration's HTTP surface and bot (install, webhooks, OAuth callback, account linking, Socket Mode, the agent runs a message starts) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true

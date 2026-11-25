@@ -151,8 +151,8 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 10] = [
     // `/semantic-query` and the metric tree's twins moved to
     // `oxy_api_custom_apps::data_plane`, and the agent ask, its run stream and
     // the automation run's handlers and executor to `oxy_api_custom_apps::
-    // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path
-    // drops their lines outright: [`drop_log`].)
+    // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path drops
+    // their lines: [`drop_log`].) Unused since DEL; kept so the old paths' pins hold.
     "oxy_app::server::api::projects",
     // The semantic boundary, down from `projects` (W6a): sentry_filter_w6a_pins_tests.
     "oxy_workspace_runtime::semantic_boundary",

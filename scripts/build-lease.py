@@ -7,7 +7,7 @@ the box thrashes and every build takes longer than if they had queued. This is
 the "one build lease at a time" throttle GitHub used to port the Copilot runtime
 with eight concurrent agent sessions.
 
-    python3 scripts/build-lease.py cargo nextest run -p oxy-app --lib
+    python3 scripts/build-lease.py cargo nextest run -p oxy-server --lib
 
 Slots are flock()ed files under ~/.cache/oxy/build-lease/, so a crashed holder
 releases its slot with its process. The just recipes that build or test

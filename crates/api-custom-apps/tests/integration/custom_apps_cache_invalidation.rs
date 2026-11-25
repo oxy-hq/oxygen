@@ -215,7 +215,7 @@ fn row_writers_acknowledge_the_resolution_cache() {
 
     let mut files = Vec::new();
     production_sources(&src, &mut files);
-    // A scan that silently walks nothing (or only oxy-app, after the walk root was
+    // A scan that silently walks nothing (or only one crate, after the walk root was
     // widened) reports a false green — worse than no test at all. 500 is a floor,
     // not a target: it only has to stay below the real count (~1450 today), so a
     // future split that moves crates out of this workspace lowers it rather than
@@ -226,12 +226,14 @@ fn row_writers_acknowledge_the_resolution_cache() {
          broken, and a boundary test that silently scans nothing is worse than no test",
         files.len()
     );
-    assert!(
-        files
-            .iter()
-            .any(|f| !relative_to_src(f).starts_with("app/")),
-        "walk covered only oxy-app — a sibling crate would escape this test"
-    );
+    // It anchored on reaching past oxy-app's `app/` until decompose DEL deleted that
+    // crate (2026-11-25); now on two crates the walk must reach separately.
+    for anchor in ["api-custom-apps/src/", "custom-apps/src/"] {
+        assert!(
+            files.iter().any(|f| relative_to_src(f).starts_with(anchor)),
+            "walk did not cover crates/{anchor} — a sibling crate would escape this test"
+        );
+    }
 
     let mut offenders = Vec::new();
     for path in &files {

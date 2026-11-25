@@ -312,9 +312,11 @@ jobs:
             # (a PR matching only sdk/, the canary or the fixture) — see the
             # job's comment for that fork and what it costs.
             custom-app-canary:
-              - "crates/app/src/server/api/custom_apps*"
-              - "crates/app/src/server/api/custom_apps*/**"
-              - "crates/app/src/server/api/admin/apps/**"
+              # The custom-app routes and the staff read-back routes
+              # (`admin/apps`), out of `crates/app/src/server/api` (dead
+              # globs until decompose DEL repointed them).
+              - "crates/api-custom-apps/**"
+              - "crates/custom-apps/**"
               - "crates/server/src/router/**"
               - "crates/app-core/**"
               - "crates/auth/**"

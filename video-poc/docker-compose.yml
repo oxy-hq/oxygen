@@ -151,7 +151,7 @@ services:
       # Preview HTTP server: Oxy backend proxies JPEG snapshots from
       # here for the UI thumbnail. In a real deployment this binds to
       # the Tailscale interface only; in compose we expose 8090
-      # locally for `cargo run -p oxy-app` on the host to reach.
+      # locally for `cargo run -p oxy-server` on the host to reach.
       - "8090:8090"
     environment:
       # --- Oxy control-plane bearer auth ---

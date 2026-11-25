@@ -14,7 +14,7 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 oxy-auth = { workspace = true }
 # Fleet role vocabulary, so this crate can declare its own routes' roles
-# instead of oxy-app covering them with a wildcard from outside.
+# instead of the router covering them with a wildcard from outside.
 oxy-shared = { workspace = true }
 
 # Web

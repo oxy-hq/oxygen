@@ -1,8 +1,8 @@
 //! Which OLTP store an environment's data is in — decided exactly as a
 //! function run's `ctx.oltp` home is (`environment_gate::with_planes` then
 //! `with_oltp_home`), and connected through the same resolver the host uses
-//! (`host::writer_connection`). So the browser reads what the app's own code
-//! in that environment would read, and nothing else:
+//! (`oltp_connection::writer_connection`). So the browser reads what the app's
+//! own code in that environment would read, and nothing else:
 //!
 //! - **production** — the app's writer schema on the org's database;
 //! - **staging** — the app's writer schema on the org's staging branch;
@@ -24,11 +24,11 @@ use serde::Serialize;
 
 use super::super::environment_scope::ScopeError;
 use crate::custom_apps_env_resolve::ResolvedEnvironment;
+use crate::custom_apps_functions::env_policy::oltp_connection::writer_connection;
 use crate::custom_apps_functions::env_policy::{EnvPolicy, OltpHome};
 use crate::custom_apps_functions::environment_gate::{
     Admission, GateError, with_oltp_home, with_planes,
 };
-use crate::custom_apps_functions::host::writer_connection;
 
 /// Where an environment's data is.
 #[derive(Debug)]

@@ -3,8 +3,8 @@ name = "oxy-api-notifications"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog sits above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Notifications HTTP surface — the inbox, settings, devices and catalogue routes, and the push, email and Slack delivery behind them — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -58,7 +58,7 @@ tower = { workspace = true, features = ["util"] }
 # key is committed (the secret scanner rightly rejects one). Already in the
 # tree via jsonwebtoken's `aws_lc_rs` backend.
 aws-lc-rs = { workspace = true }
-# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# The DB-backed integration tests reuse the shared harness (`#[path]`-included
 # from crates/test-utils/harness), which clones a per-run template database and
 # needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
 migration = { workspace = true }

@@ -2,7 +2,7 @@
 name = "oxy-usage-report"
 version.workspace = true
 authors.workspace = true
-description = "Usage reporting's domain logic: the weekly custom-app usage report's model, judgement, collection, store and mail body, and the customer-run predicate and token rate table the platform's usage readers share. Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
+description = "Usage reporting's domain logic: the weekly custom-app usage report's model, judgement, collection, store and mail body, and the customer-run predicate and token rate table the platform's usage readers share. Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

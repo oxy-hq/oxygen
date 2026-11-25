@@ -3,8 +3,8 @@ name = "oxy-api-metric-monitoring"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app — the catalog was moved above it for exactly that reason.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "The metric-monitoring HTTP surface (the IDE's metric tree and the anomaly inbox) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -44,7 +44,7 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# The integration group (`tests/integration/`) reuses the shared per-test
 # database harness (`crates/test-utils/harness/mod.rs`, included by `#[path]`),
 # so it needs that harness's dependencies too. Dev-only: nothing here ships.
 migration = { workspace = true }

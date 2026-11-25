@@ -1,7 +1,7 @@
 # oxy-app-core
 
 **What every HTTP surface needs in order to be a surface — and nothing a single
-bounded context owns.** `oxy-app` and every `api-*` surface crate sit on top of
+bounded context owns.** `oxy-server` and every `api-*` surface crate sit on top of
 this crate, so an edit here rebuilds all of them. That is the whole reason the
 scope is narrow: app-core is the most expensive place in the workspace to put
 code that changes.
@@ -29,7 +29,8 @@ must be `IdeOnly`, persisted-data reads must stay `FleetOk`.
    noun (custom apps, notifications, widgets, frontline, billing, usage…), it
    has an owner and belongs in that owner's domain crate, not here.
 2. **Stable.** It changes rarely. Code that changes often goes *sideways* into
-   an `api-<context>` surface, where an edit skips `oxy-app` entirely.
+   an `api-<context>` surface, where an edit rebuilds that surface and the binary
+   only.
 3. **Shared.** Two or more crates above it use it. A module only one crate uses
    belongs in that crate.
 4. **No routes, entities or migrator.** Routes live in a surface, entities in
@@ -58,5 +59,5 @@ longer exists.
 - A custom-app concern → `oxy-custom-apps` (domain) or `oxy-api-custom-apps` (HTTP).
 - Org / team / membership logic shared by several contexts → `oxy-tenancy`.
 - A vendor client (SES, Slack, …) → its own P2 integration crate.
-- A context's HTTP handlers → its `api-<context>` surface, never here or in `oxy-app`
+- A context's HTTP handlers → its `api-<context>` surface, never here or in `oxy-server`
   (S8).

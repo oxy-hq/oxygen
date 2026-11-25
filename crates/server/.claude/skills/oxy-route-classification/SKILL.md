@@ -64,7 +64,7 @@ The split exists so that **reads scale and survive the ide going down**; only wr
 
 Some surfaces are pinned IdeOnly with a wildcard for *execution* safety — `/analytics/{*rest}`, `/agentic-workflows/{*rest}`, `/agentic-airway/{*rest}` (a live run executes in-process on the ide and touches the FS). That wildcard also swallows the **run-history READS** sitting next to the execution endpoints (`list_runs_by_thread`, `get_workflow_run`, `list_runs_for_pipeline`, …), which are pure `state.db` reads. Loading a thread is *data*, not a live run — pinning it to the ide made conversations unviewable whenever the ide restarted.
 
-**Recipe — carve the read back out to FleetOk:** a sub-router crate declares its own routes' roles beside them (`agentic_http::router_roles()` and its two siblings), and `oxy-app` mounts them with `nest_declared`, which prefixes the declarations exactly as it prefixes the routes. So the carve-out is a `RouteRoleDecl { method: "GET", path, role: RouteRole::FleetOk }` next to the route in the crate that owns it — not an entry written from outside.
+**Recipe — carve the read back out to FleetOk:** a sub-router crate declares its own routes' roles beside them (`agentic_http::router_roles()` and its two siblings), and `oxy-server`'s router mounts them with `nest_declared`, which prefixes the declarations exactly as it prefixes the routes. So the carve-out is a `RouteRoleDecl { method: "GET", path, role: RouteRole::FleetOk }` next to the route in the crate that owns it — not an entry written from outside.
 
 **STRICT RULE (the const carries it too):** only carve out after verifying the handler touches **no** workspace FS / `.git` / local state dir and is **not** a live in-process stream — a pure Postgres / S3 read. Anything that executes, edits, or streams a live run stays `IdeOnly`. Mind the segment counts: the live `/runs/{id}/events` SSE has one MORE segment than a carved-out `/runs/{id}`, so it isn't shadowed — assert both directions in a test (see `agentic_run_history_reads_are_fleet_ok`).
 
@@ -78,7 +78,7 @@ A handler's manager carries the same fact per *pod* that the manifest carries pe
 - **`WorkspaceManagerWorkingCopy` yields `WorkspaceManager<WorkingCopy>`.** Reaching for it is the signal to write the `IdeOnly` entry.
 - **Check the bound before you accept it.** A `&ConfigManager<WorkingCopy>` in a callee is frequently over-constrained. If its body only calls methods on the generic `impl<S> ConfigManager<S>`, or needs `ResolveWorkspaceFile` (which has an impl for each capability), state the weaker bound and both satisfy it. Grep can't see a requirement that lives in a callee; the compiler can, and half of what it objects to is a bound nobody meant to write.
 
-**Do not classify by signature.** It was measured: `takes WorkspaceManagerWorkingCopy ⇒ IdeOnly` gets 62 of 92 entries right, and fails **open** on the whole `/analytics` + `/agentic-*` surface because `agentic-http` sits below `oxy-app` and structurally cannot take the extractor. `WorkingCopy` is a *permission* type — `WorkspaceManagerWorkingCopy` resolves fine on a diskless replica — so it does not answer "which pod". Disk is also not the only reason to pin: `/events` correctly takes `WorkspaceManagerReadOnly` and must still be IdeOnly, because it subscribes to a process-local broadcaster. Classify by hand, and see `internal-docs/workspace-source.md` for the full count.
+**Do not classify by signature.** It was measured: `takes WorkspaceManagerWorkingCopy ⇒ IdeOnly` gets 62 of 92 entries right, and fails **open** on the whole `/analytics` + `/agentic-*` surface because `agentic-http` sits below the app layer and structurally cannot take the extractor. `WorkingCopy` is a *permission* type — `WorkspaceManagerWorkingCopy` resolves fine on a diskless replica — so it does not answer "which pod". Disk is also not the only reason to pin: `/events` correctly takes `WorkspaceManagerReadOnly` and must still be IdeOnly, because it subscribes to a process-local broadcaster. Classify by hand, and see `internal-docs/workspace-source.md` for the full count.
 
 ## Two counters that catch what this skill misses
 
@@ -91,7 +91,7 @@ A static list can only cover the routes someone remembered. Both of these are ze
 
 - A route that reads only the compile boundary / Postgres / S3 — `FleetOk` by design; do **not** pin it to the singleton. If it 404s on serve because the data isn't compiled, the fix is the compile boundary (`oxy-compile-boundary` skill), not IdeOnly. If it's a read inside a sub-router crate's IdeOnly surface, declare it FleetOk beside the route in that crate (above).
 - IDE-editor / git-write routes — removed with the IDE (2026-11-09); do not add one back.
-- Routes `oxy-app` does not mount itself. A merge at a tree's ROOT has no prefix to hang a declaration on, so `oxy-cameras` and `airhouse` go through `merge_undeclared` with a reason and fall to `classify`'s default. That is the one hole left; if you add a working-copy route there, nothing catches it.
+- Routes the router does not mount itself. A merge at a tree's ROOT has no prefix to hang a declaration on, so `oxy-cameras` and `airhouse` go through `merge_undeclared` with a reason and fall to `classify`'s default. That is the one hole left; if you add a working-copy route there, nothing catches it.
 
 ## Related
 

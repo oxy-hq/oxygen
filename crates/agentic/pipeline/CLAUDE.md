@@ -114,7 +114,7 @@ dependency to this crate.
   the `migration` crate, so it is not in `[dev-dependencies]`; it still arrives
   transitively (with `oxy-shared` behind it) for test binaries only, and never
   touches `src/`. The helper is generic precisely so that `oxy-test-utils`, a
-  platform crate that `oxy` and `oxy-app` also dev-depend on, needs no
+  platform crate that `oxy` and `oxy-server` also dev-depend on, needs no
   `agentic-*` dependency of its own.
 - Consumers (`http`, `app/cli`) should import `agentic-pipeline`, NOT domain crates.
 - Re-exports domain types that consumers need: `ThinkingMode`, `SchemaCatalog`.

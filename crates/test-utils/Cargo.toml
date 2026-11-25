@@ -31,7 +31,7 @@ serial_test = { workspace = true }
 #
 # Central `migration` is named here; the runtime and domain migrators are
 # *injected* as type parameters. This crate is a platform crate — `oxy` and
-# `oxy-app` dev-depend on it — and platform crates must never depend on an
+# `oxy-server` dev-depend on it — and platform crates must never depend on an
 # `agentic-*` crate (internal-docs/backend-architecture.md).
 migration = { workspace = true }
 sea-orm = { workspace = true }

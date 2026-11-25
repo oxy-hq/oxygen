@@ -221,6 +221,7 @@ pub(crate) fn semantic_pinner() -> Arc<dyn SemanticPinner> {
 }
 
 /// What `oxy migrate` prints after the migrations: the functions preflight.
+#[cfg(feature = "custom-app-functions")]
 pub(crate) fn post_migrate() -> crate::router::MigrateReport {
     |build| {
         Box::pin(oxy_api_custom_apps::custom_apps_functions::preflight::run(

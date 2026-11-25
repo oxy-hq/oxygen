@@ -165,15 +165,42 @@ impl PreviewAirhousePorts for DuckDbAirhouse {
 #[cfg(test)]
 mod tests {
     /// No server code names the stand-in: only this module and test files do,
-    /// here and in `oxy-app`, which it left on 2026-11-22 (W3); the
-    /// `server::previews::airhouse_duckdb` re-export went in decompose SHM.
+    /// here and in the crates that serve requests: `oxy-server` and every
+    /// `api-*` surface. It left `oxy-app` on 2026-11-22 (W3); the
+    /// `server::previews::airhouse_duckdb` re-export went in decompose SHM, and
+    /// the walk of `../app/src` with the crate in decompose DEL (2026-11-25).
     #[test]
     fn the_duckdb_stand_in_is_never_wired_into_the_server() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let crates = manifest.join("..");
+        let mut roots = vec![manifest.join("src"), crates.join("server/src")];
+        let mut surfaces: Vec<_> = std::fs::read_dir(&crates)
+            .expect("crates/ is readable")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("api-"))
+                    && p.join("src").is_dir()
+            })
+            .map(|p| p.join("src"))
+            .collect();
+        surfaces.sort();
+        // A floor, not a target (24 surface crates today): a walk that stops
+        // finding them passes by scanning nothing.
+        assert!(
+            surfaces.len() >= 15,
+            "found only {} api-* surface crates beside {}",
+            surfaces.len(),
+            manifest.display()
+        );
+        roots.extend(surfaces);
         let mut offenders = Vec::new();
-        for src in [manifest.join("src"), manifest.join("../app/src")] {
+        let mut scanned = 0usize;
+        for src in roots {
             assert!(src.is_dir(), "{} is not readable", src.display());
             visit(&src, &mut |path, text| {
+                scanned += 1;
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -187,6 +214,12 @@ mod tests {
                 }
             });
         }
+        // ~1,440 files today (this crate, oxy-server and the surfaces).
+        assert!(
+            scanned > 500,
+            "scanned only {scanned} files: the walk broke, and a guard that \
+             scans nothing passes"
+        );
         assert!(
             offenders.is_empty(),
             "server code uses the stand-in: {offenders:?}"

@@ -2,7 +2,7 @@
 name = "oxy-tenancy"
 version.workspace = true
 authors.workspace = true
-description = "Tenancy domain logic shared across bounded contexts (org teams and app-access grants). Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3)"
+description = "Tenancy domain logic shared across bounded contexts (org teams and app-access grants). Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true

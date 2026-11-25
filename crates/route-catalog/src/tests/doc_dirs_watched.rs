@@ -60,43 +60,33 @@ fn no_handler_doc_lives_in_an_unwatched_oxy_server_file() {
 }
 
 /// `oxy-app`'s tree left `DOC_DIRS` in decompose Z0 (no handler doc was left
-/// in it). While the crate still exists, walk it again in the slot it held,
-/// first, and require the same catalog: a doc that only it supplied, or one
-/// that won a tie there, would otherwise vanish from `oxyc routes` silently.
-/// Goes vacuous with the crate itself (decompose DEL).
+/// in it), and this test walked it again in the slot it held and required the
+/// same catalog, so a doc only it supplied could not vanish from `oxyc routes`
+/// silently. Decompose DEL deleted the crate (2026-11-25), so that comparison
+/// has nothing left to walk and went with it. What stays is the half that
+/// still means something: neither list the build script reads may name the
+/// deleted tree, and every dir they name must exist, since a dir that is not
+/// there is walked as empty and its routes and docs drop out without an error.
 #[test]
 fn dropping_the_oxy_app_tree_changes_no_route() {
-    const APP_SRC: &str = "crates/app/src";
+    const APP_TREE: &str = "crates/app";
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    if !root.join(APP_SRC).is_dir() {
-        return;
+    for (list, dirs) in [
+        ("DOC_DIRS", walker::DOC_DIRS),
+        ("SOURCE_DIRS", walker::SOURCE_DIRS),
+    ] {
+        assert!(!dirs.is_empty(), "{list} is empty");
+        for dir in dirs {
+            assert!(
+                *dir != APP_TREE && !dir.starts_with("crates/app/"),
+                "{list} names `{dir}`, inside the deleted oxy-app tree; it left \
+                 DOC_DIRS in decompose Z0 and the workspace in decompose DEL"
+            );
+            assert!(
+                root.join(dir).is_dir(),
+                "{list} names `{dir}`, which is not a directory: the build \
+                 script would walk it as empty and drop its routes silently"
+            );
+        }
     }
-    assert!(
-        !walker::DOC_DIRS.contains(&APP_SRC),
-        "DOC_DIRS names `{APP_SRC}` again; it left in decompose Z0"
-    );
-    let mut with_app = vec![APP_SRC];
-    with_app.extend_from_slice(walker::DOC_DIRS);
-
-    // Every field `build.rs` writes into the served table.
-    let key = |r: &walker::Route| {
-        (
-            r.method.clone(),
-            r.path.clone(),
-            r.handler.clone(),
-            r.surface,
-            r.description.clone(),
-            r.note.clone(),
-        )
-    };
-    let now: Vec<_> = walker::collect(&root, walker::DOC_DIRS)
-        .iter()
-        .map(key)
-        .collect();
-    let before: Vec<_> = walker::collect(&root, &with_app).iter().map(key).collect();
-    assert_eq!(
-        now, before,
-        "walking `{APP_SRC}` changes the catalog, so a route took its description \
-         from oxy-app; move that handler's doc to the crate that owns it"
-    );
 }

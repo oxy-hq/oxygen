@@ -13,7 +13,7 @@
 //! comparison whose failure message names the field.
 //!
 //! Text scans, so it needs neither the `custom-app-functions` feature nor a
-//! database: it runs in `cargo nextest run -p oxy-app --lib` in every
+//! database: it runs in `cargo nextest run -p oxy-api-custom-apps --lib` in every
 //! configuration, and `include_str!` makes a rename of either file a compile
 //! error rather than a test that quietly scans nothing.
 

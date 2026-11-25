@@ -3,8 +3,8 @@ name = "oxy-api-billing"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
-# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
-# oxy-app: oxy-app never depends on it.
+# tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
+# oxy-server, which mounts it.
 description = "Billing's HTTP surface: the weekly custom-app usage report's console routes, recipients, delivery and weekly job (out of oxy-app's api::admin::usage_report), the staff Billing queue (out of api::admin::billing), and the tenant billing routes with the Stripe webhook (out of api::billing) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
@@ -41,7 +41,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
 # The usage report's database cases (moved from oxy-app's `platform` group
-# with the surface, admin split PR 8b) reuse oxy-app's per-test harness
+# with the surface, admin split PR 8b) reuse the shared per-test harness
 # (`#[path]`-included from crates/test-utils/harness), which clones a per-run
 # template database and needs every migrator `Schema::All` can apply — the
 # same list as oxy-api-admin.

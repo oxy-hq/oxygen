@@ -50,7 +50,7 @@ internal-docs/customer-apps*.md                    @luong-komorebi @NTtanh
 # `custom-app*` and `customer-apps*` are both in use as doc prefixes; the
 # vibe-coding doc that used to sit here went away with v0 sources (#3244).
 internal-docs/custom-app*.md                       @luong-komorebi @NTtanh
-crates/app/.claude/skills/oxy-customer-apps-perf/             @luong-komorebi @NTtanh
+crates/api-custom-apps/.claude/skills/oxy-customer-apps-perf/ @luong-komorebi @NTtanh
 
 # Admin & staff surfaces (workspace-health carve-out is re-owned by Hai below)
 crates/server/src/admin/                           @luong-komorebi @haitrr
@@ -84,7 +84,6 @@ internal-docs/adr-neon-as-oltp-provider.md         @luong-komorebi @hotay
 # server-authz flipped to Luong 2026-09: Tay extracted the crate (#2772) but
 # every ring in it since is Luong's (#2873, #2836, #3050, #3102, #3108).
 crates/authz/                                      @luong-komorebi @hotay
-crates/app/src/server/authz/                       @luong-komorebi @hotay
 crates/auth/                                       @luong-komorebi @hotay
 crates/server-authz/                               @luong-komorebi @hotay
 # The login page carries both halves of sign-in and was uncovered until now:
@@ -380,7 +379,7 @@ crates/agentic/pipeline/                           @hotay @luong-komorebi
 crates/agentic/http/                               @hotay @luong-komorebi
 internal-docs/worker-fleet.md                      @hotay @luong-komorebi
 internal-docs/adr-postgres-as-worker-queue.md      @hotay @luong-komorebi
-crates/app/.claude/skills/oxy-task-spec-default/              @hotay @luong-komorebi
+crates/server/.claude/skills/oxy-task-spec-default/           @hotay @luong-komorebi
 # Schedules and the automation run surface, out of oxy-app since 2026-11-15
 # (was `server/api/{schedules,automation}.rs`). The cron scheduler is Tay's
 # (#2350); Luong backs up — schedules outside production (#3639) are his.
@@ -425,7 +424,6 @@ internal-docs/site-scout.md                        @nresh @hotay
 
 # Billing / Stripe
 crates/billing/                                    @NTtanh @luong-komorebi
-crates/app/src/server/api/billing/                 @NTtanh @luong-komorebi
 # The tenant's billing routes and the Stripe webhook, out of
 # crates/app/src/server/api/billing/ into oxy-api-billing (admin split PR 9):
 # their owners follow them, over the crate's row above, and so do the
@@ -528,7 +526,7 @@ crates/server/src/role_manifest_tests.rs           @luong-komorebi @NTtanh
 crates/server/src/role_middleware.rs               @luong-komorebi @NTtanh
 crates/server/src/role_middleware_tests.rs         @luong-komorebi @NTtanh
 # The route roles, `RoleRouter` and the role middleware went down here on
-# 2026-11-22 (decompose G3); the oxy-app file above keeps the test installer.
+# 2026-11-22 (decompose G3); the oxy-server files above keep the test installer.
 crates/app-core/src/pods/                          @luong-komorebi @NTtanh
 # The router's seams went down here on 2026-11-23 (decompose R0); the router
 # below re-exports them.

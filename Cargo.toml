@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/billing",
-  "crates/app",
   "crates/guards",
   "crates/server",
   "crates/api-admin",
@@ -489,7 +488,8 @@ aho-corasick = "1.1"
 #     under the Pre-aggregated badge, and `compute_rollup_hash` covers only
 #     member NAMES, granularity and time dimension — not exprs or filters — so
 #     the artifact keeps its name and a rebuild is not implied by the fix.
-#     `PREAGG_BUILDER_GENERATION` in crates/app/src/server/preagg_executor.rs
+#     `PREAGG_BUILDER_GENERATION` (then in crates/app/src/server/preagg_executor.rs,
+#     now crates/preagg/src/generation.rs)
 #     is the invalidation lever, and main already bumped it for this pin; every
 #     workspace rebuilds once on its next cycle.
 #
@@ -547,7 +547,7 @@ aho-corasick = "1.1"
 # stored request stops falling back to the warehouse, and an `InDateRange` filter
 # declines the rollup instead of being erased from the WHERE. Nothing a build
 # WRITES changes, so `PREAGG_BUILDER_GENERATION` in
-# crates/app/src/server/preagg_executor.rs needs no bump — it was last moved for
+# crates/app/src/server/preagg_executor.rs (now crates/preagg/src/generation.rs) needs no bump — it was last moved for
 # #99, and nothing in #100-#102 writes a rollup.
 #
 # This branch pinned `6bc560e4` for the same two commits before merging main:

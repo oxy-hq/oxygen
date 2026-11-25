@@ -2,7 +2,7 @@
 name = "oxy-slack"
 version.workspace = true
 authors.workspace = true
-description = "Slack's domain half that more than one context needs: the integration's configuration, the org's installation (the bot token), a person's Slack link and the link-by-email lookup. No HTTP surface; the Slack routes and the bot are oxy-app's."
+description = "Slack's domain half that more than one context needs: the integration's configuration, the org's installation (the bot token), a person's Slack link and the link-by-email lookup. No HTTP surface; the Slack routes and the bot are oxy-api-slack's."
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
