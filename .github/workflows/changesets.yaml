@@ -5,6 +5,8 @@ on:
     outputs:
       oxy:
         value: ${{ jobs.changesets.outputs.oxy }}
+      oxy-ci:
+        value: ${{ jobs.changesets.outputs.oxy-ci }}
       web-app:
         value: ${{ jobs.changesets.outputs.web-app }}
       sdk:
@@ -46,6 +48,7 @@ jobs:
     outputs:
       changes: ${{ steps.changes.outputs.changes }}
       oxy: ${{ steps.changes.outputs.oxy }}
+      oxy-ci: ${{ steps.changes.outputs.oxy-ci }}
       web-app: ${{ steps.changes.outputs.web-app }}
       sdk: ${{ steps.changes.outputs.sdk }}
       ci-scripts: ${{ steps.changes.outputs.ci-scripts }}
@@ -88,6 +91,14 @@ jobs:
               # nextest's test groups and retries, and the hakari config.
               - ".config/**"
               - "**/Cargo.lock"
+            # ci.yaml, for the four Rust jobs only: a PR that rewrites one of
+            # them has to run it, or a runner change ships with no coverage from
+            # the jobs it rewrote. Not folded into `oxy`, which was tried first:
+            # `oxy` also gates `agentic-tests` (which the `agentic` filter below
+            # deliberately keeps off this file, "priced in USD"), `cargo-fmt`,
+            # and `public-release.yaml`'s build gate on the mirror.
+            oxy-ci:
+              - ".github/workflows/ci.yaml"
             # The metric gate. This filter exists to MIRROR `bca.toml`'s
             # `paths`, and that is the only thing it should ever contain: the
             # job's trigger has to match what `bca check` measures, or a PR
