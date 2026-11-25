@@ -498,6 +498,8 @@ sdk/typescript/src/theme/                          @NTtanh @luong-komorebi
 #   crates/core, crates/shared, crates/entity, crates/migration,
 #   crates/test-utils/harness (the shared DB test harness, oxy-app's unowned
 #   tests/common until decompose HAR),
+#   crates/guards (the workspace-wide guard tests, oxy-app's unowned
+#   tests/{authz,platform,routing} scans until decompose GRD),
 #   web-app/src/{components,hooks,services,types,libs,stores},
 #   web-app/src/pages/{thread,chat}.
 # Add an owner only if that changes. A single feature leaf inside one of them may

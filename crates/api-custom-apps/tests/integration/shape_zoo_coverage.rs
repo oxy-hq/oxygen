@@ -1,7 +1,7 @@
 //! Coverage: every native type the connectors' type maps name has a shape-zoo case.
 //!
 //! The design's shape zoo section requires that a newly supported type cannot ship without a
-//! zoo case. Source scans only, no database, following `tests/authz/app_scope_boundary.rs` and
+//! zoo case. Source scans only, no database, following `crates/guards/tests/integration/app_scope_boundary.rs` and
 //! `custom_app_functions_manual_run_guards.rs`: a comment naming a type must not count, so each
 //! mapper is read with comments removed, string and char literals kept whole
 //! (`common::source_scan`, shared with `canary_coverage`).

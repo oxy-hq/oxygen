@@ -19,7 +19,7 @@
 //! every hub to a no-op and there would be nothing to carry.
 //!
 //! These are the only request-scoped spawns the agentic crates make.
-//! `oxy-app`'s hub scan (`tests/routing/sentry_hub_scan.rs`, `every_agentic_spawn_carries_a_hub`)
+//! `oxy-guards`' hub scan (`tests/integration/sentry_hub_scan.rs`, `every_agentic_spawn_carries_a_hub`)
 //! fails on a bare `tokio::spawn` / `spawn_blocking` under `crates/agentic`,
 //! and keeps the allowlist of what legitimately stays bare: boot-time loops
 //! with no request hub to inherit, and a task that outlives the request that

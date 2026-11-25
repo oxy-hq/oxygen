@@ -1,6 +1,6 @@
 //! Guard: a `reqwest::Client` is constructed in one place, `oxy_shared::http`.
 //!
-//! Same shape as `crates/app/tests/authz/authz_boundaries.rs`: a workspace-wide
+//! Same shape as `crates/guards/tests/integration/authz_boundaries.rs`: a workspace-wide
 //! walk, a list of banned shapes, and an `ALLOWED` backlog whose every entry
 //! must still be needed. The walk reads the tree from `CARGO_MANIFEST_DIR/../..`
 //! (the workspace root), skips test code — `tests/` directories, `*_tests.rs` /

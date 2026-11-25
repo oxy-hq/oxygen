@@ -40,8 +40,10 @@
 use std::fs;
 
 /// The documents surface lives in the `oxy-api-documents` sibling crate, which
-/// `oxy-app` does not depend on — so this reads its sources by path, relative to
-/// `crates/app`. A source scan needs no dependency edge.
+/// this crate does not depend on — so this reads its sources by path, relative
+/// to the test's working directory (`crates/guards`, a sibling of
+/// `crates/api-documents`, as `crates/app` was). A source scan needs no
+/// dependency edge.
 const CRATE_SRC: &str = "../api-documents/src";
 
 /// The file that mounts the documents routes.

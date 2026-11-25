@@ -6,7 +6,7 @@
 //! variables across the crates, 92 of them read directly in `oxy-app` alone).
 //! The inventory, `internal-docs/configuration.md`, is generated from those
 //! sites by `scripts/env-inventory.py`; the guard test
-//! `crates/app/tests/routing/env_reads/` fails a new read outside this module.
+//! `crates/guards/tests/integration/env_reads/` fails a new read outside this module.
 //!
 //! Two ways in, by design:
 //!

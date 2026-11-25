@@ -7,7 +7,7 @@
 //! biggest layers. Nothing in the type system stops the next handler doing it
 //! again. This does.
 //!
-//! Same shape as `crates/app/tests/platform/compiled_reader_is_not_a_back_door.rs`: a
+//! Same shape as `crates/guards/tests/integration/compiled_reader_is_not_a_back_door.rs`: a
 //! source scan with an allowlist where each entry carries its reason, and where
 //! a STALE entry fails too — otherwise the list only grows and stops meaning
 //! anything.

@@ -131,16 +131,16 @@ retries = 2
 # `crates/test-utils/harness/mod.rs`, so each owns its database and they contend for the
 # server rather than for a schema.
 #
-# The grouping is per binary, coarser than the evidence strictly supports —
-# `platform` carries source-scanning tests that never open a
-# connection. That is a few tests' worth of parallelism, and it buys a rule that
-# stays true when someone adds a harness-backed test to one of those files.
+# The grouping is per binary, coarser than the evidence strictly supports — a
+# few tests' worth of parallelism, and it buys a rule that stays true when
+# someone adds a harness-backed test to one of those files.
 #
-# `routing` is the sixth oxy-app binary and appears in NO group here, which is
-# deliberate rather than an omission: route classification, router shape and the
-# workspace-fs probe are all in-process, so the binary opens no database at all.
-# `tests/authz/shared_db_registry.rs` scans it along with the rest and fails the
-# build the day that stops being true.
+# `oxy-guards` (the workspace-wide source and manifest scans, out of oxy-app's
+# `authz`, `platform` and `routing` binaries in decompose GRD, which emptied
+# and deleted `routing`) appears in NO group here, which is deliberate rather
+# than an omission: it opens no database at all, so it runs at full
+# parallelism. Its `shared_db_registry` scans its own group along with the rest
+# and fails the build the day that stops being true.
 #
 # (The exclusion this override carried, `local_mode_router`, went up into
 # `oxy-server`'s integration group with the router in decompose LIFT,
@@ -343,7 +343,7 @@ retries = 2
 # below), not in `db-per-test`: test groups are independent semaphores, so
 # `db-per-test` would bound it against the others and not at all against the
 # `agentic-runtime`/`agentic-pipeline` tests that own those rows.
-# `tests/authz/shared_db_registry.rs` reads this alternation as oxy-server's
+# `oxy-guards`' `shared_db_registry.rs` reads this alternation as oxy-server's
 # list of shared-database modules (the first `package(=oxy-server)` override
 # with one), so keep it the only one.
 [[profile.default.overrides]]
@@ -437,7 +437,7 @@ retries = 2
 # only CI (ci.yaml sets it at the `test` jobs) would have shown it —
 # and it would have shown up as a flake in agentic-runtime, not here.
 #
-# `tests/authz/shared_db_registry.rs` fails the build if this list drifts from
+# `oxy-guards`' `shared_db_registry.rs` fails the build if this list drifts from
 # the set of modules that actually reach the shared database. Everything else in
 # those binaries — the source-scanning boundary tests,
 # `thread_role_guards` — stays ungrouped and fully parallel.

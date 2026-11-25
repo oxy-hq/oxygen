@@ -10,7 +10,7 @@
 //! cannot notice which extractor a handler takes.
 //!
 //! `every_org_scoped_document_write_takes_the_orgadmin_extractor`
-//! (`tests/authz/document_write_guards.rs`) is the one that does. It scans this
+//! (`crates/guards/tests/integration/document_write_guards.rs`) is the one that does. It scans this
 //! module against the org-scoped router block, so mounting one of these behind
 //! a different guard fails the build rather than shipping.
 //!

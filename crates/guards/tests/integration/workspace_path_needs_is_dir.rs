@@ -145,7 +145,7 @@ fn workspace_path_is_filtered_by_is_dir_outside_the_allowlist() {
     // are governed by route classification.
     let crates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent");
+        .expect("crates/guards has a parent");
     let agentic = crates_root.join("agentic");
 
     let mut files = Vec::new();
@@ -205,7 +205,7 @@ fn workspace_path_is_filtered_by_is_dir_outside_the_allowlist() {
 fn every_allowlist_entry_still_names_a_real_file() {
     let crates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent");
+        .expect("crates/guards has a parent");
     for (rel, why) in ALLOWED {
         assert!(
             crates_root.join(rel).exists(),
@@ -221,7 +221,7 @@ fn every_allowlist_entry_still_names_a_real_file() {
 fn the_needle_still_matches_the_sanctioned_form() {
     let crates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent");
+        .expect("crates/guards has a parent");
     let known_good = crates_root.join("agentic/pipeline/src/pipeline_ref.rs");
     let text = fs::read_to_string(&known_good).expect("pipeline_ref.rs is readable");
     assert!(

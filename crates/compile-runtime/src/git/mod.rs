@@ -290,7 +290,7 @@ impl FetchedTree {
     ///
     /// Not named `workspace_path`: that name belongs to the managers' accessor
     /// for a working copy, which a source scan
-    /// (`tests/platform/workspace_path_escape_hatch.rs`) counts by its text.
+    /// (`crates/guards/tests/integration/workspace_path_escape_hatch.rs`) counts by its text.
     /// This is the opposite thing — a tree that exists because there is none.
     pub fn root(&self) -> &Path {
         &self.workspace_path

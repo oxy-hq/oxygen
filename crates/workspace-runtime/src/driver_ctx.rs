@@ -206,7 +206,7 @@ pub async fn build_requester_base_ctx(
 /// resolve [`build_cloud_project_ctx_inner`] makes, from a row the caller just
 /// read. Lives here, beside the build, because this file is where the driver
 /// resolves its `Origin` — the one place outside the request middleware allowed
-/// to name `compiled_reader` (`tests/platform/compiled_reader_is_not_a_back_door.rs`).
+/// to name `compiled_reader` (`crates/guards/tests/integration/compiled_reader_is_not_a_back_door.rs`).
 pub(super) async fn driver_revision_for(row: &entity::workspaces::Model) -> Option<uuid::Uuid> {
     oxy_app_core::compiled_reader::resolve_request_revision_for_workspace(row, None).await
 }

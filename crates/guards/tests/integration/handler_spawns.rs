@@ -480,11 +480,11 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
 ];
 
-/// The `crates/` root. `CARGO_MANIFEST_DIR` is `crates/app`.
+/// The `crates/` root. `CARGO_MANIFEST_DIR` is `crates/guards`.
 fn crates_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent")
+        .expect("crates/guards has a parent")
 }
 
 /// The trees this rule covers: the handler layer and every surface crate.
@@ -737,7 +737,7 @@ fn handlers_do_not_spawn_outside_the_allowlist() {
          `internal-docs/task-spec-registry.md`, then enqueue from the handler.\n\n\
          A spawn that only drives this request's own SSE stream — feeds the response's \
          channel, persists nothing, ends when the queries do — is admitted, but its \
-         ALLOWED entry in tests/routing/handler_spawns.rs must SAY so. A queue \
+         ALLOWED entry in crates/guards/tests/integration/handler_spawns.rs must SAY so. A queue \
          executor's own task says that too. Writing the reason down is the cost of \
          admission.\n",
         violations.len(),

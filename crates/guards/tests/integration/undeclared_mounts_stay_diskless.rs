@@ -338,7 +338,7 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // promoted revision. Only `runs/`: the crate's `oxy test` command reads
         // a local working copy on purpose and mounts no route.
         "../api-eval/src/runs",
-        "src/server/api/billing",
+        "../app/src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));
         assert!(

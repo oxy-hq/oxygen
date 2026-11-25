@@ -19,17 +19,17 @@
 //! source: which extractor the handler took.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test routing -E 'test(paginated_links)'`
+//! `cargo nextest run -p oxy-guards --test integration -E 'test(paginated_links)'`
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Every file under `src/server/api` — or under a sibling surface crate's `src`
 /// (`crates/api-*`, extracted from there and mounted under the same `/api`
 /// nest) — that builds a paginated response. The document library's handlers,
 /// where this bug first shipped, now live in `crates/api-documents`.
 fn adopters() -> Vec<(PathBuf, String)> {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = crate::app_root();
     let mut stack = vec![manifest.join("src/server/api")];
     for entry in fs::read_dir(manifest.join("..")).expect("read the crates directory") {
         let path = entry.expect("a directory entry").path();

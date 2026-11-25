@@ -34,10 +34,10 @@ fn no_source_references_a_dropped_partner_table() {
     // Workspace-wide (not just oxy-app): code is being pulled out into sibling crates
     // (`oxy-app-core`, and the per-surface crates to follow), and a query against a
     // dropped table must be caught wherever it lands. `CARGO_MANIFEST_DIR` is
-    // `crates/app`; its parent is the `crates/` root.
+    // `crates/guards`; its parent is the `crates/` root.
     let src = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent")
+        .expect("crates/guards has a parent")
         .to_path_buf();
     let mut offenders = Vec::new();
     let mut scanned = 0usize;

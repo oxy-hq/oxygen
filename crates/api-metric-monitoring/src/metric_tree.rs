@@ -677,7 +677,7 @@ mod tests {
     /// workspace (oxy-hq/oxygen#878). `load_layer_sync` is gone, but
     /// `config_manager.semantics_scan_path()` is still one autocomplete away,
     /// and it compiles fine — it just fails in cloud. So guard the shape, in
-    /// the spirit of `tests/authz/authz_boundaries.rs`.
+    /// the spirit of `crates/guards/tests/integration/authz_boundaries.rs`.
     #[test]
     fn handlers_never_scan_the_working_copy() {
         // The scan resolution these handlers call (`resolve_scan`) lives in the

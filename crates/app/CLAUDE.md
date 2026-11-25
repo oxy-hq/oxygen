@@ -12,9 +12,8 @@ the domain crates — this crate is the platform runtime plus the contexts not y
 
 **Do not start a new context here (rule S8 in `internal-docs/domain-boundaries.md`).** A new
 feature, bounded context or integration goes in its own `crates/api-<context>` surface over a
-domain crate, mounted by `oxy-server`. Growing a module already here is fine; adding a
-top-level module to `src/`, `src/server/` or `src/server/api/` fails
-`tests/routing/app_growth.rs`. Every edit here pays whole-crate work (about half of the
+domain crate, mounted by `oxy-server`. What may still go in `oxy-app` (nothing, as it is
+being deleted) is rule S8's to say; read it there. Every edit here pays whole-crate work (about half of the
 recompile: metadata, the 656 MB rlib, macro expansion) that grows with the crate, so a smaller
 `oxy-app` is a faster edit loop for everyone.
 
@@ -32,10 +31,10 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
   `oxy-task-spec-default` skill.
 
 **The queue is the only background primitive, and a test holds the line.**
-`tests/routing/handler_spawns.rs` scans `src/server/api/**` and every `crates/api-*/src/**`
+`oxy-guards`' `tests/integration/handler_spawns.rs` scans `src/server/api/**` and every `crates/api-*/src/**`
 for `tokio::spawn(` / `tokio::task::spawn(` outside test code and **fails the build** on a
 file its `ALLOWED` list does not name — the same allowlist-as-backlog shape as
-`tests/authz/authz_boundaries.rs`. Each entry says what the spawn does: a queue executor's
+`authz_boundaries.rs` beside it. Each entry says what the spawn does: a queue executor's
 own task, a spawn that only pumps **this request's SSE stream** (admitted, but the reason
 must say so), or `backlog:` work that should be a `TaskSpec`. A listed file that stops
 spawning fails as a stale entry, so shrinking the list is the migration. Add an entry only

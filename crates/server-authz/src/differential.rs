@@ -220,7 +220,7 @@ fn manage_org_roles_ring_matches_the_shipped_guard() {
 /// hand-written oracle and never reads a router or a signature, so swapping a
 /// handler's extractor leaves it green. That half is
 /// `every_org_scoped_document_write_takes_the_orgadmin_extractor`, in
-/// `crates/app/tests/authz/document_write_guards.rs`. An earlier version of
+/// `crates/guards/tests/integration/document_write_guards.rs`. An earlier version of
 /// this comment claimed both, and three comments in `crates/app` repeated the
 /// claim, so the safety net was cited four times and existed nowhere.
 ///

@@ -53,7 +53,7 @@ static TEST_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btest\b").unw
 /// A read of `var` in `file` (repo-relative, `/`-separated).
 pub type Site = (String, String);
 
-/// The repository root: this crate is `crates/app`.
+/// The repository root: this crate is `crates/guards`.
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")

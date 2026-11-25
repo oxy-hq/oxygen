@@ -166,7 +166,7 @@ legacy oracle, which is what caught every real bug.
 | `crates/authz` unit tests (41) | the model's own arithmetic |
 | `server::authz::differential` | the ring agrees with the shipped guard across the caller-shape space |
 | `crates/app/tests/authz/authz_loader_differential.rs` | the **real loader** against seeded rows (needs `OXY_DATABASE_URL`; skips without) |
-| `crates/app/tests/authz/authz_boundaries.rs` | nothing outside the allowlist decides access by hand |
+| `crates/guards/tests/integration/authz_boundaries.rs` | nothing outside the allowlist decides access by hand |
 
 The unit differential hand-builds facts, so it tests an *assumption* about the loader; the
 seeded suite is what tests the loader. Don't drop a fail-safe on the strength of the

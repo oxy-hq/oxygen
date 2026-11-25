@@ -50,17 +50,17 @@ const ALLOWED: &[(&str, &str)] = &[
 ];
 
 fn server_files() -> Vec<(String, String)> {
-    fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                walk(&path, out);
+                walk(&path, root, out);
             } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
                 let rel = path
-                    .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                    .strip_prefix(root)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .replace('\\', "/");
@@ -70,82 +70,126 @@ fn server_files() -> Vec<(String, String)> {
             }
         }
     }
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = crate::app_root();
     let mut out = Vec::new();
-    walk(&manifest.join("src/server"), &mut out);
+    walk(&crate::app_dir("src/server"), &manifest, &mut out);
     // Request paths that live outside `src/server`: the agent-run host
     // (`src/agentic_wiring`). `src/integrations` was walked here too (Slack
     // once ran an agent from a working-copy path on fleet pods) until its
     // last code, the OAuth connects, left for `oxy-api-workspace-config` on
     // 2026-11-21; that crate is walked below.
-    walk(&manifest.join("src/agentic_wiring"), &mut out);
+    walk(&crate::app_dir("src/agentic_wiring"), &manifest, &mut out);
     // Extracted from `src/server/api/documents`; still a request path of this
     // server, so still in scope. Labelled `../api-documents/src/…`.
-    walk(&manifest.join("../api-documents/src"), &mut out);
+    walk(&manifest.join("../api-documents/src"), &manifest, &mut out);
     // Likewise `src/server/api/source_upload.rs`.
-    walk(&manifest.join("../api-airway/src"), &mut out);
-    walk(&manifest.join("../api-notifications/src"), &mut out);
+    walk(&manifest.join("../api-airway/src"), &manifest, &mut out);
+    walk(
+        &manifest.join("../api-notifications/src"),
+        &manifest,
+        &mut out,
+    );
     // The metric tree and the anomaly inbox (2026-11-15), served by this binary.
-    walk(&manifest.join("../api-metric-monitoring/src"), &mut out);
+    walk(
+        &manifest.join("../api-metric-monitoring/src"),
+        &manifest,
+        &mut out,
+    );
     // The observability console (2026-11-15), served by this binary.
-    walk(&manifest.join("../api-observability/src"), &mut out);
+    walk(
+        &manifest.join("../api-observability/src"),
+        &manifest,
+        &mut out,
+    );
     // The world-model app, served by this binary: the camera list and the
     // weather (2026-11-15, was `src/server/api/video.rs`) and what came before.
-    walk(&manifest.join("../api-world-model/src"), &mut out);
+    walk(
+        &manifest.join("../api-world-model/src"),
+        &manifest,
+        &mut out,
+    );
     // The automation listing and the schedules (2026-11-15), served by this binary.
-    walk(&manifest.join("../api-automations/src"), &mut out);
+    walk(
+        &manifest.join("../api-automations/src"),
+        &manifest,
+        &mut out,
+    );
     // The workspace's databases and secrets (2026-11-15), and the OAuth
     // connects (2026-11-21, out of `src/integrations`), served by this binary.
-    walk(&manifest.join("../api-workspace-config/src"), &mut out);
+    walk(
+        &manifest.join("../api-workspace-config/src"),
+        &manifest,
+        &mut out,
+    );
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.
-    walk(&manifest.join("../workspace-health/src"), &mut out);
-    walk(&manifest.join("../api-workspace-health/src"), &mut out);
+    walk(
+        &manifest.join("../workspace-health/src"),
+        &manifest,
+        &mut out,
+    );
+    walk(
+        &manifest.join("../api-workspace-health/src"),
+        &manifest,
+        &mut out,
+    );
     // The usage report's domain half (2026-11-20), out of
     // `src/server/api/admin/usage_report`.
-    walk(&manifest.join("../usage-report/src"), &mut out);
+    walk(&manifest.join("../usage-report/src"), &manifest, &mut out);
     // Its surface (admin split PR 8b): the routes, served by this binary, and
     // the weekly job, which runs in it through the global driver's loop.
-    walk(&manifest.join("../api-billing/src"), &mut out);
+    walk(&manifest.join("../api-billing/src"), &manifest, &mut out);
     // The pre-aggregation runtime's domain half (2026-11-20), out of
     // `src/server/preagg_{freshness,generation,rebuild,retract,promote}`; the
     // cycle and the compile worker run it in this binary.
-    walk(&manifest.join("../preagg/src"), &mut out);
+    walk(&manifest.join("../preagg/src"), &manifest, &mut out);
     // The workspace runtime (2026-11-21): the agentic wiring's leaves, out of
     // `src/agentic_wiring`, and `src/server/{runtime_artifact,api/typed_stream}`;
     // the agent-run host runs them in this binary.
-    walk(&manifest.join("../workspace-runtime/src"), &mut out);
+    walk(
+        &manifest.join("../workspace-runtime/src"),
+        &manifest,
+        &mut out,
+    );
     // The compile boundary's runtime leaves (2026-11-21), out of
     // `src/server/compile_{git,oltp,config_gate,maintenance}`; the compile
     // worker and the workspace middleware run them in this binary.
-    walk(&manifest.join("../compile-runtime/src"), &mut out);
+    walk(
+        &manifest.join("../compile-runtime/src"),
+        &manifest,
+        &mut out,
+    );
     // Workspace previews' rows (2026-11-22), out of `src/server/previews` and
     // the custom-app preview settle; the middleware, the compile worker and
     // the global driver's sweep run them in this binary.
-    walk(&manifest.join("../previews/src"), &mut out);
+    walk(&manifest.join("../previews/src"), &manifest, &mut out);
     // The feature-flag runtime's domain half (2026-11-20), out of
     // `src/server/feature_flags`; every process here loads and reads it.
-    walk(&manifest.join("../feature-flags/src"), &mut out);
+    walk(&manifest.join("../feature-flags/src"), &manifest, &mut out);
     // Insights delivery's enqueue (2026-11-21), out of
     // `src/server/anomaly_notify`; both monitor scans call it in this binary.
     // (Its executor went to `../api-metric-monitoring/src`, walked above.)
-    walk(&manifest.join("../metric-monitoring/src"), &mut out);
+    walk(
+        &manifest.join("../metric-monitoring/src"),
+        &manifest,
+        &mut out,
+    );
     // `oxy test`'s event handler, reporters and engine (2026-11-20), out of
     // `src/server/service/eval.rs` and `src/integrations/eval/`.
-    walk(&manifest.join("../api-eval/src"), &mut out);
+    walk(&manifest.join("../api-eval/src"), &manifest, &mut out);
     // `oxy-server`, the whole crate: the health probes and route discovery
     // (2026-11-16, its `core_routes`) and the run drivers and the periodic tick
     // (2026-11-23, decompose BL1, its `drivers`, out of `src/server/router`).
-    walk(&manifest.join("../server/src"), &mut out);
+    walk(&manifest.join("../server/src"), &manifest, &mut out);
     // The conversation surface (2026-11-16), served by this binary from
     // `oxy-api-threads`.
-    walk(&manifest.join("../api-threads/src"), &mut out);
+    walk(&manifest.join("../api-threads/src"), &manifest, &mut out);
     // The workspaces surface (2026-11-16), served by this binary from
     // `oxy-api-workspaces`.
-    walk(&manifest.join("../api-workspaces/src"), &mut out);
+    walk(&manifest.join("../api-workspaces/src"), &manifest, &mut out);
     // The semantic surface (2026-11-16), served by this binary from
     // `oxy-api-semantic`.
-    walk(&manifest.join("../api-semantic/src"), &mut out);
+    walk(&manifest.join("../api-semantic/src"), &manifest, &mut out);
     // Three files `oxy-api-tenancy` took from `src/server/api` on 2026-11-16
     // (the org subdomain's status, the logo, the consent switch), by name: the
     // rest of that crate provisions and clones working copies on purpose. And

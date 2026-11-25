@@ -402,7 +402,7 @@ pub(crate) async fn delete_override(
 ///
 /// Named to end in `deny_out_of_scope`'s spelling on purpose — the same wrapper
 /// shape `org_subdomains` uses — so the boundary scan in
-/// `crates/app/tests/authz/app_scope_boundary.rs` can see the fence at the call
+/// `crates/guards/tests/integration/app_scope_boundary.rs` can see the fence at the call
 /// site rather than through one more indirection.
 async fn deny_out_of_scope_for_workspace(
     db: &DatabaseConnection,

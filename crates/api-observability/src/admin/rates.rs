@@ -44,7 +44,7 @@ pub const EGRESS_USD_PER_GB: f64 = 0.09;
 /// can tell an operator which one to set. Parsed in
 /// `oxy_app_core::config::MeteringConfig`, not here: a default and its
 /// validation belong in one place, and the env-read guard
-/// (`crates/app/tests/routing/env_reads`) enforces exactly that.
+/// (`crates/guards/tests/integration/env_reads`) enforces exactly that.
 pub const FLEET_COST_ENV: &str = "OXY_FLEET_COMPUTE_USD_MONTH";
 
 /// The memory a function invocation is provisioned, in MiB.

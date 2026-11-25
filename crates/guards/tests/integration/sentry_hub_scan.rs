@@ -4,13 +4,19 @@
 //!
 //! Moved here from the in-source tests of `oxy-app`'s
 //! `server::api::middlewares::sentry_surface` on 2026-11-21, when the
-//! production half moved down to `oxy-telemetry`. `CARGO_MANIFEST_DIR` is
-//! still `crates/app` in this binary, so every walked root (`src/server`,
-//! `../api-*`, `../agentic`) and every path the walks compare against reads
-//! exactly as it did there. The `sentry_surface.rs` filename filter in
-//! [`server_sources`] left out that module while it was a re-export; the
-//! re-export went with the router in decompose LIFT (2026-11-23), and the
-//! filter stays so the name cannot come back into the walk.
+//! production half moved down to `oxy-telemetry`, then from `oxy-app`'s
+//! `tests/routing/` into `oxy-guards` (decompose GRD, 2026-11-24). Every walked
+//! root and every path the walks compare against is still relative to
+//! `crates/app` ([`crate::app_root`]), so `src/server`, `../api-*` and
+//! `../agentic` read exactly as they did there. The `sentry_surface.rs`
+//! filename filter in [`server_sources`] left out that module while it was a
+//! re-export; the re-export went with the router in decompose LIFT
+//! (2026-11-23), and the filter stays so the name cannot come back into the
+//! walk.
+//!
+//! The two tests that drive the real gate (`enter_semantic_boundary`) need
+//! `oxy-workspace-runtime`, which this crate does not link: they are
+//! `oxy-workspace-runtime`'s `sentry_surface_gate` (decompose R-a).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -474,9 +480,9 @@ fn oxy_server_sources(crate_root: &Path, files: &mut Vec<PathBuf>) {
 /// reports in a deterministic order. This module is left out: it defines
 /// the bindings and names every detector in its own tests.
 fn server_sources() -> Vec<(String, String)> {
-    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = &crate::app_root();
     let mut files = Vec::new();
-    rust_files(&crate_root.join("src/server"), &mut files);
+    rust_files(&crate::app_dir("src/server"), &mut files);
     rust_files(&crate_root.join("../api-custom-apps/src"), &mut files);
     // The world model's customer-app twins, which enter through
     // `enter_semantic_boundary` from `oxy-api-world-model`.
@@ -643,7 +649,7 @@ fn data_plane_scope(entry_points: &[&str]) -> Vec<(String, String)> {
 /// database to reach the point where it would capture.
 ///
 /// So the objection is mechanical and the source is the evidence, as in
-/// `tests/authz/authz_boundaries.rs`. In scope ([`data_plane_scope`]):
+/// `authz_boundaries.rs`. In scope ([`data_plane_scope`]):
 /// every module whose production code calls a gate entry point
 /// ([`GATE_ENTRY_POINTS`]) — reaching the gate *is* the custom-app
 /// identity ([`mark_custom_app_surface`]), so the set grows with the data

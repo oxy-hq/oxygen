@@ -312,7 +312,7 @@ mod tests {
     //! plus row-fenced (see `oxy_server_authz::staff::delegation`), and `oxy-api-admin`'s
     //! section since the admin split. These tests build their own router, so they cannot
     //! notice that change — which is exactly why the assertion that the real mount matches
-    //! lives in `crates/app/tests/authz/app_scope_boundary.rs` as a source scan of
+    //! lives in `crates/guards/tests/integration/app_scope_boundary.rs` as a source scan of
     //! `oxy-api-admin`'s `admin_sections`.
     //! A fixture that mounts its own probe under `strict` proves the *middleware* works
     //! and nothing whatsoever about what ships. The billing probe is therefore mounted

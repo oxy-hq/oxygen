@@ -1,0 +1,33 @@
+[package]
+name = "oxy-guards"
+version.workspace = true
+authors.workspace = true
+description = "Workspace-wide guard tests: source and manifest scans across every crate. Test-only; ships nothing"
+documentation.workspace = true
+edition.workspace = true
+publish = false
+
+# No [dependencies]: the guards read source text, so they depend on nothing they
+# scan, and the graph-based test selection never picks this crate by itself
+# (`.config/test-selection.toml` lists it in `always-test`). Its one test target,
+# `tests/integration`, is left to autodiscovery.
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# `env_reads`: the `OXY_*` read-site scan.
+regex = { workspace = true }
+# `sentry_hub_scan`: the custom-app Sentry surface tag end to end, through the
+# layers serve installs, and the hub carried across `agentic_core::hub_task`.
+# Light on purpose: no DuckDB, DataFusion or AWS in this link.
+axum = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+sentry = { workspace = true, features = ["test"] }
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+oxy-telemetry = { workspace = true }
+agentic-core = { workspace = true }
+
+[lints]
+workspace = true

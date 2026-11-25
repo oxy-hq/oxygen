@@ -10378,7 +10378,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
- "syn 2.0.117",
  "tar",
  "tempfile",
  "tokio",
@@ -10740,6 +10739,22 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-guards"
+version = "0.5.161"
+dependencies = [
+ "agentic-core",
+ "async-stream",
+ "axum",
+ "futures",
+ "oxy-telemetry",
+ "regex",
+ "sentry",
+ "tokio",
+ "tower 0.5.3",
  "workspace-hack",
 ]
 
@@ -17845,7 +17860,6 @@ dependencies = [
  "proc-macro2",
  "prost 0.13.5",
  "quick-xml 0.38.4",
- "quote",
  "rand 0.10.2",
  "rand 0.8.6",
  "rand_core 0.6.4",

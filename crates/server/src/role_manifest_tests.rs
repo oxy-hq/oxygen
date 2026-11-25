@@ -397,7 +397,7 @@ fn workspace_health_eval_is_fleet_ok() {
 // the surface's declarations and classifies every route (write-back apply
 // IdeOnly, the rest FleetOk); `every_route_is_mounted` in that crate's
 // `lib.rs` holds the "declared by a mount" half; and
-// `tests/routing/undeclared_mounts_stay_diskless.rs` scans the crate for
+// `crates/guards/tests/integration/undeclared_mounts_stay_diskless.rs` scans the crate for
 // working-copy access, which the `route_fleet` type gate used to refuse.
 
 // `workspace_metric_tree_routes_are_fleet_ok` left with the metric tree for

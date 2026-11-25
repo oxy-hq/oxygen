@@ -176,11 +176,11 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The `crates/` root. `CARGO_MANIFEST_DIR` is `crates/app`.
+/// The `crates/` root. `CARGO_MANIFEST_DIR` is `crates/guards`.
 fn crates_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent")
+        .expect("crates/guards has a parent")
 }
 
 /// `path` relative to the `crates/` root, `/`-separated — the form `ALLOWED` is written in.
@@ -279,7 +279,7 @@ fn authorization_does_not_scatter_outside_the_allowlist() {
          copies drift from the original — that is how the ~170-site scatter this model replaced \
          got built, one reasonable shortcut at a time.\n\n\
          If this really is a new legacy term or a genuinely different question, add it to \
-         ALLOWED in tests/authz_boundaries.rs with the reason. Writing the reason down is the \
+         ALLOWED in crates/guards/tests/integration/authz_boundaries.rs with the reason. Writing the reason down is the \
          cost of admission.\n",
         violations.len(),
         violations.join("\n\n")

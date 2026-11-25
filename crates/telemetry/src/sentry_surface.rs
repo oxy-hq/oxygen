@@ -13,7 +13,7 @@
 //!   `agentic_core::hub_task` (`spawn_with_hub`, `spawn_blocking_with_hub`,
 //!   `bind_current_hub`) and so carries whatever hub the handler bound without
 //!   knowing the tag exists — pinned by the second scan test in
-//!   `oxy-app`'s `tests/routing/sentry_hub_scan.rs`.
+//!   `oxy-guards`' `tests/integration/sentry_hub_scan.rs`.
 //!
 //! [`tag_custom_app_surface`] decides from the URL — host label or
 //! `/customer-apps/**` path. That is not enough for the custom-app **data
@@ -28,7 +28,9 @@
 //! Moved down from `oxy-app`'s `server::api::middlewares::sentry_surface` (which
 //! still re-exports it for `oxy_app::{host, surface}`) on 2026-11-21; its tests,
 //! the source walks over `oxy-app`, the surfaces and `crates/agentic` included,
-//! live in `oxy-app`'s `tests/routing/sentry_hub_scan.rs`.
+//! live in `oxy-guards`' `tests/integration/sentry_hub_scan.rs` (oxy-app's
+//! `tests/routing/` until decompose GRD; the gate-driven tag tests are
+//! `oxy-workspace-runtime`'s `tests/integration/sentry_surface_gate.rs`).
 
 use std::pin::Pin;
 use std::sync::Arc;

@@ -29,7 +29,7 @@
 //! Matching is on source with whole-line comments dropped, all whitespace
 //! removed and trailing commas before `)` folded away: reformatting passes, and a
 //! comment naming a symbol cannot satisfy an assertion (the failure
-//! `tests/authz/app_scope_boundary.rs` documents).
+//! `crates/guards/tests/integration/app_scope_boundary.rs` documents).
 
 use crate::common::read_repo_file;
 use crate::custom_app_functions_manual_run::{

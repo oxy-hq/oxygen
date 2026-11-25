@@ -53,6 +53,7 @@ crates/
   airhouse/                 # (airhouse) Warehouse + connector
   cameras/                  # (oxy-cameras) Camera fleet domain
   test-utils/               # (oxy-test-utils) Fixtures & mocks
+  guards/                   # (oxy-guards) Workspace-wide source/manifest guard tests; test-only
   agentic/
     core/ runtime/ pipeline/ analytics/ automation/ airway/
     connector/ http/ llm/ semantic/    # see crates/agentic/CLAUDE.md for layering
@@ -109,9 +110,10 @@ tests share one binary per crate. So scope down, always:
 | Everything | `just test` — CI's job, rarely yours |
 
 Integration tests live in **grouped** binaries, and this is workspace-wide, not an
-`oxy-app` quirk: `oxy-app` has three by domain (`tests/authz/`, `tests/platform/`,
-`tests/routing/`), and **every other crate with
-integration tests runs a single `tests/integration/` group**. Add a new case as a `mod`
+`oxy-app` quirk: `oxy-app` has its last two by domain (`tests/authz/`, `tests/platform/`),
+and **every other crate with
+integration tests runs a single `tests/integration/` group**. The workspace-wide source
+and manifest guards are the test-only `oxy-guards` crate's (`crates/guards`). Add a new case as a `mod`
 inside the matching group — **a new top-level `tests/*.rs` adds a whole new link to every
 full run.** A module is not a target, so run one with
 `--test <group> -E 'test(<module>)'`.
@@ -260,7 +262,7 @@ Every authorization decision goes through **`oxy-authz`** (`crates/authz`) — o
 
 - **Never decide access by hand.** No `matches!(role, Owner | Admin)` in a handler, no
   reading `OXY_OWNER` / the `app_admins` table. Take a `role_guards::*` extractor (there
-  are 9), or call `server::authz::enforce_guard(..)`. `crates/app/tests/authz/authz_boundaries.rs`
+  are 9), or call `server::authz::enforce_guard(..)`. `crates/guards/tests/integration/authz_boundaries.rs`
   **fails the build** otherwise — its allowlist is a backlog, not an exemption list.
 - **Platform standing** (`is_owner` / `is_app_admin`) is read **only** by
   `server::authz::globals`: one door for a decision, one for a flag to display.

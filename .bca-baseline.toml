@@ -6759,19 +6759,19 @@ metric = "abc"
 value = 42.95346318982906
 
 [[entry]]
-path = "crates/app/tests/authz/app_scope_boundary.rs"
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
 qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
 metric = "abc"
 value = 68.73136110975832
 
 [[entry]]
-path = "crates/app/tests/authz/app_scope_boundary.rs"
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
 qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
 metric = "cognitive"
 value = 35.0
 
 [[entry]]
-path = "crates/app/tests/authz/app_scope_boundary.rs"
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
 qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
 metric = "cyclomatic"
 value = 18.0
@@ -6801,7 +6801,7 @@ metric = "abc"
 value = 40.792156108742276
 
 [[entry]]
-path = "crates/app/tests/platform/compiled_reader_is_not_a_back_door.rs"
+path = "crates/guards/tests/integration/compiled_reader_is_not_a_back_door.rs"
 qualified = "source_files"
 metric = "abc"
 value = 104.67568963231147
@@ -6873,49 +6873,37 @@ metric = "abc"
 value = 43.289721643826724
 
 [[entry]]
-path = "crates/app/tests/platform/workspace_path_backdoor.rs"
+path = "crates/guards/tests/integration/workspace_path_backdoor.rs"
 qualified = "nothing_new_resolves_a_workspace_path_by_hand"
 metric = "cognitive"
 value = 24.0
 
 [[entry]]
-path = "crates/app/tests/platform/workspace_path_escape_hatch.rs"
+path = "crates/guards/tests/integration/workspace_path_escape_hatch.rs"
 qualified = "server_files"
 metric = "abc"
 value = 58.077534382926416
 
 [[entry]]
-path = "crates/app/tests/routing/base_boundary.rs"
-qualified = "base_reaches"
-metric = "abc"
-value = 42.567593307585526
-
-[[entry]]
-path = "crates/app/tests/routing/base_boundary.rs"
-qualified = "base_reaches"
-metric = "cognitive"
-value = 17.0
-
-[[entry]]
-path = "crates/app/tests/routing/env_reads/scan.rs"
+path = "crates/guards/tests/integration/env_reads/scan.rs"
 qualified = "lex"
 metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/app/tests/routing/sentry_hub_scan.rs"
+path = "crates/guards/tests/integration/sentry_hub_scan.rs"
 qualified = "fn_items"
 metric = "cognitive"
 value = 20.0
 
 [[entry]]
-path = "crates/app/tests/routing/sentry_hub_scan.rs"
+path = "crates/guards/tests/integration/sentry_hub_scan.rs"
 qualified = "server_sources"
 metric = "abc"
 value = 48.041648597857254
 
 [[entry]]
-path = "crates/app/tests/routing/undeclared_mounts_stay_diskless.rs"
+path = "crates/guards/tests/integration/undeclared_mounts_stay_diskless.rs"
 qualified = "the_crates_mounted_without_a_declaration_never_touch_the_working_copy"
 metric = "cognitive"
 value = 19.0

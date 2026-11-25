@@ -134,7 +134,7 @@ const ALLOWED: &[(&str, &str)] = &[
 ];
 
 fn app_src() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
+    crate::app_root().join("src")
 }
 
 /// Every `.rs` under `src` — plus `oxy-app-core` (where `compiled_reader`
@@ -172,39 +172,38 @@ fn source_files() -> Vec<(String, String)> {
         }
     }
     let root = app_src();
-    let documents = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-documents/src");
+    let documents = crate::app_root().join("../api-documents/src");
     let mut out = Vec::new();
     walk(&root, &root, "src/", &mut out);
     walk(&documents, &documents, "../api-documents/src/", &mut out);
-    let app_core = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../app-core/src");
+    let app_core = crate::app_root().join("../app-core/src");
     walk(&app_core, &app_core, "../app-core/src/", &mut out);
-    let custom_apps = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../custom-apps/src");
+    let custom_apps = crate::app_root().join("../custom-apps/src");
     walk(&custom_apps, &custom_apps, "../custom-apps/src/", &mut out);
-    let api_custom_apps = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-custom-apps/src");
+    let api_custom_apps = crate::app_root().join("../api-custom-apps/src");
     walk(
         &api_custom_apps,
         &api_custom_apps,
         "../api-custom-apps/src/",
         &mut out,
     );
-    let source_upload = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-airway/src");
+    let source_upload = crate::app_root().join("../api-airway/src");
     walk(
         &source_upload,
         &source_upload,
         "../api-airway/src/",
         &mut out,
     );
-    let notifications = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-notifications/src");
+    let notifications = crate::app_root().join("../api-notifications/src");
     walk(
         &notifications,
         &notifications,
         "../api-notifications/src/",
         &mut out,
     );
-    let slack = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-slack/src");
+    let slack = crate::app_root().join("../api-slack/src");
     walk(&slack, &slack, "../api-slack/src/", &mut out);
-    let operating_graph =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-operating-graph/src");
+    let operating_graph = crate::app_root().join("../api-operating-graph/src");
     walk(
         &operating_graph,
         &operating_graph,
@@ -212,12 +211,11 @@ fn source_files() -> Vec<(String, String)> {
         &mut out,
     );
     // `oxy-api-previews` (2026-11-14): the previews' upper half.
-    let previews = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-previews/src");
+    let previews = crate::app_root().join("../api-previews/src");
     walk(&previews, &previews, "../api-previews/src/", &mut out);
     // `oxy-api-metric-monitoring` (2026-11-15): the metric tree and the
     // anomaly inbox, whose scan reads `.monitor.yml` through the compile boundary.
-    let metric_monitoring =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-metric-monitoring/src");
+    let metric_monitoring = crate::app_root().join("../api-metric-monitoring/src");
     walk(
         &metric_monitoring,
         &metric_monitoring,
@@ -226,7 +224,7 @@ fn source_files() -> Vec<(String, String)> {
     );
     // `oxy-api-observability` (2026-11-15): the observability console, which
     // reads the ClickHouse product store.
-    let observability = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-observability/src");
+    let observability = crate::app_root().join("../api-observability/src");
     walk(
         &observability,
         &observability,
@@ -235,7 +233,7 @@ fn source_files() -> Vec<(String, String)> {
     );
     // `oxy-api-automations` (2026-11-15): the compile-boundary automation
     // listing and the schedule CRUD.
-    let automations = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-automations/src");
+    let automations = crate::app_root().join("../api-automations/src");
     walk(
         &automations,
         &automations,
@@ -245,8 +243,7 @@ fn source_files() -> Vec<(String, String)> {
     // `oxy-api-workspace-config` (2026-11-15): the workspace's databases and
     // secrets, and (2026-11-21) the OAuth connects out of `src/integrations`,
     // walked above (under `src`) before the move.
-    let workspace_config =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-config/src");
+    let workspace_config = crate::app_root().join("../api-workspace-config/src");
     walk(
         &workspace_config,
         &workspace_config,
@@ -256,46 +253,46 @@ fn source_files() -> Vec<(String, String)> {
     // `oxy-api-tenancy`: the org subdomain's status, the logo and the consent
     // switch moved there from `src/server/api` on 2026-11-16. The whole
     // crate, since none of it names `compiled_reader`.
-    let tenancy = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-tenancy/src");
+    let tenancy = crate::app_root().join("../api-tenancy/src");
     walk(&tenancy, &tenancy, "../api-tenancy/src/", &mut out);
     // `oxy-server`, the whole crate: the health probes and route discovery
     // (`core_routes`) moved UP there from `src/server/api` on 2026-11-16, and
     // the run drivers and the periodic tick (`drivers`) from `src/server/router`
     // on 2026-11-23 (decompose BL1). None of it names `compiled_reader`.
-    let server = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../server/src");
+    let server = crate::app_root().join("../server/src");
     walk(&server, &server, "../server/src/", &mut out);
     // `oxy-api-threads`: the conversation surface moved there from
     // `src/server/api` on 2026-11-16. The whole crate.
-    let threads = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-threads/src");
+    let threads = crate::app_root().join("../api-threads/src");
     walk(&threads, &threads, "../api-threads/src/", &mut out);
     // `oxy-api-workspaces`: the workspaces surface moved there from
     // `src/server/api` on 2026-11-16. The whole crate.
-    let workspaces = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspaces/src");
+    let workspaces = crate::app_root().join("../api-workspaces/src");
     walk(&workspaces, &workspaces, "../api-workspaces/src/", &mut out);
     // `oxy-api-semantic`: the semantic surface moved there from
     // `src/server/api` on 2026-11-16. The whole crate.
-    let semantic = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-semantic/src");
+    let semantic = crate::app_root().join("../api-semantic/src");
     walk(&semantic, &semantic, "../api-semantic/src/", &mut out);
-    let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
+    let world_model = crate::app_root().join("../api-world-model/src");
     walk(
         &world_model,
         &world_model,
         "../api-world-model/src/",
         &mut out,
     );
-    let world_model_domain = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../world-model/src");
+    let world_model_domain = crate::app_root().join("../world-model/src");
     walk(
         &world_model_domain,
         &world_model_domain,
         "../world-model/src/",
         &mut out,
     );
-    let health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-health/src");
+    let health = crate::app_root().join("../workspace-health/src");
     walk(&health, &health, "../workspace-health/src/", &mut out);
     // `oxy-usage-report` (2026-11-20): the usage report's domain half, out of
     // `src/server/api/admin/usage_report`, and the usage trio out of
     // `../app-core/src`, both walked above before the move.
-    let usage_report = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../usage-report/src");
+    let usage_report = crate::app_root().join("../usage-report/src");
     walk(
         &usage_report,
         &usage_report,
@@ -304,25 +301,25 @@ fn source_files() -> Vec<(String, String)> {
     );
     // `oxy-api-billing` (admin split PR 8b): the usage report's surface, out
     // of `src/server/api/admin/usage_report`, walked above before the move.
-    let billing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-billing/src");
+    let billing = crate::app_root().join("../api-billing/src");
     walk(&billing, &billing, "../api-billing/src/", &mut out);
     // `oxy-preagg` (2026-11-20): the pre-aggregation runtime's domain half,
     // out of `src/server/preagg_{freshness,generation,rebuild,retract}`, and
     // the post-promote nudge (`src/server/preagg_promote.rs`) the same day,
     // walked above before the moves.
-    let preagg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../preagg/src");
+    let preagg = crate::app_root().join("../preagg/src");
     walk(&preagg, &preagg, "../preagg/src/", &mut out);
     // `oxy-workspace-runtime` (2026-11-21): the agentic wiring's leaves, out
     // of `src/agentic_wiring`, and `src/server/{runtime_artifact,
     // api/typed_stream}.rs`, all walked above before the move; then (W1b,
     // 2026-11-22) `project_ctx`'s connector half, `sql_exec`, `sql_http` and
     // `src/server/preagg_workspace.rs`.
-    let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-runtime/src");
+    let runtime = crate::app_root().join("../workspace-runtime/src");
     walk(&runtime, &runtime, "../workspace-runtime/src/", &mut out);
     // `oxy-compile-runtime` (2026-11-21): the compile boundary's runtime
     // leaves, out of `src/server/compile_{git,oltp,config_gate,maintenance}`,
     // walked above before the move.
-    let compile_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compile-runtime/src");
+    let compile_runtime = crate::app_root().join("../compile-runtime/src");
     walk(
         &compile_runtime,
         &compile_runtime,
@@ -332,16 +329,16 @@ fn source_files() -> Vec<(String, String)> {
     // `oxy-previews` (2026-11-22): workspace previews' rows, out of
     // `src/server/previews` and `src/server/api/projects/automation_run/
     // preview_settle.rs`, walked above before the move.
-    let previews_rows = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../previews/src");
+    let previews_rows = crate::app_root().join("../previews/src");
     walk(&previews_rows, &previews_rows, "../previews/src/", &mut out);
     // `oxy-feature-flags` (2026-11-20): the feature-flag runtime's domain
     // half, out of `src/server/feature_flags`, walked above before the move.
-    let flags = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../feature-flags/src");
+    let flags = crate::app_root().join("../feature-flags/src");
     walk(&flags, &flags, "../feature-flags/src/", &mut out);
     // `oxy-metric-monitoring` (2026-11-21): insights delivery's enqueue, out
     // of `src/server/anomaly_notify`, walked above before the move. (Its
     // executor went to `../api-metric-monitoring/src`, walked above too.)
-    let monitoring = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../metric-monitoring/src");
+    let monitoring = crate::app_root().join("../metric-monitoring/src");
     walk(
         &monitoring,
         &monitoring,
@@ -352,14 +349,14 @@ fn source_files() -> Vec<(String, String)> {
     // reporters and the engine, out of `src/cli/commands/test.rs`,
     // `src/server/service/eval.rs` and `src/integrations/eval/`, all walked
     // above before the move.
-    let eval = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-eval/src");
+    let eval = crate::app_root().join("../api-eval/src");
     walk(&eval, &eval, "../api-eval/src/", &mut out);
     // `oxy-api-admin` (2026-11-21): the feature-flag routes, out of
     // `src/server/feature_flags/routes.rs`, walked above before the move,
     // with the rest of the staff console crate.
-    let admin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-admin/src");
+    let admin = crate::app_root().join("../api-admin/src");
     walk(&admin, &admin, "../api-admin/src/", &mut out);
-    let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
+    let api_health = crate::app_root().join("../api-workspace-health/src");
     walk(
         &api_health,
         &api_health,
@@ -435,7 +432,7 @@ fn the_list_has_no_stale_entries() {
 /// living somewhere the process role and `git` are reachable.
 #[test]
 fn the_origin_resolver_still_exists() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../app-core/src/compiled_reader.rs");
+    let path = crate::app_root().join("../app-core/src/compiled_reader.rs");
     let body =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     for expected in [

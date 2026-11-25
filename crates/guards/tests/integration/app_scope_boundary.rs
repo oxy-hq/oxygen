@@ -29,11 +29,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR is crates/app.
+    // CARGO_MANIFEST_DIR is crates/guards.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("crates/app has a grandparent")
+        .expect("crates/guards has a grandparent")
         .to_path_buf()
 }
 

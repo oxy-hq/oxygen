@@ -64,6 +64,7 @@ sdk/
 
 # tests
 crates/app/tests/
+crates/guards/tests/
 crates/core/tests/
 crates/semantic/tests/
 

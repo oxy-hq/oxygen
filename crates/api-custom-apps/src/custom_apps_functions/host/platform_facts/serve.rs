@@ -5,7 +5,7 @@
 //! This module is the one reader of the deployment's internal orgs
 //! (`oxy_app_core::internal_orgs`): the gate hands the list it checked on to
 //! the build, so nothing beside it reads the environment
-//! (`tests/authz/authz_boundaries.rs` bans the call elsewhere).
+//! (`crates/guards/tests/integration/authz_boundaries.rs` bans the call elsewhere).
 
 use std::sync::OnceLock;
 use std::time::Instant;

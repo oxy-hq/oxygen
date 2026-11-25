@@ -16,8 +16,6 @@
 //! `crates/app/src/server` has ~100 legitimate `fs::` calls against the state
 //! dir and temp files. This list is small enough to be read instead.
 
-use std::path::PathBuf;
-
 /// Call sites permitted to resolve a workspace path directly, and why.
 ///
 /// A backlog, not an exemption list: each of these is a place where the path is
@@ -115,7 +113,7 @@ fn resolves_a_workspace_path(src: &str) -> bool {
 
 #[test]
 fn nothing_new_resolves_a_workspace_path_by_hand() {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = crate::app_root();
     let root = manifest.join("src");
     let allowed: Vec<&str> = ALLOWED.iter().map(|(path, _)| *path).collect();
 
@@ -221,7 +219,7 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
                 continue;
             }
             let rel = path
-                .strip_prefix(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+                .strip_prefix(&manifest)
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
@@ -263,7 +261,7 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
 /// dead weight that makes the real list harder to read.
 #[test]
 fn the_allowlist_has_no_stale_entries() {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let base = crate::app_root();
     let stale: Vec<&str> = ALLOWED
         .iter()
         .filter(|(rel, _)| {

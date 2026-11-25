@@ -19,7 +19,8 @@
 # affected. Tested whenever anything is.
 always-test = [
   "entity",                  # typed_column_guard walks crates/; schema_guard reads crates/migration
-  "oxy-app",                 # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …
+  "oxy-app",                 # rollout_gates reads crates/server/src; data_placement walks every migrator
+  "oxy-guards",              # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …: it depends on nothing it scans
   "oxy-app-core",            # audit::call_sites_guard walks crates/
   "oxy-custom-apps",         # usage_reads walks crates/
   "oxy-migration-tolerance", # walks crates/ for migrators
@@ -30,24 +31,25 @@ always-test = [
 # `post-rule = "skip-rules"`: mark the reader, then still mark the package that
 # owns the file.
 
-# oxy-app's guards read main.rs and lib.rs, the composition root (env_reads,
+# oxy-guards' scans read main.rs and lib.rs, the composition root (env_reads,
 # app_scope_boundary; the first matching rule wins, so this one also carries the
 # next rule's readers).
 [[determinator.path-rule]]
 globs = ["crates/server/src/main.rs", "crates/server/src/lib.rs"]
-mark-changed = ["oxy-app", "oxy-api-custom-apps", "oxy-route-catalog"]
+mark-changed = ["oxy-app", "oxy-guards", "oxy-api-custom-apps", "oxy-route-catalog"]
 post-rule = "skip-rules"
 
 # api-custom-apps and route-catalog tests scan crates/server/src, and
 # route-catalog's build script walks its router (`SOURCE_DIRS`/`DOC_DIRS`:
-# `crates/server/src/{router,admin}` since decompose LIFT). oxy-app's guards
+# `crates/server/src/{router,admin}` since decompose LIFT). oxy-guards' scans
 # read it too (`app_scope_boundary` reads `admin/mod.rs`; `handler_spawns`,
 # `sentry_hub_scan` and the workspace-path scans walk `router/` and `admin/`),
-# and oxy-workspace-runtime's `workspace_context_tests` include_str!s
+# oxy-app's `rollout_gates` reads `commands/{serve,worker}.rs`, and
+# oxy-workspace-runtime's `workspace_context_tests` include_str!s
 # `router/middlewares/local_context.rs`.
 [[determinator.path-rule]]
 globs = ["crates/server/src/**"]
-mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog", "oxy-app", "oxy-workspace-runtime"]
+mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog", "oxy-app", "oxy-guards", "oxy-workspace-runtime"]
 post-rule = "skip-rules"
 
 # oxy-route-catalog's build script reads every api-* crate's routes (it depends

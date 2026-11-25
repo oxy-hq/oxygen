@@ -1,20 +1,15 @@
 //! Platform tests that don't belong to a single product domain — the compile
 //! boundary and the workspace-source rules it rests on, compiled readers, the
-//! CLI `run` command, router shape in local mode, project queries,
-//! workspace detail fields, and the partner-table regression guard.
+//! OLTP provisioner, migration rollback safety and the database-backed gates.
 //!
 //! One binary for the whole group; see `tests/authz/main.rs` for why. Add a case
 //! as a `mod` here rather than a new `tests/*.rs`. The experiment and simulation
 //! modules left with their code for `oxy-api-experiment`'s `tests/integration/`
 //! (2026-11-08); `oxy-app` cannot name that crate.
 //!
-//! Three of these ask "where may a workspace file be read from?" rather than
-//! "which pod serves this route" — `compiled_reader_is_not_a_back_door`,
-//! `workspace_path_backdoor` and `workspace_path_escape_hatch` (the fourth,
-//! `walker_storage_divergence`, went to core). That is the line between this group and
-//! `tests/routing/`: nothing here reasons about the router. They are source
-//! scans and walker-semantics tests, so they open no database and mutate no
-//! process-global state.
+//! The source scans that asked "where may a workspace file be read from?" —
+//! `compiled_reader_is_not_a_back_door` and the `workspace_path_*` trio — and
+//! the partner-table guard moved to `oxy-guards` (decompose GRD, 2026-11-24).
 //!
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
@@ -33,14 +28,14 @@
 //! * everything else is in-process, but NOT ungrouped: that override matches
 //!   `binary(=platform)`, so every module here except those exclusions runs
 //!   under `db-per-test` (`max-threads = 4`, `retries = 2`) whether or not it
-//!   opens a connection. The three source scans folded in above inherit that.
+//!   opens a connection.
 //!   Deliberate, and argued in the config: a per-binary rule stays true the day
 //!   someone adds a harness-backed test to one of those files, where a module
-//!   allowlist would silently go stale. `tests/routing/` is the group that got
-//!   the other answer — nothing in it can reach a database, so it is in no
-//!   group at all.
+//!   allowlist would silently go stale. `oxy-guards`' group (oxy-app's
+//!   `tests/routing/` until decompose GRD) got the other answer — nothing in
+//!   it can reach a database, so it is in no group at all.
 //!
-//! `authz::shared_db_registry` fails the build if that classification drifts.
+//! `oxy-guards`' `shared_db_registry` fails the build if that classification drifts.
 //!
 //! No member mutates process cwd any more: `metric_tree_fit_panel` did until it
 //! moved into `oxy-metric-monitoring` (decompose T-small, 2026-11-24), and
@@ -78,7 +73,6 @@ mod compile_push;
 mod compile_reconcile;
 mod compile_request;
 mod compile_self_heal;
-mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
 mod connector_vars_from_workspace_secrets;
 mod context_documents_boundary;
@@ -98,7 +92,6 @@ mod master_key_kms;
 // `metric_tree_fit_panel_tests`, beside `splitting_executor` (decompose T-small).
 mod migration_rollback_safety;
 mod migration_rollback_tolerance;
-mod no_dropped_partner_tables;
 mod oltp_branches;
 mod oltp_branches_env;
 mod oltp_branches_guards;
@@ -126,7 +119,7 @@ mod semantic_scan_from_memory;
 mod worker_ctx_follows_promote;
 // `workspace_details_fields` moved to `oxy-api-workspaces`' integration group
 // with the details builders it drives (2026-11-16).
-mod workspace_path_backdoor;
-mod workspace_path_escape_hatch;
-mod workspace_path_needs_is_dir;
+// `compiled_reader_is_not_a_back_door`, `no_dropped_partner_tables` and the
+// three `workspace_path_*` scans moved to `oxy-guards`' integration group
+// (decompose GRD, 2026-11-24): source scans, no database.
 mod workspace_repo_facts;

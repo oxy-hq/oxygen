@@ -34,7 +34,7 @@
 //! `oxy-workspace-runtime`; the seams from `oxy-app-core`. It has no normal
 //! dependency on `oxy-app` (only its tests do). The metric-tree logic it
 //! uses comes from `oxy-metric-monitoring`; it has no `BACKLOG` row in
-//! `crates/app/tests/routing/surface_contract.rs`. `oxy-app` never depends
+//! `crates/guards/tests/integration/surface_contract.rs`. `oxy-app` never depends
 //! back on it.
 
 // Laying out the handler futures (SeaORM 2.0 query types under the workspace

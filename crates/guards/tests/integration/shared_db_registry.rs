@@ -1,9 +1,10 @@
 //! Fails the build when a test starts using the shared database without being
 //! serialized for it.
 //!
-//! `oxy-app`'s three integration binaries are mixed. Most of what's in them is
-//! in-process — source scanning, router shape, pure authz decisions — and runs at
-//! full parallelism. Six modules are not. They reach the raw shared
+//! `oxy-app`'s grouped integration binaries were mixed. Most of what was in them
+//! was in-process — source scanning, router shape, pure authz decisions — and ran
+//! at full parallelism (the source scans are `oxy-guards`' now, this file among
+//! them, since decompose GRD). Six modules were not. They reach the raw shared
 //! `OXY_DATABASE_URL` with no per-test database, so they touch the same `public`
 //! schema that the `serial-db` members (`oxy`, `oxy-cameras`, `agentic-*`) run
 //! `Migrator::up` against, and one of them *writes* to `agentic_runs`. Those
@@ -20,7 +21,7 @@
 //! the race, as a flake, somewhere unrelated. That is worth a build gate.
 //!
 //! The scan also reaches past `oxy-app`. An extracted surface crate
-//! (`oxy-api-frontline` first, `oxy-api-documents` next) keeps using this crate's
+//! (`oxy-api-frontline` first, `oxy-api-documents` next) keeps using the shared
 //! DB harness by `#[path]`-including `crates/test-utils/harness` into its one
 //! `tests/integration` group, and its DB-backed modules carry exactly the race
 //! described above. So every crate whose integration group includes the harness
@@ -37,7 +38,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Repo root — `CARGO_MANIFEST_DIR` is `crates/app`.
+/// Repo root — `CARGO_MANIFEST_DIR` is `crates/guards`.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -45,12 +46,12 @@ fn repo_root() -> PathBuf {
         .expect("resolve repo root")
 }
 
-/// The `crates/` root — `CARGO_MANIFEST_DIR` is `crates/app`, the same anchor
+/// The `crates/` root — `CARGO_MANIFEST_DIR` is `crates/guards`, the same anchor
 /// `authz_boundaries` resolves its workspace-wide scan from.
 fn crates_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("crates/app has a parent")
+        .expect("crates/guards has a parent")
         .to_path_buf()
 }
 
@@ -63,31 +64,42 @@ const APP_PACKAGE: &str = "oxy-app";
 /// it is scanned; a crate with its own harness is not this registry's business.
 const SHARED_HARNESS: &str = "test-utils/harness";
 
-/// **Every** `oxy-app` *grouped* integration binary. Not a curated subset.
+/// **Every** `oxy-app` *grouped* integration binary: each directory under
+/// `crates/app/tests` with a `main.rs`. Not a curated subset.
 ///
 /// The scan is `read_dir` over these directories, so a top-level `tests/*.rs` is
 /// outside it by construction — invisible here, and one more link on every full
-/// run. `tests/artifact_naming_agrees.rs` is the last one; folding it into
-/// `platform` closes both gaps at once and is the reason this reads "grouped"
-/// rather than dropping the word "every", which is the part that matters.
+/// run.
 ///
-/// This list was twice too short, both times for the same reason: a binary was
+/// This was a hand-kept list (`MIXED_BINARIES`) until decompose GRD, and it was
+/// twice too short, both times for the same reason: a binary was
 /// left out because its tests were "already grouped", and grouping was mistaken
 /// for serialization. It isn't — nextest test-groups are independent semaphores,
 /// so a `max-threads` cap in one group constrains nothing against another, and a
 /// `db-per-test` member can run concurrently with the `serial-db` tests whose
 /// rows it rewrites. `platform` was the live example; `custom_apps` (now
 /// `oxy-api-custom-apps`' `tests/integration`, found by the sibling scan) and
-/// `airhouse` were the same hole still open.
+/// `airhouse` were the same hole still open. Derived now, so a group that the
+/// delete-oxy-app PRs empty and remove drops out, and a new one is in on the day
+/// it is created. The cost of scanning a binary that turns out to be clean is
+/// zero.
 ///
-/// The cost of scanning a binary that turns out to be clean is zero. The cost of
-/// omitting one is a race nobody sees until CI flakes in another crate. So: all
-/// of them, and any new one goes here on the day it's created.
-///
-/// `airhouse` left on 2026-11-24 (decompose R-a) for `oxy-workspace-runtime`'s
-/// `tests/integration`, which the sibling scan finds through its harness
-/// include.
-const MIXED_BINARIES: &[&str] = &["authz", "platform", "routing"];
+/// oxy-app's groups are not `tests/integration`, so the sibling scan below does
+/// not find them; this is what keeps `audit_append_only` and
+/// `authz_loader_differential` (still `oxy-app`'s `authz` binary) checked.
+/// (`airhouse` left for `oxy-workspace-runtime` in decompose R-a and `routing`
+/// emptied in GRD; both drop out of this list by themselves.)
+fn app_groups() -> Vec<PathBuf> {
+    let tests_dir = crates_root().join("app").join("tests");
+    let mut groups: Vec<PathBuf> = std::fs::read_dir(&tests_dir)
+        .unwrap_or_else(|e| panic!("read {}: {e}", tests_dir.display()))
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.join("main.rs").is_file())
+        .collect();
+    groups.sort();
+    groups
+}
 
 /// Ways a test reaches a database.
 ///
@@ -104,15 +116,11 @@ const MIXED_BINARIES: &[&str] = &["authz", "platform", "routing"];
 const DB_ENTRY_POINTS: &[&str] = &["establish_connection", "api_router("];
 
 /// Every directory the registry scans, keyed by the package whose nextest
-/// overrides must pin what it finds: `oxy-app`'s grouped binaries, plus each
+/// overrides must pin what it finds: `oxy-app`'s grouped binaries ([`app_groups`]), plus each
 /// sibling crate's `tests/integration` group that includes [`SHARED_HARNESS`].
 fn scanned_dirs() -> BTreeMap<String, Vec<PathBuf>> {
-    let tests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
     let mut dirs = BTreeMap::new();
-    dirs.insert(
-        APP_PACKAGE.to_string(),
-        MIXED_BINARIES.iter().map(|b| tests_dir.join(b)).collect(),
-    );
+    dirs.insert(APP_PACKAGE.to_string(), app_groups());
     for (package, dir) in harness_sharing_siblings() {
         dirs.entry(package).or_insert_with(Vec::new).push(dir);
     }
@@ -127,10 +135,13 @@ fn scanned_dirs() -> BTreeMap<String, Vec<PathBuf>> {
 fn harness_sharing_siblings() -> Vec<(String, PathBuf)> {
     let mut crate_dirs = Vec::new();
     find_crate_dirs(&crates_root(), 0, &mut crate_dirs);
-    let app_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // No self-exclusion: `oxy-app` was excluded while this file lived there
+    // (its groups are [`app_groups`], and none is `tests/integration`). This
+    // crate's own group is scanned like any other — it names
+    // [`SHARED_HARNESS`] only in this file, which `scan_group` skips, so it is
+    // held to the same rule the day a case here reaches the database.
     crate_dirs
         .into_iter()
-        .filter(|dir| dir.canonicalize().ok() != app_dir.canonicalize().ok())
         .filter_map(|dir| {
             let group = dir.join("tests").join("integration");
             (includes_shared_harness(&group) || group_reaches_shared_db(&group))

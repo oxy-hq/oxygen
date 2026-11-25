@@ -8,7 +8,7 @@
 //! test holds the CLASSIFICATION: what `classify` answers for each path. It
 //! never reads a handler body. The other half of what the types proved — that
 //! no FleetOk handler reaches for the working copy — is held by the source scan
-//! in `crates/app/tests/routing/undeclared_mounts_stay_diskless.rs`, which
+//! in `crates/guards/tests/integration/undeclared_mounts_stay_diskless.rs`, which
 //! covers `oxy-api-experiment`. `oxy-app` cannot depend on that crate, so the
 //! declaration set its own harness installs no longer contains the route:
 //! `classify` would answer with the FleetOk default and the assertion would

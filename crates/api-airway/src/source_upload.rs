@@ -985,7 +985,7 @@ mod tests {
         //
         // **This whole scan is the wrong artifact and should be deleted.** The
         // durable check is "every mutating route names a guard from
-        // `role_guards`", in `crates/app/tests/authz/authz_boundaries.rs` — it
+        // `role_guards`", in `crates/guards/tests/integration/authz_boundaries.rs` — it
         // already walks every handler source with a `BANNED`/`ALLOWED` pair,
         // and it would retire this test, this copied list, and the three
         // rounds of syntax-chasing above it (exact type, qualified path,
