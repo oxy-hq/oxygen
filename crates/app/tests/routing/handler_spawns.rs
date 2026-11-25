@@ -445,6 +445,18 @@ const ALLOWED: &[(&str, &str)] = &[
          `custom_app_usage_purge` job under a spawn, as the usage backfill's \
          executor does",
     ),
+    (
+        "api-custom-apps/src/oltp_changes/relay/executor.rs",
+        "a queue executor's own task: `RelayExecutor::execute` runs the \
+         `oltp_changes_relay` pass under a spawn that answers cancel and always \
+         sends a terminal outcome, a panic included",
+    ),
+    (
+        "api-custom-apps/src/oltp_changes/relay/sweep.rs",
+        "`spawn_sweep` and `spawn_weekly` are fleet jobs (started on every worker, \
+         run by the one that claims the interval in `fleet_job_claims`) and only \
+         queue relay tasks or nudge marks; neither is on a request path",
+    ),
     // ---- api-experiment ----
     (
         "api-experiment/src/experiment/check/executor.rs",
