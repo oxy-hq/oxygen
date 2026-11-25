@@ -1650,6 +1650,31 @@ jobs:
           --shm-size=1g
           --health-cmd "pg_isready -U postgres" --health-interval 2s
           --health-timeout 5s --health-retries 25
+      # MySQL, for agentic-connector's suite, and this one is about time rather
+      # than correctness. The suite starts its own testcontainer through a
+      # OnceCell when `OXY_TEST_MYSQL_URL` is unset, and nothing set it: the
+      # pull-and-boot is ~54 seconds, billed by nextest to whichever test wins
+      # the race (2026-11-25: `mysql_tests::execute_query_full_json_passthrough`
+      # at 54.4s, when the next slowest test in the whole partition was 22.8s).
+      #
+      # As a service it boots during job setup instead, alongside the archive
+      # download, so the wait overlaps work the job is doing anyway. The DSN
+      # below matches what the suite parses, so it needs no other change --
+      # `OXY_TEST_REQUIRE_MYSQL=1` on the test step already turns "no MySQL"
+      # into a red build rather than a silent skip.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: test
+        ports:
+          - 3306:3306
+        # 1g of /dev/shm for the same reason as the Postgres services, and the
+        # suite's own testcontainer asks for exactly this.
+        options: >-
+          --shm-size=1g
+          --health-cmd "mysqladmin ping -h 127.0.0.1" --health-interval 2s
+          --health-timeout 5s --health-retries 30
       # An object store, for the same reason `oltp-postgres` is here.
       #
       # `crates/api-documents/tests/integration/document_storage.rs` skips when no bucket is
@@ -1801,8 +1826,11 @@ jobs:
           # guarantee) start their own Postgres testcontainer; this makes a
           # failure to start one red instead of a silent skip.
           OXY_TEST_REQUIRE_POSTGRES: "1"
-          # Same rule for agentic-connector's MySQL suite (a testcontainer).
+          # Same rule for agentic-connector's MySQL suite.
           OXY_TEST_REQUIRE_MYSQL: "1"
+          # ...and the `mysql` service above, so it does not spend ~54s
+          # starting a testcontainer of its own mid-run.
+          OXY_TEST_MYSQL_URL: mysql://root:@127.0.0.1:3306/test
           OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET: oxy-documents
           AWS_ENDPOINT_URL: http://127.0.0.1:9000
           AWS_REGION: us-east-1
