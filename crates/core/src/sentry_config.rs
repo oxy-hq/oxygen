@@ -50,7 +50,7 @@ fn client_options(environment: String, release: String) -> sentry::ClientOptions
 
 /// `build_sha` is the commit this binary was built from, short form. It is passed
 /// in rather than read from a `rustc-env` here so that this crate needs no build
-/// script: see `oxy_app::BUILD_SHA`, which is where it comes from in the binary.
+/// script: see `oxy_server::BUILD_SHA`, which is where it comes from in the binary.
 /// `"dev"`, `"unknown"` and `""` all mean "no commit" and yield the bare release.
 pub fn init_sentry(build_sha: &str) -> Option<sentry::ClientInitGuard> {
     let dsn = env::var("SENTRY_DSN").ok();

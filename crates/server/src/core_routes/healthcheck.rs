@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use utoipa::ToSchema;
 
-use oxy_app::host::build_identity::{self, BuildInfo};
+use crate::build_identity::{self, BuildInfo};
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct HealthCheckResponse {

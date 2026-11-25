@@ -27,11 +27,8 @@
 // (`middleware`) are `oxy-server`'s own since decompose LIFT (2026-11-23): the
 // router assembly went up beside the commands that mount it.
 
-/// Which build this process is: the image tag and the build information
-/// `oxy-app`'s build script stamps (`GIT_HASH`, `BUILD_TIMESTAMP`, the
-/// `GITHUB_*` run). The health probes (`/api/version`, `/api/health`) and
-/// route discovery (`/api/_catalog`'s `build`) report it, from `oxy-server`
-/// since 2026-11-16; `oxy migrate`'s report (`oxy_server::cli`) reads it here too.
-pub mod build_identity {
-    pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
-}
+// The build identity (`build_identity`: the image tag and the build information
+// the build script stamps), with that build script, went up into `oxy-server`
+// in decompose BID (2026-11-25): `oxy_server::build_identity`, beside the
+// health probes, route discovery and `oxy migrate`'s report that read it. This
+// module re-exports nothing any more; decompose DEL deletes it with the crate.

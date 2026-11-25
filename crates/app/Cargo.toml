@@ -123,9 +123,6 @@ migration = { workspace = true }
 # Other dependencies from core that might be needed
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-[build-dependencies]
-chrono = { workspace = true }
-
 [dev-dependencies]
 # `usage_fixtures`: an in-memory stand-in for a workspace's Airhouse and a fixed
 # usage history, for the report's two-store test.

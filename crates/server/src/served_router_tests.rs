@@ -1768,7 +1768,7 @@ async fn both_modes_serve_the_route_catalog() {
         );
         assert_eq!(
             catalog["build"],
-            oxy_app::host::build_identity::build_label(),
+            crate::build_identity::build_label(),
             "{mode:?}"
         );
         let (code, filtered) = get_json(&router, "/_catalog?filter=threads").await;

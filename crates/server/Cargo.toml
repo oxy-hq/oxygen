@@ -179,6 +179,12 @@ tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+# `build.rs` stamps the build identity (`GIT_HASH`, `BUILD_TIMESTAMP`, the
+# `GITHUB_*` run) that `build_identity` and `BUILD_SHA` read; up from oxy-app
+# with it in decompose BID (2026-11-25).
+[build-dependencies]
+chrono = { workspace = true }
+
 [dev-dependencies]
 # `sentry::test::with_captured_events`, so the event filter below is pinned
 # against what sentry-tracing actually does rather than against a reading of it.

@@ -93,7 +93,7 @@ fn raise_fd_limit() {}
 
 fn main() {
     dotenv().ok();
-    let _sentry_guard = sentry_config::init_sentry(oxy_app::BUILD_SHA);
+    let _sentry_guard = sentry_config::init_sentry(oxy_server::BUILD_SHA);
     if _sentry_guard.is_none() {
         setup_panic!(
             Metadata::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))

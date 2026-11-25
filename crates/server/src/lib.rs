@@ -24,6 +24,11 @@ mod admission;
 pub mod admin;
 mod app_platform;
 pub mod auth_provider_check;
+// Which build this process is (the image tag, and what `build.rs` stamps): up
+// from `oxy-app`'s `server::build_identity` in decompose BID (2026-11-25).
+// Outside `core_routes/` on purpose: `oxy-route-catalog`'s build script watches
+// that directory, and the health probes are not its only reader.
+pub mod build_identity;
 #[cfg(test)]
 mod catalog_tests;
 // The one-shot commands (`compile`, `migrate`, `migrate-agents`, the stubs) and
@@ -66,6 +71,17 @@ use router::{SurfaceSeam, SurfaceSeams};
 /// installs before anything logs, and the span store's drain at exit.
 pub use logging::init as init_logging;
 pub use observability_boot::shutdown as shutdown_observability;
+
+/// The commit this binary was built from, short form — `"dev"` for a local
+/// build, since `build.rs` has only what CI puts in `GITHUB_SHA`.
+///
+/// Lives here rather than in a build script on `oxy` so that the platform
+/// library stays build-script-free: a `rustc-env` on `oxy` would put a
+/// per-commit input at the root of the graph and rebuild `oxy` plus its nine
+/// direct dependents on every CI commit, where this crate is the composition
+/// root and already pays that cost (internal-docs/rust-build-performance.md).
+/// Up from `oxy-app` with `build.rs` in decompose BID (2026-11-25).
+pub const BUILD_SHA: &str = env!("GIT_HASH");
 
 type SeamRouter = axum::Router<router::AppState>;
 

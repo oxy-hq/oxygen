@@ -104,6 +104,6 @@ pub async fn get_catalog(
                 credential,
             })
             .collect(),
-        build: oxy_app::host::build_identity::build_label(),
+        build: crate::build_identity::build_label(),
     })
 }

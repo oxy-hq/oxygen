@@ -10,7 +10,7 @@
 
 pub mod api;
 pub mod authz;
-pub mod build_identity;
+// `build_identity` went up into `oxy-server` in decompose BID (2026-11-25).
 // The compile boundary's runtime leaves, `oxy-compile-runtime`'s since
 // 2026-11-21; re-exported so `tests/platform` keeps these paths (the CLI's
 // `compile`, up in `oxy-server` since decompose CLI, imports the crate).

@@ -791,7 +791,7 @@ jobs:
 
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           # The multi-arch name the image is pinned by, baked in as OXY_IMAGE_TAG
-          # so `/api/version` reports it (crates/app/src/server/build_identity.rs).
+          # so `/api/version` reports it (crates/server/src/build_identity.rs).
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           # The rolling per-arch name this build is about to move. Its digest
           # NOW is the image this one replaces, which the summary compares

@@ -16,9 +16,9 @@
 //! - [`openapi`] on `SurfaceSeams::openapi`: the four probes' operations in the
 //!   served document.
 //!
-//! What they read about the build (`GIT_HASH`, the image tag) still comes from
-//! `oxy-app` (`oxy_app::host::build_identity`): its build script stamps it, and
-//! `oxy migrate` reports it too.
+//! What they read about the build (`GIT_HASH`, the image tag) comes from
+//! [`crate::build_identity`], which this crate's build script stamps (up from
+//! `oxy-app` in decompose BID, 2026-11-25); `oxy migrate` reports it too.
 
 pub mod catalog;
 pub mod healthcheck;

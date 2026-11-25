@@ -308,10 +308,7 @@ pub async fn run(
             // image before any pod rolls: report the custom apps this release
             // would stop. Report only; it never fails the hook.
             if let Some(report) = seams.post_migrate {
-                eprintln!(
-                    "{}",
-                    report(oxy_app::host::build_identity::build_label()).await
-                );
+                eprintln!("{}", report(crate::build_identity::build_label()).await);
             }
         }
         SubCommand::MigrateAutomations(args) => {
