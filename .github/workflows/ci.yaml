@@ -1339,7 +1339,7 @@ jobs:
           touch examples/bigquery-sample.key
           echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
 
-          # The JSON Schemas' freshness is gated by oxy-app's
+          # The JSON Schemas' freshness is gated by oxy-server's
           # `json_schemas_are_current` unit test, not here.
           cargo build
           {

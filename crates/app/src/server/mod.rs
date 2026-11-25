@@ -12,7 +12,8 @@ pub mod api;
 pub mod authz;
 pub mod build_identity;
 // The compile boundary's runtime leaves, `oxy-compile-runtime`'s since
-// 2026-11-21; re-exported so the CLI and `tests/platform` keep these paths.
+// 2026-11-21; re-exported so `tests/platform` keeps these paths (the CLI's
+// `compile`, up in `oxy-server` since decompose CLI, imports the crate).
 pub use oxy_compile_runtime::config_gate as compile_config_gate;
 pub use oxy_compile_runtime::git as compile_git;
 pub use oxy_compile_runtime::oltp as compile_oltp;

@@ -1,5 +1,5 @@
 //! `oxy validate` is a one-release stub: it prints the `oxyc validate` command
-//! and exits 2 (`crates/app/src/cli/commands/validate.rs`).
+//! and exits 2 (`crates/server/src/cli/commands/validate.rs`).
 //!
 //! These were the binary's validation tests — `ok_on_valid_config` over the
 //! example fixture and `failed_on_invalid_config` over

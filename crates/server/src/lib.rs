@@ -9,7 +9,7 @@
 //! the core library's (`telemetry::sentry_filter_lt_pins_tests` pins the two
 //! alike).
 
-// Laying out the futures reached from `oxy_app::cli::run` exceeds rustc's
+// Laying out the futures reached from `cli::run` exceeds rustc's
 // default query depth since SeaORM 2.0 deepened its query types
 // (`recursion_limit_guard`).
 #![recursion_limit = "256"]
@@ -26,6 +26,10 @@ mod app_platform;
 pub mod auth_provider_check;
 #[cfg(test)]
 mod catalog_tests;
+// The one-shot commands (`compile`, `migrate`, `migrate-agents`, the stubs) and
+// the process's `prepare`, which `main.rs` hands the shim: up from `oxy-app`'s
+// `cli` in decompose CLI (2026-11-25).
+pub mod cli;
 mod commands;
 mod core_routes;
 mod custom_apps_seams;
@@ -37,6 +41,8 @@ mod drivers;
 #[cfg(test)]
 mod healthcheck_tests;
 mod logging;
+// Core's managed-connection port, installed by `cli::prepare` (decompose CLI).
+mod managed_connection_resolver;
 mod metrics_server;
 mod observability_boot;
 #[cfg(test)]
@@ -486,7 +492,7 @@ pub fn surface_seams() -> SurfaceSeams {
 
 /// Who owns which `oxy` subcommand. The parser is `oxy-cli-shim`'s and knows
 /// no command. This binary owns the long-lived ones (`start`, `serve`,
-/// `worker`), listed first; oxy-app owns most of the one-shot rest. The hidden
+/// `worker`), listed first; [`cli`] owns the one-shot rest. The hidden
 /// `oxy dev` group (`seed`, dev `compile`, and `test` from `oxy-api-eval`) and
 /// the one-release `oxy seed` / `oxy test` aliases exist only with the `dev-tools` feature,
 /// which the release build leaves off (`dev.rs`). `oxy airway` was
@@ -504,8 +510,8 @@ pub fn cli_owners() -> Vec<oxy_cli_shim::Owner<SurfaceSeams>> {
             Box::pin(dev::run_renamed(command, seams))
         }),
     ]);
-    owners.push(oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(
-        |command, seams| Box::pin(oxy_app::cli::run(command, seams)),
+    owners.push(oxy_cli_shim::Owner::of::<cli::SubCommand>(
+        |command, seams| Box::pin(cli::run(command, seams)),
     ));
     owners
 }

@@ -19,10 +19,11 @@
 pub const BUILD_SHA: &str = env!("GIT_HASH");
 
 pub mod agentic_wiring;
-pub mod cli;
 pub mod host;
-pub mod managed_connection_resolver;
 pub mod server;
+// `cli` (the commands) and `managed_connection_resolver` went up into
+// `oxy-server` in decompose CLI (2026-11-25); `cli::render`, the dead
+// `CliRenderer`, was deleted in decompose Z0.
 // `surface`, the prelude the `crates/api-*` surfaces took from oxy-app, is gone:
 // the router helpers went up into oxy-server in decompose LIFT, and the demo
 // seed, its last entry, in decompose SD (2026-11-24).

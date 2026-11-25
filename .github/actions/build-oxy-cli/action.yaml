@@ -142,7 +142,7 @@ runs:
         cargo build --release --target ${{ inputs.target }} -p oxy-server --no-default-features --features "$FEATURES"
         mv target/${{ inputs.target }}/release/oxy artifacts/oxy-${{ inputs.target }}
 
-    # The committed json-schemas/ are already current: oxy-app's
+    # The committed json-schemas/ are already current: oxy-server's
     # `json_schemas_are_current` test fails CI otherwise (regenerate with
     # `just gen-schemas`). So they are copied, not regenerated.
     - name: Copy config schema (once)

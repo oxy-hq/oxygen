@@ -3,11 +3,12 @@
 //!
 //! Core (`oxy`) resolves `airhouse_managed` / `postgres_managed` databases
 //! through this port so the platform base need not depend on the `airhouse` /
-//! `oxy-oltp` vendor crates. This module — in oxy-app, which owns those
-//! integrations — does the mint / analyst lookup and returns a ready
-//! Postgres-wire DSN; core wraps it in a `ConnectorX`.
+//! `oxy-oltp` vendor crates. This module — in the binary's library, which
+//! links those integrations (up from `oxy-app` in decompose CLI, 2026-11-25) —
+//! does the mint / analyst lookup and returns a ready Postgres-wire DSN; core
+//! wraps it in a `ConnectorX`.
 //!
-//! Registered once at startup via [`install`], called from `oxy_app::cli::prepare` before any
+//! Registered once at startup via [`install`], called from `crate::cli::prepare` before any
 //! subcommand runs, so every entry point that may open a managed connection
 //! has it.
 
@@ -99,7 +100,7 @@ impl ManagedConnectionResolver for AppManagedConnectionResolver {
 }
 
 /// Register the application's managed-connection resolver with oxy core. Called
-/// once from `oxy_app::cli::prepare` at startup, before any subcommand can build a managed
+/// once from `crate::cli::prepare` at startup, before any subcommand can build a managed
 /// connector. Idempotent (first registration wins).
 pub fn install() {
     oxy::connector::set_managed_connection_resolver(Arc::new(AppManagedConnectionResolver));

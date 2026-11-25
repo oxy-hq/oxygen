@@ -910,7 +910,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_SKIP_MIGRATIONS",
-        "crates/app/src/cli/commands/migrate.rs",
+        "crates/server/src/cli/commands/migrate.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (

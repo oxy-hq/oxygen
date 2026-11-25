@@ -127,11 +127,11 @@ pub async fn start_server_and_web_app(
     crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    if oxy_app::host::migrations::skip_migrations_requested() {
+    if crate::cli::commands::migrate::skip_migrations_requested() {
         println!("serve: OXY_SKIP_MIGRATIONS set — skipping migrations (run by the migrate Job)");
     } else {
         println!("serve: running database migrations");
-        oxy_app::host::migrations::run_database_migrations(args.enterprise).await?;
+        crate::cli::commands::migrate::run_database_migrations(args.enterprise).await?;
     }
     // Every role, `all` included: refuse a key that cannot open what this
     // database's secrets were sealed with. After migrations, because the check

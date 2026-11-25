@@ -231,6 +231,10 @@ crates/api-github/                                 @luong-komorebi @NTtanh
 # (#4292), compile (#4309), evals (#4296), migrate-automations (#4270).
 sdk/cli/                                           @luong-komorebi @hotay
 internal-docs/oxy-api-cli.md                       @luong-komorebi @hotay
+# The rust `oxy` CLI's one-shot commands (compile, migrate, migrate-agents and
+# the one-release stubs that print their `oxyc` verb), up from
+# crates/app/src/cli/ in decompose CLI (2026-11-25). Same owners as oxyc.
+crates/server/src/cli/                             @luong-komorebi @hotay
 
 # Build / CI / the deploy train.
 # (The LLM crates that used to sit here moved to Tay's section 2026-09-28 — the

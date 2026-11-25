@@ -125,7 +125,7 @@ pub async fn run_compile(args: CompileArgs) -> Result<(), OxyError> {
         owner_user_id: None,
         // Same read-time deserialisation gate the worker installs, so `oxy
         // compile` on a working copy catches an unreadable config locally too.
-        config_gate: Some(crate::server::compile_config_gate::runtime_config_gate()),
+        config_gate: Some(oxy_compile_runtime::config_gate::runtime_config_gate()),
     })
     .await
     .map_err(compile_error_to_oxy)?;
@@ -135,7 +135,7 @@ pub async fn run_compile(args: CompileArgs) -> Result<(), OxyError> {
     // `current_revision_id`. A no-op for a workspace with no `schemas/`
     // directory, which is every workspace that has not opted into OLTP.
     let settled =
-        crate::server::compile_oltp::settle_deferred_promotion(&db, workspace_id, &outcome).await;
+        oxy_compile_runtime::oltp::settle_deferred_promotion(&db, workspace_id, &outcome).await;
     // Fold the settle result back in before anything reports the outcome.
     // `outcome.promotion` is what the COMPILER decided, so for a deferred
     // revision it still says `Deferred` — and `--json` would report that for a

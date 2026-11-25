@@ -308,11 +308,11 @@ pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyE
     crate::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    if args.skip_migrations || oxy_app::host::migrations::skip_migrations_requested() {
+    if args.skip_migrations || crate::cli::commands::migrate::skip_migrations_requested() {
         tracing::info!("worker: skipping migrations (--skip-migrations or OXY_SKIP_MIGRATIONS)");
     } else {
         tracing::info!("worker: running database migrations");
-        oxy_app::host::migrations::run_database_migrations(args.enterprise).await?;
+        crate::cli::commands::migrate::run_database_migrations(args.enterprise).await?;
         tracing::info!("worker: migrations complete");
     }
     // As at `oxy serve` boot: a key that cannot open this database's sealed

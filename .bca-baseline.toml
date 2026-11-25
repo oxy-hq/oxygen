@@ -6693,7 +6693,7 @@ metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
-path = "crates/app/src/cli/commands/compile.rs"
+path = "crates/server/src/cli/commands/compile.rs"
 qualified = "run_compile"
 metric = "abc"
 value = 40.36087214122113

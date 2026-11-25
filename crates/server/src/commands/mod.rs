@@ -1,7 +1,8 @@
 //! The long-lived commands: `start`, `serve` and `worker`. They are this
 //! binary's own, registered with the `oxy-cli-shim` parser as the first
-//! owner, ahead of `oxy-app`'s one-shot commands. They take from `oxy-app`
-//! only what `oxy_app::host` lists.
+//! owner, ahead of the one-shot commands (`crate::cli`). They run the same
+//! migrations as `oxy migrate` (`crate::cli::commands::migrate`) and take from
+//! `oxy-app` only what `oxy_app::host` lists.
 
 pub mod args;
 pub mod serve;

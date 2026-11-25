@@ -44,8 +44,9 @@ post-rule = "skip-rules"
 # `crates/server/src/{router,admin}` since decompose LIFT). oxy-guards' scans
 # read it too (`app_scope_boundary` reads `admin/mod.rs`; `handler_spawns`,
 # `sentry_hub_scan` and the workspace-path scans walk `router/` and `admin/`),
-# oxy-workspace-runtime's `rollout_gates` reads `commands/{serve,worker}.rs`,
-# and its `workspace_context_tests` include_str!s
+# oxy-workspace-runtime's `rollout_gates` reads `commands/{serve,worker}.rs` and
+# `cli/commands/compile.rs` (up from oxy-app in decompose CLI), and its
+# `workspace_context_tests` include_str!s
 # `router/middlewares/local_context.rs`.
 [[determinator.path-rule]]
 globs = ["crates/server/src/**"]
@@ -63,8 +64,10 @@ post-rule = "skip-rules"
 # all: none since decompose RC, and no dev-dependency since decompose RT (its
 # router-building tests went up to oxy-server). The router itself, the
 # `SOURCE_DIRS` entry this rule was for, is `crates/server/src/router` since
-# decompose LIFT (the rule above). oxy-workspace-runtime's `rollout_gates`
-# reads `cli/commands/compile.rs` here until the CLI moves up into oxy-server.
+# decompose LIFT (the rule above). oxy-workspace-runtime stays marked for
+# `airhouse_duckdb`'s in-source scan, which walks `crates/app/src`; its
+# `rollout_gates` read of `cli/commands/compile.rs` left with the CLI (decompose
+# CLI) and is covered by the `crates/server/src/**` rule above.
 [[determinator.path-rule]]
 globs = ["crates/app/src/**"]
 mark-changed = ["oxy-route-catalog", "oxy-workspace-runtime"]

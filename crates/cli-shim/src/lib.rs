@@ -51,9 +51,12 @@ impl<C: 'static> Owner<C> {
 }
 
 /// The command's name, which `--version` prints first. It is `oxy-app` — the
-/// crate that defined the parser before this one — and must stay so: the
-/// workspace template's `validate.yaml` reads the version out of a release
-/// build's `oxy-app version: <x.y.z>` line.
+/// crate that defined the parser before this one — and must stay so even after
+/// the CLI left that crate (decompose CLI, 2026-11-25) and the crate itself is
+/// deleted: the workspace template's `validate.yaml`
+/// (`oxy-hq/customer-tooling`) and the customer repos built from it
+/// (pokehouse-oxy, bmg-industries-oxy) read the version out of a release
+/// build's `oxy-app version: <x.y.z>` line with `sed`.
 const NAME: &str = "oxy-app";
 
 /// `--version`'s long form: the debug build says so; a release build names

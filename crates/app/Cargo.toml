@@ -13,13 +13,8 @@ edition.workspace = true
 # The V8-isolate runtime for Oxy Functions (`custom-app-functions`) is a feature
 # of `oxy-api-custom-apps` now, with the functions host; oxy-app links no V8.
 
-[features]
-# `oxy dev compile` (`cli::commands::dev`) and the compile entry point
-# `oxy-server`'s `oxy dev seed` runs (the seed itself went up into oxy-server in
-# decompose SD, 2026-11-24). Off here; `oxy-server`'s default `dev-tools` turns
-# it on, and the release build (`--no-default-features`) leaves it off.
-# internal-docs/oxy-cli-to-oxyc.md, "Dev tooling (class d)".
-dev-tools = []
+# (`dev-tools`, which gated `oxy dev compile`, went up into oxy-server's own
+# feature with the CLI in decompose CLI, 2026-11-25.)
 
 [dependencies]
 # Core functionality

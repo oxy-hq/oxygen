@@ -1,10 +1,10 @@
-//! oxy-app's half of `oxy dev …`: the dev `compile`. Compiled only with the
-//! `dev-tools` feature, which `oxy-server` turns on by default (debug builds,
-//! `just up`, CI's agentic job, the fleet image) and the release build turns
-//! off (`.github/actions/build-oxy-cli`). `oxy-server` composes the `dev` group
-//! from its own `seed` (up from here in decompose SD, 2026-11-24), this, and
+//! The CLI's half of `oxy dev …`: the dev `compile`. Compiled only with the
+//! `dev-tools` feature, on by default (debug builds, `just up`, CI's agentic
+//! job, the fleet image) and off in the release build
+//! (`.github/actions/build-oxy-cli`). `crate::dev` composes the `dev` group
+//! from its `seed` (up from here in decompose SD, 2026-11-24), this, and
 //! `oxy-api-eval`'s `test` (`internal-docs/oxy-cli-to-oxyc.md`, "Dev tooling
-//! (class d)").
+//! (class d)"). Up from `oxy-app` with the rest of the CLI in decompose CLI.
 //!
 //! The top-level `oxy compile` stays in every build: a workspace template
 //! pinned to a release from before `oxyc compile` (step 8) still runs it.
@@ -15,7 +15,7 @@ use ::oxy::theme::StyledText;
 
 use super::compile;
 
-// The commands under `oxy dev`. A plain comment, not `///`: `oxy-server`
+// The commands under `oxy dev`. A plain comment, not `///`: `crate::dev`
 // flattens this enum into its `dev` group, and clap would print a doc comment
 // here as that group's `about`.
 #[derive(clap::Subcommand, Debug)]

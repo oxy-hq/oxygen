@@ -27,9 +27,9 @@
 //! 5. [`report_panic`] writes a panic as **one** JSON `ERROR` line — message,
 //!    location, thread, backtrace — **directly** to the original stderr, so it
 //!    survives a process that dies before the reader thread drains the pipe.
-//!    The process's real panic hook is installed later by `oxy_app::cli` and
+//!    The process's real panic hook is installed later by `oxy_server::cli` and
 //!    *replaces* whatever is there, so that hook calls [`report_panic`]; the
-//!    hook [`install`] sets only covers the window before `oxy_app::cli::prepare` runs.
+//!    hook [`install`] sets only covers the window before `oxy_server::cli::prepare` runs.
 //! 6. If the reader ever fails, fd 2 is pointed back at the original stderr
 //!    before the thread exits. The degraded state is "stray lines are
 //!    unstructured again", never "fd 2 is a pipe nobody reads" — which would
@@ -193,7 +193,7 @@ impl Normalizer {
 
     /// The default panic hook prints `thread '…' panicked at loc:`, the
     /// message, then either a `note: run with RUST_BACKTRACE=1` line or a
-    /// `stack backtrace:` and its frames. Only reachable before `oxy_app::cli::prepare`
+    /// `stack backtrace:` and its frames. Only reachable before `oxy_server::cli::prepare`
     /// replaces the process's hook (see the module doc): there, the capture's
     /// own hook has already written the panic as one structured line and then
     /// runs the previous hook, whose plain-text copy is dropped here.
@@ -650,7 +650,7 @@ mod unix {
     /// the capture is installed. Returns whether it wrote — a hook that gets
     /// `false` should print the panic itself, because nothing else will.
     ///
-    /// This is for the process's real panic hook (`oxy_app::cli`), which
+    /// This is for the process's real panic hook (`oxy_server::cli`), which
     /// replaces any hook installed before it rather than chaining — chaining
     /// would re-run Sentry's panic integration beside its own
     /// `capture_message` and report every panic twice. The backtrace is always
@@ -685,7 +685,7 @@ mod unix {
         true
     }
 
-    /// Covers panics between `install` and the process hook `oxy_app::cli::prepare` sets.
+    /// Covers panics between `install` and the process hook `oxy_server::cli::prepare` sets.
     /// Chains to the previous hook (Sentry's integration, `human_panic`, or
     /// the default), whose plain-text copy the normalizer drops.
     fn install_early_panic_hook() {
@@ -1018,7 +1018,7 @@ mod tests {
     /// Runs this test binary again as a child with the capture installed and
     /// reads what actually reached its stderr: every line JSON, the repeated
     /// warning collapsed to one plus its flushed count, our own line
-    /// untouched, the panic structured. The process hook `oxy_app::cli` sets
+    /// untouched, the panic structured. The process hook `oxy_server::cli` sets
     /// is covered by its own test there.
     #[cfg(unix)]
     #[test]

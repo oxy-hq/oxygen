@@ -196,7 +196,7 @@ test-filter expr:
 # `json_schemas_are_current` test in bless mode (it replaced `oxy gen-config-schema`).
 # Run it after changing a config type, then commit the files it rewrites.
 gen-schemas:
-    OXY_BLESS=1 {{lease}} cargo nextest run -p oxy-app --lib -E 'test(=cli::commands::json_schema_freshness::json_schemas_are_current)'
+    OXY_BLESS=1 {{lease}} cargo nextest run -p oxy-server --lib -E 'test(=cli::commands::json_schema_freshness::json_schemas_are_current)'
 
 # Compile every test target without running any — catches breakage cheaply.
 test-build:

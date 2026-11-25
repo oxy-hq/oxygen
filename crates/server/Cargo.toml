@@ -37,12 +37,11 @@ custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 # oxy-api-eval's command, registered only under this feature (`src/dev.rs`);
 # the crate itself is linked in every build for its eval-run routes and task.
 # The seed itself (`src/dev/seed`, up from oxy-app in decompose SD) is this
-# crate's, and the dependencies only it uses come with the feature.
+# crate's, and the dependencies only it uses come with the feature. The dev
+# `compile` (`src/cli/commands/dev.rs`) is gated on it too, since decompose CLI
+# brought it up from oxy-app (whose own `dev-tools` this used to forward to).
 dev-tools = [
-    "oxy-app/dev-tools",
-    "dep:agentic-analytics",
     "dep:oxy-authz",
-    "dep:serde_yaml",
 ]
 
 [dependencies]
@@ -92,12 +91,26 @@ agentic-semantic = { workspace = true }
 oxy-project = { workspace = true }
 async-trait = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
-# `oxy dev seed` (`src/dev/seed`, `dev-tools` only): the demo threads' run
-# metadata (`agentic-analytics`), the staff grants' roles (`oxy-authz`) and the
-# LLM-key copy's `config.yml` read (`serde_yaml`).
-agentic-analytics = { workspace = true, optional = true }
+# `oxy dev seed` (`src/dev/seed`, `dev-tools` only): the staff grants' roles.
 oxy-authz = { workspace = true, optional = true }
-serde_yaml = { workspace = true, optional = true }
+# The one-shot commands (`src/cli`, up from oxy-app in decompose CLI,
+# 2026-11-25), in every build: `oxy compile` (`oxy-compile`), `oxy migrate`
+# (every migrator: `migration`; the advisory lock's own connection and its
+# jittered backoff: `sqlx`, `rand`), `oxy migrate-agents` (`serde_yaml`, the
+# reference globs: `glob`), and the committed JSON Schemas (`schemars` over
+# the config types, `agentic-analytics`' agent and `oxy-semantic`'s view and
+# topic). `agentic-analytics` (the demo threads' run metadata) and
+# `serde_yaml` (the LLM-key copy's `config.yml` read) also serve `oxy dev
+# seed`; they were optional under `dev-tools` until this.
+oxy-compile = { workspace = true }
+migration = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
+rand = { workspace = true }
+serde_yaml = { workspace = true }
+glob = { workspace = true }
+schemars = { workspace = true, features = ["derive", "impl_json_schema"] }
+agentic-analytics = { workspace = true }
+oxy-semantic = { workspace = true }
 oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }
 oxy-api-notifications = { path = "../api-notifications" }
@@ -177,9 +190,8 @@ sentry = { workspace = true, features = ["test"] }
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
 oxy-authz = { workspace = true }
 agentic-core = { workspace = true }
-migration = { workspace = true }
-# The drivers' in-source tests: the monitor config parses (`serde_yaml`).
-serde_yaml = { workspace = true }
+# (`migration` and `serde_yaml`, the harness's migrators and the drivers'
+# monitor-config parse, are normal dependencies since decompose CLI.)
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }

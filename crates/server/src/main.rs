@@ -5,7 +5,7 @@
 
 // The binary is its own crate root, so the `recursion_limit` in `lib.rs` does
 // not apply here, and `main` still lays out the futures reached from
-// `oxy_app::cli::run` (through `oxy_cli_shim::run`), which exceed rustc's
+// `oxy_server::cli::run` (through `oxy_cli_shim::run`), which exceed rustc's
 // default query depth since SeaORM 2.0 deepened its query types.
 #![recursion_limit = "256"]
 
@@ -209,16 +209,21 @@ fn main() {
         // soft NOFILE of 256, which busy instances exhaust (EMFILE).
         raise_fd_limit();
 
-        let exit_code =
-            match oxy_cli_shim::run(cli_owners(), surface_seams(), oxy_app::cli::prepare).await {
-                Ok(_) => 0,
-                Err(e) => {
-                    tracing::error!(error = %e, "Application error");
-                    sentry_config::capture_error_with_context(&*e, "CLI execution failed");
-                    eprintln!("{}", format!("{e}").error());
-                    1
-                }
-            };
+        let exit_code = match oxy_cli_shim::run(
+            cli_owners(),
+            surface_seams(),
+            oxy_server::cli::prepare,
+        )
+        .await
+        {
+            Ok(_) => 0,
+            Err(e) => {
+                tracing::error!(error = %e, "Application error");
+                sentry_config::capture_error_with_context(&*e, "CLI execution failed");
+                eprintln!("{}", format!("{e}").error());
+                1
+            }
+        };
 
         shutdown_observability().await;
 

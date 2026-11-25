@@ -1,5 +1,5 @@
 //! `oxy dev …`: the hidden group of dev tooling — `seed` (this crate's,
-//! [`seed`], up from oxy-app in decompose SD), the dev `compile` (oxy-app's)
+//! [`seed`], up from oxy-app in decompose SD), the dev `compile` (`crate::cli`'s)
 //! and `test` (oxy-api-eval's). They write straight into a database or a local
 //! checkout, so they are compiled only with the `dev-tools` feature: on by
 //! default (debug builds, `just up`, CI's agentic job, the fleet image), off in
@@ -27,7 +27,7 @@ pub enum DevGroup {
     Dev(DevCommand),
 }
 
-// What `oxy dev` lists: `seed`, oxy-app's `compile`, then `test`.
+// What `oxy dev` lists: `seed`, `crate::cli`'s `compile`, then `test`.
 #[derive(clap::Subcommand, Debug)]
 pub enum DevCommand {
     /// Seed the demo workspace, partners, tenants and platform grants into a local database
@@ -37,7 +37,7 @@ pub enum DevCommand {
     /// database that does not look local.
     Seed(seed::SeedArgs),
     #[command(flatten)]
-    App(oxy_app::cli::DevCommand),
+    App(crate::cli::DevCommand),
     #[command(flatten)]
     Eval(oxy_api_eval::Command),
 }
@@ -50,7 +50,7 @@ pub async fn run(group: DevGroup, seams: SurfaceSeams) -> RunResult {
             seed::handle_seed_command(seed_args, seams.example_apps).await?;
             Ok(())
         }
-        DevCommand::App(command) => oxy_app::cli::run_dev(command).await,
+        DevCommand::App(command) => crate::cli::run_dev(command).await,
         DevCommand::Eval(command) => oxy_api_eval::run(command).await,
     }
 }
@@ -70,12 +70,12 @@ pub enum Renamed {
 pub async fn run_renamed(command: Renamed, seams: SurfaceSeams) -> RunResult {
     match command {
         Renamed::Seed(seed_args) => {
-            eprintln!("{}", oxy_app::cli::renamed_hint("seed"));
+            eprintln!("{}", crate::cli::renamed_hint("seed"));
             seed::handle_seed_command(seed_args, seams.example_apps).await?;
             Ok(())
         }
         Renamed::Test(args) => {
-            eprintln!("{}", oxy_app::cli::renamed_hint("test"));
+            eprintln!("{}", crate::cli::renamed_hint("test"));
             oxy_api_eval::run(oxy_api_eval::Command::Test(args)).await
         }
     }
@@ -132,14 +132,14 @@ mod tests {
     /// The old spellings still parse in a dev-tools build, hidden, for one
     /// release; the top-level `compile` is not renamed (the template's CI gate
     /// runs it on a release binary). `seed`'s alias is this crate's since
-    /// decompose SD, and oxy-app no longer has one.
+    /// decompose SD, and the CLI's `SubCommand` has none.
     #[test]
     fn the_old_spellings_are_hidden_aliases() {
         assert!(Renamed::has_subcommand("test"));
         assert!(Renamed::has_subcommand("seed"));
-        assert!(!oxy_app::cli::SubCommand::has_subcommand("seed"));
-        assert!(oxy_app::cli::SubCommand::has_subcommand("compile"));
-        let root = Renamed::augment_subcommands(oxy_app::cli::SubCommand::augment_subcommands(
+        assert!(!crate::cli::SubCommand::has_subcommand("seed"));
+        assert!(crate::cli::SubCommand::has_subcommand("compile"));
+        let root = Renamed::augment_subcommands(crate::cli::SubCommand::augment_subcommands(
             clap::Command::new("oxy"),
         ));
         for name in ["seed", "test"] {

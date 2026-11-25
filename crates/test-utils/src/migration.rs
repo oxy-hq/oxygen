@@ -12,7 +12,7 @@
 //! # Why central must run first
 //!
 //! Production always runs the central migrator (`crates/migration`) before
-//! the agentic-runtime migrator (see `crates/app/src/cli/commands/migrate.rs`, `airway.rs`,
+//! the agentic-runtime migrator (see `crates/server/src/cli/commands/migrate.rs`, `airway.rs`,
 //! `admin.rs`), so `agentic_runtime::migration` is written defensively to
 //! tolerate running *second*. The clearest evidence is in
 //! `RationalizeStatusModel` (`crates/agentic/runtime/src/migration.rs`):
@@ -93,7 +93,7 @@
 //! however many there are: the first binary migrates, the rest block, and each
 //! then finds everything applied. This is the same mechanism, for the same
 //! reason, as [`crate::db`] (`oxy-app`'s in-source harness) and `oxy serve`'s boot
-//! migration (`crates/app/src/cli/commands/migrate.rs`) — concurrent `Migrator::up` against one
+//! migration (`crates/server/src/cli/commands/migrate.rs`) — concurrent `Migrator::up` against one
 //! database is never safe, in tests or in the fleet.
 //!
 //! The lock covers the domain migrators too, not just central + runtime: it is

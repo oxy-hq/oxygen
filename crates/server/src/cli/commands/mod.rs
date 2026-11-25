@@ -1,7 +1,7 @@
 mod agentic_cli;
 mod compile;
-/// `oxy dev compile`, only with the `dev-tools` feature. `oxy dev seed` went up
-/// into `oxy-server`'s dev tooling in decompose SD (2026-11-24).
+/// `oxy dev compile`, only with the `dev-tools` feature. `oxy dev seed` is
+/// `crate::dev::seed` (decompose SD, 2026-11-24).
 #[cfg(feature = "dev-tools")]
 pub mod dev;
 mod looker;
@@ -12,8 +12,8 @@ pub mod run;
 mod sync;
 mod validate;
 
-/// The compile `oxy dev seed` runs on each seeded workspace (`oxy-server`'s
-/// `dev::seed::seed_compile`), the same entry point as `oxy compile`.
+/// The compile `oxy dev seed` runs on each seeded workspace
+/// (`crate::dev::seed::seed_compile`), the same entry point as `oxy compile`.
 #[cfg(feature = "dev-tools")]
 pub use compile::{CompileArgs, run_compile};
 
@@ -34,8 +34,8 @@ use std::error::Error;
 use std::process::exit;
 
 // The one-shot subcommands `oxy` runs, in the order `--help` lists them after
-// `oxy-server`'s own (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
-// Registered with the `oxy-cli-shim` parser by `oxy-server` as an owner;
+// the long-lived ones (`start`, `serve`, `worker`) and `oxy-api-eval`'s `test`.
+// Registered with the `oxy-cli-shim` parser by `crate::cli_owners` as an owner;
 // `--version` is the shim's.
 // A plain comment, not `///`: clap would print a doc comment on this enum as
 // the root command's `about`, above `Usage:`.
@@ -261,7 +261,7 @@ pub fn prepare(name: Option<&str>) {
     // Register the application's managed-connection resolver with oxy core
     // before any subcommand can build an `airhouse_managed` / `postgres_managed`
     // connector. Core resolves those through the port (it no longer depends on
-    // `airhouse` / `oxy-oltp` directly); this is where oxy-app wires the impl.
+    // `airhouse` / `oxy-oltp` directly); this is where the binary wires the impl.
     crate::managed_connection_resolver::install();
 
     // Add breadcrumb for CLI command
@@ -278,10 +278,10 @@ pub fn prepare(name: Option<&str>) {
 /// Run one of [`SubCommand`].
 pub async fn run(
     command: SubCommand,
-    // What `oxy-server` composes from the surface crates. Of the commands here
-    // only `migrate` (the post-migrate report) reads it; the commands that
-    // mount routes are `oxy-server`'s own, and so is `seed` (the example apps)
-    // since decompose SD.
+    // What `crate::surface_seams` composes from the surface crates. Of the
+    // commands here only `migrate` (the post-migrate report) reads it; the
+    // commands that mount routes are `crate::commands`, and `seed` (the
+    // example apps) is `crate::dev::seed`.
     seams: oxy_app_core::seams::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
@@ -310,7 +310,7 @@ pub async fn run(
             if let Some(report) = seams.post_migrate {
                 eprintln!(
                     "{}",
-                    report(crate::server::build_identity::build_label()).await
+                    report(oxy_app::host::build_identity::build_label()).await
                 );
             }
         }

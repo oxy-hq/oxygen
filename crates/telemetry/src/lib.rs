@@ -121,6 +121,12 @@ mod sentry_filter_lift_pins_tests;
 #[cfg(test)]
 mod sentry_filter_sd_pins_tests;
 
+// Sentry pins for decompose CLI (the one-shot commands and the managed
+// connection resolver up from `oxy-app` into `oxy-server`), kept out of the
+// over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_cli_pins_tests;
+
 /// Framework crates whose `info`/`debug` output is wire-level chatter, not
 /// something an operator acts on: HTTP frames, raw SQL, TLS handshakes. Both
 /// the stderr layers and the OTLP layers append this to whatever level the

@@ -19,7 +19,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 // `oxy-app`'s compile command, the dev `compile`'s entry point.
-use oxy_app::cli::{CompileArgs, run_compile};
+use crate::cli::{CompileArgs, run_compile};
 
 /// One workspace row the seed owns — the unit both the compile and the LLM-key
 /// copy act on.

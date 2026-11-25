@@ -17,11 +17,9 @@
 //! `host::migrations::run_database_migrations()` and still says where the item
 //! is defined.
 
-/// Database migrations: every domain's migrator under one advisory lock.
-/// `oxy migrate` runs the same function.
-pub mod migrations {
-    pub use crate::cli::commands::migrate::{run_database_migrations, skip_migrations_requested};
-}
+// The database migrations (`migrations`) went up with `oxy migrate` into
+// `oxy-server`'s `cli::commands::migrate` in decompose CLI (2026-11-25), where
+// `serve` and `worker` call them directly.
 
 // The fleet role and the route table's declarations (`role_manifest`), the
 // boot refusal over the auth provider (`auth_provider_check`), the router
@@ -33,7 +31,7 @@ pub mod migrations {
 /// `oxy-app`'s build script stamps (`GIT_HASH`, `BUILD_TIMESTAMP`, the
 /// `GITHUB_*` run). The health probes (`/api/version`, `/api/health`) and
 /// route discovery (`/api/_catalog`'s `build`) report it, from `oxy-server`
-/// since 2026-11-16; `oxy migrate`'s report reads it here too.
+/// since 2026-11-16; `oxy migrate`'s report (`oxy_server::cli`) reads it here too.
 pub mod build_identity {
     pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
 }
