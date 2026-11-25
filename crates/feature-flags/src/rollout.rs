@@ -21,8 +21,8 @@
 //! boot by every process that runs a gated path — `oxy serve` and `oxy worker`
 //! (`init`, with the refresh) and the one-shot `oxy compile` (`load_once`). A
 //! process that skipped that load would read every gate at its registry default,
-//! off, whatever the admin page says; `tests/platform/rollout_gates.rs` guards
-//! the three boot paths.
+//! off, whatever the admin page says; `oxy-workspace-runtime`'s
+//! `tests/integration/rollout_gates.rs` guards the three boot paths.
 //!
 //! Retiring a gate: `internal-docs/feature-flags.md`, "Rollout gates and their
 //! sunset".

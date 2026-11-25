@@ -98,7 +98,7 @@ async fn compile(db: &DatabaseConnection, ws_id: Uuid, root: &Path) -> Uuid {
         promote: true,
         kind: oxy_compile::RevisionKind::Main,
         owner_user_id: None,
-        config_gate: Some(oxy_app::server::compile_config_gate::runtime_config_gate()),
+        config_gate: Some(oxy_compile_runtime::config_gate::runtime_config_gate()),
     })
     .await
     .expect("compile the workspace");

@@ -1,5 +1,5 @@
 //! A GitHub `push` delivery queues a commit compile
-//! (`oxy_app::server::compile_reconcile::push`, behind `POST /api/webhooks/github`).
+//! (`oxy_compile_runtime::reconcile::push`, behind `POST /api/webhooks/github`).
 //!
 //! A parsed delivery is handed to `push::handle` against a real database, as the
 //! receiver hands it once the signature checks out: what matters is which
@@ -17,13 +17,13 @@
 //! own policy and ends promoted.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_push)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_push)'`
 
 use std::time::Duration;
 
 use chrono::Utc;
 use entity::{revisions, workspaces};
-use oxy_app::server::compile_reconcile::push::{self, PushEvent};
+use oxy_compile_runtime::reconcile::push::{self, PushEvent};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, Statement,

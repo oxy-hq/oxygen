@@ -27,7 +27,7 @@ use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::ReadOnly;
 use oxy::service::secret_manager::{CreateSecretParams, SecretManagerService};
-use oxy_app::agentic_wiring::project_ctx::try_database_to_connector_config;
+use oxy_workspace_runtime::project_ctx::try_database_to_connector_config;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::json;
 use uuid::Uuid;

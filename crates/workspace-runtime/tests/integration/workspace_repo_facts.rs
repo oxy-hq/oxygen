@@ -17,7 +17,7 @@
 //! symbolic ref, and writing it directly is all `git symbolic-ref` reads.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(workspace_repo_facts)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(workspace_repo_facts)'`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,8 +25,8 @@ use std::process::Command;
 use entity::workspaces::{self, WorkspaceStatus};
 use migration::{Migrator, MigratorTrait, SchemaManager};
 use oxy::workspace_fs_probe::set_process_owns_workspace_files;
-use oxy_app::server::default_branch::resolve_default_branch;
-use oxy_app::server::workspace_repo_facts::record_from_checkout;
+use oxy_app_core::default_branch::resolve_default_branch;
+use oxy_app_core::workspace_repo_facts::record_from_checkout;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseConnection, EntityTrait, Statement,
 };

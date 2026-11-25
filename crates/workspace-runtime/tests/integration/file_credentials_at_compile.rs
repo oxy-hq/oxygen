@@ -13,8 +13,8 @@
 //! nextest gives each test its own process, which makes setting `OXY_ROLE` safe.
 
 use entity::workspaces;
-use oxy_app::server::compile_config_gate::runtime_config_gate;
 use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};
+use oxy_compile_runtime::config_gate::runtime_config_gate;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 

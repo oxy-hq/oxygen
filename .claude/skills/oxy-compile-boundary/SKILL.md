@@ -66,6 +66,6 @@ A fallback that reads a filesystem which is not there must fail, not return noth
 - `oxy-task-spec-default` — long-running work goes on the worker fleet, not in handlers.
 - `internal-docs/compile-boundary.md` — operator runbook (flags, kill switch, read routing, code map).
 - `internal-docs/factory-retirement.md` — the plan to compile from git and remove the working copy; `internal-docs/workspace-source.md` — the rules for where a read may come from.
-- The compile worker entry point: `crates/compile-runtime/src/worker.rs`; the dispatcher: `crates/workspace-runtime/src/compile_dispatcher.rs` (re-exported at `oxy_app::agentic_wiring::compile_dispatcher`).
-- The one read door: `ConfigManager` in `crates/core/src/config/manager.rs`. `crates/app/src/server/api/compiled_reader.rs` only resolves which revision a request is pinned to; handlers do not call it.
+- The compile worker entry point: `crates/compile-runtime/src/worker.rs`; the dispatcher: `crates/workspace-runtime/src/compile_dispatcher.rs`.
+- The one read door: `ConfigManager` in `crates/core/src/config/manager.rs`. `crates/app-core/src/compiled_reader.rs` only resolves which revision a request is pinned to; handlers do not call it.
 - The materialiser: `crates/core/src/config/scan.rs`; the request-time scan resolution over it (compiled revision first, working copy second, a compile enqueued on a miss) is `crates/workspace-runtime/src/scan_source.rs` (`oxy_workspace_runtime::scan_source`).

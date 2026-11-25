@@ -19,7 +19,7 @@ use std::path::Path;
 use agentic_automation::{WorkspaceContext, WorkspaceReadError};
 use agentic_pipeline::pipeline_ref::{PipelineRefError, load_pipeline_yaml};
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
-use oxy_app::agentic_wiring::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::json;
 use uuid::Uuid;

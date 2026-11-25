@@ -1,6 +1,6 @@
 //! Connector translation: which `*_var` failures are errors and which unset
 //! fields keep their defaults. Environment-backed managers, no database; the
-//! oxydb-backed half is `tests/platform/connector_vars_from_workspace_secrets.rs`.
+//! oxydb-backed half is `tests/integration/connector_vars_from_workspace_secrets.rs`.
 
 /// A manager over a `config.yml` holding `databases_yaml`, resolving
 /// secrets from the process environment only.

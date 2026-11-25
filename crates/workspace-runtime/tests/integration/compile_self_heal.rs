@@ -1,5 +1,5 @@
 //! A lazy self-heal recompiles the commit the workspace serves
-//! (`oxy_app::server::compile_git::self_heal`), and the recompile replaces the
+//! (`oxy_compile_runtime::git::self_heal`), and the recompile replaces the
 //! revision an older compiler wrote for that commit
 //! (`oxy_compile::writer::supersede_older_compiler`).
 //!
@@ -9,11 +9,11 @@
 //! predecessor and reported itself superseded by it.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_self_heal)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_self_heal)'`
 
 use chrono::Utc;
 use entity::{revisions, workspaces};
-use oxy_app::server::api::middlewares::workspace_context::enqueue_lazy_compile;
+use oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, Statement,
@@ -22,8 +22,8 @@ use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use oxy_app::server::compile_git;
 use oxy_compile::RevisionKind;
+use oxy_compile_runtime::git as compile_git;
 
 use super::compile_from_git::{drive_worker_queue, seed_workspace, workspace_tree};
 use crate::common::{Schema, test_db_with};
@@ -323,7 +323,7 @@ async fn a_workspace_with_no_github_connection_keeps_the_working_copy_self_heal(
 /// and the next check finds nothing to do.
 #[tokio::test]
 async fn a_compiler_bump_reaches_a_workspace_whose_head_has_not_moved() {
-    use oxy_app::server::compile_reconcile::tick;
+    use oxy_compile_runtime::reconcile::tick;
 
     let fx = Fx::new().await;
     fx.github_has_the_commit().await;
@@ -405,7 +405,7 @@ impl Fx {
     }
 
     async fn a_new_head_arrives(&self) {
-        oxy_app::server::api::middlewares::workspace_context::enqueue_import_compile(
+        oxy_compile_runtime::reconcile::enqueue::enqueue_import_compile(
             &self.db,
             self.ws,
             SHA.to_string(),

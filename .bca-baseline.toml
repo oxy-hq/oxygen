@@ -6783,19 +6783,19 @@ metric = "abc"
 value = 41.60528812542944
 
 [[entry]]
-path = "crates/app/tests/platform/airway_compile_boundary.rs"
+path = "crates/workspace-runtime/tests/integration/airway_compile_boundary.rs"
 qualified = "seed_promoted_workspace"
 metric = "abc"
 value = 78.23042886243178
 
 [[entry]]
-path = "crates/app/tests/platform/compile_first.rs"
+path = "crates/workspace-runtime/tests/integration/compile_first.rs"
 qualified = "an_empty_workspace_is_compiled_from_its_branch_by_a_context_with_no_files"
 metric = "abc"
 value = 46.33573135281238
 
 [[entry]]
-path = "crates/app/tests/platform/compile_push.rs"
+path = "crates/workspace-runtime/tests/integration/compile_push.rs"
 qualified = "a_retried_commit_compile_does_not_take_over_from_one_that_started_after_it_was_asked_for"
 metric = "abc"
 value = 40.792156108742276
@@ -6807,7 +6807,7 @@ metric = "abc"
 value = 104.67568963231147
 
 [[entry]]
-path = "crates/app/tests/platform/compiled_reader_semantic.rs"
+path = "crates/workspace-runtime/tests/integration/compiled_reader_semantic.rs"
 qualified = "seed_promoted_workspace"
 metric = "abc"
 value = 85.21150157109074
@@ -6843,7 +6843,7 @@ metric = "abc"
 value = 70.60453243241541
 
 [[entry]]
-path = "crates/app/tests/platform/preagg_promote_nudge.rs"
+path = "crates/workspace-runtime/tests/integration/preagg_promote_nudge.rs"
 qualified = "promote_revision"
 metric = "abc"
 value = 44.181444068749045

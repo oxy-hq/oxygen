@@ -1,5 +1,5 @@
 //! Pinning a custom-app environment's semantic model to a workspace branch
-//! (`oxy_app::server::compile_reconcile::env_pins`).
+//! (`oxy_compile_runtime::reconcile::env_pins`).
 //!
 //! The writer half of the pin the reader already understands: `pin_to_branch`
 //! stores a ready revision or the commit still being waited on,
@@ -16,16 +16,16 @@
 //! lookup is a `wiremock` GitHub, from [`super::compile_request::fixture`].
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(env_pins)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(env_pins)'`
 
 use chrono::Utc;
 use entity::{app_environments, apps, organizations, workspaces};
-use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
-use oxy_app::server::compile_reconcile::env_pins::{
+use oxy_app_core::semantic_pin_seam::SemanticPinner;
+use oxy_compile_runtime::reconcile::env_pinner::EnvPinner;
+use oxy_compile_runtime::reconcile::env_pins::{
     PinOutcome, branch_exists, move_after_compile, pin_to_branch, settle_pending_pin,
 };
-use oxy_app::server::compile_request::Refusal;
-use oxy_app_core::semantic_pin_seam::SemanticPinner;
+use oxy_compile_runtime::request::Refusal;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, Statement,

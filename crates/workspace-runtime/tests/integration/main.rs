@@ -14,6 +14,20 @@
 //!   airhouse tables on top of the central schema,
 //!   [`common::Schema::CentralAirhouse`]; the pool tests take a database of
 //!   their own the same way.
+//! * The compile cluster (decompose R-b), out of `oxy-app`'s `platform`
+//!   binary: compiling from git (`compile_from_git`, `compile_first`,
+//!   `compile_push`, `compile_reconcile`, `compile_request`,
+//!   `compile_self_heal`), the env pins (`env_pins`), what a compile admits
+//!   (`airway_compile_boundary`, `file_credentials_at_compile`,
+//!   `eval_tests_boundary`, `context_documents_boundary`) and reads only from
+//!   the compiled revision (`revision_miss_not_from_disk`,
+//!   `worker_ctx_follows_promote`, `compiled_reader_semantic`,
+//!   `semantic_scan_from_memory`, `connector_vars_from_workspace_secrets`),
+//!   the Airway fleet routes over it (`airway_fleet_control`), the post-promote
+//!   pre-aggregation nudge (`preagg_promote_nudge`), the feature-flag cache and
+//!   rollout gates (`feature_flag_refresh`, `rollout_gates`) and the
+//!   repository facts (`workspace_repo_facts`). All take their own database
+//!   through the harness.
 //! * `sentry_surface_gate` (decompose R-a), the two tests out of `oxy-app`'s
 //!   `routing::sentry_hub_scan` that drive the real custom-app gate
 //!   (`enter_semantic_boundary`). In-process; they open no database.
@@ -53,7 +67,22 @@ mod airhouse_pool_expiry;
 mod airhouse_pool_poison;
 mod airhouse_pool_reuse;
 mod airhouse_provisioner;
+mod airway_compile_boundary;
+mod airway_fleet_control;
+mod compile_first;
+mod compile_from_git;
 mod compile_oltp_promote;
+mod compile_push;
+mod compile_reconcile;
+mod compile_request;
+mod compile_self_heal;
+mod compiled_reader_semantic;
+mod connector_vars_from_workspace_secrets;
+mod context_documents_boundary;
+mod env_pins;
+mod eval_tests_boundary;
+mod feature_flag_refresh;
+mod file_credentials_at_compile;
 mod oltp_branches;
 mod oltp_branches_env;
 mod oltp_branches_guards;
@@ -64,4 +93,10 @@ mod oltp_env_branches_cap;
 mod oltp_env_branches_recut;
 mod oltp_env_branches_stale;
 mod oltp_provisioner;
+mod preagg_promote_nudge;
+mod revision_miss_not_from_disk;
+mod rollout_gates;
+mod semantic_scan_from_memory;
 mod sentry_surface_gate;
+mod worker_ctx_follows_promote;
+mod workspace_repo_facts;

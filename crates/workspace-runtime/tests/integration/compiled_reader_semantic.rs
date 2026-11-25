@@ -16,7 +16,7 @@
 
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, revisions, semantic_topics, semantic_views, workspaces};
-use oxy_app::server::api::compiled_reader::{resolve_semantic_topic, resolve_semantic_view};
+use oxy_app_core::compiled_reader::{resolve_semantic_topic, resolve_semantic_view};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::json;
 use uuid::Uuid;

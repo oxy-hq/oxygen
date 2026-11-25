@@ -1,5 +1,5 @@
 //! The periodic check that keeps a remote-backed workspace serving what its
-//! default branch has (`oxy_app::server::compile_reconcile`).
+//! default branch has (`oxy_compile_runtime::reconcile`).
 //!
 //! What is worth a real database and a fake GitHub here is what the loop must
 //! *not* do: ask GitHub more than once per workspace per interval however
@@ -13,11 +13,11 @@
 //! the passage of an interval does.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_reconcile)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_reconcile)'`
 
 use chrono::Utc;
 use entity::{revisions, workspace_compile_checks, workspaces};
-use oxy_app::server::compile_reconcile::{CHECK_INTERVAL, Tick, tick};
+use oxy_compile_runtime::reconcile::{CHECK_INTERVAL, Tick, tick};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, Statement,
@@ -401,7 +401,7 @@ mod default_branch {
     use std::time::Duration;
 
     use oxy::github::{BranchHeadError, DefaultBranchError};
-    use oxy_app::server::compile_reconcile::default_branch::{
+    use oxy_compile_runtime::reconcile::default_branch::{
         DefaultBranchSource, MAX_PER_TICK, record_missing_with,
     };
 

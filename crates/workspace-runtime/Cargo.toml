@@ -147,6 +147,17 @@ oxy-telemetry = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 # A `wiremock` Airhouse admin API.
 wiremock = { workspace = true }
+# The compile cluster (decompose R-b). `airway_compile_boundary` parses the
+# pipeline spec it compiles; `airway_fleet_control` drives the Airway fleet
+# routes; `feature_flag_refresh` checks the billing gate an unloaded flag cache
+# turns off.
+agentic-airway = { workspace = true }
+agentic-http = { workspace = true }
+oxy-billing = { workspace = true }
+# `compile_from_git`'s harness support packs a commit tarball (the unpack itself
+# is `oxy-compile-runtime`'s).
+flate2 = { workspace = true }
+tar = { workspace = true }
 
 [lints]
 workspace = true

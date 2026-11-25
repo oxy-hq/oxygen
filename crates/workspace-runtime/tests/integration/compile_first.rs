@@ -20,7 +20,7 @@
 //! driven here.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_first)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_first)'`
 
 use std::sync::Arc;
 
@@ -30,10 +30,10 @@ use agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE;
 use agentic_runtime::state::RuntimeState;
 use entity::{workspace_compile_checks, workspaces};
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
-use oxy_app::agentic_wiring::OxyProjectContext;
-use oxy_app::server::api::middlewares::workspace_context::enqueue_lazy_compile;
-use oxy_app::server::compile_reconcile::{request_check, tick};
-use oxy_app::server::previews::runtime::PreviewRunResolver;
+use oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile;
+use oxy_compile_runtime::reconcile::{request_check, tick};
+use oxy_workspace_runtime::preview_runtime::PreviewRunResolver;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Statement};
 use uuid::Uuid;
 use wiremock::matchers::{header, method, path};

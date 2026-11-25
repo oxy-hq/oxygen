@@ -9,12 +9,10 @@
 //! since moved past moves nothing; and a deleted branch touches no pin.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(env_pins)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(env_pins)'`
 
-use oxy_app::server::compile_reconcile::env_pins::{move_after_compile, on_branch_push};
-use oxy_app::server::compile_reconcile::push::{
-    self, Handled, PushCommit, PushEvent, PushRepository,
-};
+use oxy_compile_runtime::reconcile::env_pins::{move_after_compile, on_branch_push};
+use oxy_compile_runtime::reconcile::push::{self, Handled, PushCommit, PushEvent, PushRepository};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;

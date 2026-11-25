@@ -21,7 +21,7 @@
 //! compiled; that precondition is recorded in the plan, not exercised here.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_from_git)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_from_git)'`
 
 use std::sync::Arc;
 
@@ -30,10 +30,10 @@ use agentic_pipeline::platform::CompileDispatcher;
 use agentic_runtime::coordinator::{COMPILE_GIT_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
 use entity::{revisions, semantic_views, workspaces};
 use oxy::workspace_fs_probe::{leaks, process_owns_workspace_files, reset_leaks};
-use oxy_app::agentic_wiring::compile_dispatcher::OxyCompileDispatcher;
-use oxy_app::server::compile_git;
 use oxy_app_core::pods::role_manifest::{init_process_role_from_env, process_can_compile};
 use oxy_compile::RevisionKind;
+use oxy_compile_runtime::git as compile_git;
+use oxy_workspace_runtime::compile_dispatcher::OxyCompileDispatcher;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, Statement,

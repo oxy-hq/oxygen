@@ -9,7 +9,7 @@
 //! unset every gate read its registry default — off — while the admin page
 //! said it was on. `oxy compile` had the same gap.
 
-use oxy_app::server::compile_config_gate::runtime_config_gate;
+use oxy_compile_runtime::config_gate::runtime_config_gate;
 use oxy_feature_flags::rollout::{
     COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, COMPILE_REFUSE_FILE_CREDENTIALS,
     COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS, is_on,

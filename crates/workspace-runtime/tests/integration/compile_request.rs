@@ -1,5 +1,5 @@
 //! `compile(workspace, branch | sha, kind)` and the status read beside it
-//! (`oxy_app::server::compile_request`): the call a preview and a custom-app
+//! (`oxy_compile_runtime::request`): the call a preview and a custom-app
 //! staging build both make to get a branch compiled.
 //!
 //! What is pinned here is what makes it safe to answer from a pod with no
@@ -15,14 +15,14 @@
 //! `worker` and `serve` the workspace-path probe is armed.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_request)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_request)'`
 
 #[path = "../../../test-utils/harness/compile_request_fixture.rs"]
 pub(super) mod fixture;
 
 use oxy::workspace_fs_probe::leaks;
-use oxy_app::server::compile_request::{self, NotFromGit, Refusal, Target};
 use oxy_compile::RevisionKind;
+use oxy_compile_runtime::request::{self as compile_request, NotFromGit, Refusal, Target};
 use sea_orm::ActiveValue;
 use wiremock::ResponseTemplate;
 
@@ -425,16 +425,9 @@ async fn a_joined_main_compile_that_fails_before_a_revision_is_reported_to_the_s
     fx.serve_commit(HEAD, tarball(&[("README.md", "not a workspace")]))
         .await;
     // What the periodic check queues when a branch head moved.
-    oxy_app::server::compile_git::enqueue(
-        &fx.db,
-        fx.ws,
-        HEAD,
-        Some("main"),
-        RevisionKind::Main,
-        true,
-    )
-    .await
-    .expect("queue the main compile");
+    oxy_compile_runtime::git::enqueue(&fx.db, fx.ws, HEAD, Some("main"), RevisionKind::Main, true)
+        .await
+        .expect("queue the main compile");
 
     let joined = fx.compile(Target::Branch(BRANCH)).await.expect("joined");
     assert_eq!(joined.status, "pending");

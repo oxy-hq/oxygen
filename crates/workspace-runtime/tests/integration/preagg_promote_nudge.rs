@@ -15,7 +15,7 @@
 
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, revisions, semantic_views, workspaces};
-use oxy_app::server::preagg_promote::nudge_after_promote;
+use oxy_preagg::promote::nudge_after_promote;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
     Statement,

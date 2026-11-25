@@ -122,7 +122,7 @@ async fn an_unloaded_cache_reads_billing_off_so_the_paywall_would_skip() {
          posture serve avoids by treating init as fatal"
     );
     assert!(
-        oxy_app::server::api::billing::billing_disabled(),
+        oxy_billing::billing_disabled(),
         "and the gate the subscription guard consults reads disabled, so an \
          un-inited process would skip the paywall for every org"
     );

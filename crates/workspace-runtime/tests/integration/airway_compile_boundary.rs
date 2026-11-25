@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use entity::workspaces::WorkspaceStatus;
 use entity::{airway_pipelines, organizations, revisions, workspace_compiled_configs, workspaces};
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
-use oxy_app::agentic_wiring::OxyProjectContext;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };
@@ -495,7 +495,7 @@ pub(super) async fn compile_at(
         promote: true,
         kind: oxy_compile::RevisionKind::Main,
         owner_user_id: None,
-        config_gate: Some(oxy_app::server::compile_config_gate::runtime_config_gate()),
+        config_gate: Some(oxy_compile_runtime::config_gate::runtime_config_gate()),
     })
     .await
     .expect("compile the workspace");
