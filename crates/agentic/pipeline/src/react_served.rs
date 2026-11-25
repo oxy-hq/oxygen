@@ -103,6 +103,7 @@ pub(crate) async fn start(
         }
         Ok(log) => {
             let built = build_served(platform, db, config, inputs, base_dir).await;
+            let built = with_archive(platform, built, &run_id);
             if crate::react_resume::continues(&log) {
                 // A re-driven start (a released or reaped claim): the log
                 // already holds an attempt, so it is continued.
@@ -148,6 +149,23 @@ pub(crate) async fn read_only_inputs(
         }
     }
     inputs
+}
+
+/// `built` storing its query results in the platform's archive, when it has
+/// one, under the platform's workspace and the run's id. A start and a resume
+/// both attach it, so a resumed run reads back what an earlier attempt
+/// stored. The workspace is `PlatformContext::workspace_id`, the one the
+/// results route reads with, never the inputs' (a resume's can be unset).
+pub(crate) fn with_archive(
+    platform: &dyn PlatformContext,
+    built: Result<ReactRun, String>,
+    run_id: &str,
+) -> Result<ReactRun, String> {
+    if let (Ok(run), Some(archive)) = (&built, platform.result_archive()) {
+        run.results
+            .attach_archive(archive, platform.workspace_id(), run_id);
+    }
+    built
 }
 
 /// The react run a served start or resume runs, with the requesting user's

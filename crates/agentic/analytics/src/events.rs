@@ -39,6 +39,19 @@ pub enum AnalyticsEvent {
     /// last cited one. Emitted once when the run is done.
     AnswerResult { result_id: String, sql: String },
 
+    /// The answer's result as a table: its first rows, written right after
+    /// `AnswerResult`. The rest are paged from the stored result
+    /// (`GET …/runs/{id}/results/{result_id}`). `column_kinds` is `number` or
+    /// `text` per column. A react run only.
+    ResultTable {
+        result_id: String,
+        columns: Vec<String>,
+        column_kinds: Vec<agentic_runtime::react::ColumnKind>,
+        rows: Vec<Vec<serde_json::Value>>,
+        row_count: usize,
+        truncated: bool,
+    },
+
     /// The schema catalog was resolved: these tables will be referenced.
     SchemaResolved { tables: Vec<String> },
 

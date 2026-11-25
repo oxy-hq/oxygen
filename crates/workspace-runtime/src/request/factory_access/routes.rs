@@ -116,6 +116,8 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     ("POST", "/analytics/runs/{id}/answer"),
     ("POST", "/analytics/runs/{id}/cancel"),
     ("GET", "/analytics/runs/{id}/events"),
+    // The pages of a react answer's table, read with its events.
+    ("GET", "/analytics/runs/{id}/results/{result_id}"),
     // Mobile ask: "tell me when this is answered" on the caller's own run.
     ("POST", "/analytics/runs/{id}/notify"),
     // Evals run the agents the way chat does (`oxyc evals run`), so whoever

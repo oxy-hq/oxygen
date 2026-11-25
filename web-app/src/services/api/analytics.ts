@@ -494,6 +494,33 @@ type AnswerResultBlock = {
   payload: { result_id: string; sql?: string };
 };
 
+/** A react answer's result as a table: its first rows; the rest page from the stored result. */
+export type ResultTableData = {
+  result_id: string;
+  columns: string[];
+  column_kinds: ("number" | "text")[];
+  rows: unknown[][];
+  row_count: number;
+  truncated: boolean;
+};
+
+type ResultTableBlock = {
+  seq: number;
+  event_type: "result_table";
+  payload: ResultTableData;
+};
+
+/** One page of a stored react result (`GET …/runs/{id}/results/{result_id}`). */
+export type ResultPage = {
+  columns: string[];
+  column_kinds: ("number" | "text")[];
+  rows: unknown[][];
+  offset: number;
+  row_count: number;
+  truncated: boolean;
+  created_at: string;
+};
+
 /** Internal react-loop rows. They can reach the browser and are rendered as nothing. */
 type ReactTurnBlock = { seq: number; event_type: "react_turn"; payload: Record<string, unknown> };
 type ReactToolResultBlock = {
@@ -512,6 +539,7 @@ type ReactSuspendedBlock = {
 export type UiBlock =
   | RuntimeSelectedBlock
   | AnswerResultBlock
+  | ResultTableBlock
   | ReactTurnBlock
   | ReactToolResultBlock
   | ReactSuspendedBlock
@@ -577,6 +605,20 @@ export class AnalyticsService {
     // Every run starts on the chat route. A Builder or onboarding start is
     // refused there with `410 builder_removed`: the Builder went with the IDE.
     const response = await apiClient.post(`/${projectId}/analytics/runs`, body);
+    return response.data;
+  }
+
+  /** A page of a react run's stored result. 404: not stored; 410: expired (30 days). */
+  static async getResultPage(
+    projectId: string,
+    runId: string,
+    resultId: string,
+    params: { offset: number; limit: number; sort?: number; desc?: boolean }
+  ): Promise<ResultPage> {
+    const response = await apiClient.get(
+      `/${projectId}/analytics/runs/${runId}/results/${resultId}`,
+      { params }
+    );
     return response.data;
   }
 

@@ -2,6 +2,7 @@
 //! [`Engine`](agentic_core::react::Engine) and a
 //! [`Toolset`](agentic_core::react::Toolset).
 
+mod archive;
 mod ask_user;
 mod budget;
 mod dispatch;
@@ -19,6 +20,10 @@ mod testkit;
 #[cfg(test)]
 mod tests;
 
+pub use archive::{
+    ArchiveError, ArchiveKey, ArchivedResult, ColumnKind, MAX_PAGE_ROWS, NoArchive, PageRequest,
+    RESULT_TTL, ResultArchive, ResultPage, column_kinds, page,
+};
 pub use ask_user::AskUser;
 pub use budget::BudgetMeter;
 pub use dispatch::DispatchCx as LoopCx;
@@ -31,7 +36,7 @@ pub use memory::{
     notes_section, plan_merge,
 };
 pub use nudge::Nudge;
-pub use results::{DEFAULT_PREVIEW_ROWS, Preview, ResultStore, StoredResult};
+pub use results::{DEFAULT_PREVIEW_ROWS, MEMORY_ROWS, Preview, ResultStore, StoredResult};
 pub use resume::{ResumeInput, SuspensionInput, resume_loop, suspension_data};
 pub use resume_guard::already_terminal;
 pub use store::{InMemoryStore, Rebuilt, StoreError, TranscriptStore, rebuild};

@@ -401,6 +401,13 @@ impl ProjectContext for OxyProjectContext {
         self.org_flag(oxy_feature_flags::REACT_MEMORY).await
     }
 
+    /// The bucket (or, with none, the state directory), for every served run:
+    /// a result is Oxy's copy of a query the person already ran, not an app's
+    /// side effect, so a context holding writes stores it too.
+    fn result_archive(&self) -> Option<Arc<dyn agentic_runtime::react::ResultArchive>> {
+        Some(Arc::new(crate::react_results::BlobResultArchive::from_env()))
+    }
+
     /// `None` while holding writes, like every unheld connector; else the
     /// read-only Airhouse connector for an `airhouse_managed` database.
     async fn read_only_connector(&self, db_name: &str) -> Option<Arc<dyn DatabaseConnector>> {

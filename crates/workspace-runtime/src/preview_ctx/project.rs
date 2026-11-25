@@ -171,6 +171,11 @@ impl ProjectContext for PreviewPlatformContext {
         false
     }
 
+    /// `None`: a preview never runs react, so it stores no results.
+    fn result_archive(&self) -> Option<Arc<dyn agentic_runtime::react::ResultArchive>> {
+        None
+    }
+
     /// `None`: a preview never runs react, and its connectors are held.
     async fn read_only_connector(
         &self,

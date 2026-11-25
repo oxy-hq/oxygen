@@ -73,6 +73,7 @@ pub mod airway;
 pub mod airway_not_servable;
 pub mod automation;
 pub mod notify;
+pub mod results;
 pub mod run;
 mod run_scope;
 pub mod thread;
@@ -87,6 +88,7 @@ pub use automation::{
     latest_run_for_thread, list_automation_files, list_runs_for_automation,
 };
 pub use notify::request_run_notice;
+pub use results::get_result_page;
 pub use run::{
     UpdateThinkingModeRequest, answer_run, cancel_run, create_run, stream_events,
     update_thinking_mode,

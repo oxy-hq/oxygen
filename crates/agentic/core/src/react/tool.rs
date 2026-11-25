@@ -23,6 +23,7 @@ pub enum Effect {
 
 /// Storage for query results, so tools pass ids rather than rows. Implemented
 /// by the runtime's result store.
+#[async_trait]
 pub trait ResultHandle: Send + Sync {
     /// Stores a result and returns its id.
     fn put(&self, sql: String, columns: Vec<String>, rows: Vec<Vec<Value>>) -> String;
@@ -31,6 +32,10 @@ pub trait ResultHandle: Send + Sync {
     /// Registers an id recorded in an earlier task whose rows are gone; only
     /// its SQL is known. The default ignores it (a store with no memory).
     fn restore(&self, _id: &str, _sql: String) {}
+    /// Writes result `id` to the host's storage, so it outlives the run;
+    /// `truncated` says the connector stopped at its row cap. The default
+    /// keeps nothing. A failure is the store's to log: the run goes on.
+    async fn persist(&self, _id: &str, _truncated: bool) {}
 }
 
 /// Per-call context handed to a tool.

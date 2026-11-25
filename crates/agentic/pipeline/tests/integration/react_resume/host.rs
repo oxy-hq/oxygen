@@ -143,6 +143,9 @@ pub(super) struct Host {
     /// connector has no read-only path ([`Writable`]), and only
     /// `read_only_connector` gives one ([`ReadOnly`]).
     pub airhouse_like: bool,
+    /// Where served runs store results (`PlatformContext::result_archive`);
+    /// `None` stores nothing.
+    pub archive: Option<Arc<dyn agentic_runtime::react::ResultArchive>>,
     pub agent: &'static str,
     pub script: Script,
     pub engines_built: AtomicUsize,
@@ -164,6 +167,7 @@ impl Host {
             warehouse: true,
             connector: None,
             airhouse_like: false,
+            archive: None,
             agent: REACT_AGENT,
             script: Script {
                 decisions: Arc::new(Mutex::new(script.into())),
@@ -193,6 +197,10 @@ impl agentic_pipeline::platform::ProjectContext for Host {
             return Some(Arc::new(Writable));
         }
         Some(self.connector.clone().unwrap_or_else(|| Arc::new(ReadOnly)))
+    }
+
+    fn result_archive(&self) -> Option<Arc<dyn agentic_runtime::react::ResultArchive>> {
+        self.archive.clone()
     }
 
     async fn read_only_connector(&self, name: &str) -> Option<Arc<dyn DatabaseConnector>> {

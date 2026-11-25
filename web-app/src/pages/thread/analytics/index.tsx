@@ -57,6 +57,7 @@ import BuilderDelegationPanel from "./BuilderDelegationPanel";
 import { parseFileChange } from "./FileChangeDiff";
 import Header from "./Header";
 import MessageInputShell from "./MessageInputShell";
+import { RunResultTables } from "./ResultTableBlock";
 import SuspensionPrompt from "./SuspensionPrompt";
 
 /**
@@ -258,6 +259,7 @@ const PastRunEntry = ({
               <Markdown>{stripResultRefs(runAnswer)}</Markdown>
             </div>
           )}
+          <RunResultTables events={runSseEvents} runId={run.run_id} />
         </div>
       )}
       {run.status === "failed" && (
@@ -657,6 +659,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                             <Markdown>{stripResultRefs(state.answer)}</Markdown>
                           </div>
                         )}
+                        <RunResultTables events={state.events} runId={state.runId} />
                       </div>
                     )}
 

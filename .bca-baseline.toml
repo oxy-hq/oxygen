@@ -10579,7 +10579,7 @@ value = 18.0
 path = "crates/workspace-runtime/src/project_ctx/project_context.rs"
 qualified = "OxyProjectContext"
 metric = "nom"
-value = 31.0
+value = 32.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/project_ctx/workspace_context.rs"
@@ -17539,13 +17539,13 @@ value = 762.0
 path = "web-app/src/pages/thread/analytics/index.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 651.0
+value = 654.0
 
 [[entry]]
 path = "web-app/src/pages/thread/analytics/index.tsx"
 qualified = "AnalyticsThread"
 metric = "abc"
-value = 123.71741995369932
+value = 125.01999840025594
 
 [[entry]]
 path = "web-app/src/pages/thread/analytics/index.tsx"
@@ -17561,13 +17561,13 @@ value = 51.0
 
 [[entry]]
 path = "web-app/src/pages/thread/analytics/index.tsx"
-qualified = "AnalyticsThread::<anon@L355>"
+qualified = "AnalyticsThread::<anon@L357>"
 metric = "cognitive"
 value = 18.0
 
 [[entry]]
 path = "web-app/src/pages/thread/analytics/index.tsx"
-qualified = "AnalyticsThread::<anon@L489>"
+qualified = "AnalyticsThread::<anon@L491>"
 metric = "cognitive"
 value = 18.0
 

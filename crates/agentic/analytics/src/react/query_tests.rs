@@ -350,25 +350,25 @@ async fn query_fails_closed_on_sql_the_parser_cannot_read() {
 
 #[tokio::test]
 async fn query_truncated_result_names_the_total_when_the_connector_knows_it() {
-    let db = Fake::new(1_500);
+    let db = Fake::new(15_000);
     let t = tool(&[("warehouse", db)], None);
     let reply = run(&t, json!({"sql": "select * from t"})).await.unwrap();
     assert!(
         reply
             .text
-            .starts_with("result r1: 1000 of 1500 rows (truncated)\n"),
+            .starts_with("result r1: 10000 of 15000 rows (truncated)\n"),
         "{}",
         reply.text
     );
     let payload = &reply.artifacts[0].payload;
     assert_eq!(
         payload["row_count"],
-        json!(1000),
+        json!(10_000),
         "artifact row_count stays the rows held"
     );
 
     let db = Arc::new(Fake {
-        rows: 1_500,
+        rows: 15_000,
         unknown_total: true,
         fail: None,
         seen: Mutex::new(Vec::new()),
@@ -377,7 +377,9 @@ async fn query_truncated_result_names_the_total_when_the_connector_knows_it() {
     let t = tool(&[("warehouse", db)], None);
     let reply = run(&t, json!({"sql": "select * from t"})).await.unwrap();
     assert!(
-        reply.text.starts_with("result r1: 1000 rows (truncated)\n"),
+        reply
+            .text
+            .starts_with("result r1: 10000 rows (truncated)\n"),
         "{}",
         reply.text
     );

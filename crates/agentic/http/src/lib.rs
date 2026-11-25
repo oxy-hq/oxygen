@@ -92,6 +92,14 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/runs/{id}/thinking_mode",
             role: FleetOk,
         },
+        // A page of a react run's stored result: a run-row read, then the
+        // result from the blob bucket every pod reads. Local disk only when no
+        // bucket is configured (one process).
+        RouteRoleDecl {
+            method: "GET",
+            path: "/runs/{id}/results/{result_id}",
+            role: FleetOk,
+        },
         // One UPDATE of the run row after the same workspace-scope read and a
         // thread-owner read; when the run already ended, the host's run
         // observer writes the notice and queues its delivery as a durable
@@ -193,6 +201,10 @@ where
     Router::new()
         .route("/runs", post(routes::create_run))
         .route("/runs/{id}/events", get(routes::stream_events))
+        .route(
+            "/runs/{id}/results/{result_id}",
+            get(routes::get_result_page),
+        )
         .route("/runs/{id}/answer", post(routes::answer_run))
         .route("/runs/{id}/cancel", post(routes::cancel_run))
         .route("/runs/{id}/notify", post(routes::request_run_notice))

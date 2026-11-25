@@ -110,6 +110,7 @@ pub(crate) async fn resume(
     input: ResumeInput,
 ) -> StartedPipeline {
     let built = build_served(platform, db, config, inputs, base_dir).await;
+    let built = crate::react_served::with_archive(platform, built, run.run_id);
     let prior = match run.thread_id {
         Some(tid) => prior_turns(db, tid, run.run_id).await,
         None => Vec::new(),

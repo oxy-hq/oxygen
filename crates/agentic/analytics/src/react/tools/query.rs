@@ -27,8 +27,9 @@ use crate::react::render::render_table;
 use crate::solver::lookup_connector;
 use crate::{AnalyticsEvent, QuerySource, SemanticCatalog};
 
-/// Rows fetched per query, as the FSM's executing stage fetches.
-const SAMPLE_LIMIT: u64 = 1_000;
+/// The most rows a result keeps: the platform's cap. The model sees only its
+/// `limit`; the rest are for the answer's table.
+const SAMPLE_LIMIT: u64 = 10_000;
 const DEFAULT_SHOWN: usize = 20;
 const MAX_SHOWN: usize = 100;
 const MAX_CANDIDATES: usize = 5;
@@ -401,7 +402,14 @@ impl Tool for QueryTool {
             .await;
         let duration_ms = start.elapsed().as_millis() as u64;
         Ok(match result {
-            Ok(exec) => success_reply(prepared, exec, duration_ms, limit, cx),
+            Ok(exec) => {
+                let truncated = exec.result.truncated;
+                let reply = success_reply(prepared, exec, duration_ms, limit, cx);
+                if let Some(id) = reply.value.get("result_id").and_then(Value::as_str) {
+                    cx.results.persist(id, truncated).await;
+                }
+                reply
+            }
             Err(e) => failed_reply(prepared, e.to_string(), duration_ms),
         })
     }

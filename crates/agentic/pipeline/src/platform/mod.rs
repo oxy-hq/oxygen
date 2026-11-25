@@ -344,6 +344,13 @@ pub trait ProjectContext: Send + Sync {
         None
     }
 
+    /// Where a served react run stores its query results, so a table can page
+    /// them later (`internal-docs/agent-engine-runtime.md`, "Results, tables
+    /// and charts"). `None`, the default, stores nothing.
+    fn result_archive(&self) -> Option<Arc<dyn agentic_runtime::react::ResultArchive>> {
+        None
+    }
+
     /// The engine a react run decides with in place of the agent's model.
     /// `None`, the default and every production host's answer, builds the
     /// agent's own `LlmEngine`. A test host returns a scripted engine here,

@@ -17,6 +17,7 @@ mod prior_turns;
 mod read_only_swap;
 mod readiness;
 mod redrive;
+mod result_table;
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

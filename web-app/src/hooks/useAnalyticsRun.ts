@@ -6,6 +6,7 @@ import { previewRequestHeaders } from "@/libs/utils/preview";
 import type {
   ChartConfig,
   HumanInputQuestion,
+  ResultTableData,
   ThinkingMode,
   UiBlock
 } from "@/services/api/analytics";
@@ -200,6 +201,11 @@ export function extractAnswer(events: SseEvent[]): string {
         .map((s) => s.text)
         .join("");
   return stripResultRefs(text).trim();
+}
+
+/** The answer tables (`result_table`) of a react run, in emission order. */
+export function extractResultTables(events: SseEvent[]): ResultTableData[] {
+  return events.filter((ev) => ev.type === "result_table").map((ev) => ev.data as ResultTableData);
 }
 
 /** Extract all chart_rendered payloads from an event list, in emission order. */

@@ -86,6 +86,7 @@ POST	/api/{workspace_id}/analytics/runs/{id}/answer	fleet-ok	Fixture	needs a sus
 POST	/api/{workspace_id}/analytics/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver's lease polls
 GET	/api/{workspace_id}/analytics/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives
 POST	/api/{workspace_id}/analytics/runs/{id}/notify	fleet-ok	Fixture	needs a real analytics run id on the caller's own thread; one UPDATE of its `agentic_runs` row, and for a run that already ended the `oxy.ask_finished` notice written and its delivery queued — not yet in this script's case table
+GET	/api/{workspace_id}/analytics/runs/{id}/results/{result_id}	fleet-ok	Fixture	needs a react run with a stored result; a run-row read, then the result from the blob bucket — not yet in this script's case table
 PATCH	/api/{workspace_id}/analytics/runs/{id}/thinking_mode	fleet-ok	Fixture	needs a real analytics run id; one UPDATE of its `analytics_run_extensions` row — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/run	fleet-ok	Now	use a real thread id — all 3 fixture threads are `source_type: analytics`, real history expected
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same

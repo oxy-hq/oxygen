@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use agentic_connector::DatabaseConnector;
 use agentic_core::events::Event;
-use agentic_core::react::{DoneHook, EventSink, ResultHandle, Tool, Toolset, Turn};
+use agentic_core::react::{DoneHook, EventSink, Tool, Toolset, Turn};
 use agentic_runtime::react::{
-    AskUser, Budgets, MEMORY_TOOLS, MemoryGate, Nudge, REFLECT_PROMPT, Reflect, RunMemory,
-    memory_tools, notes_section,
+    AskUser, Budgets, MEMORY_TOOLS, MemoryGate, Nudge, REFLECT_PROMPT, Reflect, ResultStore,
+    RunMemory, column_kinds, memory_tools, notes_section,
 };
 use async_trait::async_trait;
 
@@ -142,10 +142,16 @@ pub async fn emit_runtime_selected(ev: &EventSink) {
     .await;
 }
 
-/// The loop's done hook: emits `AnswerResult` for the result the answer cites
-/// (when its SQL is known) and rewrites the answer text without its markers.
+/// Rows a `result_table` row carries; the table pages the rest.
+pub const TABLE_ROWS: usize = 50;
+
+/// The loop's done hook: emits `AnswerResult` and `ResultTable` for the result
+/// the answer cites (when its SQL is known) and rewrites the answer text
+/// without its markers. A result restored without rows on a resume is read
+/// back from the run's stored results ([`ResultStore::load`]); one that is in
+/// neither gets no table.
 pub struct AnswerFinisher {
-    pub results: Arc<dyn ResultHandle>,
+    pub results: Arc<ResultStore>,
 }
 
 #[async_trait]
@@ -157,14 +163,31 @@ impl DoneHook for AnswerFinisher {
         {
             let result_id = id.to_string();
             emit(ev, AnalyticsEvent::AnswerResult { result_id, sql }).await;
+            if let Some(table) = result_table(&self.results, id).await {
+                emit(ev, table).await;
+            }
         }
         answer.text = strip_citations(&answer.text);
     }
 }
 
+/// The `ResultTable` row for result `id`, from memory or the stored result.
+async fn result_table(results: &ResultStore, id: &str) -> Option<AnalyticsEvent> {
+    let stored = results.load(id).await?;
+    Some(AnalyticsEvent::ResultTable {
+        result_id: id.to_string(),
+        column_kinds: stored.column_kinds.clone(),
+        columns: stored.columns.clone(),
+        rows: stored.rows.iter().take(TABLE_ROWS).cloned().collect(),
+        row_count: stored.row_count,
+        truncated: stored.truncated,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentic_core::react::ResultHandle;
     use agentic_core::react::{Turn, TurnUsage};
     use agentic_runtime::react::ResultStore;
 
@@ -192,7 +215,104 @@ mod tests {
             payload,
             serde_json::json!({"result_id": "r1", "sql": "select 1"})
         );
+        let (ty, _) = rx.recv().await.unwrap();
+        assert_eq!(ty, "result_table");
         assert!(rx.recv().await.is_none());
+    }
+
+    /// Keeps what it is given, as a host's storage would.
+    #[derive(Default)]
+    struct Kept(std::sync::Mutex<HashMap<String, agentic_runtime::react::ArchivedResult>>);
+
+    #[async_trait]
+    impl agentic_runtime::react::ResultArchive for Kept {
+        async fn put(
+            &self,
+            key: &agentic_runtime::react::ArchiveKey,
+            result: &agentic_runtime::react::ArchivedResult,
+        ) -> Result<(), agentic_runtime::react::ArchiveError> {
+            self.0.lock().unwrap().insert(key.path(), result.clone());
+            Ok(())
+        }
+        async fn get(
+            &self,
+            key: &agentic_runtime::react::ArchiveKey,
+        ) -> Result<
+            Option<agentic_runtime::react::ArchivedResult>,
+            agentic_runtime::react::ArchiveError,
+        > {
+            Ok(self.0.lock().unwrap().get(&key.path()).cloned())
+        }
+    }
+
+    /// A run resumed in another process has the cited result's SQL but not
+    /// its rows: the table is read back from the stored result, and carries
+    /// the first `TABLE_ROWS` rows, the count, and the truncation flag.
+    #[tokio::test]
+    async fn a_resumed_answer_tables_its_result_from_storage() {
+        let kept: Arc<Kept> = Arc::default();
+        let ws = uuid::Uuid::new_v4();
+        let run = uuid::Uuid::new_v4().to_string();
+        let rows: Vec<Vec<serde_json::Value>> =
+            (0..120).map(|i| vec![serde_json::json!(-i)]).collect();
+        let first = ResultStore::new();
+        first.attach_archive(kept.clone(), ws, &run);
+        let id = first.put("select n".into(), vec!["n".into()], rows.clone());
+        first.persist(&id, true).await;
+        // The upload runs in its own task: wait for it to land, not for a time.
+        let landed = async {
+            while kept.0.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), landed)
+            .await
+            .expect("the result was never stored");
+
+        let resumed = ResultStore::new();
+        resumed.attach_archive(kept, ws, &run);
+        resumed.restore(&id, "select n".into());
+        let finisher = AnswerFinisher {
+            results: Arc::new(resumed),
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let mut answer = Turn {
+            text: format!("Down {{{{result:{id}}}}}."),
+            tool_calls: vec![],
+            native: serde_json::Value::Null,
+            usage: TurnUsage::default(),
+        };
+        finisher.on_done(&mut answer, &tx).await;
+        drop(tx);
+        assert_eq!(rx.recv().await.unwrap().0, "answer_result");
+        let (ty, table) = rx.recv().await.unwrap();
+        assert_eq!(ty, "result_table");
+        assert_eq!(table["row_count"], 120);
+        assert_eq!(table["truncated"], true);
+        assert_eq!(table["column_kinds"], serde_json::json!(["number"]));
+        assert_eq!(table["rows"].as_array().unwrap().len(), TABLE_ROWS);
+        assert_eq!(table["rows"][3], serde_json::json!([-3]));
+    }
+
+    /// A column that turns to text after the rows memory keeps is still
+    /// `text`: kinds come from every row the query returned.
+    #[tokio::test]
+    async fn a_columns_kind_counts_rows_past_what_memory_keeps() {
+        let store = ResultStore::new();
+        let mut rows: Vec<Vec<serde_json::Value>> = (0..agentic_runtime::react::MEMORY_ROWS)
+            .map(|i| vec![serde_json::json!(i)])
+            .collect();
+        rows.push(vec![serde_json::json!("N/A")]);
+        let id = store.put("select n".into(), vec!["n".into()], rows);
+        store.persist(&id, false).await;
+        let held = store.get(&id).unwrap();
+        assert_eq!(held.rows.len(), agentic_runtime::react::MEMORY_ROWS);
+        assert_eq!(held.row_count, agentic_runtime::react::MEMORY_ROWS + 1);
+        let table = result_table(&store, &id).await.unwrap();
+        let AnalyticsEvent::ResultTable { column_kinds, .. } = table else {
+            panic!("not a table")
+        };
+        assert_eq!(column_kinds, vec![agentic_runtime::react::ColumnKind::Text]);
     }
 
     #[tokio::test]
