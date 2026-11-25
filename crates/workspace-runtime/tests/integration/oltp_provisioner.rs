@@ -12,7 +12,7 @@
 //! them in one session, all from assuming the database owner is a superuser).
 //! A `MockProvider` would have passed every one.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test platform -E 'test(oltp_provisioner)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(oltp_provisioner)'`
 
 use std::sync::Arc;
 

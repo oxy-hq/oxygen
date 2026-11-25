@@ -17,6 +17,12 @@
 //! * `sentry_surface_gate` (decompose R-a), the two tests out of `oxy-app`'s
 //!   `routing::sentry_hub_scan` that drive the real custom-app gate
 //!   (`enter_semantic_boundary`). In-process; they open no database.
+//! * The OLTP tests (decompose R-c), out of `oxy-app`'s `platform` binary:
+//!   `oltp_provisioner` and the `oltp_branches*` / `oltp_env_branches*` files
+//!   that share its fixture (`with_fx`, `seed_org`, the harness's `oltp_fx.rs`),
+//!   and `compile_oltp_promote` (`oxy_compile_runtime::oltp`). Control plane on
+//!   a per-test database ([`common::Schema::CentralOltp`]); the tenant plane is
+//!   real databases on the same cluster through `common::admin_url`.
 //!
 //! Every database-backed test here gets its own database from a per-run
 //! template ([`common::fresh_db`]), so this binary sits in the `db-per-test`
@@ -47,4 +53,15 @@ mod airhouse_pool_expiry;
 mod airhouse_pool_poison;
 mod airhouse_pool_reuse;
 mod airhouse_provisioner;
+mod compile_oltp_promote;
+mod oltp_branches;
+mod oltp_branches_env;
+mod oltp_branches_guards;
+mod oltp_branches_local;
+mod oltp_branches_teardown;
+mod oltp_env_branches;
+mod oltp_env_branches_cap;
+mod oltp_env_branches_recut;
+mod oltp_env_branches_stale;
+mod oltp_provisioner;
 mod sentry_surface_gate;

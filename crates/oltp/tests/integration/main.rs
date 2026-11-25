@@ -56,8 +56,8 @@ use oxy_oltp::sql::{PgSqlExecutor, TenantSqlExecutor};
 /// for good. `just oltp-test-db` stands the :15433 cluster up; CI runs the
 /// `oltp-postgres` service on the same port and credentials.
 ///
-/// The platform fixture is the deliberate exception. `crates/app/tests/platform/
-/// oltp_provisioner.rs` provisions through the real `OltpProvisioner`, so its
+/// The platform fixture is the deliberate exception. `crates/workspace-runtime/
+/// tests/integration/oltp_provisioner.rs` provisions through the real `OltpProvisioner`, so its
 /// databases ARE `oxy_org_*` — it must stay on the control-plane cluster
 /// (`OXY_DATABASE_URL`), because pointing it at :15433 would trip THIS suite's
 /// guard the moment `--workspace` ran both. Its fixture doc records that.

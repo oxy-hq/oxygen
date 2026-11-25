@@ -1078,7 +1078,7 @@ mod tests {
     /// the OLTP capability, writes no audit row, and precedes a row delete that
     /// can still 409 — leaving a live org whose database is gone. The
     /// provisioner half (`delete_branches` keeps the tenant) is pinned in
-    /// `tests/platform/oltp_branches_teardown.rs`.
+    /// `crates/workspace-runtime/tests/integration/oltp_branches_teardown.rs`.
     #[test]
     fn staff_org_delete_removes_only_the_staging_branch() {
         let src = include_str!("orgs.rs");

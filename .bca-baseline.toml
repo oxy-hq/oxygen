@@ -6831,13 +6831,13 @@ metric = "cognitive"
 value = 16.0
 
 [[entry]]
-path = "crates/app/tests/platform/oltp_branches.rs"
+path = "crates/workspace-runtime/tests/integration/oltp_branches.rs"
 qualified = "app_with_ledger"
 metric = "abc"
 value = 46.04345773288535
 
 [[entry]]
-path = "crates/app/tests/platform/oltp_branches_guards.rs"
+path = "crates/workspace-runtime/tests/integration/oltp_branches_guards.rs"
 qualified = "an_env_cut_is_not_current_once_its_row_is_re_cut"
 metric = "abc"
 value = 70.60453243241541

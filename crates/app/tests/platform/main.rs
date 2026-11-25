@@ -1,6 +1,6 @@
 //! Platform tests that don't belong to a single product domain — the compile
-//! boundary and the workspace-source rules it rests on, compiled readers, the
-//! OLTP provisioner, migration rollback safety and the database-backed gates.
+//! boundary and the workspace-source rules it rests on, compiled readers,
+//! migration rollback safety and the database-backed gates.
 //!
 //! One binary for the whole group; see `tests/authz/main.rs` for why. Add a case
 //! as a `mod` here rather than a new `tests/*.rs`. The experiment and simulation
@@ -68,7 +68,6 @@ mod analytics_run_thread_access;
 // integration group, the crate that builds the binary (decompose T-small).
 mod compile_first;
 mod compile_from_git;
-mod compile_oltp_promote;
 mod compile_push;
 mod compile_reconcile;
 mod compile_request;
@@ -92,16 +91,9 @@ mod master_key_kms;
 // `metric_tree_fit_panel_tests`, beside `splitting_executor` (decompose T-small).
 mod migration_rollback_safety;
 mod migration_rollback_tolerance;
-mod oltp_branches;
-mod oltp_branches_env;
-mod oltp_branches_guards;
-mod oltp_branches_local;
-mod oltp_branches_teardown;
-mod oltp_env_branches;
-mod oltp_env_branches_cap;
-mod oltp_env_branches_recut;
-mod oltp_env_branches_stale;
-mod oltp_provisioner;
+// The OLTP cluster (`oltp_provisioner`, whose fixture the other `oltp_*` files
+// and `compile_oltp_promote` share, and those ten) moved to
+// `oxy-workspace-runtime`'s integration group (decompose R-c, 2026-11-25).
 // `periodic_claim` and `run_retention` moved into `oxy-server` with the drivers
 // (in-source `db_tests` beside the code, decompose BL1, 2026-11-23).
 mod preagg_promote_nudge;

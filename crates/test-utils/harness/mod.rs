@@ -79,7 +79,7 @@ const TEST_DB_PREFIXES: &[&str] = &[
     // get dropped, both on a developer's own cluster and mid-run by whichever
     // binary reaches `ensure_template` first. A test that creates such a
     // database owns cleaning it up on the failure path; see `with_fx` in
-    // `platform/oltp_provisioner.rs`.
+    // `workspace-runtime`'s `oltp_provisioner.rs`.
 ];
 
 /// The demo project the seed points workspaces at.

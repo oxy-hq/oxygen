@@ -1,7 +1,7 @@
 //! The Postgres shape-zoo cases, read through `ctx.oltp` in the app's own schema.
 //!
 //! `ctx.oltp` reaches a per-org tenant database through the app's writer role, so this test
-//! provisions one the way `tests/platform/oltp_provisioner.rs` does: `OltpProvisioner` over
+//! provisions one the way `workspace-runtime/tests/integration/oltp_provisioner.rs` does: `OltpProvisioner` over
 //! `LocalProvider`, on the control plane's own cluster (`common::admin_url`). It never uses CI's
 //! `oltp-postgres` service, whose suite refuses a cluster holding `oxy_org_*` databases.
 //!

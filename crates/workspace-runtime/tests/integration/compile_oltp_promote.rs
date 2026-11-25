@@ -1,5 +1,5 @@
 //! DB-backed tests for apply-then-promote
-//! ([`oxy_app::server::compile_oltp::settle_deferred_promotion`]).
+//! ([`oxy_compile_runtime::oltp::settle_deferred_promotion`]).
 //!
 //! The property worth a real database is the negative one: **a revision whose
 //! DDL fails must not become the one the workspace serves.** That is the whole
@@ -11,12 +11,12 @@
 //! `CREATE DATABASE` / `CREATE ROLE` / the platform DDL all really run.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(compile_oltp_promote)'`
+//! `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(compile_oltp_promote)'`
 
 use chrono::Utc;
 use entity::{revisions, schema_migration_definitions, workspaces};
-use oxy_app::server::compile_oltp::{Settled, settle_deferred_promotion};
 use oxy_compile::{CompileOutcome, Promotion, RevisionStatus};
+use oxy_compile_runtime::oltp::{Settled, settle_deferred_promotion};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
