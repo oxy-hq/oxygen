@@ -11,11 +11,15 @@
 //!   production `ctx.oltp` transaction of an app that declares a table, and
 //!   each migration file such an app applies to production; the relay
 //!   verifies the MAC each log row carries.
+//! - [`relay`]: the log, shipped to typed change tables in the app's
+//!   workspace Airhouse (§5.3, §5.4).
 
 use uuid::Uuid;
 
 pub mod install;
+mod owner;
 pub mod provenance;
+pub mod relay;
 
 /// Whether `oltp_changes` is on for `org_id`. Off, a production promote
 /// installs and removes no capture and opens no store connection for it,

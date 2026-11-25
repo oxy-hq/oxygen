@@ -273,6 +273,7 @@ mod m20261119_000010_oidc_issuer_trust_policies;
 mod m20261119_000100_custom_app_usage_purges;
 mod m20261119_000200_app_events_invoker;
 mod m20261121_000001_create_eval_test_definitions;
+mod m20261124_000001_oltp_change_relays;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -568,6 +569,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261119_000100_custom_app_usage_purges::Migration),
             Box::new(m20261119_000200_app_events_invoker::Migration),
             Box::new(m20261121_000001_create_eval_test_definitions::Migration),
+            Box::new(m20261124_000001_oltp_change_relays::Migration),
         ]
     }
 

@@ -83,3 +83,23 @@ async fn a_cut_branch_does_not_capture() {
     );
     seen.again.expect("seeding a seeded branch succeeds");
 }
+
+#[tokio::test]
+async fn a_cut_branch_starts_with_no_progress() {
+    let Some(store) = Store::create("cap_branch_progress").await else {
+        return;
+    };
+    let out = async {
+        store
+            .as_owner("INSERT INTO oxy_changes.progress (writer, intent_batch) VALUES ('app', 4)")
+            .await?;
+        store.as_owner(SEED_BRANCH_STREAM_SQL).await?;
+        store
+            .owner_count("SELECT count(*) FROM oxy_changes.progress")
+            .await
+    }
+    .await;
+    store.cleanup().await;
+
+    assert_eq!(out, Ok(0), "production's progress does not reach a branch");
+}

@@ -24,23 +24,33 @@
 
 mod capture;
 mod install;
+mod relay;
 mod shape;
 
 /// What every branch cut and reset seeds a branch's change stream with
 /// (`provisioner::branches::stream`): replace the branch's stream with one at
-/// generation 0 that does not capture, and empty the log it inherited; nothing
-/// where step 8 never ran.
+/// generation 0 that does not capture, and empty the log and the relay's
+/// `progress` it inherited; nothing where step 8 (or step 9, for `progress`)
+/// never ran.
 pub const SEED_BRANCH_STREAM_SQL: &str = "DO $$ BEGIN \
      IF to_regclass('oxy_changes.stream') IS NOT NULL THEN \
      DELETE FROM oxy_changes.stream; \
      INSERT INTO oxy_changes.stream (generation, capturing) VALUES (0, false); \
      TRUNCATE oxy_changes.log; \
      END IF; \
+     IF to_regclass('oxy_changes.progress') IS NOT NULL THEN \
+     TRUNCATE oxy_changes.progress; \
+     END IF; \
      END $$";
 
 pub use install::{
     CaptureSpec, INSTALLED_SQL, owner_commit_sql, owner_drop_sql, owner_install_sql,
     owner_uninstall_sql, writer_install_sql, writer_uninstall_sql,
+};
+pub use relay::{
+    CONFIRM_SQL, DECLARE_INTENT_SQL, DELETE_SHIPPED_SQL, LogRow, OLDER_GENERATION_SQL,
+    PROGRESS_SQL, READ_BATCH_SQL, SHAPES_SQL, STREAM_SQL, StreamState, TRANSACTION_ROWS_SQL,
+    WAITING_SQL,
 };
 pub use shape::{
     CaptureShape, Column, DeclError, DeclaredTable, RESERVED_COLUMNS, SHAPE_SQL, ShapeRow,

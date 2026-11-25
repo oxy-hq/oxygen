@@ -107,6 +107,7 @@ mod airhouse_home;
 mod apply;
 mod branch;
 mod plan;
+pub(crate) mod promote_nudge;
 mod sandbox_schema;
 mod stored;
 mod types;

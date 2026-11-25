@@ -337,6 +337,12 @@ async fn promote(ctx: &Publishing<'_>, build_pk: Uuid) -> Result<(), PublishErro
     if !captured.is_empty() {
         tracing::info!("publish: {} for app {app_id}", captured.summary());
     }
+    crate::custom_apps_migrations::promote_nudge::nudge_after_install(
+        ctx.db,
+        ctx.org.id,
+        crate::oltp_changes::signs(ctx.inflated.manifest_json.as_ref()),
+    )
+    .await;
     // The app's Airhouse tables, after its OLTP schema and under the same rule.
     let applied = migrations::apply_airhouse_on_promote(
         ctx.db,

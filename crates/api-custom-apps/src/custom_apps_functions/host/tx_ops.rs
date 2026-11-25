@@ -233,17 +233,7 @@ impl ProjectFunctionHost {
         } else {
             "rollback"
         };
-        // Taken from the registry first, so a timeout here still drops the
-        // handle — which closes the connection, which rolls back.
-        with_db_timeout(label, async move {
-            let outcome = if committing {
-                tx.commit().await
-            } else {
-                tx.rollback().await
-            };
-            outcome.map_err(|e| format!("{verb} failed: {e}"))
-        })
-        .await?;
+        self.finish_tx(tx, id, committing, label, verb).await?;
         // A rollback leaves no trace: nothing was written.
         let audit = self.tx_writes.lock().await.remove(&id);
         if committing && let Some(audit) = audit {
@@ -268,6 +258,36 @@ impl ProjectFunctionHost {
             }
         }
         Ok(serde_json::json!({ "ok": true }))
+    }
+
+    /// Commits (or rolls back) the taken handle `tx`. A commit nudges the
+    /// change stream first (a failed nudge drops `tx`, which rolls it back),
+    /// and re-nudges best effort after a slow one.
+    async fn finish_tx(
+        &self,
+        tx: Box<dyn SqlTransaction>,
+        id: u64,
+        committing: bool,
+        label: &'static str,
+        verb: &'static str,
+    ) -> Result<(), String> {
+        let nudged = committing && self.nudge_before_tx_commit(id).await?;
+        let started = std::time::Instant::now();
+        // Taken from the registry first, so a timeout here still drops the
+        // handle — which closes the connection, which rolls back.
+        with_db_timeout(label, async move {
+            let outcome = if committing {
+                tx.commit().await
+            } else {
+                tx.rollback().await
+            };
+            outcome.map_err(|e| format!("{verb} failed: {e}"))
+        })
+        .await?;
+        if nudged {
+            self.nudge_after_slow_commit(started.elapsed()).await;
+        }
+        Ok(())
     }
 
     /// Whether a commit of handle `id` is held here; if so it is logged, and

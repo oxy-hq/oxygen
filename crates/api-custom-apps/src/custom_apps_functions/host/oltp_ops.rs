@@ -54,10 +54,14 @@ impl ProjectFunctionHost {
         let outcome = self.run_statement(host_op, &mut *tx, &sql, &params).await;
         match outcome {
             Ok((result, rows)) => {
+                // A failed nudge drops `tx`, which rolls it back.
+                self.nudge_oltp_changes().await?;
+                let started = std::time::Instant::now();
                 with_db_timeout("commit", async move {
                     tx.commit().await.map_err(|e| format!("commit failed: {e}"))
                 })
                 .await?;
+                self.nudge_after_slow_commit(started.elapsed()).await;
                 self.note_statement_write(&conn.schema, summary, rows).await;
                 enforce_result_byte_cap(&result)?;
                 Ok(result)

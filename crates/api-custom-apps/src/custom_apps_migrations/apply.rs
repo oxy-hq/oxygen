@@ -130,6 +130,7 @@ pub(crate) async fn apply_on_promote(
             writer: &conn.schema,
         }),
     };
+    super::promote_nudge::nudge_before_apply(db, org_id, files.captures_changes).await?;
     apply_to(db, app_id, build_pk, declared, &dest).await
 }
 

@@ -1,92 +1,34 @@
 //! The OLTP change stream end to end, through the paths production runs: a
 //! promoting `publish` applies the build's OLTP migrations and installs
-//! capture on the tables it declares under `oltpChanges`
-//! (`custom_apps_publish::pipeline::promote`, so `apply_on_promote` then
-//! `install_on_promote`), and a function called through the serve route
-//! writes with `ctx.oltp`, the isolate and the host signing its transaction
-//! (`custom_apps_functions::host::oltp_sign`). Every assertion reads the
-//! org's store as its owner ([`OwnerReads`]).
-//!
-//! The org is a throwaway one with its OLTP store provisioned on the control
-//! plane's cluster (`AppStore`, as `custom_app_functions_shape_zoo_oltp`
-//! provisions it), and the org flag `oltp_changes` is turned on with an org
-//! override row loaded into the flag cache, as `serve` loads it at boot.
+//! capture on the tables it declares under `oltpChanges`, and a function
+//! called through the serve route writes with `ctx.oltp`, the isolate and the
+//! host signing its transaction ([`crate::oltp_changes_fixture`]). Every
+//! assertion reads the org's store as its owner ([`OwnerReads`]).
 //!
 //! Who owns a captured table decides who attaches its triggers: a table the
 //! app's migrations made is the writer's, one the store owner made in the
 //! app's schema (as a workspace's `schemas/*.sql` do) is the owner's, and one
 //! any other role owns is refused.
 
-use std::future::Future;
-use std::sync::Arc;
-
-use chrono::Utc;
-use futures::FutureExt as _;
-use oxy_api_custom_apps::custom_apps_publish::{
-    OrgRef, PublishError, PublishInput, PublishResult, publish,
-};
+use oxy_api_custom_apps::custom_apps_publish::PublishError;
 use oxy_api_custom_apps::oltp_changes::provenance::{self, ChangeSigner};
-use oxy_auth::user::LOCAL_GUEST_EMAIL;
 use oxy_oltp::WriterRef;
-use oxy_oltp::entity::tenants as oltp_tenants;
-use oxy_oltp::migrator::{owner_dsn, tenant_for_org};
-use oxy_oltp::resolver::{WriterConnection, resolve_writer_connection_for_org};
-use oxy_oltp::schema::{analyst_role_for, app_writer_name, reconcile_migration_grants_sql};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+use oxy_oltp::resolver::resolve_writer_connection_for_org;
+use oxy_oltp::schema::app_writer_name;
 use serde_json::{Value, json};
 use tokio_postgres::Client;
 use uuid::Uuid;
 
 use crate::common::admin_url;
-use crate::custom_app_functions_fixture::{
-    FunctionSpec, Tenant, call_function_in, invocations, seeded_tenant, throwaway_org,
-};
-use crate::custom_app_functions_shape_zoo::{compile, write_config};
-use crate::custom_app_functions_shape_zoo_oltp::AppStore;
-use crate::sandbox_publish::bundle;
+use crate::custom_app_functions_fixture::invocations;
+use crate::oltp_changes_fixture::{App, LEASES_SQL, NOTES_SQL, WRITE, connect, with_app};
 
-/// The captured table every build here declares, as the app's first
-/// migration creates it.
-const LEASES_SQL: (&str, &[u8]) = (
-    "migrations/0001_leases.sql",
-    b"create table leases (id bigint primary key, name text);",
-);
-/// A migration that leaves `leases` to someone else, for a build that must
-/// carry one (`oltpChanges` needs a `migrations` block, and a declared
-/// directory with no files is refused).
-const NOTES_SQL: (&str, &[u8]) = (
-    "migrations/0001_notes.sql",
-    b"create table notes (id bigint primary key);",
-);
 /// The next migration: a column added to `leases` and backfilled in the same
 /// file.
 const REGION_SQL: (&str, &[u8]) = (
     "migrations/0002_region.sql",
     b"alter table leases add column region text; update leases set region = 'north';",
 );
-
-/// The one function the app declares: runs the request's `sql` with
-/// `ctx.oltp.exec` and answers what it returned or threw.
-const WRITE: &str = "write";
-
-const WRITE_JS: &str = r#"
-export default async (req, ctx) => {
-  const { sql } = JSON.parse(req.body);
-  try {
-    return Response.json({ ok: await ctx.oltp.exec(sql) });
-  } catch (e) {
-    return Response.json({ error: String(e && e.message ? e.message : e) });
-  }
-};
-"#;
-
-fn write_fn() -> FunctionSpec {
-    FunctionSpec {
-        name: WRITE,
-        manifest: json!({ "route": true, "timeoutSeconds": 60, "oltp": { "enabled": true } }),
-        js: WRITE_JS,
-    }
-}
 
 /// The four capture triggers, by name, each enabled always (`tgenabled`).
 fn capture_triggers() -> Vec<(String, String)> {
@@ -109,108 +51,8 @@ struct Change {
     provenance: Option<Vec<u8>>,
 }
 
-/// An org of the test's own with a compiled workspace and the app's OLTP
-/// store; [`App::start`] provisions the store and turns `oltp_changes` on.
-struct App {
-    t: Tenant,
-    slug: String,
-    workspace: Uuid,
-    store: AppStore,
-    _root: tempfile::TempDir,
-}
-
+/// What only these tests ask of the app.
 impl App {
-    async fn new() -> Self {
-        let t = throwaway_org(&seeded_tenant().await).await;
-        let slug = format!("chg-e2e-{}", &Uuid::new_v4().simple().to_string()[..8]);
-        let root = write_config("  - name: duck\n    type: duckdb\n    path: changes.duckdb\n");
-        let workspace = compile(&t, root.path()).await;
-        let store = AppStore::new(&t, &slug).await;
-        Self {
-            t,
-            slug,
-            workspace,
-            store,
-            _root: root,
-        }
-    }
-
-    /// The org's store and the app's writer, and `oltp_changes` on for the
-    /// org. Nothing is published yet.
-    async fn start(&self) {
-        self.store.provision(self.workspace).await;
-        enable_oltp_changes(&self.t).await;
-    }
-
-    fn org(&self) -> Uuid {
-        self.t.org_id
-    }
-
-    /// `app_<writer>`, where the app's tables and their capture live.
-    fn schema(&self) -> String {
-        self.store.writer.schema_name()
-    }
-
-    /// A promoting publish of build `build_id`: [`WRITE`], the migration
-    /// `files`, and `leases` declared under `oltpChanges` when `declares`.
-    async fn promote(
-        &self,
-        build_id: &str,
-        declares: bool,
-        files: &[(&str, &[u8])],
-    ) -> Result<PublishResult, PublishError> {
-        let mut extra = json!({ "migrations": { "dir": "migrations" } });
-        if declares {
-            extra["oltpChanges"] = json!({ "tables": { "leases": {} } });
-        }
-        publish(PublishInput {
-            org_ref: Some(OrgRef::Id(self.org())),
-            app_slug: self.slug.clone(),
-            project_id: self.workspace,
-            branch: None,
-            build_id: build_id.to_string(),
-            name: None,
-            promote: true,
-            tarball: bundle(&self.slug, &[write_fn()], extra, files),
-            manifest: None,
-            source_repo: None,
-            commit_sha: None,
-            published_by: Some(self.t.guest_id),
-            published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
-            publisher: Some(oxy_server_authz::Caller::without_credential(
-                self.t.guest_id,
-                LOCAL_GUEST_EMAIL,
-            )),
-            machine_app_id: None,
-            published_via: None,
-            semantic_revision_id: None,
-            confirm_schedule_removals: Vec::new(),
-        })
-        .await
-    }
-
-    /// [`WRITE`] called on production with `sql`, as the guest: through the
-    /// serve route, the isolate and the host, which signs its transaction.
-    async fn write(&self, sql: &str) {
-        let call =
-            call_function_in(&self.t.org_slug, &self.slug, WRITE, json!({ "sql": sql })).await;
-        let data = call
-            .frame("data")
-            .unwrap_or_else(|| panic!("no data frame ({}): {}", call.status, call.raw));
-        assert!(data.get("error").is_none(), "{sql}: {data}");
-    }
-
-    async fn tenant(&self) -> oltp_tenants::Model {
-        tenant_for_org(&self.t.db, self.org())
-            .await
-            .expect("the org's tenant")
-    }
-
-    /// A session as the store's owner.
-    async fn owner(&self) -> Client {
-        connect(&owner_dsn(&self.tenant().await).expect("owner dsn")).await
-    }
-
     /// The store read as its owner, for the assertions.
     async fn as_owner(&self) -> OwnerReads {
         OwnerReads {
@@ -224,47 +66,6 @@ impl App {
     async fn admin(&self) -> Client {
         let database = self.tenant().await.database_name;
         connect(&on_database(&admin_url().await, &database)).await
-    }
-
-    async fn writer(&self) -> WriterConnection {
-        resolve_writer_connection_for_org(&self.t.db, self.org(), &self.store.writer)
-            .await
-            .expect("resolve the app's writer")
-    }
-
-    /// `leases` created in the app's schema by the store's owner, as a
-    /// workspace's `schemas/*.sql` create a table, then granted to the writer
-    /// exactly as the migrator grants it (`reconcile_migration_grants_sql`).
-    /// Returns the store owner's role.
-    async fn create_leases_as_store_owner(&self) -> String {
-        let owner = self.owner().await;
-        let store_owner: String = owner
-            .query_one("SELECT current_user::text", &[])
-            .await
-            .expect("read the store owner")
-            .get(0);
-        let tenant = self.tenant().await;
-        let analyst = analyst_role_for(&tenant.provider, &tenant.database_name);
-        let writer_role = self.writer().await.role;
-        let grants = reconcile_migration_grants_sql(
-            &self.store.writer,
-            &store_owner,
-            false,
-            &analyst,
-            &writer_role,
-        )
-        .expect("the migrator's grants");
-        let create = format!(
-            "create table {}.leases (id bigint primary key, name text)",
-            self.schema()
-        );
-        for statement in std::iter::once(&create).chain(&grants) {
-            owner
-                .batch_execute(statement)
-                .await
-                .unwrap_or_else(|e| panic!("{statement}: {}", oxy_oltp::connect::pg_detail(&e)));
-        }
-        store_owner
     }
 
     /// `leases` created in the app's schema and given to the writer of
@@ -477,36 +278,6 @@ fn change_of(r: &tokio_postgres::Row) -> Change {
     }
 }
 
-/// Turn `oltp_changes` on for `t`'s org alone, as an admin's org override
-/// does, and load the flag cache from the table.
-async fn enable_oltp_changes(t: &Tenant) {
-    let mut orgs = serde_json::Map::new();
-    orgs.insert(t.org_id.to_string(), json!("on"));
-    entity::feature_flag::ActiveModel {
-        key: Set(oxy_feature_flags::OLTP_CHANGES.to_string()),
-        // The registry default; the kill switch is in the document.
-        enabled: Set(false),
-        updated_at: Set(Utc::now().fixed_offset()),
-        targeting: Set(Some(json!({
-            "enabled": true,
-            "orgs": orgs,
-            "fallthrough": { "type": "variant", "variant": "off" },
-        }))),
-    }
-    .insert(&t.db)
-    .await
-    .expect("write the oltp_changes override");
-    oxy_feature_flags::cache::load_once()
-        .await
-        .expect("load the flag cache");
-}
-
-async fn connect(dsn: &str) -> Client {
-    oxy_oltp::connect::connect(dsn, "oltp_changes_e2e test")
-        .await
-        .unwrap_or_else(|e| panic!("connect: {}", oxy_oltp::connect::pg_detail(&e)))
-}
-
 /// `url` with its database replaced by `database`.
 fn on_database(url: &str, database: &str) -> String {
     let (base, query) = match url.split_once('?') {
@@ -517,32 +288,6 @@ fn on_database(url: &str, database: &str) -> String {
     match query {
         Some(query) => format!("{server}/{database}?{query}"),
         None => format!("{server}/{database}"),
-    }
-}
-
-/// Run `body` against a fresh [`App`], started, dropping the org's store
-/// (database, then roles) whatever happened.
-async fn with_app<F, Fut>(body: F)
-where
-    F: FnOnce(Arc<App>) -> Fut,
-    Fut: Future<Output = ()>,
-{
-    let app = Arc::new(App::new().await);
-    let run = {
-        let app = app.clone();
-        async move {
-            app.start().await;
-            body(app).await;
-        }
-    };
-    // Boxed: a body that publishes, calls a function and reads the store
-    // outgrows the test thread's stack when pinned on it.
-    let outcome = std::panic::AssertUnwindSafe(Box::pin(run))
-        .catch_unwind()
-        .await;
-    app.store.cleanup().await;
-    if let Err(panic) = outcome {
-        std::panic::resume_unwind(panic);
     }
 }
 

@@ -30,7 +30,7 @@ use crate::schema::{SchemaError, analyst_role_for, validate_name};
 ///
 /// Recorded on `oltp_tenants.platform_schema_version`. A tenant below this is
 /// reconciled the next time anything touches it.
-pub const PLATFORM_SCHEMA_VERSION: i32 = 8;
+pub const PLATFORM_SCHEMA_VERSION: i32 = 9;
 
 /// Table recording which workspace migrations a tenant has applied.
 ///
@@ -139,6 +139,10 @@ pub const CHANGES_LOG_TABLE: &str = "oxy_changes.log";
 pub const CHANGES_TABLES_TABLE: &str = "oxy_changes.tables";
 /// Each capture shape a table has had, for the relay.
 pub const CHANGES_SHAPES_TABLE: &str = "oxy_changes.shapes";
+/// Per-writer relay progress: the batch each writer has intended and shipped.
+pub const CHANGES_PROGRESS_TABLE: &str = "oxy_changes.progress";
+/// The relay's batch numbers, at `CACHE 1`.
+pub const CHANGES_BATCH_SEQUENCE: &str = "oxy_changes.batches";
 /// The log's sequence, at `CACHE 1`: per-row order holds only then.
 pub const CHANGES_SEQUENCE: &str = "oxy_changes.seq";
 /// The `ddl_command_end` event trigger that refuses DDL breaking an installed
@@ -384,6 +388,7 @@ $$"
         outbox::provenance_step(),
         outbox::invoker_step(),
         changes::changes_step(&analyst),
+        changes::relay_step(),
     ])
 }
 

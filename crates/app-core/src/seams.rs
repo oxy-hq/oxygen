@@ -195,7 +195,7 @@ pub struct FleetJobSeam {
 /// The fleet jobs the custom-app surface must hand in. A worker without them
 /// would boot, and the storage figures the staff console shows would stop
 /// moving with nothing failing.
-pub const CUSTOM_APP_FLEET_JOBS: [&str; 6] = [
+pub const CUSTOM_APP_FLEET_JOBS: [&str; 8] = [
     "custom_app_asset_lifecycle_verify",
     "custom_app_storage_sweeper",
     "custom_app_usage_backfill_sweep",
@@ -209,6 +209,11 @@ pub const CUSTOM_APP_FLEET_JOBS: [&str; 6] = [
     // reaches its listeners (a host write's nudge is the fast path only), and
     // the event log mirror is never written.
     "custom_app_table_watch_sweep",
+    // Without it, a captured write whose nudge was lost or debounced away is
+    // never shipped to Airhouse, and a stale change stream is never reported.
+    "oltp_changes_relay_sweep",
+    // Without it, a store whose writes no nudge announced is never drained.
+    "oltp_changes_weekly_sweep",
 ];
 
 /// Refuse a fleet-job list that lacks one [`CUSTOM_APP_FLEET_JOBS`] names, or

@@ -418,6 +418,12 @@ async fn apply_migrations(
     )
     .await?;
     let captured = install_capture(db, app, build).await?;
+    crate::custom_apps_migrations::promote_nudge::nudge_after_install(
+        db,
+        app.org_id,
+        crate::oltp_changes::signs(build.manifest_json.as_ref()),
+    )
+    .await;
     let airhouse = migrations::apply_airhouse_on_promote(
         db,
         app.id,

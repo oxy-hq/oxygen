@@ -30,6 +30,8 @@ use oxy_api_custom_apps::custom_apps_sandboxes::{
 use oxy_api_custom_apps::custom_apps_usage_backfill::{self, USAGE_BACKFILL_KIND};
 use oxy_api_custom_apps::custom_apps_usage_purge::{self, USAGE_PURGE_KIND};
 use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
+use oxy_api_custom_apps::oltp_changes::relay as oltp_changes_relay;
+use oxy_api_custom_apps::oltp_changes::relay::sweep as oltp_changes_sweep;
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
@@ -97,6 +99,17 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
             kind: app_events_relay::RELAY_KIND,
             build: |deps| {
                 Arc::new(app_events_relay::RelayExecutor {
+                    db: deps.db.clone(),
+                })
+            },
+        },
+        // An org's captured OLTP changes shipped from its store's change log
+        // into Airhouse change tables; queued by a captured write's nudge and
+        // by the relay sweep below. Production, behind the `oltp_changes` flag.
+        TaskSeam {
+            kind: oltp_changes_relay::RELAY_KIND,
+            build: |deps| {
+                Arc::new(oltp_changes_relay::RelayExecutor {
                     db: deps.db.clone(),
                 })
             },
@@ -354,6 +367,19 @@ pub(crate) fn fleet_jobs() -> Vec<FleetJobSeam> {
             name: app_table_watch::SWEEP_JOB,
             start: |deps| app_table_watch::spawn_sweep(deps.db.clone(), deps.shutdown.clone()),
         },
+        // Queue a change stream relay for every production mark that is due
+        // (the nudge's backstop, every 5 s), and log a stale one. Platform
+        // database only: it never opens an org's store. Claimed per interval.
+        FleetJobSeam {
+            name: oltp_changes_sweep::SWEEP_JOB,
+            start: |deps| oltp_changes_sweep::spawn_sweep(deps.db.clone(), deps.shutdown.clone()),
+        },
+        // Nudge every mark once a week, so each store is drained whatever its
+        // marks said. Claimed per interval.
+        FleetJobSeam {
+            name: oltp_changes_sweep::WEEKLY_JOB,
+            start: |deps| oltp_changes_sweep::spawn_weekly(deps.db.clone(), deps.shutdown.clone()),
+        },
     ]
 }
 
@@ -477,11 +503,11 @@ mod tests {
     /// The task kinds the fleet knew before this list was handed in, plus the
     /// usage backfill, the queued ask and the automation run (both registered
     /// in `oxy-app` until their executors moved to `oxy-api-custom-apps`,
-    /// 2026-11-14), and the app events relay. A kind added here, or dropped,
+    /// 2026-11-14), the app events relay and the OLTP change stream relay. A kind added here, or dropped,
     /// is a change to what a worker can run, so it is spelled out rather than
     /// derived from the constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_twelve() {
+    fn the_task_kinds_are_exactly_these_thirteen() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
@@ -499,6 +525,7 @@ mod tests {
                 "custom_app_staging_migrations",
                 "custom_app_usage_backfill",
                 "custom_app_usage_purge",
+                "oltp_changes_relay",
             ]
         );
     }

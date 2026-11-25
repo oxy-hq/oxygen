@@ -621,6 +621,21 @@ const TABLES: &[(&str, Placement)] = &[
         Control("org staging-branch registry: endpoint and sealed owner"),
     ),
     (
+        "oltp_change_holds",
+        Control(
+            "per org, environment, writer and table, that the change stream relay stopped \
+             shipping it, with the reason: names and a reason, never a row",
+        ),
+    ),
+    (
+        "oltp_change_relays",
+        Control(
+            "per org and environment, when the change stream was nudged and last drained, the \
+             relay's single-writer lease and its backoff after a failed pass: timestamps, a \
+             count and a holder name, so the sweep never wakes an idle store",
+        ),
+    ),
+    (
         "oltp_env_branch_roles",
         Control("sealed role credentials on an app environment's OLTP branch"),
     ),

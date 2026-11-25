@@ -39,6 +39,14 @@ fn custom_app_jobs() -> Vec<FleetJobSeam> {
             name: "custom_app_table_watch_sweep",
             start: |_| record("custom_app_table_watch_sweep"),
         },
+        FleetJobSeam {
+            name: "oltp_changes_relay_sweep",
+            start: |_| record("oltp_changes_relay_sweep"),
+        },
+        FleetJobSeam {
+            name: "oltp_changes_weekly_sweep",
+            start: |_| record("oltp_changes_weekly_sweep"),
+        },
     ]
 }
 
@@ -75,6 +83,8 @@ async fn a_singleton_process_starts_every_fleet_job_and_a_serve_replica_none() {
             "custom_app_event_relay_sweep",
             "custom_app_event_retention",
             "custom_app_table_watch_sweep",
+            "oltp_changes_relay_sweep",
+            "oltp_changes_weekly_sweep",
         ]
     );
     assert_eq!(*STARTED.lock().unwrap(), CUSTOM_APP_FLEET_JOBS);

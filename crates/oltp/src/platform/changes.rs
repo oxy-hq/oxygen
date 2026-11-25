@@ -23,8 +23,9 @@
 //! local provider), and the step succeeds either way.
 
 use super::{
-    CHANGES_LOG_TABLE, CHANGES_SCHEMA, CHANGES_SEQUENCE, CHANGES_SHAPES_TABLE,
-    CHANGES_STREAM_TABLE, CHANGES_TABLES_TABLE, PlatformStep,
+    CHANGES_BATCH_SEQUENCE, CHANGES_LOG_TABLE, CHANGES_PROGRESS_TABLE, CHANGES_SCHEMA,
+    CHANGES_SEQUENCE, CHANGES_SHAPES_TABLE, CHANGES_STREAM_TABLE, CHANGES_TABLES_TABLE,
+    PlatformStep,
 };
 
 mod guard;
@@ -91,6 +92,37 @@ pub(super) fn changes_step(analyst: &str) -> PlatformStep {
     }
 }
 
+/// Step 9: the relay's per-writer progress. `progress` holds each writer's
+/// intended and shipped batch, `batches` numbers them, `stream.restamping`
+/// is set only while a generation bump re-stamps, and `log_writer` and
+/// `log_writer_txid` serve the relay's per-writer reads. Step 8's `stream.intent_batch` and
+/// `shipped_batch` are superseded and left unused. Nothing is revoked: the
+/// schema's revokes from step 8 already cover new objects.
+pub(super) fn relay_step() -> PlatformStep {
+    PlatformStep {
+        version: 9,
+        description: "per-writer relay progress, batch numbers and the writer index",
+        statements: vec![
+            format!(
+                "CREATE TABLE IF NOT EXISTS {CHANGES_PROGRESS_TABLE} (
+  writer text PRIMARY KEY,
+  intent_batch bigint NOT NULL DEFAULT 0,
+  shipped_batch bigint NOT NULL DEFAULT 0)"
+            ),
+            format!("CREATE SEQUENCE IF NOT EXISTS {CHANGES_BATCH_SEQUENCE} CACHE 1"),
+            format!(
+                "ALTER TABLE {CHANGES_STREAM_TABLE} ADD COLUMN IF NOT EXISTS restamping bigint"
+            ),
+            format!(
+                "CREATE INDEX IF NOT EXISTS log_writer ON {CHANGES_LOG_TABLE} (writer, generation, seq)"
+            ),
+            format!(
+                "CREATE INDEX IF NOT EXISTS log_writer_txid ON {CHANGES_LOG_TABLE} (writer, generation, txid)"
+            ),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::platform::{CHANGES_SEQUENCE, PLATFORM_SCHEMA_VERSION, platform_steps};
@@ -103,11 +135,35 @@ mod tests {
     }
 
     #[test]
-    fn step_eight_is_the_last_step() {
+    fn step_nine_is_the_last_step() {
         let steps = platform_steps("neon", "neondb").unwrap();
         assert_eq!(steps[7].version, 8);
-        assert_eq!(steps.len(), 8);
-        assert_eq!(PLATFORM_SCHEMA_VERSION, 8);
+        assert_eq!(steps[8].version, 9);
+        assert_eq!(steps.len(), 9);
+        assert_eq!(PLATFORM_SCHEMA_VERSION, 9);
+    }
+
+    #[test]
+    fn step_nine_adds_progress_batches_restamping_and_the_writer_index() {
+        let step = platform_steps("local", "oxy_org_x").unwrap().remove(8);
+        assert_eq!(step.version, 9);
+        let expected = [
+            "CREATE TABLE IF NOT EXISTS oxy_changes.progress (
+  writer text PRIMARY KEY,
+  intent_batch bigint NOT NULL DEFAULT 0,
+  shipped_batch bigint NOT NULL DEFAULT 0)",
+            "CREATE SEQUENCE IF NOT EXISTS oxy_changes.batches CACHE 1",
+            "ALTER TABLE oxy_changes.stream ADD COLUMN IF NOT EXISTS restamping bigint",
+            "CREATE INDEX IF NOT EXISTS log_writer ON oxy_changes.log (writer, generation, seq)",
+            "CREATE INDEX IF NOT EXISTS log_writer_txid ON oxy_changes.log (writer, generation, txid)",
+        ];
+        for statement in expected {
+            assert!(
+                step.statements.iter().any(|s| s == statement),
+                "missing {statement}: {:?}",
+                step.statements
+            );
+        }
     }
 
     /// The log is the owner's alone: capture reaches it through definer

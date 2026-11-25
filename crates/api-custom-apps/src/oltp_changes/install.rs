@@ -47,15 +47,12 @@ use oxy_oltp::changes::{
     owner_drop_sql, owner_install_sql, owner_uninstall_sql, shape_from_rows, writer_install_sql,
     writer_uninstall_sql,
 };
-use oxy_oltp::entity::tenants::{self as oltp_tenants, TenantStatus};
-use oxy_oltp::migrator::{MigrateError, owner_dsn, tenant_for_org};
-use oxy_oltp::provisioner::reconcile_platform_schema_as_owner;
 use oxy_oltp::schema::{SchemaError, WriterRef, app_writer_name};
-use oxy_oltp::sql::PgSqlExecutor;
 use sea_orm::DatabaseConnection;
 use tokio_postgres::Client;
 use uuid::Uuid;
 
+use super::owner::{current_tenant, owner_client};
 use crate::custom_apps_migrations::MigrationError;
 
 mod attach;
@@ -63,11 +60,6 @@ mod plan;
 
 use attach::{Attach, Attacher, Detach, Roles};
 use plan::{Installed, Plan, Recorded};
-
-/// The platform step that creates `oxy_changes`. A store below it has
-/// captured nothing, so a build that declares nothing need not bring it
-/// current.
-const CHANGES_STEP: i32 = 8;
 
 /// The latest shape recorded for a table (`$1`, its oid), whether or not it is
 /// captured now: `INSTALLED_SQL` joins shapes only to tables still in
@@ -171,10 +163,15 @@ pub async fn install_on_promote(
     let Some(writer) = Writer::of(app_slug, !declared.is_empty())? else {
         return Ok(InstallSummary::default());
     };
-    let Some(tenant) = current_tenant(db, org_id, !declared.is_empty()).await? else {
+    let Some(tenant) = current_tenant(db, org_id, !declared.is_empty())
+        .await
+        .map_err(InstallError::Infra)?
+    else {
         return Ok(InstallSummary::default());
     };
-    let owner = owner_client(&tenant).await?;
+    let owner = owner_client(&tenant, "oxy_changes install")
+        .await
+        .map_err(InstallError::Infra)?;
     let installed = read_installed(&owner, &writer.name).await?;
     if declared.is_empty() && installed.is_empty() {
         return Ok(InstallSummary::default());
@@ -286,45 +283,6 @@ impl Writer {
             ))),
         }
     }
-}
-
-/// The org's store, brought current so `oxy_changes` exists. `None` when
-/// nothing is `required` and the store cannot hold any capture: none, not
-/// active, or below the step that creates `oxy_changes`.
-async fn current_tenant(
-    db: &DatabaseConnection,
-    org_id: Uuid,
-    required: bool,
-) -> Result<Option<oltp_tenants::Model>, InstallError> {
-    let tenant = match tenant_for_org(db, org_id).await {
-        Ok(tenant) => tenant,
-        Err(MigrateError::NotProvisioned(_)) if !required => return Ok(None),
-        Err(e) => return Err(infra("find the org's OLTP store", e)),
-    };
-    if tenant.status != TenantStatus::Active {
-        if !required {
-            return Ok(None);
-        }
-        return Err(InstallError::Infra(format!(
-            "the org's OLTP store is {}, not active",
-            tenant.status.as_str()
-        )));
-    }
-    if !required && tenant.platform_schema_version < CHANGES_STEP {
-        return Ok(None);
-    }
-    reconcile_platform_schema_as_owner(db, &PgSqlExecutor, &tenant)
-        .await
-        .map(Some)
-        .map_err(|e| infra("bring the org's OLTP store up to date", e))
-}
-
-async fn owner_client(tenant: &oltp_tenants::Model) -> Result<Client, InstallError> {
-    let doing = "open the org's OLTP store as its owner";
-    let dsn = owner_dsn(tenant).map_err(|e| infra(doing, e))?;
-    oxy_oltp::connect::connect(&dsn, "oxy_changes install")
-        .await
-        .map_err(|e| pg_infra(doing, &e))
 }
 
 /// The writer's `oxy_changes.tables` rows.

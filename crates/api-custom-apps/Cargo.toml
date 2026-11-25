@@ -55,7 +55,9 @@ parking_lot = { workspace = true }
 chrono = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# `raw_value`: the change stream relay keeps each row-image value as its JSON
+# lexeme, so a wide `numeric` keeps every digit (`oltp_changes::relay::render`).
+serde_json = { workspace = true, features = ["raw_value"] }
 # Applies the build's source maps to a browser error's stack (`sourcemap`).
 sourcemap = "9"
 tokio = { workspace = true }

@@ -18,6 +18,8 @@
 //! statement, as `name_session`'s is: the caller drops the transaction, which
 //! rolls it back.
 
+mod nudge;
+
 use uuid::Uuid;
 
 use super::super::env_policy::EnvPolicy;
@@ -26,7 +28,7 @@ use crate::oltp_changes::provenance::{self, ChangeSigner, SIGN_SQL, TXID_SQL};
 
 /// Whether a transaction of this run is signed: its build declares a table to
 /// capture, and it runs in production.
-fn signs(oltp_changes: bool, policy: &EnvPolicy) -> bool {
+pub(super) fn signs(oltp_changes: bool, policy: &EnvPolicy) -> bool {
     oltp_changes && policy.is_production()
 }
 

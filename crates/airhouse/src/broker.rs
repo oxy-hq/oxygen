@@ -258,6 +258,12 @@ pub enum SystemPurpose {
     /// connection is pooled. Refused unless Airhouse echoes `read_only`
     /// ([`AirhouseTokenBroker::mint_read_only`]).
     ReadOnlyQuery,
+    /// The OLTP change stream relay shipping a store's captured changes into
+    /// the workspace's `oltp_<writer>` schemas: DDL runs as Admin and rows as
+    /// Writer, each on its own dedicated connection under this purpose. Its own
+    /// audit segment, so the relay's writes never read as an app's or the
+    /// event log's.
+    OltpChanges,
 }
 
 impl SystemPurpose {
@@ -271,12 +277,36 @@ impl SystemPurpose {
             SystemPurpose::Preview => "preview",
             SystemPurpose::PreviewDdl => "preview-ddl",
             SystemPurpose::UsageIngest => "custom-app-usage",
+            SystemPurpose::UsageRead
+            | SystemPurpose::FileImport
+            | SystemPurpose::SharedQuery
+            | SystemPurpose::TableWatch
+            | SystemPurpose::EventLog
+            | SystemPurpose::ReadOnlyQuery
+            | SystemPurpose::OltpChanges => self.as_str_tail(),
+        }
+    }
+
+    /// The second half of [`Self::as_str`], split out to keep each match
+    /// small. Every variant is still named, so adding one is a compile error
+    /// in whichever half it belongs to.
+    fn as_str_tail(&self) -> &'static str {
+        match self {
             SystemPurpose::UsageRead => "custom-app-usage-read",
             SystemPurpose::FileImport => "file-import",
             SystemPurpose::SharedQuery => "shared-query",
             SystemPurpose::TableWatch => "table-watch",
             SystemPurpose::EventLog => "event-log",
             SystemPurpose::ReadOnlyQuery => "read-only-query",
+            SystemPurpose::OltpChanges => "oltp-changes",
+            SystemPurpose::Scheduler
+            | SystemPurpose::SchemaCrawler
+            | SystemPurpose::AgenticBackground
+            | SystemPurpose::EdgeIngest
+            | SystemPurpose::ComplianceReportsRead
+            | SystemPurpose::Preview
+            | SystemPurpose::PreviewDdl
+            | SystemPurpose::UsageIngest => self.as_str(),
         }
     }
 }

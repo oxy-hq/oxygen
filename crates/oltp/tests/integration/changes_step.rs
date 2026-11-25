@@ -202,3 +202,37 @@ async fn step_eight_creates_the_guard_where_permitted() {
     assert!(err.contains("generated for another table"), "{err}");
     again.expect("the owner re-applies the step with the triggers in place");
 }
+
+/// Step 9's statements alone, for this fixture's database.
+fn step_nine(fx: &Fixture) -> Vec<String> {
+    steps_since(8, "local", &fx.database)
+        .expect("platform sql")
+        .into_iter()
+        .filter(|step| step.version == 9)
+        .flat_map(|step| step.statements)
+        .collect()
+}
+
+#[tokio::test]
+async fn step_nine_applies_twice() {
+    let Some(fx) = Fixture::create("changes_step_nine").await else {
+        return;
+    };
+    let statements = step_nine(&fx);
+    let second = PgSqlExecutor
+        .execute_batch(&fx.owner_dsn, &statements)
+        .await;
+    let third = PgSqlExecutor
+        .execute_batch(&fx.owner_dsn, &statements)
+        .await;
+    let progress = owner_scalar(
+        &fx,
+        "SELECT (to_regclass('oxy_changes.progress') IS NOT NULL)::int::bigint",
+    )
+    .await;
+    fx.cleanup(&[]).await;
+
+    second.expect("step 9 runs a second time");
+    third.expect("and a third");
+    assert_eq!(progress, Ok(1), "the progress table exists");
+}

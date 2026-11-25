@@ -74,6 +74,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "custom_app_usage_purge",
     "app_events_relay",
     "app_table_watch",
+    "oltp_changes_relay",
     "react_memory_merge",
 ];
 

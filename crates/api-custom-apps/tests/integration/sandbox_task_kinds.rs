@@ -40,6 +40,7 @@ fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
     use oxy_api_custom_apps::custom_apps_sandboxes::migrations_task::SANDBOX_MIGRATIONS_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::oltp_task::SANDBOX_OLTP_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::teardown::SANDBOX_TEARDOWN_KIND;
+    use oxy_api_custom_apps::oltp_changes::relay::RELAY_KIND as OLTP_CHANGES_RELAY_KIND;
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for (file, list) in [
         (
@@ -67,6 +68,7 @@ fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
             SANDBOX_OLTP_KIND,
             ENV_OLTP_BRANCH_KIND,
             RELAY_KIND,
+            OLTP_CHANGES_RELAY_KIND,
             TABLE_WATCH_KIND,
         ] {
             assert!(

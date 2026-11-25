@@ -2,9 +2,8 @@
 
 use oxy_oltp::platform::{CHANGES_SCHEMA, CHANGES_SHAPES_TABLE, steps_since};
 
-use super::{
-    APPLYING, CHANGES_STEP, InstallError, InstallSummary, LATEST_SHAPE_SQL, MigrationError,
-};
+use super::{APPLYING, InstallError, InstallSummary, LATEST_SHAPE_SQL, MigrationError};
+use crate::oltp_changes::owner::CHANGES_STEP;
 
 /// The step a store must have reached to hold any capture is the one that
 /// creates `oxy_changes`.

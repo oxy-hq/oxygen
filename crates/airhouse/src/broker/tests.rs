@@ -206,3 +206,20 @@ fn mock_cred(expires_at: DateTime<Utc>) -> EphemeralCredential {
         read_only: false,
     }
 }
+
+/// The change stream relay has its own audit segment, and is not a shared
+/// session or an uncached reader.
+#[test]
+fn oltp_changes_is_its_own_audit_segment() {
+    let ws = Uuid::nil();
+    let s = BrokerSubject::System {
+        workspace_id: ws,
+        purpose: SystemPurpose::OltpChanges,
+    };
+    assert_eq!(
+        s.audit_subject(),
+        format!("system:workspace:{ws}:oltp-changes")
+    );
+    assert!(!s.shared_session());
+    assert!(!s.uncached_reads());
+}
