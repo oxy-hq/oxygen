@@ -18,7 +18,7 @@
 //! with wiremock and matchers verify the auth header, path, and body shape.
 //!
 //! Run with:
-//!   cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_lifecycle)'
+//!   cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_lifecycle)'
 
 use airhouse::api::handlers as airhouse_me;
 use airhouse::entity::Tenants as AirhouseTenants;

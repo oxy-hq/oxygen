@@ -8,13 +8,13 @@
 //! The test Postgres stands in for Airhouse's pgwire endpoint, as in
 //! `airhouse_pool_poison`.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_pool_reuse)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_pool_reuse)'`
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use agentic_connector::DatabaseConnector;
-use oxy_app::agentic_wiring::airhouse_pool::get_or_build;
+use oxy_workspace_runtime::airhouse_pool::get_or_build;
 
 use crate::airhouse_pool_poison::{Target, target};
 use crate::common::{Schema, fresh_db};

@@ -1,7 +1,7 @@
 //! Fails the build when a test starts using the shared database without being
 //! serialized for it.
 //!
-//! `oxy-app`'s four integration binaries are mixed. Most of what's in them is
+//! `oxy-app`'s three integration binaries are mixed. Most of what's in them is
 //! in-process — source scanning, router shape, pure authz decisions — and runs at
 //! full parallelism. Six modules are not. They reach the raw shared
 //! `OXY_DATABASE_URL` with no per-test database, so they touch the same `public`
@@ -83,7 +83,11 @@ const SHARED_HARNESS: &str = "test-utils/harness";
 /// The cost of scanning a binary that turns out to be clean is zero. The cost of
 /// omitting one is a race nobody sees until CI flakes in another crate. So: all
 /// of them, and any new one goes here on the day it's created.
-const MIXED_BINARIES: &[&str] = &["authz", "platform", "airhouse", "routing"];
+///
+/// `airhouse` left on 2026-11-24 (decompose R-a) for `oxy-workspace-runtime`'s
+/// `tests/integration`, which the sibling scan finds through its harness
+/// include.
+const MIXED_BINARIES: &[&str] = &["authz", "platform", "routing"];
 
 /// Ways a test reaches a database.
 ///

@@ -161,44 +161,11 @@ fn a_platform_request_is_not_tagged() {
     );
 }
 
-/// Serve one request through the **real** custom-app gate —
-/// `enter_semantic_boundary`, the door every semantic-analysis twin enters
-/// by, and through it `check_custom_app_gates` — behind the two layers
-/// serve.rs installs, and return the tag on an event captured later in the
-/// same request. (It mounted `/query`, then the metric tree's
-/// `post_baseline`, until each moved to `oxy-api-custom-apps`; the handler
-/// here is one line around the same entry point, so the gate that tags is
-/// the shipped one.)
-///
-/// The `Origin` is deliberately foreign, so `check_custom_app_gates` stops
-/// at its allowlist step and the test needs no database. The gate tags
-/// before it authenticates, so that is exactly the case the tag must
-/// already cover.
-fn data_plane_surface_tag(host: &str) -> Option<String> {
-    route_surface_tag(
-        Router::new().route(
-            "/api/projects/{project_id}/semantic/metric-tree/baseline",
-            axum::routing::post(
-                |axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
-                 headers: axum::http::HeaderMap| async move {
-                    use axum::response::IntoResponse as _;
-                    match oxy_app::server::api::projects::semantic_boundary::enter_semantic_boundary(
-                        &headers, project_id,
-                    )
-                    .await
-                    {
-                        Ok(_) => axum::http::StatusCode::OK.into_response(),
-                        Err(response) => response,
-                    }
-                },
-            ),
-        ),
-        host,
-        "/api/projects/0195f0d2-0000-7000-8000-000000000000/semantic/metric-tree/baseline",
-    )
-}
-
-/// As [`data_plane_surface_tag`], for any router. The capture happens in a
+/// Serve one request through `app` behind the two layers serve.rs installs,
+/// and return the tag on an event captured later in the same request. (The
+/// two tests that drive the real gate, `enter_semantic_boundary`, through a
+/// copy of this moved to `oxy-workspace-runtime`'s integration group as
+/// `sentry_surface_gate`, decompose R-a.) The capture happens in a
 /// layer *inside* `NewSentryLayer`, so it lands on the request's own hub —
 /// standing in for the handler's `error!`, an `OxyError::capture_to_sentry`
 /// or a panic later in the same request.
@@ -237,30 +204,6 @@ fn route_surface_tag(app: Router, host: &str, path: &str) -> Option<String> {
     });
     assert_eq!(events.len(), 1, "exactly one captured event");
     events[0].tags.get(CUSTOM_APP_SURFACE_TAG).cloned()
-}
-
-/// C1. The canonical app URL is `<base>/customer-apps/<org>/<app>/`, and the
-/// bundle fetches its data same-origin with an empty `apiBaseUrl` — so the
-/// data call lands on the platform host with an `/api` path. No URL rule can
-/// see that; the gate can.
-#[test]
-fn a_custom_app_data_call_on_the_platform_host_is_tagged_by_the_gate() {
-    assert_eq!(
-        data_plane_surface_tag("app.oxygen-hq.com"),
-        Some(CUSTOM_APP_SURFACE.to_string()),
-        "a custom app's warehouse query must not reach Sentry untagged"
-    );
-}
-
-/// The same call from an app served on an org subdomain. `org_host_dispatch`
-/// passes `/api/**` through untouched by design, so this request is
-/// indistinguishable from a platform one by host or path too.
-#[test]
-fn a_custom_app_data_call_on_an_org_subdomain_is_tagged_by_the_gate() {
-    assert_eq!(
-        data_plane_surface_tag("acme.oxygen-hq.com"),
-        Some(CUSTOM_APP_SURFACE.to_string())
-    );
 }
 
 /// The converse, and the reason the tag is keyed on the gate rather than on

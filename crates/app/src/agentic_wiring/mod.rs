@@ -10,8 +10,6 @@
 //! `thread_owner` and the `OxyAnalyticsMetricSink`, `OxyMetricTreeRunner` and
 //! `build_query_executor` items): import `oxy_workspace_runtime`.
 
-// The Airhouse pool, down on 2026-11-21; `tests/airhouse` keeps the path.
-pub use oxy_workspace_runtime::airhouse_pool;
 // The project context and the compile dispatcher it builds,
 // `oxy-workspace-runtime`'s since 2026-11-22 (W4).
 pub use oxy_workspace_runtime::{compile_dispatcher, project_ctx};

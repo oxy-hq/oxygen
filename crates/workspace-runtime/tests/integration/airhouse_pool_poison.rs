@@ -7,14 +7,14 @@
 //! Postgres refuses outside a transaction, tells a clean connection from one
 //! still inside the last holder's transaction.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_pool_poison)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_pool_poison)'`
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use airhouse::AirhouseConnector;
-use oxy_app::agentic_wiring::airhouse_pool::{ExclusiveLease, checkout_exclusive};
 use oxy_shared::errors::OxyError;
+use oxy_workspace_runtime::airhouse_pool::{ExclusiveLease, checkout_exclusive};
 use tokio_postgres::config::Host;
 
 use crate::common::{Schema, fresh_db};

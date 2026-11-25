@@ -97,6 +97,7 @@ mark-changed = [
   "oxy-api-workspace-health",
   "oxy-api-workspaces",
   "oxy-api-world-model",
+  "oxy-workspace-runtime",
 ]
 post-rule = "skip-rules"
 

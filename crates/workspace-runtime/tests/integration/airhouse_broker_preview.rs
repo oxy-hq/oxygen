@@ -5,7 +5,7 @@
 //! mint at all, and a Writer that comes back without the exact echo is refused
 //! and revoked rather than handed out.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_broker_preview)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_broker_preview)'`
 
 use std::time::Duration;
 

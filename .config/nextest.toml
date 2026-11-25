@@ -147,7 +147,24 @@ retries = 2
 # 2026-11-23, and its exclusion and `serial-db` pin with it: see the
 # `oxy-server` overrides below.)
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=airhouse) | binary(=platform))"
+filter = "kind(test) & package(=oxy-app) & binary(=platform)"
+test-group = "db-per-test"
+retries = 2
+
+# `oxy-workspace-runtime`'s integration group (decompose R, 2026-11-24): the
+# database-backed tests that leave oxy-app, on the same harness, so the same
+# per-binary rule. The `airhouse` binary came first (R-a); `platform` follows
+# in R-b..R-d.
+#
+# The negated alternation is not a list of what runs here today: nextest takes
+# the FIRST matching override per setting, so the two shared-database modules
+# R-d brings (`authz_loader_differential`, `audit_append_only`, which call
+# `establish_connection()`) would otherwise land in this group at
+# `max-threads = 4` and never reach their `serial-db` pin. That pin is added
+# with them: `authz::shared_db_registry` fails on a pin naming a module that is
+# not in the group yet.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & !test(/^(authz_loader_differential|audit_append_only)::/)"
 test-group = "db-per-test"
 retries = 2
 

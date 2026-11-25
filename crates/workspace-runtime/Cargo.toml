@@ -120,6 +120,33 @@ oxy-test-utils = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 # (`string_literal`'s tests build their `DatabaseType` fixtures from YAML:
 # `serde_yaml`, a normal dependency since W4.)
+#
+# `tests/integration` (decompose R, 2026-11-24): the group that takes oxy-app's
+# database-backed integration tests. It `#[path]`-includes the shared harness
+# (`crates/test-utils/harness`), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply: `migration` and `oxy-cameras`
+# here, the agentic and airhouse ones through normal dependencies. None of these
+# depends on this crate (its reverse dependencies are the api-* crates,
+# oxy-app, route-catalog and oxy-server), so there is no cycle.
+migration = { workspace = true }
+oxy-cameras = { workspace = true }
+# The harness's OLTP admin URL rewrite (`url::Url`).
+url = { workspace = true }
+# R-b..R-d add the dev-dependencies their moved tests name, in the PR that
+# moves them.
+# `airhouse_lifecycle` mounts the `/airhouse/me/*` handlers (`rest`).
+airhouse = { workspace = true, features = ["rest"] }
+# The broker and provisioner tests decode the tokens they mint.
+base64 = { workspace = true, features = ["std"] }
+# `airhouse_pool_poison` parses the pgwire DSN it poisons.
+tokio-postgres = { workspace = true }
+# `sentry_surface_gate`: `sentry::test::with_captured_events`, the custom-app
+# surface tag, and the request it serves through the gate.
+sentry = { workspace = true, features = ["test"] }
+oxy-telemetry = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+# A `wiremock` Airhouse admin API.
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

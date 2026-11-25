@@ -4,7 +4,7 @@
 //! sealed SA bearer, and drives the broker against a wiremock-backed
 //! Admin API.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_broker)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_broker)'`
 
 use airhouse::entity::tenants::{self as airhouse_tenants, TenantStatus};
 use airhouse::{

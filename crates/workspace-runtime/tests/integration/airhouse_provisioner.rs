@@ -4,7 +4,7 @@
 //! drives `provision` / `deprovision` against a wiremock-backed Airhouse
 //! admin client.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_provisioner)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_provisioner)'`
 
 use airhouse::entity::Tenants as AirhouseTenants;
 use airhouse::entity::tenants::{self as airhouse_tenants, TenantStatus};

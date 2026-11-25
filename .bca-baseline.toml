@@ -6699,61 +6699,61 @@ metric = "abc"
 value = 40.36087214122113
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_broker_preview.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_broker_preview.rs"
 qualified = "mount_mint"
 metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_lifecycle.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
 qualified = "full_lifecycle_provision_to_deprovision"
 metric = "abc"
 value = 114.58621208504974
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_lifecycle.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
 qualified = "seed_user_workspace_with_role"
 metric = "abc"
 value = 56.444663166680336
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "a_deleted_workspaces_tenant_is_removed_from_airhouse"
 metric = "abc"
 value = 48.507731342539614
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "a_tenant_another_workspace_uses_outlives_the_first_delete"
 metric = "abc"
 value = 42.579337712087536
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "concurrent_provisions_of_one_workspace_mint_one_service_account"
 metric = "abc"
 value = 60.876925020897694
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "provision_recreates_when_remote_missing"
 metric = "abc"
 value = 45.5411901469428
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "provision_revokes_orphan_sa_and_remints"
 metric = "abc"
 value = 48.05205510693585
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "provision_skips_sa_path_when_local_has_sa_fields"
 metric = "abc"
 value = 40.19950248448356
 
 [[entry]]
-path = "crates/app/tests/airhouse/airhouse_provisioner.rs"
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
 qualified = "rotate_service_account_swaps_id_and_bearer"
 metric = "abc"
 value = 42.95346318982906

@@ -15,19 +15,19 @@
 //! The test Postgres stands in for Airhouse's pgwire endpoint, as in
 //! `airhouse_pool_poison`.
 //!
-//! Run with: `cargo nextest run -p oxy-app --test airhouse -E 'test(airhouse_pool_ceiling)'`
+//! Run with: `cargo nextest run -p oxy-workspace-runtime --test integration -E 'test(airhouse_pool_ceiling)'`
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use airhouse::AirhouseConnector;
-use oxy_app::agentic_wiring::airhouse_pool::ceiling::connect_within_budget;
 use oxy_shared::errors::OxyError;
+use oxy_workspace_runtime::airhouse_pool::ceiling::connect_within_budget;
 
 use crate::airhouse_pool_poison::{Target, target};
 use crate::common::{Schema, fresh_db};
 use agentic_connector::DatabaseConnector;
-use oxy_app::agentic_wiring::airhouse_pool::get_or_build;
+use oxy_workspace_runtime::airhouse_pool::get_or_build;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
