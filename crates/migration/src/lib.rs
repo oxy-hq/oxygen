@@ -276,6 +276,7 @@ mod m20261119_000200_app_events_invoker;
 mod m20261121_000001_create_eval_test_definitions;
 mod m20261124_000001_oltp_change_relays;
 mod m20261125_000001_oltp_change_relays_wake_at;
+mod m20261126_000010_oltp_change_generations;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -574,6 +575,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261121_000001_create_eval_test_definitions::Migration),
             Box::new(m20261124_000001_oltp_change_relays::Migration),
             Box::new(m20261125_000001_oltp_change_relays_wake_at::Migration),
+            Box::new(m20261126_000010_oltp_change_generations::Migration),
         ]
     }
 

@@ -20,6 +20,7 @@ pub mod install;
 mod owner;
 pub mod provenance;
 pub mod relay;
+pub mod resync;
 
 /// Whether `oltp_changes` is on for `org_id`. Off, a production promote
 /// installs and removes no capture and opens no store connection for it,

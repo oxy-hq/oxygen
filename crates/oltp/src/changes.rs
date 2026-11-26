@@ -35,6 +35,8 @@
 
 mod baseline;
 mod capture;
+mod drift;
+mod generation;
 mod image;
 mod install;
 mod relay;
@@ -66,10 +68,16 @@ pub use baseline::{
     VIEW_PENDING_SQL, VIEW_RENDERED_SQL, abandon_baselines_sql, begin_lock_sql, chunk_read_sql,
     lock_timeout_sql, pin_session_sql, request_baseline_sql, request_named_baseline_sql,
 };
+pub use drift::{Drift, GUARDED_SQL, GUARDLESS_SQL, drift_sql};
+pub use generation::{
+    BUMP_ABANDON_SQL, BUMP_PROGRESS_SQL, BUMP_REQUEST_SQL, BUMP_STREAM_SQL, END_RESTAMP_SQL,
+    RESTAMP_CHUNK_SQL, RESTAMP_OLDER_CHUNK_SQL, bump_lock_sql,
+};
 pub use image::{OWNER_SESSION_PIN_SQL, image_function, image_role_for, image_role_prefix};
 pub use install::{
-    CaptureSpec, INSTALLED_SQL, owner_commit_sql, owner_drop_sql, owner_install_sql,
-    owner_uninstall_sql, writer_install_sql, writer_uninstall_sql,
+    CaptureSpec, INSTALL_LOCK_SQL, INSTALL_TRY_LOCK_SQL, INSTALLED_SQL, owner_commit_sql,
+    owner_drop_sql, owner_install_sql, owner_uninstall_sql, writer_install_sql,
+    writer_uninstall_sql,
 };
 pub use relay::{
     CONFIRM_SQL, DECLARE_INTENT_SQL, DELETE_SHIPPED_SQL, LogRow, OLDER_GENERATION_SQL,

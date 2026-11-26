@@ -1,6 +1,6 @@
 //! One writer's batches, each through steps 1 to 8 of the module docs of
-//! `relay`, until the writer has nothing left, is held, fails, or reaches the
-//! pass's [`Limits`](super::Limits).
+//! `relay`, until the writer has nothing left, is held, fails, bumps the
+//! store's generation, or reaches the pass's [`Limits`](super::Limits).
 //!
 //! - `target`: the writer's app and its workspace Airhouse (step 2).
 //! - `plan`: a batch's rows planned table by table (step 5).
@@ -17,8 +17,9 @@ use sea_orm::DatabaseConnection;
 use tokio_postgres::Client;
 use uuid::Uuid;
 
+use super::bump::{self, Bumped};
 use super::check::{StoreProgress, Verdict, check};
-use super::holds::{self, HoldKey, Holds};
+use super::holds::{self, HoldKey, HoldKind, Holds, Release};
 use super::marks::{self, Lease};
 use super::sink::ChangeSink;
 use super::store::{self, Next, Read, Waiting};
@@ -72,6 +73,9 @@ pub(super) struct WriterPass {
     pub held: u64,
     /// Whether rows may still wait, not counting held ones.
     pub left: bool,
+    /// The restore check found the store restored, and bumped its
+    /// generation: the pass ships nothing more.
+    pub bumped: bool,
 }
 
 /// How one batch ended.
@@ -81,15 +85,18 @@ enum Batch {
     /// Read, then shipped (`shipped` rows, possibly none) and held
     /// (`held` rows). `full`: it took the whole limit, so more may wait.
     Done { shipped: u64, held: u64, full: bool },
-    /// The restore check held the writer.
+    /// The writer was held: its oldest transaction is past the ceiling.
     Held,
+    /// The restore check found the store restored, and bumped its generation.
+    Bumped,
     /// The intent moved under the batch: the store was rewound, or another
     /// relay took the lapsed lease.
     Rewound,
 }
 
-/// Ship `waiting`'s batches. A held writer ships nothing; nor does one with
-/// no app or no Airhouse, which is held for that.
+/// Ship `waiting`'s batches. A held writer ships nothing, unless it is held
+/// for a restore: its check runs again. Nor does one with no app or no
+/// Airhouse, which is held for that.
 pub(super) async fn ship_writer(
     pass: &Pass<'_>,
     owner: &mut Client,
@@ -99,7 +106,8 @@ pub(super) async fn ship_writer(
         held: waiting.rows.max(0) as u64,
         ..WriterPass::default()
     };
-    if pass.holds.writer(&waiting.writer) {
+    let kind = pass.holds.writer_kind(&waiting.writer);
+    if kind.is_some_and(|kind| kind != HoldKind::Restore) {
         return Ok(all_held);
     }
     let Some(mut target) = target::find(pass, &waiting.writer).await? else {
@@ -125,6 +133,13 @@ pub(super) async fn ship_writer(
                 return Ok(WriterPass {
                     held: done.held + held,
                     left: false,
+                    ..done
+                });
+            }
+            Batch::Bumped => {
+                return Ok(WriterPass {
+                    bumped: true,
+                    left: true,
                     ..done
                 });
             }
@@ -157,7 +172,7 @@ async fn ship_batch(
 ) -> Result<Batch, Stop> {
     renew(pass).await?;
     if restored(pass, owner, target).await? {
-        return Ok(Batch::Held);
+        return Ok(Batch::Bumped);
     }
     let read = match read_next(pass, owner, target).await? {
         ControlFlow::Continue(read) => read,
@@ -213,8 +228,10 @@ async fn ship_batch(
     })
 }
 
-/// Step 3: whether the restore check found the writer restored, and held it.
-async fn restored(pass: &Pass<'_>, owner: &Client, target: &Target) -> Result<bool, Stop> {
+/// Step 3: whether the restore check found the store restored, and bumped
+/// its generation ([`bump::bump`]). A writer held for a restore whose check
+/// now proceeds has its hold lifted.
+async fn restored(pass: &Pass<'_>, owner: &mut Client, target: &Target) -> Result<bool, Stop> {
     let (intent, shipped) = store::progress(owner, &target.name)
         .await
         .map_err(Stop::Failed)?;
@@ -228,8 +245,14 @@ async fn restored(pass: &Pass<'_>, owner: &Client, target: &Target) -> Result<bo
     };
     let verdict = check(airhouse, store_side);
     if verdict == Verdict::Proceed {
+        lift_restore_hold(pass, &target.name).await?;
         return Ok(false);
     }
+    let Bumped {
+        from,
+        to,
+        requested,
+    } = bump::bump(pass, owner, airhouse).await?;
     alarm!(
         pass.environment,
         org_id = %pass.org_id,
@@ -238,11 +261,34 @@ async fn restored(pass: &Pass<'_>, owner: &Client, target: &Target) -> Result<bo
         ?verdict,
         ?airhouse,
         store = ?store_side,
+        bumped_from = from,
+        bumped_to = to,
+        baselines_requested = requested,
         "oltp_changes_restore_detected"
     );
-    let reason = format!("restore detected ({verdict:?}): a generation bump is needed (PR 3)");
-    hold(pass, &target.name, None, &reason).await?;
     Ok(true)
+}
+
+/// Lift `writer`'s restore hold, when the pass found it held for a restore
+/// and its check now proceeds.
+async fn lift_restore_hold(pass: &Pass<'_>, writer: &str) -> Result<(), Stop> {
+    if pass.holds.writer_kind(writer) != Some(HoldKind::Restore) {
+        return Ok(());
+    }
+    let release = Release {
+        org_id: pass.org_id,
+        environment: pass.environment,
+        writer: Some(writer),
+        tables: None,
+        kinds: &[HoldKind::Restore],
+    };
+    let lifted = holds::release(pass.db, release)
+        .await
+        .map_err(|e| Stop::Failed(format!("lift the writer's restore hold: {e}")))?;
+    if !lifted.is_empty() {
+        tracing::info!(org_id = %pass.org_id, environment = pass.environment, writer, "oltp_changes: a writer held for a restore now passes its check; its hold is lifted");
+    }
+    Ok(())
 }
 
 /// Step 4: the writer's next batch, read and declared. Breaks with how the
@@ -271,7 +317,7 @@ async fn read_next(
                 "a transaction of {rows} rows exceeds the relay's ceiling of {ceiling} \
                  (resync after PR 3)"
             );
-            hold(pass, &target.name, None, &reason).await?;
+            hold(pass, &target.name, None, HoldKind::Ceiling, &reason).await?;
             Ok(ControlFlow::Break(Batch::Held))
         }
     }
@@ -312,6 +358,7 @@ async fn hold_refused(
             pass,
             &target.name,
             Some(table.table.as_str()),
+            HoldKind::Table,
             &table.reason,
         )
         .await?;
@@ -326,6 +373,7 @@ async fn hold(
     pass: &Pass<'_>,
     writer: &str,
     table: Option<&str>,
+    kind: HoldKind,
     reason: &str,
 ) -> Result<(), Stop> {
     let key = HoldKey {
@@ -333,6 +381,7 @@ async fn hold(
         environment: pass.environment,
         writer,
         table,
+        kind,
     };
     let new = holds::hold(pass.db, key, reason)
         .await

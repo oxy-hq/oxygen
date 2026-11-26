@@ -47,6 +47,19 @@ use super::capture::{self, Op};
 use super::image::{OWNER_TRANSACTION_PIN_SQL, image_sql};
 use super::shape::CaptureShape;
 
+/// `$1 writer` (its bare name): the session-level advisory lock an install
+/// of that writer's capture holds on the store's owner session, from before
+/// it reads what is installed until the session closes. A promote's install
+/// waits for it; the relay's drift repair only tries ([`INSTALL_TRY_LOCK_SQL`]).
+/// Every name is qualified, so the owner's search path resolves nothing.
+pub const INSTALL_LOCK_SQL: &str = "SELECT pg_catalog.pg_advisory_lock(\
+     pg_catalog.hashtextextended('oxy_changes.install:' OPERATOR(pg_catalog.||) $1::text, 0))";
+
+/// [`INSTALL_LOCK_SQL`] without waiting: one `boolean`, false while another
+/// session holds it.
+pub const INSTALL_TRY_LOCK_SQL: &str = "SELECT pg_catalog.pg_try_advisory_lock(\
+     pg_catalog.hashtextextended('oxy_changes.install:' OPERATOR(pg_catalog.||) $1::text, 0))";
+
 /// One declared table's capture, as one install writes it.
 #[derive(Debug, Clone, Copy)]
 pub struct CaptureSpec<'a> {

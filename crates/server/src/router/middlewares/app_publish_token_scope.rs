@@ -355,6 +355,11 @@ mod tests {
             &Method::POST,
             "/customer-apps/3f2504e0/rollback"
         ));
+        // Resyncing the OLTP change stream discards rows: staff only.
+        assert!(!is_allowed(
+            &Method::POST,
+            "/customer-apps/3f2504e0/oltp-changes/resync"
+        ));
     }
 
     #[test]

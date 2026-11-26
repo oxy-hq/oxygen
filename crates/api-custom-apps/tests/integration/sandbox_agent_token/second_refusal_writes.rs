@@ -21,6 +21,7 @@ use axum::routing::{MethodRouter, delete, patch, post, put};
 use oxy_api_custom_apps::admin::app_publish_tokens as publish_tokens;
 use oxy_api_custom_apps::admin::apps::access::set_app_access;
 use oxy_api_custom_apps::admin::apps::handlers as admin;
+use oxy_api_custom_apps::admin::apps::oltp_changes;
 use oxy_api_custom_apps::admin::apps::promotion_rule::set_promotion_rule;
 use oxy_api_custom_apps::admin::apps::storage;
 use oxy_api_custom_apps::admin::apps::test_notification;
@@ -120,6 +121,11 @@ fn fixed_state_writes() -> Vec<Write> {
         ),
         write(
             "POST",
+            "/customer-apps/{id}/oltp-changes/resync",
+            post(oltp_changes::resync),
+        ),
+        write(
+            "POST",
             "/customer-apps/{id}/publishers",
             post(register_publisher),
         ),
@@ -170,17 +176,26 @@ fn fixed_state_writes() -> Vec<Write> {
 /// A well-formed body for `path`, so that only the refusal stands between
 /// the request and the write.
 fn body_for(agent: &Agent, path: &str, staging: Uuid) -> Option<Value> {
-    let app = agent.app.id;
     let body = match path {
         "/customer-apps" => json!({
             "name": "By Token", "org_id": agent.t.org_id,
             "project_id": agent.app.project_id, "scaffold_pr": false,
         }),
-        "/customer-apps/{id}" => json!({ "name": "Renamed By Token" }),
         "/customer-apps/{id}/rollback" => json!({ "build_id": staging }),
+        batch if batch.starts_with("/customer-apps/batch/") => json!({ "ids": [agent.app.id] }),
+        _ => return fixed_body(path),
+    };
+    Some(body)
+}
+
+/// The body for `path` when it names nothing of the test's own.
+fn fixed_body(path: &str) -> Option<Value> {
+    let body = match path {
+        "/customer-apps/{id}" => json!({ "name": "Renamed By Token" }),
         "/customer-apps/{id}/environments/{name}/promote" => json!({ "from": "staging" }),
         "/customer-apps/{id}/environments/{name}/rollback" => json!({}),
         "/customer-apps/{id}/storage/delete" => json!({ "keys": ["uploads/x"] }),
+        "/customer-apps/{id}/oltp-changes/resync" => json!({}),
         "/customer-apps/{id}/publishers" => json!({
             "repo_owner": "acme", "repo_owner_id": 1, "repo_name": "app",
             "workflow_ref": ".github/workflows/oxy-publish.yml", "environment": "production",
@@ -191,7 +206,6 @@ fn body_for(agent: &Agent, path: &str, staging: Uuid) -> Option<Value> {
         "/customer-apps/{id}/environments/{name}/schedules" => json!({ "enabled": true }),
         "/admin/app-publish-tokens" => json!({ "name": "by token" }),
         "/customer-apps/{id}/domains" => json!({ "domain": "by-token.example.org" }),
-        batch if batch.starts_with("/customer-apps/batch/") => json!({ "ids": [app] }),
         _ => return None,
     };
     Some(body)

@@ -61,7 +61,7 @@ pub(super) fn guard_statements() -> Vec<String> {
         format!("REVOKE ALL ON FUNCTION {CHANGES_SCHEMA}.guard_ddl() FROM PUBLIC"),
         record_drop_function(),
         format!("REVOKE ALL ON FUNCTION {CHANGES_SCHEMA}.record_drop() FROM PUBLIC"),
-        create_event_triggers(),
+        changes_guard_sql(),
     ]
 }
 
@@ -72,6 +72,7 @@ pub(super) fn guard_statements() -> Vec<String> {
 /// transition table the function reads counts as missing.
 fn guard_ddl_function() -> String {
     let prefix = CAPTURE_FUNCTION_PREFIX;
+    let in_place = capture_triggers_in_place("t.relid", "t.schema_name");
     format!(
         "CREATE OR REPLACE FUNCTION {CHANGES_SCHEMA}.guard_ddl() RETURNS event_trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -88,23 +89,7 @@ BEGIN
    WHERE t.installed
      AND (c.relname <> t.table_name
           OR n.nspname <> t.schema_name
-          OR (SELECT count(*)
-                FROM (VALUES ('i', 4, NULL, 'oxy_new'), ('u', 16, 'oxy_old', 'oxy_new'),
-                             ('d', 8, 'oxy_old', NULL), ('t', 32, NULL, NULL))
-                     AS w (op, tgtype, old_table, new_table)
-               WHERE EXISTS (
-                 SELECT 1
-                   FROM pg_catalog.pg_trigger g
-                   JOIN pg_catalog.pg_proc p ON p.oid = g.tgfoid
-                   JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace
-                  WHERE g.tgrelid = t.relid
-                    AND g.tgenabled = 'A'
-                    AND g.tgtype = w.tgtype
-                    AND g.tgqual IS NULL
-                    AND g.tgoldtable::text IS NOT DISTINCT FROM w.old_table
-                    AND g.tgnewtable::text IS NOT DISTINCT FROM w.new_table
-                    AND pn.nspname = t.schema_name
-                    AND p.proname = '{prefix}' || t.relid::text || '_' || w.op)) < 4)
+          OR {in_place} < 4)
    ORDER BY 1
    LIMIT 1;
   IF v_table IS NOT NULL THEN
@@ -126,6 +111,35 @@ BEGIN
   END IF;
 END
 $$"
+    )
+}
+
+/// How many of a table's four capture triggers are in place, as one scalar
+/// subquery: each `ENABLE ALWAYS`, unfiltered, on its own event with its own
+/// transition tables, and calling the function generated for that table in
+/// `schema`. `relid` is an `oid` expression, `schema` a `text` one, both
+/// spliced as written. The guard refuses DDL after which it is below 4; the
+/// relay's drift check (`crate::changes::drift_sql`) reports a table that is.
+pub(crate) fn capture_triggers_in_place(relid: &str, schema: &str) -> String {
+    let prefix = CAPTURE_FUNCTION_PREFIX;
+    format!(
+        "(SELECT count(*)
+                FROM (VALUES ('i', 4, NULL, 'oxy_new'), ('u', 16, 'oxy_old', 'oxy_new'),
+                             ('d', 8, 'oxy_old', NULL), ('t', 32, NULL, NULL))
+                     AS w (op, tgtype, old_table, new_table)
+               WHERE EXISTS (
+                 SELECT 1
+                   FROM pg_catalog.pg_trigger g
+                   JOIN pg_catalog.pg_proc p ON p.oid = g.tgfoid
+                   JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace
+                  WHERE g.tgrelid = {relid}
+                    AND g.tgenabled = 'A'
+                    AND g.tgtype = w.tgtype
+                    AND g.tgqual IS NULL
+                    AND g.tgoldtable::text IS NOT DISTINCT FROM w.old_table
+                    AND g.tgnewtable::text IS NOT DISTINCT FROM w.new_table
+                    AND pn.nspname = {schema}
+                    AND p.proname = '{prefix}' || {relid}::text || '_' || w.op))"
     )
 }
 
@@ -168,16 +182,51 @@ $$"
 /// refused event triggers in some new way would otherwise stall every store's
 /// platform schema. The guard is one layer of three: without it capture still
 /// works, and the relay's drift check reports a store that has none.
-fn create_event_triggers() -> String {
+pub fn changes_guard_sql() -> String {
+    let create = create_missing_triggers();
+    format!(
+        "DO $$
+BEGIN
+{create}EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+WHEN OTHERS THEN
+  RAISE WARNING 'oxy_changes: the DDL guard was not created (%): %', SQLSTATE, SQLERRM;
+END
+$$"
+    )
+}
+
+/// What the relay runs, as the store's owner, on a store whose guard is
+/// missing or disabled: [`changes_guard_sql`]'s creation of whichever event
+/// trigger is missing, then the guard enabled again if it is disabled (`D`,
+/// or `R`, which fires only in replica sessions), as it was created. Nothing
+/// is caught: an owner that may not create or alter event triggers fails it
+/// with `insufficient_privilege`, which the relay records, and any other
+/// failure is the relay's to log and retry.
+pub fn repair_guard_sql() -> String {
+    let create = create_missing_triggers();
+    format!(
+        "DO $$
+BEGIN
+{create}  IF EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger
+              WHERE evtname = '{CHANGES_GUARD_TRIGGER}' AND evtenabled NOT IN ('O', 'A')) THEN
+    ALTER EVENT TRIGGER {CHANGES_GUARD_TRIGGER} ENABLE;
+  END IF;
+END
+$$"
+    )
+}
+
+/// The `IF NOT EXISTS … CREATE EVENT TRIGGER` of each of the two, as lines of
+/// a `DO` block's body.
+fn create_missing_triggers() -> String {
     let tags = GUARDED_TAGS
         .iter()
         .map(|tag| format!("'{tag}'"))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtname = '{CHANGES_GUARD_TRIGGER}') THEN
+        "  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtname = '{CHANGES_GUARD_TRIGGER}') THEN
     CREATE EVENT TRIGGER {CHANGES_GUARD_TRIGGER} ON ddl_command_end
       WHEN TAG IN ({tags})
       EXECUTE FUNCTION {CHANGES_SCHEMA}.guard_ddl();
@@ -186,12 +235,7 @@ BEGIN
     CREATE EVENT TRIGGER {CHANGES_DROP_TRIGGER} ON sql_drop
       EXECUTE FUNCTION {CHANGES_SCHEMA}.record_drop();
   END IF;
-EXCEPTION WHEN insufficient_privilege THEN
-  NULL;
-WHEN OTHERS THEN
-  RAISE WARNING 'oxy_changes: the DDL guard was not created (%): %', SQLSTATE, SQLERRM;
-END
-$$"
+"
     )
 }
 
@@ -201,7 +245,7 @@ mod tests {
 
     #[test]
     fn guard_names_every_tag() {
-        let block = create_event_triggers();
+        let block = changes_guard_sql();
         assert!(
             block.contains(
                 "WHEN TAG IN ('ALTER TABLE', 'CREATE TRIGGER', 'ALTER TRIGGER', 'DROP TRIGGER', \
@@ -253,7 +297,7 @@ mod tests {
 
     #[test]
     fn event_triggers_are_created_only_when_absent_and_permitted() {
-        let block = create_event_triggers();
+        let block = changes_guard_sql();
         for name in [CHANGES_GUARD_TRIGGER, CHANGES_DROP_TRIGGER] {
             assert!(
                 block.contains(&format!(
@@ -275,6 +319,44 @@ mod tests {
         assert!(
             !block[5..block.len() - 2].contains("$$"),
             "the body must not close the quote: {block}"
+        );
+    }
+
+    /// The relay's repair creates what is missing, enables a disabled guard,
+    /// and catches nothing, so it can tell a refusal from any other failure.
+    #[test]
+    fn the_relays_guard_repair_enables_the_guard_and_catches_nothing() {
+        let block = repair_guard_sql();
+        assert!(
+            block.contains("CREATE EVENT TRIGGER oxy_changes_guard ON ddl_command_end"),
+            "{block}"
+        );
+        assert!(
+            block.contains("CREATE EVENT TRIGGER oxy_changes_drop ON sql_drop"),
+            "{block}"
+        );
+        assert!(
+            block.contains(
+                "evtname = 'oxy_changes_guard' AND evtenabled NOT IN ('O', 'A')) THEN\n    \
+                 ALTER EVENT TRIGGER oxy_changes_guard ENABLE;"
+            ),
+            "{block}"
+        );
+        assert!(!block.contains("EXCEPTION"), "{block}");
+        assert!(block.starts_with("DO $$"), "{block}");
+        assert!(
+            !block[5..block.len() - 2].contains("$$"),
+            "the body must not close the quote: {block}"
+        );
+    }
+
+    /// The guard's text is today's, byte for byte, with the trigger count
+    /// drawn from [`capture_triggers_in_place`].
+    #[test]
+    fn the_guard_body_is_unchanged() {
+        assert_eq!(
+            guard_ddl_function(),
+            include_str!("guard_ddl.golden.sql").trim_end()
         );
     }
 

@@ -12,6 +12,8 @@
 //!   `ALTER`s, each batch's idempotent `INSERT`, and `_progress`.
 //! - [`sink`]: the workspace Airhouse, behind a trait tests replace.
 //! - [`check`]: the restore check, run before every batch.
+//! - `bump`: a detected restore's generation bump, and its re-stamp.
+//! - `drift`: the pass's drift check, and the repair of what drifted.
 //! - `store`: the store's side of a pass, as its owner.
 //! - `run`: the pass under the lease, steps 1 to 5 below.
 //! - `pass`: one writer's batches.
@@ -30,10 +32,21 @@
 //!    store that captures (none, inactive, or below step 8), or capture never
 //!    installed (no `stream` row, and so no log row), the pass ends here with
 //!    nothing shipped and drains the mark (7), so the sweep stops waking the
-//!    store. A generation bump re-stamping ends it too, leaving the mark due.
-//! 2. A log row older than the stream's generation logs
-//!    `oltp_changes_old_generation_row`.
-//! 3. **Requests.** An open baseline whose table's capture is gone is
+//!    store. A bump's re-stamp an earlier pass left unfinished is finished
+//!    first; a budget that runs out before it is done ends the pass with rows
+//!    left.
+//! 2. A log row older than the stream's generation (a transaction that
+//!    spanned a bump) logs `oltp_changes_old_generation_row`, and is
+//!    re-stamped into it, to ship with it; the budget running out first ends
+//!    the pass with rows left.
+//! 3. **Drift**, then **requests**. Every table the org's production builds
+//!    declare is checked against the store's capture (`drift`): a table
+//!    whose triggers drifted is installed again as it stands, under its
+//!    app's install lock, and baselined (`drift`); a table never captured,
+//!    dropped or renamed is only recorded, since a repair never adds or
+//!    removes capture; and a store without its DDL guard gets it again or has
+//!    it recorded missing, each logging `oltp_changes_drift_repaired`. A
+//!    failure is logged, and the pass ships anyway. Then an open baseline whose table's capture is gone is
 //!    abandoned, and each installed table with no baseline in the stream's
 //!    generation gets one requested (`missing`): tables captured before
 //!    baselines existed, and a safety net. A failure here is recorded as
@@ -41,6 +54,9 @@
 //! 4. Each writer with changes waiting, the longest waiting first, ships
 //!    batches until it has none left, or reaches [`Limits`]; no batch starts
 //!    after the pass's budget. A writer that fails is logged and passed over.
+//!    A generation bump (batch step 3) stops the shipping, and the pass takes
+//!    no baseline: it ends with rows left, for the next pass to ship and
+//!    baseline in the new generation.
 //! 5. **Views pending**, after the shipping: each current-state view an
 //!    earlier render left pending (Airhouse refused it) is made again, whether
 //!    or not its table shipped rows; then the **baselines**, so a failing one
@@ -55,18 +71,30 @@
 //!    queued now rather than at the sweep. A baseline left open, or one that
 //!    wrote log rows this pass, is rows left. A pass that leaves a baseline
 //!    backing off also wakes the mark after its delay (`wake_at`), counting no
-//!    failure, so the baseline is retried though no write nudges the store.
+//!    failure, so the baseline is retried though no write nudges the store;
+//!    so does one whose generation bump backs off, at the bump's retry.
 //!
 //! # One batch of a writer
 //!
-//! 1. **Holds.** A held writer ships nothing, and its held tables are not read.
+//! 1. **Holds.** A held writer ships nothing, unless it is held for a
+//!    restore: its check (3) runs again. Its held tables are not read.
 //! 2. **App and Airhouse.** The org's app whose writer it is, and its
 //!    workspace's Airhouse; without either, the writer is held for that.
 //! 3. **Restore check** ([`check`]), before any read or DDL, under the lease
 //!    renewed at the batch's start (a lost lease stops the pass): Airhouse's
-//!    `_progress` against the store's `oxy_changes.progress`. A restore holds
-//!    the writer until a generation bump (PR 3) and logs
-//!    `oltp_changes_restore_detected`.
+//!    `_progress` against the store's `oxy_changes.progress`. A restore bumps
+//!    the store's generation, store-wide (`bump`), past both the stream's and
+//!    Airhouse's: one owner transaction that waits out every open capturing
+//!    transaction for at most [`BUMP_LOCK_TIMEOUT`], restarts every writer's
+//!    batches and requests a `bump` baseline of every installed table; then
+//!    the log's rows of the old generation are re-stamped,
+//!    [`RESTAMP_CHUNK_ROWS`] at a time, and every restore hold is lifted. It logs `oltp_changes_restore_detected`.
+//!    A lock that waits longer changes nothing in the store: the bump backs
+//!    off on the control plane ([`BACKOFF_BASE`] doubling to [`BACKOFF_CAP`])
+//!    and fails only the writer; until it may be tried again, a restore any
+//!    writer finds fails that writer, with no lock queued.
+//!    A writer held for a restore whose check now proceeds has its hold
+//!    lifted, and ships.
 //! 4. **Read and declare**, in one store transaction: the batch, whole source
 //!    transactions, and its number as the writer's intent. Nothing waiting
 //!    ends the writer. A batch never passes [`BATCH_CEILING`] rows: several
@@ -153,8 +181,11 @@ macro_rules! alarm {
 }
 
 mod baseline;
+mod bump;
 pub mod check;
+mod drift;
 mod executor;
+pub mod generation;
 pub mod holds;
 pub mod marks;
 mod pass;
@@ -175,7 +206,7 @@ use pass::WriterPass;
 pub const RELAY_KIND: &str = "oltp_changes_relay";
 
 /// The environment the relay ships, and the one every MAC is verified for.
-const PRODUCTION: &str = "production";
+pub(crate) const PRODUCTION: &str = "production";
 
 /// How long a process waits before nudging the relay again for the same
 /// (org, environment).
@@ -237,6 +268,13 @@ pub const BEGIN_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The longest one statement of a baseline's step may run, on either session,
 /// before it fails the writer for the pass.
 pub const BASELINE_STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a generation bump waits for the stream's lock, behind every open
+/// transaction that wrote a captured table, before it backs off and fails
+/// the writer whose check found the restore.
+pub const BUMP_LOCK_TIMEOUT: Duration = Duration::from_secs(3);
+/// The most log rows one chunk of a bump's re-stamp moves to the new
+/// generation.
+pub const RESTAMP_CHUNK_ROWS: i64 = 10_000;
 
 const _: () = assert!(NUDGE_DEBOUNCE.as_secs() < REDRAIN_MARGIN.as_secs());
 const _: () = assert!(PASS_BUDGET.as_secs() < LEASE_TTL.as_secs());
@@ -250,6 +288,12 @@ const _: () = assert!(COPY_CHUNK_ROWS <= BATCH_ROWS);
 // cut off at the timeout cannot outlast the lease.
 const _: () = assert!(4 * BASELINE_STATEMENT_TIMEOUT.as_secs() < LEASE_TTL.as_secs());
 const _: () = assert!(COPY_BACKLOG < BATCH_CEILING);
+// The bump's lock times out (55P03) before its statement does.
+const _: () = assert!(BUMP_LOCK_TIMEOUT.as_secs() < BASELINE_STATEMENT_TIMEOUT.as_secs());
+// A re-stamp starts no chunk after the pass's budget, so its last one, cut off
+// at the timeout, still ends inside the lease.
+const _: () =
+    assert!(PASS_BUDGET.as_secs() + BASELINE_STATEMENT_TIMEOUT.as_secs() < LEASE_TTL.as_secs());
 
 /// How much one pass ships.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -299,6 +343,9 @@ pub struct RelayStats {
     pub completed: u64,
     /// Another relay held the lease: nothing was done.
     pub skipped_lease: bool,
+    /// A restore was found and the store's generation bumped: the pass
+    /// stopped shipping, and took no baseline.
+    pub bumped: bool,
 }
 
 impl RelayStats {
@@ -353,9 +400,7 @@ pub async fn relay_once_with(
         tracing::warn!(%org_id, environment, error = %e, "oltp_changes: could not release the relay lease");
     }
     settle::settle(db, org_id, environment, &ran).await;
-    let Some(ran) = ran? else {
-        return Ok(RelayStats::default());
-    };
+    let ran = ran?;
     if !ran.failed.is_empty() {
         return Err(format!(
             "relaying the change stream failed for {}",

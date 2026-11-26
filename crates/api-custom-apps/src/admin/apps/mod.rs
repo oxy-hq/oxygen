@@ -38,6 +38,8 @@ mod invocation_read;
 pub mod invocations;
 /// An app's failures grouped per `(function, fingerprint)` — the pager's key.
 pub mod issues;
+/// `POST …/oltp-changes/resync`: re-baseline an app's captured tables.
+pub mod oltp_changes;
 mod ops;
 /// The app's four-eyes rule: who may promote its builds.
 pub mod promotion_rule;
@@ -108,6 +110,8 @@ where
 pub(crate) fn router() -> Router<AppState> {
     core_routes()
         .merge(console_routes())
+        // Staff only, and off a publish token's allow-list.
+        .merge(oltp_changes::routes())
         .merge(data_flow_routes())
 }
 

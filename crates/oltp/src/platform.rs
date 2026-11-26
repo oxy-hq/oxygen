@@ -179,6 +179,9 @@ mod outbox;
 // Step 8, the change log.
 mod changes;
 
+pub(crate) use changes::capture_triggers_in_place;
+pub use changes::{changes_guard_sql, repair_guard_sql};
+
 /// One versioned change to the Oxy-owned state of a tenant database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlatformStep {

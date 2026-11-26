@@ -621,6 +621,13 @@ const TABLES: &[(&str, Placement)] = &[
         Control("org staging-branch registry: endpoint and sealed owner"),
     ),
     (
+        "oltp_change_generations",
+        Control(
+            "per org, environment and store, the change stream's generation counter and the \
+             bump's backoff: control-plane job bookkeeping, numbers and timestamps, never a row",
+        ),
+    ),
+    (
         "oltp_change_holds",
         Control(
             "per org, environment, writer and table, that the change stream relay stopped \

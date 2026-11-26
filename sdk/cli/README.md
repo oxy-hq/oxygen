@@ -698,6 +698,7 @@ oxyc oltp deprovision --org <slug|uuid|url> [--writer app:<slug>|pipeline:<sourc
 oxyc oltp audit --org <slug|uuid|url> [--json]
 oxyc oltp rotate --org <slug|uuid|url> --role app:<slug>|pipeline:<source> --yes [--json]
 oxyc oltp apply --org <slug|uuid|url> [--workspace <id>] --yes [--json]
+oxyc oltp changes resync <org-slug>/<app-slug> [--table <name>] [--app-env production] --yes [--json]
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
@@ -750,6 +751,15 @@ apply the server cut off after 50 seconds (`timed_out: true`, with `applied`
 naming what landed): a re-run resumes at the first file the database has not
 run. It is audited on the server (a row before the DDL and
 one after), and replaced the Rust `oxy oltp apply`.
+
+`changes resync` re-baselines an app's captured tables in the OLTP change stream
+(`--table` for one, else every captured table) and removes the holds that
+resolves. The unshipped log rows of a held table are discarded, since its new
+baseline replaces them, and each table with its row count is printed; a writer
+held past the relay's ceiling is baselined whole, whichever table is named. It
+exits `8` without `--yes` and sends nothing. Only production has a change
+stream (`--app-env production`, the default); a `409` means the org's
+`oltp_changes` flag is off or a generation bump is re-stamping.
 
 `provision` prints what it will create and asks first, because it calls a paid
 provider; without a terminal it refuses unless `--yes`. It is idempotent — an

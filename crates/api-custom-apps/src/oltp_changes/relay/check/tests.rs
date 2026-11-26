@@ -29,8 +29,6 @@ fn airhouse_with_nothing_after_a_ship_is_lost() {
 #[test]
 fn airhouse_past_the_intent_is_rewound() {
     assert_eq!(check(airhouse(1, 9), store(1, 4, 4)), Verdict::Rewound);
-    // Past the intent decides before an earlier generation does.
-    assert_eq!(check(airhouse(1, 9), store(2, 4, 4)), Verdict::Rewound);
 }
 
 #[test]
@@ -39,8 +37,17 @@ fn airhouse_on_a_later_generation_is_rewound() {
 }
 
 #[test]
-fn an_earlier_generation_proceeds() {
-    assert_eq!(check(airhouse(1, 2), store(2, 7, 5)), Verdict::Proceed);
+fn an_earlier_generation_with_nothing_shipped_since_proceeds() {
+    assert_eq!(check(airhouse(1, 2), store(2, 0, 0)), Verdict::Proceed);
+    // A batch declared since the bump, not yet confirmed.
+    assert_eq!(check(airhouse(1, 2), store(2, 1, 0)), Verdict::Proceed);
+}
+
+#[test]
+fn an_earlier_generation_after_a_ship_is_lost() {
+    assert_eq!(check(airhouse(1, 2), store(2, 7, 5)), Verdict::Lost);
+    // Whatever batch Airhouse holds in the earlier generation.
+    assert_eq!(check(airhouse(1, 9), store(2, 4, 4)), Verdict::Lost);
 }
 
 #[test]
@@ -52,6 +59,24 @@ fn airhouse_behind_shipped_is_lost() {
 fn a_crash_between_shipped_and_intent_proceeds() {
     assert_eq!(check(airhouse(1, 5), store(1, 6, 4)), Verdict::Proceed);
     assert_eq!(check(airhouse(1, 6), store(1, 6, 4)), Verdict::Proceed);
+}
+
+#[test]
+fn an_earlier_generation_past_the_intent_proceeds() {
+    assert_eq!(
+        check(
+            Some(Shipped {
+                generation: 1,
+                batch: 9
+            }),
+            StoreProgress {
+                generation: 2,
+                intent: 0,
+                shipped: 0
+            }
+        ),
+        Verdict::Proceed
+    );
 }
 
 #[test]

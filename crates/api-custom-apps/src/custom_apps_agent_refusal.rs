@@ -25,6 +25,7 @@ pub const REFUSED_WRITES: &[(&str, &str)] = &[
     ("POST", "/customer-apps/{id}/rollback"),
     ("POST", "/customer-apps/{id}/environments/{name}/promote"),
     ("POST", "/customer-apps/{id}/environments/{name}/rollback"),
+    ("POST", "/customer-apps/{id}/oltp-changes/resync"),
     ("POST", "/customer-apps/batch/publish"),
     ("POST", "/customer-apps/batch/promote-latest"),
     ("POST", "/customer-apps/batch/unpublish"),

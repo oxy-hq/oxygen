@@ -56,8 +56,10 @@ pub enum Verdict {
 /// | --- | --- |
 /// | nothing, and the store shipped a batch | `Lost` |
 /// | nothing | `Proceed` |
-/// | past `intent`, or a later generation | `Rewound` |
-/// | an earlier generation | `Proceed`: the store bumped since |
+/// | a later generation | `Rewound` |
+/// | an earlier generation, the store shipping nothing since | `Proceed`: the store bumped since |
+/// | an earlier generation | `Lost`: Airhouse lost what the store shipped since its bump |
+/// | past `intent` | `Rewound` |
 /// | behind `shipped` | `Lost` |
 /// | otherwise | `Proceed` |
 ///
@@ -73,11 +75,20 @@ pub fn check(airhouse: Option<Shipped>, store: StoreProgress) -> Verdict {
             Verdict::Proceed
         };
     };
-    if airhouse.batch > store.intent || airhouse.generation > store.generation {
+    if airhouse.generation > store.generation {
         return Verdict::Rewound;
     }
     if airhouse.generation < store.generation {
-        return Verdict::Proceed;
+        // A bump restarts `shipped` at 0, and the first batch it confirms is
+        // in Airhouse under the new generation.
+        return if store.shipped == 0 {
+            Verdict::Proceed
+        } else {
+            Verdict::Lost
+        };
+    }
+    if airhouse.batch > store.intent {
+        return Verdict::Rewound;
     }
     if airhouse.batch < store.shipped {
         return Verdict::Lost;

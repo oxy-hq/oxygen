@@ -16,14 +16,23 @@
 //!   each; one past it alone holds its writer.
 //! - `shapes`: an added column is added, null before it; a renamed one holds
 //!   only its table.
-//! - `guards`: an unsigned write ships `unverified`; a store rewound under
-//!   Airhouse holds the writer; the relay is inert outside production and
-//!   with the flag off; a store where capture was never installed drains its
-//!   mark.
+//! - `guards`: an unsigned write ships `unverified`; the relay is inert
+//!   outside production and with the flag off; a store where capture was
+//!   never installed drains its mark.
+//! - `bump`: a store rewound under Airhouse bumps its generation once, past
+//!   Airhouse's, and ships and baselines in the new one; a re-stamp left set
+//!   is finished; a writer held for a restore is checked again; a bump behind
+//!   a long transaction fails the pass and backs it off.
+//! - `drift`: a disabled capture trigger is put back and its gap baselined;
+//!   a store without its guard is recorded once; a repair waits for an
+//!   install holding the app's lock.
 //! - `baselines`: an install's baseline copies the rows already there, and a
 //!   reshape's carries a backfill; a copy paced by its backlog resumes at its
 //!   cursor; writes during a copy win over its snapshots; markers land once
 //!   after a pass that died; a held table's baseline waits.
+//! - `resync`: a held table's unshipped rows are discarded and its baseline
+//!   takes their place; an unheld table keeps its rows; a writer past the
+//!   ceiling is baselined whole.
 //!
 //! Every install now requests a baseline, so a test that installs capture
 //! calls [`Relay::settle`] right after, and the behaviour under test starts
@@ -43,11 +52,14 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use crate::oltp_changes_fixture::{App, with_app};
 
 mod baselines;
+mod bump;
 mod ceiling;
 mod delivery;
+mod drift;
 mod duck;
 mod guards;
 mod inspect;
+mod resync;
 mod shapes;
 
 use duck::DuckSink;

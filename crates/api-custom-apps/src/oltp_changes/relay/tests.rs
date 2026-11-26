@@ -6,8 +6,8 @@ use super::baseline::Baselines;
 use super::pass::WriterPass;
 use super::{
     BASELINE_STATEMENT_TIMEOUT, BATCH_CEILING, BATCH_ROWS, BATCHES_PER_WRITER, BEGIN_LOCK_TIMEOUT,
-    COPY_BACKLOG, COPY_CHUNK_ROWS, INSERT_ROWS, LEASE_TTL, Limits, PASS_BUDGET, RELAY_KIND,
-    RelayStats, SINK_TIMEOUT, STALE_AFTER,
+    BUMP_LOCK_TIMEOUT, COPY_BACKLOG, COPY_CHUNK_ROWS, INSERT_ROWS, LEASE_TTL, Limits, PASS_BUDGET,
+    RELAY_KIND, RESTAMP_CHUNK_ROWS, RelayStats, SINK_TIMEOUT, STALE_AFTER,
 };
 
 #[test]
@@ -25,6 +25,8 @@ fn the_constants_are_the_designs() {
     assert_eq!(COPY_BACKLOG, 10_000);
     assert_eq!(BEGIN_LOCK_TIMEOUT, Duration::from_secs(1));
     assert_eq!(BASELINE_STATEMENT_TIMEOUT, Duration::from_secs(10));
+    assert_eq!(BUMP_LOCK_TIMEOUT, Duration::from_secs(3));
+    assert_eq!(RESTAMP_CHUNK_ROWS, 10_000);
 }
 
 #[test]
@@ -50,12 +52,14 @@ fn a_pass_adds_up_its_writers_and_baselines() {
         batches: 2,
         held: 0,
         left: true,
+        bumped: false,
     });
     stats.add(WriterPass {
         shipped: 0,
         batches: 0,
         held: 4,
         left: false,
+        bumped: false,
     });
     stats.add_baselines(&Baselines {
         begun: 2,
@@ -75,6 +79,7 @@ fn a_pass_adds_up_its_writers_and_baselines() {
             copied: 1500,
             completed: 1,
             skipped_lease: false,
+            bumped: false,
         }
     );
 }

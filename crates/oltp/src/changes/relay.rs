@@ -8,9 +8,10 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-/// The stream's one row: `generation, capturing, restamping`, or no row where
-/// capture was never installed.
-pub const STREAM_SQL: &str = "SELECT generation, capturing, restamping FROM oxy_changes.stream";
+/// The stream's one row: `generation, capturing, restamping, guardless`, or
+/// no row where capture was never installed.
+pub const STREAM_SQL: &str = "SELECT generation, capturing, restamping, \
+     guardless_since IS NOT NULL AS guardless FROM oxy_changes.stream";
 
 /// `$1 bigint`: how many log rows are older than that generation.
 pub const OLDER_GENERATION_SQL: &str =
@@ -95,6 +96,9 @@ pub struct StreamState {
     pub capturing: bool,
     /// The generation a bump is re-stamping from, while one runs.
     pub restamping: Option<i64>,
+    /// The relay recorded the store running without its DDL guard
+    /// (`guardless_since`), and has not seen the guard since.
+    pub guardless: bool,
 }
 
 impl StreamState {
@@ -104,6 +108,7 @@ impl StreamState {
             generation: row.try_get("generation")?,
             capturing: row.try_get("capturing")?,
             restamping: row.try_get("restamping")?,
+            guardless: row.try_get("guardless")?,
         })
     }
 }

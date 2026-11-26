@@ -10,7 +10,8 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use oxy_api_custom_apps::oltp_changes::relay::holds::{self, HoldKey};
+use oxy_api_custom_apps::oltp_changes::relay::generation::next_generation;
+use oxy_api_custom_apps::oltp_changes::relay::holds::{self, HoldKey, HoldKind, Release};
 use oxy_api_custom_apps::oltp_changes::relay::marks::{
     acquire, drained, due, failed, mark_all, nudge, release, renew, succeeded, wake,
 };
@@ -366,6 +367,11 @@ async fn a_hold_is_kept_with_its_first_reason() {
         environment: ENV,
         writer,
         table,
+        kind: if table.is_some() {
+            HoldKind::Table
+        } else {
+            HoldKind::Target
+        },
     };
     let orders = key("w", Some("orders"));
     let first = holds::hold(&t.db, orders, "renamed column")
@@ -394,6 +400,95 @@ async fn a_hold_is_kept_with_its_first_reason() {
         .try_get("", "reason")
         .expect("reason");
     assert_eq!(reason, "renamed column");
+}
+
+#[tokio::test]
+async fn generations_only_grow_past_their_floor() {
+    let t = org().await;
+    let next = |floor| next_generation(&t.db, t.org_id, ENV, floor);
+    assert_eq!(next(1).await.expect("next"), 2);
+    assert_eq!(next(1).await.expect("next"), 3);
+    assert_eq!(next(10).await.expect("next"), 11);
+}
+
+#[tokio::test]
+async fn a_generation_outlives_its_relay_row() {
+    let t = org().await;
+    let g = next_generation(&t.db, t.org_id, ENV, 1)
+        .await
+        .expect("next");
+    exec(
+        &t.db,
+        "INSERT INTO oltp_change_relays (org_id, environment) VALUES ($1, $2)",
+        t.org_id,
+    )
+    .await;
+    exec(
+        &t.db,
+        "DELETE FROM oltp_change_relays WHERE org_id = $1 AND environment = $2",
+        t.org_id,
+    )
+    .await;
+    assert!(
+        next_generation(&t.db, t.org_id, ENV, 1)
+            .await
+            .expect("next")
+            > g
+    );
+}
+
+#[tokio::test]
+async fn a_release_removes_only_the_kinds_it_names() {
+    let t = org().await;
+    for (writer, table, kind) in [
+        ("w", Some("orders"), HoldKind::Table),
+        ("w", None, HoldKind::Ceiling),
+        ("v", None, HoldKind::Restore),
+    ] {
+        let key = HoldKey {
+            org_id: t.org_id,
+            environment: ENV,
+            writer,
+            table,
+            kind,
+        };
+        holds::hold(&t.db, key, "why").await.expect("hold");
+    }
+    // A writer's restore hold an older binary wrote: `kind` is its default.
+    t.db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO oltp_change_holds (org_id, environment, writer, table_name, reason) \
+         VALUES ($1, $2, 'u', '', 'restore detected (Lost): a generation bump is needed (PR 3)')",
+        [t.org_id.into(), ENV.into()],
+    ))
+    .await
+    .expect("hold as an older binary did");
+    let read = holds::read(&t.db, t.org_id, ENV).await.expect("read");
+    assert_eq!(read.writer_kind("u"), Some(HoldKind::Restore));
+    let released = holds::release(
+        &t.db,
+        Release {
+            org_id: t.org_id,
+            environment: ENV,
+            writer: None,
+            tables: None,
+            kinds: &[HoldKind::Restore],
+        },
+    )
+    .await
+    .expect("release");
+    assert_eq!(released.len(), 2, "{released:?}");
+    for writer in ["u", "v"] {
+        assert!(
+            released.contains(&(writer.to_string(), String::new())),
+            "{released:?}"
+        );
+    }
+    let read = holds::read(&t.db, t.org_id, ENV).await.expect("read");
+    assert_eq!(read.tables("w"), vec!["orders".to_string()]);
+    assert_eq!(read.writer_kind("w"), Some(HoldKind::Ceiling));
+    assert_eq!(read.writer_kind("v"), None);
+    assert_eq!(read.writer_kind("u"), None);
 }
 
 #[tokio::test]

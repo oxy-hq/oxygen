@@ -270,7 +270,7 @@ async fn installed(store: &Store, table: &str, ddl: &str) -> Result<CaptureShape
 /// Wait until a session, running exactly `sql`, waits on a lock. `dsn` must
 /// be that session's role: `pg_stat_activity` shows a role's wait events only
 /// to that role (or a superuser).
-async fn blocked(dsn: &str, sql: &str) -> Result<(), String> {
+pub(crate) async fn blocked(dsn: &str, sql: &str) -> Result<(), String> {
     let client = connect(dsn).await?;
     let deadline = Instant::now() + BLOCKED_WITHIN;
     loop {

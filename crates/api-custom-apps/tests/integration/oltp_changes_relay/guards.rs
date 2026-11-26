@@ -1,11 +1,10 @@
 //! What the relay refuses to trust or to do: a write the host did not sign
-//! ships as `unverified`, a store rewound under Airhouse holds its writer,
-//! nothing is relayed outside production or with the flag off, and a store
-//! where capture was never installed is not woken again.
+//! ships as `unverified`, nothing is relayed outside production or with the
+//! flag off, and a store where capture was never installed is not woken
+//! again.
 
 use oxy_api_custom_apps::oltp_changes::enabled_for;
 use oxy_api_custom_apps::oltp_changes::relay::marks::{due, nudge};
-use oxy_api_custom_apps::oltp_changes::relay::render::progress_write_sql;
 use oxy_api_custom_apps::oltp_changes::relay::{Limits, REDRAIN_EVERY, REDRAIN_MARGIN, RelayStats};
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
@@ -16,7 +15,7 @@ use crate::oltp_changes_marks::guard;
 
 /// Remove `t`'s `oltp_changes` override, so the flag is its registry
 /// default (off), and load the flag cache from the table.
-async fn disable_oltp_changes(t: &Tenant) {
+pub(super) async fn disable_oltp_changes(t: &Tenant) {
     entity::feature_flag::Entity::delete_by_id(oxy_feature_flags::OLTP_CHANGES.to_string())
         .exec(&t.db)
         .await
@@ -69,51 +68,6 @@ async fn an_unsigned_write_ships_unverified() {
         );
         let unsigned = "count(*) FILTER (WHERE _actor = 'unverified' AND _invocation_id IS NULL)";
         assert_eq!(r.aggregate("leases", unsigned), text("1"));
-    })
-    .await;
-}
-
-/// Airhouse's `_progress` set past the store's intent, as when the store is
-/// restored to before a batch Airhouse holds: the next pass ships nothing,
-/// declares no batch, and holds the whole writer for a restore.
-#[tokio::test]
-async fn a_store_rewound_under_airhouse_holds_the_writer() {
-    with_relay(|r| async move {
-        r.app
-            .promote("chg-1", true, &[LEASES_SQL])
-            .await
-            .expect("the promote installs capture on leases");
-        r.settle().await;
-        r.app
-            .write("insert into leases (id, name) values (1, 'Flat 1')")
-            .await;
-        assert_eq!(r.pass().await.shipped, 1);
-        let (intent, shipped) = r.progress().await;
-        assert_eq!(intent, shipped);
-        let (generation, _) = r.shipped();
-        r.duck
-            .exec(&progress_write_sql(&r.writer(), generation, intent + 100));
-
-        r.app
-            .write("insert into leases (id, name) values (2, 'Flat 2')")
-            .await;
-        let held = RelayStats {
-            held: 1,
-            ..RelayStats::default()
-        };
-        assert_eq!(r.pass().await, held, "ships nothing");
-        assert_eq!(r.aggregate("leases", "count(*)"), text("1"));
-        assert_eq!(r.waiting(None).await, 1, "the row stays in the log");
-        assert_eq!(r.progress().await, (intent, shipped), "no batch declared");
-        let holds = r.holds().await;
-        assert_eq!(holds.len(), 1, "{holds:?}");
-        let (writer, table, reason) = &holds[0];
-        assert_eq!(
-            (writer, table.as_str()),
-            (&r.writer(), ""),
-            "the whole writer"
-        );
-        assert!(reason.starts_with("restore detected (Rewound)"), "{reason}");
     })
     .await;
 }

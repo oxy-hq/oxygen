@@ -1,5 +1,5 @@
 /**
- * Wires `oxyc oltp audit | rotate | apply` onto the `oltp` group, split out of
+ * Wires `oxyc oltp audit | rotate | apply | changes resync` onto the `oltp` group, split out of
  * `main.ts` for the reason `airway-cli.ts` is. These are the three verbs that
  * run as the tenant's owner, over the routes that replaced the Rust
  * `oxy oltp audit | rotate | apply` (`internal-docs/oxy-cli-to-oxyc.md`, step 12).
@@ -10,6 +10,7 @@ import { createContext } from "../context/resolve.js";
 import type { Wiring } from "./flags-cli.js";
 import { runOltpApply } from "./oltp-apply.js";
 import { runOltpAudit, runOltpRotate } from "./oltp-audit.js";
+import { runOltpChangesResync } from "./oltp-changes.js";
 
 type Opts = Record<string, unknown>;
 
@@ -61,6 +62,26 @@ export function registerOltpOwnerVerbs(
   ).action(async (opts: Opts) => {
     await runOltpApply(createContext(globals(opts)), opts.org as string | undefined, {
       workspace: opts.workspace as string | undefined,
+      yes: opts.yes as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  const changes = oltp.command("changes").description("an app's OLTP change stream, for staff");
+  withGlobals(
+    changes
+      .command("resync <app>")
+      .description(
+        "re-baseline an app's captured tables and remove the holds that resolves (--yes) — a held table's unshipped rows are discarded"
+      )
+      .option("--table <name>", "one table (default: every captured table)")
+      .option("--app-env <environment>", "only production has a change stream (default)")
+      .option("--yes", "required: without it nothing is sent (exit 8)")
+      .option("--json", "emit the server's report")
+  ).action(async (app: string, opts: Opts) => {
+    await runOltpChangesResync(createContext(globals(opts)), app, {
+      table: opts.table as string | undefined,
+      env: opts.appEnv as string | undefined,
       yes: opts.yes as boolean | undefined,
       json: opts.json as boolean | undefined
     });

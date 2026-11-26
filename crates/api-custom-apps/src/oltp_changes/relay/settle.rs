@@ -37,7 +37,8 @@ pub(super) struct Ran {
     /// Whether rows may still wait outside a hold: a writer stopped short, a
     /// baseline is left open, or one wrote log rows this pass.
     pub left: bool,
-    /// How long until the earliest open baseline backing off is retried.
+    /// How long until the earliest open baseline backing off is retried, or
+    /// a generation bump backing off may be tried again.
     pub wake_in: Option<Duration>,
 }
 
@@ -55,21 +56,20 @@ impl Ran {
 }
 
 /// Settle the mark after `ran`, the outcome of the pass under the lease:
-/// `Err` when it stopped, `None` when it found a bump re-stamping.
+/// `Err` when it stopped.
 pub(super) async fn settle(
     db: &DatabaseConnection,
     org_id: Uuid,
     environment: &str,
-    ran: &Result<Option<Ran>, String>,
+    ran: &Result<Ran, String>,
 ) {
     let failed = match ran {
         Err(_) => true,
-        Ok(Some(ran)) => !ran.failed.is_empty(),
-        Ok(None) => false,
+        Ok(ran) => !ran.failed.is_empty(),
     };
     let wake_in = match ran {
-        Ok(Some(ran)) => ran.wake_in,
-        _ => None,
+        Ok(ran) => ran.wake_in,
+        Err(_) => None,
     };
     // A failed pass's wake is set first, so its backoff moves it no sooner
     // than the backoff's end; a passing one's after its backoff clears.
@@ -87,7 +87,7 @@ pub(super) async fn settle(
     if !failed {
         wake(db, org_id, environment, wake_in).await;
     }
-    if let Ok(Some(ran)) = ran
+    if let Ok(ran) = ran
         && ran.failed.is_empty()
     {
         drain_or_requeue(db, org_id, environment, ran).await;

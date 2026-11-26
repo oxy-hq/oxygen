@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 
-use oxy_api_custom_apps::oltp_changes::relay::holds::{self, HoldKey};
+use oxy_api_custom_apps::oltp_changes::relay::holds::{self, HoldKey, HoldKind};
 use oxy_api_custom_apps::oltp_changes::relay::marks::due;
 use oxy_api_custom_apps::oltp_changes::relay::render::changes_table_name;
 use oxy_api_custom_apps::oltp_changes::relay::sink::install_sink;
@@ -370,6 +370,7 @@ async fn a_held_tables_baseline_waits() {
             environment: PRODUCTION,
             writer: &writer,
             table: Some("leases"),
+            kind: HoldKind::Table,
         };
         holds::hold(r.db(), key, "held by the test")
             .await

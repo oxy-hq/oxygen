@@ -36,6 +36,8 @@ mod changes_baseline;
 mod changes_branch;
 mod changes_capture;
 mod changes_casts;
+mod changes_drift;
+mod changes_generation;
 mod changes_relay;
 mod changes_step;
 mod grant_audit;

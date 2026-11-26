@@ -30,6 +30,9 @@ use super::{
 
 mod guard;
 
+pub(crate) use guard::capture_triggers_in_place;
+pub use guard::{changes_guard_sql, repair_guard_sql};
+
 /// Step 8, as the module docs describe it. `analyst` is the tenant's analyst
 /// role, already quoted, revoked from the schema as step 5 revokes it from
 /// `oxy_events`.

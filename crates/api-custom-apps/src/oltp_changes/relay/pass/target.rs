@@ -6,7 +6,7 @@ use oxy_oltp::schema::{WriterRef, app_writer_name};
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use super::{Pass, Stop, hold};
+use super::{HoldKind, Pass, Stop, hold};
 
 /// A writer with somewhere to ship: its app's workspace has an Airhouse.
 pub(super) struct Target {
@@ -35,6 +35,7 @@ pub(super) async fn find(pass: &Pass<'_>, writer: &str) -> Result<Option<Target>
             pass,
             writer,
             None,
+            HoldKind::Target,
             "no app of the org writes as this writer",
         )
         .await?;
@@ -48,7 +49,7 @@ pub(super) async fn find(pass: &Pass<'_>, writer: &str) -> Result<Option<Target>
         .map_err(|e| Stop::Failed(format!("look up the app's workspace Airhouse: {e}")))?;
     if !has_airhouse {
         let reason = format!("app {} has no Airhouse in workspace {workspace}", app.slug);
-        hold(pass, writer, None, &reason).await?;
+        hold(pass, writer, None, HoldKind::Target, &reason).await?;
         return Ok(None);
     }
     let schema = WriterRef::app(writer.to_owned())

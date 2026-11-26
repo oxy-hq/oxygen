@@ -47,12 +47,18 @@
 //! A failure part way leaves the tables already done installed, each whole,
 //! and the same promote retried installs the rest. Nothing is undone, as
 //! nothing a migration did is.
+//!
+//! An install holds the writer's advisory lock (`INSTALL_LOCK_SQL`) on its
+//! owner session from step 2 until it ends, so two installs of one app never
+//! interleave: a promote waits for another, and the relay's drift repair
+//! ([`repair`]) passes over an app whose install is running.
 
 use oxy_custom_apps::manifest::OltpChangesConfig;
 use oxy_oltp::changes::{
-    BaselineReason, CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, OWNER_SESSION_PIN_SQL,
-    SHAPE_SQL, ShapeRow, image_role_for, owner_commit_sql, owner_drop_sql, owner_install_sql,
-    owner_uninstall_sql, shape_from_rows, writer_install_sql, writer_uninstall_sql,
+    BaselineReason, CaptureSpec, Column, DeclaredTable, INSTALL_LOCK_SQL, INSTALLED_SQL,
+    OWNER_SESSION_PIN_SQL, SHAPE_SQL, ShapeRow, image_role_for, owner_commit_sql, owner_drop_sql,
+    owner_install_sql, owner_uninstall_sql, shape_from_rows, writer_install_sql,
+    writer_uninstall_sql,
 };
 use oxy_oltp::resolver::WriterConnection;
 use oxy_oltp::schema::{SchemaError, WriterRef, app_writer_name};
@@ -65,6 +71,7 @@ use crate::custom_apps_migrations::MigrationError;
 
 mod attach;
 mod plan;
+pub mod repair;
 
 use attach::{Attach, Attacher, Detach, Roles};
 use plan::{Change, Installed, Plan, Recorded};
@@ -177,6 +184,7 @@ pub async fn install_on_promote(
     else {
         return Ok(InstallSummary::default());
     };
+    let writer = writer.in_store(&tenant);
     let owner = owner_client(&tenant, "oxy_changes install")
         .await
         .map_err(InstallError::Infra)?;
@@ -184,16 +192,41 @@ pub async fn install_on_promote(
         .batch_execute(OWNER_SESSION_PIN_SQL)
         .await
         .map_err(|e| pg_infra("pin the owner's search_path", &e))?;
+    owner
+        .execute(INSTALL_LOCK_SQL, &[&writer.name])
+        .await
+        .map_err(|e| pg_infra("wait for the app's other capture install", &e))?;
+    install_locked(db, org_id, &writer, owner, &declared).await
+}
+
+/// Steps 2 to 6 of the module docs, on `owner`, a session holding the
+/// writer's install lock (`INSTALL_LOCK_SQL`), which goes with it when the
+/// install drops it.
+async fn install_locked(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    writer: &Writer,
+    owner: Client,
+    declared: &[DeclaredTable],
+) -> Result<InstallSummary, InstallError> {
     let installed = read_installed(&owner, &writer.name).await?;
     if declared.is_empty() && installed.is_empty() {
         return Ok(InstallSummary::default());
     }
-    let plan = plan_against(&owner, &writer, &declared, &installed).await?;
-    let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
+    let plan = plan_against(&owner, writer, declared, &installed).await?;
+    let conn = writer_connection(db, org_id, writer).await?;
+    apply_plan(conn, writer, owner, &plan, None).await
+}
+
+/// The app's writer's connection to the org's store.
+async fn writer_connection(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    writer: &Writer,
+) -> Result<WriterConnection, InstallError> {
+    oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
         .await
-        .map_err(|e| infra("resolve the app's writer", e))?;
-    let image_role = image_role_for(&tenant.provider, &tenant.database_name, &writer.name);
-    apply_plan(&conn, &writer, owner, &plan, &image_role).await
+        .map_err(|e| infra("resolve the app's writer", e))
 }
 
 /// Every declared table read and validated against its live shape, beside
@@ -216,20 +249,21 @@ async fn plan_against(
 
 /// Carry out `plan`: each table installed or reshaped, as the store's owner,
 /// then the table's owner, then the store's owner; then each removed table
-/// taken down the same way backwards. `conn` is the app's writer's
-/// connection; `image_role` is its writer's role that builds its images.
+/// taken down the same way backwards. `timeouts`, when given, starts every
+/// one of those transactions, on either session. The writer's image role
+/// (`Writer::image_role`) builds its images.
 async fn apply_plan(
-    conn: &WriterConnection,
+    conn: WriterConnection,
     writer: &Writer,
     owner: Client,
     plan: &Plan,
-    image_role: &str,
+    timeouts: Option<String>,
 ) -> Result<InstallSummary, InstallError> {
     // Every statement is generated, and every table's owner checked, before
     // the first runs: a name the capture SQL refuses, or a table neither the
     // writer nor the store's owner owns, is the author's to fix, and is
     // refused with nothing changed.
-    let tables = install_sql(plan, writer, &conn.role, image_role)?;
+    let tables = install_sql(plan, writer, &conn.role, &writer.image_role)?;
     let store_owner = attach::store_owner(&owner).await?;
     let roles = Roles {
         writer: &conn.role,
@@ -242,6 +276,7 @@ async fn apply_plan(
     let mut sessions = Sessions {
         owner,
         writer: writer_client,
+        timeouts,
     };
     install_tables(&mut sessions, &steps.install).await?;
     remove_tables(&mut sessions, &writer.schema, &steps.remove).await?;
@@ -254,15 +289,24 @@ async fn apply_plan(
 struct Sessions {
     owner: Client,
     writer: Client,
+    /// What every transaction starts with: the repair's timeouts, or nothing
+    /// for a promote's install.
+    timeouts: Option<String>,
 }
 
 impl Sessions {
-    /// The session `attacher` names.
-    fn of(&mut self, attacher: Attacher) -> &mut Client {
-        match attacher {
+    /// `statements` in one transaction on the session `on` names.
+    async fn run(
+        &mut self,
+        on: Attacher,
+        statements: &[String],
+        doing: &str,
+    ) -> Result<(), InstallError> {
+        let client = match on {
             Attacher::Writer => &mut self.writer,
             Attacher::Owner => &mut self.owner,
-        }
+        };
+        in_transaction(client, self.timeouts.as_deref(), statements, doing).await
     }
 }
 
@@ -275,6 +319,10 @@ struct Writer {
     /// `app_bookings`: where its tables and their capture functions live.
     schema: String,
     writer: WriterRef,
+    /// Its image role in the store ([`image_role_for`]), which builds its
+    /// captured images: set by [`Writer::in_store`], empty before, and an
+    /// empty name is refused by every install statement built from it.
+    image_role: String,
 }
 
 impl Writer {
@@ -289,12 +337,21 @@ impl Writer {
                 schema: writer.schema_name(),
                 name,
                 writer,
+                image_role: String::new(),
             })),
             None if !required => Ok(None),
             None => Err(InstallError::Author(format!(
                 "the app's slug '{app_slug}' cannot back an OLTP schema, so the tables under \
                  oltpChanges cannot be captured"
             ))),
+        }
+    }
+
+    /// This writer in `tenant`'s store, its image role named.
+    fn in_store(self, tenant: &oxy_oltp::entity::tenants::Model) -> Self {
+        Self {
+            image_role: image_role_for(&tenant.provider, &tenant.database_name, &self.name),
+            ..self
         }
     }
 }
@@ -433,13 +490,15 @@ async fn install_tables(sessions: &mut Sessions, steps: &[Attach<'_>]) -> Result
         let t = step.sql;
         let name = &t.table;
         let doing = format!("write the capture functions of {name:?} as the store's owner");
-        in_transaction(&mut sessions.owner, &t.owner_install, &doing).await?;
+        sessions
+            .run(Attacher::Owner, &t.owner_install, &doing)
+            .await?;
         let by = step.by;
         let doing = format!("attach the capture triggers to {name:?} as {}", by.role());
-        in_transaction(sessions.of(by), &t.writer_install, &doing).await?;
+        sessions.run(by, &t.writer_install, &doing).await?;
         let doing = format!("commit the capture of {name:?}");
         let commit = std::slice::from_ref(&t.owner_commit);
-        in_transaction(&mut sessions.owner, commit, &doing).await?;
+        sessions.run(Attacher::Owner, commit, &doing).await?;
     }
     Ok(())
 }
@@ -458,23 +517,24 @@ async fn remove_tables(
         let name = &row.table;
         let doing = format!("release the capture of {name:?} from the guard");
         let release = [owner_uninstall_sql(row.relid)];
-        in_transaction(&mut sessions.owner, &release, &doing).await?;
+        sessions.run(Attacher::Owner, &release, &doing).await?;
         if let Some((live, by)) = &step.triggers {
             let doing = format!("drop the capture triggers of {name:?} as {}", by.role());
             let sql = writer_uninstall_sql(&live.schema, &live.table);
-            in_transaction(sessions.of(*by), &sql, &doing).await?;
+            sessions.run(*by, &sql, &doing).await?;
         }
         let doing = format!("drop the capture functions of {name:?} as the store's owner");
         let functions = owner_drop_sql(row.relid, schema);
-        in_transaction(&mut sessions.owner, &functions, &doing).await?;
+        sessions.run(Attacher::Owner, &functions, &doing).await?;
     }
     Ok(())
 }
 
-/// `statements` in one transaction, so a step that fails leaves nothing of
-/// itself behind.
+/// `statements` in one transaction, after `timeouts` when given, so a step
+/// that fails leaves nothing of itself behind.
 async fn in_transaction(
     client: &mut Client,
+    timeouts: Option<&str>,
     statements: &[String],
     doing: &str,
 ) -> Result<(), InstallError> {
@@ -482,6 +542,11 @@ async fn in_transaction(
         .transaction()
         .await
         .map_err(|e| pg_infra(doing, &e))?;
+    if let Some(timeouts) = timeouts {
+        txn.batch_execute(timeouts)
+            .await
+            .map_err(|e| pg_infra(doing, &e))?;
+    }
     for statement in statements {
         txn.batch_execute(statement)
             .await
