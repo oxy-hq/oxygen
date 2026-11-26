@@ -69,6 +69,11 @@ pub async fn compute_freshness_hint(
         .iter()
         .filter_map(|n| catalog.resolve_freshness_target(n))
         .filter(|t| t.declared)
+        // A `sql:` view names no relation to read MAX(watermark) from, and
+        // running its whole SQL once per chat to find one date is not a cost
+        // this best-effort line may take. Skipped before the cap, so the cap
+        // spends its slots on views it can measure.
+        .filter(|t| !t.sql_defined)
         .collect();
     targets.sort_by(|a, b| a.view.cmp(&b.view));
     targets.dedup_by(|a, b| a.view == b.view);
@@ -98,7 +103,7 @@ pub async fn compute_freshness_hint(
                 },
                 None => super::lookup_connector(connectors, default_connector).map(|(_, c)| c)?,
             };
-            let table_sql = format!("\"{}\"", t.table.replace('"', "\"\""));
+            let table_sql = crate::catalog::relation::quote_relation(&t.table);
             let sql = format!("SELECT MAX({}) FROM {table_sql}", t.watermark_expr);
             let res = connector.execute_query(&sql, 1).await.ok()?;
             let cell = res.result.rows.first().and_then(|row| row.0.first())?;

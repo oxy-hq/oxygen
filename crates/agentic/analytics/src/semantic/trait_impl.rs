@@ -227,6 +227,7 @@ impl Catalog for SemanticCatalog {
         Some(FreshnessTarget {
             view: v.name.clone(),
             table: v.table.clone().unwrap_or_else(|| v.name.clone()),
+            sql_defined: crate::catalog::relation::defined_by_sql(v),
             datasource: v.datasource.clone(),
             watermark_expr,
             watermark_name,

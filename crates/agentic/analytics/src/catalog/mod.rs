@@ -14,6 +14,7 @@
 //! [`SemanticCatalog`]: crate::semantic::SemanticCatalog
 
 pub mod helpers;
+pub mod relation;
 pub mod schema;
 pub mod schema_trait;
 pub mod traits;

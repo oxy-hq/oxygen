@@ -233,6 +233,7 @@ fn freshness_target_uses_declared_meta_watermark() {
     let cat = build_catalog(&[sales_view_with_freshness_meta()]);
     let t = cat.resolve_freshness_target("sales_daily").unwrap();
     assert!(t.declared);
+    assert!(!t.sql_defined, "a `table:` view names a relation to probe");
     // The declared column matches the `business_date` dimension, so the
     // dimension's SQL expr is used (normalized), not the raw column name.
     assert_eq!(t.watermark_name, "business_date");

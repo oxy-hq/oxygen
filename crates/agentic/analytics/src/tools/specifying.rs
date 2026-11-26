@@ -9,6 +9,7 @@ use agentic_core::tools::ToolError;
 use serde_json::{Value, json};
 
 use crate::catalog::Catalog;
+use crate::catalog::relation::quote_relation;
 
 use super::{cell_to_json, emit_tool_error, emit_tool_input, emit_tool_output};
 
@@ -220,22 +221,7 @@ async fn check_single_view_freshness(
             .as_ref()
     };
 
-    let table_sql = format!("\"{}\"", target.table.replace('"', "\"\""));
-    let max_sql = format!(
-        "SELECT MAX({expr}) FROM {table_sql}",
-        expr = target.watermark_expr
-    );
-    let res = connector
-        .execute_query(&max_sql, 1)
-        .await
-        .map_err(|e| ToolError::Execution(e.to_string()))?;
-    let data_through = res
-        .result
-        .rows
-        .first()
-        .and_then(|row| row.0.first())
-        .map(cell_to_json)
-        .unwrap_or(Value::Null);
+    let data_through = probe_watermark(&target, connector).await?;
 
     let mut out = json!({
         "view": target.view,
@@ -244,6 +230,12 @@ async fn check_single_view_freshness(
         "watermark_declared": target.declared,
         "data_through": data_through,
     });
+    if target.sql_defined {
+        out["note"] = json!(
+            "this view is defined by SQL, so its watermark is not probed; \
+             read it with a query on the view, or rely on the declared contract"
+        );
+    }
     if let Some(days) = staleness_days(&out["data_through"]) {
         out["staleness_days"] = json!(days);
     }
@@ -263,6 +255,52 @@ async fn check_single_view_freshness(
         out["refresh_key_value"] = cell_to_json(cell);
     }
     Ok(out)
+}
+
+/// The relation and column `sample_columns` reads. When the semantic model
+/// resolves the target, `column_expr` is already a SQL expression (e.g.
+/// `"Datetime (Local)"` with its own quoting), so it is used verbatim; the
+/// table is quoted one identifier per part (`quote_relation`).
+fn sample_relation(
+    resolved: Option<&crate::catalog::SampleTarget>,
+    table_param: &str,
+    column_param: &str,
+) -> (String, String) {
+    match resolved {
+        Some(target) => (quote_relation(&target.table), target.column_expr.clone()),
+        None => (
+            quote_relation(table_param),
+            format!("\"{}\"", column_param.replace('"', "\"\"")),
+        ),
+    }
+}
+
+/// `MAX(<watermark>)` over the view's table, quoted one identifier per part
+/// (`quote_relation`). A `sql:` view names no table, so it is not queried:
+/// `Null`, and the caller says why.
+async fn probe_watermark(
+    target: &crate::catalog::FreshnessTarget,
+    connector: &dyn DatabaseConnector,
+) -> Result<Value, ToolError> {
+    if target.sql_defined {
+        return Ok(Value::Null);
+    }
+    let table_sql = quote_relation(&target.table);
+    let max_sql = format!(
+        "SELECT MAX({expr}) FROM {table_sql}",
+        expr = target.watermark_expr
+    );
+    let res = connector
+        .execute_query(&max_sql, 1)
+        .await
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    Ok(res
+        .result
+        .rows
+        .first()
+        .and_then(|row| row.0.first())
+        .map(cell_to_json)
+        .unwrap_or(Value::Null))
 }
 
 /// Days between a watermark value and today (UTC). Handles ISO strings
@@ -355,21 +393,7 @@ async fn sample_single_column(
         }));
     }
 
-    // When the semantic model resolves the target, `column_expr` is
-    // already a SQL expression (e.g. `"Datetime (Local)"` with its own
-    // quoting).  Use it verbatim instead of wrapping in extra quotes.
-    let (table_sql, col_sql) = match &resolved {
-        Some(target) => {
-            let t = format!("\"{}\"", target.table.replace('"', "\"\""));
-            // column_expr from the semantic model is a raw SQL
-            // expression — use it as-is.
-            (t, target.column_expr.clone())
-        }
-        None => (
-            format!("\"{}\"", table_param.replace('"', "\"\"")),
-            format!("\"{}\"", column_param.replace('"', "\"\"")),
-        ),
-    };
+    let (table_sql, col_sql) = sample_relation(resolved.as_ref(), table_param, column_param);
 
     let sample_sql = sample_values_sql(
         &col_sql,

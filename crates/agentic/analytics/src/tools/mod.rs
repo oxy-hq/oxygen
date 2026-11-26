@@ -42,6 +42,8 @@ pub mod solving;
 pub mod specifying;
 
 #[cfg(test)]
+mod freshness_probe_tests;
+#[cfg(test)]
 mod tests;
 
 pub use anomalies::{AnomalyToolContext, execute_anomaly_tool};

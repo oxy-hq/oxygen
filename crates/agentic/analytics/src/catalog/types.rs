@@ -108,8 +108,11 @@ pub struct SampleTarget {
 pub struct FreshnessTarget {
     /// Semantic view name.
     pub view: String,
-    /// Underlying database table.
+    /// Underlying database table, or the view's name when it has none.
     pub table: String,
+    /// The view is defined by `sql:`, not `table:`: [`Self::table`] names no
+    /// relation, and the watermark is a column of the view's SQL output only.
+    pub sql_defined: bool,
     /// Connector/database name from the view's `datasource:`. `None` means
     /// "use the default connector".
     pub datasource: Option<String>,
