@@ -10647,7 +10647,6 @@ dependencies = [
  "oxy",
  "oxy-app-core",
  "oxy-compile",
- "oxy-custom-apps",
  "oxy-feature-flags",
  "oxy-git",
  "oxy-oltp",

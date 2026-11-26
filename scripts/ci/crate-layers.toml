@@ -150,7 +150,6 @@ allowed = [
   "oxy-app-core -> oxy-telemetry",
   "oxy-auth -> oxy-platform",
   "oxy-compile-runtime -> agentic-pipeline",
-  "oxy-compile-runtime -> oxy-custom-apps",
   "oxy-compile-runtime -> oxy-preagg",
   "oxy-custom-apps -> agentic-pipeline",
   "oxy-custom-apps -> oxy-cameras",

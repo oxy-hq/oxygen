@@ -769,11 +769,6 @@ mod oltp_changes_tests {
 }
 
 /// A tar entry path is safe iff it's relative and contains no `..`
-/// component — guards against an archive member escaping the build
-/// prefix (`../../etc/...`) when its files are later keyed into S3.
-pub fn is_safe_relative_path(path: &std::path::Path) -> bool {
-    !path.is_absolute()
-        && !path
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-}
+/// component. The check is the kernel's, since a compile's commit tarball
+/// applies it too; re-exported here under its old name.
+pub use oxy_shared::utils::relative_path::is_safe_relative_path;

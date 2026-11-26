@@ -22,8 +22,6 @@ oxy-app-core = { workspace = true }
 oxy-compile = { workspace = true }
 # `request`: the working-copy fallback reads a branch's head and worktree.
 oxy-git = { workspace = true }
-# `manifest::is_safe_relative_path`: an unpacked entry's path check.
-oxy-custom-apps = { workspace = true }
 # The config gate's rollout flags (`cache`, `rollout`).
 oxy-feature-flags = { workspace = true }
 # `migrator`: apply a revision's OLTP schemas before it is promoted.
