@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Fail if a crate depends across a layer boundary it may not cross.
 
+It also holds the whole workspace to the five-tier rule (crate_tiers.py): the
+longest internal dependency chain may only get shorter, and every dependency
+that breaks the tiers must be named in the config's allowed list, which only
+shrinks.
+
 The dependency-direction rules in internal-docs/backend-architecture.md are
 marked HARD and were enforced by nothing but review. This is the check that
 turns them into a red build. Membership and the rules live beside this file in
@@ -24,6 +29,9 @@ import sys
 import tomllib
 from pathlib import Path
 from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).parent))
+import crate_tiers  # noqa: E402  (a sibling module, not an installed package)
 
 RULES_PATH = Path(__file__).with_name("crate-layers.toml")
 AGENTIC_DIR = "crates/agentic/"
@@ -214,7 +222,21 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    print(f"{len(graph)} crates, {len(rules)} rules, no violations")
+    with open(RULES_PATH, "rb") as f:
+        tier_config = crate_tiers.load_tiers(tomllib.load(f))
+    failures, summary = crate_tiers.check_tiers(tier_config, graph)
+    if failures:
+        print("Crate tiers and depth:", file=sys.stderr)
+        for failure in failures:
+            print(f"  {failure}", file=sys.stderr)
+        print(
+            "\nThe tiers and why: internal-docs/crate-tiers.md. A new crate goes "
+            f"in a tier in {RULES_PATH.name}; never raise a ratchet number.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"{len(graph)} crates, {len(rules)} rules, no violations; {summary}")
     return 0
 
 
@@ -405,6 +427,10 @@ def _self_test_config() -> int:
 
 def _self_test() -> int:
     passed = _self_test_rules() + _self_test_parsing() + _self_test_config()
+    passed += crate_tiers.self_test()
+    with open(RULES_PATH, "rb") as f:
+        crate_tiers.load_tiers(tomllib.load(f))  # the shipped tier map parses
+    passed += 1
     print(f"self-test: {passed} cases passed")
     return 0
 

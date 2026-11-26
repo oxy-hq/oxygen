@@ -1229,7 +1229,11 @@ jobs:
           # import in a diff. What fails these lines is decided in
           # scripts/ci/crate-layers.toml, not here — including the rule that a
           # new crate under crates/agentic/ must be placed in a layer, since an
-          # unplaced crate is an unchecked one. The self-test runs first and
+          # unplaced crate is an unchecked one. The same run holds the tier and
+          # depth ratchets (scripts/ci/crate_tiers.py, internal-docs/crate-tiers.md):
+          # every crate in a tier, the longest chain may only get shorter, and
+          # every sideways dependency must be named in an allowed list that only
+          # shrinks. The self-test runs first and
           # costs milliseconds: a checker broken into always-passing is the one
           # failure this step cannot report about itself.
           python3 scripts/ci/check-crate-layering.py --self-test

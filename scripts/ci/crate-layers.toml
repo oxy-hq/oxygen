@@ -16,6 +16,167 @@
 # analytics and automation both legitimately use). A forbid list cannot produce
 # a false failure when a legitimate new edge appears; an allowlist would.
 
+# ---------------------------------------------------------------------------
+# Tiers and depth: the whole workspace, not only agentic.
+#
+# Every workspace crate sits in one of five tiers, and a dependency may only
+# point to a LOWER tier. With no sideways edges, the longest chain from
+# oxy-server to a leaf is at most 4 edges. The rule and the reasons are in
+# internal-docs/crate-tiers.md (the plan) and backend-architecture.md ("Crate
+# tiers and depth").
+#
+# Today's graph does not meet it yet. Two things hold the line: `[depth] max`
+# fails when the longest chain gets longer (a shorter one prints a notice to
+# lower it), and `[tier_edges] allowed` names every sideways or upward
+# dependency still allowed. Never raise the one or add to the other to turn a
+# red build green.
+# ---------------------------------------------------------------------------
+
+[depth]
+# Longest chain of internal normal + build dependencies, counted in edges.
+# Dev-dependencies are exempt, as for the rules below.
+max = 13
+# Where the ratchet ends. Lowering `max` below this is the next, stricter step.
+target = 4
+# Members that are not part of the crate graph proper. workspace-hack is cargo
+# hakari's feature-unification crate: it depends only on third-party crates.
+exclude = ["workspace-hack"]
+
+[tiers]
+# T0 shared kernel: depends on nothing internal. oxy-shared holds the shared app
+# error (OxyError) and the cross-cutting helpers every crate uses.
+t0 = [
+  "agentic-core", "entity", "oxy-authz", "oxy-cli-shim", "oxy-experiment",
+  "oxy-migration-tolerance", "oxy-shared", "oxy-simulation", "oxy-web",
+]
+# T1 infrastructure and contracts: technology clients, contracts-* crates (a
+# domain's driver ports), and oxy / oxy-app-core, which are kernel-like and are
+# to shrink.
+t1 = [
+  "agentic-connector", "agentic-llm", "agentic-runtime", "agentic-semantic",
+  "airhouse", "migration", "omni", "oxy", "oxy-airlayer-compat", "oxy-app-core",
+  "oxy-auth", "oxy-compile", "oxy-feature-flags", "oxy-git", "oxy-llm",
+  "oxy-looker", "oxy-observability", "oxy-oltp", "oxy-platform", "oxy-semantic",
+  "oxy-slack-client", "oxy-telemetry", "oxy-test-utils", "oxy-unifi",
+  "oxy-workspace-fs",
+]
+# T2 domains: never depend on another domain; a domain calls another through
+# its driver port (contracts-*, T1) or a queued task (no event bus). A domain's
+# own driven ports live in its `ports` module.
+t2 = [
+  "agentic-airway", "agentic-analytics", "agentic-automation", "agentic-pipeline",
+  "oxy-airform", "oxy-billing", "oxy-cameras", "oxy-compile-runtime",
+  "oxy-custom-apps", "oxy-identity", "oxy-metric-monitoring", "oxy-preagg",
+  "oxy-previews", "oxy-project", "oxy-route-catalog", "oxy-server-authz",
+  "oxy-slack", "oxy-tenancy", "oxy-usage-report", "oxy-workspace-health",
+  "oxy-world-model",
+]
+# T3 adapters: a domain's driving adapters (the oxy-api-* HTTP crates) and its
+# driven adapters (its adapters/ crate, implementing the core's ports).
+t3 = [
+  "agentic-http", "oxy-api-admin", "oxy-api-airway", "oxy-api-automations",
+  "oxy-api-billing", "oxy-api-custom-apps", "oxy-api-documents", "oxy-api-eval",
+  "oxy-api-experiment", "oxy-api-frontline", "oxy-api-github",
+  "oxy-api-identity", "oxy-api-metric-monitoring", "oxy-api-notifications",
+  "oxy-api-observability", "oxy-api-operating-graph", "oxy-api-previews",
+  "oxy-api-semantic", "oxy-api-slack", "oxy-api-tenancy", "oxy-api-threads",
+  "oxy-api-workspace-config", "oxy-api-workspace-health", "oxy-api-workspaces",
+  "oxy-api-world-model", "oxy-guards", "oxy-workspace-runtime",
+]
+# T4 the binary: the composition root, which wires every adapter.
+t4 = ["oxy-server"]
+
+[tier_edges]
+# Every dependency that points sideways or up (to the same tier or a higher one),
+# by name. This list is the backlog; it only ever shrinks.
+# - A sideways or upward dependency NOT listed here fails the check. Never add
+#   one to make a build pass: remove the dependency instead.
+# - A listed one that no longer exists also fails: the PR that removed it
+#   deletes its line. Two PRs removing different ones delete different lines,
+#   so they never conflict or race.
+# It is empty when the tiers hold.
+allowed = [
+  "agentic-pipeline -> agentic-airway",
+  "agentic-pipeline -> agentic-analytics",
+  "agentic-pipeline -> agentic-automation",
+  "agentic-semantic -> agentic-connector",
+  "agentic-semantic -> oxy-airlayer-compat",
+  "airhouse -> agentic-connector",
+  "airhouse -> oxy-auth",
+  "airhouse -> oxy-platform",
+  "oxy -> oxy-airlayer-compat",
+  "oxy -> oxy-auth",
+  "oxy -> oxy-compile",
+  "oxy -> oxy-git",
+  "oxy -> oxy-llm",
+  "oxy -> oxy-observability",
+  "oxy -> oxy-platform",
+  "oxy -> oxy-semantic",
+  "oxy -> oxy-telemetry",
+  "oxy-api-airway -> oxy-workspace-runtime",
+  "oxy-api-automations -> agentic-http",
+  "oxy-api-automations -> oxy-workspace-runtime",
+  "oxy-api-custom-apps -> agentic-http",
+  "oxy-api-custom-apps -> oxy-workspace-runtime",
+  "oxy-api-documents -> oxy-workspace-runtime",
+  "oxy-api-eval -> oxy-workspace-runtime",
+  "oxy-api-experiment -> oxy-workspace-runtime",
+  "oxy-api-metric-monitoring -> agentic-http",
+  "oxy-api-metric-monitoring -> oxy-workspace-runtime",
+  "oxy-api-previews -> oxy-workspace-runtime",
+  "oxy-api-semantic -> oxy-workspace-runtime",
+  "oxy-api-slack -> oxy-workspace-runtime",
+  "oxy-api-tenancy -> oxy-workspace-runtime",
+  "oxy-api-threads -> oxy-workspace-runtime",
+  "oxy-api-workspace-config -> oxy-workspace-runtime",
+  "oxy-api-workspace-health -> oxy-workspace-runtime",
+  "oxy-api-workspaces -> oxy-workspace-runtime",
+  "oxy-api-world-model -> oxy-workspace-runtime",
+  "oxy-app-core -> agentic-automation",
+  "oxy-app-core -> agentic-connector",
+  "oxy-app-core -> agentic-http",
+  "oxy-app-core -> agentic-pipeline",
+  "oxy-app-core -> agentic-runtime",
+  "oxy-app-core -> agentic-semantic",
+  "oxy-app-core -> airhouse",
+  "oxy-app-core -> oxy",
+  "oxy-app-core -> oxy-airlayer-compat",
+  "oxy-app-core -> oxy-auth",
+  "oxy-app-core -> oxy-billing",
+  "oxy-app-core -> oxy-compile",
+  "oxy-app-core -> oxy-git",
+  "oxy-app-core -> oxy-observability",
+  "oxy-app-core -> oxy-oltp",
+  "oxy-app-core -> oxy-server-authz",
+  "oxy-app-core -> oxy-telemetry",
+  "oxy-auth -> oxy-platform",
+  "oxy-compile-runtime -> agentic-pipeline",
+  "oxy-compile-runtime -> oxy-custom-apps",
+  "oxy-compile-runtime -> oxy-preagg",
+  "oxy-compile-runtime -> oxy-previews",
+  "oxy-custom-apps -> agentic-pipeline",
+  "oxy-custom-apps -> oxy-cameras",
+  "oxy-custom-apps -> oxy-server-authz",
+  "oxy-custom-apps -> oxy-tenancy",
+  "oxy-feature-flags -> oxy-platform",
+  "oxy-metric-monitoring -> agentic-analytics",
+  "oxy-oltp -> oxy-auth",
+  "oxy-oltp -> oxy-platform",
+  "oxy-platform -> oxy-telemetry",
+  "oxy-preagg -> agentic-automation",
+  "oxy-preagg -> agentic-pipeline",
+  "oxy-previews -> agentic-airway",
+  "oxy-previews -> agentic-pipeline",
+  "oxy-previews -> oxy-custom-apps",
+  "oxy-previews -> oxy-server-authz",
+  "oxy-semantic -> oxy-airlayer-compat",
+  "oxy-tenancy -> oxy-server-authz",
+  "oxy-test-utils -> migration",
+  "oxy-usage-report -> oxy-custom-apps",
+  "oxy-workspace-health -> oxy-metric-monitoring",
+  "oxy-workspace-health -> oxy-usage-report",
+]
+
 [layers]
 # The bottom of the platform. oxy-shared depends on nothing agentic and
 # everything may depend on it.

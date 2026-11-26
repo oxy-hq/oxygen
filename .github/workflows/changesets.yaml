@@ -74,6 +74,7 @@ jobs:
               # Same for the crate-layering check in that step, and the rules it
               # reads — a PR that only edits either must run the job that runs it.
               - "scripts/ci/check-crate-layering.py"
+              - "scripts/ci/crate_tiers.py"
               - "scripts/ci/crate-layers.toml"
               # The metric gate's configuration, its debt record and its pinned
               # installer: editing any of them must run the job that reads them.
