@@ -1,6 +1,8 @@
 //! An in-memory DuckDB as the relay's Airhouse ([`DuckSink`]), a sink that
-//! dies once after its commit lands ([`FailsOnceAfterCommit`]), and one that
-//! refuses its first views ([`RefusesViews`]).
+//! dies once after its commit lands ([`FailsOnceAfterCommit`]), one that
+//! refuses its first views ([`RefusesViews`]), one that dies at its first
+//! view ([`DiesAtFirstView`]), and one whose workspace has no Airhouse until
+//! the test makes it ([`AirhouseLater`]).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -267,6 +269,51 @@ impl ChangeSink for DiesAtFirstView {
         if view && !self.died.swap(true, Ordering::SeqCst) {
             panic!("the relay died before its view");
         }
+        self.inner.admin(workspace, statements).await
+    }
+
+    async fn write(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
+        self.inner.write(workspace, statements).await
+    }
+}
+
+/// [`DuckSink`] whose workspace has no active Airhouse tenant until
+/// [`AirhouseLater::make`], as an app's workspace provisioned after it began
+/// writing: until then `has_airhouse` answers `false`, which holds the writer.
+pub(super) struct AirhouseLater {
+    inner: Arc<DuckSink>,
+    made: AtomicBool,
+}
+
+impl AirhouseLater {
+    pub(super) fn new(inner: Arc<DuckSink>) -> Self {
+        Self {
+            inner,
+            made: AtomicBool::new(false),
+        }
+    }
+
+    /// The workspace's Airhouse now exists.
+    pub(super) fn make(&self) {
+        self.made.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl ChangeSink for AirhouseLater {
+    async fn has_airhouse(&self, _: &DatabaseConnection, _: Uuid) -> Result<bool, SinkError> {
+        Ok(self.made.load(Ordering::SeqCst))
+    }
+
+    async fn query(
+        &self,
+        workspace: Uuid,
+        sql: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SinkError> {
+        self.inner.query(workspace, sql).await
+    }
+
+    async fn admin(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
         self.inner.admin(workspace, statements).await
     }
 

@@ -1,12 +1,14 @@
 //! Step 2 of a batch: the writer's app, and its workspace's Airhouse. A
-//! writer without either is held for that, and ships nothing.
+//! writer without either is held for that, and ships nothing. Every pass
+//! looks again, so one held for that whose app and Airhouse now exist has
+//! its hold lifted, and ships.
 
 use entity::apps;
 use oxy_oltp::schema::{WriterRef, app_writer_name};
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use super::{HoldKind, Pass, Stop, hold};
+use super::{HoldKind, Pass, Stop, hold, lift};
 
 /// A writer with somewhere to ship: its app's workspace has an Airhouse.
 pub(super) struct Target {
@@ -23,9 +25,11 @@ pub(super) struct Target {
 
 /// Step 2: the writer's app and its workspace Airhouse. `None`, with the
 /// writer held, when the org has no such app or its workspace no active
-/// Airhouse tenant. A lookup that cannot tell, as in a worker with no
-/// Airhouse token broker, fails the writer for this pass instead: a
-/// misconfigured worker must not hold every org's writers.
+/// Airhouse tenant; a hold already there keeps its first reason. With both,
+/// a writer the pass found held for its target has the hold lifted. A
+/// lookup that cannot tell, as in a worker with no Airhouse token broker,
+/// fails the writer for this pass instead: a misconfigured worker must not
+/// hold every org's writers.
 pub(super) async fn find(pass: &Pass<'_>, writer: &str) -> Result<Option<Target>, Stop> {
     let app = writer_app(pass.db, pass.org_id, writer)
         .await
@@ -55,6 +59,8 @@ pub(super) async fn find(pass: &Pass<'_>, writer: &str) -> Result<Option<Target>
     let schema = WriterRef::app(writer.to_owned())
         .map_err(|e| Stop::Failed(format!("the writer's schema: {e}")))?
         .schema_name();
+    let lifted = "a writer held for its target now has its app and an Airhouse; its hold is lifted";
+    lift(pass, writer, HoldKind::Target, lifted).await?;
     Ok(Some(Target {
         name: writer.to_owned(),
         schema,

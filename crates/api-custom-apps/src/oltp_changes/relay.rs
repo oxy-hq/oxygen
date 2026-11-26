@@ -77,9 +77,13 @@
 //! # One batch of a writer
 //!
 //! 1. **Holds.** A held writer ships nothing, unless it is held for a
-//!    restore: its check (3) runs again. Its held tables are not read.
+//!    restore or for its target: its check (3), or its lookup (2), runs
+//!    again. Its held tables are not read.
 //! 2. **App and Airhouse.** The org's app whose writer it is, and its
-//!    workspace's Airhouse; without either, the writer is held for that.
+//!    workspace's Airhouse; without either, the writer is held for that. A
+//!    writer held for that whose app and Airhouse now exist has its hold
+//!    lifted, and ships; its baselines, which waited behind the hold, go on
+//!    in the same pass.
 //! 3. **Restore check** ([`check`]), before any read or DDL, under the lease
 //!    renewed at the batch's start (a lost lease stops the pass): Airhouse's
 //!    `_progress` against the store's `oxy_changes.progress`. A restore bumps

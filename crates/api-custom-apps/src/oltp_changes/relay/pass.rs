@@ -94,9 +94,14 @@ enum Batch {
     Rewound,
 }
 
-/// Ship `waiting`'s batches. A held writer ships nothing, unless it is held
-/// for a restore: its check runs again. Nor does one with no app or no
-/// Airhouse, which is held for that.
+/// The writer holds a pass checks again: a restore (batch step 3) and a
+/// missing target (step 2). Each is lifted once its check passes. The other
+/// writer hold, the ceiling's, waits for a resync.
+const CHECKED_AGAIN: [HoldKind; 2] = [HoldKind::Restore, HoldKind::Target];
+
+/// Ship `waiting`'s batches. A held writer ships nothing, unless what held
+/// it is checked again ([`CHECKED_AGAIN`]) and now passes. Nor does one with
+/// no app or no Airhouse, which is held for that.
 pub(super) async fn ship_writer(
     pass: &Pass<'_>,
     owner: &mut Client,
@@ -107,7 +112,7 @@ pub(super) async fn ship_writer(
         ..WriterPass::default()
     };
     let kind = pass.holds.writer_kind(&waiting.writer);
-    if kind.is_some_and(|kind| kind != HoldKind::Restore) {
+    if kind.is_some_and(|kind| !CHECKED_AGAIN.contains(&kind)) {
         return Ok(all_held);
     }
     let Some(mut target) = target::find(pass, &waiting.writer).await? else {
@@ -245,7 +250,8 @@ async fn restored(pass: &Pass<'_>, owner: &mut Client, target: &Target) -> Resul
     };
     let verdict = check(airhouse, store_side);
     if verdict == Verdict::Proceed {
-        lift_restore_hold(pass, &target.name).await?;
+        let lifted = "a writer held for a restore now passes its check; its hold is lifted";
+        lift(pass, &target.name, HoldKind::Restore, lifted).await?;
         return Ok(false);
     }
     let Bumped {
@@ -269,10 +275,11 @@ async fn restored(pass: &Pass<'_>, owner: &mut Client, target: &Target) -> Resul
     Ok(true)
 }
 
-/// Lift `writer`'s restore hold, when the pass found it held for a restore
-/// and its check now proceeds.
-async fn lift_restore_hold(pass: &Pass<'_>, writer: &str) -> Result<(), Stop> {
-    if pass.holds.writer_kind(writer) != Some(HoldKind::Restore) {
+/// Lift `writer`'s hold of `kind`, when the pass found it held for that and
+/// its check ([`CHECKED_AGAIN`]) now passes; `lifted` is logged when a hold
+/// was removed.
+async fn lift(pass: &Pass<'_>, writer: &str, kind: HoldKind, lifted: &str) -> Result<(), Stop> {
+    if pass.holds.writer_kind(writer) != Some(kind) {
         return Ok(());
     }
     let release = Release {
@@ -280,13 +287,13 @@ async fn lift_restore_hold(pass: &Pass<'_>, writer: &str) -> Result<(), Stop> {
         environment: pass.environment,
         writer: Some(writer),
         tables: None,
-        kinds: &[HoldKind::Restore],
+        kinds: &[kind],
     };
-    let lifted = holds::release(pass.db, release)
+    let removed = holds::release(pass.db, release)
         .await
-        .map_err(|e| Stop::Failed(format!("lift the writer's restore hold: {e}")))?;
-    if !lifted.is_empty() {
-        tracing::info!(org_id = %pass.org_id, environment = pass.environment, writer, "oltp_changes: a writer held for a restore now passes its check; its hold is lifted");
+        .map_err(|e| Stop::Failed(format!("lift the writer's {} hold: {e}", kind.as_str())))?;
+    if !removed.is_empty() {
+        tracing::info!(org_id = %pass.org_id, environment = pass.environment, writer, "oltp_changes: {lifted}");
     }
     Ok(())
 }

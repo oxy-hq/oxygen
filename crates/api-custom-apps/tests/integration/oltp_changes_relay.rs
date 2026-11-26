@@ -33,6 +33,8 @@
 //! - `resync`: a held table's unshipped rows are discarded and its baseline
 //!   takes their place; an unheld table keeps its rows; a writer past the
 //!   ceiling is baselined whole.
+//! - `target`: a writer whose app's workspace has no Airhouse is held, and
+//!   once the Airhouse exists the next pass lifts the hold and ships.
 //!
 //! Every install now requests a baseline, so a test that installs capture
 //! calls [`Relay::settle`] right after, and the behaviour under test starts
@@ -61,6 +63,7 @@ mod guards;
 mod inspect;
 mod resync;
 mod shapes;
+mod target;
 
 use duck::DuckSink;
 

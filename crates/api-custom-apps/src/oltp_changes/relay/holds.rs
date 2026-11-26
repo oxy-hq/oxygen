@@ -10,13 +10,16 @@ use uuid::Uuid;
 /// Why a hold was made, which decides what may lift it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldKind {
-    /// A table the relay refused to ship.
+    /// A table the relay refused to ship. A resync lifts it.
     Table,
-    /// A writer whose oldest transaction is past the relay's ceiling.
+    /// A writer whose oldest transaction is past the relay's ceiling. A
+    /// resync lifts it.
     Ceiling,
-    /// A writer whose store was found restored.
+    /// A writer whose store was found restored. A bump, or a pass whose
+    /// restore check proceeds, lifts it.
     Restore,
-    /// A writer with no app or no Airhouse to ship to.
+    /// A writer with no app or no Airhouse to ship to. The first pass that
+    /// finds both lifts it.
     Target,
 }
 
