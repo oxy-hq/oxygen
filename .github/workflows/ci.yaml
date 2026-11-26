@@ -1021,6 +1021,54 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
+  # The dependency-direction rules (internal-docs/backend-architecture.md,
+  # crates/agentic/CLAUDE.md) and the tier and depth ratchets
+  # (internal-docs/crate-tiers.md). What fails it is decided in
+  # scripts/ci/crate-layers.toml, not here — including the rule that a new crate
+  # under crates/agentic/ must be placed in a layer, since an unplaced crate is
+  # an unchecked one.
+  #
+  # Its own job, not a step in `cargo-clippy` where it started: there, the only
+  # way for an edit to the rules to run it was to put the rules on the `oxy`
+  # filter, and `oxy` also runs Build oxy, the test archive and partitions and
+  # the USD-priced agentic suite (PR #4502: one number in crate-layers.toml, the
+  # whole Rust and browser suite). The check needs `cargo metadata --no-deps`
+  # and nothing else, so no compile, cache, sccache or DuckDB. Gated on `oxy`
+  # too, so every Rust or manifest change still runs it.
+  #
+  # Plain `ubuntu-slim`, not the CI_SLIM_RUNNER gate: that gate is off for
+  # licence-launch reasons (see the header), and this job is seconds long.
+  crate-layering:
+    name: Crate layering (dependency direction, tiers, depth)
+    needs: [changesets]
+    concurrency:
+      group: crate-layering-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+      cancel-in-progress: true
+    if: |
+      inputs.agentic_only != true && (
+        needs.changesets.outputs.oxy == 'true' ||
+        needs.changesets.outputs.crate-layering == 'true'
+      )
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
+    # `cargo metadata --no-deps` and two Python scripts: seconds. 10m is hang insurance.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Only for `cargo metadata`; rust-toolchain.toml pins the channel, so
+      # any other version would make rustup fetch the pinned one anyway.
+      - name: Prep Rust (cargo only)
+        uses: dtolnay/rust-toolchain@1.100.0 # keep in step with rust-toolchain.toml
+      # The self-test runs first and costs milliseconds: a checker broken into
+      # always-passing is the one failure the real run cannot report about
+      # itself. python3 is installed rather than asserted, as in code-metrics.
+      - name: Crate layering
+        run: |
+          set -euo pipefail
+          command -v python3 >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3; }
+          python3 --version
+          python3 scripts/ci/check-crate-layering.py --self-test
+          python3 scripts/ci/check-crate-layering.py
+
   canary-zoo:
     name: Canary shape zoo (fixture drift)
     needs: [changesets]
@@ -1212,7 +1260,7 @@ jobs:
           # output, so a formatting change in a new release would fail every PR.
           # Keep in step with `just hakari`.
           tools: cargo-hakari@0.9.39
-      - name: Clippy, hakari, lint inheritance and crate layering
+      - name: Clippy, hakari and lint inheritance
         run: |
           # crates/workspace-hack must match the dependency graph, or builds
           # go back to compiling registry crates once per feature set. Fix
@@ -1223,21 +1271,9 @@ jobs:
           # `[lints] workspace = true`, and Cargo cannot make that the
           # default — a new crate without it lints clean with every rule off.
           python3 scripts/ci/verify-workspace-lints.py
-          # The dependency-direction rules in internal-docs/backend-architecture.md
-          # and crates/agentic/CLAUDE.md are marked HARD and were enforced by
-          # review alone, which is how a layering mistake reads as a normal
-          # import in a diff. What fails these lines is decided in
-          # scripts/ci/crate-layers.toml, not here — including the rule that a
-          # new crate under crates/agentic/ must be placed in a layer, since an
-          # unplaced crate is an unchecked one. The same run holds the tier and
-          # depth ratchets (scripts/ci/crate_tiers.py, internal-docs/crate-tiers.md):
-          # every crate in a tier, the longest chain may only get shorter, and
-          # every sideways dependency must be named in an allowed list that only
-          # shrinks. The self-test runs first and
-          # costs milliseconds: a checker broken into always-passing is the one
-          # failure this step cannot report about itself.
-          python3 scripts/ci/check-crate-layering.py --self-test
-          python3 scripts/ci/check-crate-layering.py
+          # The crate-layering check used to run here and is now its own job
+          # (`crate-layering` above), gated on its own filter, so a PR editing
+          # only its rules no longer pays for this job and everything else on `oxy`.
           # What fails this step is decided in the root Cargo.toml, not here:
           # `[workspace.lints]` names the bug-shaped lints that are errors
           # and switches the cosmetic groups off, so `cargo clippy` on a
@@ -2069,16 +2105,25 @@ jobs:
 
   # The status branch protection requires. It used to be the test leg of
   # `cargo-check-and-test`'s matrix; its name is kept so the rule still binds.
-  # Skipped exactly when that job is (no Rust change), as before.
+  # Skipped exactly when that job AND `crate-layering` are (no Rust change and
+  # no edit to the layering rules). It runs for `crate-layering` alone because
+  # a PR editing only the rules runs nothing else Rust-shaped, and a red
+  # layering result should land on this status, not only on its own.
   cargo-test:
     name: Format cargo, check & test (test)
-    needs: [cargo-check-and-test, cargo-test-archive, cargo-test-partition]
-    if: ${{ !cancelled() && needs.cargo-check-and-test.result != 'skipped' }}
+    needs: [cargo-check-and-test, cargo-test-archive, cargo-test-partition, crate-layering]
+    if: |
+      !cancelled() && (
+        needs.cargo-check-and-test.result != 'skipped' ||
+        needs.crate-layering.result != 'skipped'
+      )
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Every partition passed
         env:
+          # Skipped exactly when `oxy`, `oxy-ci` and `agentic` did not fire: a
+          # rules-only PR, which reaches this job through `crate-layering`.
           BUILD: ${{ needs.cargo-check-and-test.result }}
           # Skipped exactly when `oxy` did not fire (a binary-only run for the
           # agentic matrix); a skip for any other reason is cancellation, which
@@ -2086,8 +2131,19 @@ jobs:
           ARCHIVE: ${{ needs.cargo-test-archive.result }}
           RUN_TESTS: ${{ needs.cargo-test-archive.outputs.run-tests }}
           TESTS: ${{ needs.cargo-test-partition.result }}
+          # Skipped only when neither `oxy` nor `crate-layering` fired: an
+          # agentic-only binary build, or a PR with no Rust at all.
+          LAYERING: ${{ needs.crate-layering.result }}
         run: |
-          echo "build: $BUILD, archive: $ARCHIVE, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS"
+          echo "build: $BUILD, archive: $ARCHIVE, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS, layering: $LAYERING"
+          if [[ "$LAYERING" != "success" && "$LAYERING" != "skipped" ]]; then
+            echo "::error::Crate layering: $LAYERING"
+            exit 1
+          fi
+          # A rules-only PR: no build ran, so there is nothing else to read.
+          if [[ "$BUILD" == "skipped" ]]; then
+            exit 0
+          fi
           if [[ "$BUILD" != "success" ]]; then
             echo "::error::Build oxy: $BUILD"
             exit 1
