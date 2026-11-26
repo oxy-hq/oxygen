@@ -14,11 +14,16 @@
 //! leave the log defeatable in one step — grant a team once, then move people into
 //! it quietly.
 
-use oxy_server_authz::org_context::OrgContext;
-use sea_orm::DatabaseConnection;
-use uuid::Uuid;
+//!
+//! This module decides **what** a change records: its name, its org and its
+//! target ([`event`]). Writing the row is the caller's: the audit writer
+//! (`oxy_app_core::audit`) sits above this crate, so each surface that records
+//! one (`oxy-api-tenancy`'s `org_teams::audit::record`, `oxy-api-frontline`'s
+//! `access_audit::record_app_access_changed`) writes the [`AccessEvent`] it
+//! gets back (`internal-docs/crate-tiers.md`, stage A).
 
-use oxy_app_core::audit::{self, AuditEntry};
+use oxy_server_authz::org_context::OrgContext;
+use uuid::Uuid;
 
 /// The two names one change can land under.
 ///
@@ -71,31 +76,34 @@ pub const TEAM_MEMBER_REMOVED: AccessAction = AccessAction {
 /// What the row points at: `("app" | "team", id, human label)`.
 pub type Target = (&'static str, Uuid, String);
 
-/// Record one access change into the org's append-only log.
+/// One access change, resolved to the row it records: everything but the
+/// actor, which the writer takes from the request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessEvent {
+    /// The action's name for this actor tier ([`AccessAction`]).
+    pub name: &'static str,
+    /// The org whose log the row lands in.
+    pub org_id: Uuid,
+    /// What the row points at.
+    pub target: Target,
+}
+
+/// The row one access change records into the org's append-only log.
 ///
-/// Best-effort, matching both siblings: an audit write that fails must not fail the
-/// request that already succeeded, or a transient log problem becomes an outage on
-/// the control plane.
-pub async fn record(
-    db: &DatabaseConnection,
-    ctx: &OrgContext,
-    actor: &oxy_app_core::audit::RequestActor,
-    action: AccessAction,
-    target: Target,
-) {
+/// The writer records it best-effort, matching both siblings: an audit write
+/// that fails must not fail the request that already succeeded, or a transient
+/// log problem becomes an outage on the control plane. The actor type is `User`
+/// on both branches, matching the admin sibling: the actor tier is carried by
+/// the action prefix, not by re-typing the actor.
+pub fn event(ctx: &OrgContext, action: AccessAction, target: Target) -> AccessEvent {
     let name = if ctx.is_global_override {
         action.staff
     } else {
         action.tenant
     };
-    let (kind, id, label) = target;
-    audit::record_best_effort(
-        db,
-        AuditEntry::for_request(actor, name)
-            // `User` on both branches, matching the admin sibling — the actor tier
-            // is carried by the action prefix, not by re-typing the actor.
-            .org(ctx.org.id)
-            .target(kind, id.to_string(), label),
-    )
-    .await;
+    AccessEvent {
+        name,
+        org_id: ctx.org.id,
+        target,
+    }
 }

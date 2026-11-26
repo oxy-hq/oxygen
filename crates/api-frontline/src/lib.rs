@@ -37,6 +37,7 @@
 // image takes more — a build PR CI never runs. Raised before it overflows there.
 #![recursion_limit = "256"]
 
+mod access_audit;
 pub mod frontline;
 pub mod frontline_admin;
 pub mod frontline_devices;

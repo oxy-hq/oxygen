@@ -1315,11 +1315,10 @@ pub async fn enrol(
             // access settings file, one per app, so this door is not the one
             // way to reach an app that leaves no trail.
             for app in &granted {
-                oxy_tenancy::org_teams::audit::record(
+                crate::access_audit::record_app_access_changed(
                     &db,
                     &ctx,
                     &actor,
-                    oxy_tenancy::org_teams::audit::APP_ACCESS_CHANGED,
                     (
                         "app",
                         app.id,

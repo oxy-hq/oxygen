@@ -11310,7 +11310,6 @@ version = "0.5.162"
 dependencies = [
  "entity",
  "http 1.5.0",
- "oxy-app-core",
  "oxy-auth",
  "oxy-server-authz",
  "sea-orm",
@@ -17944,6 +17943,8 @@ dependencies = [
  "typenum",
  "ureq 3.5.2",
  "url",
+ "utoipa",
+ "utoipa-gen",
  "uuid",
  "whoami",
  "writeable",

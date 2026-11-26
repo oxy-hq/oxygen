@@ -255,11 +255,10 @@ pub async fn set_worker_apps(
                 .map(|a| (a, "granted"))
                 .chain(changed.removed.iter().map(|a| (a, "revoked")))
             {
-                oxy_tenancy::org_teams::audit::record(
+                crate::access_audit::record_app_access_changed(
                     &db,
                     &ctx,
                     &actor,
-                    oxy_tenancy::org_teams::audit::APP_ACCESS_CHANGED,
                     (
                         "app",
                         app.id,

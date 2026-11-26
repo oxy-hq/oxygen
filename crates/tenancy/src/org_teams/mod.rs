@@ -9,7 +9,8 @@
 //!
 //! - [`service`] — read/write access, list teams. Nothing here decides access:
 //!   callers gate first, then call.
-//! - [`audit`] — the append-only rows every write leaves in the org's log.
+//! - [`audit`] — what the append-only row every write leaves in the org's log
+//!   records (its name, org and target); the surfaces write it.
 //! - [`dto`] — the wire types, notably the `kind: "user" | "team"` grant union.
 
 pub mod audit;

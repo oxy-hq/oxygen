@@ -15,7 +15,8 @@ edition.workspace = true
 # oxy-server in decompose TR). The OrgAdmin role guard, the org
 # middlewares and the session-cookie + token helpers come from
 # oxy-server-authz and oxy-app-core. The operating-graph assignment writes and
-# reads are oxy-app-core's, the org_teams audit is oxy-tenancy's. oxy-app never
+# reads are oxy-app-core's; the org_teams audit row's name is oxy-tenancy's and
+# this crate writes it (access_audit). oxy-app never
 # depends back on this crate.
 oxy-app-core = { workspace = true }  # AppState (router state) + the audit writer
 oxy-tenancy = { workspace = true }

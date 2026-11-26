@@ -208,6 +208,7 @@ twox-hash = { version = "2" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 ureq = { version = "3", features = ["socks-proxy"] }
 url = { version = "2", features = ["expose_internals", "serde"] }
+utoipa = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e10994b2b24d649cd93931fbfdeff18b73", features = ["axum_extras", "chrono", "uuid"] }
 uuid = { version = "1", features = ["js", "serde", "v4", "v5", "v7"] }
 whoami = { version = "2" }
 writeable = { version = "0.6" }
@@ -324,6 +325,7 @@ tracing-core = { version = "0.1" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 ureq = { version = "3", features = ["socks-proxy"] }
 url = { version = "2", features = ["expose_internals", "serde"] }
+utoipa-gen = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e10994b2b24d649cd93931fbfdeff18b73", default-features = false, features = ["axum_extras", "chrono", "uuid"] }
 uuid = { version = "1", features = ["js", "serde", "v4", "v5", "v7"] }
 whoami = { version = "2" }
 writeable = { version = "0.6" }
