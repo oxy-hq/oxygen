@@ -16,7 +16,7 @@ export default function PartnerChip({
   size?: "sm" | "xs";
 }) {
   const cls = cn(
-    "inline-flex max-w-full items-center gap-1 rounded border border-primary/20 bg-primary/5 font-medium text-primary",
+    "inline-flex max-w-full items-center gap-1 border border-primary/20 bg-primary/5 font-medium text-primary",
     size === "xs" ? "px-1 py-0 text-[10px]" : "px-1.5 py-0.5 text-xs",
     onClick && "cursor-pointer transition-colors hover:bg-primary/15"
   );

@@ -1,6 +1,7 @@
 import { isAxiosError } from "axios";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -56,7 +57,7 @@ export function RulesDialog({ flag, onClose }: { flag: FeatureFlag; onClose: () 
   return (
     <Dialog open onOpenChange={(open) => !open && !update.isPending && onClose()}>
       <DialogContent
-        className='max-h-[85vh] gap-5 overflow-y-auto sm:max-w-lg'
+        className={`${DESIGN_REFERENCE} max-h-[85vh] gap-5 overflow-y-auto sm:max-w-lg`}
         data-testid='feature-flag-rules-dialog'
       >
         <DialogHeader>

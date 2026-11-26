@@ -13,20 +13,20 @@ import type { MetricDetailResponse } from "@/services/api/metrics";
 function TrendIcon({ isPositive, isNegative }: { isPositive?: boolean; isNegative?: boolean }) {
   if (isPositive) {
     return (
-      <div className='rounded-lg bg-success/10 p-2'>
+      <div className='bg-success/10 p-2'>
         <TrendingUp className='h-5 w-5 text-success' />
       </div>
     );
   }
   if (isNegative) {
     return (
-      <div className='rounded-lg bg-destructive/10 p-2'>
+      <div className='bg-destructive/10 p-2'>
         <TrendingDown className='h-5 w-5 text-destructive' />
       </div>
     );
   }
   return (
-    <div className='rounded-lg bg-muted p-2'>
+    <div className='bg-muted p-2'>
       <Minus className='h-5 w-5 text-muted-foreground' />
     </div>
   );
@@ -51,7 +51,7 @@ export default function DetailStatsRow({ detailData }: DetailStatsRowProps) {
       <Card className='overflow-hidden bg-transparent shadow-none'>
         <CardContent className='p-4'>
           <div className='flex items-center gap-3'>
-            <div className='rounded-lg bg-primary/10 p-2'>
+            <div className='bg-primary/10 p-2'>
               <BarChart3 className='h-5 w-5 text-primary' />
             </div>
             <div>
@@ -85,7 +85,7 @@ export default function DetailStatsRow({ detailData }: DetailStatsRowProps) {
       <Card className='overflow-hidden bg-transparent shadow-none'>
         <CardContent className='p-4'>
           <div className='flex items-center gap-3'>
-            <div className='rounded-lg bg-info/10 p-2'>
+            <div className='bg-info/10 p-2'>
               <LucideBot className='h-5 w-5 text-info' />
             </div>
             <div>
@@ -99,7 +99,7 @@ export default function DetailStatsRow({ detailData }: DetailStatsRowProps) {
       <Card className='overflow-hidden bg-transparent shadow-none'>
         <CardContent className='p-4'>
           <div className='flex items-center gap-3'>
-            <div className='rounded-lg bg-vis-purple/10 p-2'>
+            <div className='bg-vis-purple/10 p-2'>
               <LucideAutomation className='h-5 w-5 text-vis-purple' />
             </div>
             <div>

@@ -62,7 +62,7 @@ export const TestNotifications = ({ app }: { app: CustomApp }) => {
 /** The app's audience does not include the caller, so a send would have nobody to tell. */
 const NotReachable = () => (
   <div
-    className='flex items-start gap-1.5 rounded-md border border-border/60 px-2.5 py-2 text-xs'
+    className='flex items-start gap-1.5 border border-border/60 px-2.5 py-2 text-xs'
     data-testid='admin-app-notification-test-unreachable'
   >
     <TriangleAlert className={`mt-px size-3 shrink-0 ${ADMIN_TONE.warn.text}`} />

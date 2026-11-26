@@ -6,7 +6,7 @@ import { cn } from "@/libs/shadcn/utils";
 /**
  * One badge vocabulary for every "admin" in the product, scope-prefixed so the
  * word is never bare — the three sources of authority read distinctly:
- *   - global_*  (platform staff, everywhere)      → shield, amber
+ *   - global_*  (platform staff, everywhere)      → shield, warning
  *   - org_*     (a person↔org role)               → building, neutral
  *   - partner_* (delegated via a partner grant)   → handshake, brand/primary
  * Shared so users list / dossier / org members / partner members never drift.
@@ -27,30 +27,43 @@ const ROLE: Record<
   global_owner: {
     label: "Global Owner",
     icon: ShieldCheck,
-    cls: "border-amber-500/30 text-amber-600 dark:text-amber-400"
+    cls: "border-status-warning/30 text-status-warning"
   },
   global_admin: {
     label: "Global Admin",
     icon: ShieldCheck,
-    cls: "border-amber-500/30 text-amber-600 dark:text-amber-400"
+    cls: "border-status-warning/30 text-status-warning"
   },
-  // Staff, but NOT the amber "reaches everything" shield — an App Operator ships
+  // Staff, but NOT the warning "reaches everything" shield — an App Operator ships
   // custom apps and holds nothing else, so giving it the Global Admin badge (which
   // is what a bare `is_app_admin` boolean produced) overstates it on every row.
   app_operator: {
     label: "App Operator",
     icon: AppWindow,
-    cls: "border-sky-500/30 text-sky-600 dark:text-sky-400"
+    cls: "border-status-info/30 text-status-info"
   },
-  org_owner: { label: "Org Owner", icon: Building2, cls: "border-border text-foreground" },
-  org_admin: { label: "Org Admin", icon: Building2, cls: "border-border text-muted-foreground" },
-  org_member: { label: "Member", icon: Building2, cls: "border-border text-muted-foreground" },
+  org_owner: { label: "Org Owner", icon: Building2, cls: "border-border-subtle text-foreground" },
+  org_admin: {
+    label: "Org Admin",
+    icon: Building2,
+    cls: "border-border-subtle text-muted-foreground"
+  },
+  org_member: {
+    label: "Member",
+    icon: Building2,
+    cls: "border-border-subtle text-muted-foreground"
+  },
   // Partner authority: the handshake + brand colour marks it as delegated via a
   // partner grant. There is one operator role, so one badge.
+  //
+  // The ink is `--link`, not `--brand`: brand is a fill colour (`bg-brand` under white
+  // text) and does not clear 4.5:1 as small text. But `--link` and `--status-info` are
+  // the same value, so ink alone would make this badge identical to App Operator's —
+  // the brand-tinted fill is what keeps the two apart, alongside icon and label.
   partner_operator: {
     label: "Partner access",
     icon: Handshake,
-    cls: "border-primary/30 text-primary"
+    cls: "border-brand/30 bg-brand/10 text-link"
   }
 };
 

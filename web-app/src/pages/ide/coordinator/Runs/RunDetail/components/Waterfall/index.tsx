@@ -56,7 +56,7 @@ export const Waterfall: React.FC<{ events: RunEventEntry[] }> = ({ events }) => 
         ))}
       </div>
       <aside className='lg:w-96 lg:shrink-0'>
-        <div className='sticky top-3 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-md border border-border bg-card'>
+        <div className='sticky top-3 max-h-[calc(100vh-8rem)] overflow-y-auto border border-border bg-card'>
           <SpanPreview span={focused} />
         </div>
       </aside>
@@ -80,9 +80,9 @@ const PhaseRow: React.FC<{
         <span className={cn("w-24 shrink-0 truncate font-medium text-xs capitalize", colors.text)}>
           {phase.state}
         </span>
-        <div className='relative h-5 flex-1 rounded bg-muted/40'>
+        <div className='relative h-5 flex-1 bg-muted/40'>
           <div
-            className={cn("absolute inset-y-0 rounded", colors.bg)}
+            className={cn("absolute inset-y-0 ", colors.bg)}
             style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
             title={`${phase.state} · ${formatMs(phase.durationMs)}`}
           />
@@ -160,7 +160,7 @@ const ChildRow: React.FC<{
       onFocus={() => onFocus(child)}
       onClick={() => onFocus(child)}
       className={cn(
-        "flex w-full items-center gap-2 rounded px-1 text-left transition-colors",
+        "flex w-full items-center gap-2 px-1 text-left transition-colors",
         focused && "bg-muted"
       )}
     >
@@ -168,9 +168,9 @@ const ChildRow: React.FC<{
         <Icon className='h-3 w-3 shrink-0' />
         <span className='truncate'>{child.label}</span>
       </span>
-      <div className='relative h-2.5 flex-1 rounded bg-muted/30'>
+      <div className='relative h-2.5 flex-1 bg-muted/30'>
         <div
-          className={cn("absolute inset-y-0 rounded", tone)}
+          className={cn("absolute inset-y-0 ", tone)}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
       </div>

@@ -118,7 +118,7 @@ export function UsageByOrganization({ orgs }: { orgs: readonly UsageOrg[] }) {
                                 onClick={() => toggle(org.org_id)}
                                 aria-expanded={expanded}
                                 aria-label={`${expanded ? "Hide" : "Show"} ${org.name}'s apps`}
-                                className='-ml-1 rounded-sm p-0.5 text-muted-foreground hover:text-foreground'
+                                className='-ml-1 p-0.5 text-muted-foreground hover:text-foreground'
                                 data-testid={`admin-usage-report-org-${org.org_id}-toggle`}
                               >
                                 <ChevronRight

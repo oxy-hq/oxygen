@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Check, Loader2, Minus, Plus } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -99,7 +100,7 @@ const StarterUpdateDialog: React.FC<Props> = ({ update, open, onOpenChange }) =>
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[90vh] max-w-5xl overflow-y-auto'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-h-[90vh] max-w-5xl overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle>
             Update {update.pack_key} · {update.current_version} → {update.available_version}
@@ -180,7 +181,7 @@ const RoleDiffRow: React.FC<{
 }> = ({ diff, action, onChoose }) => {
   const interactive = diff.status !== "unchanged";
   return (
-    <div className='flex flex-col gap-2 rounded-md border border-border p-3'>
+    <div className='flex flex-col gap-2 border border-border p-3'>
       <div className='flex items-center justify-between gap-2'>
         <div className='flex items-center gap-2'>
           <span className='font-medium text-sm'>{diff.role_key}</span>
@@ -223,7 +224,7 @@ const VariablesDiffRow: React.FC<{
   action: UpdateAction | undefined;
   onChoose: (action: UpdateAction) => void;
 }> = ({ current, upstream, action, onChoose }) => (
-  <div className='flex flex-col gap-2 rounded-md border border-border p-3'>
+  <div className='flex flex-col gap-2 border border-border p-3'>
     <div className='flex items-center justify-between gap-2'>
       <div className='flex items-center gap-2'>
         <span className='font-medium text-sm'>Pack variables</span>
@@ -258,7 +259,7 @@ const VariablesDiffRow: React.FC<{
 const SideBySidePane: React.FC<{ label: string; content: string }> = ({ label, content }) => (
   <div className='flex flex-col gap-1'>
     <span className='text-muted-foreground text-xs uppercase tracking-wide'>{label}</span>
-    <pre className='max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/30 p-2 font-mono text-xs'>
+    <pre className='max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-muted/30 p-2 font-mono text-xs'>
       {content}
     </pre>
   </div>

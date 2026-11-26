@@ -11,9 +11,9 @@ export function BillingDisabledNotice() {
         <div className='space-y-1'>
           <p className='font-medium'>Billing is disabled</p>
           <p className='max-w-md text-muted-foreground text-xs'>
-            The <code className='rounded bg-muted px-1 py-0.5 text-xs'>billing</code> feature flag
-            is off, so subscription provisioning, the paywall, and Stripe integration are all
-            skipped. Enable the flag to use the queue.
+            The <code className='bg-muted px-1 py-0.5 text-xs'>billing</code> feature flag is off,
+            so subscription provisioning, the paywall, and Stripe integration are all skipped.
+            Enable the flag to use the queue.
           </p>
         </div>
         <Button asChild variant='outline' size='sm'>

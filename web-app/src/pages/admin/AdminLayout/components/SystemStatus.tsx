@@ -16,15 +16,19 @@ export function SystemStatus() {
     <div className='@5xl:flex hidden items-center gap-3'>
       <span
         className={cn(
-          "flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em]",
-          env === "CLOUD" ? "border-primary/40 text-primary" : "border-border text-muted-foreground"
+          "flex items-center gap-1.5 border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em]",
+          // Ink, not a signal colour: a deployment mode is not a status. Same rule as
+          // `ADMIN_TONE.info` — on this surface colour means something is wrong.
+          env === "CLOUD"
+            ? "border-primary/40 text-primary"
+            : "border-border-subtle text-muted-foreground"
         )}
         title={`Deployment mode: ${env}`}
       >
         <span
           className={cn(
             "size-1.5 rounded-full",
-            env === "CLOUD" ? "bg-primary" : "bg-muted-foreground/60"
+            env === "CLOUD" ? "bg-primary" : "bg-disabled-foreground"
           )}
           aria-hidden
         />

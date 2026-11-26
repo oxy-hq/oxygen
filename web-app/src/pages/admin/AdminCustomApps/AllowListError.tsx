@@ -37,13 +37,13 @@ export const AllowListError = ({
 }) =>
   isAllowListError(error) ? (
     <div className='mx-auto max-w-2xl p-6' data-testid='admin-apps-allow-list-error'>
-      <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
+      <div className=' border border-destructive/30 bg-destructive/5 p-6 text-center'>
         <p className='font-medium text-destructive text-xs'>
           Your account isn&rsquo;t on the custom-apps allow list.
         </p>
         <p className='mt-2 text-muted-foreground text-xs'>
           Add your email to the oxy backend&rsquo;s{" "}
-          <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> env var
+          <code className='bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> env var
           (comma-separated) and restart the server, then refresh.
         </p>
       </div>

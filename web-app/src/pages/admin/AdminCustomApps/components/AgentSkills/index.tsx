@@ -1,4 +1,5 @@
 import { Bot, X } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { cn } from "@/libs/shadcn/utils";
@@ -39,7 +40,7 @@ export const AgentSkillsStrip = ({ onDismiss }: { onDismiss: () => void }) => (
       >
         Other ways
       </PopoverTrigger>
-      <PopoverContent align='start' className='w-96 p-0'>
+      <PopoverContent align='start' className={`${DESIGN_REFERENCE} w-96 p-0`}>
         <AgentSkillsInstall />
       </PopoverContent>
     </Popover>
@@ -70,7 +71,7 @@ export const AgentSkillsButton = () => (
         Agent skills
       </Button>
     </PopoverTrigger>
-    <PopoverContent align='end' className='w-96 p-0'>
+    <PopoverContent align='end' className={`${DESIGN_REFERENCE} w-96 p-0`}>
       <AgentSkillsInstall />
     </PopoverContent>
   </Popover>

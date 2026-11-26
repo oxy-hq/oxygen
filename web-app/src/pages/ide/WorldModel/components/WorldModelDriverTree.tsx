@@ -29,7 +29,7 @@ function NodeValue({ node }: { node: WmBreakdownNode }) {
     );
   }
   if (node.value === null) {
-    return <span className='h-3 w-12 shrink-0 animate-pulse rounded bg-muted' />;
+    return <span className='h-3 w-12 shrink-0 animate-pulse bg-muted' />;
   }
   return (
     <span className='shrink-0 font-mono text-[12px] text-info tabular-nums' title={node.value}>

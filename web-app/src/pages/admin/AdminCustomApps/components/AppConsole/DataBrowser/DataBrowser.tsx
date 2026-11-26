@@ -81,7 +81,7 @@ const Loaded = ({
         />
       ) : (
         <p
-          className='self-start rounded-md border border-border/60 border-dashed px-3 py-6 text-center text-muted-foreground text-xs'
+          className='self-start border border-border/60 border-dashed px-3 py-6 text-center text-muted-foreground text-xs'
           data-testid='admin-app-data-pick'
         >
           Pick a table to read its rows.

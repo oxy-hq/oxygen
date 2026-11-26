@@ -81,7 +81,7 @@ export default function CostByModel({ projectId, days }: CostByModelProps) {
                       <td className='py-2'>
                         <span className='flex items-center gap-2 font-mono text-xs'>
                           <span
-                            className='inline-block h-2 w-2 rounded-sm'
+                            className='inline-block h-2 w-2 '
                             style={{ background: resolveColor(DOT_TOKENS[i % DOT_TOKENS.length]) }}
                           />
                           {m.model}

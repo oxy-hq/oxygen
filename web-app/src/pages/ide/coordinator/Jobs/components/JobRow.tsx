@@ -2,6 +2,7 @@ import { AlertTriangle, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-reac
 import type React from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import {
   DropdownMenu,
@@ -153,14 +154,14 @@ export const JobRow: React.FC<{ schedule: Schedule; canManage: boolean }> = ({
             <DropdownMenuTrigger
               data-testid='coordinator-job-action-menu'
               className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md",
+                "inline-flex h-7 w-7 items-center justify-center ",
                 "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
               disabled={!canManage}
             >
               <MoreHorizontal className='h-4 w-4' />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
+            <DropdownMenuContent align='end' className={DESIGN_REFERENCE}>
               <DropdownMenuItem onClick={() => setRunOpen(true)}>
                 <Play className='h-4 w-4' />
                 Run now

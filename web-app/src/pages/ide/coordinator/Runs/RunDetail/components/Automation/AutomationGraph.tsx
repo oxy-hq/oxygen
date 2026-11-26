@@ -59,16 +59,16 @@ const KIND_META: Record<
 };
 
 const STATUS_BORDER: Record<string, string> = {
-  succeeded: "border-emerald-500",
-  cached: "border-cyan-500",
+  succeeded: "border-dot-success",
+  cached: "border-dot-info",
   failed: "border-destructive",
   running: "border-primary",
   pending: "border-border border-dashed"
 };
 
 const STATUS_BG: Record<string, string> = {
-  succeeded: "bg-emerald-500",
-  cached: "bg-cyan-500",
+  succeeded: "bg-dot-success",
+  cached: "bg-dot-info",
   failed: "bg-destructive",
   running: "bg-primary animate-pulse",
   pending: "bg-muted-foreground/30"
@@ -222,10 +222,10 @@ const StepCard: React.FC<{
       data-testid='automation-step-card'
       data-step-name={node.name}
       className={cn(
-        "group w-full rounded-lg border-2 bg-card px-3 py-2 text-left transition-all hover:shadow-md",
+        "group w-full border-2 bg-card px-3 py-2 text-left transition-colors",
         borderTone,
         isSelected && "shadow-md ring-2 ring-ring",
-        isCritical && "ring-2 ring-amber-400/60"
+        isCritical && "ring-2 ring-dot-warning/60"
       )}
     >
       <div className='flex items-center gap-2'>
@@ -236,7 +236,7 @@ const StepCard: React.FC<{
               e.stopPropagation();
               onToggleExpand();
             }}
-            className='shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+            className='shrink-0 p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
             aria-label={expanded ? "Collapse children" : "Expand children"}
           >
             {expanded ? (
@@ -252,12 +252,12 @@ const StepCard: React.FC<{
         <KindIcon className={cn("h-4 w-4 shrink-0", meta.tone)} />
         <span className='min-w-0 flex-1 truncate font-medium text-sm'>{node.name}</span>
         {isCritical && (
-          <span className='flex items-center gap-1 text-amber-600 text-xs'>
+          <span className='flex items-center gap-1 text-status-warning text-xs'>
             <Flame className='h-3 w-3' /> critical
           </span>
         )}
         {node.cached && (
-          <span className='rounded bg-cyan-500/15 px-1.5 py-0.5 text-cyan-700 text-xs'>cached</span>
+          <span className='bg-dot-info/15 px-1.5 py-0.5 text-status-info text-xs'>cached</span>
         )}
         <span className='text-muted-foreground text-xs tabular-nums'>
           {node.durationMs !== null
@@ -273,14 +273,14 @@ const StepCard: React.FC<{
           left offset = absolute start position. Pending / synthetic
           rows render only the empty track so columns stay aligned. */}
       {timeWindow && (
-        <div className='mt-1.5 ml-10 h-1.5 rounded bg-muted/40'>
+        <div className='mt-1.5 ml-10 h-1.5 bg-muted/40'>
           {barWidthPct > 0 && (
             <div
               className={cn(
-                "h-full rounded",
+                "h-full ",
                 failed ? "bg-destructive/70" : meta.barTone,
                 running && "animate-pulse",
-                isCritical && "ring-1 ring-amber-400"
+                isCritical && "ring-1 ring-dot-warning"
               )}
               style={{
                 marginLeft: `${barLeftPct}%`,

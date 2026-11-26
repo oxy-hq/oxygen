@@ -50,7 +50,7 @@ export const CustomDomains = ({ appId }: { appId: string }) => {
   return (
     <div className='flex flex-col gap-3' data-testid='admin-app-domains'>
       {domains.length > 0 ? (
-        <ul className='flex flex-col divide-y divide-border/50 rounded-md border'>
+        <ul className='flex flex-col divide-y divide-border/50 border'>
           {domains.map((d) => (
             <DomainRow
               key={d.id}

@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   CommandDialog,
   CommandEmpty,
@@ -42,6 +43,7 @@ export function PricePickerDialog({
 
   return (
     <CommandDialog
+      className={DESIGN_REFERENCE}
       open={open}
       onOpenChange={onOpenChange}
       title='Pick a price'

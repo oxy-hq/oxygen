@@ -50,7 +50,7 @@ export const MissingSecretsWarning = ({
   return (
     <div
       className={cn(
-        "flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs",
+        "flex items-start gap-1.5 border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs",
         className
       )}
       data-testid='admin-app-missing-secrets-warning'

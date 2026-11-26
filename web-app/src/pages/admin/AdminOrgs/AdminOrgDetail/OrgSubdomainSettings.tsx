@@ -1,4 +1,5 @@
 import { Globe, Loader2 } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Label } from "@/components/ui/shadcn/label";
 import {
   Select,
@@ -55,7 +56,7 @@ export function OrgSubdomainSettings({ orgId }: { orgId: string }) {
     });
 
   return (
-    <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+    <section className='space-y-4 border border-border/60 bg-card p-6'>
       <div className='space-y-1'>
         <div className='flex items-center gap-2'>
           <Globe className='size-4 text-muted-foreground' />
@@ -110,7 +111,7 @@ export function OrgSubdomainSettings({ orgId }: { orgId: string }) {
           <SelectTrigger id='org-subdomain-default'>
             <SelectValue placeholder='Pick a project' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value={NO_DEFAULT}>No default (dispatcher picks)</SelectItem>
             {data.workspaces.map((w) => (
               <SelectItem key={w.id} value={w.id}>

@@ -32,7 +32,7 @@ export const JobHealthCard: React.FC<{
   const canBackfill = !isAirway && !isSystemSchedule(schedule);
 
   return (
-    <div className='rounded-xl border border-border bg-card'>
+    <div className='border border-border bg-card'>
       <div className='flex items-center justify-between border-border border-b px-3 py-2'>
         <h3 className='font-semibold text-sm'>
           {isAirway ? "Schedule health" : "Health & coverage"}
@@ -51,7 +51,7 @@ export const JobHealthCard: React.FC<{
       </div>
       <div className='flex flex-col gap-3 p-3'>
         {schedule.last_error ? (
-          <div className='flex gap-2 rounded-md bg-destructive/10 px-3 py-2'>
+          <div className='flex gap-2 bg-destructive/10 px-3 py-2'>
             <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-destructive' />
             <div className='min-w-0'>
               <p className='font-medium text-destructive text-sm'>Last fire failed</p>
@@ -66,7 +66,7 @@ export const JobHealthCard: React.FC<{
         )}
 
         {!isAirway && (
-          <div className='rounded-md border border-border px-3 py-2'>
+          <div className='border border-border px-3 py-2'>
             <div className='flex items-baseline justify-between'>
               <span className='text-muted-foreground text-xs uppercase tracking-wide'>
                 Missed occurrences

@@ -48,7 +48,7 @@ export const EltTableInspector: React.FC<{
       </div>
 
       {table.error && (
-        <div className='flex items-start gap-2 rounded border border-destructive/40 bg-destructive/5 p-2 text-destructive text-xs'>
+        <div className='flex items-start gap-2 border border-destructive/40 bg-destructive/5 p-2 text-destructive text-xs'>
           <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' />
           <span className='break-words'>{table.error}</span>
         </div>
@@ -63,7 +63,7 @@ export const EltTableInspector: React.FC<{
           <p className='mb-1 text-muted-foreground text-xs uppercase tracking-wide'>
             child tables (normalize)
           </p>
-          <ul className='space-y-0.5 rounded border border-border bg-muted/20 p-2 text-xs'>
+          <ul className='space-y-0.5 border border-border bg-muted/20 p-2 text-xs'>
             {table.childTables.map((c) => (
               <li key={c} className='truncate font-mono'>
                 {c}
@@ -79,7 +79,7 @@ export const EltTableInspector: React.FC<{
             <GitCommit className='h-3 w-3' />
             schema diff
           </p>
-          <pre className='max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-2 font-mono text-xs'>
+          <pre className='max-h-48 overflow-y-auto whitespace-pre-wrap break-words border border-border bg-muted/40 p-2 font-mono text-xs'>
             {JSON.stringify(myChanges, null, 2)}
           </pre>
         </div>
@@ -90,7 +90,7 @@ export const EltTableInspector: React.FC<{
 
 /** Rows-in → rows-out summary with drop% callout when applicable. */
 const RowsFlow: React.FC<{ table: EltTableNode }> = ({ table }) => (
-  <div className='flex items-center gap-2 rounded border border-border bg-muted/20 p-2 text-xs'>
+  <div className='flex items-center gap-2 border border-border bg-muted/20 p-2 text-xs'>
     <div className='flex flex-col items-center'>
       <span className='text-muted-foreground uppercase tracking-wide'>extract</span>
       <span className='font-medium tabular-nums'>{formatRows(table.rowsExtracted)}</span>
@@ -117,7 +117,7 @@ const RowsFlow: React.FC<{ table: EltTableNode }> = ({ table }) => (
       </span>
     </div>
     {table.dropPct !== null && table.dropPct >= 1 && (
-      <span className='ml-auto rounded bg-warning/15 px-1.5 py-0.5 text-warning'>
+      <span className='ml-auto bg-warning/15 px-1.5 py-0.5 text-warning'>
         {table.dropPct}% dropped
       </span>
     )}
@@ -128,12 +128,12 @@ const RowsFlow: React.FC<{ table: EltTableNode }> = ({ table }) => (
  *  load: 0.9s" so the slowest phase is one glance away. */
 const PhaseList: React.FC<{ table: EltTableNode }> = ({ table }) => {
   const rows: Array<{ label: string; phase: PhaseSpan | null; tone: string }> = [
-    { label: "extract", phase: table.extract, tone: "text-cyan-600" },
-    { label: "normalize", phase: table.normalize, tone: "text-indigo-600" },
+    { label: "extract", phase: table.extract, tone: "text-status-info" },
+    { label: "normalize", phase: table.normalize, tone: "text-chart-2" },
     {
       label: "load",
       phase: table.load,
-      tone: table.status === "failed" ? "text-destructive" : "text-emerald-600"
+      tone: table.status === "failed" ? "text-destructive" : "text-status-success"
     }
   ].filter((r) => r.phase);
 

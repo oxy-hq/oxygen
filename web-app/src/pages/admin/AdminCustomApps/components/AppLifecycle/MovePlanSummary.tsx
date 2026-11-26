@@ -119,11 +119,7 @@ const Callout = ({
   const t = ADMIN_TONE[tone];
   return (
     <div
-      className={cn(
-        "flex items-start gap-1.5 rounded-md px-2.5 py-2 text-xs ring-1 ring-inset",
-        t.bg,
-        t.ring
-      )}
+      className={cn("flex items-start gap-1.5 px-2.5 py-2 text-xs ring-1 ring-inset", t.bg, t.ring)}
       data-testid={testId}
     >
       <Icon className={cn("mt-px size-3 shrink-0", t.text)} />

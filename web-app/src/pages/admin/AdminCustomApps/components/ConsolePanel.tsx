@@ -44,7 +44,7 @@ export const ConsolePanel = ({
 }) => (
   <section
     data-testid={`apps-console-panel-${id}`}
-    className={cn("flex min-w-0 flex-col rounded-lg border border-border/60 bg-card", className)}
+    className={cn("flex min-w-0 flex-col border border-border/60 bg-card", className)}
   >
     <header className='flex min-h-10 items-center justify-between gap-3 border-border/60 border-b px-3 py-2'>
       <div className='flex min-w-0 items-center gap-1.5'>
@@ -53,7 +53,7 @@ export const ConsolePanel = ({
         {scope ? (
           <span
             className={cn(
-              "ml-0.5 shrink-0 rounded-sm px-1 py-px font-medium text-[10px]",
+              "ml-0.5 shrink-0 px-1 py-px font-medium text-[10px]",
               scope.warn
                 ? cn(ADMIN_TONE.warn.bg, ADMIN_TONE.warn.text)
                 : "bg-muted text-muted-foreground"

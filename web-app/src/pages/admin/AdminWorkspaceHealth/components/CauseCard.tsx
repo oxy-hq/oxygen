@@ -54,7 +54,7 @@ export const CauseCard = ({ cause }: { cause: HealthCause; index?: number }) => 
             {cause.dimensions.map((d) => (
               <span
                 key={d}
-                className='rounded-sm border border-border/60 px-1.5 py-px text-[10px] text-muted-foreground uppercase tracking-[0.14em]'
+                className=' border border-border/60 px-1.5 py-px text-[10px] text-muted-foreground uppercase tracking-[0.14em]'
               >
                 {DIMENSION_LABEL[d]}
               </span>

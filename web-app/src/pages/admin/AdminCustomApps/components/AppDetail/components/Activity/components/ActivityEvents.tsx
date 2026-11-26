@@ -37,7 +37,7 @@ export const ActivityEvents = ({ appId }: { appId: string }) => {
           </AdminInfo>
         </p>
       ) : (
-        <div className='overflow-hidden rounded-md border'>
+        <div className='overflow-hidden border'>
           <table className='w-full text-xs'>
             <thead className='bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider'>
               <tr>
@@ -68,7 +68,7 @@ export const ActivityEvents = ({ appId }: { appId: string }) => {
 
       {drillName && (
         <div
-          className='mt-3 rounded-md border bg-muted/20 p-3'
+          className='mt-3 border bg-muted/20 p-3'
           data-testid='admin-app-activity-event-drilldown'
         >
           <div className='mb-2 flex items-center justify-between'>
@@ -88,7 +88,7 @@ export const ActivityEvents = ({ appId }: { appId: string }) => {
           ) : (
             <div className='space-y-2'>
               {occurrences.data?.map((o) => (
-                <div key={o.id} className='rounded border bg-background p-2'>
+                <div key={o.id} className='border bg-background p-2'>
                   <div className='flex items-center justify-between font-mono text-muted-foreground text-xs'>
                     <span>{o.user_email}</span>
                     <span>{relativeTime(o.occurred_at)}</span>

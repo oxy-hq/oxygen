@@ -1,6 +1,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { card } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "./adminTone";
 
@@ -38,13 +39,14 @@ export const AdminStatCard = ({
   const body = (
     <div
       className={cn(
-        "group flex flex-col gap-4 rounded-lg border border-border/60 bg-card p-6 shadow-[0_1px_0_0_color-mix(in_srgb,var(--border)_60%,transparent)] transition-colors",
-        to && "hover:border-foreground/20 hover:bg-card/80",
+        card,
+        "group flex flex-col gap-4 p-6 transition-colors",
+        to && "hover:border-border hover:bg-row-hover",
         className
       )}
     >
       <div className='flex items-start justify-between'>
-        <div className='flex items-center gap-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
+        <div className='flex items-center gap-2 font-semibold text-[10px] text-subtle-foreground uppercase tracking-eyebrow'>
           {Icon ? <Icon className='size-3.5' /> : null}
           {label}
         </div>

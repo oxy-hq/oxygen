@@ -2,6 +2,7 @@ import { AxiosError } from "axios";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Combobox } from "@/components/ui/shadcn/combobox";
 import {
@@ -113,7 +114,7 @@ export const CreateCustomAppDialog = ({ open, onOpenChange }: Props) => {
           form is the scroll container so header + footer stay anchored.
           overflow-hidden + min-w-0 clamp long URLs horizontally. */}
       <DialogContent
-        className='flex max-h-[85vh] max-w-xl flex-col overflow-hidden'
+        className={`${DESIGN_REFERENCE} flex max-h-[85vh] max-w-xl flex-col overflow-hidden`}
         data-testid='admin-apps-create-dialog'
       >
         <DialogHeader>
@@ -159,7 +160,7 @@ export const CreateCustomAppDialog = ({ open, onOpenChange }: Props) => {
               {submitError && (
                 <div
                   role='alert'
-                  className='flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive text-xs'
+                  className='flex items-start gap-2 border border-destructive/40 bg-destructive/10 p-3 text-destructive text-xs'
                 >
                   <AlertTriangle className='mt-0.5 size-4 shrink-0' />
                   <span className='min-w-0 flex-1 break-words'>{submitError}</span>
@@ -369,7 +370,7 @@ const TemplatePicker = ({
             <SelectTrigger id='app-template' data-testid='admin-apps-create-template'>
               <SelectValue placeholder={isLoading ? "Loading templates…" : "Register only"} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               <SelectItem value={NO_TEMPLATE} data-testid='admin-apps-create-template-none'>
                 Register only — ship with oxyc publish
               </SelectItem>
@@ -405,7 +406,7 @@ const CreatedSummary = ({ app, onDone }: { app: CustomApp; onDone: () => void })
   <div className='flex min-w-0 flex-col gap-3 text-xs'>
     <div className='flex min-w-0 flex-col gap-1'>
       <SummaryRow label='ID'>
-        <code className='break-all rounded bg-muted px-1 py-0.5 font-mono text-xs'>{app.id}</code>
+        <code className='break-all bg-muted px-1 py-0.5 font-mono text-xs'>{app.id}</code>
       </SummaryRow>
       <SummaryRow label='URL'>
         <a
@@ -454,7 +455,7 @@ const NextSteps = ({ app }: { app: CustomApp }) => (
       The app is registered, so publish resolves the project automatically — no{" "}
       <code className='font-mono'>--project</code> needed.
     </p>
-    <pre className='overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-foreground text-xs'>
+    <pre className='overflow-x-auto bg-muted px-2 py-1.5 font-mono text-foreground text-xs'>
       {`# from your app dir — oxy-app.json: { "slug": "${app.slug}", "orgSlug": "${app.org_slug}" }
 npm install -g @oxy-hq/cli               # once
 oxyc login --env production

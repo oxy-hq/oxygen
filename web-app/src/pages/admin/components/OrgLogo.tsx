@@ -32,7 +32,7 @@ export const OrgLogo = ({
         src={dataUrl}
         alt=''
         className={cn(
-          "shrink-0 rounded-md border border-border/60 bg-background object-contain",
+          "shrink-0 border border-border-subtle bg-background object-contain",
           box,
           className
         )}
@@ -42,7 +42,7 @@ export const OrgLogo = ({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 font-semibold text-muted-foreground",
+        "flex shrink-0 items-center justify-center border border-border-subtle bg-muted/40 font-semibold text-muted-foreground",
         box,
         className
       )}

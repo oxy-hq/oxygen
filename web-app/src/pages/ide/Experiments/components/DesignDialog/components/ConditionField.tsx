@@ -160,7 +160,7 @@ export default function ConditionField({
           id={`${id}-op`}
           data-testid={`${id}-op`}
           aria-label='Operator'
-          className='h-9 rounded-md border border-input bg-background px-2 text-sm'
+          className='h-9 border border-input bg-background px-2 text-sm'
           value={parts.op}
           onChange={(e) => update({ op: e.target.value as Operator })}
         >

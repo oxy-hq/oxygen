@@ -79,7 +79,7 @@ export function PreviewResults({
     <div className='space-y-3'>
       {affected.size > 0 && (
         <div
-          className='flex gap-2 rounded-md border border-status-warning-text/40 bg-status-warning-bg px-3 py-2 text-status-warning-text text-xs'
+          className='flex gap-2 border border-status-warning-text/40 bg-status-warning-bg px-3 py-2 text-status-warning-text text-xs'
           data-testid={`admin-airway-not-fixable-banner-${sourceKind}`}
         >
           <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
@@ -131,7 +131,7 @@ export function PreviewResults({
           sentence — see `outOfScopeNote`. */}
       {withheld > 0 && (
         <p
-          className='flex gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-muted-foreground text-xs'
+          className='flex gap-2 border border-border/60 px-2.5 py-1.5 text-muted-foreground text-xs'
           data-testid={`admin-airway-out-of-scope-${sourceKind}`}
         >
           <Info className='mt-0.5 size-3.5 shrink-0' />
@@ -181,10 +181,7 @@ export function PreviewResults({
             {data.unevaluated.map((u) => {
               const { path, workspaceId } = splitPipelineRef(u.pipeline_ref);
               return (
-                <li
-                  key={u.pipeline_ref}
-                  className='rounded-md border border-border/60 px-2.5 py-1.5 text-xs'
-                >
+                <li key={u.pipeline_ref} className=' border border-border/60 px-2.5 py-1.5 text-xs'>
                   <div className='font-mono'>{path}</div>
                   <div className='mt-0.5 flex items-center justify-between gap-2 text-muted-foreground'>
                     <span className='truncate'>{u.error}</span>

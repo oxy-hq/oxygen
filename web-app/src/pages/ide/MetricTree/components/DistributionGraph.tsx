@@ -47,7 +47,7 @@ function DistributionNode({ data }: NodeProps) {
     <>
       <Handle type='target' position={Position.Top} className='opacity-0' />
       <div
-        className='flex flex-col gap-0.5 rounded-lg border border-border px-3 py-2 shadow-sm'
+        className='flex flex-col gap-0.5 border border-border px-3 py-2'
         style={{ width: NODE_WIDTH, minHeight: NODE_HEIGHT, ...bgStyle }}
       >
         <p className='truncate font-medium text-foreground text-sm' title={title}>

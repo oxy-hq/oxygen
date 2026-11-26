@@ -16,7 +16,7 @@ export const OltpIdentityBar = ({ data }: { data: OltpConnectionInfo }) => {
   const drifted = data.platform_schema_version !== data.expected_platform_schema_version;
   return (
     <div
-      className='flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-border/60 border-b pb-2'
+      className='flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-border-subtle border-b pb-2'
       data-testid='admin-org-oltp-identity'
     >
       <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs'>

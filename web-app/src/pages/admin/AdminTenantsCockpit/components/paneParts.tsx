@@ -98,7 +98,7 @@ export function RowLine({
     </>
   );
   return (
-    <div className='flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 transition-colors hover:bg-muted/40'>
+    <div className='flex items-center gap-2 border border-border/60 px-2.5 py-1.5 transition-colors hover:bg-muted/40'>
       {onClick ? (
         <button
           type='button'
@@ -117,7 +117,7 @@ export function RowLine({
 
 export function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className='rounded-md border border-border/60 px-2.5 py-1.5'>
+    <div className=' border border-border/60 px-2.5 py-1.5'>
       <div className='font-medium text-[10px] text-muted-foreground uppercase tracking-wider'>
         {label}
       </div>

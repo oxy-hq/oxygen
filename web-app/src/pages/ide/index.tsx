@@ -1,6 +1,7 @@
 import { Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +41,8 @@ const MobileIdeWarning = () => {
 
   return (
     <AlertDialog open={open} onOpenChange={setOpenWarning}>
-      <AlertDialogContent className='max-w-sm'>
+      {/* Portalled out of the Nexus subtree, so it carries the reference scope itself. */}
+      <AlertDialogContent className={`${DESIGN_REFERENCE} max-w-sm`}>
         <AlertDialogHeader>
           <div className='mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted text-foreground'>
             <Monitor className='h-6 w-6' />
@@ -64,9 +66,19 @@ const MobileIdeWarning = () => {
   );
 };
 
+/**
+ * Oxygen Nexus (the Developer Portal). The whole surface — its top bar, its rail
+ * and every page it routes to — is drawn in the reference design language, the
+ * same one the home, the shell and every custom app use: `DESIGN_REFERENCE` on
+ * this root resolves the shadcn tokens underneath it to the reference's palette
+ * and squares every corner (`styles/reference/theme.css`). Overlays portal out
+ * of here, so each one carries the class itself.
+ */
 const Ide = () => (
   <>
-    <div className='flex h-full flex-1 flex-col overflow-hidden'>
+    <div
+      className={`${DESIGN_REFERENCE} flex h-full flex-1 flex-col overflow-hidden bg-background`}
+    >
       <Header />
       <div className='flex flex-1 overflow-hidden'>
         <Sidebar />

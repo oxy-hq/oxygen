@@ -69,7 +69,7 @@ function TreeRow({
 }) {
   return (
     <div
-      className='flex items-center gap-1 rounded-md py-1 pr-2 hover:bg-muted/50'
+      className='flex items-center gap-1 py-1 pr-2 hover:bg-muted/50'
       style={{ paddingLeft: `${depth * 20 + 4}px` }}
     >
       {hasChildren ? (

@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { get, type Path, useForm } from "react-hook-form";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -79,7 +80,7 @@ function DesignForm({
 
   return (
     <DialogContent
-      className='max-h-[85vh] overflow-y-auto sm:max-w-3xl'
+      className={`${DESIGN_REFERENCE} max-h-[85vh] overflow-y-auto sm:max-w-3xl`}
       data-testid='experiment-design-dialog'
     >
       <DialogHeader>

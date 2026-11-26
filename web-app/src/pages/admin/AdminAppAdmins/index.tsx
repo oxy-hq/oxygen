@@ -1,5 +1,6 @@
 import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -241,7 +242,7 @@ export default function AdminAppAdmins() {
           if (!open && !remove.isPending) setPendingDelete(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke staff access?</AlertDialogTitle>
             <AlertDialogDescription>

@@ -120,7 +120,7 @@ export function TimelineSpanRow({
                   e.stopPropagation();
                   setExpanded(!expanded);
                 }}
-                className='z-10 flex h-4 w-4 items-center justify-center rounded border border-border bg-background transition-colors hover:bg-muted'
+                className='z-10 flex h-4 w-4 items-center justify-center border border-border bg-background transition-colors hover:bg-muted'
               >
                 {expanded ? (
                   <ChevronDown className='h-3 w-3 text-muted-foreground' />
@@ -136,7 +136,7 @@ export function TimelineSpanRow({
 
         {/* Span info */}
         <div className='ml-1 flex w-64 flex-shrink-0 items-center gap-2'>
-          <span className={cn("h-2 w-2 flex-shrink-0 rounded-sm", barClass)} />
+          <span className={cn("h-2 w-2 flex-shrink-0 ", barClass)} />
           <SpanIcon
             spanName={span.spanName}
             className='h-4 w-4 flex-shrink-0 text-muted-foreground'
@@ -159,7 +159,7 @@ export function TimelineSpanRow({
         </div>
 
         {/* Timeline bar */}
-        <div className='relative h-5 min-w-[200px] flex-1 overflow-hidden rounded bg-muted/30'>
+        <div className='relative h-5 min-w-[200px] flex-1 overflow-hidden bg-muted/30'>
           {/* Grid lines */}
           <div className='pointer-events-none absolute inset-0 flex'>
             <div className='flex-1 border-border/20 border-r' />
@@ -170,7 +170,7 @@ export function TimelineSpanRow({
           {/* Span bar */}
           <div
             className={cn(
-              "absolute top-0.5 bottom-0.5 rounded-sm transition-all",
+              "absolute top-0.5 bottom-0.5 transition-all",
               barClass,
               isError && "ring-1 ring-destructive",
               isCritical && "outline outline-dashed outline-1 outline-primary/70 outline-offset-1"

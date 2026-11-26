@@ -105,7 +105,7 @@ function Method({
   children: ReactNode;
 }) {
   return (
-    <Collapsible defaultOpen={defaultOpen} className='rounded-lg border'>
+    <Collapsible defaultOpen={defaultOpen} className=' border'>
       <CollapsibleTrigger className='group flex w-full items-center gap-1.5 px-3 py-2 text-left hover:bg-muted/40'>
         {Icon ? <Icon className='size-4 text-primary' /> : null}
         <span className='font-medium text-xs'>{title}</span>
@@ -139,7 +139,7 @@ function CopyBlock({ label, code, oneLine }: { label: string; code: string; oneL
   return (
     <div className='relative'>
       <pre
-        className={`overflow-x-auto rounded-md border border-border/60 bg-muted/40 p-3 pr-10 font-mono text-xs ${
+        className={`overflow-x-auto border border-border/60 bg-muted/40 p-3 pr-10 font-mono text-xs ${
           oneLine ? "whitespace-pre" : ""
         }`}
       >

@@ -2,6 +2,7 @@ import { Plus, Slash, Square, Trash2 } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -322,7 +323,7 @@ const ZoneEditorDialog: React.FC<Props> = ({ camera, open, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-5xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-5xl`}>
         <DialogHeader>
           <DialogTitle>Triggers · {camera?.name ?? "Camera"}</DialogTitle>
           <DialogDescription>
@@ -332,7 +333,7 @@ const ZoneEditorDialog: React.FC<Props> = ({ camera, open, onOpenChange }) => {
         </DialogHeader>
 
         {hasProposal && camera && (
-          <div className='flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-3'>
+          <div className='flex flex-wrap items-center justify-between gap-3 border border-primary/40 bg-primary/5 p-3'>
             <div className='flex flex-col gap-0.5'>
               <span className='font-medium text-primary text-sm'>
                 Proposed geometry pending review
@@ -382,7 +383,7 @@ const ZoneEditorDialog: React.FC<Props> = ({ camera, open, onOpenChange }) => {
         </div>
 
         <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]'>
-          <div className='relative overflow-hidden rounded-md border bg-muted/40'>
+          <div className='relative overflow-hidden border bg-muted/40'>
             {isLoading || !imgDims ? (
               <div className='flex aspect-video w-full items-center justify-center'>
                 <Spinner />
@@ -506,7 +507,7 @@ type DragState =
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : Math.min(v, hi));
 
 /** Strip malformed entries from existing geometry. A persisted zone
  *  with < 3 points or a missing polygon array would crash render. */
@@ -693,8 +694,8 @@ const ShapeList: React.FC<ShapeListProps> = ({
             key={s.id}
             className={
               s.id === selectedId
-                ? "flex items-center justify-between rounded border border-primary bg-primary/10 px-2 py-1 text-xs"
-                : "flex items-center justify-between rounded border border-border bg-card px-2 py-1 text-xs"
+                ? "flex items-center justify-between border border-primary bg-primary/10 px-2 py-1 text-xs"
+                : "flex items-center justify-between border border-border bg-card px-2 py-1 text-xs"
             }
           >
             <button

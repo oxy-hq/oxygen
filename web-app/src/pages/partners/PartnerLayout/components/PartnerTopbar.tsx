@@ -1,5 +1,6 @@
 import { ArrowUpRight, ChevronDown, House } from "lucide-react";
 import { Link } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -52,7 +53,9 @@ export function PartnerTopbar({ title }: { title: string }) {
             </Link>
           </Button>
         </TooltipTrigger>
-        <TooltipContent side='bottom'>Back to home</TooltipContent>
+        <TooltipContent className={DESIGN_REFERENCE} side='bottom'>
+          Back to home
+        </TooltipContent>
       </Tooltip>
       <Separator orientation='vertical' className='mx-1 h-4' />
 
@@ -68,7 +71,7 @@ export function PartnerTopbar({ title }: { title: string }) {
                   {active.name}
                   <ChevronDown className='size-3' />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align='start'>
+                <DropdownMenuContent className={DESIGN_REFERENCE} align='start'>
                   {partners.map((p) => (
                     <DropdownMenuItem key={p.partner_id} onSelect={() => select(p.partner_id)}>
                       {p.name}

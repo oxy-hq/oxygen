@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -64,7 +65,7 @@ export default function MemberRow({
             <SelectTrigger className='w-28' data-testid={`partner-member-role-${member.user_id}`}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               <SelectItem value='member' data-testid='partner-member-role-member'>
                 Member
               </SelectItem>
@@ -87,7 +88,7 @@ export default function MemberRow({
                 Remove
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent>
+            <AlertDialogContent className={DESIGN_REFERENCE}>
               <AlertDialogHeader>
                 <AlertDialogTitle>Remove {member.email}?</AlertDialogTitle>
                 <AlertDialogDescription>

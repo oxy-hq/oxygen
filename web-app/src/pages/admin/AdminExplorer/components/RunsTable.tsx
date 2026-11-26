@@ -26,7 +26,7 @@ export const RunsTable = ({ rows }: { rows: ExplorerRun[] }) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
   if (rows.length === 0) {
     return (
-      <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center'>
+      <div className='flex flex-col items-center justify-center gap-2 border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center'>
         <Play className='size-6 text-muted-foreground' />
         <p className='font-medium text-xs'>No runs match.</p>
         <p className='text-muted-foreground text-xs'>Search by question, error, or run id.</p>
@@ -43,7 +43,7 @@ export const RunsTable = ({ rows }: { rows: ExplorerRun[] }) => {
     });
 
   return (
-    <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+    <div className='overflow-hidden border border-border/60 bg-card'>
       <Table>
         <TableHeader>
           <TableRow className='hover:bg-transparent'>
@@ -141,7 +141,7 @@ const RunRow = ({
                   <span className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
                     Error
                   </span>
-                  <pre className='max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-[11px] text-destructive'>
+                  <pre className='max-h-40 overflow-auto whitespace-pre-wrap break-words border border-destructive/30 bg-destructive/5 p-2 font-mono text-[11px] text-destructive'>
                     {run.error_message}
                   </pre>
                 </div>

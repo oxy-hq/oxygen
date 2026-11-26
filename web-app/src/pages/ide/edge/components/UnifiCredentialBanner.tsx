@@ -2,6 +2,7 @@ import { CheckCircle2, KeyRound, Loader2, Search, Trash2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -79,7 +80,7 @@ const UnifiCredentialBanner: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className='flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-muted-foreground text-xs'>
+      <div className='flex items-center gap-2 border border-border bg-muted/30 px-3 py-2 text-muted-foreground text-xs'>
         <Loader2 className='h-3 w-3 animate-spin' />
         Checking UniFi credential…
       </div>
@@ -91,14 +92,14 @@ const UnifiCredentialBanner: React.FC = () => {
     <div
       className={
         configured
-          ? "flex items-center justify-between gap-3 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-3 py-2"
-          : "flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+          ? "flex items-center justify-between gap-3 border border-dot-success/40 bg-dot-success/5 px-3 py-2"
+          : "flex items-center justify-between gap-3 border border-dot-warning/40 bg-dot-warning/5 px-3 py-2"
       }
     >
       <div className='flex items-center gap-2 text-xs'>
         {configured ? (
           <>
-            <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />
+            <CheckCircle2 className='h-3.5 w-3.5 text-status-success' />
             <span className='font-medium'>UniFi credential configured</span>
             {status?.updated_at && (
               <span className='text-muted-foreground'>
@@ -108,7 +109,7 @@ const UnifiCredentialBanner: React.FC = () => {
           </>
         ) : (
           <>
-            <KeyRound className='h-3.5 w-3.5 text-amber-600 dark:text-amber-400' />
+            <KeyRound className='h-3.5 w-3.5 text-status-warning' />
             <span className='font-medium'>No UniFi credential saved</span>
             <span className='text-muted-foreground'>
               · save once to skip the inline key prompt on import + resync
@@ -158,7 +159,7 @@ const UnifiCredentialBanner: React.FC = () => {
       <UnifiSetupDialog open={scanDialogOpen} onOpenChange={setScanDialogOpen} mode='scan-stored' />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className='max-w-md'>
+        <DialogContent className={`${DESIGN_REFERENCE} max-w-md`}>
           <DialogHeader>
             <DialogTitle>UniFi credential</DialogTitle>
             <DialogDescription>

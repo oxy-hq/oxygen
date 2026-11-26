@@ -2740,7 +2740,7 @@ value = 52.1344415909483
 path = "crates/airhouse/src/local_seed.rs"
 qualified = "ensure_local_org_seeded"
 metric = "abc"
-value = 75.2994023880668
+value = 74.30343195303969
 
 [[entry]]
 path = "crates/airhouse/src/preview_sql/registry.rs"
@@ -3490,13 +3490,13 @@ value = 1779.0
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1453.0
+value = 1452.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2219.0
+value = 2218.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
@@ -3507,14 +3507,14 @@ value = 18.0
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "ProjectFunctionHost"
-start_line = 511
+start_line = 510
 metric = "nom"
 value = 34.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_functions/host.rs"
 qualified = "ProjectFunctionHost"
-start_line = 907
+start_line = 906
 metric = "nom"
 value = 87.0
 
@@ -4227,12 +4227,6 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/api-custom-apps/tests/integration/admin_app_workspace_in_org.rs"
-qualified = "seed"
-metric = "abc"
-value = 40.024992192379
-
-[[entry]]
 path = "crates/api-custom-apps/tests/integration/app_calls.rs"
 qualified = "forge"
 metric = "nargs"
@@ -4426,12 +4420,6 @@ value = 40.0374824383352
 
 [[entry]]
 path = "crates/api-custom-apps/tests/integration/example_app_serving.rs"
-qualified = "an_alphabetically_earlier_workspace_does_not_steal_the_seeded_app"
-metric = "abc"
-value = 46.389654018972806
-
-[[entry]]
-path = "crates/api-custom-apps/tests/integration/example_app_serving.rs"
 qualified = "the_restricted_seeded_app_is_hidden_from_an_ungranted_member"
 metric = "abc"
 value = 76.58981655546643
@@ -4495,12 +4483,6 @@ path = "crates/api-custom-apps/tests/integration/sandbox_agent_token/page.rs"
 qualified = "page"
 metric = "nargs"
 value = 6.0
-
-[[entry]]
-path = "crates/api-custom-apps/tests/integration/sandbox_agent_token/second_refusal_writes.rs"
-qualified = "body_for"
-metric = "cyclomatic"
-value = 16.0
 
 [[entry]]
 path = "crates/api-custom-apps/tests/integration/sandbox_agent_token/staging_promote.rs"
@@ -5133,12 +5115,6 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "crates/api-frontline/tests/integration/frontline_app_grant.rs"
-qualified = "seed"
-metric = "abc"
-value = 46.2709412050371
-
-[[entry]]
 path = "crates/api-frontline/tests/integration/frontline_kiosk_signin.rs"
 qualified = "worker"
 metric = "abc"
@@ -5511,12 +5487,6 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/api-notifications/tests/integration/notification_categories/catalog.rs"
-qualified = "notification_categories_the_catalogue_lists_each_source_as_a_tree::<anon@L17>"
-metric = "abc"
-value = 54.78138369920935
-
-[[entry]]
 path = "crates/api-notifications/tests/integration/notification_categories/settings.rs"
 qualified = "notification_categories_settings_nearest_explicit_wins_and_old_routes_agree::<anon@L89>"
 metric = "abc"
@@ -5731,12 +5701,6 @@ path = "crates/api-previews/tests/integration/previews_e2e/fixture.rs"
 qualified = "app"
 metric = "abc"
 value = 40.311288741492746
-
-[[entry]]
-path = "crates/api-previews/tests/integration/workspace_previews_serving.rs"
-qualified = "seed"
-metric = "abc"
-value = 42.7551166528639
 
 [[entry]]
 path = "crates/api-semantic/src/preagg.rs"
@@ -6012,7 +5976,7 @@ value = 44.19275958796871
 path = "crates/api-tenancy/src/admin/workspaces.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 675.0
+value = 640.0
 
 [[entry]]
 path = "crates/api-tenancy/src/admin/workspaces.rs"
@@ -6690,222 +6654,6 @@ value = 23.0
 path = "crates/app-core/src/widgets/params.rs"
 qualified = "check_property"
 metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "crates/server/src/cli/commands/compile.rs"
-qualified = "run_compile"
-metric = "abc"
-value = 40.36087214122113
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_broker_preview.rs"
-qualified = "mount_mint"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
-qualified = "full_lifecycle_provision_to_deprovision"
-metric = "abc"
-value = 114.58621208504974
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
-qualified = "seed_user_workspace_with_role"
-metric = "abc"
-value = 56.444663166680336
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "a_deleted_workspaces_tenant_is_removed_from_airhouse"
-metric = "abc"
-value = 48.507731342539614
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "a_tenant_another_workspace_uses_outlives_the_first_delete"
-metric = "abc"
-value = 42.579337712087536
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "concurrent_provisions_of_one_workspace_mint_one_service_account"
-metric = "abc"
-value = 60.876925020897694
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "provision_recreates_when_remote_missing"
-metric = "abc"
-value = 45.5411901469428
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "provision_revokes_orphan_sa_and_remints"
-metric = "abc"
-value = 48.05205510693585
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "provision_skips_sa_path_when_local_has_sa_fields"
-metric = "abc"
-value = 40.19950248448356
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
-qualified = "rotate_service_account_swaps_id_and_bearer"
-metric = "abc"
-value = 42.95346318982906
-
-[[entry]]
-path = "crates/guards/tests/integration/app_scope_boundary.rs"
-qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
-metric = "abc"
-value = 68.73136110975832
-
-[[entry]]
-path = "crates/guards/tests/integration/app_scope_boundary.rs"
-qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
-metric = "cognitive"
-value = 35.0
-
-[[entry]]
-path = "crates/guards/tests/integration/app_scope_boundary.rs"
-qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/authz_loader_differential.rs"
-qualified = "loader_separates_managed_orgs_from_the_develop_apps_data_plane"
-metric = "abc"
-value = 41.60528812542944
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/airway_compile_boundary.rs"
-qualified = "seed_promoted_workspace"
-metric = "abc"
-value = 78.23042886243178
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/compile_first.rs"
-qualified = "an_empty_workspace_is_compiled_from_its_branch_by_a_context_with_no_files"
-metric = "abc"
-value = 46.33573135281238
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/compile_push.rs"
-qualified = "a_retried_commit_compile_does_not_take_over_from_one_that_started_after_it_was_asked_for"
-metric = "abc"
-value = 40.792156108742276
-
-[[entry]]
-path = "crates/guards/tests/integration/compiled_reader_is_not_a_back_door.rs"
-qualified = "source_files"
-metric = "abc"
-value = 104.67568963231147
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/compiled_reader_semantic.rs"
-qualified = "seed_promoted_workspace"
-metric = "abc"
-value = 85.21150157109074
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/factory_access.rs"
-qualified = "app"
-metric = "abc"
-value = 49.040799340956916
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/frontline_app_grant.rs"
-qualified = "seed"
-metric = "abc"
-value = 46.2709412050371
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/migration_rollback_safety.rs"
-qualified = "losses"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/oltp_branches.rs"
-qualified = "app_with_ledger"
-metric = "abc"
-value = 46.04345773288535
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/oltp_branches_guards.rs"
-qualified = "an_env_cut_is_not_current_once_its_row_is_re_cut"
-metric = "abc"
-value = 70.60453243241541
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/preagg_promote_nudge.rs"
-qualified = "promote_revision"
-metric = "abc"
-value = 44.181444068749045
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
-qualified = "a_latency_pass_drives_a_queued_chat_to_a_terminal_event"
-metric = "abc"
-value = 40.570925550201586
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
-qualified = "a_queued_chat_start_is_driven_by_whichever_driver_claims_it"
-metric = "abc"
-value = 49.05099387372289
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
-qualified = "a_workflow_started_for_a_requester_is_driven_from_the_queue"
-metric = "abc"
-value = 73.76313442364011
-
-[[entry]]
-path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
-qualified = "fixture"
-metric = "abc"
-value = 43.289721643826724
-
-[[entry]]
-path = "crates/guards/tests/integration/workspace_path_backdoor.rs"
-qualified = "nothing_new_resolves_a_workspace_path_by_hand"
-metric = "cognitive"
-value = 24.0
-
-[[entry]]
-path = "crates/guards/tests/integration/workspace_path_escape_hatch.rs"
-qualified = "server_files"
-metric = "abc"
-value = 58.077534382926416
-
-[[entry]]
-path = "crates/guards/tests/integration/env_reads/scan.rs"
-qualified = "lex"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
-path = "crates/guards/tests/integration/sentry_hub_scan.rs"
-qualified = "fn_items"
-metric = "cognitive"
-value = 20.0
-
-[[entry]]
-path = "crates/guards/tests/integration/sentry_hub_scan.rs"
-qualified = "server_sources"
-metric = "abc"
-value = 48.041648597857254
-
-[[entry]]
-path = "crates/guards/tests/integration/undeclared_mounts_stay_diskless.rs"
-qualified = "the_crates_mounted_without_a_declaration_never_touch_the_working_copy"
-metric = "cognitive"
 value = 19.0
 
 [[entry]]
@@ -8398,6 +8146,66 @@ metric = "abc"
 value = 71.58212067269312
 
 [[entry]]
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
+qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
+metric = "abc"
+value = 67.48333127521195
+
+[[entry]]
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
+qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
+metric = "cognitive"
+value = 35.0
+
+[[entry]]
+path = "crates/guards/tests/integration/app_scope_boundary.rs"
+qualified = "every_org_scoped_route_resolves_to_a_fenced_handler"
+metric = "cyclomatic"
+value = 18.0
+
+[[entry]]
+path = "crates/guards/tests/integration/compiled_reader_is_not_a_back_door.rs"
+qualified = "source_files"
+metric = "abc"
+value = 102.45974819410792
+
+[[entry]]
+path = "crates/guards/tests/integration/env_reads/scan.rs"
+qualified = "lex"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
+path = "crates/guards/tests/integration/sentry_hub_scan.rs"
+qualified = "fn_items"
+metric = "cognitive"
+value = 20.0
+
+[[entry]]
+path = "crates/guards/tests/integration/sentry_hub_scan.rs"
+qualified = "server_sources"
+metric = "abc"
+value = 46.04345773288535
+
+[[entry]]
+path = "crates/guards/tests/integration/undeclared_mounts_stay_diskless.rs"
+qualified = "the_crates_mounted_without_a_declaration_never_touch_the_working_copy"
+metric = "cognitive"
+value = 19.0
+
+[[entry]]
+path = "crates/guards/tests/integration/workspace_path_backdoor.rs"
+qualified = "nothing_new_resolves_a_workspace_path_by_hand"
+metric = "cognitive"
+value = 24.0
+
+[[entry]]
+path = "crates/guards/tests/integration/workspace_path_escape_hatch.rs"
+qualified = "server_files"
+metric = "abc"
+value = 54.08326913195984
+
+[[entry]]
 path = "crates/infrastructure/semantic/src/lever_conflicts.rs"
 qualified = "lever_conflicts"
 metric = "cognitive"
@@ -9283,7 +9091,7 @@ value = 6.0
 path = "crates/oltp/src/schema.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 673.0
+value = 606.0
 
 [[entry]]
 path = "crates/oltp/tests/integration/neon_live.rs"
@@ -9523,7 +9331,7 @@ value = 17.0
 path = "crates/route-catalog/build_route_catalog.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1718.0
+value = 1717.0
 
 [[entry]]
 path = "crates/route-catalog/build_route_catalog.rs"
@@ -9814,6 +9622,12 @@ metric = "loc.ploc"
 value = 714.0
 
 [[entry]]
+path = "crates/server/src/cli/commands/compile.rs"
+qualified = "run_compile"
+metric = "abc"
+value = 40.36087214122113
+
+[[entry]]
 path = "crates/server/src/commands/serve.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -9901,7 +9715,7 @@ value = 43.3358973600409
 path = "crates/server/src/dev/seed/seed_partners.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 802.0
+value = 794.0
 
 [[entry]]
 path = "crates/server/src/dev/seed/seed_partners.rs"
@@ -10327,13 +10141,13 @@ value = 40.099875311526844
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1125.0
+value = 1113.0
 
 [[entry]]
 path = "crates/telemetry/src/sentry_filter.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1954.0
+value = 1949.0
 
 [[entry]]
 path = "crates/telemetry/src/stderr_capture.rs"
@@ -10658,6 +10472,150 @@ path = "crates/workspace-runtime/src/typed_stream.rs"
 qualified = "typed_stream_to_parquet"
 metric = "abc"
 value = 60.149812967290266
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_broker_preview.rs"
+qualified = "mount_mint"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
+qualified = "full_lifecycle_provision_to_deprovision"
+metric = "abc"
+value = 114.58621208504974
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_lifecycle.rs"
+qualified = "seed_user_workspace_with_role"
+metric = "abc"
+value = 56.444663166680336
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "a_deleted_workspaces_tenant_is_removed_from_airhouse"
+metric = "abc"
+value = 48.507731342539614
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "a_tenant_another_workspace_uses_outlives_the_first_delete"
+metric = "abc"
+value = 42.579337712087536
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "concurrent_provisions_of_one_workspace_mint_one_service_account"
+metric = "abc"
+value = 60.876925020897694
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "provision_recreates_when_remote_missing"
+metric = "abc"
+value = 45.5411901469428
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "provision_revokes_orphan_sa_and_remints"
+metric = "abc"
+value = 48.05205510693585
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "provision_skips_sa_path_when_local_has_sa_fields"
+metric = "abc"
+value = 40.19950248448356
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airhouse_provisioner.rs"
+qualified = "rotate_service_account_swaps_id_and_bearer"
+metric = "abc"
+value = 42.95346318982906
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/airway_compile_boundary.rs"
+qualified = "seed_promoted_workspace"
+metric = "abc"
+value = 78.23042886243178
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/authz_loader_differential.rs"
+qualified = "loader_separates_managed_orgs_from_the_develop_apps_data_plane"
+metric = "abc"
+value = 41.60528812542944
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/compile_first.rs"
+qualified = "an_empty_workspace_is_compiled_from_its_branch_by_a_context_with_no_files"
+metric = "abc"
+value = 46.33573135281238
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/compile_push.rs"
+qualified = "a_retried_commit_compile_does_not_take_over_from_one_that_started_after_it_was_asked_for"
+metric = "abc"
+value = 40.792156108742276
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/compiled_reader_semantic.rs"
+qualified = "seed_promoted_workspace"
+metric = "abc"
+value = 85.21150157109074
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/factory_access.rs"
+qualified = "app"
+metric = "abc"
+value = 49.040799340956916
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/migration_rollback_safety.rs"
+qualified = "losses"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/oltp_branches.rs"
+qualified = "app_with_ledger"
+metric = "abc"
+value = 46.04345773288535
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/oltp_branches_guards.rs"
+qualified = "an_env_cut_is_not_current_once_its_row_is_re_cut"
+metric = "abc"
+value = 70.60453243241541
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/preagg_promote_nudge.rs"
+qualified = "promote_revision"
+metric = "abc"
+value = 44.181444068749045
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
+qualified = "a_latency_pass_drives_a_queued_chat_to_a_terminal_event"
+metric = "abc"
+value = 40.570925550201586
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
+qualified = "a_queued_chat_start_is_driven_by_whichever_driver_claims_it"
+metric = "abc"
+value = 49.05099387372289
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
+qualified = "a_workflow_started_for_a_requester_is_driven_from_the_queue"
+metric = "abc"
+value = 73.76313442364011
+
+[[entry]]
+path = "crates/workspace-runtime/tests/integration/queued_chat_run.rs"
+qualified = "fixture"
+metric = "abc"
+value = 43.289721643826724
 
 [[entry]]
 path = "crates/world-model/src/graph/breakdown.rs"
@@ -12442,24 +12400,6 @@ metric = "cognitive"
 value = 17.0
 
 [[entry]]
-path = "sdk/create-oxy-app/templates/dashboard/src/components/MetricTreeView.tsx"
-qualified = "MetricTreeView"
-metric = "abc"
-value = 74.72616676907762
-
-[[entry]]
-path = "sdk/create-oxy-app/templates/dashboard/src/components/MetricTreeView.tsx"
-qualified = "MetricTreeView"
-metric = "cognitive"
-value = 20.0
-
-[[entry]]
-path = "sdk/create-oxy-app/templates/dashboard/src/components/MetricTreeView.tsx"
-qualified = "MetricTreeView"
-metric = "cyclomatic"
-value = 28.0
-
-[[entry]]
 path = "sdk/setup-oxyc/src/oxy.mjs"
 qualified = "exchange"
 metric = "cognitive"
@@ -13489,13 +13429,13 @@ value = 33.0
 path = "web-app/src/App.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 670.0
+value = 667.0
 
 [[entry]]
 path = "web-app/src/App.tsx"
 qualified = "WorkspaceLayout"
 metric = "abc"
-value = 121.75795661885921
+value = 121.63058825805291
 
 [[entry]]
 path = "web-app/src/App.tsx"
@@ -14335,13 +14275,13 @@ value = 16.0
 path = "web-app/src/hooks/api/queryKey.ts"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1079.0
+value = 1071.0
 
 [[entry]]
 path = "web-app/src/hooks/api/queryKey.ts"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1337.0
+value = 1326.0
 
 [[entry]]
 path = "web-app/src/hooks/api/queryKey.ts"
@@ -14539,7 +14479,7 @@ value = 20.0
 path = "web-app/src/pages/admin/AdminAppAdmins/components/GrantForm.tsx"
 qualified = "GrantForm"
 metric = "abc"
-value = 83.60023923410746
+value = 84.40379138403677
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminAppAdmins/components/GrantForm.tsx"
@@ -14555,7 +14495,7 @@ value = 31.0
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminAppAdmins/index.tsx"
-qualified = "AdminAppAdmins::<anon@L126>::<anon@L142>"
+qualified = "AdminAppAdmins::<anon@L127>::<anon@L143>"
 metric = "cognitive"
 value = 20.0
 
@@ -14575,7 +14515,7 @@ value = 21.0
 path = "web-app/src/pages/admin/AdminAudit/index.tsx"
 qualified = "AdminAudit"
 metric = "abc"
-value = 49.4064773081425
+value = 50.299105359837164
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminBillingQueue/components/ProvisionSubscriptionDialog/index.tsx"
@@ -14710,12 +14650,6 @@ metric = "cognitive"
 value = 22.0
 
 [[entry]]
-path = "web-app/src/pages/admin/AdminCustomApps/components/AppConsole/index.tsx"
-qualified = "AppConsole"
-metric = "abc"
-value = 51.96152422706632
-
-[[entry]]
 path = "web-app/src/pages/admin/AdminCustomApps/components/AppConsole/pages/OverviewPage.tsx"
 qualified = "OverviewPage"
 metric = "abc"
@@ -14749,7 +14683,7 @@ value = 22.0
 path = "web-app/src/pages/admin/AdminCustomApps/components/AppDetail/components/DetailToolbar/index.tsx"
 qualified = "DetailToolbar"
 metric = "abc"
-value = 85.5219270129012
+value = 89.1403387922662
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminCustomApps/components/AppDetail/components/DetailToolbar/index.tsx"
@@ -14980,26 +14914,14 @@ metric = "cognitive"
 value = 18.0
 
 [[entry]]
-path = "web-app/src/pages/admin/AdminCustomApps/components/AppsFleet/index.tsx"
-qualified = "AppsFleet"
-metric = "abc"
-value = 46.184412955021955
-
-[[entry]]
-path = "web-app/src/pages/admin/AdminCustomApps/components/AppsFleet/index.tsx"
-qualified = "AppsFleet"
-metric = "cognitive"
-value = 20.0
-
-[[entry]]
 path = "web-app/src/pages/admin/AdminCustomApps/components/OxyAccessPanes/AccessPane.tsx"
 qualified = "AccessPane"
 metric = "abc"
-value = 58.86425061104575
+value = 59.782940710540494
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminCustomApps/components/OxyAccessPanes/AccessPane.tsx"
-qualified = "AccessPane::<anon@L96>::<anon@L98>"
+qualified = "AccessPane::<anon@L97>::<anon@L99>"
 metric = "cognitive"
 value = 18.0
 
@@ -15034,12 +14956,6 @@ metric = "cyclomatic"
 value = 23.0
 
 [[entry]]
-path = "web-app/src/pages/admin/AdminCustomApps/index.tsx"
-qualified = "AdminCustomApps"
-metric = "abc"
-value = 42.17819341792628
-
-[[entry]]
 path = "web-app/src/pages/admin/AdminExplorer/components/RunsTable.tsx"
 qualified = "RunRow"
 metric = "abc"
@@ -15049,7 +14965,7 @@ value = 40.43513323831146
 path = "web-app/src/pages/admin/AdminExplorer/index.tsx"
 qualified = "AdminExplorer"
 metric = "abc"
-value = 44.12482294582042
+value = 45.81484475582123
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminFeatureFlags/RulesDialog.tsx"
@@ -15235,7 +15151,7 @@ value = 16.0
 path = "web-app/src/pages/admin/AdminOrgs/AdminOrgDetail/index.tsx"
 qualified = "AdminOrgDetail"
 metric = "abc"
-value = 157.10187777362816
+value = 158.9622596719108
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminOrgs/AdminOrgDetail/index.tsx"
@@ -15257,9 +15173,9 @@ value = 21.0
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminTenantsCockpit/components/panes/PartnerPane.tsx"
-qualified = "PartnerPane::<anon@L59>"
+qualified = "PartnerPane::<anon@L60>"
 metric = "abc"
-value = 44.955533585978046
+value = 45.93473631142341
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminTokens/index.tsx"
@@ -15283,13 +15199,13 @@ value = 23.0
 path = "web-app/src/pages/admin/AdminUsers/AdminUserDetail/components/AssignToOrgDialog.tsx"
 qualified = "AssignToOrgDialog"
 metric = "abc"
-value = 55.51576352712804
+value = 56.43580423808985
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminUsers/AdminUserDetail/components/PlatformAccessCard/components/GrantDialog.tsx"
 qualified = "GrantDialog"
 metric = "abc"
-value = 56.542019772908716
+value = 57.28874234961002
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminUsers/AdminUserDetail/components/PlatformAccessCard/components/GrantDialog.tsx"
@@ -15307,7 +15223,7 @@ value = 24.0
 path = "web-app/src/pages/admin/AdminUsers/AdminUserDetail/index.tsx"
 qualified = "AdminUserDetail"
 metric = "abc"
-value = 100.8265837961398
+value = 102.4792661956554
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminUsers/AdminUserDetail/index.tsx"
@@ -15331,7 +15247,7 @@ value = 21.0
 path = "web-app/src/pages/admin/AdminWorkspaces/AdminWorkspaceDetail/index.tsx"
 qualified = "AdminWorkspaceDetail"
 metric = "abc"
-value = 141.9189909772473
+value = 143.6975991448709
 
 [[entry]]
 path = "web-app/src/pages/admin/AdminWorkspaces/AdminWorkspaceDetail/index.tsx"
@@ -15349,11 +15265,11 @@ value = 34.0
 path = "web-app/src/pages/admin/AdminWorkspaces/index.tsx"
 qualified = "AdminWorkspaces"
 metric = "abc"
-value = 48.28043081829324
+value = 49.21381919745713
 
 [[entry]]
 path = "web-app/src/pages/admin/components/AdminDetailTabs.tsx"
-qualified = "AdminDetailTabs::<anon@L31>"
+qualified = "AdminDetailTabs::<anon@L37>"
 metric = "cognitive"
 value = 16.0
 
@@ -15361,7 +15277,7 @@ value = 16.0
 path = "web-app/src/pages/admin/components/AdminEntitySearch.tsx"
 qualified = "AdminEntitySearch"
 metric = "abc"
-value = 44.15880433163923
+value = 44.73253849269008
 
 [[entry]]
 path = "web-app/src/pages/admin/components/AdminEntitySearch.tsx"
@@ -15601,7 +15517,7 @@ value = 19.0
 path = "web-app/src/pages/ide/Database/QueryWorkspace/components/QueryEditor.tsx"
 qualified = "QueryEditor"
 metric = "abc"
-value = 48.88762624632127
+value = 49.84977432245807
 
 [[entry]]
 path = "web-app/src/pages/ide/Experiments/ExperimentDetail/components/DefinitionView/LeverCard.tsx"
@@ -15658,6 +15574,12 @@ metric = "loc.ploc"
 value = 608.0
 
 [[entry]]
+path = "web-app/src/pages/ide/Experiments/ExperimentDetail/components/OperationsView/components/AbortDialog/index.tsx"
+qualified = "AbortDialog"
+metric = "abc"
+value = 40.26164427839479
+
+[[entry]]
 path = "web-app/src/pages/ide/Experiments/ExperimentDetail/components/OperationsView/components/RunSummary.tsx"
 qualified = "RunSummary"
 metric = "abc"
@@ -15709,7 +15631,7 @@ value = 16.0
 path = "web-app/src/pages/ide/Experiments/ExperimentDetail/components/RegistrableView.tsx"
 qualified = "RegistrableView"
 metric = "abc"
-value = 40.53393639902249
+value = 41.44876355212541
 
 [[entry]]
 path = "web-app/src/pages/ide/Experiments/ExperimentDetail/components/ResultPane/components/ReportBody.test.tsx"
@@ -15853,7 +15775,7 @@ value = 17.0
 path = "web-app/src/pages/ide/MetricTree/components/DistributionPanel.tsx"
 qualified = "DistributionPanel"
 metric = "abc"
-value = 46.9041575982343
+value = 47.634021455258214
 
 [[entry]]
 path = "web-app/src/pages/ide/MetricTree/components/DistributionPanel.tsx"
@@ -15913,7 +15835,7 @@ value = 16.0
 path = "web-app/src/pages/ide/MetricTree/scenario/ScenarioToolbar.tsx"
 qualified = "ScenarioToolbar"
 metric = "abc"
-value = 47.843494855622744
+value = 50.61620293937506
 
 [[entry]]
 path = "web-app/src/pages/ide/MetricTree/scenario/leverConflicts.ts"
@@ -15973,7 +15895,7 @@ value = 16.0
 path = "web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/index.tsx"
 qualified = "AnomaliesInbox"
 metric = "abc"
-value = 119.37336386313322
+value = 120.04582458378134
 
 [[entry]]
 path = "web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/index.tsx"
@@ -16015,7 +15937,7 @@ value = 20.0
 path = "web-app/src/pages/ide/SemanticLayer/explorer/components/SemanticQueryPanel/components/TabsHeader.tsx"
 qualified = "TabsHeader"
 metric = "abc"
-value = 48.60041152089147
+value = 49.56813492557492
 
 [[entry]]
 path = "web-app/src/pages/ide/SemanticLayer/explorer/components/SemanticQueryPanel/index.tsx"
@@ -16165,7 +16087,7 @@ value = 30.0
 path = "web-app/src/pages/ide/WorldModel/components/WorldModelWhatIf.tsx"
 qualified = "WorldModelWhatIf"
 metric = "abc"
-value = 43.32435804486894
+value = 44.06812907306141
 
 [[entry]]
 path = "web-app/src/pages/ide/WorldModel/components/WorldModelWhatIf.tsx"
@@ -16237,19 +16159,19 @@ value = 54.57105459856901
 path = "web-app/src/pages/ide/coordinator/Jobs/components/CronBuilder.tsx"
 qualified = "CronBuilder"
 metric = "abc"
-value = 78.70196947980399
+value = 80.61017305526642
 
 [[entry]]
 path = "web-app/src/pages/ide/coordinator/Jobs/components/JobRow.tsx"
 qualified = "JobRow"
 metric = "abc"
-value = 62.94441992742486
+value = 63.88270501473775
 
 [[entry]]
 path = "web-app/src/pages/ide/coordinator/Jobs/components/ScheduleDialog.tsx"
 qualified = "ScheduleDialog"
 metric = "abc"
-value = 79.12648102879339
+value = 80.90117428072351
 
 [[entry]]
 path = "web-app/src/pages/ide/coordinator/Jobs/components/ScheduleDialog.tsx"
@@ -16265,7 +16187,7 @@ value = 20.0
 
 [[entry]]
 path = "web-app/src/pages/ide/coordinator/Jobs/components/ScheduleDialog.tsx"
-qualified = "ScheduleDialog::<anon@L107>"
+qualified = "ScheduleDialog::<anon@L108>"
 metric = "cyclomatic"
 value = 18.0
 
@@ -16621,7 +16543,7 @@ value = 21.0
 path = "web-app/src/pages/ide/edge/DashboardPage.tsx"
 qualified = "DashboardPage"
 metric = "abc"
-value = 94.87887014504336
+value = 95.65040512198576
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/DashboardPage.tsx"
@@ -16639,7 +16561,7 @@ value = 44.0
 path = "web-app/src/pages/ide/edge/DetectionsPage.tsx"
 qualified = "DetectionsPage"
 metric = "abc"
-value = 64.31174076325411
+value = 66.94027188471824
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/DetectionsPage.tsx"
@@ -16649,9 +16571,15 @@ value = 17.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/DetectionsPage.tsx"
-qualified = "DetectionsPage::<anon@L151>::<anon@L152>"
+qualified = "DetectionsPage::<anon@L152>::<anon@L153>"
 metric = "cognitive"
 value = 20.0
+
+[[entry]]
+path = "web-app/src/pages/ide/edge/EdgeBoxDetailPage/components/BudgetPanel.tsx"
+qualified = "BudgetPanel"
+metric = "abc"
+value = 40.024992192379
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/EdgeBoxDetailPage/components/BudgetPanel.tsx"
@@ -16669,7 +16597,7 @@ value = 18.0
 path = "web-app/src/pages/ide/edge/EdgeBoxDetailPage/components/LogsPanel.tsx"
 qualified = "LogsPanel"
 metric = "abc"
-value = 49.122296363260546
+value = 50.039984012787215
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/EdgeBoxDetailPage/components/LogsPanel.tsx"
@@ -16705,13 +16633,13 @@ value = 43.23193264243457
 path = "web-app/src/pages/ide/edge/PlaybackPage.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 671.0
+value = 676.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/PlaybackPage.tsx"
 qualified = "PlaybackPage"
 metric = "abc"
-value = 43.393547907494266
+value = 44.15880433163923
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/PlaybackPage.tsx"
@@ -16727,7 +16655,7 @@ value = 46.195237849804386
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/PlaybackPage.tsx"
-qualified = "VerticalDetectionScrubber::<anon@L641>"
+qualified = "VerticalDetectionScrubber::<anon@L642>"
 metric = "cognitive"
 value = 21.0
 
@@ -16759,7 +16687,7 @@ value = 16.0
 path = "web-app/src/pages/ide/edge/RolloutsPage.tsx"
 qualified = "NewRolloutDialog"
 metric = "abc"
-value = 45.43126676640219
+value = 47.37087712930804
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/TopologyPage.tsx"
@@ -16783,29 +16711,29 @@ value = 32.0
 path = "web-app/src/pages/ide/edge/components/AddCameraDialog.tsx"
 qualified = "AddCameraDialog"
 metric = "abc"
-value = 45.4972526643093
+value = 47.391982444291145
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/CamerasTable.tsx"
 qualified = "CamerasTable"
 metric = "abc"
-value = 54.31390245600108
+value = 55.21775076911409
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/CamerasTable.tsx"
-qualified = "CamerasTable::<anon@L259>"
+qualified = "CamerasTable::<anon@L260>"
 metric = "abc"
 value = 43.05810028322197
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/CamerasTable.tsx"
-qualified = "CamerasTable::<anon@L259>"
+qualified = "CamerasTable::<anon@L260>"
 metric = "cognitive"
 value = 22.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/CamerasTable.tsx"
-qualified = "CamerasTable::<anon@L259>"
+qualified = "CamerasTable::<anon@L260>"
 metric = "cyclomatic"
 value = 16.0
 
@@ -16819,13 +16747,13 @@ value = 50.049975024968795
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 628.0
+value = 629.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
 qualified = "EdgeBoxesTable"
 metric = "abc"
-value = 81.74350127074322
+value = 84.29116205154607
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
@@ -16841,19 +16769,19 @@ value = 29.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
-qualified = "EdgeBoxesTable::<anon@L423>"
+qualified = "EdgeBoxesTable::<anon@L424>"
 metric = "abc"
 value = 60.340699366182356
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
-qualified = "EdgeBoxesTable::<anon@L423>"
+qualified = "EdgeBoxesTable::<anon@L424>"
 metric = "cognitive"
 value = 19.0
 
 [[entry]]
 path = "web-app/src/pages/ide/edge/components/EdgeBoxesTable.tsx"
-qualified = "EdgeBoxesTable::<anon@L677>"
+qualified = "EdgeBoxesTable::<anon@L678>"
 metric = "cognitive"
 value = 19.0
 
@@ -16993,7 +16921,7 @@ value = 28.0
 path = "web-app/src/pages/ide/observability/execution-analytics/components/ExecutionList.tsx"
 qualified = "ExecutionList"
 metric = "abc"
-value = 57.56735185849702
+value = 59.38013135721409
 
 [[entry]]
 path = "web-app/src/pages/ide/observability/execution-analytics/components/ExecutionList.tsx"
@@ -17117,7 +17045,7 @@ value = 17.0
 
 [[entry]]
 path = "web-app/src/pages/partners/PartnerActivity/index.tsx"
-qualified = "PartnerActivity::<anon@L78>::<anon@L80>"
+qualified = "PartnerActivity::<anon@L79>::<anon@L81>"
 metric = "cognitive"
 value = 18.0
 

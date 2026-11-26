@@ -75,7 +75,7 @@ export const DataFlowNodeCard = ({ data }: NodeProps) => {
     <div
       className={cn(
         // Cards arrive with a short fade and rise, so opening a group reads as the group unfolding.
-        "flex h-13 w-52 cursor-pointer items-center gap-2 rounded-md border bg-background px-2.5 shadow-sm transition-[opacity,translate] duration-(--duration-slow) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0",
+        "flex h-13 w-52 cursor-pointer items-center gap-2 border bg-background px-2.5 transition-[opacity,translate] duration-(--duration-slow) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0",
         frameClasses(d),
         d.count !== undefined && "border-dashed bg-muted/40",
         d.matched && "ring-2 ring-primary",

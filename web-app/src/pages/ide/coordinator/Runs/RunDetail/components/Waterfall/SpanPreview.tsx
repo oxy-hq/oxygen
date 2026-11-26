@@ -38,9 +38,7 @@ export const SpanPreview: React.FC<{ span: ChildSpan | null }> = ({ span }) => {
           {formatMs(span.durationMs)}
         </span>
         {span.status === "error" && (
-          <span className='rounded bg-destructive/15 px-1.5 py-0.5 text-destructive text-xs'>
-            error
-          </span>
+          <span className='bg-destructive/15 px-1.5 py-0.5 text-destructive text-xs'>error</span>
         )}
       </div>
 
@@ -116,13 +114,13 @@ const QueryPreview: React.FC<{ query: NonNullable<ChildSpan["query"]> }> = ({ qu
       <span>
         <span className='font-medium text-foreground'>source</span> {query.source}
         {query.isPreagg && (
-          <span className='ml-1 rounded bg-emerald-500/15 px-1 py-0.5 text-emerald-700 text-xs'>
+          <span className='ml-1 bg-dot-success/15 px-1 py-0.5 text-status-success text-xs'>
             preagg
           </span>
         )}
       </span>
       {query.success ? (
-        <span className='text-emerald-600'>
+        <span className='text-status-success'>
           ✓ {query.rowCount.toLocaleString()} row{query.rowCount === 1 ? "" : "s"}
           {query.columns.length > 0 ? ` · ${query.columns.length} cols` : ""}
         </span>
@@ -145,7 +143,7 @@ const ResultPreview: React.FC<{ columns: string[]; rows: unknown[][] }> = ({ col
   return (
     <div>
       <p className='mb-0.5 text-muted-foreground text-xs uppercase tracking-wide'>result</p>
-      <div className='overflow-x-auto rounded border border-border bg-card'>
+      <div className='overflow-x-auto border border-border bg-card'>
         <table className='w-full text-xs'>
           <thead>
             <tr className='border-border border-b'>
@@ -201,7 +199,7 @@ const SubrunPreview: React.FC<{
       <span>
         <span className='font-medium text-foreground'>phases</span> {subrun.nested.phases.length}
       </span>
-      <span className={subrun.success ? "text-emerald-600" : "text-destructive"}>
+      <span className={subrun.success ? "text-status-success" : "text-destructive"}>
         {subrun.success ? "✓ succeeded" : "✗ failed"}
       </span>
     </div>
@@ -215,7 +213,7 @@ const SubrunPreview: React.FC<{
         <p className='mb-1 text-muted-foreground text-xs uppercase tracking-wide'>
           nested timeline
         </p>
-        <div className='space-y-0.5 rounded border border-border bg-muted/20 p-2'>
+        <div className='space-y-0.5 border border-border bg-muted/20 p-2'>
           {subrun.nested.phases.map((phase) => (
             <NestedPhaseRow
               key={`${phase.state}-${phase.index}`}
@@ -238,9 +236,9 @@ const NestedPhaseRow: React.FC<{ phase: PhaseSpan; totalMs: number }> = ({ phase
       <span className={cn("w-16 shrink-0 truncate text-xs capitalize", colors.text)}>
         {phase.state}
       </span>
-      <div className='relative h-2 flex-1 rounded bg-muted/40'>
+      <div className='relative h-2 flex-1 bg-muted/40'>
         <div
-          className={cn("absolute inset-y-0 rounded", colors.bg)}
+          className={cn("absolute inset-y-0 ", colors.bg)}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
       </div>
@@ -266,7 +264,7 @@ const PreviewBlock: React.FC<{
     <div>
       <p className='mb-0.5 text-muted-foreground text-xs uppercase tracking-wide'>{label}</p>
       <pre
-        className={`max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-xs ${variant === "error" ? "text-destructive" : ""}`}
+        className={`max-h-64 overflow-y-auto whitespace-pre-wrap break-words bg-muted/40 p-2 font-mono text-xs ${variant === "error" ? "text-destructive" : ""}`}
       >
         {rendered}
       </pre>

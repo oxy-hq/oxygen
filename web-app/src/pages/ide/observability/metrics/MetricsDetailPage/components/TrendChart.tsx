@@ -96,7 +96,7 @@ export default function TrendChart({ detailData, daysFilter }: TrendChartProps) 
                       >
                         {/* Tooltip */}
                         <div className='absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 group-hover:block'>
-                          <div className='whitespace-nowrap rounded-lg border bg-popover px-3 py-2 text-popover-foreground text-xs shadow-lg'>
+                          <div className='whitespace-nowrap border bg-popover px-3 py-2 text-popover-foreground text-xs shadow-lg'>
                             <p className='font-semibold'>{point.count} queries</p>
                             <p className='text-muted-foreground'>
                               {new Date(point.date).toLocaleDateString("en-US", {

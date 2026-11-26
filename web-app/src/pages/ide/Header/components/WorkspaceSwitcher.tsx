@@ -2,6 +2,7 @@ import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
+import { DESIGN_REFERENCE, focusRing } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Command,
@@ -15,6 +16,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
 import { useOperatesPlatform } from "@/hooks/useStaffFactory";
+import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -71,7 +73,7 @@ export function WorkspaceSwitcher() {
           <Button
             variant='ghost'
             size='sm'
-            className='h-8 min-w-0 max-w-96 gap-1.5 px-2 font-medium'
+            className={cn("h-8 min-w-0 max-w-96 gap-1.5 px-2 font-medium", focusRing)}
             aria-label={`Switch workspace (on ${name})`}
             data-testid='ide-workspace-switcher'
           >
@@ -89,7 +91,7 @@ export function WorkspaceSwitcher() {
             <ChevronsUpDown className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align='start' sideOffset={4} className='w-72 p-0'>
+        <PopoverContent align='start' sideOffset={4} className={`${DESIGN_REFERENCE} w-72 p-0`}>
           <Command>
             {workspaces.length >= SEARCH_FROM && <CommandInput placeholder='Find a workspace…' />}
             <CommandList className='max-h-80'>

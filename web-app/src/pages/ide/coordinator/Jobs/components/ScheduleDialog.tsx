@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -188,7 +189,7 @@ const ScheduleDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-lg'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-h-[85vh] overflow-y-auto sm:max-w-lg`}>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit job" : "Create job"}</DialogTitle>
           <DialogDescription>
@@ -229,7 +230,7 @@ const ScheduleDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
                 <SelectTrigger className='w-44'>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   <SelectItem value='workflow'>DAG automation</SelectItem>
                   <SelectItem value='airway'>ELT pipeline</SelectItem>
                   <SelectItem value='agent'>Agent</SelectItem>
@@ -267,7 +268,7 @@ const ScheduleDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
                         placeholder={targetKind === "agent" ? "Select an agent" : "Select a file"}
                       />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={DESIGN_REFERENCE}>
                       {refs.map((r) => (
                         <SelectItem key={r} value={r}>
                           {r}
@@ -283,7 +284,7 @@ const ScheduleDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
             {targetKind === "monitor_scan" && (
               <div className='flex min-w-60 flex-1 flex-col gap-2'>
                 <Label>Granularity</Label>
-                <div className='flex h-9 items-center rounded-md border border-input bg-muted px-3 text-muted-foreground text-sm'>
+                <div className='flex h-9 items-center border border-input bg-muted px-3 text-muted-foreground text-sm'>
                   {(schedule?.variables as Record<string, string> | null)?.granularity ?? "—"}
                 </div>
               </div>
@@ -348,7 +349,9 @@ const ScheduleDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className='max-h-72'>{TIMEZONE_ITEMS}</SelectContent>
+              <SelectContent className={`${DESIGN_REFERENCE} max-h-72`}>
+                {TIMEZONE_ITEMS}
+              </SelectContent>
             </Select>
           </div>
 

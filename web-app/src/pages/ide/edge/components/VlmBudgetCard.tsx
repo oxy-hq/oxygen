@@ -96,7 +96,7 @@ const VlmBudgetCard: React.FC = () => {
 
   if (isLoading || !status) {
     return (
-      <div className='flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-muted-foreground text-sm'>
+      <div className='flex items-center gap-2 border border-border bg-muted/40 p-3 text-muted-foreground text-sm'>
         <Loader2 className='h-4 w-4 animate-spin' />
         Loading budget…
       </div>
@@ -107,7 +107,7 @@ const VlmBudgetCard: React.FC = () => {
   const styles = SEVERITY_STYLES[severity];
 
   return (
-    <div className={`flex flex-col gap-3 rounded-md border p-3 ${styles.box}`}>
+    <div className={`flex flex-col gap-3 border p-3 ${styles.box}`}>
       <div className='flex items-start justify-between gap-3'>
         <div className='flex items-start gap-2'>
           {severity === "ok" ? null : (
@@ -140,7 +140,7 @@ const VlmBudgetCard: React.FC = () => {
       </div>
 
       {editing && (
-        <div className='flex flex-col gap-2 rounded-md border border-border bg-background p-2'>
+        <div className='flex flex-col gap-2 border border-border bg-background p-2'>
           <Label htmlFor='vlm-budget' className='text-muted-foreground text-xs uppercase'>
             Monthly budget (USD)
           </Label>

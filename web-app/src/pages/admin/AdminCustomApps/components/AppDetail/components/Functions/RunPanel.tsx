@@ -30,7 +30,7 @@ export const RunPanel = ({ appId, runId }: { appId: string; runId: string }) => 
   const stuckQueued = slow && status === "queued";
 
   return (
-    <div className='rounded-md border border-border bg-muted/20'>
+    <div className=' border border-border bg-muted/20'>
       <div className='flex items-center gap-2 border-border/60 border-b px-3 py-1.5'>
         <StatusIcon status={status} />
         <span className='font-medium text-xs'>{statusLabel(status, isLoading)}</span>

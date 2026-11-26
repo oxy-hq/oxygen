@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   ResizableHandle,
@@ -219,7 +220,10 @@ export const AppDetail = ({ app: listed }: { app: CustomApp }) => {
 
       {!isWide && (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetContent side='right' className='flex w-full flex-col gap-0 p-0 sm:max-w-md'>
+          <SheetContent
+            side='right'
+            className={`${DESIGN_REFERENCE} flex w-full flex-col gap-0 p-0 sm:max-w-md`}
+          >
             <SheetHeader className='shrink-0 border-b px-4 py-3'>
               <SheetTitle className='text-xs'>Status &amp; details</SheetTitle>
             </SheetHeader>

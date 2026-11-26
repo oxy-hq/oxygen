@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/shadcn/select";
@@ -51,7 +52,7 @@ export function FallthroughEditor({
           >
             <span className='truncate font-mono'>{draft.variant}</span>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {variants.map((v) => (
               <SelectItem key={v} value={v} className='font-mono text-xs'>
                 {v}

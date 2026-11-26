@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -71,7 +72,7 @@ const AddSiteDialog: React.FC<Props> = ({ open, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle>Add site</DialogTitle>
           <DialogDescription>

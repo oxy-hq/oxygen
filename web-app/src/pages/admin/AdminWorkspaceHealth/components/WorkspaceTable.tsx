@@ -21,7 +21,7 @@ import type { WorkspaceHealthEntry } from "@/services/api/workspaceHealth";
  * off the right edge of the viewport.
  */
 export const WorkspaceTable = ({ workspaces }: { workspaces: WorkspaceHealthEntry[] }) => (
-  <div className='overflow-hidden rounded-lg border border-border/60'>
+  <div className='overflow-hidden border border-border/60'>
     <Table>
       <TableHeader>
         <TableRow className={ADMIN_HEADER_ROW_CLASS}>

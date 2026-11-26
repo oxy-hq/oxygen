@@ -19,10 +19,7 @@ export default function ReportDetails({ result }: { result: ResultResponse }) {
   const checks = detailChecks(result);
   const review = toReview(checks);
   return (
-    <Collapsible
-      className='group/details rounded-lg border'
-      data-testid='experiment-report-details'
-    >
+    <Collapsible className='group/details border' data-testid='experiment-report-details'>
       <CollapsibleTrigger className='flex w-full items-center gap-2 p-4 text-left text-sm hover:bg-muted/40'>
         <ChevronRight className='size-4 transition-transform group-data-[state=open]/details:rotate-90' />
         <span className='font-medium'>Details</span>

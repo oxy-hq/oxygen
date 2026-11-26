@@ -129,7 +129,7 @@ const SummaryCard = ({
   <Link
     to={to}
     data-testid={testid}
-    className='group flex min-w-0 flex-col gap-2 rounded-md border border-border/60 p-3 transition-colors hover:bg-muted/40'
+    className='group flex min-w-0 flex-col gap-2 border border-border/60 p-3 transition-colors hover:bg-muted/40'
   >
     <span className='flex items-center gap-1.5'>
       <Icon className='size-3.5 shrink-0 text-muted-foreground' />

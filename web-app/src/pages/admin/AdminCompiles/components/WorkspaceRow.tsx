@@ -73,7 +73,7 @@ export const WorkspaceRow = ({
             onClick={() => setExpanded((v) => !v)}
             aria-label={expanded ? "Collapse revisions" : "Expand revisions"}
             aria-expanded={expanded}
-            className='inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+            className='inline-flex size-5 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
           >
             <ChevronRight
               className={cn("size-3.5 transition-transform", expanded && "rotate-90")}

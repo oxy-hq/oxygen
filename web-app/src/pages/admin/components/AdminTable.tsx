@@ -20,7 +20,7 @@ export function AdminTh({
   return (
     <TableHead
       className={cn(
-        "font-medium text-[10px] text-muted-foreground uppercase tracking-wider",
+        "font-semibold text-[10px] text-subtle-foreground uppercase tracking-eyebrow",
         align === "right" && "text-right",
         className
       )}
@@ -31,8 +31,8 @@ export function AdminTh({
 }
 
 /** Header row: a subtle divider under the column labels. */
-export const ADMIN_HEADER_ROW_CLASS = "border-border/60";
+export const ADMIN_HEADER_ROW_CLASS = "border-border-subtle";
 
 /** Clickable body row: subtle divider + hover, cursor affordance. */
 export const ADMIN_ROW_CLASS =
-  "cursor-pointer border-border/60 transition-colors hover:bg-muted/40";
+  "cursor-pointer border-border-subtle transition-colors hover:bg-row-hover";

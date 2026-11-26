@@ -4,8 +4,10 @@
    The oxygen reference app's palette, type and geometry (oxy-hq/reference-app,
    shipped as the SDK theme: `styles/shadcn/sdk-theme.css` is its byte-identical
    copy), applied only to a subtree that carries the `design-reference` class.
-   The shell's rail, top bar and notifications panel and the home page carry it;
-   nothing else in the app changes.
+   Carried by the shell's rail, top bar and notifications panel, the home page, and
+   the two back offices — Oxygen Nexus (`pages/ide`) and the staff admin console
+   (`pages/admin`). Each root is one class; overlays portal out of their subtree, so
+   they carry it themselves.
 
    Inside the subtree the shadcn tokens every existing component reads
    (`--background`, `--card`, `--border`, `--muted-foreground`, ...) resolve to

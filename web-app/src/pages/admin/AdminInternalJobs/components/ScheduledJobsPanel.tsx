@@ -30,7 +30,7 @@ export const ScheduledJobsPanel = () => {
         skeleton={<Skeleton className='h-24 w-full' />}
       >
         {(data) => (
-          <div className='divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card'>
+          <div className='divide-y divide-border/60 overflow-hidden border border-border/60 bg-card'>
             {data.map((job) => {
               const triggerPath = job.trigger_path;
               const running = runJob.isPending && runJob.variables?.name === job.name;

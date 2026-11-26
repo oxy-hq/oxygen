@@ -2,6 +2,7 @@ import { Pencil, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -74,7 +75,7 @@ export default function ClientPane({
               <Button
                 size='sm'
                 variant='outline'
-                className='border-amber-500/40 text-amber-700 dark:text-amber-400'
+                className='border-status-warning/40 text-status-warning'
                 onClick={() => setAssumeOpen(true)}
                 data-testid='partner-client-act-as'
               >
@@ -103,7 +104,7 @@ export default function ClientPane({
 
         {caps.manage_apps && (
           <PaneSection title='Apps'>
-            <div className='overflow-hidden rounded-md border border-border/60'>
+            <div className='overflow-hidden border border-border-subtle'>
               <OrgAppsPanel partnerId={partnerId} orgId={org.org_id} />
             </div>
           </PaneSection>
@@ -184,7 +185,7 @@ function WorkspacesList({ partnerId, orgId }: { partnerId: string; orgId: string
       </TableHeader>
       <TableBody>
         {workspaces.map((w) => (
-          <TableRow key={w.id} className='border-border/60'>
+          <TableRow key={w.id} className='border-border-subtle'>
             <TableCell className='font-medium'>
               {w.name}
               {!w.has_revision && (
@@ -200,7 +201,7 @@ function WorkspacesList({ partnerId, orgId }: { partnerId: string; orgId: string
                     ? "border-destructive/40 text-destructive"
                     : w.status === "ready"
                       ? "border-border text-muted-foreground"
-                      : "border-amber-500/40 text-amber-700 dark:text-amber-400"
+                      : "border-status-warning/40 text-status-warning"
                 )}
               >
                 {w.status}
@@ -232,7 +233,7 @@ function WorkspaceHealth({ row }: { row?: PartnerHealthRow }) {
         row.status === "unhealthy"
           ? "border-destructive/40 text-destructive"
           : row.status === "degraded"
-            ? "border-amber-500/40 text-amber-700 dark:text-amber-400"
+            ? "border-status-warning/40 text-status-warning"
             : "border-border text-muted-foreground"
       )}
     >
@@ -246,7 +247,7 @@ function WorkspaceHealth({ row }: { row?: PartnerHealthRow }) {
       <TooltipTrigger asChild>
         <span>{badge}</span>
       </TooltipTrigger>
-      <TooltipContent className='max-w-xs'>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>
         <ul className='space-y-0.5 text-xs'>
           {row.reasons.map((r) => (
             <li key={r}>{r}</li>
@@ -286,7 +287,7 @@ function RenameDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className='max-w-sm'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-sm`}>
         <DialogHeader>
           <DialogTitle>Rename client</DialogTitle>
         </DialogHeader>

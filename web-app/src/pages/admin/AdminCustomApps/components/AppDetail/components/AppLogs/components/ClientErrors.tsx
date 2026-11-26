@@ -49,7 +49,7 @@ export const ClientErrors = ({
   }
 
   return (
-    <div className='overflow-hidden rounded-md border'>
+    <div className='overflow-hidden border'>
       {/* One grid; the heading and every fault are subgrids of it. */}
       <div
         className='grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4'
@@ -135,7 +135,7 @@ const ErrorDetail = ({ id, error }: { id: string; error: ClientError }) => (
       <dd className='font-mono tabular-nums'>{error.last_seen}</dd>
     </dl>
     {error.stack && (
-      <div className='overflow-hidden rounded bg-muted/40'>
+      <div className='overflow-hidden bg-muted/40'>
         {/* Saying so matters: a still-minified stack looks like a resolved one
             until you try to open the file, and that is the moment a reader is
             misled about what they are looking at. It is printed on the stack

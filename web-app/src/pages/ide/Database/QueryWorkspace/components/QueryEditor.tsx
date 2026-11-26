@@ -7,6 +7,7 @@ import { format as formatSQL } from "sql-formatter";
 import CodeEditor from "@/components/Code/CodeEditor";
 import DatabaseSelector from "@/components/sql/DatabaseSelector";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -300,7 +301,7 @@ export default function QueryEditor() {
       </div>
 
       <AlertDialog open={!!tabToClose} onOpenChange={(open) => !open && setTabToClose(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
             <AlertDialogDescription>

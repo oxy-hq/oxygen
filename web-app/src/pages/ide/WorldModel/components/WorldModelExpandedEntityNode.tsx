@@ -179,7 +179,7 @@ function FlatMeasureList({
                   {m.label ?? m.name}
                 </span>
                 {m.value === null ? (
-                  <span className='h-3 w-16 animate-pulse rounded bg-muted' />
+                  <span className='h-3 w-16 animate-pulse bg-muted' />
                 ) : (
                   <span className='shrink-0 font-mono text-[13px] text-info tabular-nums'>
                     {formatMeasureValue(m.value)}

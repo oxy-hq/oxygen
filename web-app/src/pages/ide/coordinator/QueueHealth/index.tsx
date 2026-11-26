@@ -14,7 +14,7 @@ const StatCard: React.FC<{
   icon: React.ElementType;
   className?: string;
 }> = ({ label, value, icon: Icon, className }) => (
-  <div className='flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3'>
+  <div className='flex items-center gap-3 border border-border bg-card px-4 py-3'>
     <Icon className={cn("h-5 w-5", className)} />
     <div>
       <p className='font-semibold text-lg'>{value}</p>
@@ -111,7 +111,7 @@ const QueueHealthPage: React.FC = () => {
             label='Completed'
             value={data.completed}
             icon={CheckCircle}
-            className='text-emerald-500'
+            className='text-status-success'
           />
           <StatCard
             label='Failed'
@@ -136,7 +136,7 @@ const QueueHealthPage: React.FC = () => {
         {/* Stale tasks */}
         <div className='px-4 pb-2'>
           <h3 className='mb-2 font-medium text-sm'>Stale Tasks ({data.stale_tasks.length})</h3>
-          <div className='rounded-lg border border-border'>
+          <div className='border border-border'>
             {data.stale_tasks.length === 0 ? (
               <p className='px-4 py-4 text-center text-muted-foreground text-sm'>
                 No stale tasks — all heartbeats healthy
@@ -156,7 +156,7 @@ const QueueHealthPage: React.FC = () => {
               : data.dead_tasks.length}
             )
           </h3>
-          <div className='rounded-lg border border-border'>
+          <div className='border border-border'>
             {data.dead_tasks.length === 0 ? (
               <p className='px-4 py-4 text-center text-muted-foreground text-sm'>
                 No dead-lettered tasks

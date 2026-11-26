@@ -34,7 +34,7 @@ const DomainPackCard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className='flex items-center gap-2 rounded-md border border-border p-4 text-muted-foreground text-sm'>
+      <div className='flex items-center gap-2 border border-border p-4 text-muted-foreground text-sm'>
         <Loader2 className='h-4 w-4 animate-spin' />
         Loading active pack…
       </div>
@@ -43,7 +43,7 @@ const DomainPackCard: React.FC = () => {
 
   if (error || !pack) {
     return (
-      <div className='flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive text-sm'>
+      <div className='flex items-start gap-2 border border-destructive/40 bg-destructive/5 p-4 text-destructive text-sm'>
         <AlertCircle className='mt-0.5 h-4 w-4 shrink-0' />
         <div>
           <div className='font-medium'>Couldn't load the active pack.</div>
@@ -63,9 +63,9 @@ const DomainPackCard: React.FC = () => {
   const activePackUpdate = updates.find((u) => u.pack_key === pack.pack_key) ?? null;
 
   return (
-    <div className='flex flex-col gap-3 rounded-md border border-border p-4'>
+    <div className='flex flex-col gap-3 border border-border p-4'>
       {activePackUpdate && (
-        <div className='flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-3'>
+        <div className='flex items-center justify-between gap-3 border border-primary/40 bg-primary/5 p-3'>
           <div className='flex items-start gap-2'>
             <ArrowUpCircle className='mt-0.5 h-4 w-4 shrink-0 text-primary' />
             <div className='flex flex-col gap-0.5'>
@@ -137,9 +137,7 @@ const DomainPackCard: React.FC = () => {
             <ul className='flex flex-wrap gap-1 text-sm'>
               {variableKeys.map((k) => (
                 <li key={k}>
-                  <code className='rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs'>
-                    {k}
-                  </code>
+                  <code className='bg-muted px-1.5 py-0.5 text-muted-foreground text-xs'>{k}</code>
                 </li>
               ))}
             </ul>

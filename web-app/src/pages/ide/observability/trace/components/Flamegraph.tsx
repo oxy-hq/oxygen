@@ -42,7 +42,7 @@ export function Flamegraph({
                   onClick={() => onSelectSpan(span)}
                   title={`${span.spanName} · ${formatDuration(span.durationMs)}`}
                   className={cn(
-                    "absolute inset-y-0 flex items-center overflow-hidden rounded-sm px-1.5 font-mono text-[10px] text-white transition-[filter] hover:brightness-110",
+                    "absolute inset-y-0 flex items-center overflow-hidden px-1.5 font-mono text-[10px] text-white transition-[filter] hover:brightness-110",
                     barClass,
                     isError && "ring-1 ring-destructive",
                     isSelected && "outline outline-2 outline-primary outline-offset-1"

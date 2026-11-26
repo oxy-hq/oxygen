@@ -61,7 +61,7 @@ export function SourceKindEditor({
     >
       {unrecognised.length > 0 && (
         <p
-          className='rounded-md border border-status-warning-text/40 bg-status-warning-bg px-3 py-2 text-status-warning-text text-xs'
+          className=' border border-status-warning-text/40 bg-status-warning-bg px-3 py-2 text-status-warning-text text-xs'
           data-testid={`admin-airway-unrecognised-${sourceKind}`}
         >
           This kind's stored row holds a value this build does not recognise (

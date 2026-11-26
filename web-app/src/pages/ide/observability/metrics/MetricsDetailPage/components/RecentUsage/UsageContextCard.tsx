@@ -40,8 +40,8 @@ export default function UsageContextCard({
   return (
     <div
       className={cn(
-        "group relative rounded-xl border transition-all duration-200",
-        "hover:border-primary/30 hover:shadow-md hover:shadow-primary/5",
+        "group relative border transition-all duration-200",
+        "hover:border-primary/30",
         isExpanded && "border-primary/30"
       )}
     >
@@ -95,7 +95,7 @@ export default function UsageContextCard({
         {previewContent && !isExpanded && (
           <div
             className={cn(
-              "rounded-lg border p-2",
+              "border p-2",
               previewIsSQL ? "border-muted bg-muted/50" : "border-muted/50 bg-muted/30"
             )}
           >

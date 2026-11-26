@@ -1,4 +1,5 @@
 import { Loader2, RefreshCw } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
@@ -72,7 +73,9 @@ export default function RollupRow({
           </TooltipTrigger>
           {/* Say that it ignores the refresh key — that is the whole reason to
               press it on a rollup the schedule already considers fresh. */}
-          <TooltipContent side='left'>Rebuild now, ignoring the refresh key</TooltipContent>
+          <TooltipContent className={DESIGN_REFERENCE} side='left'>
+            Rebuild now, ignoring the refresh key
+          </TooltipContent>
         </Tooltip>
       </TableCell>
     </TableRow>

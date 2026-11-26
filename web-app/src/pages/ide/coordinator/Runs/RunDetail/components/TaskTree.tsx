@@ -57,7 +57,7 @@ const TreeNodeRow: React.FC<{ node: TreeNode }> = ({ node }) => {
           type='button'
           onClick={() => setExpanded(!expanded)}
           className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded",
+            "flex h-5 w-5 shrink-0 items-center justify-center ",
             !hasChildren && "invisible"
           )}
         >

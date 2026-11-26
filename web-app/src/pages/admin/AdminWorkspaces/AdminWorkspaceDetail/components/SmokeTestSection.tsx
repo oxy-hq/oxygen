@@ -121,7 +121,7 @@ export const SmokeTestSection = ({
   const groups = buildGroups(checks, probes);
 
   return (
-    <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+    <section className='space-y-4 border border-border/60 bg-card p-6'>
       <AdminSectionLabel
         trailing={
           <span className='flex items-center gap-3'>
@@ -183,7 +183,7 @@ const SmokeKindGroup = ({ group, lastRunAt }: { group: SmokeGroup; lastRunAt: st
       </div>
 
       {group.enabled && group.checks.length === 0 ? (
-        <p className='rounded-md border border-border/50 border-dashed px-3 py-2 text-muted-foreground text-xs'>
+        <p className=' border border-border/50 border-dashed px-3 py-2 text-muted-foreground text-xs'>
           {lastRunAt ? "No targets found" : "Not run yet"}
         </p>
       ) : null}
@@ -208,7 +208,7 @@ const SmokeKindGroup = ({ group, lastRunAt }: { group: SmokeGroup; lastRunAt: st
 const SmokeCheckRow = ({ check }: { check: WorkspaceHealthSmokeCheck }) => {
   const note = isNote(check);
   return (
-    <li className='flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2'>
+    <li className='flex items-center justify-between gap-3 border border-border/50 px-3 py-2'>
       <div className='min-w-0 space-y-1'>
         <span className='font-medium text-xs'>{check.target}</span>
         {check.reason ? (

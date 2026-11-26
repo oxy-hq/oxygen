@@ -96,7 +96,7 @@ export const FunctionDetail = ({
           rows={2}
           spellCheck={false}
           placeholder='e.g. { "store": 1 } — leave empty for no params'
-          className='w-full resize-y rounded-md border border-border bg-muted/20 px-2 py-1.5 font-mono text-xs outline-none focus:border-ring'
+          className='w-full resize-y border border-border bg-muted/20 px-2 py-1.5 font-mono text-xs outline-none focus:border-ring'
         />
         {!inputText && (
           <span className='text-[10px] text-muted-foreground'>
@@ -210,7 +210,7 @@ const ConfigChips = ({ fn }: { fn: AppFunctionSummary }) => {
       {chips.map(([k, v]) => (
         <span
           key={k}
-          className='inline-flex items-center gap-1 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-xs'
+          className='inline-flex items-center gap-1 border border-border bg-muted/40 px-1.5 py-0.5 text-xs'
         >
           <span className='text-muted-foreground'>{k}</span>
           <span className='font-mono'>{v}</span>

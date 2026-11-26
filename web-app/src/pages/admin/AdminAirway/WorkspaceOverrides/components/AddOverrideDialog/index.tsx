@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -135,7 +136,10 @@ export function AddOverrideDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent data-testid={`admin-airway-add-override-dialog-${sourceKind}`}>
+      <DialogContent
+        className={DESIGN_REFERENCE}
+        data-testid={`admin-airway-add-override-dialog-${sourceKind}`}
+      >
         <DialogHeader>
           <DialogTitle>Add a workspace override for {sourceKind}</DialogTitle>
           <DialogDescription>

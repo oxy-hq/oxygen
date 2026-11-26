@@ -23,7 +23,7 @@ export const JobTypeBadge: React.FC<{
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-xs",
+        "inline-flex items-center gap-1 px-1.5 py-0.5 font-medium text-xs",
         meta.tint,
         className
       )}

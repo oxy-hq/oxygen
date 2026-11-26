@@ -101,7 +101,7 @@ export default function PriceOutcome({
                 <div
                   key={proposal.id}
                   className={cn(
-                    "flex flex-col gap-3 rounded-lg border bg-card p-3",
+                    "flex flex-col gap-3 border bg-card p-3",
                     isSelected && "border-primary ring-1 ring-primary"
                   )}
                   data-testid={`experiment-candidate-${position}`}

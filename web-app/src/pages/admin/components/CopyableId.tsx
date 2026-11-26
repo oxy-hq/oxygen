@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { type MouseEvent, useState } from "react";
+import { DESIGN_REFERENCE, focusRing } from "@/components/ui/reference/tokens";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
@@ -75,9 +76,9 @@ export const CopyableId = ({
           title={value}
           aria-label={`Copy ${value}`}
           className={cn(
-            "group inline-flex max-w-full items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-xs",
-            "text-foreground/90 transition-colors hover:bg-muted hover:text-foreground",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "group inline-flex max-w-full items-center gap-1 px-1 py-0.5 font-mono text-xs",
+            "text-foreground/90 transition-colors hover:bg-row-hover hover:text-foreground",
+            focusRing,
             className
           )}
         >
@@ -96,7 +97,7 @@ export const CopyableId = ({
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side='top' className='font-mono text-xs'>
+      <TooltipContent side='top' className={`${DESIGN_REFERENCE} font-mono text-xs`}>
         {copied ? "Copied" : value}
       </TooltipContent>
     </Tooltip>

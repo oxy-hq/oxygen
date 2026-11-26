@@ -56,7 +56,7 @@ export const FleetToolbar = ({
         onClick={() => onStatusChange(status === f.status ? null : f.status)}
         data-testid={`admin-apps-fleet-filter-${f.status}`}
         className={cn(
-          "h-7 shrink-0 rounded-md border px-2 text-xs transition-colors",
+          "h-7 shrink-0 border px-2 text-xs transition-colors",
           status === f.status
             ? cn(ADMIN_TONE[statusTone(f.status)].bg, "border-transparent")
             : "border-border/60 text-muted-foreground hover:text-foreground"

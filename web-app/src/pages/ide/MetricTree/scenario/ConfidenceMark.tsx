@@ -81,7 +81,7 @@ export function ConfidenceMark({
       className={cn(
         // A glyph alone has to carry the whole meaning, so it gets the size a
         // word would not need: 10px semibold, not the 9px of the LEVER chip.
-        "shrink-0 rounded border px-1 py-px font-mono font-semibold text-[10px] leading-none",
+        "shrink-0 border px-1 py-px font-mono font-semibold text-[10px] leading-none",
         mark.className
       )}
       title={mark.help}

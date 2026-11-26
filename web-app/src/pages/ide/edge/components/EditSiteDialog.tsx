@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, RotateCcw, XCircle } f
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -183,7 +184,7 @@ const EditSiteDialog: React.FC<Props> = ({ open, onOpenChange, site }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-2xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-2xl`}>
         <DialogHeader>
           <DialogTitle>Edit site {site ? `· ${site.name}` : ""}</DialogTitle>
           <DialogDescription>
@@ -195,7 +196,7 @@ const EditSiteDialog: React.FC<Props> = ({ open, onOpenChange, site }) => {
 
         <div className='flex max-h-[60vh] flex-col gap-5 overflow-y-auto pr-1'>
           {/* ── Section 1: site fields ─────────────────────────────── */}
-          <section className='flex flex-col gap-3 rounded-md border border-border bg-card p-3'>
+          <section className='flex flex-col gap-3 border border-border bg-card p-3'>
             <div className='flex items-center justify-between'>
               <h3 className='font-medium text-sm'>Site settings</h3>
               <Button
@@ -264,7 +265,7 @@ const EditSiteDialog: React.FC<Props> = ({ open, onOpenChange, site }) => {
                   : "Customer's WAN-facing IP. Required for the bulk rewrite below — set this and click Save first. Clear to disable."}
               </span>
               {resyncKeyVisible && !hasStoredCredential && (
-                <div className='mt-1 flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 p-2'>
+                <div className='mt-1 flex flex-col gap-1.5 border border-border bg-muted/30 p-2'>
                   <Label htmlFor='site-resync-key' className='text-xs'>
                     UniFi API key
                   </Label>
@@ -341,7 +342,7 @@ const EditSiteDialog: React.FC<Props> = ({ open, onOpenChange, site }) => {
           </section>
 
           {/* ── Section 2: bulk rewrite ────────────────────────────── */}
-          <section className='flex flex-col gap-3 rounded-md border border-border bg-card p-3'>
+          <section className='flex flex-col gap-3 border border-border bg-card p-3'>
             <div className='flex items-center justify-between'>
               <h3 className='font-medium text-sm'>Rewrite camera RTSPs from LAN paste</h3>
               <Button
@@ -362,7 +363,7 @@ const EditSiteDialog: React.FC<Props> = ({ open, onOpenChange, site }) => {
             </div>
 
             {!publicIpSet && (
-              <div className='flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-amber-900 text-xs dark:text-amber-200'>
+              <div className='flex items-start gap-2 border border-dot-warning/40 bg-dot-warning/5 p-2 text-status-warning text-xs'>
                 <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
                 <span>
                   Set the site's public IP above and click Save before pasting URLs — the rewrite
@@ -415,11 +416,12 @@ const RewriteResultTable: React.FC<{ result: BulkRewriteResult }> = ({ result })
   return (
     <div className='flex flex-col gap-2'>
       <div className='flex flex-wrap gap-1.5 text-xs'>
-        <Badge variant='outline' className='border-emerald-500/40 bg-emerald-500/5'>
-          <CheckCircle2 className='mr-1 h-3 w-3 text-emerald-600' /> {summary.rewritten} rewritten
+        <Badge variant='outline' className='border-dot-success/40 bg-dot-success/5'>
+          <CheckCircle2 className='mr-1 h-3 w-3 text-status-success' /> {summary.rewritten}{" "}
+          rewritten
         </Badge>
         {summary.no_match > 0 && (
-          <Badge variant='outline' className='border-amber-500/40 bg-amber-500/5'>
+          <Badge variant='outline' className='border-dot-warning/40 bg-dot-warning/5'>
             {summary.no_match} no match
           </Badge>
         )}
@@ -445,9 +447,9 @@ const RewriteResultTable: React.FC<{ result: BulkRewriteResult }> = ({ result })
             // biome-ignore lint/suspicious/noArrayIndexKey: result list is read-only — replaced atomically on each rewrite — and items never reorder or splice. line+idx keeps duplicates distinct (operator may intentionally paste the same line twice to retry).
             key={`${idx}-${item.line}`}
             className={cn(
-              "flex items-start gap-2 rounded-sm border px-2 py-1.5",
+              "flex items-start gap-2 border px-2 py-1.5",
               item.outcome === "rewritten"
-                ? "border-emerald-500/30 bg-emerald-500/5"
+                ? "border-dot-success/30 bg-dot-success/5"
                 : "border-destructive/30 bg-destructive/5"
             )}
           >
@@ -471,10 +473,10 @@ const RewriteResultTable: React.FC<{ result: BulkRewriteResult }> = ({ result })
 
 const ResultIcon: React.FC<{ item: BulkRewriteItem }> = ({ item }) => {
   if (item.outcome === "rewritten") {
-    return <CheckCircle2 className='mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600' />;
+    return <CheckCircle2 className='mt-0.5 h-3.5 w-3.5 shrink-0 text-status-success' />;
   }
   if (item.outcome === "no_match") {
-    return <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600' />;
+    return <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warning' />;
   }
   return <XCircle className='mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive' />;
 };

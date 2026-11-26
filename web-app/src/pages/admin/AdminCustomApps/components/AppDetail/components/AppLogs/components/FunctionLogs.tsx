@@ -103,7 +103,7 @@ const FunctionLogList = ({
 
   const withDate = hours > 24;
   return (
-    <div className='overflow-hidden rounded-md border'>
+    <div className='overflow-hidden border'>
       <div className='flex gap-3 border-border/60 border-b px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-[0.16em]'>
         <span className={cn("shrink-0", LOG_TRACKS.time(withDate))}>UTC</span>
         <span className={cn("shrink-0", LOG_TRACKS.level)}>Level</span>

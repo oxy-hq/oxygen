@@ -3,6 +3,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -60,7 +61,7 @@ const statusBadge = (status: string) => {
       );
     case "canary":
       return (
-        <Badge className='gap-1 border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-300'>
+        <Badge className='gap-1 border-dot-warning/40 bg-dot-warning/10 text-status-warning'>
           <Loader2 className='h-3 w-3 animate-spin' /> Canary
         </Badge>
       );
@@ -114,7 +115,7 @@ const RolloutsPage: React.FC = () => {
         </Button>
       </div>
 
-      <div className='overflow-hidden rounded-lg border'>
+      <div className='overflow-hidden border'>
         <Table>
           <TableHeader>
             <TableRow>
@@ -264,7 +265,7 @@ const NewRolloutDialog: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Rocket className='h-4 w-4 text-primary' /> New rollout
@@ -291,7 +292,7 @@ const NewRolloutDialog: React.FC<{
               <SelectTrigger id='rollout-cohort'>
                 <SelectValue placeholder='Pick a cohort' />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {cohorts.length === 0 ? (
                   <SelectItem value='__none' disabled>
                     No cohorts found — set <code>cohort</code> on at least one edge box first.

@@ -80,7 +80,7 @@ export const AppStoragePanel = ({ app }: { app: CustomApp }) => {
                 <p
                   data-testid='apps-console-storage-partial'
                   className={cn(
-                    "mt-2 rounded-md px-2 py-1.5 text-xs",
+                    "mt-2 px-2 py-1.5 text-xs",
                     ADMIN_TONE.warn.bg,
                     ADMIN_TONE.warn.text
                   )}

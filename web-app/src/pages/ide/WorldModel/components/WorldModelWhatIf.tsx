@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -138,7 +139,7 @@ export function WorldModelWhatIf({
           <SelectTrigger size='sm' className='h-7 flex-1 font-mono text-xs'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {quantified.map((d) => (
               <SelectItem key={d.measure} value={d.measure} className='font-mono text-xs'>
                 {shortMeasureName(d.measure)}

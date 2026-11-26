@@ -86,7 +86,7 @@ export function SectionHeader({
       <span
         className={cn(
           "text-[9.5px] uppercase tracking-wider",
-          color === "green" && "text-success",
+          color === "green" && "text-status-success",
           color === "violet" && "text-[color:var(--vis-purple)]",
           color === "default" && "text-foreground"
         )}
@@ -112,7 +112,7 @@ export function Row({
   return (
     <div
       className={cn(
-        "flex min-w-0 items-center gap-2 border border-border bg-background/40 px-2 py-1.5 font-mono text-xs",
+        "flex min-w-0 items-center gap-2 border border-border-subtle bg-field px-2 py-1.5 font-mono text-xs",
         onClick && "cursor-pointer transition-colors hover:border-info/60",
         className
       )}
@@ -152,7 +152,7 @@ export function InfoTip({ content }: { content: string }) {
 /** A terse metadata chip (e.g. `linear`, `high`), optionally explained on hover. */
 export function MetaBadge({ children, tooltip }: { children: ReactNode; tooltip?: string }) {
   const badge = (
-    <span className='rounded-sm border border-border px-1 py-px font-mono text-[9px] text-muted-foreground uppercase tracking-wide'>
+    <span className='border border-border-subtle px-1 py-px font-mono text-[9px] text-muted-foreground uppercase tracking-wide'>
       {children}
     </span>
   );

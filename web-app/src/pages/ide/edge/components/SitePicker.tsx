@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Globe, MapPin } from "lucide-react";
 import type React from "react";
 import { useMemo } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +42,7 @@ const SitePicker: React.FC = () => {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 font-medium text-sm outline-none transition-colors",
+          "inline-flex items-center gap-1.5 border bg-card px-2.5 py-1 font-medium text-sm outline-none transition-colors",
           "hover:bg-muted",
           current && "border-primary/40 bg-primary/5"
         )}
@@ -54,7 +55,7 @@ const SitePicker: React.FC = () => {
         <span className='max-w-40 truncate'>{label}</span>
         <ChevronDown className='h-3 w-3 text-muted-foreground' />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='start' className='min-w-56'>
+      <DropdownMenuContent align='start' className={`${DESIGN_REFERENCE} min-w-56`}>
         <DropdownMenuItem
           onClick={() => setSiteId(undefined)}
           className='cursor-pointer'

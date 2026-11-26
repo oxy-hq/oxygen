@@ -3,6 +3,7 @@ import type React from "react";
 import { useState } from "react";
 import TableContentWrapper from "@/components/settings/components/TableContentWrapper";
 import TableWrapper from "@/components/settings/components/TableWrapper";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Label } from "@/components/ui/shadcn/label";
@@ -65,7 +66,7 @@ const AuditTable: React.FC = () => {
             <SelectTrigger id='audit-action' className='h-8 w-44 text-xs'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {ACTION_FILTERS.map((f) => (
                 <SelectItem key={f.value} value={f.value}>
                   {f.label}

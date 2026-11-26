@@ -40,7 +40,7 @@ export default function OwnAppsPanel({
   if (!isLoading && !error && !apps?.length) return null;
 
   return (
-    <section className='rounded-lg border'>
+    <section className='border'>
       <header className='flex items-center gap-2 border-b px-3 py-2'>
         <AppWindow className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
         <h3 className='font-medium text-xs'>Your own apps</h3>

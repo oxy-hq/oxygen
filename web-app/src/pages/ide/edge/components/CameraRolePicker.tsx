@@ -1,4 +1,5 @@
 import type React from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -59,7 +60,7 @@ const CameraRolePicker: React.FC<Props> = ({ value, disabled, onChange, ariaLabe
         <SelectTrigger className='h-8 w-32 text-xs' aria-label={ariaLabel}>
           <SelectValue placeholder={isLoading ? "Loading…" : "—"} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           <SelectItem value={UNSET}>
             <span className='text-muted-foreground'>Unset</span>
           </SelectItem>

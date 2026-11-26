@@ -108,7 +108,7 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
 
             {data.manifest_error && (
               <Section title='Manifest error' tone='destructive'>
-                <pre className='whitespace-pre-wrap rounded-md bg-destructive/10 p-3 text-destructive text-xs'>
+                <pre className='whitespace-pre-wrap bg-destructive/10 p-3 text-destructive text-xs'>
                   {data.manifest_error}
                 </pre>
               </Section>
@@ -131,7 +131,7 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
  */
 const HealthChip = ({ label, ok, value }: { label: string; ok: boolean; value: string }) => (
   <div
-    className='flex min-w-0 items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-xs'
+    className='flex min-w-0 items-center gap-1.5 border bg-card px-2.5 py-1.5 text-xs'
     data-testid={`admin-app-info-check-${label.toLowerCase()}`}
   >
     <span
@@ -157,14 +157,14 @@ const ManifestBlock = ({ manifest }: { manifest: unknown }) => {
     <Section title='Manifest'>
       <Collapsible>
         <div className='flex items-center justify-between'>
-          <CollapsibleTrigger className='group flex items-center gap-1 rounded text-muted-foreground text-xs hover:text-foreground'>
+          <CollapsibleTrigger className='group flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground'>
             <ChevronRight className='size-3 transition-transform group-data-[state=open]:rotate-90' />
             View raw manifest
           </CollapsibleTrigger>
           <CopyButton value={json} label='manifest' />
         </div>
         <CollapsibleContent>
-          <pre className='mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-[11px] text-foreground/90'>
+          <pre className='mt-2 max-h-80 overflow-auto whitespace-pre-wrap border bg-muted/40 p-3 font-mono text-[11px] text-foreground/90'>
             {json}
           </pre>
         </CollapsibleContent>

@@ -1,9 +1,7 @@
 import { AppWindow, Building2, ScrollText, UserCog } from "lucide-react";
 import type { ComponentType } from "react";
 import { Link, useLocation } from "react-router-dom";
-import OxyLogo from "@/components/OxyLogo";
 import {
-  Sidebar as ShadcnSidebar,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -11,6 +9,7 @@ import {
   SidebarMenuItem
 } from "@/components/ui/shadcn/sidebar";
 import ROUTES from "@/libs/utils/routes";
+import { ConsoleRail, consoleNavRow } from "@/pages/admin/components/ConsoleRail";
 import { usePartnerConsole } from "../../context";
 
 type NavItem = {
@@ -67,43 +66,38 @@ export function PartnerSidebar() {
   const items = NAV.filter((i) => i.visible(active));
 
   return (
-    <ShadcnSidebar className='border-sidebar-border border-r bg-sidebar-background'>
-      <div className='flex h-[52px] shrink-0 items-center gap-2 border-sidebar-border/50 border-b px-3'>
-        <Link to={ROUTES.PARTNERS.ROOT} className='flex shrink-0 items-center'>
-          <OxyLogo />
-        </Link>
-        <span className='rounded-sm border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]'>
-          Partner
-        </span>
-      </div>
-
-      <div className='min-h-0 flex-1 overflow-auto'>
-        <SidebarGroup className='px-2 pt-2'>
-          <SidebarGroupLabel>{active.name}</SidebarGroupLabel>
-          <SidebarMenu>
-            {items.map(({ to, label, icon: Icon }) => (
-              <SidebarMenuItem key={to}>
-                <SidebarMenuButton
-                  asChild
-                  // ROOT is a prefix of every other partner route, so it only
-                  // counts as active on an exact match.
-                  isActive={
-                    to === ROUTES.PARTNERS.ROOT
-                      ? location.pathname === to
-                      : location.pathname.startsWith(to)
-                  }
-                  className='gap-2.5 text-[13px] data-[active=true]:font-medium [&>svg]:size-3.5'
-                >
-                  <Link to={to}>
-                    <Icon />
-                    <span className='tracking-tight'>{label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-      </div>
-    </ShadcnSidebar>
+    <ConsoleRail badge='Partner' logoTo={ROUTES.PARTNERS.ROOT}>
+      <SidebarGroup className='px-2 pt-2'>
+        <SidebarGroupLabel>{active.name}</SidebarGroupLabel>
+        <SidebarMenu>
+          {items.map(({ to, label, icon: Icon }) => (
+            <SidebarMenuItem key={to}>
+              <SidebarMenuButton
+                asChild
+                // ROOT is a prefix of every other partner route, so it only
+                // counts as active on an exact match.
+                isActive={
+                  to === ROUTES.PARTNERS.ROOT
+                    ? location.pathname === to
+                    : location.pathname.startsWith(to)
+                }
+                // Required, not decoration: `ConsoleRail` collapses to a 3rem strip, and
+                // at that width shadcn hides the row label and the group label, so the
+                // tooltip is the only thing left that can name a row. Without it a
+                // collapsed rail is four unlabelled icons. The admin rail's `NavItem`
+                // passes the same.
+                tooltip={label}
+                className={consoleNavRow}
+              >
+                <Link to={to}>
+                  <Icon />
+                  <span className='tracking-tight'>{label}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroup>
+    </ConsoleRail>
   );
 }

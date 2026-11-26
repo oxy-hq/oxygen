@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,7 +58,10 @@ export const ProvisionConfirmDialog = ({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent data-testid='admin-airhouse-provision-dialog'>
+      <AlertDialogContent
+        className={DESIGN_REFERENCE}
+        data-testid='admin-airhouse-provision-dialog'
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>Provision a warehouse for {workspaceName}?</AlertDialogTitle>
           <AlertDialogDescription>

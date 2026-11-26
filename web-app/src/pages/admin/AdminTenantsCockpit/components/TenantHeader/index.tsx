@@ -1,4 +1,5 @@
 import { FolderTree, List } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
 import { SWITCHER_TYPES, type TenantType, type TenantView } from "../../useTenantSelection";
@@ -77,7 +78,7 @@ export default function TenantHeader({
                 entities at once, so switching type there changes nothing — hide it
                 rather than offer a no-op control. */}
             {view === "list" ? (
-              <div className='flex items-center gap-0.5 rounded-md bg-muted/60 p-0.5'>
+              <div className='flex items-center gap-0.5 bg-muted/60 p-0.5'>
                 {SWITCHER_TYPES.map((t) => (
                   <button
                     key={t.id}
@@ -85,9 +86,9 @@ export default function TenantHeader({
                     data-testid={`tenant-type-${t.id}`}
                     onClick={() => onTypeChange(t.id)}
                     className={cn(
-                      "rounded px-2.5 py-1 font-medium text-xs transition-colors",
+                      "px-2.5 py-1 font-medium text-xs transition-colors",
                       type === t.id
-                        ? "bg-background text-foreground shadow-sm"
+                        ? "bg-background text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -118,14 +119,16 @@ export default function TenantHeader({
               data-testid={view === "map" ? "tenant-view-list" : "tenant-view-map"}
               onClick={() => onViewChange(view === "map" ? "list" : "map")}
               className={cn(
-                "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+                "flex size-7 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
                 view === "map" && "bg-muted text-foreground"
               )}
             >
               {view === "map" ? <List className='size-4' /> : <FolderTree className='size-4' />}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{view === "map" ? "Back to list" : "Relationship map"}</TooltipContent>
+          <TooltipContent className={DESIGN_REFERENCE}>
+            {view === "map" ? "Back to list" : "Relationship map"}
+          </TooltipContent>
         </Tooltip>
       </div>
     </header>

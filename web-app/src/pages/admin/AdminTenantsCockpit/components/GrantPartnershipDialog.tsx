@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -109,7 +110,7 @@ export default function GrantPartnershipDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-md'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-md`}>
         <DialogHeader>
           <DialogTitle>Grant partnership</DialogTitle>
           <DialogDescription>
@@ -118,15 +119,15 @@ export default function GrantPartnershipDialog({
         </DialogHeader>
 
         <div className='space-y-4'>
-          <div className='flex gap-1 rounded-md bg-muted p-1'>
+          <div className='flex gap-1 bg-muted p-1'>
             {(["existing", "promote"] as const).map((m) => (
               <button
                 key={m}
                 type='button'
                 onClick={() => setMode(m)}
                 className={cn(
-                  "flex-1 rounded px-2 py-1 font-medium text-xs",
-                  mode === m ? "bg-background shadow-sm" : "text-muted-foreground"
+                  "flex-1 px-2 py-1 font-medium text-xs",
+                  mode === m ? "bg-background" : "text-muted-foreground"
                 )}
               >
                 {m === "existing" ? "Existing partner" : "Promote an org"}
@@ -141,7 +142,7 @@ export default function GrantPartnershipDialog({
                 <SelectTrigger>
                   <SelectValue placeholder='Choose a partner…' />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   {(partners ?? []).map((p) => (
                     <SelectItem key={p.org_id} value={p.org_id}>
                       {p.name}

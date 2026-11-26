@@ -1,5 +1,6 @@
 import { Check, type LucideIcon, ShieldCheck, Terminal } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import {
@@ -77,7 +78,9 @@ export const RowAction = ({
         <Icon className='size-3.5' />
       </Button>
     </TooltipTrigger>
-    <TooltipContent side='bottom'>{label}</TooltipContent>
+    <TooltipContent className={DESIGN_REFERENCE} side='bottom'>
+      {label}
+    </TooltipContent>
   </Tooltip>
 );
 
@@ -108,7 +111,7 @@ export const CopyPublishAction = ({ workspaceId }: { workspaceId: string }) => {
           {copied ? <Check className='size-3.5 text-primary' /> : <Terminal className='size-3.5' />}
         </Button>
       </TooltipTrigger>
-      <TooltipContent side='bottom' className='font-mono text-xs'>
+      <TooltipContent side='bottom' className={`${DESIGN_REFERENCE} font-mono text-xs`}>
         {cmd}
       </TooltipContent>
     </Tooltip>
@@ -203,7 +206,7 @@ export const GrantsLoading = () => (
 
 export const EmptyHint = ({ title, body }: { title: string; body: string }) => (
   <div className='flex h-full flex-col items-center justify-center gap-3 bg-muted/20 px-6 text-center'>
-    <div className='flex size-12 items-center justify-center rounded-full border bg-background shadow-sm'>
+    <div className='flex size-12 items-center justify-center rounded-full border bg-background'>
       <ShieldCheck className='size-5 text-muted-foreground' />
     </div>
     <div>

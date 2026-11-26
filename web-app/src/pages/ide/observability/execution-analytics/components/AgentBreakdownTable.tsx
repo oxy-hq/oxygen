@@ -87,7 +87,7 @@ export default function AgentBreakdownTable({
         <CardContent>
           <div className='animate-pulse space-y-2'>
             {[1, 2, 3].map((i) => (
-              <div key={i} className='h-10 rounded bg-muted' />
+              <div key={i} className='h-10 bg-muted' />
             ))}
           </div>
         </CardContent>

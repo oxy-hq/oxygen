@@ -41,9 +41,9 @@ export const OrgCostCard = ({
     >
       LLM cost · last {days}d
     </AdminSectionLabel>
-    <div className='rounded-lg border border-border/60 bg-card p-5'>
+    <div className=' border border-border/60 bg-card p-5'>
       {isLoading ? (
-        <div className='h-28 animate-pulse rounded bg-muted/40' />
+        <div className='h-28 animate-pulse bg-muted/40' />
       ) : !usage || usage.total.run_count === 0 ? (
         <p className='text-muted-foreground text-xs'>No LLM activity in this window.</p>
       ) : (

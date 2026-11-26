@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import type { ReactNode } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
 
@@ -40,7 +41,7 @@ export const AdminInfo = ({
         <Info className='size-3' />
       </button>
     </TooltipTrigger>
-    <TooltipContent side={side} className='max-w-xs text-xs leading-relaxed'>
+    <TooltipContent side={side} className={`${DESIGN_REFERENCE} max-w-xs text-xs leading-relaxed`}>
       {children}
     </TooltipContent>
   </Tooltip>

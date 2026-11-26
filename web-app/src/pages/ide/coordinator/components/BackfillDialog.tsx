@@ -1,6 +1,7 @@
 import { CalendarRange, Info } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -74,7 +75,7 @@ export const BackfillDialog: React.FC<Props> = ({ open, onOpenChange, schedule }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-lg'>
+      <DialogContent className={`${DESIGN_REFERENCE} sm:max-w-lg`}>
         <DialogHeader>
           <DialogTitle>Backfill: {schedule.name}</DialogTitle>
           <DialogDescription>
@@ -105,7 +106,7 @@ export const BackfillDialog: React.FC<Props> = ({ open, onOpenChange, schedule }
           </div>
 
           {/* Blast radius — the count, not just the range. */}
-          <div className='flex items-center gap-2 rounded-md bg-muted px-3 py-2.5'>
+          <div className='flex items-center gap-2 bg-muted px-3 py-2.5'>
             <CalendarRange className='h-4 w-4 shrink-0 text-muted-foreground' />
             {rangeValid ? (
               <p className='text-sm'>
@@ -140,7 +141,7 @@ export const BackfillDialog: React.FC<Props> = ({ open, onOpenChange, schedule }
             </p>
           </div>
 
-          <div className='flex gap-2 rounded-md border border-border px-3 py-2 text-muted-foreground text-xs'>
+          <div className='flex gap-2 border border-border px-3 py-2 text-muted-foreground text-xs'>
             <Info className='mt-0.5 h-3.5 w-3.5 shrink-0' />
             <span>
               Each run receives its <strong>original scheduled time</strong> as the logical date,

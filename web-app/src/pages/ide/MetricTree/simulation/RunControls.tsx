@@ -1,4 +1,5 @@
 import { Play } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Select,
@@ -92,7 +93,7 @@ export function WorldsBar({
               >
                 <SelectValue placeholder='select a world' />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {worlds.map((w) => (
                   <SelectItem key={w.name} value={w.name} className='font-mono text-xs'>
                     {w.name}
@@ -112,7 +113,7 @@ export function WorldsBar({
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {ARMS.map((a) => (
                 <SelectItem key={a} value={a} className='font-mono text-xs'>
                   {a === RACE ? "race · every arm" : a}
@@ -171,7 +172,7 @@ export function RunPicker({ runs, runId, onSelect }: RunPickerProps) {
         >
           <SelectValue placeholder='no run selected' />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           {runs.map((r) => (
             <SelectItem key={r.run_id} value={r.run_id} className='font-mono text-xs'>
               {runLabel(r)}

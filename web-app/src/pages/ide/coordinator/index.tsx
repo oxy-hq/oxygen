@@ -1,6 +1,7 @@
 import { HeartPulse, Inbox, Radar, Settings2 } from "lucide-react";
 import type React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,14 +90,14 @@ const CoordinatorLayout: React.FC = () => {
             <DropdownMenuTrigger
               data-testid='coordinator-system-menu'
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs",
+                "inline-flex items-center gap-1.5 px-2 py-1.5 text-muted-foreground text-xs",
                 "hover:bg-muted hover:text-foreground"
               )}
             >
               <Settings2 className='h-3.5 w-3.5' />
               System
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
+            <DropdownMenuContent align='end' className={DESIGN_REFERENCE}>
               <DropdownMenuLabel>Operator internals</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>

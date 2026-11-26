@@ -121,7 +121,7 @@ export default function SimulationPanel() {
       {detail && (
         <>
           {detail.run.status === "failed" && (
-            <p className='rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive leading-relaxed'>
+            <p className='border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive leading-relaxed'>
               {detail.run.error ?? "the run failed"}
             </p>
           )}

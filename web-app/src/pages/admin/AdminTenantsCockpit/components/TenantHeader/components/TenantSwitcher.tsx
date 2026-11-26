@@ -1,5 +1,6 @@
 import { Building2, ChevronsUpDown, Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
@@ -87,7 +88,7 @@ export function TenantSwitcher({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align='start' className='w-72 p-0'>
+      <PopoverContent align='start' className={`${DESIGN_REFERENCE} w-72 p-0`}>
         <div className='relative border-b'>
           <Search className='absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground' />
           <Input

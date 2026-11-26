@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,7 +70,10 @@ export function RemoveOverrideDialog({
         if (!next && !pending) onOpenChange(false);
       }}
     >
-      <AlertDialogContent data-testid={`admin-airway-remove-override-dialog-${sourceKind}`}>
+      <AlertDialogContent
+        className={DESIGN_REFERENCE}
+        data-testid={`admin-airway-remove-override-dialog-${sourceKind}`}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>Remove this workspace override?</AlertDialogTitle>
           <AlertDialogDescription>

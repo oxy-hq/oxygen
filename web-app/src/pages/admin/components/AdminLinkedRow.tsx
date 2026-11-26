@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { card, tile } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 
 /**
@@ -46,7 +47,8 @@ export const AdminLinkedRow = ({
       {Icon ? (
         <div
           className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
+            tile,
+            "flex size-8 shrink-0 items-center justify-center text-muted-foreground"
           )}
         >
           <Icon className='size-3.5' />
@@ -92,12 +94,7 @@ export const AdminLinkedList = ({
   children: ReactNode;
   className?: string;
 }) => (
-  <div
-    className={cn(
-      "divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card",
-      className
-    )}
-  >
+  <div className={cn(card, "divide-y divide-border-subtle overflow-hidden", className)}>
     {children}
   </div>
 );

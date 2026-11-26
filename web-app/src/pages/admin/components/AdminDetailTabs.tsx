@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
+import {
+  focusRingInset,
+  segmentOff,
+  segmentOn,
+  segmentRow
+} from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 
 /**
  * Uppercase tab bar for an Admin detail surface. Restrained: a single
- * pixel underline marks the active tab; an emerald dot may signal a
+ * pixel underline marks the active tab; a dot may signal a
  * tab that has work waiting (e.g. "Members (2 pending invites)").
  *
  * Controlled component — state lives on the page. Keeps the URL the
@@ -26,8 +32,8 @@ export const AdminDetailTabs = <T extends string>({
     notify?: boolean;
   }>;
 }) => (
-  <div className='border-border/60 border-b'>
-    <nav className='-mb-px flex flex-wrap gap-1'>
+  <div>
+    <nav className={cn(segmentRow, "max-w-full flex-wrap")}>
       {tabs.map((tab) => {
         const active = tab.id === value;
         return (
@@ -37,18 +43,16 @@ export const AdminDetailTabs = <T extends string>({
             onClick={() => onChange(tab.id)}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex items-center gap-1.5 px-2.5 py-1.5 font-medium text-[11px] uppercase tracking-[0.14em] transition-colors",
-              "border-transparent border-b",
-              active
-                ? "border-foreground text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
+              "group relative flex min-h-7 items-center gap-1.5 px-2.5 text-[11px] uppercase tracking-eyebrow transition-colors",
+              focusRingInset,
+              active ? segmentOn : segmentOff
             )}
           >
             <span>{tab.label}</span>
             {tab.count !== undefined ? (
               <span
                 className={cn(
-                  "rounded-full bg-muted/60 px-1.5 py-0.5 font-medium text-[10px] tabular-nums tracking-normal",
+                  "rounded-full bg-status-neutral-bg px-1.5 py-0.5 font-medium text-[10px] tabular-nums tracking-normal",
                   active ? "text-foreground" : "text-muted-foreground"
                 )}
               >

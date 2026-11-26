@@ -61,7 +61,7 @@ export default function SqlDisplay({
           borderRadius: "0.5rem",
           fontSize: "0.75rem"
         }}
-        className='rounded-lg border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
+        className='border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
         wrapLines
         lineProps={{
           style: { wordBreak: "break-all", whiteSpace: "pre-wrap" }

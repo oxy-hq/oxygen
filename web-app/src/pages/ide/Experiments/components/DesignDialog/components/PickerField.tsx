@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { type Ref, useRef, useState } from "react";
 import { type Path, useController } from "react-hook-form";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/shadcn/popover";
 import { cn } from "@/libs/shadcn/utils";
@@ -49,7 +50,7 @@ function Group({
           aria-selected={o.value === current}
           data-value={o.value}
           className={cn(
-            "flex cursor-pointer items-baseline justify-between gap-3 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground",
+            "flex cursor-pointer items-baseline justify-between gap-3 px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground",
             o.value === current && "bg-accent text-accent-foreground"
           )}
           // Keep focus in the input: a blur before the click would close the list first.
@@ -167,7 +168,7 @@ export function PickerInput(props: PickerInputProps) {
       </PopoverAnchor>
       <PopoverContent
         align='start'
-        className='max-h-72 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1'
+        className={`${DESIGN_REFERENCE} max-h-72 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1`}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => {
           e.preventDefault();

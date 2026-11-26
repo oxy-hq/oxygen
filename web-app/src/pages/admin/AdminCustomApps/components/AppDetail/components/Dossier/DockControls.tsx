@@ -1,4 +1,5 @@
 import { PanelBottom, PanelRight, SquareArrowOutUpRight } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/shadcn/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import type { DockMode } from "../../dock";
@@ -36,7 +37,7 @@ export const DockControls = ({
             <Icon className='size-3.5' />
           </ToggleGroupItem>
         </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
+        <TooltipContent className={DESIGN_REFERENCE}>{label}</TooltipContent>
       </Tooltip>
     ))}
   </ToggleGroup>

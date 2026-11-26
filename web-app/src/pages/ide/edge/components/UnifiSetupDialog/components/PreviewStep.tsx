@@ -77,7 +77,7 @@ const PreviewStep: React.FC<Props> = ({ apiKey, data, onBack, onImported }) => {
         your UniFi account.
       </div>
 
-      <div className='max-h-72 min-w-0 overflow-auto rounded-md border'>
+      <div className='max-h-72 min-w-0 overflow-auto border'>
         <Table>
           <TableHeader>
             <TableRow>

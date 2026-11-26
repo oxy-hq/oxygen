@@ -1,5 +1,6 @@
 import { Building2, LayoutGrid, List, Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -129,7 +130,7 @@ export const AccessPane = () => {
             workspaces={grants.length}
           />
         </div>
-        <div className='mr-3 flex shrink-0 items-center gap-0.5 rounded-md bg-muted/60 p-0.5 pr-1'>
+        <div className='mr-3 flex shrink-0 items-center gap-0.5 bg-muted/60 p-0.5 pr-1'>
           <ViewButton
             active={view === "list"}
             onClick={() => setView("list")}
@@ -177,7 +178,7 @@ export const AccessPane = () => {
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent align='start'>
+                  <SelectContent className={DESIGN_REFERENCE} align='start'>
                     <SelectItem value='all' data-testid='admin-access-filter-all'>
                       All orgs
                     </SelectItem>
@@ -209,12 +210,12 @@ export const AccessPane = () => {
                       subtitle={o.orgSlug}
                       trailing={
                         o.hasLockdown ? (
-                          <span className='flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 font-medium text-[10px] text-destructive uppercase tracking-wide'>
+                          <span className='flex items-center gap-1 bg-destructive/10 px-1.5 py-0.5 font-medium text-[10px] text-destructive uppercase tracking-wide'>
                             <Lock className='size-2.5' />
                             {o.lockedCount}
                           </span>
                         ) : (
-                          <span className='rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground tabular-nums'>
+                          <span className='bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground tabular-nums'>
                             {o.accessibleCount}
                           </span>
                         )
@@ -259,10 +260,8 @@ const ViewButton = ({
     aria-pressed={active}
     data-testid={dataTestId}
     className={cn(
-      "flex items-center gap-1.5 rounded px-2 py-1 font-medium text-xs transition-colors",
-      active
-        ? "bg-background text-foreground shadow-sm"
-        : "text-muted-foreground hover:text-foreground"
+      "flex items-center gap-1.5 px-2 py-1 font-medium text-xs transition-colors",
+      active ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground"
     )}
   >
     {icon}
@@ -304,7 +303,7 @@ const OrgGallery = ({
         >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent align='start'>
+        <SelectContent className={DESIGN_REFERENCE} align='start'>
           <SelectItem value='all' data-testid='admin-access-gallery-filter-all'>
             All orgs
           </SelectItem>
@@ -335,14 +334,14 @@ const OrgGallery = ({
               onClick={() => onOpen(o.orgId)}
               data-testid={`admin-access-gallery-org-${o.orgSlug}`}
               className={cn(
-                "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors hover:bg-muted/40",
+                "flex flex-col gap-2 border p-3 text-left transition-colors hover:bg-muted/40",
                 o.hasLockdown ? "border-destructive/40 bg-destructive/5" : "border-border/60"
               )}
             >
               <div className='flex items-start gap-2'>
                 <div
                   className={cn(
-                    "flex size-7 shrink-0 items-center justify-center rounded-md border",
+                    "flex size-7 shrink-0 items-center justify-center border",
                     o.hasLockdown
                       ? "bg-destructive/10 text-destructive"
                       : "bg-muted/40 text-muted-foreground"
@@ -363,11 +362,11 @@ const OrgGallery = ({
               </div>
 
               <div className='flex items-center gap-1.5 text-[11px]'>
-                <span className='rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground tabular-nums'>
+                <span className='bg-muted px-1.5 py-0.5 font-mono text-muted-foreground tabular-nums'>
                   {o.accessibleCount} open
                 </span>
                 {o.lockedCount > 0 && (
-                  <span className='rounded bg-destructive/10 px-1.5 py-0.5 font-mono text-destructive tabular-nums'>
+                  <span className='bg-destructive/10 px-1.5 py-0.5 font-mono text-destructive tabular-nums'>
                     {o.lockedCount} locked
                   </span>
                 )}

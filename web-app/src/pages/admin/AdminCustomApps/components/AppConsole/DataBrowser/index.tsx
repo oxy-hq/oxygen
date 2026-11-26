@@ -53,7 +53,7 @@ export const AppDataPanel = ({
           <DataBrowser key={environment} appId={app.id} environment={environment} />
         ) : (
           <div
-            className='flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 border-dashed px-3 py-2'
+            className='flex flex-wrap items-center justify-between gap-2 border border-border/60 border-dashed px-3 py-2'
             data-testid='admin-app-data-gate'
           >
             <span className='font-mono text-muted-foreground text-xs'>ctx.oltp</span>

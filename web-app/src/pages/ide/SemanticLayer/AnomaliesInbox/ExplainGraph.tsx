@@ -79,10 +79,7 @@ function GraphNode({ data }: NodeProps) {
     <>
       <Handle type='target' position={Position.Top} className='opacity-0' />
       <div
-        className={cn(
-          "flex flex-col gap-0.5 rounded-lg border px-3 py-2 shadow-sm transition-colors",
-          directionClass
-        )}
+        className={cn("flex flex-col gap-0.5 border px-3 py-2 transition-colors", directionClass)}
         style={{ width: NODE_WIDTH, minHeight: NODE_HEIGHT, ...bgStyle }}
       >
         <p className='truncate font-medium text-foreground text-sm'>{title}</p>

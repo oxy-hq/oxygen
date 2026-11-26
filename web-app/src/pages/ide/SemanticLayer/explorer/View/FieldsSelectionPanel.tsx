@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/shadcn/hover-card";
 import {
   SidebarContent,
@@ -222,7 +223,11 @@ const FieldsSelectionPanel = () => {
                             <span className='truncate'>{rollup.rollup_name}</span>
                           </SidebarMenuSubButton>
                         </HoverCardTrigger>
-                        <HoverCardContent side='right' align='start' className='w-64 p-3'>
+                        <HoverCardContent
+                          side='right'
+                          align='start'
+                          className={`${DESIGN_REFERENCE} w-64 p-3`}
+                        >
                           <p className='mb-2 font-semibold text-sm'>{rollup.rollup_name}</p>
                           <RollupDetail rollup={rollup} blobReads={blobReads} />
                         </HoverCardContent>

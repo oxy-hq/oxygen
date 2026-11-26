@@ -1,5 +1,6 @@
 import { Play } from "lucide-react";
 import type React from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +36,7 @@ const RunNowDialog: React.FC<Props> = ({ open, onOpenChange, schedule }) => {
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className='bg-popover sm:max-w-md'>
+      <AlertDialogContent className={`${DESIGN_REFERENCE} bg-popover sm:max-w-md`}>
         <AlertDialogHeader>
           <AlertDialogTitle>Run "{schedule?.name}" now?</AlertDialogTitle>
           <AlertDialogDescription>

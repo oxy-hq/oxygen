@@ -59,7 +59,7 @@ export const AppLifecycle = ({
   );
 
   if (lifecycle.isLoading) {
-    return <Skeleton className='h-24 w-full rounded-lg' data-testid='app-lifecycle-loading' />;
+    return <Skeleton className='h-24 w-full' data-testid='app-lifecycle-loading' />;
   }
   if (lifecycle.error) {
     return (

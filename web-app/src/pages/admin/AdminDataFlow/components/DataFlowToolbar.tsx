@@ -1,4 +1,5 @@
 import { Crosshair, X } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Select,
@@ -46,7 +47,7 @@ export const DataFlowToolbar = ({
         <SelectTrigger size='sm' className='w-48 text-xs' data-testid='admin-data-flow-workspace'>
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
           {workspaces.map((w) => (
             <SelectItem key={w.id} value={w.id}>
@@ -75,7 +76,7 @@ export const DataFlowToolbar = ({
     )}
     {params.focus && (
       <div
-        className='flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs'
+        className='flex items-center gap-1.5 border border-border px-2 py-1 text-xs'
         data-testid='admin-data-flow-focus'
       >
         <Crosshair className='size-3 text-muted-foreground' />
@@ -90,7 +91,7 @@ export const DataFlowToolbar = ({
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {DEPTHS.map((d) => (
               <SelectItem key={d} value={String(d)}>
                 {d} {d === 1 ? "hop" : "hops"}

@@ -41,8 +41,8 @@ export function GraphNodeCard({
       className={cn(
         "flex cursor-pointer select-none flex-col gap-1 border bg-card p-2",
         "transition-all duration-250 ease-out",
-        dimmed ? "border-border" : "border-info/60 hover:shadow-[0_0_20px_rgba(96,165,250,0.18)]",
-        selected && "shadow-[0_0_26px_rgba(96,165,250,0.32)] ring-2 ring-info/60",
+        dimmed ? "border-border-subtle" : "border-info/60 hover:border-info",
+        selected && "ring-2 ring-info/60",
         blurred && "opacity-40 blur-[1.5px]",
         className
       )}

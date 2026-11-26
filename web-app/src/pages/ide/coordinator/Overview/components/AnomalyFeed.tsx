@@ -39,7 +39,7 @@ export const AnomalyFeed: React.FC<{ runs: NormalizedRun[] }> = ({ runs }) => {
   }, [runs]);
 
   return (
-    <div className='rounded-xl border border-border bg-card'>
+    <div className='border border-border bg-card'>
       <div className='border-border border-b px-3 py-2'>
         <h3 className='font-semibold text-sm'>Recent failures &amp; anomalies</h3>
       </div>
@@ -81,7 +81,7 @@ export const AnomalyFeed: React.FC<{ runs: NormalizedRun[] }> = ({ runs }) => {
                 {kind === "anomaly" && run.anomaly && (
                   <span
                     className={cn(
-                      "shrink-0 rounded-md px-1.5 py-0.5 font-medium text-xs",
+                      "shrink-0 px-1.5 py-0.5 font-medium text-xs",
                       run.anomaly.severity === "critical"
                         ? "bg-destructive/10 text-destructive"
                         : "bg-warning/10 text-warning"

@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Search, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -219,14 +220,16 @@ function EventRow({
   clientName: Map<string, string>;
 }) {
   return (
-    <TableRow className='border-border/60'>
+    <TableRow className='border-border-subtle'>
       <TableCell className='whitespace-nowrap text-muted-foreground text-xs'>
         {/* Relative time is what you scan; the exact stamp is what you cite. */}
         <Tooltip>
           <TooltipTrigger asChild>
             <span>{timeAgo(e.created_at)}</span>
           </TooltipTrigger>
-          <TooltipContent>{new Date(e.created_at).toLocaleString()}</TooltipContent>
+          <TooltipContent className={DESIGN_REFERENCE}>
+            {new Date(e.created_at).toLocaleString()}
+          </TooltipContent>
         </Tooltip>
       </TableCell>
       <TableCell className='max-w-0 truncate text-sm'>{e.actor_email}</TableCell>
@@ -256,7 +259,7 @@ function ShortId({ id }: { id: string }) {
       <TooltipTrigger asChild>
         <span className='text-muted-foreground'>{id.slice(0, 8)}</span>
       </TooltipTrigger>
-      <TooltipContent>{id}</TooltipContent>
+      <TooltipContent className={DESIGN_REFERENCE}>{id}</TooltipContent>
     </Tooltip>
   );
 }
@@ -281,7 +284,7 @@ function Facet({
       <SelectTrigger className='h-8 w-40 text-xs' data-testid={`partner-activity-facet-${id}`}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className={DESIGN_REFERENCE}>
         <SelectItem value={ALL} data-testid={`partner-activity-facet-${id}-all`}>
           {placeholder}
         </SelectItem>

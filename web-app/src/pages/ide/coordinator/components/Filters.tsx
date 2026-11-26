@@ -17,7 +17,7 @@ function Segmented<T extends string>({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5",
+        "inline-flex items-center gap-0.5 border border-border bg-muted/40 p-0.5",
         className
       )}
     >
@@ -27,7 +27,7 @@ function Segmented<T extends string>({
           type='button'
           onClick={() => onChange(opt.value)}
           className={cn(
-            "rounded-md px-2.5 py-1 font-medium text-xs transition-colors",
+            "px-2.5 py-1 font-medium text-xs transition-colors",
             value === opt.value
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"

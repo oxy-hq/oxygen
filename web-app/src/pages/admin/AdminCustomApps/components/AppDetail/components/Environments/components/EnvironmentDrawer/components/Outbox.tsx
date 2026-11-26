@@ -55,10 +55,7 @@ const recipients = (to: unknown): string => {
 };
 
 const OutboxItem = ({ message }: { message: OutboxMessage }) => (
-  <li
-    className='flex flex-col gap-1 rounded-md border p-2 text-xs'
-    data-testid='admin-app-env-outbox-item'
-  >
+  <li className='flex flex-col gap-1 border p-2 text-xs' data-testid='admin-app-env-outbox-item'>
     <div className='flex items-center gap-2'>
       <span className='font-medium'>{message.subject ?? message.title ?? "(no subject)"}</span>
       <span className='text-muted-foreground'>{message.kind}</span>
@@ -68,7 +65,7 @@ const OutboxItem = ({ message }: { message: OutboxMessage }) => (
       to {recipients(message.to)} · from {message.function}
     </span>
     {message.body && (
-      <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs'>
+      <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words bg-muted p-2 font-mono text-xs'>
         {message.body}
       </pre>
     )}

@@ -70,7 +70,7 @@ export default function RunSummary({ run }: { run: RunDetail }) {
         ? "success"
         : "warning";
   return (
-    <section className='flex flex-col gap-3 rounded-lg border p-4' data-testid='experiment-summary'>
+    <section className='flex flex-col gap-3 border p-4' data-testid='experiment-summary'>
       <div className='flex flex-wrap items-center gap-2'>
         <ToneBadge tone={state.tone} testId='experiment-run-state'>
           {state.label}

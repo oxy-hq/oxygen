@@ -52,7 +52,7 @@ export function InspectorOverview({ span, selfMs }: InspectorOverviewProps) {
           <span className='uppercase tracking-wide'>timing</span>
           <span className='font-mono tabular-nums'>{formatDuration(span.durationMs)} total</span>
         </div>
-        <div className='flex h-2 overflow-hidden rounded bg-muted'>
+        <div className='flex h-2 overflow-hidden bg-muted'>
           <div className={cn("h-full", barClass)} style={{ width: `${selfPct}%` }} />
           <div className='h-full bg-muted-foreground/30' style={{ width: `${childPct}%` }} />
         </div>

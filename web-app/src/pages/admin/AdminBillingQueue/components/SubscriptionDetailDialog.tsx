@@ -1,6 +1,7 @@
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { SubscriptionItemsList } from "@/components/billing/SubscriptionItemsList";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -34,7 +35,7 @@ export default function SubscriptionDetailDialog({ org, onClose }: Props) {
   return (
     <>
       <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className='max-w-xl'>
+        <DialogContent className={`${DESIGN_REFERENCE} max-w-xl`}>
           <DialogHeader>
             <DialogTitle>Subscription — {org.name}</DialogTitle>
           </DialogHeader>
@@ -161,7 +162,7 @@ function LatestInvoiceSection({
     <div className='space-y-2'>
       <div className='text-muted-foreground text-xs uppercase tracking-wide'>Latest invoice</div>
 
-      <div className='space-y-2 rounded-md border p-3'>
+      <div className='space-y-2 border p-3'>
         <div className='flex flex-wrap items-center gap-2'>
           <Badge variant={invoiceStatusVariant(invoice.status)}>{invoice.status}</Badge>
           <code className='text-muted-foreground text-xs'>{invoice.id}</code>
@@ -187,7 +188,7 @@ function LatestInvoiceSection({
         {isDeferredDraft ? (
           <div
             className={cn(
-              "rounded-md p-2 text-xs leading-relaxed ring-1 ring-inset",
+              " p-2 text-xs leading-relaxed ring-1 ring-inset",
               ADMIN_TONE.warn.bg,
               ADMIN_TONE.warn.text,
               ADMIN_TONE.warn.ring

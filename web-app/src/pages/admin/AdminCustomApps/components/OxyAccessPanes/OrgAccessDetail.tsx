@@ -34,7 +34,7 @@ export const OrgAccessDetail = ({
 }) => (
   <div className='flex h-full flex-col overflow-auto'>
     <header className='sticky top-0 z-10 flex items-center gap-2.5 border-b bg-background px-4 py-2.5'>
-      <div className='flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/40'>
+      <div className='flex size-7 shrink-0 items-center justify-center border bg-muted/40'>
         {org.hasLockdown ? (
           <Lock className='size-3.5 text-destructive' />
         ) : (

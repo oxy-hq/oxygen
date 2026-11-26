@@ -35,7 +35,7 @@ export const KindRow = ({
 
   return (
     <li
-      className='flex items-center justify-between gap-3 rounded-md border border-border/60 px-2.5 py-1.5'
+      className='flex items-center justify-between gap-3 border border-border/60 px-2.5 py-1.5'
       data-testid={`admin-app-notification-test-kind-${kind.kind}`}
     >
       <div className='flex min-w-0 flex-col'>

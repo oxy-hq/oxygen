@@ -40,9 +40,7 @@ export function ScenarioValueRow({ data }: { data: ScenarioNodeData }) {
   if (state === "lever") {
     return (
       <div className='flex flex-wrap items-baseline gap-1.5'>
-        <span className='rounded bg-primary/15 px-1 py-0.5 font-medium text-[9px] text-primary'>
-          LEVER
-        </span>
+        <span className='bg-primary/15 px-1 py-0.5 font-medium text-[9px] text-primary'>LEVER</span>
         {baseline === undefined && delta === undefined ? (
           // Neither valued nor resolvable — an absolute target typed against a
           // measure with no baseline. What was typed is all there is to show.

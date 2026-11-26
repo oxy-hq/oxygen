@@ -58,7 +58,7 @@ export function TraceSummaryStrip({
     // One ruled strip, not eight cards: the gap between cells is a hairline
     // of the border colour showing through, so the rules stay whole however
     // the grid wraps.
-    <div className='grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4 xl:grid-cols-8'>
+    <div className='grid grid-cols-2 gap-px overflow-hidden border bg-border sm:grid-cols-4 xl:grid-cols-8'>
       <StatTile label='Spans' value={summary.spanCount} />
       <StatTile
         label='Errors'

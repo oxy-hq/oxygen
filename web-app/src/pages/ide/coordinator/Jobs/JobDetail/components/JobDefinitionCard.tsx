@@ -22,7 +22,7 @@ export const JobDefinitionCard: React.FC<{ schedule: Schedule }> = ({ schedule }
   );
 
   return (
-    <div className='rounded-xl border border-border bg-card'>
+    <div className='border border-border bg-card'>
       <div className='border-border border-b px-3 py-2'>
         <h3 className='font-semibold text-sm'>Definition</h3>
       </div>

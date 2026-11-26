@@ -39,7 +39,7 @@ export default function BulkActionBar({
   onClear: () => void;
 }) {
   return (
-    <div className='mb-3 flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2'>
+    <div className='mb-3 flex items-center justify-between gap-2 border border-border-subtle bg-field px-3 py-2'>
       <span className='text-sm'>
         <span className='font-medium'>{eventCount}</span>{" "}
         {eventCount === 1 ? "anomaly" : "anomalies"} selected

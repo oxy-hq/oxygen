@@ -26,7 +26,7 @@ export const NeedsAttention = ({ alerts }: { alerts: OrgAlert[] }) => {
       <AdminSectionLabel trailing={`${alerts.length} signal${alerts.length === 1 ? "" : "s"}`}>
         Needs attention
       </AdminSectionLabel>
-      <ul className='divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-card'>
+      <ul className='divide-y divide-border/60 overflow-hidden border border-border/60 bg-card'>
         {alerts.map((a) => (
           <li key={a.text}>
             <button

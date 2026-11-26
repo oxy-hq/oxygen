@@ -60,7 +60,7 @@ export const ComputePanel = ({
     <section className='space-y-4' data-testid='admin-observability-compute'>
       <AdminSectionLabel trailing={`last ${apps.window_days}d`}>Compute</AdminSectionLabel>
 
-      <div className='space-y-5 rounded-lg border border-border/60 bg-card p-4'>
+      <div className='space-y-5 border border-border/60 bg-card p-4'>
         <div className='flex flex-wrap items-end justify-between gap-4'>
           <div>
             <span className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>

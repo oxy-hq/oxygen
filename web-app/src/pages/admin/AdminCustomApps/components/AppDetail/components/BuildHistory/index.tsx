@@ -72,7 +72,7 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
           <li
             key={b.id}
             data-testid={`admin-app-build-${shortBuildId(b.build_id)}`}
-            className='flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2'
+            className='flex items-center justify-between gap-3 border border-border bg-card px-3 py-2'
           >
             <div className='flex min-w-0 flex-1 flex-col'>
               <div className='flex items-center gap-2'>
@@ -136,7 +136,7 @@ const ValidationBadge = ({ build }: { build: AppBuild }) => {
   return (
     <span
       className={cn(
-        "rounded-sm px-1.5 py-px font-medium text-[10px]",
+        " px-1.5 py-px font-medium text-[10px]",
         failed
           ? cn(ADMIN_TONE.danger.bg, ADMIN_TONE.danger.text)
           : cn(ADMIN_TONE.muted.bg, ADMIN_TONE.muted.text)

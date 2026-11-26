@@ -92,7 +92,7 @@ export const RevisionRow = ({
         <button
           type='button'
           onClick={() => setDetailOpen(true)}
-          className='rounded text-left hover:underline'
+          className='text-left hover:underline'
           title='View which entities compiled and which failed'
         >
           <span className='font-medium'>{row.file_count_compiled}</span>

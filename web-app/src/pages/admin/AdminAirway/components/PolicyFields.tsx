@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -64,7 +65,7 @@ export function PolicyFields({
           <SelectTrigger className='w-full' data-testid={`admin-airway-policy-select-${idSuffix}`}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value={INHERIT}>{inheritPolicyLabel}</SelectItem>
             {POLICY_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
@@ -93,7 +94,7 @@ export function PolicyFields({
           <SelectTrigger className='w-full' data-testid={`admin-airway-env-select-${idSuffix}`}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value={INHERIT}>{inheritEnvLabel}</SelectItem>
             {ENV_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>

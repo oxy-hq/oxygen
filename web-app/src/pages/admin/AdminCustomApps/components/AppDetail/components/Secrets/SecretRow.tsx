@@ -51,7 +51,7 @@ export const SecretRow = ({
   return (
     <li
       className={cn(
-        "rounded-md border bg-card px-3 py-2",
+        " border bg-card px-3 py-2",
         urgent ? "border-destructive/40" : "border-border"
       )}
       data-testid={`admin-app-secret-${entry.key}`}
@@ -148,7 +148,7 @@ const StateBadge = ({
     title={title}
     data-testid={testId}
     className={cn(
-      "shrink-0 rounded-sm px-1.5 py-px font-medium text-[10px]",
+      "shrink-0 px-1.5 py-px font-medium text-[10px]",
       tone === "destructive" && "bg-destructive/15 text-destructive",
       tone === "muted" && "bg-muted text-muted-foreground",
       tone === "outline" && "border border-border text-muted-foreground"
@@ -209,7 +209,7 @@ const RevealButton = ({
       </Button>
       {value !== null && (
         <code
-          className='max-w-40 truncate rounded-sm bg-muted px-1.5 py-px text-[11px]'
+          className='max-w-40 truncate bg-muted px-1.5 py-px text-[11px]'
           title={value}
           data-testid={`admin-app-secret-value-${secretKey}`}
         >

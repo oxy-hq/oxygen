@@ -10,7 +10,7 @@ export interface InvocationFilters {
   mode: string;
 }
 
-const SELECT = "h-7 rounded-md border border-input bg-background px-1.5 text-xs";
+const SELECT = "h-7 border border-input bg-background px-1.5 text-xs";
 
 /** One dense row: function, outcome, mode, and when the window was read. */
 export const InvocationsFilters = ({
@@ -63,7 +63,7 @@ export const InvocationsFilters = ({
         onValueChange={(v) =>
           v && onChange({ ...value, outcome: v as InvocationFilters["outcome"] })
         }
-        className='gap-0 rounded-md border border-border/60 p-0.5'
+        className='gap-0 border border-border/60 p-0.5'
         aria-label='Outcome'
         data-testid='admin-app-invocations-filter-outcome'
       >

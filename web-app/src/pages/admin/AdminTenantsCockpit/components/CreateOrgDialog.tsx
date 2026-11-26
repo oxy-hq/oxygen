@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -73,7 +74,7 @@ export default function CreateOrgDialog({ onCreated }: { onCreated?: (orgId: str
           New org
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-w-md'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-md`}>
         <DialogHeader>
           <DialogTitle>Create organization</DialogTitle>
           <DialogDescription>

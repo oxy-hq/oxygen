@@ -28,7 +28,7 @@ export const PathBar = ({ segments }: { segments: readonly PathSegment[] }) => (
       <span key={segment.label} className='flex shrink-0 items-center gap-1'>
         {i > 0 && <ChevronRight className='size-3 shrink-0 opacity-50' aria-hidden />}
         {segment.to ? (
-          <Link to={segment.to} className='rounded hover:text-foreground hover:underline'>
+          <Link to={segment.to} className='hover:text-foreground hover:underline'>
             {segment.label}
           </Link>
         ) : (

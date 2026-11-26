@@ -32,7 +32,7 @@ export default function TraceCharts({ traces, total, isLoading }: TraceChartsPro
     // One band. The sentence that limits the figures is its first line, so
     // it is read before the numbers it qualifies and cannot be scrolled apart
     // from them.
-    <div className='mb-4 overflow-hidden rounded-lg border'>
+    <div className='mb-4 overflow-hidden border'>
       {capped && (
         <p
           className='flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm'

@@ -2,6 +2,7 @@ import { Check, Copy, Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -112,7 +113,7 @@ const AddDeviceDialog: React.FC<Props> = ({ open, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-2xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-2xl`}>
         <DialogHeader>
           <DialogTitle>{result ? "Run this on the new edge box" : "Add a device"}</DialogTitle>
           <DialogDescription>
@@ -191,7 +192,7 @@ const PrepareForm: React.FC<{
         <SelectTrigger id='add-device-site'>
           <SelectValue placeholder={sites.length === 0 ? "No sites yet" : "Pick a site"} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           {sites.map((s) => (
             <SelectItem key={s.id} value={s.id}>
               {s.name}
@@ -258,7 +259,7 @@ const PreparedDeviceView: React.FC<{
 
   return (
     <div className='flex flex-col gap-3'>
-      <div className='flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs'>
+      <div className='flex flex-col gap-1 border border-destructive/40 bg-destructive/5 p-2 text-xs'>
         <span className='font-medium text-destructive'>
           Secret shown once — save it or copy the command now.
         </span>
@@ -273,7 +274,7 @@ const PreparedDeviceView: React.FC<{
           Run on the new edge box
         </Label>
         <div className='relative'>
-          <pre className='max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 pr-20 font-mono text-foreground text-xs'>
+          <pre className='max-h-40 overflow-y-auto whitespace-pre-wrap break-all border border-border bg-muted/40 p-3 pr-20 font-mono text-foreground text-xs'>
             {result.install_command}
           </pre>
           <Button
@@ -313,7 +314,7 @@ const PreparedDeviceView: React.FC<{
         </Button>
         {showFallback && (
           <div className='relative'>
-            <pre className='max-h-60 overflow-y-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 pr-20 font-mono text-foreground text-xs'>
+            <pre className='max-h-60 overflow-y-auto whitespace-pre-wrap break-all border border-border bg-muted/40 p-3 pr-20 font-mono text-foreground text-xs'>
               {result.install_snippet}
             </pre>
             <Button
@@ -345,7 +346,7 @@ const PreparedDeviceView: React.FC<{
         )}
       </div>
 
-      <div className='flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-2 text-xs'>
+      <div className='flex flex-col gap-1 border border-border bg-muted/30 p-2 text-xs'>
         <span className='text-muted-foreground'>
           Device ID: <code className='break-all font-mono'>{result.device_id}</code>
         </span>

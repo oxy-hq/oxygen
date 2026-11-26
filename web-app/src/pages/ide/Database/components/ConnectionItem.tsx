@@ -17,6 +17,7 @@ import {
   SnowflakeIcon
 } from "@/components/icons";
 import DomoIcon from "@/components/icons/Domoicon";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   SidebarMenuAction,
   SidebarMenuButton,
@@ -109,7 +110,7 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ database }) => {
             <RotateCw className={cn(isFetching && "animate-spin")} />
           </SidebarMenuAction>
         </TooltipTrigger>
-        <TooltipContent>Refresh Schema</TooltipContent>
+        <TooltipContent className={DESIGN_REFERENCE}>Refresh Schema</TooltipContent>
       </Tooltip>
 
       {isOpen && (

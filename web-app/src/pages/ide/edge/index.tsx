@@ -1,6 +1,7 @@
 import { Boxes, ChevronDown, Settings } from "lucide-react";
 import type React from "react";
 import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,7 +85,7 @@ const EdgeLayout: React.FC = () => {
               end={t.end}
               className={({ isActive }) =>
                 cn(
-                  "rounded-md px-2.5 py-1 font-medium text-sm transition-colors",
+                  "px-2.5 py-1 font-medium text-sm transition-colors",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -98,7 +99,7 @@ const EdgeLayout: React.FC = () => {
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                "flex items-center gap-1 rounded-md px-2.5 py-1 font-medium text-sm outline-none transition-colors",
+                "flex items-center gap-1 px-2.5 py-1 font-medium text-sm outline-none transition-colors",
                 settingsActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -109,7 +110,7 @@ const EdgeLayout: React.FC = () => {
               Settings
               <ChevronDown className='h-3 w-3' />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='start' className='min-w-40'>
+            <DropdownMenuContent align='start' className={`${DESIGN_REFERENCE} min-w-40`}>
               {settingsItems.map((s) => (
                 <DropdownMenuItem key={s.to} asChild>
                   <NavLink

@@ -200,6 +200,47 @@ If you only need the project (outside the IDE), use `useCurrentProject()` from `
 - For workspace-scoped gates, the backend's `EffectiveWorkspaceRole` already handles the org→workspace role resolution — trust server-side 403s instead of duplicating the check in the UI when possible.
 - Feature flags from `authConfig` control broader access: `authConfig.enterprise` for enterprise-only features, `authConfig.cloud` for cloud-only features.
 
+## Design language
+
+One visual language, the **reference design** (the SDK theme the reference app and every
+custom app are drawn in). It is applied as a *scope*, not globally:
+`styles/reference/theme.css` writes it on a `design-reference` class rather than `:root`,
+so inside such a subtree the shadcn tokens a component already reads (`--background`,
+`--card`, `--border`, `--muted-foreground`, `--radius`, …) resolve to the reference's
+values and every corner goes square — `bg-card`, `border` and `text-muted-foreground` take
+the new look with no rewrite. `components/ui/reference/tokens.ts` holds the class recipes
+(`card`, `tile`, `eyebrow`, `note`, `btnCompact*`, `segment*`, `sectionLink*`, `focusRing`),
+named after the SDK's so a screen can be checked against the reference screen it copies.
+
+**Who carries the class:** the shell (rail, top bar, notifications panel), the home, Oxygen
+Nexus (`pages/ide`), the admin console (`pages/admin`) and the partner console
+(`pages/partners`), each on one root. Two surfaces are routed outside their layout and carry
+it themselves: `AdminCustomApps/AppDossierWindow` and anything else mounted off `AdminLayout`.
+
+Three rules follow from the scoping, and the first is the one that bites:
+
+- **The reference's own roles have no value outside the subtree.** `field`, `row-hover`,
+  `row-selected`, `segment-*`, `btn-surface`, `dim-foreground`, `subtle-foreground`,
+  `disabled-foreground`, `inverse-foreground`, `border-subtle`, `field-border`,
+  `control-border`, `status-info` and every `dot-*` are declared only under
+  `.design-reference` (`status-success|warning|error|neutral` and `brand` are the exceptions,
+  which `light.css`/`dark.css` also define). A **shared** component that uses one renders it
+  uncoloured wherever it mounts outside a scope. So a shared component is either scoped
+  everywhere it mounts, or it stays on shadcn's tokens. This is why the partner console is
+  scoped at all: it is built from the admin kit.
+- **Portalled overlays carry the class themselves.** A dialog, popover, dropdown, sheet,
+  select, tooltip or command palette renders outside its subtree, so its *content* component
+  needs `className={cn(DESIGN_REFERENCE, …)}`. An overlay shared with an unscoped surface
+  takes a `reference` prop instead (`appAccess/AppAccessDialog`) — `AssumeRoleDialog` and
+  `OpenFactoryDialog` are shared this way and are deliberately left unscoped.
+- **Nexus and the two consoles take the palette, geometry, surfaces and controls — not the
+  type scale.** They are dense surfaces read all day, and `pages/admin/CLAUDE.md` fixes the
+  console's sizes. Use `text-ref-*` there only for page-level chrome.
+
+Colour still means something: see `pages/admin/CLAUDE.md` for the console's rule that a
+status colour goes through `ADMIN_TONE` and that a label which merely informs stays in the
+foreground ink rather than borrowing a signal blue.
+
 ## Motion
 
 One motion language for Oxygen and every custom app. Its source is the SDK's `sdk/typescript/src/motion/motion.css` (published as `@oxy-hq/sdk/motion.css`, loaded by the SDK shell); `src/styles/shadcn/sdk-motion.css` is a byte-identical copy that `motion.test.ts` keeps honest, so **edit the SDK file and copy it**, never the copy. `src/styles/shadcn/motion.css` maps it into Tailwind and adds what only Oxygen draws. Motion explains a press, a state change or a layout change; it is quick, never decorates and never makes anyone wait.

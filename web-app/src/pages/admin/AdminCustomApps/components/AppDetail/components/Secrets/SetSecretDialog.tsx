@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -88,7 +89,10 @@ export const SetSecretDialog = ({
 
   return (
     <Dialog open={secretKey !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='sm:max-w-[425px]' data-testid='admin-app-secret-dialog'>
+      <DialogContent
+        className={`${DESIGN_REFERENCE} sm:max-w-[425px]`}
+        data-testid='admin-app-secret-dialog'
+      >
         <DialogHeader>
           <DialogTitle className='text-sm'>
             {rotating ? `Rotate ${secretKey}` : fromRow ? `Set ${secretKey}` : "Add secret"}

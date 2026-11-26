@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -92,7 +93,7 @@ const SetTargetImageDialog: React.FC<Props> = ({ boxes, open, onOpenChange }) =>
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle>
             {isBulk ? `Set target on ${boxes.length} boxes` : "Set target image"}
@@ -110,7 +111,7 @@ const SetTargetImageDialog: React.FC<Props> = ({ boxes, open, onOpenChange }) =>
               <Label className='text-muted-foreground text-xs uppercase tracking-wide'>
                 Currently running
               </Label>
-              <code className='rounded border border-border bg-muted/50 px-2 py-1 text-sm'>
+              <code className='border border-border bg-muted/50 px-2 py-1 text-sm'>
                 {boxes[0].current_image_tag ?? "(not reported yet)"}
               </code>
             </div>
@@ -121,7 +122,7 @@ const SetTargetImageDialog: React.FC<Props> = ({ boxes, open, onOpenChange }) =>
               <Label className='text-muted-foreground text-xs uppercase tracking-wide'>
                 Selected boxes
               </Label>
-              <ul className='max-h-32 overflow-auto rounded border border-border bg-muted/30 p-2 text-xs'>
+              <ul className='max-h-32 overflow-auto border border-border bg-muted/30 p-2 text-xs'>
                 {boxes.map((b) => (
                   <li key={b.id} className='truncate'>
                     {b.hardware_model}{" "}

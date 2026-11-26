@@ -27,7 +27,7 @@ export function SpanDetailPanel({ span, selfMs, onClose }: SpanDetailPanelProps)
       <PanelHeader
         title={
           <div className='flex items-center gap-2'>
-            <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", dotClass)} />
+            <span className={cn("h-2.5 w-2.5 shrink-0 ", dotClass)} />
             <SpanIcon spanName={span.spanName} className='h-4 w-4 shrink-0 text-muted-foreground' />
             <h2 className='truncate font-semibold text-sm' title={span.spanName}>
               {formatSpanLabel(span.spanName)}
@@ -57,7 +57,7 @@ export function SpanDetailPanel({ span, selfMs, onClose }: SpanDetailPanelProps)
               <TabsTrigger
                 key={tab}
                 value={tab}
-                className='rounded-md px-3 py-1.5 text-xs capitalize transition-colors hover:text-foreground data-[state=active]:bg-accent! data-[state=active]:text-foreground data-[state=inactive]:text-muted-foreground'
+                className='px-3 py-1.5 text-xs capitalize transition-colors hover:text-foreground data-[state=active]:bg-accent! data-[state=active]:text-foreground data-[state=inactive]:text-muted-foreground'
               >
                 {tab}
               </TabsTrigger>

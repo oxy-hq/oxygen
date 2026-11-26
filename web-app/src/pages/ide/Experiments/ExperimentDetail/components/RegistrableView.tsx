@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -64,7 +65,7 @@ export default function RegistrableView({ summary }: { summary: ExperimentListIt
 
   return (
     <div className={COLUMN} data-testid='experiment-registrable'>
-      <section className='flex flex-col gap-4 rounded-lg border bg-card p-4'>
+      <section className='flex flex-col gap-4 border bg-card p-4'>
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <h2 className='font-semibold text-base'>Register this design</h2>
           <ToneBadge tone='info' testId='experiment-registrable-status'>
@@ -106,7 +107,7 @@ export default function RegistrableView({ summary }: { summary: ExperimentListIt
         </div>
       </section>
       <Dialog open={open} onOpenChange={close}>
-        <DialogContent data-testid='experiment-register-dialog'>
+        <DialogContent data-testid='experiment-register-dialog' className={DESIGN_REFERENCE}>
           <DialogHeader>
             <DialogTitle>Register {summary.name}?</DialogTitle>
             <DialogDescription>

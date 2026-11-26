@@ -71,7 +71,7 @@ export default function TenantRail({
           <button
             type='button'
             onClick={onClearPartnerFilter}
-            className='flex w-full items-center gap-1.5 rounded bg-primary/5 px-2 py-1 text-primary text-xs'
+            className='flex w-full items-center gap-1.5 bg-primary/5 px-2 py-1 text-primary text-xs'
           >
             <span className='truncate'>Managed by {partnerFilterName ?? "partner"}</span>
             <X className='ml-auto size-3 shrink-0' />
@@ -130,7 +130,7 @@ function RailList({
           data-testid='tenant-rail-row'
           onClick={() => onSelect(item.id)}
           className={cn(
-            "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors",
+            "flex w-full items-center gap-2 px-1.5 py-1 text-left transition-colors",
             item.id === selectedId ? "bg-muted" : "hover:bg-muted/60"
           )}
         >

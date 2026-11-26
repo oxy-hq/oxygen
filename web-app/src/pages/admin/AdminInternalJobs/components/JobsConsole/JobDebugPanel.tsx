@@ -24,7 +24,7 @@ export const JobDebugPanel = ({ row }: { row: QueueRow }) => {
     <div className='space-y-4 border-border/60 border-t bg-muted/20 px-4 py-4'>
       {row.run_error_message ? (
         <DebugBlock label='Error'>
-          <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-2.5 font-mono text-[11px] text-destructive leading-relaxed'>
+          <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words border border-destructive/30 bg-destructive/5 p-2.5 font-mono text-[11px] text-destructive leading-relaxed'>
             {row.run_error_message}
           </pre>
         </DebugBlock>

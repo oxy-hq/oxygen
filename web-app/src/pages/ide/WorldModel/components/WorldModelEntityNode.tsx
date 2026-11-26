@@ -98,7 +98,7 @@ function MetricChipsSection({
               {m.label ?? m.name}
             </span>
             {m.value === null ? (
-              <span className='h-2 w-10 animate-pulse rounded bg-muted' />
+              <span className='h-2 w-10 animate-pulse bg-muted' />
             ) : (
               <span className='shrink-0 text-foreground tabular-nums'>
                 {formatMeasureValue(m.value)}

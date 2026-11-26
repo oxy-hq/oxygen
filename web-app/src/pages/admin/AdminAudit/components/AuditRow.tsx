@@ -112,7 +112,7 @@ export function AuditRow({ event: e, onFilterToken }: Props) {
             {e.via_global_override && (
               <span
                 className={cn(
-                  "inline-flex items-center gap-0.5 rounded-sm px-1 font-medium text-[10px]",
+                  "inline-flex items-center gap-0.5 px-1 font-medium text-[10px]",
                   ADMIN_TONE.warn.bg,
                   ADMIN_TONE.warn.text
                 )}

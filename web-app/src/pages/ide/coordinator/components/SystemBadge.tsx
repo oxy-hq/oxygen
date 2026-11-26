@@ -22,7 +22,7 @@ export const SystemBadge: React.FC<{
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5",
+        "inline-flex items-center gap-1 bg-muted px-1.5 py-0.5",
         "font-medium text-muted-foreground text-xs",
         className
       )}

@@ -62,7 +62,7 @@ export const PagesColumn = ({
               {count > 0 && (
                 <span
                   className={cn(
-                    "shrink-0 rounded-sm px-1 py-px font-medium text-[10px] tabular-nums",
+                    "shrink-0 px-1 py-px font-medium text-[10px] tabular-nums",
                     ADMIN_TONE.danger.bg,
                     ADMIN_TONE.danger.text
                   )}

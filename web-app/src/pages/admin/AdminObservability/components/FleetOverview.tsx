@@ -64,7 +64,7 @@ export const FleetOverview = ({ fleet, query }: { fleet: Fleet; query: string })
         />
       ) : (
         <div className='grid items-start gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(22rem,1fr)]'>
-          <section className='rounded-lg border border-border/60 bg-card'>
+          <section className=' border border-border/60 bg-card'>
             <header className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-border/60 border-b px-4 py-2.5'>
               <h3 className='flex items-center gap-1.5 font-semibold text-sm'>
                 Cost against work
@@ -89,7 +89,7 @@ export const FleetOverview = ({ fleet, query }: { fleet: Fleet; query: string })
             </div>
           </section>
 
-          <section className='rounded-lg border border-border/60 bg-card'>
+          <section className=' border border-border/60 bg-card'>
             <header className='flex items-baseline justify-between gap-4 border-border/60 border-b px-4 py-2.5'>
               <h3 className='font-semibold text-sm'>Highest cost to serve</h3>
               <span className='text-muted-foreground text-xs tabular-nums'>
@@ -262,7 +262,7 @@ const Fold = ({
       <button
         type='button'
         onClick={onClick}
-        className='rounded-sm px-1 font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+        className=' px-1 font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       >
         {action}
       </button>

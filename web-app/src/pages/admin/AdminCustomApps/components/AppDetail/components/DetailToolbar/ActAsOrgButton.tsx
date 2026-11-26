@@ -1,6 +1,7 @@
 import { ShieldAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
@@ -66,7 +67,7 @@ export function ActAsOrgButton({ app }: { app: CustomApp }) {
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent className='max-w-xs space-y-1.5'>
+        <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs space-y-1.5`}>
           {isActing ? (
             <p>You're already acting as an organization. Stop that session first.</p>
           ) : (

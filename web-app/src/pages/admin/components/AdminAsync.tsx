@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "./adminTone";
 
 /**
  * The three states every fetched thing on this surface can be in — loading, failed,
@@ -111,7 +112,9 @@ export function AdminAsync<T>({
       <div
         data-testid='admin-async-error'
         className={cn(
-          "rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-status-error-text text-xs",
+          "border border-status-error/30 p-4 text-xs",
+          ADMIN_TONE.danger.bg,
+          ADMIN_TONE.danger.text,
           className
         )}
       >

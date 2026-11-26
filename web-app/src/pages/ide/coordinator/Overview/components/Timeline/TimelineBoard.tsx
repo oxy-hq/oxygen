@@ -38,7 +38,7 @@ export const TimelineBoard: React.FC<{
                     run.startedAt
                   )}`}
                   className={cn(
-                    "h-4 w-4 rounded-sm opacity-90 transition-all hover:opacity-100 hover:ring-2 hover:ring-ring",
+                    "h-4 w-4 opacity-90 transition-all hover:opacity-100 hover:ring-2 hover:ring-ring",
                     RUN_STATUS[run.status].bg,
                     run.live && "animate-pulse"
                   )}

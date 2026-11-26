@@ -44,10 +44,7 @@ export function UsageChart({ days, onDaysChange, appId, title, height = 160, id 
   const empty = !isLoading && !error && points.every((p) => p.bytes === 0);
 
   return (
-    <section
-      className='rounded-md border bg-card p-2'
-      data-testid={`admin-storage-usage-chart-${id}`}
-    >
+    <section className=' border bg-card p-2' data-testid={`admin-storage-usage-chart-${id}`}>
       <header className='mb-1 flex items-center justify-between'>
         <h3 className='font-semibold text-sm'>{title}</h3>
         {/* fieldset/legend rather than role="group": the semantic element
@@ -61,7 +58,7 @@ export function UsageChart({ days, onDaysChange, appId, title, height = 160, id 
               onClick={() => onDaysChange(r)}
               aria-pressed={days === r}
               className={cn(
-                "rounded px-2 py-0.5 text-xs",
+                "px-2 py-0.5 text-xs",
                 days === r
                   ? "bg-muted font-medium text-foreground"
                   : "text-muted-foreground hover:text-foreground"

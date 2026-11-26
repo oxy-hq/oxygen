@@ -41,7 +41,7 @@ function StatsCard({ title, value, subtitle, icon, isLoading }: StatsCardProps) 
             <p className='truncate font-bold text-2xl tracking-tight'>{value}</p>
             <p className='text-muted-foreground text-xs'>{subtitle}</p>
           </div>
-          <div className='rounded-lg bg-primary/10 p-2 text-primary'>{icon}</div>
+          <div className='bg-primary/10 p-2 text-primary'>{icon}</div>
         </div>
       </CardContent>
     </Card>

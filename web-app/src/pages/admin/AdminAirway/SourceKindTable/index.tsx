@@ -20,7 +20,7 @@ export function SourceKindTable({ kinds }: { kinds: AirwaySourceKindConfig[] }) 
     <div className='@container'>
       <div
         className={cn(
-          "grid gap-x-4 overflow-x-auto rounded-lg border border-border/60 bg-card",
+          "grid gap-x-4 overflow-x-auto border border-border/60 bg-card",
           SOURCE_KIND_COLUMNS
         )}
         data-testid='admin-airway-source-kind-list'

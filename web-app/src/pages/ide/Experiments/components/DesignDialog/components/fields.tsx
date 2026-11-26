@@ -154,7 +154,7 @@ export function SelectField<T extends string>({
       <select
         id={id}
         data-testid={id}
-        className='h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
+        className='h-9 w-full border border-input bg-background px-2 text-sm'
         {...form.register(name)}
       >
         {choices.map((c) => (
@@ -181,7 +181,7 @@ export function FormSection({
 }) {
   return (
     <fieldset
-      className='flex flex-col gap-3 rounded-lg border p-4'
+      className='flex flex-col gap-3 border p-4'
       data-testid={`experiment-design-section-${id}`}
     >
       <legend className='px-1 font-medium text-sm'>{title}</legend>

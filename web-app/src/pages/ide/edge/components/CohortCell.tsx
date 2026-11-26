@@ -123,7 +123,7 @@ const CohortCell: React.FC<{
       type='button'
       onClick={() => setEditing(true)}
       className={cn(
-        "group inline-flex items-center gap-1 rounded px-1 py-0.5 text-left text-muted-foreground",
+        "group inline-flex items-center gap-1 px-1 py-0.5 text-left text-muted-foreground",
         "hover:bg-muted hover:text-foreground"
       )}
       aria-label={`Edit cohort (currently ${cohort})`}

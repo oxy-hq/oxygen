@@ -1,6 +1,7 @@
-import { House } from "lucide-react";
+import { House } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { VersionBadge } from "@/components/settings/SettingsDialog/components/VersionBadge";
+import { DESIGN_REFERENCE, iconControl } from "@/components/ui/reference/tokens";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -42,17 +43,19 @@ interface AdminTopbarProps {
  */
 export function AdminTopbar({ title, group }: AdminTopbarProps) {
   return (
-    <header className='@container flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2'>
+    <header className='@container flex h-9 shrink-0 items-center gap-1 border-border-subtle border-b bg-background px-2'>
       <SidebarTrigger className='-ml-0.5 size-7' />
       <Tooltip>
         <TooltipTrigger asChild>
           <Button asChild variant='ghost' size='icon' className='size-7 text-muted-foreground'>
             <Link to={ROUTES.ROOT} aria-label='Back to home'>
-              <House className='size-4' />
+              <House className={iconControl} />
             </Link>
           </Button>
         </TooltipTrigger>
-        <TooltipContent side='bottom'>Back to home</TooltipContent>
+        <TooltipContent side='bottom' className={DESIGN_REFERENCE}>
+          Back to home
+        </TooltipContent>
       </Tooltip>
       <Separator orientation='vertical' className='mx-1 h-4' />
       <Breadcrumb className='min-w-0'>

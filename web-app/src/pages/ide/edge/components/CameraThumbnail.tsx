@@ -35,7 +35,7 @@ const CameraThumbnail: React.FC<Props> = ({ cameraId, intervalMs, className }) =
     // 16:9 micro thumbnail. `aspect-video` keeps the box at a
     // consistent ratio whatever the camera resolution; `w-24` (96px)
     // is the width the rest of the table looks balanced against.
-    "flex aspect-video w-24 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40",
+    "flex aspect-video w-24 shrink-0 items-center justify-center overflow-hidden border bg-muted/40",
     className
   );
 

@@ -1,6 +1,7 @@
 import { Cog, Search, X } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import {
@@ -53,7 +54,7 @@ const FilterSelect = <T extends string>({
     <SelectTrigger className={width} size='sm'>
       <SelectValue />
     </SelectTrigger>
-    <SelectContent>
+    <SelectContent className={DESIGN_REFERENCE}>
       {options.map((o) => (
         <SelectItem key={o.value} value={o.value}>
           {o.label}

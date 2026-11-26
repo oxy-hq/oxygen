@@ -8,7 +8,8 @@
 @import "./dark.css";
 @import "./typography.css";
 @import "./motion.css";
-/* The reference design language, on a `design-reference` subtree only (the shell and the home). */
+/* The reference design language, on a `design-reference` subtree only (the shell, the home,
+   Oxygen Nexus and the admin console). */
 @import "../reference/theme.css";
 
 @plugin "tailwindcss-animate";

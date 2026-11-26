@@ -116,7 +116,7 @@ export const OrgOverviewTab = ({
             }
           >
             {(d) => (
-              <ul className='divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-card'>
+              <ul className='divide-y divide-border/60 overflow-hidden border border-border/60 bg-card'>
                 {d.items.map((r) => (
                   <RecentRunRow key={r.id} run={r} />
                 ))}
@@ -214,7 +214,7 @@ export const OrgOverviewTab = ({
 const PreviewSkeleton = () => (
   <div className='space-y-1.5'>
     {[0, 1, 2].map((i) => (
-      <div key={i} className='h-11 animate-pulse rounded-md bg-muted/40' />
+      <div key={i} className='h-11 animate-pulse bg-muted/40' />
     ))}
   </div>
 );

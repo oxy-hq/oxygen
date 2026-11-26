@@ -103,12 +103,12 @@ const CameraSidebar: React.FC<Props> = ({
                     type='button'
                     onClick={() => onSelect(c.id)}
                     className={cn(
-                      "flex w-full gap-2 rounded-md border border-transparent p-1.5 text-left transition-colors hover:bg-muted/40",
+                      "flex w-full gap-2 border border-transparent p-1.5 text-left transition-colors hover:bg-muted/40",
                       isActive && "border-primary bg-primary/5"
                     )}
                     data-testid={`camera-sidebar-item-${c.id}`}
                   >
-                    <div className='relative h-14 w-24 shrink-0 overflow-hidden rounded bg-black'>
+                    <div className='relative h-14 w-24 shrink-0 overflow-hidden bg-black'>
                       <CameraThumbnail
                         cameraId={c.id}
                         className='h-full w-full rounded-none border-0'

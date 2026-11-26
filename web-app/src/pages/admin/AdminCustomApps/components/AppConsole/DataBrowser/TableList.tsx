@@ -30,7 +30,7 @@ export const TableList = ({
             onClick={() => onSelect(table.name)}
             aria-pressed={table.name === selected}
             className={cn(
-              "flex w-full min-w-0 items-baseline justify-between gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-muted/60",
+              "flex w-full min-w-0 items-baseline justify-between gap-2 px-2 py-1 text-left text-xs hover:bg-muted/60",
               table.name === selected && "bg-muted font-medium"
             )}
             data-testid={`admin-app-data-table-${table.name}`}

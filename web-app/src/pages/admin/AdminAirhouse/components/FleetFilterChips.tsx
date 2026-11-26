@@ -37,7 +37,7 @@ export const FleetFilterChips = ({
       type='button'
       onClick={() => onChange(null)}
       className={cn(
-        "rounded-sm border px-1.5 py-0.5 text-xs transition-colors",
+        " border px-1.5 py-0.5 text-xs transition-colors",
         active === null
           ? "border-border bg-muted text-foreground"
           : "border-transparent text-muted-foreground hover:bg-muted/50"
@@ -58,7 +58,7 @@ export const FleetFilterChips = ({
           disabled={count === 0}
           onClick={() => onChange(selected ? null : severity)}
           className={cn(
-            "rounded-sm border px-1.5 py-0.5 transition-colors",
+            " border px-1.5 py-0.5 transition-colors",
             selected
               ? "border-border bg-muted"
               : "border-transparent hover:bg-muted/50 disabled:hover:bg-transparent",

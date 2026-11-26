@@ -44,7 +44,7 @@ const LimitInput = ({
           if (e.target.value !== "" && Number.isFinite(v) && v > 0) onLimitChange(v);
         }}
         onBlur={() => setDraft(String(limit))}
-        className='h-7 w-20 rounded-md border bg-background px-2 text-sm'
+        className='h-7 w-20 border bg-background px-2 text-sm'
       />
     </div>
   );

@@ -158,7 +158,7 @@ const AdminAirhouse = () => {
               data-testid='admin-airhouse-filter'
             />
             {!query && (
-              <kbd className='pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/60 px-1 font-mono text-[10px] text-muted-foreground'>
+              <kbd className='pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 border border-border/60 px-1 font-mono text-[10px] text-muted-foreground'>
                 /
               </kbd>
             )}

@@ -2,6 +2,7 @@ import { Clock, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 import SqlResultsTable from "@/components/sql/SqlResultsTable";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 
@@ -59,7 +60,7 @@ const ResultsView = ({
                   Using pre-aggregation
                 </span>
               </TooltipTrigger>
-              <TooltipContent side='bottom'>
+              <TooltipContent className={DESIGN_REFERENCE} side='bottom'>
                 Results served from pre-aggregated cache
               </TooltipContent>
             </Tooltip>

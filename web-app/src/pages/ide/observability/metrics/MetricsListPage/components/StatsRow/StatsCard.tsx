@@ -44,7 +44,7 @@ export default function StatsCard({
             </div>
             <p className='text-muted-foreground text-xs'>{subtitle}</p>
           </div>
-          <div className='rounded-lg bg-primary/10 p-2 text-primary'>{icon}</div>
+          <div className='bg-primary/10 p-2 text-primary'>{icon}</div>
         </div>
       </CardContent>
     </Card>

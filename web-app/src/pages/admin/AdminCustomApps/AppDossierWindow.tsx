@@ -1,6 +1,7 @@
 import { AlertCircle } from "lucide-react";
 import { useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAdminApp } from "@/hooks/api/customApps/useCustomApps";
 import { DossierBody } from "./components/AppDetail/components/Dossier";
@@ -60,7 +61,10 @@ export default function AppDossierWindow() {
 
   return (
     <div
-      className='flex h-screen min-h-0 flex-col bg-background'
+      // Mounted outside `AdminLayout` (see above), so it is outside the console's
+      // reference subtree and carries the class itself — the dossier it renders is
+      // built from the admin kit, whose roles only resolve inside one.
+      className={`${DESIGN_REFERENCE} flex h-screen min-h-0 flex-col bg-background`}
       data-testid='admin-app-dossier-window'
     >
       <header className='flex h-9 shrink-0 items-center gap-2 border-b px-3'>

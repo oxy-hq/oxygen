@@ -1,4 +1,5 @@
 import { UserRound } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import type { CustomApp } from "@/types/apps";
 
@@ -39,7 +40,9 @@ export const NotFromCiBadge = ({ app }: { app: Pick<CustomApp, "live_published_v
           <UserRound className='size-3' />
         </span>
       </TooltipTrigger>
-      <TooltipContent className='max-w-xs'>{NOT_FROM_CI_DETAIL}</TooltipContent>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>
+        {NOT_FROM_CI_DETAIL}
+      </TooltipContent>
     </Tooltip>
   );
 };

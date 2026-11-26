@@ -1,6 +1,7 @@
 import { CalendarClock } from "lucide-react";
 import type React from "react";
 import { memo, useEffect, useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import {
@@ -84,7 +85,7 @@ const CronBuilder: React.FC<Props> = ({ value, onChange, timezone }) => {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value='minutes'>Every N minutes</SelectItem>
             <SelectItem value='hourly'>Hourly</SelectItem>
             <SelectItem value='daily'>Daily</SelectItem>
@@ -137,7 +138,7 @@ const CronBuilder: React.FC<Props> = ({ value, onChange, timezone }) => {
                 <SelectTrigger className='w-36'>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   {DAYS.map((d) => (
                     <SelectItem key={d.v} value={d.v}>
                       {d.l}
@@ -203,7 +204,7 @@ const CronBuilder: React.FC<Props> = ({ value, onChange, timezone }) => {
         </div>
       )}
 
-      <div className='flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2'>
+      <div className='flex flex-col gap-1.5 bg-muted px-3 py-2'>
         <div className='flex items-center gap-2'>
           <code className='font-mono text-sm'>{value || "—"}</code>
           <span className='text-muted-foreground text-xs'>{describeCron(value)}</span>

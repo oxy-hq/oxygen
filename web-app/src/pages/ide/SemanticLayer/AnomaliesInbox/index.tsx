@@ -1,5 +1,6 @@
 import { AlertTriangle, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -296,7 +297,7 @@ export default function AnomaliesInbox() {
                 <SelectTrigger className='w-36'>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   {STATUS_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
@@ -324,7 +325,7 @@ export default function AnomaliesInbox() {
                   type='date'
                   value={asOf}
                   onChange={(e) => setAsOf(e.target.value)}
-                  className='h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm'
+                  className='h-8 border border-input bg-background px-2 text-foreground text-sm'
                 />
               </label>
               <Button
@@ -614,9 +615,9 @@ function ScanFailuresBanner({
   onDismiss: () => void;
 }) {
   return (
-    <div className='mx-4 mt-3 rounded-md border border-orange-500/40 bg-orange-500/5 px-3 py-2'>
+    <div className='mx-4 mt-3 border border-status-warning/40 bg-status-warning/5 px-3 py-2'>
       <div className='flex items-start justify-between gap-2'>
-        <div className='flex items-center gap-1.5 font-medium text-orange-600 text-sm dark:text-orange-400'>
+        <div className='flex items-center gap-1.5 font-medium text-status-warning text-sm'>
           <AlertTriangle className='size-4 shrink-0' />
           {failures.length} monitor{failures.length === 1 ? "" : "s"} failed to scan
         </div>

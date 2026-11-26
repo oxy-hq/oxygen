@@ -396,7 +396,7 @@ const MapTooltip = ({ o, x, y, width }: { o: RankedOrg; x: number; y: number; wi
   return (
     <div
       role='tooltip'
-      className='pointer-events-none absolute z-10 w-48 rounded-md border border-border/60 bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md'
+      className='pointer-events-none absolute z-10 w-48 border border-border/60 bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md'
       style={{
         left: right ? undefined : x + 14,
         right: right ? width - x + 14 : undefined,

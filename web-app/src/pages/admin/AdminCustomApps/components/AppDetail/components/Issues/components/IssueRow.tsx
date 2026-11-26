@@ -142,7 +142,7 @@ const IssueDetail = ({
         {/* Wrapped, never truncated: this is the most important text in the
             section and the one a narrow column would cut first. */}
         <pre
-          className='max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed'
+          className='max-h-60 overflow-auto whitespace-pre-wrap break-words bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed'
           data-testid='admin-app-issues-row-error'
         >
           {describeLastFailure(issue)}

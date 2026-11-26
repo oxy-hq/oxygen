@@ -58,7 +58,7 @@ export default function DefinitionView({ summary }: { summary: ExperimentListIte
   const def = readDefinition(raw);
   if (!raw) {
     return (
-      <section className='rounded-lg border p-4' data-testid='experiment-definition'>
+      <section className='border p-4' data-testid='experiment-definition'>
         <h3 className='mb-2 font-medium text-sm'>Definition</h3>
         <p className='text-muted-foreground text-sm'>No definition to show.</p>
       </section>
@@ -72,7 +72,7 @@ export default function DefinitionView({ summary }: { summary: ExperimentListIte
   const assignText = past ? comparesText : randomisesText;
   return (
     <Collapsible asChild defaultOpen={isEditable(summary.status)}>
-      <section className='group/def rounded-lg border p-4' data-testid='experiment-definition'>
+      <section className='group/def border p-4' data-testid='experiment-definition'>
         <CollapsibleTrigger className='flex w-full items-center gap-2 text-left'>
           <ChevronRight className='size-4 shrink-0 transition-transform group-data-[state=open]/def:rotate-90' />
           <span className='font-medium text-sm'>Definition</span>

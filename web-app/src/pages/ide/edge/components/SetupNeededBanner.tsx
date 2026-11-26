@@ -52,7 +52,7 @@ const SetupNeededBanner: React.FC = () => {
 
   return (
     <div
-      className='flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-2 text-amber-900 dark:text-amber-200'
+      className='flex items-center justify-between gap-3 border border-dot-warning/40 bg-dot-warning/5 px-4 py-2 text-status-warning'
       data-testid='setup-needed-banner'
     >
       <div className='flex min-w-0 items-center gap-2'>
@@ -61,7 +61,7 @@ const SetupNeededBanner: React.FC = () => {
           <span className='font-medium'>
             {pending.length} {noun} awaiting review
           </span>
-          <span className='text-amber-800/80 dark:text-amber-200/70'>
+          <span className='text-status-warning/80'>
             Camera analytics is off by default. Confirm consent and set zones to start producing
             compliance reports.
           </span>
@@ -69,7 +69,7 @@ const SetupNeededBanner: React.FC = () => {
       </div>
       <Link
         to={reviewUrl}
-        className='inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1 font-medium text-xs hover:bg-amber-500/20'
+        className='inline-flex shrink-0 items-center gap-1 border border-dot-warning/50 bg-dot-warning/10 px-2.5 py-1 font-medium text-xs hover:bg-dot-warning/20'
       >
         Review
         <ChevronRight className='h-3.5 w-3.5' />

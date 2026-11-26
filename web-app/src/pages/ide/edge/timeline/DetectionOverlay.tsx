@@ -58,10 +58,10 @@ const DetectionOverlay: React.FC<Props> = ({ envelope, alwaysShow }) => {
           <div
             key={d.key}
             className={cn(
-              "absolute rounded-sm border-2",
+              "absolute border-2",
               lowConfidence
-                ? "border-amber-400/70 bg-amber-400/5"
-                : "border-emerald-400/80 bg-emerald-400/5"
+                ? "border-dot-warning/70 bg-dot-warning/5"
+                : "border-dot-success/80 bg-dot-success/5"
             )}
             style={{
               left: `${d.bbox.x * 100}%`,
@@ -72,8 +72,8 @@ const DetectionOverlay: React.FC<Props> = ({ envelope, alwaysShow }) => {
           >
             <span
               className={cn(
-                "absolute top-0 left-0 -translate-y-full whitespace-nowrap rounded-sm px-1 py-px font-medium font-mono text-[10px] text-white",
-                lowConfidence ? "bg-amber-500/90" : "bg-emerald-500/90"
+                "absolute top-0 left-0 -translate-y-full whitespace-nowrap px-1 py-px font-medium font-mono text-[10px] text-white",
+                lowConfidence ? "bg-dot-warning/90" : "bg-dot-success/90"
               )}
             >
               {d.class} {Math.round(d.confidence * 100)}%
@@ -85,7 +85,7 @@ const DetectionOverlay: React.FC<Props> = ({ envelope, alwaysShow }) => {
           from one frame, not continuous tracking. Hidden when
           alwaysShow is set (debug mode usually doesn't need it). */}
       {!alwaysShow && (
-        <span className='absolute top-2 right-2 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-white'>
+        <span className='absolute top-2 right-2 bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-white'>
           YOLO @ {(envelope.frame_offset_ms / 1000).toFixed(1)}s · {envelope.model}
         </span>
       )}

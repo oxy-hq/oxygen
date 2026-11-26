@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { useId, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/shadcn/select";
@@ -25,7 +26,7 @@ function VariantSelect({
       <SelectTrigger size='sm' className='w-32 text-xs' data-testid={testId}>
         <span className='truncate font-mono'>{value}</span>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className={DESIGN_REFERENCE}>
         {options.map((v) => (
           <SelectItem key={v} value={v} className='font-mono text-xs'>
             {v}

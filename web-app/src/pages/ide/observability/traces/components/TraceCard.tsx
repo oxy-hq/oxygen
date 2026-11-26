@@ -27,7 +27,7 @@ export function TraceCard({
   return (
     <div
       className={cn(
-        "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors hover:bg-accent",
+        "flex cursor-pointer items-start gap-2 border px-3 py-2 transition-colors hover:bg-accent",
         selected && "border-primary bg-accent"
       )}
       onClick={onClick}

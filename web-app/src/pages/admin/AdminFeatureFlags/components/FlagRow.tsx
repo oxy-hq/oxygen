@@ -77,7 +77,7 @@ export function FlagRow({
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
           onClick={() => setOpen(!open)}
-          className='group flex w-full min-w-0 items-start gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          className='group flex w-full min-w-0 items-start gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring'
           data-testid={`admin-feature-flags-expand-${flag.key}`}
         >
           <ChevronRight
@@ -112,7 +112,7 @@ export function FlagRow({
         {flag.per_org && (
           <button
             type='button'
-            className='mt-1 rounded-sm text-xs underline decoration-muted-foreground/50 underline-offset-2 outline-none transition-colors hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring'
+            className='mt-1 text-xs underline decoration-muted-foreground/50 underline-offset-2 outline-none transition-colors hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring'
             onClick={onEditRules}
             data-testid={`admin-feature-flags-rules-${flag.key}`}
           >

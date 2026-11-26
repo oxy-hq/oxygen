@@ -90,7 +90,7 @@ export function GraphCanvas({
         <Controls
           showInteractive={false}
           className={cn(
-            "!overflow-hidden !rounded-lg !border !border-border !bg-card !shadow-sm",
+            "!overflow-hidden !border !border-border-subtle !bg-card !shadow-none",
             "[&_button]:!border-border [&_button]:!bg-card [&_button]:!fill-foreground",
             "[&_button:hover]:!bg-muted"
           )}

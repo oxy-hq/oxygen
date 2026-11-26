@@ -1,6 +1,7 @@
 import { Check, Copy, Maximize2 } from "lucide-react";
 import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/shadcn/dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/shadcn/toggle-group";
@@ -46,7 +47,7 @@ export function AttributeCard({ name, value }: AttributeCardProps) {
 
   return (
     <>
-      <div className='overflow-hidden rounded-lg border'>
+      <div className='overflow-hidden border'>
         {/* Header */}
         <div className='flex items-center justify-between border-b bg-card px-3 py-2'>
           <span className='font-semibold text-xs'>{name}</span>
@@ -112,7 +113,7 @@ export function AttributeCard({ name, value }: AttributeCardProps) {
       <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
         <DialogContent
           showCloseButton={false}
-          className='flex max-h-[90vh] max-w-4xl flex-col'
+          className={`${DESIGN_REFERENCE} flex max-h-[90vh] max-w-4xl flex-col`}
           onPointerDownOutside={() => setIsExpanded(false)}
         >
           <DialogHeader className='flex-shrink-0'>

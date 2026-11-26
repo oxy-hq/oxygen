@@ -1,6 +1,7 @@
 import { ArrowUpDown, Download, Filter, Plus, Variable } from "lucide-react";
 import Papa from "papaparse";
 import { useEffect, useRef, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -111,7 +112,7 @@ const TabsHeader = ({
                 Add
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
+            <DropdownMenuContent align='end' className={DESIGN_REFERENCE}>
               <DropdownMenuItem onClick={onAddFilter}>
                 <Filter className='h-4 w-4' />
                 Add Filter

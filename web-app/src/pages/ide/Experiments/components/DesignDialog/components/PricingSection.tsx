@@ -27,7 +27,7 @@ export default function PricingSection(p: SectionProps) {
   return (
     <details
       open={filled || observed}
-      className='rounded-lg border p-4'
+      className='border p-4'
       data-testid='experiment-design-section-pricing'
     >
       <summary className='cursor-pointer font-medium text-sm'>

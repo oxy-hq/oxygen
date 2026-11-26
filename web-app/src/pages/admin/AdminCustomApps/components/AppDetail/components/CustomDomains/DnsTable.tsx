@@ -7,10 +7,7 @@ import type { DnsRecord } from "./dnsRecords";
  * ask instead of showing an empty cell.
  */
 export const DnsTable = ({ domainId, records }: { domainId: string; records: DnsRecord[] }) => (
-  <div
-    className='overflow-x-auto rounded-md border'
-    data-testid={`admin-app-domain-dns-${domainId}`}
-  >
+  <div className='overflow-x-auto border' data-testid={`admin-app-domain-dns-${domainId}`}>
     <table className='w-full text-left text-xs'>
       <thead className='border-b text-muted-foreground'>
         <tr>

@@ -32,7 +32,7 @@ export function TracesTable({
   selectionFull
 }: TracesTableProps) {
   return (
-    <div className='overflow-x-auto rounded-md border'>
+    <div className='overflow-x-auto border'>
       <Table>
         <TableHeader>
           <TableRow>

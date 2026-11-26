@@ -48,7 +48,7 @@ export default function DataDisplay({ value, label }: OutputDisplayProps) {
             borderRadius: "0.5rem",
             fontSize: "0.75rem"
           }}
-          className='rounded-lg border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
+          className='border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
           wrapLines
           lineProps={{
             style: { wordBreak: "break-all", whiteSpace: "pre-wrap" }
@@ -57,7 +57,7 @@ export default function DataDisplay({ value, label }: OutputDisplayProps) {
           {displayValue}
         </SyntaxHighlighter>
       ) : (
-        <pre className='max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-2 text-xs'>
+        <pre className='max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap border bg-muted/30 p-2 text-xs'>
           {displayValue}
         </pre>
       )}

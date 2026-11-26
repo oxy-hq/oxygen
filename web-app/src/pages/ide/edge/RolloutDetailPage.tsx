@@ -33,11 +33,11 @@ const formatWhen = (iso: string | null) => (iso ? new Date(iso).toLocaleString()
 const statusIcon = (status: RolloutConvergenceRow["convergence_status"]) => {
   switch (status) {
     case "converged":
-      return <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />;
+      return <CheckCircle2 className='h-3.5 w-3.5 text-status-success' />;
     case "failed":
       return <XCircle className='h-3.5 w-3.5 text-destructive' />;
     case "pending":
-      return <Clock className='h-3.5 w-3.5 text-amber-500' />;
+      return <Clock className='h-3.5 w-3.5 text-status-warning' />;
     case "untargeted":
       return <Minus className='h-3.5 w-3.5 text-muted-foreground' />;
     default:
@@ -130,7 +130,7 @@ const RolloutDetailPage: React.FC = () => {
         </Badge>
       </div>
 
-      <div className='overflow-hidden rounded-lg border'>
+      <div className='overflow-hidden border'>
         <Table>
           <TableHeader>
             <TableRow>

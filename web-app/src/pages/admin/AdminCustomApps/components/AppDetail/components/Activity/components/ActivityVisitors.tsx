@@ -42,7 +42,7 @@ const VisitorRole = ({
   return (
     <span className='flex items-baseline gap-1.5' data-testid='admin-app-activity-visitor-role'>
       {appRole ? (
-        <span className='rounded bg-muted px-1.5 py-0.5 font-medium'>{appRole}</span>
+        <span className='bg-muted px-1.5 py-0.5 font-medium'>{appRole}</span>
       ) : (
         // A dash, not "no app role". NULL means *not recorded*, and for an
         // org-wide app it is also what a viewer with no explicit or team grant
@@ -82,7 +82,7 @@ export const ActivityVisitors = ({ appId }: { appId: string }) => {
           </AdminInfo>
         </p>
       ) : (
-        <div className='overflow-hidden rounded-md border'>
+        <div className='overflow-hidden border'>
           <table className='w-full text-xs'>
             <thead className='bg-muted/40 text-muted-foreground text-xs uppercase tracking-wider'>
               <tr>

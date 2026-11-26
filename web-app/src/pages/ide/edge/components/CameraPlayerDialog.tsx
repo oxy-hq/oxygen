@@ -1,6 +1,7 @@
 import { Bolt } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import {
   Dialog,
@@ -36,7 +37,7 @@ const CameraPlayerDialog: React.FC<Props> = ({ camera, open, onOpenChange }) => 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-3xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-3xl`}>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             {camera?.name ?? "Camera"}
@@ -61,7 +62,7 @@ const CameraPlayerDialog: React.FC<Props> = ({ camera, open, onOpenChange }) => 
           </DialogDescription>
         </DialogHeader>
 
-        <div className='relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-md border bg-muted/40'>
+        <div className='relative flex aspect-video w-full items-center justify-center overflow-hidden border bg-muted/40'>
           {open && camera && (
             <LivePlayer
               cameraId={camera.id}

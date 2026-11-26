@@ -1,5 +1,6 @@
 import { AlertCircle, ArrowDown, ArrowRight, ArrowUp, CheckCircle2 } from "lucide-react";
 import { useMemo } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/shadcn/dialog";
@@ -146,7 +147,7 @@ function buildDeltas(a: ComparedTrace, b: ComparedTrace): DeltaRow[] {
 
 function DeltaStrip({ a, b }: { a: ComparedTrace; b: ComparedTrace }) {
   return (
-    <div className='rounded-lg border bg-muted/40 p-3'>
+    <div className='border bg-muted/40 p-3'>
       <div className='mb-2 flex items-center gap-1 text-muted-foreground text-xs uppercase tracking-wide'>
         Difference <ArrowRight className='size-3' /> B − A
       </div>
@@ -185,7 +186,7 @@ export function CompareTracesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-4xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-4xl`}>
         <DialogHeader>
           <DialogTitle>Compare traces</DialogTitle>
         </DialogHeader>

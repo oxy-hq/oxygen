@@ -1,6 +1,7 @@
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useController, useFieldArray } from "react-hook-form";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Command,
@@ -59,7 +60,10 @@ function ValuesField(
             <ChevronsUpDown className='h-4 w-4 opacity-50' />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align='start' className='w-[var(--radix-popover-trigger-width)] p-0'>
+        <PopoverContent
+          align='start'
+          className={`${DESIGN_REFERENCE} w-[var(--radix-popover-trigger-width)] p-0`}
+        >
           <Command>
             <CommandInput placeholder='Search values' />
             <CommandList>

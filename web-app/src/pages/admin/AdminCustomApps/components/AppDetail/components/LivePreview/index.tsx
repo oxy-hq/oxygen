@@ -316,7 +316,7 @@ const DraftNotice = ({ target }: { target: DraftTarget | null }) => (
     className='flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-8'
     data-testid='admin-app-draft-notice'
   >
-    <div className='max-w-sm space-y-1.5 rounded-lg border bg-background p-4 text-center'>
+    <div className='max-w-sm space-y-1.5 border bg-background p-4 text-center'>
       <p className='font-medium text-sm'>
         {target?.kind === "unavailable" ? "No staging view" : "Looking up the staging host…"}
       </p>

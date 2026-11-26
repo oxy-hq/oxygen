@@ -17,7 +17,7 @@ type Props = {
    *  surface a transport/status badge in their own chrome. */
   onStatusChange?: (status: LiveStatus, transport: LiveTransport) => void;
   /** Tailwind classes applied to the outermost wrapper. Lets the
-   *  caller decide between "aspect-video rounded card" and
+   *  caller decide between "aspect-video card" and
    *  "fill the parent surface." */
   className?: string;
   /** Native HTML5 controls. Off by default — most surfaces in the

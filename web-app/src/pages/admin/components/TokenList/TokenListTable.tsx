@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { card } from "@/components/ui/reference/tokens";
 import { Table, TableBody, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_HEADER_ROW_CLASS, AdminTh } from "@/pages/admin/components/AdminTable";
@@ -34,7 +35,7 @@ interface Props {
 export function TokenListTable({ area, columns, className, fetched, limit, children }: Props) {
   return (
     <div className='space-y-2'>
-      <div className='overflow-x-auto rounded-md border border-border/60'>
+      <div className={cn(card, "overflow-x-auto")}>
         <Table className={cn("table-fixed text-xs", className)} data-testid={`${area}-table`}>
           <TableHeader>
             <TableRow className={ADMIN_HEADER_ROW_CLASS}>

@@ -2,6 +2,7 @@ import { ChevronRight, Film, Filter, PlayCircle } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -186,7 +187,7 @@ const DetectionsPage: React.FC = () => {
           <SelectTrigger id='det-camera' className='w-56'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value='all'>All cameras{selectedSite ? " in site" : ""}</SelectItem>
             {scopedCameras.map((c) => (
               <SelectItem key={c.id} value={c.id}>
@@ -203,7 +204,7 @@ const DetectionsPage: React.FC = () => {
           <SelectTrigger id='det-range' className='w-44'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {RANGE_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -219,7 +220,7 @@ const DetectionsPage: React.FC = () => {
           <SelectTrigger id='det-trigger' className='w-44'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value='all'>All triggers</SelectItem>
             {triggerTypes.map((t) => (
               <SelectItem key={t} value={t}>
@@ -286,7 +287,7 @@ const DetectionsPage: React.FC = () => {
       </div>
 
       {/* Results table */}
-      <div className='min-h-0 flex-1 overflow-auto rounded-lg border bg-card'>
+      <div className='min-h-0 flex-1 overflow-auto border bg-card'>
         <Table>
           <TableHeader>
             <TableRow>
@@ -383,7 +384,7 @@ const DetectionsPage: React.FC = () => {
                         <TooltipContent
                           side='bottom'
                           align='start'
-                          className='max-w-xl whitespace-pre-wrap break-all p-3 text-left font-mono text-xs leading-relaxed'
+                          className={`${DESIGN_REFERENCE} max-w-xl whitespace-pre-wrap break-all p-3 text-left font-mono text-xs leading-relaxed`}
                         >
                           {r.report_text}
                         </TooltipContent>
@@ -455,7 +456,7 @@ const ArbitrationCell: React.FC<{
   }
   if (agreementStatus === "agree") {
     return (
-      <Badge variant='outline' className='border-emerald-500/40 bg-emerald-500/5 text-[10px]'>
+      <Badge variant='outline' className='border-dot-success/40 bg-dot-success/5 text-[10px]'>
         agree
       </Badge>
     );

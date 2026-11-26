@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -44,7 +45,7 @@ export function NewPublishTokenDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !create.isPending && onOpenChange(next)}>
-      <DialogContent className='sm:max-w-md'>
+      <DialogContent className={`${DESIGN_REFERENCE} sm:max-w-md`}>
         <form onSubmit={onSubmit} className='space-y-4'>
           <DialogHeader>
             <DialogTitle>New publish token</DialogTitle>

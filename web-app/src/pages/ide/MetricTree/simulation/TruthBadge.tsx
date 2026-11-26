@@ -42,7 +42,7 @@ export function TruthBadge({ fit }: { fit: SimulationFit }) {
       : null;
 
   return (
-    <div className='flex flex-col gap-1.5 rounded-md border border-border bg-background/40 p-2'>
+    <div className='flex flex-col gap-1.5 border border-border bg-background/40 p-2'>
       <div className='flex items-start justify-between gap-2'>
         <EdgeLabel edge={fit.edge} className='flex-1' />
         {/* `whitespace-nowrap`, not wrapping: "Confidently wrong" broken across
@@ -50,7 +50,7 @@ export function TruthBadge({ fit }: { fit: SimulationFit }) {
             edge beside it is what gives up width. */}
         <span
           className={cn(
-            "shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wider",
+            "shrink-0 whitespace-nowrap px-1.5 py-0.5 text-[9.5px] uppercase tracking-wider",
             OUTCOME_CLASS[fit.outcome]
           )}
         >

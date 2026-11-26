@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import {
@@ -52,7 +53,7 @@ export default function InviteMemberForm({
         <SelectTrigger className='w-32' data-testid='partner-invite-role'>
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           <SelectItem value='member' data-testid='partner-invite-role-member'>
             Member
           </SelectItem>

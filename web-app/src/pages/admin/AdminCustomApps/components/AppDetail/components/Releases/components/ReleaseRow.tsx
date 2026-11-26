@@ -32,7 +32,7 @@ export const ReleaseRow = ({
   const b = r.build;
   return (
     <li
-      className='flex flex-col gap-2 rounded-md border border-border bg-card px-3 py-2'
+      className='flex flex-col gap-2 border border-border bg-card px-3 py-2'
       data-testid={`admin-app-release-${r.index}`}
     >
       <div className='flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
@@ -53,11 +53,7 @@ export const ReleaseRow = ({
           ))}
       </div>
       <div
-        className={cn(
-          "flex flex-col gap-0.5 rounded-sm px-2 py-1 ring-1 ring-inset",
-          tone.bg,
-          tone.ring
-        )}
+        className={cn("flex flex-col gap-0.5 px-2 py-1 ring-1 ring-inset", tone.bg, tone.ring)}
         data-testid={`admin-app-release-${r.index}-verdict`}
         data-verdict={r.verdict.kind}
       >

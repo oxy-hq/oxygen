@@ -1,6 +1,7 @@
 import { Check, Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent } from "@/components/ui/shadcn/card";
 import {
@@ -63,7 +64,7 @@ export default function AppTokenManager({ partnerId }: { partnerId: string }) {
             <SelectTrigger className='w-52' data-testid='partner-tokens-client'>
               <SelectValue placeholder='Select a client…' />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {(clients ?? []).map((c) => (
                 <SelectItem
                   key={c.org_id}
@@ -81,7 +82,7 @@ export default function AppTokenManager({ partnerId }: { partnerId: string }) {
               <SelectTrigger className='w-52' data-testid='partner-tokens-app'>
                 <SelectValue placeholder='Select an app…' />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {(apps ?? []).length === 0 ? (
                   <div className='px-2 py-1.5 text-muted-foreground text-xs'>
                     No apps in this client.
@@ -153,7 +154,7 @@ function TokenPanel({ partnerId, appId }: { partnerId: string; appId: string }) 
             {tokens.map((t) => (
               <TableRow
                 key={t.id}
-                className='border-border/60'
+                className='border-border-subtle'
                 data-testid={`partner-tokens-row-${t.id}`}
               >
                 <TableCell className='font-medium text-sm'>{t.name}</TableCell>
@@ -209,7 +210,7 @@ function CreatedTokenDialog({
 
   return (
     <Dialog open={!!token} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className='max-w-lg'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-lg`}>
         <DialogHeader>
           <DialogTitle>Token created</DialogTitle>
           <DialogDescription>
@@ -218,7 +219,7 @@ function CreatedTokenDialog({
           </DialogDescription>
         </DialogHeader>
         <div className='flex items-center gap-2'>
-          <code className='flex-1 overflow-x-auto rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 font-mono text-xs'>
+          <code className='flex-1 overflow-x-auto border border-border-subtle bg-field px-2 py-1.5 font-mono text-xs'>
             {token?.token}
           </code>
           <Button

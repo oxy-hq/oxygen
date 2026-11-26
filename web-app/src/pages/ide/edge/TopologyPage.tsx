@@ -78,9 +78,9 @@ const tierIcon = (tier: Tier) => {
 const statusRing = (status: EdgeNodeData["status"]) => {
   switch (status) {
     case "ok":
-      return "ring-2 ring-emerald-500/40 bg-emerald-500/5";
+      return "ring-2 ring-dot-success/40 bg-dot-success/5";
     case "warn":
-      return "ring-2 ring-amber-500/40 bg-amber-500/5";
+      return "ring-2 ring-dot-warning/40 bg-dot-warning/5";
     case "down":
       return "ring-2 ring-destructive/50 bg-destructive/5";
     default:
@@ -99,9 +99,9 @@ const makeTopologyNode =
     return (
       <div
         className={cn(
-          "flex h-16 w-[200px] items-center gap-2 rounded-md px-3 shadow-sm transition-shadow",
+          "flex h-16 w-[200px] items-center gap-2 px-3 transition-shadow",
           statusRing(data.status),
-          data.href && "cursor-pointer hover:shadow-md hover:ring-primary/40"
+          data.href && "cursor-pointer hover:ring-primary/40"
         )}
         data-testid={`topology-node-${data.tier}`}
       >
@@ -367,7 +367,7 @@ const TopologyContent: React.FC<{
       <Controls
         showInteractive={false}
         className={cn(
-          "!overflow-hidden !rounded-md !border !border-border !bg-card !shadow-sm",
+          "!overflow-hidden !!border !border-border !bg-card",
           "[&_button]:!border-border [&_button]:!bg-card [&_button]:!fill-foreground",
           "[&_button:hover]:!bg-muted"
         )}
@@ -414,10 +414,10 @@ const TopologyPage: React.FC = () => {
           courtesy of xyflow's defaults. */}
       <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5'>
         <Badge variant='outline' className='gap-1.5 bg-card text-[10px]'>
-          <span className='h-1.5 w-1.5 rounded-full bg-emerald-500' /> active
+          <span className='h-1.5 w-1.5 rounded-full bg-dot-success' /> active
         </Badge>
         <Badge variant='outline' className='gap-1.5 bg-card text-[10px]'>
-          <span className='h-1.5 w-1.5 rounded-full bg-amber-500' /> pending
+          <span className='h-1.5 w-1.5 rounded-full bg-dot-warning' /> pending
         </Badge>
         <Badge variant='outline' className='gap-1.5 bg-card text-[10px]'>
           <span className='h-1.5 w-1.5 rounded-full bg-destructive' /> offline

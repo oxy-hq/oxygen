@@ -2,6 +2,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/shadcn/alert";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -118,7 +119,7 @@ const UnifiSetupDialog: React.FC<Props> = ({ open, onOpenChange, onImported, mod
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className='max-w-2xl overflow-x-hidden'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-2xl overflow-x-hidden`}>
         <DialogHeader>
           <DialogTitle>{isScanMode ? "Scan UniFi sites" : "Connect UniFi"}</DialogTitle>
           <DialogDescription>

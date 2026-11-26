@@ -28,7 +28,7 @@ export const StagesBar = ({
   return (
     <div className='flex min-w-0 flex-col gap-1' data-testid={testId}>
       <div
-        className='flex h-1.5 w-full gap-px overflow-hidden rounded-sm'
+        className='flex h-1.5 w-full gap-px overflow-hidden'
         role='img'
         aria-label={`Stages: ${summary}; total ${total}`}
       >

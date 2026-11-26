@@ -82,7 +82,7 @@ const CompilesTable = ({
         </span>
       </div>
 
-      <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+      <div className='overflow-hidden border border-border/60 bg-card'>
         <Table>
           <TableHeader>
             <TableRow className='hover:bg-transparent'>

@@ -1,5 +1,6 @@
 import { ArrowUpCircle, ChevronDown, EyeOff, History, Send } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -201,10 +202,7 @@ export const LifecycleCard = ({
 
   return (
     <div
-      className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-3",
-        className
-      )}
+      className={cn("flex flex-col gap-3 border border-border/60 bg-card p-3", className)}
       data-testid='app-lifecycle'
       data-variant='full'
     >
@@ -308,7 +306,7 @@ const RollbackMenu = ({
         <ChevronDown className='size-3' />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align='end' className='max-h-80 overflow-auto'>
+    <DropdownMenuContent align='end' className={`${DESIGN_REFERENCE} max-h-80 overflow-auto`}>
       {targets.map((b) => (
         <DropdownMenuItem
           key={b.id}

@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import TableContentWrapper from "@/components/settings/components/TableContentWrapper";
 import TableWrapper from "@/components/settings/components/TableWrapper";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Label } from "@/components/ui/shadcn/label";
@@ -156,14 +157,14 @@ const CamerasTable: React.FC = () => {
     <div className='flex flex-col gap-3'>
       {reviewMode && (
         <div
-          className='flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-amber-900 dark:text-amber-200'
+          className='flex items-center justify-between gap-3 border border-dot-warning/40 bg-dot-warning/5 px-3 py-2 text-status-warning'
           data-testid='cameras-review-banner'
         >
           <div className='flex min-w-0 items-center gap-2'>
             <ShieldAlert className='h-4 w-4 shrink-0' />
             <div className='flex min-w-0 flex-col text-xs'>
               <span className='font-medium'>Review mode</span>
-              <span className='text-amber-800/80 dark:text-amber-200/70'>
+              <span className='text-status-warning/80'>
                 {filtered.length === 0
                   ? "Nothing left to review in this filter. Exit to see the full list."
                   : `${filtered.length} ${
@@ -205,7 +206,7 @@ const CamerasTable: React.FC = () => {
           <SelectTrigger id='edge-box-filter' className='w-72'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {edgeBoxes.map((eb) => (
               <SelectItem key={eb.id} value={eb.id}>
                 {eb.hardware_model} @ {eb.site_name}

@@ -144,7 +144,7 @@ const Grid = ({
   onSort: (column: string) => void;
   textChars: number;
 }) => (
-  <div className='max-h-[28rem] overflow-auto rounded-md border border-border/60'>
+  <div className='max-h-[28rem] overflow-auto border border-border/60'>
     <table className='w-max min-w-full border-collapse text-xs' data-testid='admin-app-data-grid'>
       <thead className='sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]'>
         <tr>

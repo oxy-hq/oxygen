@@ -1,5 +1,6 @@
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Command,
@@ -63,7 +64,7 @@ export function OrgPicker({
           <ChevronsUpDown className='ml-2 size-3 shrink-0 opacity-50' />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className='w-72 p-0' align='start'>
+      <PopoverContent className={`${DESIGN_REFERENCE} w-72 p-0`} align='start'>
         <Command shouldFilter={false}>
           <CommandInput
             placeholder='Search organizations…'

@@ -70,7 +70,7 @@ export const TimelineLane: React.FC<{
               onClick={() => onSelect(run.runId)}
               title={`${run.title} — ${status.label} · ${formatDurationMs(endMs - startMs)}`}
               className={cn(
-                "absolute h-4 min-w-1.5 rounded-sm opacity-90 transition-all",
+                "absolute h-4 min-w-1.5 opacity-90 transition-all",
                 "hover:z-10 hover:opacity-100 hover:ring-2 hover:ring-ring",
                 status.bg,
                 run.live && "animate-pulse"

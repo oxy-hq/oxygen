@@ -1,5 +1,6 @@
 import { CalendarClock } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
@@ -88,7 +89,7 @@ export function TimeRangeControl({ value, onChange }: TimeRangeControlProps) {
             {isCustom ? formatRangeLabel(value.from, value.to) : "Custom"}
           </Button>
         </PopoverTrigger>
-        <PopoverContent align='end' className='w-72 space-y-3'>
+        <PopoverContent align='end' className={`${DESIGN_REFERENCE} w-72 space-y-3`}>
           <div className='space-y-1.5'>
             <Label htmlFor='range-from' className='text-muted-foreground text-xs'>
               From

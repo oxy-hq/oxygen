@@ -65,7 +65,7 @@ export default function InfoLegend() {
         <CollapsibleTrigger asChild>
           <Button variant='ghost' className='h-auto w-full justify-between p-4 hover:bg-muted/50'>
             <div className='flex items-center gap-2'>
-              <div className='rounded-lg bg-primary/10 p-1.5'>
+              <div className='bg-primary/10 p-1.5'>
                 <Info className='h-4 w-4 text-primary' />
               </div>
               <span className='font-medium'>Understanding Verified vs Generated Executions</span>
@@ -79,7 +79,7 @@ export default function InfoLegend() {
               {/* Verified Column */}
               <div>
                 <div className='mb-3 flex items-center gap-2'>
-                  <div className='rounded-lg bg-primary/10 p-1.5'>
+                  <div className='bg-primary/10 p-1.5'>
                     <ShieldCheck className='h-4 w-4 text-primary' />
                   </div>
                   <h4 className='font-semibold'>Verified</h4>
@@ -91,10 +91,7 @@ export default function InfoLegend() {
                 </p>
                 <div className='space-y-2'>
                   {verifiedItems.map((item) => (
-                    <div
-                      key={item.label}
-                      className='flex items-start gap-2 rounded-lg bg-muted/50 p-2'
-                    >
+                    <div key={item.label} className='flex items-start gap-2 bg-muted/50 p-2'>
                       <item.icon className={cn("mt-0.5 h-4 w-4 flex-shrink-0 text-primary")} />
                       <div>
                         <span className='font-medium text-sm'>{item.label}</span>
@@ -108,7 +105,7 @@ export default function InfoLegend() {
               {/* Generated Column */}
               <div>
                 <div className='mb-3 flex items-center gap-2'>
-                  <div className='rounded-lg bg-primary/10 p-1.5'>
+                  <div className='bg-primary/10 p-1.5'>
                     <Sparkles className='h-4 w-4 text-primary' />
                   </div>
                   <h4 className='font-semibold'>Generated</h4>
@@ -120,10 +117,7 @@ export default function InfoLegend() {
                 </p>
                 <div className='space-y-2'>
                   {generatedItems.map((item) => (
-                    <div
-                      key={item.label}
-                      className='flex items-start gap-2 rounded-lg bg-muted/50 p-2'
-                    >
+                    <div key={item.label} className='flex items-start gap-2 bg-muted/50 p-2'>
                       <item.icon className={cn("mt-0.5 h-4 w-4 flex-shrink-0 text-primary")} />
                       <div>
                         <span className='font-medium text-sm'>{item.label}</span>
@@ -136,7 +130,7 @@ export default function InfoLegend() {
             </div>
 
             {/* Key Insight */}
-            <div className='mt-4 rounded-lg border border-primary/10 bg-primary/5 p-3'>
+            <div className='mt-4 border border-primary/10 bg-primary/5 p-3'>
               <p className='text-sm'>
                 <strong>Key Insight:</strong> A higher Verified percentage indicates more
                 predictable and reliable query execution. Consider converting frequently-used

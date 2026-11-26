@@ -66,7 +66,7 @@ export const DataFlowCanvas = ({
       <DataFlowViewBar params={params} foldable={view.groups.size} onChange={onChange} />
       <div
         className={cn(
-          "flex min-w-0 overflow-hidden rounded-lg border border-border/60 bg-card",
+          "flex min-w-0 overflow-hidden border border-border/60 bg-card",
           placeholder && "opacity-60"
         )}
       >

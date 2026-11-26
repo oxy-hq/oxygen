@@ -32,7 +32,7 @@ export default function RetrospectiveOffer({ summary }: { summary: ExperimentLis
 
   return (
     <section
-      className='flex flex-col gap-3 rounded-lg border bg-card p-4'
+      className='flex flex-col gap-3 border bg-card p-4'
       data-testid='experiment-retrospective-offer'
     >
       <div className='flex flex-wrap items-center justify-between gap-2'>

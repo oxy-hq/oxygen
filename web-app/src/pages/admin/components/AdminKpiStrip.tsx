@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { card } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 import { AdminInfo } from "./AdminInfo";
 import { ADMIN_TONE, type AdminTone } from "./adminTone";
@@ -58,13 +59,7 @@ export const AdminKpiStrip = ({
   // strip sits across a page, in a console column, and in the dossier docked beside a
   // preview at a quarter of the screen, where viewport breakpoints gave four 70px cells
   // and truncated every value.
-  <div
-    data-testid={dataTestId}
-    className={cn(
-      "@container overflow-hidden rounded-lg border border-border/60 bg-card",
-      className
-    )}
-  >
+  <div data-testid={dataTestId} className={cn(card, "@container overflow-hidden", className)}>
     <div
       className={cn(
         "-mr-px -mb-px grid grid-cols-2",
@@ -123,7 +118,7 @@ const KpiCell = ({ item, testId }: { item: AdminKpi; testId?: string }) => {
     </>
   );
   const cell = cn(
-    "min-w-0 border-border/60 border-r border-b px-4 py-3",
+    "min-w-0 border-border-subtle border-r border-b px-4 py-3",
     to && "transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
   );
   const cellTestId = testId ? `${testId}-${id}` : undefined;

@@ -49,7 +49,7 @@ export const AdminTrendBars = ({
       <div
         data-testid={`${testId}-empty`}
         className={cn(
-          "flex h-24 items-center justify-center rounded-md border border-border/60 border-dashed text-muted-foreground text-xs",
+          "flex h-24 items-center justify-center border border-border-subtle border-dashed text-muted-foreground text-xs",
           className
         )}
       >

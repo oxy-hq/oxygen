@@ -27,7 +27,7 @@ export const PipelineHeader: React.FC<{ model: EltPipelineModel }> = ({ model })
         <div className='ml-auto flex flex-wrap items-center gap-3 text-muted-foreground text-xs'>
           <span className='tabular-nums'>{rollup.totalTables} tables</span>
           {rollup.loadedTables > 0 && (
-            <span className='text-emerald-600'>✓ {rollup.loadedTables} loaded</span>
+            <span className='text-status-success'>✓ {rollup.loadedTables} loaded</span>
           )}
           {rollup.failedTables > 0 && (
             <span className='text-destructive'>✗ {rollup.failedTables} failed</span>
@@ -59,12 +59,9 @@ export const PipelineHeader: React.FC<{ model: EltPipelineModel }> = ({ model })
 };
 
 const Endpoint: React.FC<{ label: string; kind: "source" | "destination" }> = ({ label, kind }) => (
-  <div className='flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5'>
+  <div className='flex items-center gap-2 border border-border bg-muted/40 px-3 py-1.5'>
     <Database
-      className={cn(
-        "h-4 w-4 shrink-0",
-        kind === "source" ? "text-emerald-600" : "text-fuchsia-600"
-      )}
+      className={cn("h-4 w-4 shrink-0", kind === "source" ? "text-status-success" : "text-chart-3")}
     />
     <div className='min-w-0'>
       <p className='text-muted-foreground text-xs uppercase tracking-wide'>{kind}</p>

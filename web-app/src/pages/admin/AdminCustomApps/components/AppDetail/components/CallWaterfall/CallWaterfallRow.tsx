@@ -59,9 +59,9 @@ const WaterfallRow = ({
           <span className={cn("min-w-0 shrink truncate font-medium", outcomeTone)}>{outcome}</span>
         )}
       </div>
-      <div className='relative h-3 overflow-hidden rounded-sm bg-muted/30'>
+      <div className='relative h-3 overflow-hidden bg-muted/30'>
         <div
-          className={cn("absolute inset-y-0.5 min-w-1 rounded-sm", barClass)}
+          className={cn("absolute inset-y-0.5 min-w-1", barClass)}
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         />
       </div>

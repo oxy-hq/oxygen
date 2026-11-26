@@ -17,7 +17,7 @@ const StatCard: React.FC<{
   icon: React.ElementType;
   className?: string;
 }> = ({ label, value, icon: Icon, className }) => (
-  <div className='flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3'>
+  <div className='flex items-center gap-3 border border-border bg-card px-4 py-3'>
     <Icon className={cn("h-5 w-5", className)} />
     <div>
       <p className='font-semibold text-lg'>{value}</p>
@@ -55,7 +55,7 @@ const AgentTable: React.FC<{ agents: AgentStats[] }> = ({ agents }) => {
               <tr key={a.agent_id} className='border-border border-b hover:bg-muted/50'>
                 <td className='px-4 py-2 font-mono text-xs'>{a.agent_id || "(unknown)"}</td>
                 <td className='px-4 py-2 text-right'>{a.total}</td>
-                <td className='px-4 py-2 text-right text-emerald-500'>{a.succeeded}</td>
+                <td className='px-4 py-2 text-right text-status-success'>{a.succeeded}</td>
                 <td className='px-4 py-2 text-right text-destructive'>{a.failed}</td>
                 <td className='px-4 py-2 text-right text-warning'>{a.recovered}</td>
                 <td
@@ -91,7 +91,7 @@ const RecoveredRunRow: React.FC<{ run: RecoveredRunEntry }> = ({ run }) => {
       <span
         className={cn(
           "inline-flex items-center gap-1 font-medium text-xs",
-          run.status === "done" ? "text-emerald-500" : "text-destructive"
+          run.status === "done" ? "text-status-success" : "text-destructive"
         )}
       >
         {run.status === "done" ? (
@@ -157,7 +157,7 @@ const RecoveryPage: React.FC = () => {
             label='Succeeded'
             value={data.succeeded_count}
             icon={CheckCircle}
-            className='text-emerald-500'
+            className='text-status-success'
           />
           <StatCard
             label='Failed'
@@ -182,7 +182,7 @@ const RecoveryPage: React.FC = () => {
         {/* Agent breakdown */}
         <div className='px-4 pb-2'>
           <h3 className='mb-2 font-medium text-sm'>Agent Breakdown</h3>
-          <div className='rounded-lg border border-border'>
+          <div className='border border-border'>
             <AgentTable agents={data.agents} />
           </div>
         </div>
@@ -192,7 +192,7 @@ const RecoveryPage: React.FC = () => {
           <h3 className='mb-2 font-medium text-sm'>
             Recovered Runs ({data.recovered_runs.length})
           </h3>
-          <div className='rounded-lg border border-border'>
+          <div className='border border-border'>
             {data.recovered_runs.length === 0 ? (
               <p className='px-4 py-6 text-center text-muted-foreground text-sm'>
                 No recovered runs in this window

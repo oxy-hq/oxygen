@@ -90,7 +90,7 @@ export function AppBrowser({ app }: Props) {
           value={prefix}
           onChange={(e) => setPrefix(e.target.value)}
           placeholder='Filter by prefix, e.g. generated/'
-          className='flex-1 rounded border bg-transparent px-2 py-1 text-xs'
+          className='flex-1 border bg-transparent px-2 py-1 text-xs'
           data-testid='admin-storage-prefix-filter'
         />
         {writable ? (

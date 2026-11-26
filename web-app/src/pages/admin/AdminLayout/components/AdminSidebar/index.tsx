@@ -1,14 +1,9 @@
-import { Link, useLocation } from "react-router-dom";
-import OxyLogo from "@/components/OxyLogo";
-import {
-  Sidebar as ShadcnSidebar,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarMenu
-} from "@/components/ui/shadcn/sidebar";
+import { useLocation } from "react-router-dom";
+import { SidebarGroup, SidebarGroupLabel, SidebarMenu } from "@/components/ui/shadcn/sidebar";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHealth";
 import ROUTES from "@/libs/utils/routes";
+import { ConsoleRail } from "@/pages/admin/components/ConsoleRail";
 import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable, navItemReachable } from "../../adminNav";
 import { Footer } from "./components/Footer";
 import { NavItem } from "./components/NavItem";
@@ -61,55 +56,32 @@ export function AdminSidebar() {
   const logoTarget = ROUTES.ADMIN.ROOT;
 
   return (
-    <ShadcnSidebar
-      // **`icon`, not the default `offcanvas`** — the same bargain the product's rail
-      // strikes (`components/Shell/ToggleRail`): closed it is a 3rem strip of marks, not
-      // nothing. Off-canvas bought 256px by taking the navigation away with it, so the
-      // toggle was a choice between a wide rail and no rail; now it is a choice between
-      // names and no names, and ⌘B is worth pressing on a wide screen.
-      collapsible='icon'
-      className='border-sidebar-border border-r bg-sidebar-background'
-    >
-      <div className='flex h-[52px] shrink-0 items-center gap-2 border-sidebar-border/50 border-b px-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'>
-        <Link to={logoTarget} className='flex shrink-0 items-center'>
-          <OxyLogo />
-        </Link>
-        {/* The chip is the one thing with no room at 3rem, and the logo already says
-            where you are. */}
-        <span className='rounded-sm border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em] group-data-[collapsible=icon]:hidden'>
-          Admin
-        </span>
-      </div>
-
-      <div className='min-h-0 flex-1 overflow-auto'>
-        {(Object.keys(ADMIN_NAV_GROUPS) as (keyof typeof ADMIN_NAV_GROUPS)[]).map((group) => {
-          const items = visibleItems.filter((i) => i.group === group);
-          if (items.length === 0) return null;
-          return (
-            <SidebarGroup key={group} className='px-2 pt-2'>
-              <SidebarGroupLabel>{ADMIN_NAV_GROUPS[group]}</SidebarGroupLabel>
-              <SidebarMenu>
-                {items.map((item) => (
-                  <NavItem
-                    key={item.to}
-                    to={item.to}
-                    label={item.label}
-                    icon={item.icon}
-                    isActive={isItemActive(item.to, location.pathname, currentTenantType)}
-                    attention={
-                      item.to === ROUTES.ADMIN.WORKSPACE_HEALTH
-                        ? { count: attentionCount, severe: hasUnhealthy }
-                        : undefined
-                    }
-                  />
-                ))}
-              </SidebarMenu>
-            </SidebarGroup>
-          );
-        })}
-      </div>
-
-      <Footer />
-    </ShadcnSidebar>
+    <ConsoleRail badge='Admin' logoTo={logoTarget} footer={<Footer />}>
+      {(Object.keys(ADMIN_NAV_GROUPS) as (keyof typeof ADMIN_NAV_GROUPS)[]).map((group) => {
+        const items = visibleItems.filter((i) => i.group === group);
+        if (items.length === 0) return null;
+        return (
+          <SidebarGroup key={group} className='px-2 pt-2'>
+            <SidebarGroupLabel>{ADMIN_NAV_GROUPS[group]}</SidebarGroupLabel>
+            <SidebarMenu>
+              {items.map((item) => (
+                <NavItem
+                  key={item.to}
+                  to={item.to}
+                  label={item.label}
+                  icon={item.icon}
+                  isActive={isItemActive(item.to, location.pathname, currentTenantType)}
+                  attention={
+                    item.to === ROUTES.ADMIN.WORKSPACE_HEALTH
+                      ? { count: attentionCount, severe: hasUnhealthy }
+                      : undefined
+                  }
+                />
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        );
+      })}
+    </ConsoleRail>
   );
 }

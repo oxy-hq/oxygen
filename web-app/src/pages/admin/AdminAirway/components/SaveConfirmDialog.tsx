@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,7 +81,10 @@ export function SaveConfirmDialog({
         if (!next && !pending) onOpenChange(false);
       }}
     >
-      <AlertDialogContent data-testid={`admin-airway-confirm-dialog-${testIdSuffix}`}>
+      <AlertDialogContent
+        className={DESIGN_REFERENCE}
+        data-testid={`admin-airway-confirm-dialog-${testIdSuffix}`}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>
             {isUnknown

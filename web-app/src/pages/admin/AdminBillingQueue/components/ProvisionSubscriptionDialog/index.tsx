@@ -2,6 +2,7 @@ import axios from "axios";
 import { Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -159,7 +160,7 @@ export default function ProvisionSubscriptionDialog({ org, onClose, onSuccess }:
   return (
     <>
       <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className='max-w-lg'>
+        <DialogContent className={`${DESIGN_REFERENCE} max-w-lg`}>
           <DialogHeader>
             <DialogTitle>Provision subscription — {org.name}</DialogTitle>
           </DialogHeader>
@@ -191,7 +192,7 @@ export default function ProvisionSubscriptionDialog({ org, onClose, onSuccess }:
                     ))}
                   </div>
                 ) : (
-                  <div className='rounded-md border border-dashed py-6 text-center text-muted-foreground text-xs'>
+                  <div className=' border border-dashed py-6 text-center text-muted-foreground text-xs'>
                     No prices added yet.
                   </div>
                 )}

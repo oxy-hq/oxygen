@@ -18,12 +18,12 @@ function CategoryLegend() {
     <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs'>
       {LEGEND_CATEGORIES.map((category) => (
         <span key={category} className='flex items-center gap-1.5'>
-          <span className={cn("h-2 w-2 rounded-sm", SPAN_CATEGORY_META[category].dotClass)} />
+          <span className={cn("h-2 w-2 ", SPAN_CATEGORY_META[category].dotClass)} />
           {SPAN_CATEGORY_META[category].label}
         </span>
       ))}
       <span className='flex items-center gap-1.5'>
-        <span className='h-2 w-3 rounded-sm outline outline-dashed outline-1 outline-primary/70' />
+        <span className='h-2 w-3 outline outline-dashed outline-1 outline-primary/70' />
         critical path
       </span>
     </div>

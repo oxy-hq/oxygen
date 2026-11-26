@@ -135,7 +135,7 @@ export const InvocationRow = ({
           {iv.error && (
             <pre
               className={cn(
-                "max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed",
+                "max-h-60 overflow-auto whitespace-pre-wrap break-words bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed",
                 ADMIN_TONE.danger.text
               )}
               data-testid='admin-app-function-invocation-error-full'

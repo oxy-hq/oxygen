@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Alert, AlertDescription } from "@/components/ui/shadcn/alert";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -65,7 +66,7 @@ export default function AbortDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent data-testid='experiment-abort-dialog'>
+      <DialogContent data-testid='experiment-abort-dialog' className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle>Abort {name}?</DialogTitle>
           <DialogDescription>The run stops now. Aborting:</DialogDescription>

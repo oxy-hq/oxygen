@@ -1,5 +1,6 @@
 import { Filter, RotateCcw, X } from "lucide-react";
 import { useRef, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -107,7 +108,7 @@ export function ScenarioToolbar({
             >
               <SelectValue placeholder='Time dimension' />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {options.map((dim) => (
                 <SelectItem key={dim} value={dim} className='font-mono text-xs'>
                   {dim}
@@ -133,7 +134,7 @@ export function ScenarioToolbar({
             <SelectTrigger size='sm' aria-label='Period' className='h-7 w-28 font-mono text-xs'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {PRESET_DAYS.map((days) => (
                 <SelectItem key={days} value={String(days)} className='font-mono text-xs'>
                   Last {days}d
@@ -143,7 +144,7 @@ export function ScenarioToolbar({
           </Select>
 
           {state.instance ? (
-            <div className='flex items-center gap-1.5 rounded-md border border-info/50 bg-info/5 px-2 py-1 font-mono text-xs'>
+            <div className='flex items-center gap-1.5 border border-info/50 bg-info/5 px-2 py-1 font-mono text-xs'>
               <span className='text-muted-foreground'>scope</span>
               <span className='text-info'>{scopedEntity?.label ?? state.instance.entity}</span>
               <span className='text-muted-foreground'>·</span>
@@ -170,7 +171,7 @@ export function ScenarioToolbar({
                   Scope
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align='start'>
+              <DropdownMenuContent align='start' className={DESIGN_REFERENCE}>
                 {(model?.entities.length ?? 0) === 0 ? (
                   <DropdownMenuItem disabled>No entities in this layer</DropdownMenuItem>
                 ) : (

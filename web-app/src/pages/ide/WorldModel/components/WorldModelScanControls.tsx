@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -52,7 +53,7 @@ export function ScanControls({
           <SelectTrigger size='sm' className='h-7 flex-1 font-mono text-xs'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {PERIOD_PRESETS.map((p) => (
               <SelectItem key={p.days} value={String(p.days)} className='font-mono text-xs'>
                 {p.label}
@@ -69,7 +70,7 @@ export function ScanControls({
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {candidates.map((c) => (
                 <SelectItem key={c} value={c} className='font-mono text-xs'>
                   {c}

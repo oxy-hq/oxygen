@@ -116,7 +116,7 @@ const BranchLine = ({ env }: { env: AppEnvironment }) => {
         chosen.map(({ plane, mode }) => (
           <span
             key={plane}
-            className='rounded bg-muted px-1 font-mono text-muted-foreground'
+            className='bg-muted px-1 font-mono text-muted-foreground'
             data-testid={`admin-app-env-plane-${env.name}-${plane}`}
           >
             {plane}={mode}

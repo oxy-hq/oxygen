@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -39,7 +40,7 @@ export const LifecycleConfirm = ({
   testId?: string;
 }) => (
   <AlertDialog open={copy !== null} onOpenChange={(open) => !open && !pending && onCancel()}>
-    <AlertDialogContent className='gap-6 sm:max-w-md' data-testid={testId}>
+    <AlertDialogContent className={`${DESIGN_REFERENCE} gap-6 sm:max-w-md`} data-testid={testId}>
       <div className='flex flex-col gap-2'>
         <AlertDialogTitle>{copy?.title ?? ""}</AlertDialogTitle>
         <AlertDialogDescription>{copy?.description ?? ""}</AlertDialogDescription>

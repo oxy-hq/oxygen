@@ -32,7 +32,7 @@ export const JobRunsCard: React.FC<{ scheduleId: string }> = ({ scheduleId }) =>
   }, [active.data, history.data, scheduleId]);
 
   return (
-    <div className='rounded-xl border border-border bg-card lg:col-span-2'>
+    <div className='border border-border bg-card lg:col-span-2'>
       <div className='flex items-center justify-between border-border border-b px-3 py-2'>
         <div className='flex items-center gap-2'>
           <History className='h-4 w-4 text-muted-foreground' />

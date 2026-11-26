@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import {
   Select,
@@ -102,7 +103,7 @@ export default function AdminExplorer() {
                 setSourceType(ALL);
               }}
               className={cn(
-                "rounded-md px-3 py-1.5 font-medium text-xs uppercase tracking-wide transition-colors",
+                " px-3 py-1.5 font-medium text-xs uppercase tracking-wide transition-colors",
                 resource === r.id
                   ? "bg-foreground text-background"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -122,7 +123,7 @@ export default function AdminExplorer() {
             <SelectTrigger size='sm' className='w-36 text-xs' aria-label='Status filter'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {statusOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
@@ -134,7 +135,7 @@ export default function AdminExplorer() {
             <SelectTrigger size='sm' className='w-32 text-xs' aria-label='Source filter'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {sourceOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}

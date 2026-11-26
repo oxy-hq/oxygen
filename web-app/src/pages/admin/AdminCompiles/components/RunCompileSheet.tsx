@@ -1,7 +1,7 @@
 import { Loader2, PlayCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { Input } from "@/components/ui/shadcn/input";
@@ -69,7 +69,7 @@ export const RunCompileSheet = ({ defaultWorkspaceId = "" }: { defaultWorkspaceI
           Run compile
         </Button>
       </SheetTrigger>
-      <SheetContent className='w-full gap-0 sm:max-w-md'>
+      <SheetContent className={`${DESIGN_REFERENCE} w-full gap-0 sm:max-w-md`}>
         <SheetHeader>
           <SheetTitle>Run compile now</SheetTitle>
           <SheetDescription>
@@ -115,7 +115,7 @@ export const RunCompileSheet = ({ defaultWorkspaceId = "" }: { defaultWorkspaceI
               className='h-8 text-xs'
             />
           </div>
-          <div className='flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 p-3 text-xs'>
+          <div className='flex items-start gap-2 border border-border/60 bg-muted/30 p-3 text-xs'>
             <Checkbox
               id='run-promote'
               checked={promote}

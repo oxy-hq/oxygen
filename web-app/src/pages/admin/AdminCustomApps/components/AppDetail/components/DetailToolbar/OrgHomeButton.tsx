@@ -1,4 +1,5 @@
 import { Home } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { useAdminOrgSubdomain } from "@/hooks/api/adminTenants";
@@ -47,7 +48,7 @@ export function OrgHomeButton({ app }: { app: CustomApp }) {
           </a>
         </Button>
       </TooltipTrigger>
-      <TooltipContent className='max-w-xs space-y-1.5'>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs space-y-1.5`}>
         <p className='font-medium'>Open {app.org_slug}'s home page</p>
         <p>
           The org's launcher at <code>{subdomain.url}</code>, in a new tab — where its apps actually

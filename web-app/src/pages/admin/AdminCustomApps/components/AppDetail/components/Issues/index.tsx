@@ -107,7 +107,7 @@ export const IssuesBadge = ({ appId }: { appId: string }) => {
   return (
     <span
       className={cn(
-        "rounded-sm px-1.5 py-px font-medium text-[10px] tabular-nums tracking-normal",
+        " px-1.5 py-px font-medium text-[10px] tabular-nums tracking-normal",
         ADMIN_TONE.danger.bg,
         ADMIN_TONE.danger.text
       )}

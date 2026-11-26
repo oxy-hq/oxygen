@@ -19,7 +19,7 @@ function RelatedMetricChip({ name, onClick }: { name: string; onClick: () => voi
     <button
       onClick={onClick}
       className={cn(
-        "rounded-lg px-3 py-1.5 font-medium text-sm transition-all",
+        "px-3 py-1.5 font-medium text-sm transition-all",
         "border border-transparent bg-muted/50 hover:border-primary/30 hover:bg-muted",
         "group flex min-w-0 items-center gap-1.5"
       )}

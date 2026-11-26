@@ -5,9 +5,9 @@
  * liveness, a compile's state, a nav badge — maps onto one of these five tones. A new
  * resource status maps onto an existing tone; it does not get a sixth.
  *
- * Classes come from the design system's `status-*` theme tokens (`styles/shadcn`), which
- * already carry their own light and dark values. That is why nothing here has a `dark:`
- * variant, and why a call site never needs `text-amber-700 dark:text-amber-400` again:
+ * Classes come from the reference design's `status-*` / `dot-*` roles
+ * (`styles/reference/theme.css`), which already carry their own light and dark values. That is why nothing here has a `dark:`
+ * variant, and why a call site never needs a raw palette colour with a `dark:` twin again:
  * before this file the console spelled its tones out by hand in ~100 places, in raw
  * palette colours the repo's own style rule forbids.
  */
@@ -26,14 +26,16 @@ export type AdminToneClasses = {
 
 export const ADMIN_TONE: Record<AdminTone, AdminToneClasses> = {
   ok: {
-    dot: "bg-success",
-    text: "text-status-success-text",
-    bg: "bg-status-success-bg",
-    ring: "ring-success/20"
+    dot: "bg-dot-success",
+    text: "text-status-success",
+    bg: "bg-status-success/10",
+    ring: "ring-status-success/25"
   },
-  // Neutral emphasis, not an alert: an `admin` role, a `Cloning` workspace, a `Parent`
-  // marker. It stays in the foreground colour on purpose — on this surface colour means
-  // "something is wrong", so a label that merely informs must not borrow the blue.
+  // Emphasis, not an alert: an `admin` role, a `Cloning` workspace, a `Parent` marker.
+  // Deliberately NOT the reference's `status-info` blue, though one exists: on this
+  // surface colour means "something is wrong", so a label that merely informs must not
+  // borrow a signal colour. `--primary` is the foreground ink in the reference palette
+  // too, so this rule survives the restyle unchanged.
   info: {
     dot: "bg-primary",
     text: "text-primary",
@@ -41,21 +43,21 @@ export const ADMIN_TONE: Record<AdminTone, AdminToneClasses> = {
     ring: "ring-primary/15"
   },
   warn: {
-    dot: "bg-warning",
-    text: "text-status-warning-text",
-    bg: "bg-status-warning-bg",
-    ring: "ring-warning/25"
+    dot: "bg-dot-warning",
+    text: "text-status-warning",
+    bg: "bg-status-warning/10",
+    ring: "ring-status-warning/30"
   },
   danger: {
-    dot: "bg-destructive",
-    text: "text-status-error-text",
-    bg: "bg-status-error-bg",
-    ring: "ring-destructive/20"
+    dot: "bg-dot-error",
+    text: "text-status-error",
+    bg: "bg-status-error/10",
+    ring: "ring-status-error/25"
   },
   muted: {
-    dot: "bg-muted-foreground/60",
-    text: "text-status-neutral-text",
+    dot: "bg-disabled-foreground",
+    text: "text-status-neutral",
     bg: "bg-status-neutral-bg",
-    ring: "ring-border"
+    ring: "ring-border-subtle"
   }
 };

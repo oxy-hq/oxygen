@@ -11,6 +11,12 @@ import {
 import type React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  DESIGN_REFERENCE,
+  focusRing,
+  sectionLinkOff,
+  sectionLinkOn
+} from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/libs/shadcn/utils";
@@ -97,19 +103,18 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className='flex h-full flex-col border-r bg-sidebar-background'>
+    <div className='flex h-full flex-col border-border-subtle border-r bg-sidebar-background'>
       <div className='flex flex-col items-center gap-1 px-1 py-2'>
         <Button
           variant='ghost'
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.WORLD_MODEL)}
           data-testid='ide-nav-world-model'
-          tooltip={{ content: "World Model", side: "right" }}
+          tooltip={{ content: "World Model", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.WORLD_MODEL
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.WORLD_MODEL ? sectionLinkOn : sectionLinkOff
           )}
         >
           <Globe className='h-4 w-4' />
@@ -120,12 +125,11 @@ const Sidebar: React.FC = () => {
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.FILES)}
           data-testid='ide-nav-files'
-          tooltip={{ content: "Files (read-only)", side: "right" }}
+          tooltip={{ content: "Files (read-only)", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.FILES
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.FILES ? sectionLinkOn : sectionLinkOff
           )}
         >
           <FolderGit2 className='h-4 w-4' />
@@ -136,12 +140,11 @@ const Sidebar: React.FC = () => {
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.DATABASE)}
           data-testid='ide-nav-database'
-          tooltip={{ content: "SQL client", side: "right" }}
+          tooltip={{ content: "SQL client", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.DATABASE
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.DATABASE ? sectionLinkOn : sectionLinkOff
           )}
         >
           <Database className='h-4 w-4' />
@@ -151,12 +154,11 @@ const Sidebar: React.FC = () => {
           variant='ghost'
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.COORDINATOR)}
-          tooltip={{ content: "Coordinator", side: "right" }}
+          tooltip={{ content: "Coordinator", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.COORDINATOR
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.COORDINATOR ? sectionLinkOn : sectionLinkOff
           )}
         >
           <Radio className='h-4 w-4' />
@@ -167,12 +169,11 @@ const Sidebar: React.FC = () => {
             variant='ghost'
             size='icon'
             onClick={() => handleNavigate(SidebarViewMode.OBSERVABILITY)}
-            tooltip={{ content: "Observability", side: "right" }}
+            tooltip={{ content: "Observability", side: "right", className: DESIGN_REFERENCE }}
             className={cn(
               "h-8 w-8",
-              currentViewMode === SidebarViewMode.OBSERVABILITY
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "opacity-60 hover:opacity-100"
+              focusRing,
+              currentViewMode === SidebarViewMode.OBSERVABILITY ? sectionLinkOn : sectionLinkOff
             )}
           >
             <Activity className='h-4 w-4' />
@@ -184,12 +185,11 @@ const Sidebar: React.FC = () => {
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.SEMANTIC)}
           data-testid='ide-nav-semantic'
-          tooltip={{ content: "Semantic Model", side: "right" }}
+          tooltip={{ content: "Semantic Model", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.SEMANTIC
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.SEMANTIC ? sectionLinkOn : sectionLinkOff
           )}
         >
           <Network className='h-4 w-4' />
@@ -200,12 +200,11 @@ const Sidebar: React.FC = () => {
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.EXPERIMENTS)}
           data-testid='ide-nav-experiments'
-          tooltip={{ content: "Experiments", side: "right" }}
+          tooltip={{ content: "Experiments", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.EXPERIMENTS
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.EXPERIMENTS ? sectionLinkOn : sectionLinkOff
           )}
         >
           <FlaskConical className='h-4 w-4' />
@@ -215,19 +214,22 @@ const Sidebar: React.FC = () => {
           variant='ghost'
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.EDGE)}
-          tooltip={{ content: "Edge", side: "right" }}
+          tooltip={{ content: "Edge", side: "right", className: DESIGN_REFERENCE }}
           className={cn(
             "h-8 w-8",
-            currentViewMode === SidebarViewMode.EDGE
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
+            focusRing,
+            currentViewMode === SidebarViewMode.EDGE ? sectionLinkOn : sectionLinkOff
           )}
         >
           <Boxes className='h-4 w-4' />
         </Button>
       </div>
       <div className='mt-auto flex flex-col items-center px-1 py-2'>
-        <ThemeToggle align='start' side='right' className='opacity-60 hover:opacity-100' />
+        <ThemeToggle
+          align='start'
+          side='right'
+          className='text-subtle-foreground hover:bg-row-hover hover:text-foreground'
+        />
       </div>
     </div>
   );

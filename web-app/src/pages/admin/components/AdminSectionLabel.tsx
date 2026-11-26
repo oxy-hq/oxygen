@@ -19,7 +19,7 @@ export const AdminSectionLabel = ({
 }) => (
   <div
     className={cn(
-      "flex items-baseline justify-between border-border/60 border-b pb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]",
+      "flex items-baseline justify-between border-border-subtle border-b pb-2 font-semibold text-[10px] text-subtle-foreground uppercase tracking-eyebrow",
       className
     )}
   >

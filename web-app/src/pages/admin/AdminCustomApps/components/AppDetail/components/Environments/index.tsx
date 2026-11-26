@@ -66,7 +66,7 @@ export const Environments = ({ appId }: { appId: string }) => {
     >
       {(list) => (
         <div className='flex flex-col gap-3' data-testid='admin-app-environments'>
-          <ul className='flex flex-col divide-y divide-border/50 rounded-md border'>
+          <ul className='flex flex-col divide-y divide-border/50 border'>
             {list.map((env) => (
               <EnvironmentRow
                 key={env.name}

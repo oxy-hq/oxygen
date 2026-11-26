@@ -32,7 +32,7 @@ export const AdminEmptyState = ({
     <div
       data-testid={dataTestId}
       className={cn(
-        "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border/60 border-dashed px-3 py-2.5 text-xs",
+        "flex flex-wrap items-center gap-x-2 gap-y-1 border border-border-subtle border-dashed px-3 py-2.5 text-xs",
         className
       )}
     >
@@ -70,11 +70,11 @@ const PageEmptyState = ({
   <div
     data-testid={dataTestId}
     className={cn(
-      "flex flex-col items-center justify-center gap-3 rounded-lg border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center",
+      "flex flex-col items-center justify-center gap-3 border border-border-subtle border-dashed bg-field px-6 py-12 text-center",
       className
     )}
   >
-    <div className='rounded-full border border-border/60 bg-background p-2 text-muted-foreground'>
+    <div className='rounded-full border border-border-subtle bg-background p-2 text-muted-foreground'>
       <Icon className='size-5' />
     </div>
     <div className='space-y-1'>

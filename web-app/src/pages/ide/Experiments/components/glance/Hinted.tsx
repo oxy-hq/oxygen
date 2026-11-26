@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 
 /** Hovering (or focusing) `children` shows `hint`. */
@@ -7,7 +8,7 @@ export function Hinted({ hint, children }: { hint: ReactNode; children: ReactEle
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent className='max-w-xs'>{hint}</TooltipContent>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>{hint}</TooltipContent>
     </Tooltip>
   );
 }

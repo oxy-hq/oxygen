@@ -85,7 +85,7 @@ function RevisionFacts({
         )}
       </span>
       {revision.kind !== "main" && (
-        <span className='rounded bg-muted px-1.5 py-0.5 text-foreground'>{revision.kind}</span>
+        <span className='bg-muted px-1.5 py-0.5 text-foreground'>{revision.kind}</span>
       )}
       {ago && <span className='hidden truncate sm:inline'>compiled {ago}</span>}
     </div>

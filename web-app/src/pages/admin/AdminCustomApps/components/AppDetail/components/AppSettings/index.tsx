@@ -108,7 +108,7 @@ const SettingRow = ({
     // an overlay Sheet on narrow viewports), so a title|action row can't hold a
     // two-button action without overflowing. The action sits below the copy and
     // wraps.
-    <div className={`rounded-lg border p-4 ${toneClass}`}>
+    <div className={` border p-4 ${toneClass}`}>
       <div className='min-w-0'>
         <div className={`font-medium text-xs ${titleToneClass}`}>{title}</div>
         <p className='mt-1 text-muted-foreground text-xs leading-relaxed'>{description}</p>

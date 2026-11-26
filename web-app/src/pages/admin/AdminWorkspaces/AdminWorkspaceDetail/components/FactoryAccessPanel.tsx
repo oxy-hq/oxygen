@@ -81,7 +81,7 @@ export default function FactoryAccessPanel({
                 can use this workspace&rsquo;s Nexus.
               </AdminInfo>
             </p>
-            <ul className='divide-y divide-border/60 rounded-lg border border-border/60 bg-card'>
+            <ul className='divide-y divide-border/60 border border-border/60 bg-card'>
               {data.members.map((m) => (
                 <MemberRow
                   key={m.user_id}

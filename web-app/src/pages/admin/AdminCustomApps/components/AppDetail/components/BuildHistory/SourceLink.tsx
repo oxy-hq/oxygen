@@ -1,4 +1,5 @@
 import { AlertTriangle, GitBranch } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
@@ -92,7 +93,7 @@ export const IncompleteSource = ({ repo, sha }: { repo?: string | null; sha?: st
           <span>{label}</span>
         </span>
       </TooltipTrigger>
-      <TooltipContent className='max-w-xs'>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>
         {detail} Re-publish from the app's git checkout to attach provenance.
       </TooltipContent>
     </Tooltip>

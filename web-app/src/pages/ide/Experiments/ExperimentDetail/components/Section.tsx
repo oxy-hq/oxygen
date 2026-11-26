@@ -11,7 +11,7 @@ export default function Section({
   children: ReactNode;
 }) {
   return (
-    <section className='rounded-lg border p-4' data-testid={testId}>
+    <section className='border p-4' data-testid={testId}>
       <h3 className='mb-2 font-medium text-sm'>{title}</h3>
       {children}
     </section>

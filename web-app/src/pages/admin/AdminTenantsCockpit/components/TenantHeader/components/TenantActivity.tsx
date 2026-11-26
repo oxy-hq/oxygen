@@ -1,4 +1,5 @@
 import { History, ShieldAlert } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { cn } from "@/libs/shadcn/utils";
@@ -61,7 +62,11 @@ export function TenantActivity({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align='end' className='w-80 p-0' data-testid='admin-tenant-activity'>
+      <PopoverContent
+        align='end'
+        className={`${DESIGN_REFERENCE} w-80 p-0`}
+        data-testid='admin-tenant-activity'
+      >
         <p className='border-b px-3 py-2 text-[10px] text-muted-foreground uppercase tracking-[0.16em]'>
           Recent activity
         </p>

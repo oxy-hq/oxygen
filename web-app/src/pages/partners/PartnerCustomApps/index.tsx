@@ -62,17 +62,17 @@ function AppsSection({ partnerId }: { partnerId: string }) {
   const { data: orgs } = usePartnerOrgs(partnerId);
   const { apps, isLoading } = usePartnerApps(partnerId, orgs);
 
-  if (isLoading) return <Skeleton className='h-40 w-full rounded-lg' />;
+  if (isLoading) return <Skeleton className='h-40 w-full' />;
 
   if (apps.length === 0)
     return (
-      <div className='rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm'>
+      <div className='border border-dashed p-8 text-center text-muted-foreground text-sm'>
         No custom apps across your clients yet.
       </div>
     );
 
   return (
-    <div className='overflow-hidden rounded-lg border'>
+    <div className='overflow-hidden border'>
       <FleetStrip apps={apps} clientCount={orgs?.length ?? 0} />
       <Table>
         <TableHeader>

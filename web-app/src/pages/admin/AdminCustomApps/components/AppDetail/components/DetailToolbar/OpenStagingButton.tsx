@@ -1,4 +1,5 @@
 import { FlaskConical } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import type { CustomApp } from "@/types/apps";
@@ -37,7 +38,7 @@ export function OpenStagingButton({ app }: { app: CustomApp }) {
           </a>
         </Button>
       </TooltipTrigger>
-      <TooltipContent className='max-w-xs space-y-1.5'>
+      <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs space-y-1.5`}>
         <p className='font-medium'>Open the staging build</p>
         <p>Runs the draft build on real data; writes are held or go to staging copies.</p>
       </TooltipContent>

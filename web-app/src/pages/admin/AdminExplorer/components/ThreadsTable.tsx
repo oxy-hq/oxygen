@@ -23,7 +23,7 @@ export const ThreadsTable = ({ rows }: { rows: ExplorerThread[] }) => {
     return <Empty />;
   }
   return (
-    <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+    <div className='overflow-hidden border border-border/60 bg-card'>
       <Table>
         <TableHeader>
           <TableRow className='hover:bg-transparent'>
@@ -97,7 +97,7 @@ export const ThreadsTable = ({ rows }: { rows: ExplorerThread[] }) => {
 };
 
 const Empty = () => (
-  <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center'>
+  <div className='flex flex-col items-center justify-center gap-2 border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center'>
     <MessageSquare className='size-6 text-muted-foreground' />
     <p className='font-medium text-xs'>No threads match.</p>
     <p className='text-muted-foreground text-xs'>Search by title, content, or thread id.</p>

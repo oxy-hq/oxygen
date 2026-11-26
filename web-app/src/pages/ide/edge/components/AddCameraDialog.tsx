@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -89,7 +90,7 @@ const AddCameraDialog: React.FC<Props> = ({ open, onOpenChange, defaultSiteId })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle>Add camera</DialogTitle>
           <DialogDescription>
@@ -113,7 +114,7 @@ const AddCameraDialog: React.FC<Props> = ({ open, onOpenChange, defaultSiteId })
                   }
                 />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {sites.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}

@@ -16,7 +16,7 @@ import { useTracesController } from "./useTracesController";
 
 function ObservabilityNotConfiguredBanner() {
   return (
-    <div className='mb-4 flex gap-3 rounded-md border border-warning/30 bg-warning/5 p-4'>
+    <div className='mb-4 flex gap-3 border border-warning/30 bg-warning/5 p-4'>
       <div className='flex size-8 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning'>
         <TriangleAlert className='size-4' />
       </div>
@@ -27,7 +27,7 @@ function ObservabilityNotConfiguredBanner() {
             No traces will be recorded. Enable the ClickHouse backend and restart the server.
           </p>
         </div>
-        <pre className='overflow-x-auto rounded-sm bg-muted px-3 py-2 font-mono text-xs leading-relaxed'>
+        <pre className='overflow-x-auto bg-muted px-3 py-2 font-mono text-xs leading-relaxed'>
           <span className='text-muted-foreground'>
             # ClickHouse is the sole backend (oxy start boots the container)
           </span>

@@ -24,7 +24,7 @@ interface Props {
 export default function AuditTable({ events, limit, tokenId, onFilterToken }: Props) {
   return (
     <div className='space-y-2'>
-      <div className='overflow-x-auto rounded-md border border-border/60'>
+      <div className='overflow-x-auto border border-border/60'>
         <Table className='text-xs'>
           <TableHeader>
             <TableRow className={ADMIN_HEADER_ROW_CLASS}>

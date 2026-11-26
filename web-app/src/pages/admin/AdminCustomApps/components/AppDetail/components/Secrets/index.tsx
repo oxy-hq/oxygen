@@ -187,7 +187,7 @@ const NonProductionRefused = ({
   onBack: () => void;
 }) => (
   <div
-    className='flex flex-col items-start gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-2 text-xs'
+    className='flex flex-col items-start gap-2 border border-border bg-muted/40 px-2.5 py-2 text-xs'
     data-testid='admin-app-secrets-nonprod-refused'
   >
     <p className='text-muted-foreground'>
@@ -226,7 +226,7 @@ const EmptyState = () => (
  */
 const DeclarationError = ({ message }: { message: string }) => (
   <div
-    className='flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs'
+    className='flex items-start gap-1.5 border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs'
     data-testid='admin-app-secrets-declaration-error'
   >
     <TriangleAlert className='mt-px size-3 shrink-0 text-warning' />
@@ -260,7 +260,7 @@ export const SecretsBadge = ({
   if (!data?.missing_required) return null;
   return (
     <span
-      className='rounded-sm bg-destructive/15 px-1.5 py-px font-medium text-[10px] text-destructive tabular-nums tracking-normal'
+      className=' bg-destructive/15 px-1.5 py-px font-medium text-[10px] text-destructive tabular-nums tracking-normal'
       data-testid='admin-app-secrets-missing-badge'
     >
       {data.missing_required} missing

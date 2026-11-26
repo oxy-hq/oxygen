@@ -76,7 +76,7 @@ function PersonRow({
   onToggle: (hasAccess: boolean) => void;
 }) {
   return (
-    <TableRow className='border-border/60'>
+    <TableRow className='border-border-subtle'>
       <TableCell className='max-w-0'>
         <div className='truncate font-medium text-sm'>{person.name ?? person.email}</div>
         <div className='truncate text-muted-foreground text-xs'>{person.email}</div>

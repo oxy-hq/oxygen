@@ -139,7 +139,7 @@ export default function AdminHome() {
                   to={f.to}
                   data-testid={`admin-home-finding-${f.id}`}
                   className={cn(
-                    "group flex items-center gap-3 rounded-lg border p-3 transition-colors",
+                    "group flex items-center gap-3 border p-3 transition-colors",
                     tone.bg,
                     "border-transparent ring-1 ring-inset hover:border-foreground/20",
                     tone.ring
@@ -178,7 +178,7 @@ export default function AdminHome() {
               Otherwise clear
             </p>
           ) : null}
-          <ul className='divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60'>
+          <ul className='divide-y divide-border/60 overflow-hidden border border-border/60'>
             {clear.map((r) => (
               <li key={r.key}>
                 <Link

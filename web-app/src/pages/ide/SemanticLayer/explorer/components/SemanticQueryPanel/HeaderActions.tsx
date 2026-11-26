@@ -1,4 +1,5 @@
 import { Play } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
@@ -34,7 +35,7 @@ const HeaderActions = ({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>
+        <TooltipContent className={DESIGN_REFERENCE}>
           {disabled ? disabledMessage || "Select dimensions or measures to run query" : "Run query"}
         </TooltipContent>
       </Tooltip>

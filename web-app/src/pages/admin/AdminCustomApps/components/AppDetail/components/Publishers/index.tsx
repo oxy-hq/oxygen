@@ -41,7 +41,7 @@ export const Publishers = ({ appId }: { appId: string }) => {
   return (
     <div className='flex flex-col gap-3' data-testid='admin-app-publishers'>
       {data && data.length > 0 ? (
-        <ul className='flex flex-col divide-y divide-border/50 rounded-md border'>
+        <ul className='flex flex-col divide-y divide-border/50 border'>
           {data.map((p) => (
             <li
               key={p.id}
@@ -135,7 +135,7 @@ const RegisterForm = ({ appId, onDone }: { appId: string; onDone: () => void }) 
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
-      className='flex flex-col gap-2 rounded-md border p-3'
+      className='flex flex-col gap-2 border p-3'
       data-testid='admin-app-publisher-form'
     >
       <div className='grid grid-cols-2 gap-2'>

@@ -62,7 +62,7 @@ export function FailureGroups() {
               </p>
             ) : (
               <ul
-                className='grid grid-cols-[minmax(7rem,auto)_minmax(9rem,13rem)_minmax(0,1fr)_auto_auto] overflow-hidden rounded-lg border border-border/60 bg-card'
+                className='grid grid-cols-[minmax(7rem,auto)_minmax(9rem,13rem)_minmax(0,1fr)_auto_auto] overflow-hidden border border-border/60 bg-card'
                 data-testid='admin-internal-jobs-groups'
               >
                 {data.groups.map((g) => (

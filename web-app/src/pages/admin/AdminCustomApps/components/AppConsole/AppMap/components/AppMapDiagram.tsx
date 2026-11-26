@@ -182,7 +182,7 @@ const ColumnHeadings = ({ layout }: { layout: AppMapLayout }) => (
   </>
 );
 
-const NODE = "absolute flex items-center gap-1.5 rounded-sm px-1.5 text-xs";
+const NODE = "absolute flex items-center gap-1.5 px-1.5 text-xs";
 
 /** What an entry node spells out at console width. A route's path is its function's
  *  name, which sits beside it, and a schedule's clock says "schedule": both give the

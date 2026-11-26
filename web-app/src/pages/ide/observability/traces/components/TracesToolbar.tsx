@@ -1,4 +1,5 @@
 import { LayoutGrid, Rows3, Search } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import {
@@ -54,14 +55,14 @@ export function TracesToolbar({
         <SelectTrigger className='w-36' data-testid='traces-status-filter'>
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           <SelectItem value='all'>All statuses</SelectItem>
           <SelectItem value='ok'>Success</SelectItem>
           <SelectItem value='error'>Errors</SelectItem>
         </SelectContent>
       </Select>
 
-      <div className='flex items-center gap-2 rounded-md border px-2.5 py-1.5'>
+      <div className='flex items-center gap-2 border px-2.5 py-1.5'>
         <Switch id='live-tail' checked={live} onCheckedChange={onLiveChange} />
         <Label htmlFor='live-tail' className='flex cursor-pointer items-center gap-1.5 text-sm'>
           {live && (

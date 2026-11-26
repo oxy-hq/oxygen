@@ -43,7 +43,7 @@ function OrgMissHint({
           Couldn't load every org, so “{name}” may still exist. Paste its uuid, or{" "}
           <button
             type='button'
-            className='rounded-sm underline decoration-current/50 underline-offset-2 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring'
+            className=' underline decoration-current/50 underline-offset-2 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring'
             onClick={onRetry}
             data-testid='feature-flag-preview-orgs-retry'
           >

@@ -72,10 +72,7 @@ export default function UnitsField(
         {chosen.length > 0 && (
           <ul className='flex flex-wrap gap-1.5' data-testid={`${id}-chips`}>
             {chosen.map((u) => (
-              <li
-                key={u}
-                className='flex items-center gap-1 rounded-md border bg-muted px-2 py-0.5 text-xs'
-              >
+              <li key={u} className='flex items-center gap-1 border bg-muted px-2 py-0.5 text-xs'>
                 {u}
                 <button
                   type='button'

@@ -2,6 +2,7 @@ import { Check, Loader2, Plus } from "lucide-react";
 import type React from "react";
 import { useMemo } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -80,7 +81,7 @@ const SwitchPackDialog: React.FC<Props> = ({ open, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-3xl'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-3xl`}>
         <DialogHeader>
           <DialogTitle>Switch domain pack</DialogTitle>
           <DialogDescription>
@@ -128,8 +129,8 @@ const ForkedPacksSection: React.FC<{
           key={p.id}
           className={
             p.is_active
-              ? "flex items-start justify-between gap-3 rounded-md border border-primary bg-primary/5 p-3"
-              : "flex items-start justify-between gap-3 rounded-md border border-border p-3"
+              ? "flex items-start justify-between gap-3 border border-primary bg-primary/5 p-3"
+              : "flex items-start justify-between gap-3 border border-border p-3"
           }
         >
           <div className='flex flex-col gap-1'>
@@ -181,7 +182,7 @@ const StartersSection: React.FC<{
         {starters.map((s) => (
           <div
             key={s.key}
-            className='flex items-start justify-between gap-3 rounded-md border border-border p-3'
+            className='flex items-start justify-between gap-3 border border-border p-3'
           >
             <div className='flex flex-col gap-1'>
               <div className='flex items-center gap-2'>

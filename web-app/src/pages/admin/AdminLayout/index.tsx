@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { SidebarInset, SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
@@ -69,8 +70,14 @@ export default function AdminLayout() {
   // Controlled, not `defaultOpen`: the provider's own `sidebar_state` cookie is shared
   // by every sidebar in the app, so the admin rail keeps its own key. `sidebarPreference`
   // has the measurement.
+  // `DESIGN_REFERENCE` puts the whole console in the reference design language, the one
+  // the home, the shell and every custom app are drawn in: underneath it the shadcn
+  // tokens these pages already read resolve to the reference's palette and every corner
+  // goes square (`styles/reference/theme.css`). The console's own density is untouched —
+  // this is palette, geometry and controls, not the type scale `admin/CLAUDE.md` fixes.
+  // Overlays portal out of this subtree, so each one carries the class itself.
   return (
-    <SidebarProvider open={railOpen} onOpenChange={setRailOpen}>
+    <SidebarProvider className={DESIGN_REFERENCE} open={railOpen} onOpenChange={setRailOpen}>
       <AdminSidebar />
       {/* `min-w-0` because this is a flex item in the sidebar's row, so without it its
           minimum width is its widest page's content. The custom-apps fleet's table

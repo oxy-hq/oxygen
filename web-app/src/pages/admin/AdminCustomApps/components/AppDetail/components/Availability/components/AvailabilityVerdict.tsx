@@ -32,7 +32,7 @@ function explain(data: AppAvailabilityReading): string {
 
 export const AvailabilityVerdict = ({ data }: { data: AppAvailabilityReading }) => (
   <div
-    className='flex items-start gap-2 rounded-md border bg-muted/40 p-3'
+    className='flex items-start gap-2 border bg-muted/40 p-3'
     data-testid='admin-app-availability-verdict'
   >
     <AdminStatusPill

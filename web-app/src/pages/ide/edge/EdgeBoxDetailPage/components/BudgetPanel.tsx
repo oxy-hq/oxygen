@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Label } from "@/components/ui/shadcn/label";
 import {
@@ -78,7 +79,7 @@ const BudgetPanel: React.FC<Props> = ({ workspaceId, boxId }) => {
             <SelectTrigger id='budget-range' className='h-8 w-44 text-xs'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {RANGES.map((r) => (
                 <SelectItem key={r.value} value={r.value}>
                   {r.label}
@@ -152,7 +153,7 @@ const HeadlineCard: React.FC<{
   const toneClass =
     tone === "danger" ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/20";
   return (
-    <div className={`flex flex-col gap-1 rounded-md border p-3 ${toneClass}`}>
+    <div className={`flex flex-col gap-1 border p-3 ${toneClass}`}>
       <div className='text-[10px] text-muted-foreground uppercase tracking-wide'>{label}</div>
       <div className='font-semibold text-base'>{value}</div>
       <div className='text-muted-foreground text-xs'>{sub}</div>
@@ -172,7 +173,7 @@ const ModelBreakdown: React.FC<{
 }> = ({ rows, loading, hasError }) => {
   if (hasError) return null;
   return (
-    <div className='flex flex-col gap-2 rounded-md border border-border bg-card p-3'>
+    <div className='flex flex-col gap-2 border border-border bg-card p-3'>
       <div className='flex items-center justify-between'>
         <div className='text-[10px] text-muted-foreground uppercase tracking-wide'>By model</div>
         {loading && <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />}
@@ -218,7 +219,7 @@ const ModelBreakdown: React.FC<{
 };
 
 const ErrorBanner: React.FC<{ message: string }> = ({ message }) => (
-  <div className='rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
+  <div className='border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
     Failed to load cost: {message}
   </div>
 );

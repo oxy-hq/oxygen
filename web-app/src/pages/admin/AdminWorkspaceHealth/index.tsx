@@ -45,7 +45,7 @@ export default function AdminWorkspaceHealthPage() {
       data-testid='admin-workspace-health-page'
       actions={
         <>
-          <div className='flex items-center rounded-md border border-border/60 p-0.5'>
+          <div className='flex items-center border border-border/60 p-0.5'>
             {(["causes", "workspaces"] as const).map((v) => (
               <button
                 key={v}
@@ -54,7 +54,7 @@ export default function AdminWorkspaceHealthPage() {
                 data-testid={`admin-workspace-health-view-${v}`}
                 aria-pressed={view === v}
                 className={cn(
-                  "rounded-sm px-2 py-1 text-xs capitalize transition-colors",
+                  " px-2 py-1 text-xs capitalize transition-colors",
                   view === v
                     ? "bg-muted font-medium text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -136,7 +136,7 @@ export default function AdminWorkspaceHealthPage() {
                   description='Nothing is failing across the fleet right now.'
                 />
               ) : (
-                <div className='divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card'>
+                <div className='divide-y divide-border/60 overflow-hidden border border-border/60 bg-card'>
                   {causes.map((cause) => (
                     <CauseCard key={cause.id} cause={cause} />
                   ))}

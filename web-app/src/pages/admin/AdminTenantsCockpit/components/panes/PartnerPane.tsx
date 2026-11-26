@@ -1,6 +1,7 @@
 import { ShieldAlert, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -91,7 +92,7 @@ export default function PartnerPane({
                         <Trash2 className='size-4' />
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent>
+                    <AlertDialogContent className={DESIGN_REFERENCE}>
                       <AlertDialogHeader>
                         <AlertDialogTitle>
                           Revoke {partner.name}&apos;s partnership?

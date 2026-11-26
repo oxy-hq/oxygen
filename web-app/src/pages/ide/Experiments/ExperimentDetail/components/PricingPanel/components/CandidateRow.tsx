@@ -31,7 +31,7 @@ export default function CandidateRow(
   const id = `experiment-price-${index}`;
   return (
     <fieldset
-      className='flex flex-col gap-3 rounded-lg border p-3'
+      className='flex flex-col gap-3 border p-3'
       data-testid={`experiment-price-candidate-${index}`}
     >
       <legend className='px-1 font-medium text-sm'>Candidate {index + 1}</legend>

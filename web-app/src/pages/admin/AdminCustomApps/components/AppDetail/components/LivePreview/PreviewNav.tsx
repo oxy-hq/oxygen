@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import type { PreviewHistory } from "./usePreviewHistory";
@@ -69,7 +70,7 @@ export const PreviewNav = ({
       <span
         data-testid='admin-app-preview-nav-location'
         title={history.url ?? undefined}
-        className='ml-1 min-w-0 flex-1 select-text truncate rounded bg-muted/60 px-2 py-0.5 font-mono text-muted-foreground text-xs'
+        className='ml-1 min-w-0 flex-1 select-text truncate bg-muted/60 px-2 py-0.5 font-mono text-muted-foreground text-xs'
       >
         {path ?? history.url ?? "—"}
       </span>
@@ -108,6 +109,8 @@ const NavButton = ({
         </Button>
       </span>
     </TooltipTrigger>
-    <TooltipContent side='bottom'>{label}</TooltipContent>
+    <TooltipContent className={DESIGN_REFERENCE} side='bottom'>
+      {label}
+    </TooltipContent>
   </Tooltip>
 );

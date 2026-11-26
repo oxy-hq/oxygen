@@ -50,7 +50,7 @@ export function ToneBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-medium text-foreground text-xs",
+        "inline-flex items-center gap-1.5 border px-2 py-0.5 font-medium text-foreground text-xs",
         TONE_SURFACE[tone]
       )}
       data-testid={testId}

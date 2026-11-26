@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -186,7 +187,7 @@ function Controls({
         >
           <SelectValue placeholder='no measure moved' />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={DESIGN_REFERENCE}>
           {targets.map((target) => (
             <SelectItem key={target.nodeId} value={target.nodeId} className='font-mono text-xs'>
               {target.label}
@@ -208,7 +209,7 @@ function Controls({
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {GRANULARITIES.map((g) => (
               <SelectItem key={g} value={g} className='font-mono text-xs'>
                 {g}
@@ -225,7 +226,7 @@ function Controls({
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {horizonChoices(granularity).map((n) => (
               <SelectItem key={n} value={String(n)} className='font-mono text-xs'>
                 {n} {granularity}

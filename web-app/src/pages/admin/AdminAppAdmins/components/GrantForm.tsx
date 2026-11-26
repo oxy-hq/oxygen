@@ -1,5 +1,6 @@
 import { Loader2, RefreshCw, UserPlus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent } from "@/components/ui/shadcn/card";
@@ -177,7 +178,7 @@ export function GrantForm({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   {/* Only what this operator may issue. A Global Admin offered "Global
                       Admin" here would be offered a 403 — the delegation bound admits a
                       grant strictly weaker than their own, never an equal one. Rendering
@@ -200,7 +201,7 @@ export function GrantForm({
 
           {replacing && (
             <div
-              className='rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs'
+              className=' border border-destructive/40 bg-destructive/5 p-2 text-xs'
               data-testid='admin-app-admins-replace-warning'
             >
               <span className='font-medium'>{replacing.email}</span> already holds{" "}
@@ -228,7 +229,7 @@ export function GrantForm({
 
             {bounded && (
               <div
-                className='max-h-48 overflow-auto rounded-md border border-border p-2'
+                className='max-h-48 overflow-auto border border-border p-2'
                 data-testid='admin-app-admins-scope-orgs'
               >
                 {/* A failed drain is a THIRD outcome, not an empty directory. `isDraining` goes
@@ -259,7 +260,7 @@ export function GrantForm({
                     <Label
                       key={org.id}
                       htmlFor={`grant-org-${org.id}`}
-                      className='flex cursor-pointer items-center gap-2 rounded px-1 py-1 font-normal hover:bg-muted/40'
+                      className='flex cursor-pointer items-center gap-2 px-1 py-1 font-normal hover:bg-muted/40'
                     >
                       <Checkbox
                         id={`grant-org-${org.id}`}

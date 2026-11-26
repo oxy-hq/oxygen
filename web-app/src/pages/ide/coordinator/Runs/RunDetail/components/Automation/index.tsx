@@ -88,12 +88,12 @@ export const AutomationBody: React.FC<{
         </TabsList>
         <div className='flex items-center gap-3 text-muted-foreground text-xs'>
           <span className='tabular-nums'>{allNodes.length} steps</span>
-          {succeeded > 0 && <span className='text-emerald-600'>✓ {succeeded}</span>}
-          {cached > 0 && <span className='text-cyan-600'>cached {cached}</span>}
+          {succeeded > 0 && <span className='text-status-success'>✓ {succeeded}</span>}
+          {cached > 0 && <span className='text-status-info'>cached {cached}</span>}
           {failed > 0 && <span className='text-destructive'>✗ {failed}</span>}
           {pending > 0 && <span>pending {pending}</span>}
           {critical && (
-            <span className='flex items-center gap-1 text-amber-600'>
+            <span className='flex items-center gap-1 text-status-warning'>
               <Flame className='h-3 w-3' />
               critical {critical.name} · {formatDurationMs(critical.durationMs ?? 0)}
             </span>
@@ -111,7 +111,7 @@ export const AutomationBody: React.FC<{
             />
           </div>
           <aside className='lg:w-[28rem] lg:shrink-0'>
-            <div className='sticky top-3 max-h-[calc(100vh-9rem)] overflow-y-auto rounded-md border border-border bg-card'>
+            <div className='sticky top-3 max-h-[calc(100vh-9rem)] overflow-y-auto border border-border bg-card'>
               <StepInspector node={selectedNode} />
             </div>
           </aside>

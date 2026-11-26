@@ -168,7 +168,7 @@ const BodyBlock = ({ text, truncated }: { text: string; truncated?: boolean }) =
   if (!text) return <p className='font-mono text-muted-foreground/60 text-xs'>No body</p>;
   return (
     <div>
-      <pre className='overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] text-foreground'>
+      <pre className='overflow-auto whitespace-pre-wrap break-words bg-muted/40 p-2 font-mono text-[11px] text-foreground'>
         {text}
       </pre>
       {truncated && (

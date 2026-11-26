@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { AppMark } from "@/components/apps/AppMark";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -201,7 +202,7 @@ export const DetailToolbar = ({
                   <RotateCw className='size-3.5' />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Reload</TooltipContent>
+              <TooltipContent className={DESIGN_REFERENCE}>Reload</TooltipContent>
             </Tooltip>
 
             {/* Device dropdown. Was three inline pills; collapsed to a
@@ -224,7 +225,7 @@ export const DetailToolbar = ({
                 <ActiveDeviceIcon className='size-3.5' />
                 <span>{DEVICE_LABELS[device].label}</span>
               </SelectTrigger>
-              <SelectContent align='end'>
+              <SelectContent className={DESIGN_REFERENCE} align='end'>
                 {(["mobile", "tablet", "desktop"] as Device[]).map((d) => {
                   const { icon: Icon, label, size } = DEVICE_LABELS[d];
                   return (
@@ -278,7 +279,9 @@ export const DetailToolbar = ({
               </ToggleGroupItem>
             </TooltipTrigger>
             {production.note && (
-              <TooltipContent className='max-w-xs'>{production.note}</TooltipContent>
+              <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>
+                {production.note}
+              </TooltipContent>
             )}
           </Tooltip>
           <Tooltip>
@@ -298,7 +301,7 @@ export const DetailToolbar = ({
                 </ToggleGroupItem>
               </span>
             </TooltipTrigger>
-            <TooltipContent className='max-w-xs'>
+            <TooltipContent className={`${DESIGN_REFERENCE} max-w-xs`}>
               {draft.kind === "staging"
                 ? "Frames the staging host: the draft build, writes held."
                 : draft.kind === "unavailable"
@@ -322,7 +325,9 @@ export const DetailToolbar = ({
                 <PanelRight className='size-3.5' />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{dossierOpen ? "Hide details" : "Show details"}</TooltipContent>
+            <TooltipContent className={DESIGN_REFERENCE}>
+              {dossierOpen ? "Hide details" : "Show details"}
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -355,7 +360,7 @@ export const DetailToolbar = ({
               <ExternalLink className='size-3.5' />
             </Button>
           </TooltipTrigger>
-          <TooltipContent className='max-w-md space-y-1.5'>
+          <TooltipContent className={`${DESIGN_REFERENCE} max-w-md space-y-1.5`}>
             {app.url_subdomain && (
               <div>
                 <span className='block text-xs opacity-60'>Subdomain URL (recommended)</span>
@@ -376,7 +381,7 @@ export const DetailToolbar = ({
           if (!open) setPendingChannel(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>{pendingCopy?.title ?? ""}</AlertDialogTitle>
             <AlertDialogDescription>{pendingCopy?.description ?? ""}</AlertDialogDescription>
@@ -418,7 +423,7 @@ const TabPill = ({
     onClick={onClick}
     aria-pressed={active}
     className={cn(
-      "relative h-7 rounded-md px-2.5 font-medium text-xs transition-colors",
+      "relative h-7 px-2.5 font-medium text-xs transition-colors",
       active ? "text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
     )}
   >

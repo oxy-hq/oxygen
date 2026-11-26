@@ -12,7 +12,7 @@ import { statusLabel } from "@/pages/ide/Experiments/viewForState";
 export default function SealedView({ state }: { state: string }) {
   return (
     <div
-      className={cn(COLUMN, "flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm")}
+      className={cn(COLUMN, "flex flex-wrap items-center gap-2 border p-3 text-sm")}
       data-testid='experiment-sealed'
     >
       <ToneBadge tone='neutral'>

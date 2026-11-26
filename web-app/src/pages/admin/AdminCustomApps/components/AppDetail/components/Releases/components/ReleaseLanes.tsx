@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
@@ -28,7 +29,7 @@ export const ReleaseLanes = ({ data }: { data: ReleaseTimeline }) => {
             <span className='w-18 shrink-0 text-[10px] text-muted-foreground uppercase tracking-[0.16em]'>
               {LANE_LABEL[lane.lane]}
             </span>
-            <div className='relative h-5 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted/40'>
+            <div className='relative h-5 min-w-0 flex-1 overflow-hidden bg-muted/40'>
               {lane.lane === "production" &&
                 data.releases.map((r) => {
                   const left = at(r.counted_from);
@@ -91,7 +92,7 @@ const LaneMark = ({ event, left }: { event: ReleaseLaneEvent; left: number }) =>
           data-testid={`admin-app-releases-event-${event.id}`}
         />
       </TooltipTrigger>
-      <TooltipContent className='text-xs'>
+      <TooltipContent className={`${DESIGN_REFERENCE} text-xs`}>
         {event.environment} · {event.action} · {build} · {relativeTime(event.at)}
         {event.actor ? ` · ${event.actor}` : ""}
         {event.agent_built ? " · agent-built" : ""}

@@ -42,7 +42,7 @@ export const FunctionBody: React.FC<{
       {errorMessage && (
         <section className='space-y-1'>
           <h3 className='font-medium text-destructive text-xs'>Error</h3>
-          <pre className='overflow-x-auto whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs'>
+          <pre className='overflow-x-auto whitespace-pre-wrap border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs'>
             {errorMessage}
           </pre>
         </section>
@@ -51,7 +51,7 @@ export const FunctionBody: React.FC<{
       {answer && (
         <section className='space-y-1'>
           <h3 className='font-medium text-foreground text-xs'>Return value</h3>
-          <pre className='max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-foreground text-xs'>
+          <pre className='max-h-64 overflow-auto whitespace-pre-wrap border border-border bg-muted/30 p-3 text-foreground text-xs'>
             {answer}
           </pre>
         </section>
@@ -63,12 +63,12 @@ export const FunctionBody: React.FC<{
           Logs
         </h3>
         {logs.length === 0 ? (
-          <p className='rounded-md border border-border border-dashed p-3 text-muted-foreground text-xs'>
+          <p className='border border-border border-dashed p-3 text-muted-foreground text-xs'>
             This run produced no log output. Use <code>ctx.log(...)</code> or{" "}
             <code>console.log(...)</code> in the function to record progress.
           </p>
         ) : (
-          <div className='overflow-x-auto rounded-md border border-border bg-muted/20 font-mono text-xs'>
+          <div className='overflow-x-auto border border-border bg-muted/20 font-mono text-xs'>
             {logs.map((e) => (
               <LogRow key={e.seq} level={str(e.payload.level)} message={str(e.payload.message)} />
             ))}

@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Input } from "@/components/ui/shadcn/input";
 import {
   Select,
@@ -82,7 +83,7 @@ export function DeploymentFieldRow({
           )}
           {drifted && (
             <span
-              className='inline-flex items-center gap-1 rounded-sm border border-warning/40 bg-warning/10 px-1 py-px font-medium text-[10px] text-warning'
+              className='inline-flex items-center gap-1 border border-warning/40 bg-warning/10 px-1 py-px font-medium text-[10px] text-warning'
               data-testid={`${testId}-drift`}
             >
               <span className='size-1.5 rounded-full bg-warning' />
@@ -108,7 +109,7 @@ export function DeploymentFieldRow({
           <SelectTrigger className='h-8 w-full text-xs' data-testid={`${testId}-input`}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value='default'>{DEFAULT_LABEL}</SelectItem>
             <SelectItem value='true'>true</SelectItem>
             <SelectItem value='false'>false</SelectItem>

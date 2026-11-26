@@ -94,7 +94,7 @@ const Trailing = ({ rollup }: { rollup: AppsRollup }) => {
   const tone = ADMIN_TONE[STATUS_TONE[rollup.worst ?? "degraded"]];
   return (
     <span
-      className={cn("shrink-0 rounded-sm px-1 py-px font-medium tabular-nums", tone.bg, tone.text)}
+      className={cn("shrink-0 px-1 py-px font-medium tabular-nums", tone.bg, tone.text)}
       title={`${rollup.attention} of ${rollup.appCount} apps need attention`}
     >
       {rollup.attention}

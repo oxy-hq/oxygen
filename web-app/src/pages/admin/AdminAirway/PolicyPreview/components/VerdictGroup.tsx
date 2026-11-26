@@ -43,7 +43,7 @@ export function VerdictGroup({
 function ResourceRow({ resource }: { resource: AirwayResourceVerdict }) {
   const { path, workspaceId } = splitPipelineRef(resource.pipeline_ref);
   return (
-    <li className='rounded-md border border-border/60 px-2.5 py-1.5 text-xs'>
+    <li className=' border border-border/60 px-2.5 py-1.5 text-xs'>
       <div className='flex items-center justify-between gap-2'>
         <span className='font-mono'>{path}</span>
         <Badge variant='outline' className='shrink-0 text-[10px]'>

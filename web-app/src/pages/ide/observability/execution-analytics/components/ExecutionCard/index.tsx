@@ -41,8 +41,8 @@ export default function ExecutionCard({ execution }: ExecutionCardProps) {
   return (
     <div
       className={cn(
-        "group relative rounded-xl border transition-all duration-200",
-        "hover:border-primary/30 hover:shadow-md hover:shadow-primary/5",
+        "group relative border transition-all duration-200",
+        "hover:border-primary/30",
         isExpanded && "border-primary/30"
       )}
     >

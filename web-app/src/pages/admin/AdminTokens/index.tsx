@@ -253,7 +253,7 @@ export default function AdminTokens() {
 
             {rows.length === 0 ? (
               <p
-                className='rounded-md border border-border/60 border-dashed px-4 py-6 text-center text-muted-foreground text-xs'
+                className=' border border-border/60 border-dashed px-4 py-6 text-center text-muted-foreground text-xs'
                 data-testid={`${AREA}-none`}
               >
                 {kind === "all"
@@ -354,7 +354,7 @@ const KindChip = ({
     aria-pressed={on}
     data-testid={`${AREA}-kind-${testId}`}
     className={cn(
-      "rounded-md px-2 py-1 font-medium text-[11px] transition-colors",
+      " px-2 py-1 font-medium text-[11px] transition-colors",
       on
         ? "bg-foreground text-background"
         : "text-muted-foreground hover:bg-muted hover:text-foreground"

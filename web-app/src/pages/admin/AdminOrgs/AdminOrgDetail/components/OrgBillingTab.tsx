@@ -70,7 +70,7 @@ export const OrgBillingTab = ({ orgId }: { orgId: string }) => {
 
   return (
     <div className='space-y-6'>
-      <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+      <section className='space-y-4 border border-border/60 bg-card p-6'>
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-3'>
             <h3 className='font-semibold text-sm'>Subscription</h3>
@@ -111,7 +111,7 @@ export const OrgBillingTab = ({ orgId }: { orgId: string }) => {
         >
           Line items
         </AdminSectionLabel>
-        <ul className='divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-card'>
+        <ul className='divide-y divide-border/60 overflow-hidden border border-border/60 bg-card'>
           {sub.items.map((item) => (
             <li key={item.id} className='flex items-center justify-between gap-3 px-4 py-3 text-xs'>
               <div className='min-w-0'>
@@ -129,7 +129,7 @@ export const OrgBillingTab = ({ orgId }: { orgId: string }) => {
       {sub.latest_invoice ? (
         <section className='space-y-3'>
           <AdminSectionLabel>Latest invoice</AdminSectionLabel>
-          <div className='flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card px-4 py-3 text-xs'>
+          <div className='flex items-center justify-between gap-3 border border-border/60 bg-card px-4 py-3 text-xs'>
             <div className='flex items-center gap-3'>
               <AdminStatusPill
                 tone={sub.latest_invoice.status === "paid" ? "ok" : "warn"}

@@ -1,5 +1,6 @@
 import { Loader2, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import {
@@ -89,7 +90,10 @@ export function GrantDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !create.isPending && onClose()}>
-      <DialogContent className='max-w-lg' data-testid='admin-user-platform-grant-dialog'>
+      <DialogContent
+        className={`${DESIGN_REFERENCE} max-w-lg`}
+        data-testid='admin-user-platform-grant-dialog'
+      >
         <DialogHeader>
           <DialogTitle className='text-sm'>
             {existing ? "Change staff access" : "Grant staff access"}
@@ -113,7 +117,7 @@ export function GrantDialog({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {bound.issuableRoles.map((r) => (
                   <SelectItem key={r} value={r}>
                     {ROLE_LABELS[r]}
@@ -128,7 +132,7 @@ export function GrantDialog({
               without noticing — say what is there now, before the click. */}
           {existing && (
             <div
-              className='rounded-md border border-border bg-muted/40 p-2 text-xs'
+              className=' border border-border bg-muted/40 p-2 text-xs'
               data-testid='admin-user-platform-replacing'
             >
               Currently{" "}
@@ -156,7 +160,7 @@ export function GrantDialog({
 
             {bounded && (
               <div
-                className='max-h-48 overflow-auto rounded-md border border-border p-2'
+                className='max-h-48 overflow-auto border border-border p-2'
                 data-testid='admin-user-platform-scope-orgs'
               >
                 {/* A failed drain is a THIRD outcome, not an empty directory. `isDraining` goes
@@ -187,7 +191,7 @@ export function GrantDialog({
                     <Label
                       key={org.id}
                       htmlFor={`platform-grant-org-${org.id}`}
-                      className='flex cursor-pointer items-center gap-2 rounded px-1 py-1 font-normal hover:bg-muted/40'
+                      className='flex cursor-pointer items-center gap-2 px-1 py-1 font-normal hover:bg-muted/40'
                     >
                       <Checkbox
                         id={`platform-grant-org-${org.id}`}

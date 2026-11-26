@@ -24,7 +24,7 @@ export function TraceHeader({ traceId, totalDurationMs, spansCount, startTime }:
         </Button>
         <div className='flex items-center gap-3'>
           <h1 className='font-semibold text-base'>Trace</h1>
-          <code className='rounded bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs'>
+          <code className='bg-muted px-2 py-0.5 font-mono text-muted-foreground text-xs'>
             {traceId?.slice(0, 16)}...
           </code>
         </div>

@@ -1,6 +1,7 @@
 import { isAxiosError } from "axios";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +53,7 @@ export default function ResyncConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className={DESIGN_REFERENCE}>
         <AlertDialogHeader>
           <AlertDialogTitle>Resync billing — {orgName}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -61,7 +62,7 @@ export default function ResyncConfirmDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className='flex items-start gap-3 rounded-md border p-3'>
+        <div className='flex items-start gap-3 border p-3'>
           <Checkbox
             id='sync-seats'
             checked={syncSeats}

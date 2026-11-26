@@ -77,7 +77,7 @@ export function RailFilters<T extends string>({
           // tell a flow which list it is asserting on.
           data-testid={`admin-rail-filter-${type}-${f.id}`}
           className={cn(
-            "rounded px-1.5 py-0.5 font-medium text-xs transition-colors",
+            "px-1.5 py-0.5 font-medium text-xs transition-colors",
             value === (f.id as string)
               ? "bg-foreground text-background"
               : "bg-muted/60 text-muted-foreground hover:text-foreground"

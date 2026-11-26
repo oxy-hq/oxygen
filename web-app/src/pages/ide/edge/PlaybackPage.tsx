@@ -2,6 +2,7 @@ import { AlertTriangle, Camera as CameraIcon, Film, Info, Radio } from "lucide-r
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Label } from "@/components/ui/shadcn/label";
 import {
@@ -343,7 +344,7 @@ const PlaybackPage: React.FC = () => {
           <SelectTrigger id='playback-range' className='w-44'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {RANGE_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -358,7 +359,7 @@ const PlaybackPage: React.FC = () => {
           it the long sidebar would push the player off the bottom
           on small viewports. */}
       <div className='flex min-h-0 min-w-0 flex-1 gap-3'>
-        <aside className='w-72 shrink-0 overflow-hidden rounded-lg border border-border bg-card'>
+        <aside className='w-72 shrink-0 overflow-hidden border border-border bg-card'>
           <CameraSidebar
             workspaceId={workspaceId}
             cameras={sidebarCameras}
@@ -368,7 +369,7 @@ const PlaybackPage: React.FC = () => {
           />
         </aside>
 
-        <section className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card'>
+        <section className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border bg-card'>
           {camerasLoading ? (
             <PlayerEmpty>Loading cameras…</PlayerEmpty>
           ) : sidebarCameras.length === 0 ? (
@@ -462,7 +463,7 @@ const SingleCameraPlayer: React.FC<SingleCameraPlayerProps> = ({
           `shrink-0` so the video area's `flex-1 min-h-0` can't squeeze
           it out (the old layout's `aspect-video` on ClipPlayer could
           push the header off the top of an overflow-hidden parent). */}
-      <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card'>
+      <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border bg-card'>
         <div className='flex shrink-0 items-center justify-between gap-2 border-border border-b px-3 py-2'>
           <div className='flex min-w-0 items-center gap-2'>
             <CameraIcon className='h-3.5 w-3.5 shrink-0 text-muted-foreground' />
@@ -494,7 +495,7 @@ const SingleCameraPlayer: React.FC<SingleCameraPlayerProps> = ({
                 scrubber already provided). */}
             <span
               className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs",
+                "inline-flex items-center gap-1 border px-2 py-0.5 text-xs",
                 playerMode === "live"
                   ? "border-destructive/40 bg-destructive/5 text-destructive"
                   : "border-border bg-muted/30 text-muted-foreground"
@@ -695,7 +696,7 @@ const VerticalDetectionScrubber: React.FC<{
   return (
     <aside
       className={cn(
-        "relative flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+        "relative flex shrink-0 flex-col overflow-hidden border border-border bg-card",
         RAIL_WIDTH_CLASS
       )}
       data-testid='vertical-detection-scrubber'
@@ -753,7 +754,7 @@ const VerticalDetectionScrubber: React.FC<{
             {bands.map((b) => (
               <div
                 key={b.key}
-                className='pointer-events-none absolute left-1/2 w-3 -translate-x-1/2 rounded-sm bg-primary/15'
+                className='pointer-events-none absolute left-1/2 w-3 -translate-x-1/2 bg-primary/15'
                 style={{ top: `${b.topPct}%`, height: `${b.heightPct}%` }}
                 aria-hidden
               />
@@ -778,7 +779,7 @@ const VerticalDetectionScrubber: React.FC<{
                   }}
                   style={{ top: `${pct}%` }}
                   className={cn(
-                    "absolute left-1/2 h-1 -translate-x-1/2 -translate-y-1/2 rounded-sm transition-all",
+                    "absolute left-1/2 h-1 -translate-x-1/2 -translate-y-1/2 transition-all",
                     widthClass,
                     severityDotClass(e.severity),
                     isActive && "h-1.5 w-6 ring-2 ring-primary"
@@ -855,7 +856,11 @@ const ViolationIndicator: React.FC<{
             {label}
           </Badge>
         </TooltipTrigger>
-        <TooltipContent className='max-w-sm space-y-1.5 p-3 text-left' side='bottom' align='end'>
+        <TooltipContent
+          className={`${DESIGN_REFERENCE} max-w-sm space-y-1.5 p-3 text-left`}
+          side='bottom'
+          align='end'
+        >
           <div className='flex items-center justify-between gap-2 text-[11px]'>
             <span className='font-semibold uppercase tracking-wide'>VLM verdict</span>
             {typeof verdict.confidence === "number" && (

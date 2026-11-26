@@ -178,7 +178,7 @@ export const JobsConsole = () => {
                 type='button'
                 onClick={() => setFilter(f.id)}
                 className={cn(
-                  "rounded-md px-2 py-1 font-medium text-[11px] uppercase tracking-wide transition-colors",
+                  " px-2 py-1 font-medium text-[11px] uppercase tracking-wide transition-colors",
                   filter === f.id
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -197,7 +197,7 @@ export const JobsConsole = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder='Filter by task, workspace, org, worker, error…'
-              className='h-7 w-64 rounded-md border border-border/60 bg-card pr-2 pl-7 font-mono text-[11px] outline-none placeholder:text-muted-foreground/60 focus:border-border focus:ring-1 focus:ring-ring'
+              className='h-7 w-64 border border-border/60 bg-card pr-2 pl-7 font-mono text-[11px] outline-none placeholder:text-muted-foreground/60 focus:border-border focus:ring-1 focus:ring-ring'
               aria-label='Filter jobs'
             />
           </div>
@@ -237,7 +237,7 @@ export const JobsConsole = () => {
         }
       >
         {() => (
-          <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+          <div className='overflow-hidden border border-border/60 bg-card'>
             <div className='grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 border-border/60 border-b bg-muted/30 px-3 py-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
               <span className='w-4' aria-hidden />
               <span>Type · Status</span>

@@ -56,7 +56,7 @@ export default function InterimPanel({ name }: { name: string }) {
   const busy = interim.running || request.isPending;
 
   return (
-    <section className='flex flex-col gap-3 rounded-lg border p-4' data-testid='experiment-interim'>
+    <section className='flex flex-col gap-3 border p-4' data-testid='experiment-interim'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='flex flex-wrap items-center gap-2'>
           <ToneBadge tone='warning' testId='experiment-interim-badge'>

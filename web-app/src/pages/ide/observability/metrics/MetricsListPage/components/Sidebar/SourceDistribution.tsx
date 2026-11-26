@@ -26,7 +26,7 @@ export default function SourceDistribution({ stats, config: configMap }: SourceD
 
         return (
           <div key={type} className='flex items-center gap-3'>
-            <div className={cn("rounded-md p-1.5", config.bgColor)}>
+            <div className={cn("p-1.5", config.bgColor)}>
               <span className={config.color}>{config.icon}</span>
             </div>
             <div className='min-w-0 flex-1'>

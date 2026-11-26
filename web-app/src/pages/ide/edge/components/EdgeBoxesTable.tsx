@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import TableContentWrapper from "@/components/settings/components/TableContentWrapper";
 import TableWrapper from "@/components/settings/components/TableWrapper";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -329,7 +330,7 @@ const EdgeBoxesTable: React.FC = () => {
             <SelectTrigger id='cost-range' className='h-8 w-24 text-xs'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               <SelectItem value='24h'>24h</SelectItem>
               <SelectItem value='7d'>7d</SelectItem>
               <SelectItem value='30d'>30d</SelectItem>
@@ -345,7 +346,7 @@ const EdgeBoxesTable: React.FC = () => {
           the action discoverable without cluttering each row with
           duplicate buttons. */}
       {selectedBoxes.length > 0 && (
-        <div className='flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-2'>
+        <div className='flex items-center justify-between gap-3 border border-primary/40 bg-primary/5 p-2'>
           <div className='flex items-center gap-2'>
             <Checkbox checked aria-label='Selection indicator' />
             <span className='text-sm'>
@@ -493,7 +494,7 @@ const EdgeBoxesTable: React.FC = () => {
                         {eb.incompatible_reason && (
                           <Badge
                             variant='outline'
-                            className='gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-900 dark:text-amber-300'
+                            className='gap-1 border-dot-warning/40 bg-dot-warning/10 text-[10px] text-status-warning'
                             title={eb.incompatible_reason}
                           >
                             needs upgrade
@@ -609,7 +610,7 @@ const EdgeBoxesTable: React.FC = () => {
           if (!open) setBulkRetireOpen(false);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>
               Retire {selectedBoxes.length} {selectedBoxes.length === 1 ? "edge box" : "edge boxes"}
@@ -625,7 +626,7 @@ const EdgeBoxesTable: React.FC = () => {
                   history.
                 </span>
                 {selectedBoxes.length <= 12 && (
-                  <div className='max-h-40 overflow-y-auto rounded-md border border-border bg-muted/30 p-2 text-foreground text-xs'>
+                  <div className='max-h-40 overflow-y-auto border border-border bg-muted/30 p-2 text-foreground text-xs'>
                     <ul className='flex flex-col gap-0.5'>
                       {selectedBoxes.map((eb) => (
                         <li key={eb.id} className='flex justify-between gap-2'>
@@ -654,7 +655,7 @@ const EdgeBoxesTable: React.FC = () => {
           if (!open) setRemoveTarget(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {removeTarget?.label ?? "device"}?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -711,7 +712,7 @@ const PendingDevicesCard: React.FC<{
   members: FleetMemberRow[];
   onRemove: (member: FleetMemberRow) => void;
 }> = ({ members, onRemove }) => (
-  <div className='flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/5 p-3'>
+  <div className='flex flex-col gap-2 border border-primary/40 bg-primary/5 p-3'>
     <span className='font-medium text-primary text-sm'>
       {members.length} {members.length === 1 ? "device" : "devices"} waiting to bootstrap
     </span>
@@ -723,7 +724,7 @@ const PendingDevicesCard: React.FC<{
       {members.map((m) => (
         <div
           key={m.device_id ?? m.site_id}
-          className='flex flex-wrap items-center gap-3 rounded-sm border border-border bg-background p-2 text-xs'
+          className='flex flex-wrap items-center gap-3 border border-border bg-background p-2 text-xs'
         >
           <Badge variant='secondary'>pending</Badge>
           <span className='text-muted-foreground'>{m.site_name}</span>

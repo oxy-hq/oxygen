@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
@@ -121,14 +122,14 @@ const PackEditorDialog: React.FC<Props> = ({ pack, open, onOpenChange }) => {
   if (!draft) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className='max-w-4xl' />
+        <DialogContent className={`${DESIGN_REFERENCE} max-w-4xl`} />
       </Dialog>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[90vh] max-w-4xl overflow-y-auto'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-h-[90vh] max-w-4xl overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle>Edit pack · {pack?.name}</DialogTitle>
           <DialogDescription>
@@ -139,7 +140,7 @@ const PackEditorDialog: React.FC<Props> = ({ pack, open, onOpenChange }) => {
 
         <div className='flex flex-col gap-5'>
           {/* Variables card */}
-          <div className='flex flex-col gap-2 rounded-md border border-border p-3'>
+          <div className='flex flex-col gap-2 border border-border p-3'>
             <div className='flex items-center justify-between'>
               <Label htmlFor='pack-variables' className='font-medium'>
                 Variables
@@ -169,7 +170,7 @@ const PackEditorDialog: React.FC<Props> = ({ pack, open, onOpenChange }) => {
             {draft.roles.map((role, idx) => (
               <div
                 key={role.role_key || `role-${idx}`}
-                className='flex flex-col gap-2 rounded-md border border-border p-3'
+                className='flex flex-col gap-2 border border-border p-3'
               >
                 <div className='grid gap-2 sm:grid-cols-2'>
                   <div className='flex flex-col gap-1'>
@@ -218,10 +219,7 @@ const PackEditorDialog: React.FC<Props> = ({ pack, open, onOpenChange }) => {
                   <div className='flex flex-wrap gap-1 text-xs'>
                     <span className='text-muted-foreground'>Available:</span>
                     {variableHints.map((v) => (
-                      <code
-                        key={v}
-                        className='rounded bg-muted px-1.5 py-0.5 text-muted-foreground'
-                      >
+                      <code key={v} className='bg-muted px-1.5 py-0.5 text-muted-foreground'>
                         {`{{ ${v} }}`}
                       </code>
                     ))}

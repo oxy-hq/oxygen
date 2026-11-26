@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -363,7 +364,7 @@ export default function AdminOrgDetail({
 
       <section id='org-section-settings' className='scroll-mt-4 space-y-4'>
         <AdminSectionLabel>Settings</AdminSectionLabel>
-        <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+        <section className='space-y-4 border border-border/60 bg-card p-6'>
           <div className='space-y-1'>
             <h3 className='font-semibold text-sm'>Branding</h3>
             <p className='text-muted-foreground text-xs'>
@@ -373,7 +374,7 @@ export default function AdminOrgDetail({
           <OrgLogoEditor orgId={detail.id} name={detail.name} />
         </section>
 
-        <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+        <section className='space-y-4 border border-border/60 bg-card p-6'>
           <div className='space-y-1'>
             <h3 className='font-semibold text-sm'>Identity</h3>
             <p className='text-muted-foreground text-xs'>
@@ -427,7 +428,7 @@ export default function AdminOrgDetail({
 
         <OrgSubdomainSettings orgId={detail.id} />
 
-        <section className='space-y-4 rounded-lg border border-destructive/40 bg-destructive/5 p-6'>
+        <section className='space-y-4 border border-destructive/40 bg-destructive/5 p-6'>
           <div className='space-y-1'>
             <h3 className='font-semibold text-destructive text-sm'>Danger zone</h3>
             <p className='text-destructive/80 text-xs'>
@@ -452,7 +453,7 @@ export default function AdminOrgDetail({
         open={editing}
         onOpenChange={(o) => !o && !rename.isPending && setEditing(false)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Edit organization</AlertDialogTitle>
             <AlertDialogDescription>
@@ -493,7 +494,7 @@ export default function AdminOrgDetail({
         open={confirmDelete}
         onOpenChange={(o) => !o && !remove.isPending && setConfirmDelete(false)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete organization?</AlertDialogTitle>
             <AlertDialogDescription>

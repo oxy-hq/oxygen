@@ -150,7 +150,7 @@ export const EltBody: React.FC<{
               ))}
             </div>
             <aside className='lg:w-[28rem] lg:shrink-0'>
-              <div className='sticky top-3 max-h-[calc(100vh-9rem)] overflow-y-auto rounded-md border border-border bg-card'>
+              <div className='sticky top-3 max-h-[calc(100vh-9rem)] overflow-y-auto border border-border bg-card'>
                 <EltTableInspector table={selectedTable} schemaChanges={model.schemaChanges} />
               </div>
             </aside>

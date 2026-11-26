@@ -91,7 +91,7 @@ function HighlightGroup({
 
 function HighlightList({ highlights }: { highlights: readonly UsageHighlight[] }) {
   return (
-    <ul className='divide-y divide-border/60 rounded-lg border border-border/60'>
+    <ul className='divide-y divide-border/60 border border-border/60'>
       {highlights.map((h) => (
         <li
           key={`${h.app_id}-${h.kind}`}

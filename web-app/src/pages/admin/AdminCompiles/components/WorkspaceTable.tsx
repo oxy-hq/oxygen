@@ -26,7 +26,7 @@ export const WorkspaceTable = ({
   selection: Selection;
   revisionSelection: Selection;
 }) => (
-  <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+  <div className='overflow-hidden border border-border/60 bg-card'>
     <div className='max-h-[calc(100vh-18rem)] overflow-auto'>
       <Table className='text-xs'>
         <TableHeader className='sticky top-0 z-10'>

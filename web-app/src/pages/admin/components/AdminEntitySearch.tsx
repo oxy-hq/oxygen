@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   CommandDialog,
@@ -172,7 +173,7 @@ export const AdminEntitySearch = () => {
         <Search className='size-3.5' />
         {/* `sr-only`, not `hidden`, so the icon-only button below 28rem keeps its name. */}
         <span className='sr-only @md:not-sr-only text-xs'>Search</span>
-        <kbd className='ml-1 @md:inline-flex hidden items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
+        <kbd className='ml-1 @md:inline-flex hidden items-center gap-0.5 border border-border-subtle bg-field px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
           <span className='text-xs'>⌘</span>K
         </kbd>
       </Button>
@@ -180,6 +181,7 @@ export const AdminEntitySearch = () => {
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
+        className={DESIGN_REFERENCE}
         title='Admin search'
         description='Jump to a page, or find an org, user, workspace, thread or run across the deployment.'
       >

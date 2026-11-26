@@ -1,6 +1,8 @@
 import { Home } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { DESIGN_REFERENCE, focusRing } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
+import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -33,27 +35,27 @@ const Header = () => {
 
   return (
     <header
-      className='flex h-10 shrink-0 items-center gap-2 border-b bg-sidebar-background px-1'
+      className='flex h-10 shrink-0 items-center gap-2 border-border-subtle border-b bg-sidebar-background px-1'
       data-testid='ide-header'
     >
       <Button
         variant='ghost'
         size='sm'
         onClick={handleHomeClick}
-        tooltip={{ content: "Back to Home", side: "right" }}
-        className='h-8 w-8'
+        tooltip={{ content: "Back to Home", side: "right", className: DESIGN_REFERENCE }}
+        className={cn("h-8 w-8", focusRing)}
       >
         <Home className='h-4 w-4' />
       </Button>
       <WorkspaceSwitcher />
-      <span className='h-4 w-px shrink-0 bg-border' aria-hidden />
+      <span className='h-4 w-px shrink-0 bg-border-subtle' aria-hidden />
       <RevisionInfo remoteUrl={workspace?.git_remote_url} />
       {repoUrl && (
         <Button
           asChild
           size='sm'
           variant='ghost'
-          className='ml-auto h-8 w-8'
+          className={cn("ml-auto h-8 w-8", focusRing)}
           title='Open on GitHub'
         >
           <a href={repoUrl} target='_blank' rel='noopener noreferrer' aria-label='Open on GitHub'>

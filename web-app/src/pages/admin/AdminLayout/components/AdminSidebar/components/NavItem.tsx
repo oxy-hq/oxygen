@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/shadcn/sidebar";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
+import { consoleNavRow } from "@/pages/admin/components/ConsoleRail";
 
 /** What the rail needs to know about workspace health, resolved once by the rail. */
 export interface NavAttention {
@@ -50,7 +51,7 @@ export const NavItem = ({
         asChild
         isActive={isActive}
         tooltip={badge ? `${label} — ${badge.count} need attention` : label}
-        className='gap-2.5 text-[13px] data-[active=true]:font-medium [&>svg]:size-3.5'
+        className={consoleNavRow}
       >
         <Link to={to}>
           <Icon />

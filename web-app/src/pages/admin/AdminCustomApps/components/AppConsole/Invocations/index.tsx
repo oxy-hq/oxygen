@@ -92,7 +92,7 @@ export const InvocationsPanel = ({
           size='sm'
           value={windowKey}
           onValueChange={(v) => v && pickWindow(v as WindowKey)}
-          className='gap-0 rounded-md border border-border/60 p-0.5'
+          className='gap-0 border border-border/60 p-0.5'
           aria-label='Window'
           data-testid='admin-app-invocations-window'
         >
@@ -168,7 +168,7 @@ export const InvocationsPanel = ({
                 )}
                 {capped && (
                   <p
-                    className='flex items-start gap-1.5 rounded-md bg-muted/40 px-3 py-2 text-xs'
+                    className='flex items-start gap-1.5 bg-muted/40 px-3 py-2 text-xs'
                     data-testid='admin-app-invocations-capped'
                   >
                     <Info className='mt-0.5 size-3 shrink-0 text-muted-foreground' aria-hidden />

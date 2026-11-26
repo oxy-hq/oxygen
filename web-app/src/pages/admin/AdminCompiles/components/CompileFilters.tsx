@@ -37,7 +37,7 @@ export const CompileFilters = ({
         size='sm'
         value={view}
         onValueChange={(v) => v && onViewChange(v as CompileView)}
-        className='gap-0 rounded-md border border-border/60 bg-card p-0.5'
+        className='gap-0 border border-border/60 bg-card p-0.5'
       >
         <ToggleGroupItem
           value='workspace'
@@ -68,7 +68,7 @@ export const CompileFilters = ({
       <select
         value={status}
         onChange={(e) => onStatusChange(e.target.value)}
-        className='h-8 rounded-md border border-input bg-background px-2 text-xs'
+        className='h-8 border border-input bg-background px-2 text-xs'
         aria-label='Status filter'
       >
         {STATUSES.map((s) => (

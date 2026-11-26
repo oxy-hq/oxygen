@@ -20,7 +20,7 @@ const DoneStep: React.FC<Props> = ({ result, onClose }) => (
       </div>
     </div>
 
-    <dl className='grid grid-cols-3 gap-4 rounded-md bg-muted/40 p-4 text-center'>
+    <dl className='grid grid-cols-3 gap-4 bg-muted/40 p-4 text-center'>
       <div>
         <dt className='text-muted-foreground text-xs'>Sites</dt>
         <dd className='font-semibold text-2xl'>{result.sites_upserted}</dd>

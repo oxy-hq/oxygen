@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -217,7 +218,7 @@ export default function AdminWorkspaceDetail({
       />
 
       {detail.error ? (
-        <div className='flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
+        <div className='flex items-start gap-3 border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
           <CircleAlert className='mt-0.5 size-4 shrink-0' />
           <div className='space-y-0.5'>
             <div className='font-semibold'>Workspace error</div>
@@ -263,7 +264,7 @@ export default function AdminWorkspaceDetail({
               )}
 
               <AdminSectionLabel className='mt-6'>Source</AdminSectionLabel>
-              <div className='space-y-2.5 rounded-lg border border-border/60 bg-card p-4 text-xs'>
+              <div className='space-y-2.5 border border-border/60 bg-card p-4 text-xs'>
                 <Field label='Path' icon={FolderOpen} value={detail.path ?? "—"} mono />
                 <Field
                   label='Git remote'
@@ -363,7 +364,7 @@ export default function AdminWorkspaceDetail({
 
       {tab === "settings" ? (
         <AdminDetailTabPanel>
-          <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+          <section className='space-y-4 border border-border/60 bg-card p-6'>
             <div className='space-y-1'>
               <h3 className='font-semibold text-sm'>Identity</h3>
               <p className='text-muted-foreground text-xs'>
@@ -394,7 +395,7 @@ export default function AdminWorkspaceDetail({
             </div>
           </section>
 
-          <section className='space-y-4 rounded-lg border border-destructive/40 bg-destructive/5 p-6'>
+          <section className='space-y-4 border border-destructive/40 bg-destructive/5 p-6'>
             <div className='space-y-1'>
               <h3 className='font-semibold text-destructive text-sm'>Danger zone</h3>
               <p className='text-destructive/80 text-xs'>
@@ -419,7 +420,7 @@ export default function AdminWorkspaceDetail({
         open={editing}
         onOpenChange={(o) => !o && !rename.isPending && setEditing(false)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Rename workspace</AlertDialogTitle>
             <AlertDialogDescription>Update the workspace's display name.</AlertDialogDescription>
@@ -447,7 +448,7 @@ export default function AdminWorkspaceDetail({
         open={confirmDelete}
         onOpenChange={(o) => !o && !remove.isPending && setConfirmDelete(false)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete workspace?</AlertDialogTitle>
             <AlertDialogDescription>

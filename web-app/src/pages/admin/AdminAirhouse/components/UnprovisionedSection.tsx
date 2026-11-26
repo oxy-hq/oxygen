@@ -31,7 +31,7 @@ export const UnprovisionedSection = ({
     <button
       type='button'
       onClick={onToggle}
-      className='-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50'
+      className='-mx-1 flex items-center gap-1 px-1 py-0.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50'
       aria-expanded={open}
       data-testid='admin-airhouse-unprovisioned-toggle'
     >

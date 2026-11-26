@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -54,7 +55,7 @@ export default function PendingCheckoutDialog({ orgId, info, onClose, onRecreate
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='max-w-md'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-md`}>
         <DialogHeader>
           <DialogTitle>A Checkout link is already pending</DialogTitle>
         </DialogHeader>
@@ -63,11 +64,11 @@ export default function PendingCheckoutDialog({ orgId, info, onClose, onRecreate
           <p className='text-muted-foreground'>
             Resend the existing email, cancel and create a new link, or close this dialog.
           </p>
-          <div className='space-y-1 rounded-md border p-3'>
+          <div className='space-y-1 border p-3'>
             <div className='text-muted-foreground text-xs uppercase tracking-wide'>Expires</div>
             <div>{expiresHuman}</div>
           </div>
-          <div className='space-y-1 rounded-md border p-3'>
+          <div className='space-y-1 border p-3'>
             <div className='flex items-center justify-between gap-2'>
               <span className='text-muted-foreground text-xs uppercase tracking-wide'>
                 Checkout link

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -38,7 +39,7 @@ function DuplicateForm({ name, onClose }: { name: string; onClose: () => void })
   };
 
   return (
-    <DialogContent data-testid='experiment-duplicate-dialog'>
+    <DialogContent data-testid='experiment-duplicate-dialog' className={DESIGN_REFERENCE}>
       <form onSubmit={submit} className='flex flex-col gap-4'>
         <DialogHeader>
           <DialogTitle>Duplicate {name}</DialogTitle>

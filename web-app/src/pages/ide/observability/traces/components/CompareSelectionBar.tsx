@@ -11,7 +11,7 @@ interface CompareSelectionBarProps {
 export function CompareSelectionBar({ count, onCompare, onClear }: CompareSelectionBarProps) {
   if (count === 0) return null;
   return (
-    <div className='mb-3 flex items-center gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2'>
+    <div className='mb-3 flex items-center gap-3 border border-primary/40 bg-primary/5 px-3 py-2'>
       <GitCompareArrows className='size-4 text-primary' />
       <span className='font-medium text-sm'>{count} of 2 selected to compare</span>
       <div className='ml-auto flex items-center gap-2'>

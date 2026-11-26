@@ -15,7 +15,7 @@ export default function MetricListItem({ metric, rank, maxCount, onClick }: Metr
     <div
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer items-center gap-4 rounded-lg border p-3 transition-all",
+        "flex cursor-pointer items-center gap-4 border p-3 transition-all",
         "hover:border-primary/50"
       )}
     >

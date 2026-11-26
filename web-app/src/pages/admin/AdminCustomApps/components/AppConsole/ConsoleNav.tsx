@@ -52,7 +52,7 @@ export const ConsoleNav = ({
                 aria-current={active ? "page" : undefined}
                 data-testid={`apps-console-nav-${p.id}`}
                 className={cn(
-                  "flex h-8 items-center gap-2 rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "flex h-8 items-center gap-2 px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   active
                     ? "bg-muted font-medium text-foreground"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -63,7 +63,7 @@ export const ConsoleNav = ({
                 {count > 0 ? (
                   <span
                     className={cn(
-                      "ml-auto rounded-sm px-1 py-px font-medium text-[10px] tabular-nums max-lg:ml-1",
+                      "ml-auto px-1 py-px font-medium text-[10px] tabular-nums max-lg:ml-1",
                       ADMIN_TONE.danger.bg,
                       ADMIN_TONE.danger.text
                     )}

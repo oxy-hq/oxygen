@@ -15,7 +15,7 @@ interface SidebarHeaderProps {
  */
 export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ title, onCollapse, actions }) => {
   return (
-    <SidebarGroupLabel className='flex h-auto min-h-[41px] items-center justify-between rounded-none border-sidebar-border border-b px-2 py-1'>
+    <SidebarGroupLabel className='flex h-auto min-h-[41px] items-center justify-between border-border-subtle border-b px-2 py-1'>
       <span className='font-semibold text-sm'>{title}</span>
       <div className='flex items-center gap-0.5'>
         {actions}

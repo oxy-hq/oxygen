@@ -1,5 +1,6 @@
 import { Building2, Check, Loader2, Search, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -119,7 +120,10 @@ export function AssignToOrgDialog({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className='max-w-lg' data-testid='admin-user-assign-org-dialog'>
+      <DialogContent
+        className={`${DESIGN_REFERENCE} max-w-lg`}
+        data-testid='admin-user-assign-org-dialog'
+      >
         <DialogHeader>
           <DialogTitle className='text-sm'>Assign to organization</DialogTitle>
           <DialogDescription className='text-xs'>
@@ -147,7 +151,7 @@ export function AssignToOrgDialog({
           </div>
 
           <div
-            className='max-h-56 overflow-auto rounded-md border border-border'
+            className='max-h-56 overflow-auto border border-border'
             data-testid='admin-user-assign-org-list'
           >
             {/* A failed drain is a THIRD outcome, not an empty directory. `isDraining` goes
@@ -215,7 +219,7 @@ export function AssignToOrgDialog({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 {/* Least privilege first — the default and the top of the list agree. */}
                 <SelectItem value='member'>Member</SelectItem>
                 <SelectItem value='admin'>Admin</SelectItem>
@@ -229,7 +233,7 @@ export function AssignToOrgDialog({
               tenant. Say so before the click rather than in a toast after it. */}
           {role === "owner" && (
             <div
-              className='rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs'
+              className=' border border-destructive/40 bg-destructive/5 p-2 text-xs'
               data-testid='admin-user-assign-org-owner-warning'
             >
               Owner can delete {selected ? selected.name : "this organization"} and transfer

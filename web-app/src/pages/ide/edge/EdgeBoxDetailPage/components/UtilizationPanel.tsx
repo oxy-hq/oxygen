@@ -105,7 +105,7 @@ const UtilizationPanel: React.FC<Props> = ({ box }) => {
                 </div>
               )}
               {box.incompatible_reason && (
-                <div className='mt-1 rounded-sm border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-900 dark:text-amber-300'>
+                <div className='mt-1 border border-dot-warning/40 bg-dot-warning/10 px-2 py-1 text-status-warning'>
                   {box.incompatible_reason}
                 </div>
               )}
@@ -140,7 +140,7 @@ const Card: React.FC<{
   const toneClass =
     tone === "danger" ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/20";
   return (
-    <div className={`flex flex-col gap-1.5 rounded-md border p-3 ${toneClass}`}>
+    <div className={`flex flex-col gap-1.5 border p-3 ${toneClass}`}>
       <div className='flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wide'>
         {icon}
         <span>{label}</span>

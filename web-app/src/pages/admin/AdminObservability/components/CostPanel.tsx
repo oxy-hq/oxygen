@@ -32,7 +32,7 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
       <AdminSectionLabel trailing={`last ${cost.window_days}d`}>LLM spend</AdminSectionLabel>
 
       <div className='grid gap-4 lg:grid-cols-3'>
-        <div className='space-y-4 rounded-lg border border-border/60 bg-card p-4 lg:col-span-2'>
+        <div className='space-y-4 border border-border/60 bg-card p-4 lg:col-span-2'>
           <div className='flex flex-wrap items-end justify-between gap-4'>
             <div>
               <span className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
@@ -113,7 +113,7 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
           ) : null}
         </div>
 
-        <div className='space-y-5 rounded-lg border border-border/60 bg-card p-4'>
+        <div className='space-y-5 border border-border/60 bg-card p-4'>
           <BreakdownBars
             testId='admin-observability-cost-by-model'
             title='By model'
@@ -130,7 +130,7 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
           />
         </div>
 
-        <div className='rounded-lg border border-border/60 bg-card p-4'>
+        <div className=' border border-border/60 bg-card p-4'>
           <BreakdownBars
             testId='admin-observability-cost-by-surface'
             title='By surface'
@@ -139,7 +139,7 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
           />
         </div>
 
-        <div className='rounded-lg border border-border/60 bg-card p-4 lg:col-span-2'>
+        <div className=' border border-border/60 bg-card p-4 lg:col-span-2'>
           <BreakdownBars
             testId='admin-observability-cost-by-workspace'
             title='By workspace'

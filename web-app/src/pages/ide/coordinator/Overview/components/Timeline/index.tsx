@@ -63,7 +63,7 @@ export const Timeline: React.FC<{
   const onSelectMiss = (scheduleId: string) => navigate(routes.JOB_DETAIL(scheduleId));
 
   return (
-    <div data-testid='coordinator-timeline' className='rounded-xl border border-border bg-card'>
+    <div data-testid='coordinator-timeline' className='border border-border bg-card'>
       <div className='flex items-center justify-between border-border border-b px-3 py-2'>
         <div className='flex items-center gap-2'>
           <h3 className='font-semibold text-sm'>Timeline</h3>
@@ -73,12 +73,12 @@ export const Timeline: React.FC<{
           <div className='hidden items-center gap-2.5 sm:flex'>
             {LEGEND.map((s) => (
               <span key={s} className='flex items-center gap-1 text-muted-foreground text-xs'>
-                <span className={cn("h-2 w-2 rounded-sm", RUN_STATUS[s].bg)} />
+                <span className={cn("h-2 w-2 ", RUN_STATUS[s].bg)} />
                 {RUN_STATUS[s].label}
               </span>
             ))}
             <span className='flex items-center gap-1 text-muted-foreground text-xs'>
-              <span className='inline-block h-2 w-2 rounded-sm border border-warning border-dashed' />
+              <span className='inline-block h-2 w-2 border border-warning border-dashed' />
               Missing
             </span>
           </div>

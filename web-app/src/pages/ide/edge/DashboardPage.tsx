@@ -16,6 +16,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Echarts } from "@/components/Echarts";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import {
   Select,
@@ -180,7 +181,7 @@ const DashboardPage: React.FC = () => {
           <SelectTrigger className='h-8 w-36 text-xs'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {RANGE_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -519,9 +520,9 @@ function useTimeSeriesOptions(
 const toneClass = (tone: "default" | "success" | "warning" | "destructive") => {
   switch (tone) {
     case "success":
-      return "border-emerald-500/40 bg-emerald-500/5";
+      return "border-dot-success/40 bg-dot-success/5";
     case "warning":
-      return "border-amber-500/40 bg-amber-500/5";
+      return "border-dot-warning/40 bg-dot-warning/5";
     case "destructive":
       return "border-destructive/40 bg-destructive/5";
     default:
@@ -540,7 +541,7 @@ const KpiTile: React.FC<{
   const body = (
     <div
       className={cn(
-        "flex flex-col gap-1 rounded-lg border p-3 transition-shadow",
+        "flex flex-col gap-1 border p-3 transition-shadow",
         toneClass(tone),
         href && "hover:shadow-sm"
       )}
@@ -562,7 +563,7 @@ const Card: React.FC<{
   href?: string;
   children: React.ReactNode;
 }> = ({ title, icon: Icon, href, children }) => (
-  <div className='flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card'>
+  <div className='flex shrink-0 flex-col overflow-hidden border border-border bg-card'>
     <div className='flex items-center justify-between border-border border-b px-3 py-2'>
       <h3 className='flex items-center gap-1.5 font-semibold text-sm'>
         <Icon className='h-3.5 w-3.5 text-muted-foreground' />
@@ -613,11 +614,9 @@ const HealthChip: React.FC<{
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs",
-        tone === "success" &&
-          "border-emerald-500/40 bg-emerald-500/5 text-emerald-900 dark:text-emerald-300",
-        tone === "warning" &&
-          "border-amber-500/40 bg-amber-500/5 text-amber-900 dark:text-amber-300",
+        "inline-flex items-center gap-1 border px-2 py-0.5 text-xs",
+        tone === "success" && "border-dot-success/40 bg-dot-success/5 text-status-success",
+        tone === "warning" && "border-dot-warning/40 bg-dot-warning/5 text-status-warning",
         tone === "destructive" && "border-destructive/40 bg-destructive/5 text-destructive",
         tone === "muted" && "border-border bg-muted/30 text-muted-foreground"
       )}

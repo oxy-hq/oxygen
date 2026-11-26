@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -44,7 +45,10 @@ export function ThemeToggle({ className, align = "end", side = "top" }: ThemeTog
           <TriggerIcon className='h-4 w-4' />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align={align} side={side} className='min-w-36'>
+      {/* Its one caller is Nexus's rail, so this menu is always opened from inside the
+          reference subtree — and it portals out of it, so it carries the scope itself. A
+          second caller outside Nexus would need this made conditional. */}
+      <DropdownMenuContent align={align} side={side} className={cn(DESIGN_REFERENCE, "min-w-36")}>
         {MODE_OPTIONS.map(({ value, label, icon: Icon }) => (
           <DropdownMenuItem
             key={value}

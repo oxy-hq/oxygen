@@ -62,7 +62,7 @@ const FailedPublish = ({ attempt }: { attempt: PublishAttempt }) => {
   const testId = `admin-app-failed-publish-${attempt.id}`;
   return (
     <li
-      className='flex min-w-0 flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2'
+      className='flex min-w-0 flex-col gap-1.5 border border-border bg-card px-3 py-2'
       data-testid={testId}
     >
       <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs'>
@@ -71,7 +71,7 @@ const FailedPublish = ({ attempt }: { attempt: PublishAttempt }) => {
         </span>
         <span
           className={cn(
-            "rounded-sm px-1.5 py-px font-medium text-[10px]",
+            " px-1.5 py-px font-medium text-[10px]",
             ADMIN_TONE.danger.bg,
             ADMIN_TONE.danger.text
           )}

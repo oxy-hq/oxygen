@@ -1,5 +1,6 @@
 import { History, List as ListIcon, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Card,
   CardContent,
@@ -101,7 +102,7 @@ export default function ExecutionList({ projectId, days }: ExecutionListProps) {
         <CardContent>
           <div className='space-y-3'>
             {[1, 2, 3].map((i) => (
-              <div key={i} className='h-40 animate-pulse rounded-lg bg-muted' />
+              <div key={i} className='h-40 animate-pulse bg-muted' />
             ))}
           </div>
         </CardContent>
@@ -125,21 +126,17 @@ export default function ExecutionList({ projectId, days }: ExecutionListProps) {
               <TabsTrigger value='all' className='flex items-center gap-2'>
                 <ListIcon className='h-4 w-4' />
                 All
-                <span className='ml-1 rounded bg-muted px-1.5 py-0.5 text-xs'>{counts.all}</span>
+                <span className='ml-1 bg-muted px-1.5 py-0.5 text-xs'>{counts.all}</span>
               </TabsTrigger>
               <TabsTrigger value='verified' className='flex items-center gap-2'>
                 <ShieldCheck className='h-4 w-4' />
                 Verified
-                <span className='ml-1 rounded bg-muted px-1.5 py-0.5 text-xs'>
-                  {counts.verified}
-                </span>
+                <span className='ml-1 bg-muted px-1.5 py-0.5 text-xs'>{counts.verified}</span>
               </TabsTrigger>
               <TabsTrigger value='generated' className='flex items-center gap-2'>
                 <Sparkles className='h-4 w-4' />
                 Generated
-                <span className='ml-1 rounded bg-muted px-1.5 py-0.5 text-xs'>
-                  {counts.generated}
-                </span>
+                <span className='ml-1 bg-muted px-1.5 py-0.5 text-xs'>{counts.generated}</span>
               </TabsTrigger>
             </TabsList>
 
@@ -149,7 +146,7 @@ export default function ExecutionList({ projectId, days }: ExecutionListProps) {
                 <SelectTrigger className='w-40'>
                   <SelectValue placeholder='Type' />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   <SelectItem className='cursor-pointer' value='all'>
                     All Types
                   </SelectItem>
@@ -166,7 +163,7 @@ export default function ExecutionList({ projectId, days }: ExecutionListProps) {
                 <SelectTrigger className='w-32'>
                   <SelectValue placeholder='Status' />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   <SelectItem className='cursor-pointer' value='all'>
                     All Status
                   </SelectItem>
@@ -185,7 +182,7 @@ export default function ExecutionList({ projectId, days }: ExecutionListProps) {
             {isLoading && (
               <div className='space-y-3'>
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className='h-40 animate-pulse rounded-lg bg-muted' />
+                  <div key={i} className='h-40 animate-pulse bg-muted' />
                 ))}
               </div>
             )}

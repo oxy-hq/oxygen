@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Sheet,
   SheetContent,
@@ -28,7 +29,7 @@ export const EnvironmentDrawer = ({
   <Sheet open={!!env} onOpenChange={(open) => !open && onClose()}>
     <SheetContent
       side='right'
-      className='flex w-full flex-col gap-0 p-0 sm:max-w-lg'
+      className={`${DESIGN_REFERENCE} flex w-full flex-col gap-0 p-0 sm:max-w-lg`}
       data-testid='admin-app-env-drawer'
     >
       {env && (

@@ -66,7 +66,7 @@ export function StatGrid({
   return (
     <div
       className={cn(
-        "grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-card *:shadow-[0_0_0_1px_var(--border)] sm:grid-cols-3",
+        "grid grid-cols-2 gap-px overflow-hidden border bg-card *:shadow-[0_0_0_1px_var(--border)] sm:grid-cols-3",
         className
       )}
       data-testid={testId}

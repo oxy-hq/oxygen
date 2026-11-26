@@ -4,22 +4,22 @@ import { cn } from "@/libs/shadcn/utils";
 import type { EltTableNode, EltTableStatus, PhaseSpan } from "./model";
 
 const STATUS_BORDER: Record<EltTableStatus, string> = {
-  loaded: "border-emerald-500",
+  loaded: "border-dot-success",
   failed: "border-destructive",
   loading: "border-primary",
-  normalizing: "border-cyan-500",
-  extracting: "border-cyan-500",
-  extracted: "border-cyan-500",
+  normalizing: "border-dot-info",
+  extracting: "border-dot-info",
+  extracted: "border-dot-info",
   pending: "border-border border-dashed"
 };
 
 const STATUS_DOT: Record<EltTableStatus, string> = {
-  loaded: "bg-emerald-500",
+  loaded: "bg-dot-success",
   failed: "bg-destructive",
   loading: "bg-primary animate-pulse",
-  normalizing: "bg-cyan-500 animate-pulse",
-  extracting: "bg-cyan-500 animate-pulse",
-  extracted: "bg-cyan-500",
+  normalizing: "bg-dot-info animate-pulse",
+  extracting: "bg-dot-info animate-pulse",
+  extracted: "bg-dot-info",
   pending: "bg-muted-foreground/30"
 };
 
@@ -55,7 +55,7 @@ export const EltTableRow: React.FC<{
       data-testid='elt-table-row'
       data-table-name={table.name}
       className={cn(
-        "group w-full rounded-lg border-2 bg-card px-3 py-2 text-left transition-all hover:shadow-md",
+        "group w-full border-2 bg-card px-3 py-2 text-left transition-colors",
         borderTone,
         isSelected && "shadow-md ring-2 ring-ring"
       )}
@@ -66,7 +66,7 @@ export const EltTableRow: React.FC<{
         <span className='min-w-0 flex-1 truncate font-medium font-mono text-sm'>{table.name}</span>
         {hasSchemaChange && (
           <span
-            className='rounded bg-primary/15 px-1.5 py-0.5 text-primary text-xs'
+            className='bg-primary/15 px-1.5 py-0.5 text-primary text-xs'
             title='Schema evolved during this run — click to inspect'
           >
             schema +
@@ -93,13 +93,13 @@ export const EltTableRow: React.FC<{
           track is `relative` so the per-phase absolute bands stack
           inside it without leaking up to the card. */}
       {window && (
-        <div className='relative mt-1.5 ml-5 h-2 rounded bg-muted/40'>
-          <PhaseBand phase={table.extract} window={window} tone='bg-cyan-500/70' />
-          <PhaseBand phase={table.normalize} window={window} tone='bg-indigo-500/70' />
+        <div className='relative mt-1.5 ml-5 h-2 bg-muted/40'>
+          <PhaseBand phase={table.extract} window={window} tone='bg-dot-info/70' />
+          <PhaseBand phase={table.normalize} window={window} tone='bg-chart-2/70' />
           <PhaseBand
             phase={table.load}
             window={window}
-            tone='bg-emerald-500/70'
+            tone='bg-dot-success/70'
             failed={table.status === "failed"}
           />
         </div>
@@ -111,15 +111,17 @@ export const EltTableRow: React.FC<{
             unconditional render here was the source of the
             "Cannot read properties of null (reading 'completedAtMs')"
             crash on first paint. */}
-        {table.extract && <PhaseLabel name='extract' phase={table.extract} tone='text-cyan-600' />}
+        {table.extract && (
+          <PhaseLabel name='extract' phase={table.extract} tone='text-status-info' />
+        )}
         {table.normalize && (
-          <PhaseLabel name='normalize' phase={table.normalize} tone='text-indigo-600' />
+          <PhaseLabel name='normalize' phase={table.normalize} tone='text-chart-2' />
         )}
         {table.load && (
           <PhaseLabel
             name='load'
             phase={table.load}
-            tone={table.status === "failed" ? "text-destructive" : "text-emerald-600"}
+            tone={table.status === "failed" ? "text-destructive" : "text-status-success"}
           />
         )}
         {table.childTables.length > 0 && (
@@ -149,7 +151,7 @@ const PhaseBand: React.FC<{
   return (
     <div
       className={cn(
-        "absolute inset-y-0 rounded",
+        "absolute inset-y-0 ",
         failed ? "bg-destructive/70" : tone,
         phase.completedAtMs === null && "animate-pulse"
       )}

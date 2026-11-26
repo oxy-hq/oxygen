@@ -71,7 +71,7 @@ const ClipPlayer: React.FC<{
           <button
             type='button'
             onClick={onGoLive}
-            className='inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1 text-foreground text-xs hover:bg-muted'
+            className='inline-flex items-center gap-1 border border-border bg-card px-3 py-1 text-foreground text-xs hover:bg-muted'
           >
             <Radio className='h-3 w-3' /> Back to Live
           </button>

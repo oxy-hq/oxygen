@@ -16,7 +16,7 @@ export function OrgAvatar({ name, className }: OrgAvatarProps) {
   return (
     <div
       className={cn(
-        "flex size-7 shrink-0 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground text-xs",
+        "flex size-7 shrink-0 items-center justify-center bg-primary font-semibold text-primary-foreground text-xs",
         className
       )}
     >

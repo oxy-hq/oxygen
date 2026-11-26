@@ -37,7 +37,7 @@ export default function GuardrailsSection(p: SectionProps) {
       {fields.map((field, i) => (
         <div
           key={field.id}
-          className='flex flex-col gap-3 rounded-md border p-3'
+          className='flex flex-col gap-3 border p-3'
           data-testid={`experiment-design-guardrail-${i}`}
         >
           <div className='flex items-center justify-between'>

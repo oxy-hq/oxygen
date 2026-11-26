@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Sheet,
   SheetContent,
@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/shadcn/sheet";
 import { useCompileDetail } from "@/hooks/api/compiles";
 import type { CompiledEntity } from "@/services/api/compiles";
-
 import { StatusBadge } from "./StatusBadge";
 
 /** Plural labels for each compiled-entity kind the boundary tracks. */
@@ -58,7 +57,7 @@ export function CompileDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className='w-full gap-0 overflow-y-auto sm:max-w-lg'>
+      <SheetContent className={`${DESIGN_REFERENCE} w-full gap-0 overflow-y-auto sm:max-w-lg`}>
         <SheetHeader>
           <SheetTitle className='flex items-center gap-2'>
             Compile detail
@@ -73,7 +72,7 @@ export function CompileDetailSheet({
 
         <div className='space-y-6 px-4 pb-6'>
           {fatal ? (
-            <div className='rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs'>
+            <div className=' border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs'>
               {fatal}
             </div>
           ) : null}
@@ -83,14 +82,12 @@ export function CompileDetailSheet({
               <h3 className='font-medium text-destructive text-xs'>Failed ({failures.length})</h3>
               <ul className='mt-2 space-y-2'>
                 {failures.map((failure) => (
-                  <li key={failure.path} className='rounded-md border border-border p-2'>
+                  <li key={failure.path} className=' border border-border p-2'>
                     <p className='truncate font-mono text-foreground text-xs' title={failure.path}>
                       {failure.path}
                     </p>
                     <p className='mt-1 text-muted-foreground text-xs'>
-                      <span className='rounded bg-muted px-1 py-0.5 font-medium'>
-                        {failure.kind}
-                      </span>{" "}
+                      <span className='bg-muted px-1 py-0.5 font-medium'>{failure.kind}</span>{" "}
                       {failure.message}
                     </p>
                   </li>

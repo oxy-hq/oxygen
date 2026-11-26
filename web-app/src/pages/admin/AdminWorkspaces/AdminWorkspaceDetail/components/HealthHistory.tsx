@@ -44,7 +44,7 @@ export function HealthHistory({
   const history = useWorkspaceHealthHistory(workspaceId);
   return (
     <section
-      className='space-y-3 rounded-lg border border-border/60 bg-card p-6'
+      className='space-y-3 border border-border/60 bg-card p-6'
       data-testid='admin-workspace-health-history'
     >
       <AdminSectionLabel>History (last {HEALTH_HISTORY_DAYS} days)</AdminSectionLabel>

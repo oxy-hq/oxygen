@@ -95,10 +95,7 @@ const FunctionRow = ({
   const setOpen = () => onSelect(open ? null : fn.name);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <li
-      className='rounded-md border border-border bg-card'
-      data-testid={`admin-app-function-${fn.name}`}
-    >
+    <li className=' border border-border bg-card' data-testid={`admin-app-function-${fn.name}`}>
       <button
         type='button'
         onClick={setOpen}

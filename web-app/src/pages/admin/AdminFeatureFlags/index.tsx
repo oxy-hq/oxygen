@@ -1,6 +1,7 @@
 import { Flag } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -115,7 +116,7 @@ export default function AdminFeatureFlags() {
           if (!open && !updateFlag.isPending) setPending(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>
               Turn {pending?.nextValue ? "on" : "off"} {pending?.key}?

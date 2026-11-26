@@ -19,7 +19,7 @@ export const AvailabilityWindows = ({ windows }: { windows: AvailabilityWindow[]
     );
   }
   return (
-    <div className='overflow-hidden rounded-md border' data-testid='admin-app-availability-windows'>
+    <div className='overflow-hidden border' data-testid='admin-app-availability-windows'>
       <table className='w-full text-xs'>
         <thead className='bg-muted/50 text-muted-foreground'>
           <tr>

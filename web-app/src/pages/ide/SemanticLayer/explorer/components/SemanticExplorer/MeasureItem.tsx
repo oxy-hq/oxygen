@@ -1,4 +1,5 @@
 import { ArrowUpFromLine } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/shadcn/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 
@@ -25,7 +26,9 @@ const MeasureItem = ({ name, isSelected, onToggle, induced, promotedFrom }: Meas
           <TooltipTrigger asChild>
             <ArrowUpFromLine className='shrink-0 text-muted-foreground' size={12} />
           </TooltipTrigger>
-          <TooltipContent side='right'>Induced from {promotedFrom}</TooltipContent>
+          <TooltipContent className={DESIGN_REFERENCE} side='right'>
+            Induced from {promotedFrom}
+          </TooltipContent>
         </Tooltip>
       )}
     </SidebarMenuSubButton>

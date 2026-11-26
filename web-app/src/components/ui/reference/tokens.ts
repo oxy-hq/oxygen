@@ -7,7 +7,13 @@
  *
  * They look right only inside a `design-reference` subtree
  * (`styles/reference/theme.css`), which supplies the palette and the square
- * corners. The shell and the home carry that class.
+ * corners. The shell, the home, Oxygen Nexus (`pages/ide`) and the staff admin
+ * console (`pages/admin`) carry that class.
+ *
+ * Nexus and the console take the palette, the geometry, the surfaces and the
+ * controls, not the type scale: both are dense surfaces read all day, and
+ * `pages/admin/CLAUDE.md` fixes the console's sizes. Use `text-ref-*` there only
+ * for page-level chrome — a display title, a section's eyebrow.
  */
 
 /** Put this on the root of a subtree drawn in the reference design language. */

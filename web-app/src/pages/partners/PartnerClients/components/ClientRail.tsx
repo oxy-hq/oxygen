@@ -73,7 +73,7 @@ export default function ClientRail({
               aria-pressed={o.org_id === selectedId}
               data-testid={`partner-client-${o.slug}`}
               className={cn(
-                "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                "w-full px-2.5 py-2 text-left transition-colors",
                 o.org_id === selectedId ? "bg-muted" : "hover:bg-muted/50"
               )}
             >

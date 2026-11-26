@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import {
   isNotFound,
@@ -70,7 +71,7 @@ export const StagingBanner = ({ appId }: { appId: string }) => {
         <PopoverContent
           data-testid='admin-app-staging-held-list'
           align='start'
-          className='w-96 p-0'
+          className={`${DESIGN_REFERENCE} w-96 p-0`}
         >
           <HeldList entries={data} />
         </PopoverContent>

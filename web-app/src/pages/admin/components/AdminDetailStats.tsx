@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
+import { card } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 
 /**
@@ -37,7 +38,8 @@ export const AdminDetailStats = ({
 }) => (
   <div
     className={cn(
-      "grid divide-x divide-border/60 overflow-hidden rounded-lg border border-border/60 bg-card",
+      card,
+      "grid divide-x divide-border-subtle overflow-hidden",
       items.length <= 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
       className
     )}

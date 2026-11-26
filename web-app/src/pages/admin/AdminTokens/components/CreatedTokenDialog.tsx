@@ -1,6 +1,7 @@
 import { Check, Copy, Eye, EyeOff, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -61,7 +62,7 @@ export function CreatedTokenDialog({ token, onClose }: CreatedTokenDialogProps) 
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className={DESIGN_REFERENCE}>
         <DialogHeader>
           <DialogTitle>Token created</DialogTitle>
           <DialogDescription>
@@ -71,7 +72,7 @@ export function CreatedTokenDialog({ token, onClose }: CreatedTokenDialogProps) 
           </DialogDescription>
         </DialogHeader>
 
-        <div className='flex items-center gap-2 rounded-md border border-border bg-muted/40 p-2'>
+        <div className='flex items-center gap-2 border border-border bg-muted/40 p-2'>
           <code
             className={`flex-1 break-all font-mono text-xs ${
               revealed ? "select-all" : "select-none"

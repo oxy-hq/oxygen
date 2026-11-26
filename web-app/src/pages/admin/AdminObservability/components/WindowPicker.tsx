@@ -42,7 +42,7 @@ export const WindowPicker = ({
         aria-pressed={days === w}
         data-testid={`admin-observability-window-${w}`}
         className={cn(
-          "rounded-md px-2 py-1 font-medium text-[11px] uppercase tracking-wide transition-colors",
+          " px-2 py-1 font-medium text-[11px] uppercase tracking-wide transition-colors",
           days === w
             ? "bg-foreground text-background"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"

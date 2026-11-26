@@ -26,7 +26,7 @@ export const ResourcesPanel = ({ resources }: { resources: OrgResources }) => (
       Infrastructure
     </AdminSectionLabel>
 
-    <div className='rounded-lg border border-border/60 bg-card'>
+    <div className=' border border-border/60 bg-card'>
       <div className='flex flex-wrap items-end justify-between gap-4 border-border/60 border-b p-4'>
         <div>
           <span className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>

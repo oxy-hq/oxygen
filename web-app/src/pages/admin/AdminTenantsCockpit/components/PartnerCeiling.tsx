@@ -52,7 +52,7 @@ export default function PartnerCeiling({
   const setCaps = useSetPartnerCapabilities(orgId);
 
   return (
-    <div className='divide-y rounded-lg border'>
+    <div className='divide-y border'>
       {ROWS.map((r) => {
         const locked = r.ownerOnly && !isOwner;
         return (
@@ -61,7 +61,7 @@ export default function PartnerCeiling({
               <div className='flex items-center gap-1.5'>
                 <span className='font-medium text-xs'>{r.label}</span>
                 {r.notEnforced && (
-                  <span className='rounded-sm bg-muted px-1 py-0 text-[10px] text-muted-foreground uppercase tracking-wide'>
+                  <span className=' bg-muted px-1 py-0 text-[10px] text-muted-foreground uppercase tracking-wide'>
                     not enforced yet
                   </span>
                 )}

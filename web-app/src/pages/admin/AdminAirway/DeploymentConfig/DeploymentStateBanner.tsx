@@ -48,7 +48,7 @@ export function DeploymentStateBanner({
   if (drift.status === "drifted") {
     return (
       <div
-        className='flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3'
+        className='flex items-start gap-2 border border-warning/40 bg-warning/10 p-3'
         data-testid='admin-airway-deployment-banner-drifted'
       >
         <AlertTriangle className='mt-0.5 size-3.5 shrink-0 text-warning' />
@@ -71,7 +71,7 @@ export function DeploymentStateBanner({
   if (drift.status === "in_sync") {
     return (
       <div
-        className='flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 p-3'
+        className='flex items-start gap-2 border border-border/60 bg-muted/30 p-3'
         data-testid='admin-airway-deployment-banner-in-sync'
       >
         <CheckCircle2 className='mt-0.5 size-3.5 shrink-0 text-muted-foreground' />
@@ -86,7 +86,7 @@ export function DeploymentStateBanner({
   const invalid = drift.reason === "configured_values_invalid";
   return (
     <div
-      className='flex items-start gap-2 rounded-md border border-border/60 border-dashed bg-muted/30 p-3'
+      className='flex items-start gap-2 border border-border/60 border-dashed bg-muted/30 p-3'
       data-testid={
         invalid
           ? "admin-airway-deployment-banner-invalid"

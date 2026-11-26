@@ -194,7 +194,7 @@ const Toggle = ({
     onClick={() => onChange(!pressed)}
     data-testid={testId}
     className={cn(
-      "h-7 rounded-md border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "h-7 border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       pressed
         ? "border-foreground/30 bg-foreground text-background"
         : "border-border/60 text-muted-foreground hover:text-foreground"

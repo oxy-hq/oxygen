@@ -1,6 +1,7 @@
 import { LogOut, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
 import { UserAvatar } from "@/components/UserAvatar";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -10,6 +11,7 @@ import {
 } from "@/components/ui/shadcn/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import { adminSettingsReachable } from "@/pages/admin/AdminLayout/adminNav";
 import type { UserInfo } from "@/types/auth";
@@ -42,7 +44,7 @@ export function Footer() {
   const isGuest = !currentUser;
 
   return (
-    <div className='border-sidebar-border/50 border-t p-2'>
+    <div className='border-border-subtle border-t p-2'>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -66,7 +68,12 @@ export function Footer() {
         </DropdownMenuTrigger>
 
         {!isGuest && (
-          <DropdownMenuContent side='top' align='start' sideOffset={4} className='min-w-56'>
+          <DropdownMenuContent
+            side='top'
+            align='start'
+            sideOffset={4}
+            className={cn(DESIGN_REFERENCE, "min-w-56")}
+          >
             {canUseSettings && (
               // A real link, so it can be opened in a new tab like the rail entries.
               <DropdownMenuItem asChild className='cursor-pointer'>

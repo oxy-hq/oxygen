@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { SidebarInset, SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useMyPartners } from "@/hooks/api/partners";
@@ -63,7 +64,13 @@ export default function PartnerLayout() {
     <PartnerConsoleContext.Provider
       value={{ partners: partners ?? [], active, select: setSelectedId }}
     >
-      <SidebarProvider>
+      {/* `DESIGN_REFERENCE` for the reason the comment above gives: what differs from
+          `/admin` is reach, not visual language. It is also load-bearing, not cosmetic —
+          this console is built from the admin kit (`AdminPage`, `ADMIN_TONE`,
+          `AdminTable`, `RoleBadge`), and those now speak in the reference's roles
+          (`bg-field`, `bg-dot-*`, `text-subtle-foreground`), which only have values
+          inside this subtree. Without the class the kit would render uncoloured here. */}
+      <SidebarProvider className={DESIGN_REFERENCE}>
         <PartnerSidebar />
         <SidebarInset>
           <PartnerTopbar title={title} />

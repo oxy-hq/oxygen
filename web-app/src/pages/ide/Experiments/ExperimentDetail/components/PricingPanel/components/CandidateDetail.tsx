@@ -80,7 +80,7 @@ export default function CandidateDetail({
   const group = isGroupDesign(proposal);
   return (
     <section
-      className='flex flex-col gap-4 rounded-lg border p-4'
+      className='flex flex-col gap-4 border p-4'
       data-testid='experiment-candidate-detail'
       data-proposal-id={proposal.id}
     >

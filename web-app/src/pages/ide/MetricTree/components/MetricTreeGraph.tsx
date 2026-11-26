@@ -131,7 +131,7 @@ export function MetricTreeGraph({
   const orphanCount = tree.nodes.length - filteredTree.nodes.length;
 
   const orphanToggle = (
-    <div className='absolute top-3 right-3 z-10 flex items-center gap-2 rounded-lg border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur'>
+    <div className='absolute top-3 right-3 z-10 flex items-center gap-2 border border-border bg-card/90 px-3 py-1.5 backdrop-blur'>
       <Switch
         id='metric-tree-hide-orphans'
         checked={hideOrphans}

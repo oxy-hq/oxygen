@@ -33,10 +33,7 @@ export function ExplainNodeRow({
       : null;
   return (
     <li>
-      <div
-        className='rounded-md border border-border bg-card p-2 text-sm'
-        style={{ marginLeft: depth * 16 }}
-      >
+      <div className='border border-border bg-card p-2 text-sm' style={{ marginLeft: depth * 16 }}>
         <div className='flex flex-wrap items-center justify-between gap-x-2 gap-y-1'>
           <span className='break-all font-medium'>{splitLabel(node.split)}</span>
           {pct && (

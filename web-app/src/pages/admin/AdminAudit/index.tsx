@@ -1,6 +1,7 @@
 import { KeyRound, ScrollText, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -115,7 +116,7 @@ export default function AdminAudit() {
           <SelectTrigger className='w-36'>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             <SelectItem value='all'>All outcomes</SelectItem>
             <SelectItem value='success'>Success</SelectItem>
             <SelectItem value='failure'>Failure</SelectItem>

@@ -45,7 +45,7 @@ export const EnvironmentPicker = ({
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className='h-7 rounded-md border border-input bg-background px-2 text-xs'
+          className='h-7 border border-input bg-background px-2 text-xs'
           data-testid='admin-app-secrets-environment'
         >
           {names.map((name) => (

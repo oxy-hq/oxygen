@@ -212,7 +212,7 @@ export default function MetricTreeView() {
             scenario={showsScenario ? scenario.nodeData : undefined}
           />
           {showsScenario && scenario.unreachableCount > 0 && (
-            <div className='absolute bottom-3 left-3 z-10 rounded-lg border border-border bg-card/90 px-3 py-1.5 text-muted-foreground text-xs shadow-sm backdrop-blur'>
+            <div className='absolute bottom-3 left-3 z-10 border border-border bg-card/90 px-3 py-1.5 text-muted-foreground text-xs backdrop-blur'>
               {scenario.unreachableCount} measure{scenario.unreachableCount === 1 ? "" : "s"}{" "}
               unaffected
             </div>
@@ -294,7 +294,7 @@ export default function MetricTreeView() {
 
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (next: Mode) => void }) {
   return (
-    <div className='flex items-center gap-0.5 rounded-md border border-border p-0.5'>
+    <div className='flex items-center gap-0.5 border border-border p-0.5'>
       <Button
         type='button'
         variant={mode === "explore" ? "secondary" : "ghost"}

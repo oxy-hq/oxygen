@@ -39,7 +39,7 @@ export function StandingTokenFilters({ filter, counts, onChange }: Props) {
           value && onChange({ ...filter, standing: value as StandingFilter })
         }
         aria-label='Show tokens by standing'
-        className='gap-0 rounded-md border border-border/60 bg-card p-0.5'
+        className='gap-0 border border-border/60 bg-card p-0.5'
         data-testid='admin-standing-tokens-standing-filter'
       >
         {STANDING_CHOICES.map((choice) => (

@@ -1,6 +1,7 @@
 import { Copy, MoreHorizontal, Pencil } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -61,7 +62,7 @@ export default function ExperimentMenu({ summary }: { summary: ExperimentListIte
             <MoreHorizontal className='h-4 w-4' />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align='end'>
+        <DropdownMenuContent align='end' className={DESIGN_REFERENCE}>
           {registered ? (
             <DropdownMenuItem
               onClick={() => setDuplicating(true)}

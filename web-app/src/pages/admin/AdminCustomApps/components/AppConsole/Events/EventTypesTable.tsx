@@ -64,7 +64,7 @@ export const EventTypesTable = ({ orgSlug, rows }: { orgSlug: string; rows: Even
                         e.stopPropagation();
                         toggle(row.type);
                       }}
-                      className='mt-px rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                      className='mt-px text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
                     >
                       <ChevronRight
                         className={cn("size-3.5 transition-transform", expanded && "rotate-90")}

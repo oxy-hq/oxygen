@@ -1,5 +1,6 @@
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Command,
@@ -91,7 +92,7 @@ export function WorkspacePicker({ value, onChange, excludeIds }: WorkspacePicker
           <ChevronsUpDown className='ml-2 size-4 shrink-0 opacity-50' />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className='w-(--radix-popover-trigger-width) p-0'>
+      <PopoverContent className={`${DESIGN_REFERENCE} w-(--radix-popover-trigger-width) p-0`}>
         <Command shouldFilter={false}>
           <CommandInput placeholder='Search workspaces…' value={query} onValueChange={setQuery} />
           <CommandList>

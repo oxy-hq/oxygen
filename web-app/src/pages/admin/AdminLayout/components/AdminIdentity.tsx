@@ -1,4 +1,5 @@
 import { ShieldAlert, ShieldCheck } from "lucide-react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { cn } from "@/libs/shadcn/utils";
@@ -52,7 +53,7 @@ export function AdminIdentity() {
           </span>
         </div>
       </TooltipTrigger>
-      <TooltipContent side='bottom' align='end' className='max-w-xs'>
+      <TooltipContent side='bottom' align='end' className={`${DESIGN_REFERENCE} max-w-xs`}>
         <p className='font-medium'>
           {role} — {user.email}
         </p>

@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   Select,
   SelectContent,
@@ -20,7 +21,7 @@ export default function RoleSelect({
       <SelectTrigger className='h-8 w-28'>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className={DESIGN_REFERENCE}>
         <SelectItem value='owner'>Owner</SelectItem>
         <SelectItem value='admin'>Admin</SelectItem>
         <SelectItem value='member'>Member</SelectItem>

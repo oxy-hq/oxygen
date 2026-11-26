@@ -65,7 +65,7 @@ export function PolicyPreview({
       onOpenChange={(next) => {
         if (!next) onHide();
       }}
-      className='rounded-lg border'
+      className=' border'
     >
       <CollapsibleTrigger
         className='group flex w-full items-center justify-between px-3 py-2 text-left hover:bg-muted/40'

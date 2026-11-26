@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -250,7 +251,7 @@ export default function AdminUserDetail({
                       <SelectTrigger className='h-7 w-24 text-xs'>
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={DESIGN_REFERENCE}>
                         <SelectItem value='owner'>Owner</SelectItem>
                         <SelectItem value='admin'>Admin</SelectItem>
                         <SelectItem value='member'>Member</SelectItem>
@@ -382,7 +383,7 @@ export default function AdminUserDetail({
             deactivation is routine. Renders nothing without `manage_platform_grants`. */}
         <PlatformAccessCard userEmail={detail.email} />
 
-        <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+        <section className='space-y-4 border border-border/60 bg-card p-6'>
           <div className='space-y-1'>
             <h3 className='font-semibold text-sm'>Account status</h3>
             <p className='text-muted-foreground text-xs'>
@@ -390,7 +391,7 @@ export default function AdminUserDetail({
               and re-applied on reactivation.
             </p>
           </div>
-          <div className='flex items-center justify-between rounded-md border border-border/60 bg-muted/30 p-4'>
+          <div className='flex items-center justify-between border border-border/60 bg-muted/30 p-4'>
             <div className='space-y-1'>
               <div className='font-medium text-xs'>
                 Status: {isDeleted ? "Deactivated" : "Active"}
@@ -425,7 +426,7 @@ export default function AdminUserDetail({
         open={confirmDeactivate}
         onOpenChange={(o) => !o && !setStatus.isPending && setConfirmDeactivate(false)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate user?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -453,7 +454,7 @@ export default function AdminUserDetail({
         open={pendingRemoveOrg !== null}
         onOpenChange={(o) => !o && !removeFromOrg.isPending && setPendingRemoveOrg(null)}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove from {pendingRemoveOrg?.orgName}?</AlertDialogTitle>
             <AlertDialogDescription>

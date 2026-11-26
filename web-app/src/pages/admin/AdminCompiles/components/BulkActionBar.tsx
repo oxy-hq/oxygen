@@ -1,6 +1,6 @@
 import { Hammer, Loader2, Rocket, X } from "lucide-react";
 import { toast } from "sonner";
-
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,7 +71,7 @@ export const BulkActionBar = ({
     });
 
   return (
-    <div className='fixed bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 shadow-lg'>
+    <div className='fixed bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 border border-border bg-card px-3 py-2 shadow-lg'>
       <span className='font-medium text-xs tabular-nums'>
         {count} {noun}
         {count === 1 ? "" : "s"} selected
@@ -90,7 +90,7 @@ export const BulkActionBar = ({
             {mode === "workspace" ? "Recompile selected" : "Promote selected"}
           </Button>
         </AlertDialogTrigger>
-        <AlertDialogContent>
+        <AlertDialogContent className={DESIGN_REFERENCE}>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {mode === "workspace"

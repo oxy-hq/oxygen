@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Label } from "@/components/ui/shadcn/label";
 import {
   Select,
@@ -95,7 +96,7 @@ export function DistributionPanel({ measureId }: DistributionPanelProps) {
           <SelectTrigger id='dist-time-dim' size='sm' className='h-8 text-xs'>
             <SelectValue placeholder={timeDimsLoading ? "Loading…" : "Select…"} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={DESIGN_REFERENCE}>
             {candidates.map((c) => (
               <SelectItem key={c} value={c} className='text-xs'>
                 {c}
@@ -149,7 +150,7 @@ export function DistributionPanel({ measureId }: DistributionPanelProps) {
               {formatNumber(distribution.data.target_current)}
             </span>
           </p>
-          <div className='min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-muted/20'>
+          <div className='min-h-0 flex-1 overflow-hidden border border-border bg-muted/20'>
             <DistributionGraph result={distribution.data} height='fill' />
           </div>
         </div>
@@ -176,7 +177,7 @@ function DateField({ id, label, value, onChange }: DateFieldProps) {
         type='date'
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className='h-8 rounded-md border border-input bg-transparent px-2 text-xs shadow-xs'
+        className='h-8 border border-input bg-transparent px-2 text-xs shadow-xs'
       />
     </div>
   );

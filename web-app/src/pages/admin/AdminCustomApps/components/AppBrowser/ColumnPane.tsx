@@ -137,7 +137,7 @@ export const ColumnPane = ({
               // instead of forcing every caller to quote and escape.
               data-testid={`admin-apps-browser-row-${id}-${row.id.replaceAll("/", "-")}`}
               className={cn(
-                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-muted-foreground text-xs transition-colors",
+                "flex h-8 w-full items-center gap-2 px-2 text-muted-foreground text-xs transition-colors",
                 "hover:bg-accent hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 "aria-selected:bg-accent aria-selected:text-foreground",

@@ -40,7 +40,7 @@ export default function ContextItemDisplay({ item, metricName }: ContextItemDisp
             {copied ? <Check className='h-3 w-3' /> : <Copy className='h-3 w-3' />}
           </Button>
         </div>
-        <div className='space-y-2 rounded-lg border border-vis-orange/20 bg-gradient-to-br from-vis-orange/5 to-warning/5 p-3'>
+        <div className='space-y-2 border border-vis-orange/20 bg-gradient-to-br from-vis-orange/5 to-warning/5 p-3'>
           {semanticContent.map((semantic, idx) => (
             <div key={idx} className='space-y-1'>
               {semantic.topic && (
@@ -56,7 +56,7 @@ export default function ContextItemDisplay({ item, metricName }: ContextItemDisp
                     <span
                       key={i}
                       className={cn(
-                        "rounded px-1.5 py-0.5 font-mono text-xs",
+                        "px-1.5 py-0.5 font-mono text-xs",
                         m.includes(metricName)
                           ? "border border-highlight/30 bg-highlight/20 text-highlight"
                           : "bg-info/10 text-info"
@@ -74,7 +74,7 @@ export default function ContextItemDisplay({ item, metricName }: ContextItemDisp
                     <span
                       key={i}
                       className={cn(
-                        "rounded px-1.5 py-0.5 font-mono text-xs",
+                        "px-1.5 py-0.5 font-mono text-xs",
                         d === metricName
                           ? "border border-highlight/30 bg-highlight/20 text-highlight"
                           : "bg-success/10 text-success"
@@ -112,7 +112,7 @@ export default function ContextItemDisplay({ item, metricName }: ContextItemDisp
             fontSize: "0.75rem"
           }}
           wrapLines
-          className='rounded-lg border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
+          className='border bg-muted/30! font-mono text-xs [&>code]:bg-transparent!'
           lineProps={{
             style: { wordBreak: "break-all", whiteSpace: "pre-wrap" }
           }}
@@ -120,7 +120,7 @@ export default function ContextItemDisplay({ item, metricName }: ContextItemDisp
           {content}
         </SyntaxHighlighter>
       ) : (
-        <div className='rounded-lg border bg-muted/30 p-2 text-xs'>
+        <div className='border bg-muted/30 p-2 text-xs'>
           <HighlightedText text={content} highlight={metricName} />
         </div>
       )}

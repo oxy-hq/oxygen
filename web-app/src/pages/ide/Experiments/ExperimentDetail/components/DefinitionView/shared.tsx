@@ -36,15 +36,13 @@ export function Fact({ label, children }: { label: string; children: ReactNode }
 
 /** A semantic ref or condition, shown as code beside its plain-English wording. */
 export function Chip({ children }: { children: ReactNode }) {
-  return (
-    <code className='break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>{children}</code>
-  );
+  return <code className='break-all bg-muted px-1.5 py-0.5 font-mono text-xs'>{children}</code>;
 }
 
 /** A short labelled pill: `On · fruit_summary`. */
 export function LabelledChip({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className='inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs'>
+    <span className='inline-flex max-w-full items-center gap-1.5 border px-2 py-0.5 text-xs'>
       <span className='text-muted-foreground'>{label}</span>
       <span className='break-all font-mono'>{children}</span>
     </span>

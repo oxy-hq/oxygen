@@ -53,7 +53,7 @@ const DeadGroup = ({ group }: { group: AppEventDeadGroup }) => {
         />
         <span
           className={cn(
-            "shrink-0 rounded-sm px-1 py-px font-medium text-[10px] tabular-nums",
+            "shrink-0 px-1 py-px font-medium text-[10px] tabular-nums",
             ADMIN_TONE.danger.bg,
             ADMIN_TONE.danger.text
           )}
@@ -81,7 +81,7 @@ const DeadGroup = ({ group }: { group: AppEventDeadGroup }) => {
                 </span>
               </div>
               {d.lastError ? (
-                <pre className='whitespace-pre-wrap break-words rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground'>
+                <pre className='whitespace-pre-wrap break-words bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground'>
                   {d.lastError}
                 </pre>
               ) : null}

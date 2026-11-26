@@ -54,9 +54,7 @@ export const StepInspector: React.FC<{ node: AutomationNode | null }> = ({ node 
         <span>
           <span className='font-medium text-foreground'>status</span> {node.status}
         </span>
-        {node.cached && (
-          <span className='rounded bg-cyan-500/15 px-1 py-0.5 text-cyan-700'>cached</span>
-        )}
+        {node.cached && <span className='bg-dot-info/15 px-1 py-0.5 text-status-info'>cached</span>}
         {node.children.length > 0 && (
           <span>
             <span className='font-medium text-foreground'>child steps</span> {node.children.length}
@@ -71,7 +69,7 @@ export const StepInspector: React.FC<{ node: AutomationNode | null }> = ({ node 
       </div>
 
       {node.error && (
-        <div className='flex items-start gap-2 rounded border border-destructive/40 bg-destructive/5 p-2 text-destructive text-xs'>
+        <div className='flex items-start gap-2 border border-destructive/40 bg-destructive/5 p-2 text-destructive text-xs'>
           <AlertTriangle className='mt-0.5 h-3.5 w-3.5 shrink-0' />
           <span className='break-words'>{node.error}</span>
         </div>
@@ -82,7 +80,7 @@ export const StepInspector: React.FC<{ node: AutomationNode | null }> = ({ node 
       {(node.kind === "agent" || node.kind === "automation") && node.events.length > 0 && (
         <div className='space-y-1'>
           <p className='text-muted-foreground text-xs uppercase tracking-wide'>nested trace</p>
-          <div className='rounded border border-border bg-muted/20'>
+          <div className='border border-border bg-muted/20'>
             {/* Reuse the agent-run waterfall against this step's scoped
                 event slice — same phase / LLM / tool / SQL rendering. */}
             <Waterfall events={node.events} />
@@ -122,7 +120,7 @@ const ContainerRollup: React.FC<{ node: AutomationNode }> = ({ node }) => {
           <span className='font-medium text-foreground'>{total}</span> {label}
           {total === 1 ? "" : "s"}
         </span>
-        {succeeded > 0 && <span className='text-emerald-600'>✓ {succeeded}</span>}
+        {succeeded > 0 && <span className='text-status-success'>✓ {succeeded}</span>}
         {failed > 0 && <span className='text-destructive'>✗ {failed}</span>}
         {running > 0 && <span className='text-primary'>running {running}</span>}
         {pending > 0 && <span>pending {pending}</span>}
@@ -142,7 +140,7 @@ const QueryDetail: React.FC<{
         <span className='font-medium text-foreground'>source</span> {query.source}
       </span>
       {query.success ? (
-        <span className='text-emerald-600'>
+        <span className='text-status-success'>
           ✓ {query.rowCount.toLocaleString()} row{query.rowCount === 1 ? "" : "s"}
           {query.columns.length > 0 ? ` · ${query.columns.length} cols` : ""}
         </span>
@@ -154,7 +152,7 @@ const QueryDetail: React.FC<{
     {query.sql && (
       <div>
         <p className='mb-0.5 text-muted-foreground text-xs uppercase tracking-wide'>sql</p>
-        <pre className='max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-xs'>
+        <pre className='max-h-64 overflow-y-auto whitespace-pre-wrap break-words bg-muted/40 p-2 font-mono text-xs'>
           {query.sql}
         </pre>
       </div>
@@ -171,7 +169,7 @@ const ResultPreview: React.FC<{ columns: string[]; rows: unknown[][] }> = ({ col
   return (
     <div>
       <p className='mb-0.5 text-muted-foreground text-xs uppercase tracking-wide'>result</p>
-      <div className='overflow-x-auto rounded border border-border bg-card'>
+      <div className='overflow-x-auto border border-border bg-card'>
         <table className='w-full text-xs'>
           <thead>
             <tr className='border-border border-b'>

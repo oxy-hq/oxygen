@@ -1,6 +1,7 @@
 import { Loader2, RefreshCw } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -103,7 +104,7 @@ const LogsPanel: React.FC<Props> = ({ workspaceId, boxId }) => {
             <SelectTrigger id='log-severity' className='h-8 w-40 text-xs'>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={DESIGN_REFERENCE}>
               {SEVERITIES.map((s) => (
                 <SelectItem key={s.value} value={s.value}>
                   {s.label}
@@ -164,13 +165,13 @@ const LogsPanel: React.FC<Props> = ({ workspaceId, boxId }) => {
       </div>
 
       {error ? (
-        <div className='rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
+        <div className='border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
           Failed to load logs: {error.message}
         </div>
       ) : rows.length === 0 ? (
         <EmptyState fetching={isFetching} />
       ) : (
-        <div className='max-h-[70vh] overflow-y-auto rounded-md border border-border'>
+        <div className='max-h-[70vh] overflow-y-auto border border-border'>
           <table className='w-full font-mono text-xs'>
             <thead className='sticky top-0 z-10 bg-muted text-muted-foreground'>
               <tr>
@@ -211,7 +212,7 @@ const LogRowView: React.FC<{ row: LogRow }> = ({ row }) => {
 };
 
 const EmptyState: React.FC<{ fetching: boolean }> = ({ fetching }) => (
-  <div className='flex flex-col items-center gap-2 rounded-md border border-border border-dashed p-6 text-muted-foreground text-sm'>
+  <div className='flex flex-col items-center gap-2 border border-border border-dashed p-6 text-muted-foreground text-sm'>
     {fetching ? (
       <>
         <Loader2 className='h-4 w-4 animate-spin' />

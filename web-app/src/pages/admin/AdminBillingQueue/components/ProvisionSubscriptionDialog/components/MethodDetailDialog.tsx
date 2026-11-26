@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/shadcn/dialog";
 import type { ProvisionMethod } from "../constants";
 
@@ -22,8 +23,7 @@ const DETAILS: Record<ProvisionMethod, MethodDetail> = {
           <li>The customer opens the link in the email, enters a card, and pays.</li>
           <li>
             After the first successful payment, the system flips to{" "}
-            <code className='rounded bg-muted px-1 text-xs'>charge_automatically</code> for future
-            cycles.
+            <code className='bg-muted px-1 text-xs'>charge_automatically</code> for future cycles.
           </li>
           <li>
             No billing address is collected at this step — automatic tax only applies once the
@@ -62,7 +62,7 @@ export function MethodDetailDialog({ method, onClose }: MethodDetailDialogProps)
   const detail = DETAILS[method];
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='max-w-md'>
+      <DialogContent className={`${DESIGN_REFERENCE} max-w-md`}>
         <DialogHeader>
           <DialogTitle>{detail.title}</DialogTitle>
         </DialogHeader>

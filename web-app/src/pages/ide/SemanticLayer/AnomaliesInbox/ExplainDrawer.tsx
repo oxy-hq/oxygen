@@ -1,6 +1,7 @@
 import { ArrowUp, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Sheet,
@@ -103,7 +104,10 @@ export default function ExplainDrawer({ anomaly, onOpenChange }: Props) {
       {/* gap-0 + p-0 strip the default SheetContent spacing — we own the
           internal stack so the body, observed-vs-expected card, and footer
           line up edge-to-edge without the double-padding the defaults give. */}
-      <SheetContent side='right' className='flex w-full flex-col gap-0 p-0 sm:max-w-xl'>
+      <SheetContent
+        side='right'
+        className={`${DESIGN_REFERENCE} flex w-full flex-col gap-0 p-0 sm:max-w-xl`}
+      >
         <SheetHeader className='relative border-border border-b pb-3'>
           {/* Refresh: bare icon button to match SheetContent's own X
               close — which sits at `top-4 right-4` and is just a 16px
@@ -179,7 +183,7 @@ function ObservedVsExpected({ anomaly }: { anomaly: MetricAnomaly }) {
       ? null
       : ((anomaly.observed - anomaly.expected) / Math.abs(anomaly.expected)) * 100;
   return (
-    <div className='grid grid-cols-3 gap-2 rounded-md border border-border bg-muted/40 p-3'>
+    <div className='grid grid-cols-3 gap-2 border border-border-subtle bg-field p-3'>
       <Stat label='Observed' value={formatNumber(anomaly.observed)} />
       <Stat label='Expected' value={formatNumber(anomaly.expected)} />
       <Stat
@@ -229,7 +233,7 @@ export function ExplainBody({ result }: { result: ExplainResult }) {
           <button
             type='button'
             onClick={() => setWarningsOpen((o) => !o)}
-            className='flex items-center gap-1 text-orange-600 text-xs hover:underline dark:text-orange-400'
+            className='flex items-center gap-1 text-status-warning text-xs hover:underline'
           >
             {warningsOpen ? (
               <ChevronDown className='size-3' />
@@ -243,7 +247,7 @@ export function ExplainBody({ result }: { result: ExplainResult }) {
               {result.warnings.map((w, i) => (
                 <li
                   key={i}
-                  className='rounded-md border border-orange-500/40 bg-orange-500/10 p-2 text-orange-700 text-xs dark:text-orange-300'
+                  className='border border-status-warning/40 bg-status-warning/10 p-2 text-status-warning text-xs'
                 >
                   {warningMessage(w)}
                 </li>
@@ -268,7 +272,7 @@ export function ExplainBody({ result }: { result: ExplainResult }) {
             </TabsList>
             <TabsContent
               value='graph'
-              className='relative overflow-hidden rounded-md border border-border bg-muted/20'
+              className='relative overflow-hidden border border-border bg-muted/20'
             >
               <ExplainGraph result={result} height={graphHeight} />
             </TabsContent>
@@ -399,7 +403,7 @@ function CoverageLine({ result }: { result: ExplainResult }) {
 function DriverRow({ driver }: { driver: DriverAttribution }) {
   const impact = driver.estimated_target_impact;
   return (
-    <li className='rounded-md border border-border bg-card p-2 text-sm'>
+    <li className='border border-border bg-card p-2 text-sm'>
       <div className='flex items-center justify-between gap-2'>
         <span className='font-medium'>{driver.driver_measure}</span>
         {impact !== undefined && impact !== null ? (

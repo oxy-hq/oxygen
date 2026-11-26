@@ -107,7 +107,7 @@ const RepositoryDetails = ({
 );
 
 const NoRepository = () => (
-  <div className='rounded-md border p-4 text-sm' data-testid='retired-ide-no-repository'>
+  <div className='border p-4 text-sm' data-testid='retired-ide-no-repository'>
     <p className='font-medium'>This workspace has no repository.</p>
     <p className='text-muted-foreground'>
       Connect one in Settings, then clone it and work on it in your own editor.

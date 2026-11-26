@@ -281,9 +281,9 @@ function toneClass(tone: Tone): string {
     case "destructive":
       return "";
     case "warning":
-      return "border-orange-500/40 text-orange-600 dark:text-orange-400";
+      return "border-status-warning/40 text-status-warning";
     case "info":
-      return "border-sky-500/40 text-sky-600 dark:text-sky-400";
+      return "border-status-info/40 text-status-info";
     case "muted":
       return "border-muted text-muted-foreground";
   }

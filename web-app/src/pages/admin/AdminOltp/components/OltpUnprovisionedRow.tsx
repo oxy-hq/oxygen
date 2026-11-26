@@ -33,7 +33,7 @@ export const OltpUnprovisionedRow = ({ row }: { row: OltpTenantRow }) => {
         type='button'
         disabled={provision.isPending}
         onClick={() => provision.mutate([])}
-        className='inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground text-xs outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
+        className='inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-muted-foreground text-xs outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50'
         data-testid={`admin-oltp-provision-${row.org_id}`}
       >
         {provision.isPending ? (

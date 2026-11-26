@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { type FactoryTarget, OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/shadcn/card";
 import { Input } from "@/components/ui/shadcn/input";
@@ -95,7 +96,7 @@ export default function AdminWorkspaces() {
               <SelectTrigger className='w-36'>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={DESIGN_REFERENCE}>
                 <SelectItem value='all'>All statuses</SelectItem>
                 <SelectItem value='ready'>Ready</SelectItem>
                 <SelectItem value='cloning'>Cloning</SelectItem>
@@ -169,7 +170,7 @@ export default function AdminWorkspaces() {
                     >
                       <TableCell>
                         <div className='flex items-center gap-3'>
-                          <div className='flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground'>
+                          <div className='flex size-8 items-center justify-center bg-muted text-muted-foreground'>
                             <FolderOpen className='size-4' />
                           </div>
                           <div className='flex flex-col'>

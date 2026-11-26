@@ -26,7 +26,7 @@ export const HealthRibbon = ({
   const failedWin = failedSeries.reduce((a, b) => a + b, 0);
 
   return (
-    <div className='flex flex-wrap items-stretch gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60'>
+    <div className='flex flex-wrap items-stretch gap-px overflow-hidden border border-border/60 bg-border/60'>
       {CELLS.map((c) => (
         <Cell
           key={c.key}

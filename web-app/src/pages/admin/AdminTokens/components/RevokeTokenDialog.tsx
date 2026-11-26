@@ -1,3 +1,4 @@
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +27,7 @@ export function RevokeTokenDialog({
 }: RevokeTokenDialogProps) {
   return (
     <AlertDialog open={token !== null} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className={DESIGN_REFERENCE}>
         <AlertDialogHeader>
           <AlertDialogTitle>Revoke this token?</AlertDialogTitle>
           <AlertDialogDescription>

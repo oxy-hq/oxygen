@@ -7,11 +7,11 @@ import type { AdminStatusTone } from "./AdminStatusPill";
  * Health tab on the workspace detail page.
  *
  * Tones match the rest of the admin operator console (where `ok` already
- * renders emerald for e.g. a "Ready" workspace) — the customer-facing
- * "emerald = workflow-node success only" rule does not apply to this surface.
+ * renders green for e.g. a "Ready" workspace) — the customer-facing
+ * "green = workflow-node success only" rule does not apply to this surface.
  *   unhealthy → danger  (destructive token)
- *   degraded  → warn    (amber token)
- *   healthy   → ok      (emerald token)
+ *   degraded  → warn    (warning token)
+ *   healthy   → ok      (success token)
  */
 export function workspaceHealthTone(status: WorkspaceHealthStatus): AdminStatusTone {
   switch (status) {

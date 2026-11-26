@@ -36,7 +36,7 @@ export const PerformancePanel = ({
       <section className='space-y-3' data-testid='admin-observability-apps'>
         <AdminSectionLabel>Custom-app performance</AdminSectionLabel>
         <p
-          className='rounded-lg border border-border/60 border-dashed bg-muted/20 p-4 text-muted-foreground text-xs'
+          className=' border border-border/60 border-dashed bg-muted/20 p-4 text-muted-foreground text-xs'
           data-testid='admin-observability-apps-unmeasured'
         >
           Not measured. This deployment has no observability store, so there is nothing to read —
@@ -57,7 +57,7 @@ export const PerformancePanel = ({
       </AdminSectionLabel>
 
       <div className='grid gap-4 lg:grid-cols-3'>
-        <div className='space-y-4 rounded-lg border border-border/60 bg-card p-4 lg:col-span-2'>
+        <div className='space-y-4 border border-border/60 bg-card p-4 lg:col-span-2'>
           <div className='flex flex-wrap items-end justify-between gap-4'>
             <div>
               <span className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
@@ -105,7 +105,7 @@ export const PerformancePanel = ({
           </dl>
         </div>
 
-        <div className='space-y-3 rounded-lg border border-border/60 bg-card p-4'>
+        <div className='space-y-3 border border-border/60 bg-card p-4'>
           <AdminSectionLabel trailing={pct(t.failure_rate, 1)}>Failures</AdminSectionLabel>
           {apps.failures.length === 0 ? (
             <p

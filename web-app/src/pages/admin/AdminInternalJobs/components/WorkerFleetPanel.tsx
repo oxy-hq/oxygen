@@ -88,7 +88,7 @@ const WorkerGrid = ({ workers }: { workers: WorkerDto[] }) => {
         return (
           <div
             key={w.worker_id}
-            className='flex flex-col gap-2 rounded-lg border border-border/60 bg-card p-3'
+            className='flex flex-col gap-2 border border-border/60 bg-card p-3'
             data-testid={`admin-internal-jobs-worker-${w.worker_id}`}
           >
             <div className='flex items-center justify-between gap-2'>

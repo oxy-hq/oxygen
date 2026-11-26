@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
+import { tile } from "@/components/ui/reference/tokens";
 import { cn } from "@/libs/shadcn/utils";
 
 /**
@@ -31,8 +32,9 @@ export const AdminDetailHeader = ({
       <div className='flex min-w-0 items-start gap-3'>
         <div
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-lg",
-            "border border-border/60 bg-card text-foreground/70"
+            "flex size-10 shrink-0 items-center justify-center",
+            tile,
+            "text-foreground/70"
           )}
         >
           <Icon className='size-5' />

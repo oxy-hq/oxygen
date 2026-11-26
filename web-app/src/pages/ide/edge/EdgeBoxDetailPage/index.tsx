@@ -162,9 +162,9 @@ const Header: React.FC<{ box: EdgeBoxSummary }> = ({ box }) => {
   const updatePending =
     box.target_image_tag != null && box.target_image_tag !== box.current_image_tag;
   return (
-    <div className='flex flex-col gap-3 rounded-md border border-border bg-card p-4'>
+    <div className='flex flex-col gap-3 border border-border bg-card p-4'>
       <div className='flex items-start gap-3'>
-        <div className='rounded-md bg-muted p-2'>
+        <div className='bg-muted p-2'>
           <ServerCog className='h-5 w-5 text-muted-foreground' />
         </div>
         <div className='flex min-w-0 flex-1 flex-col gap-1'>
@@ -177,7 +177,7 @@ const Header: React.FC<{ box: EdgeBoxSummary }> = ({ box }) => {
             {box.incompatible_reason && (
               <Badge
                 variant='outline'
-                className='gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-900 dark:text-amber-300'
+                className='gap-1 border-dot-warning/40 bg-dot-warning/10 text-[10px] text-status-warning'
                 title={box.incompatible_reason}
               >
                 needs upgrade
@@ -231,7 +231,7 @@ const Panel: React.FC<{ title: string; subtitle?: string; children: React.ReactN
   subtitle,
   children
 }) => (
-  <div className='flex flex-col gap-3 rounded-md border border-border bg-card p-4'>
+  <div className='flex flex-col gap-3 border border-border bg-card p-4'>
     <div className='flex items-center justify-between'>
       <h2 className='font-semibold text-base'>{title}</h2>
       {subtitle && <span className='text-muted-foreground text-xs'>{subtitle}</span>}
@@ -241,27 +241,27 @@ const Panel: React.FC<{ title: string; subtitle?: string; children: React.ReactN
 );
 
 const Placeholder: React.FC<{ title: string; description: string }> = ({ title, description }) => (
-  <div className='flex flex-col gap-1 rounded-md border border-border border-dashed bg-card p-4'>
+  <div className='flex flex-col gap-1 border border-border border-dashed bg-card p-4'>
     <h2 className='font-semibold text-base'>{title}</h2>
     <p className='text-muted-foreground text-sm'>{description}</p>
   </div>
 );
 
 const HeaderSkeleton: React.FC = () => (
-  <div className='flex animate-pulse flex-col gap-3 rounded-md border border-border bg-card p-4'>
-    <div className='h-5 w-48 rounded bg-muted' />
-    <div className='h-3 w-32 rounded bg-muted' />
+  <div className='flex animate-pulse flex-col gap-3 border border-border bg-card p-4'>
+    <div className='h-5 w-48 bg-muted' />
+    <div className='h-3 w-32 bg-muted' />
   </div>
 );
 
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
-  <div className='rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
+  <div className='border border-destructive bg-destructive/10 p-3 text-destructive text-sm'>
     Failed to load fleet: {message}
   </div>
 );
 
 const NotFoundState: React.FC<{ boxId: string }> = ({ boxId }) => (
-  <div className='rounded-md border border-border bg-card p-4 text-muted-foreground text-sm'>
+  <div className='border border-border bg-card p-4 text-muted-foreground text-sm'>
     No edge box with id <code className='font-mono'>{boxId}</code> in this workspace. It may have
     been retired or you may have switched workspaces.
   </div>

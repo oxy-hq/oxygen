@@ -26,7 +26,7 @@ export const OrgStanding = ({ orgId, fleet }: { orgId: string; fleet: Fleet }) =
 
   return (
     <section
-      className='space-y-3 rounded-lg border border-border/60 bg-card p-4'
+      className='space-y-3 border border-border/60 bg-card p-4'
       data-testid='admin-observability-standing'
     >
       <p className='text-muted-foreground text-xs'>

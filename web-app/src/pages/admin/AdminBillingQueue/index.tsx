@@ -1,5 +1,6 @@
 import { Inbox, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/shadcn/card";
@@ -100,7 +101,7 @@ export default function AdminBillingQueue() {
                 <SelectTrigger className='w-40'>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={DESIGN_REFERENCE}>
                   {STATUS_OPTIONS.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}

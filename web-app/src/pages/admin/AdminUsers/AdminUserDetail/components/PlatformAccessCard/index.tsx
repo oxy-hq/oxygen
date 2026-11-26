@@ -1,5 +1,6 @@
 import { ShieldOff } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,7 +63,7 @@ export function PlatformAccessCard({ userEmail }: { userEmail: string }) {
 
   return (
     <section
-      className='space-y-3 rounded-lg border border-border/60 bg-card p-4'
+      className='space-y-3 border border-border/60 bg-card p-4'
       data-testid='admin-user-platform-access'
     >
       <div className='flex items-start justify-between gap-3'>
@@ -153,7 +154,10 @@ export function PlatformAccessCard({ userEmail }: { userEmail: string }) {
           if (!open && !remove.isPending) setConfirmRevoke(false);
         }}
       >
-        <AlertDialogContent data-testid='admin-user-platform-revoke-dialog'>
+        <AlertDialogContent
+          className={DESIGN_REFERENCE}
+          data-testid='admin-user-platform-revoke-dialog'
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke staff access?</AlertDialogTitle>
             <AlertDialogDescription>

@@ -56,7 +56,7 @@ export const DebugPanel = ({
       >
         <Activity className='h-3.5 w-3.5' />
         <span className='font-medium'>Network</span>
-        <span className='rounded bg-muted px-1.5 font-mono text-[11px]'>{entries.length}</span>
+        <span className='bg-muted px-1.5 font-mono text-[11px]'>{entries.length}</span>
         <ChevronUp className='ml-auto h-3.5 w-3.5' />
       </button>
     );
@@ -70,7 +70,7 @@ export const DebugPanel = ({
       <div className='flex items-center gap-2 border-border/60 border-b px-3 py-1.5'>
         <Activity className='h-3.5 w-3.5 text-muted-foreground' />
         <span className='font-medium text-xs'>Network</span>
-        <span className='rounded bg-muted px-1.5 font-mono text-[11px] text-muted-foreground'>
+        <span className='bg-muted px-1.5 font-mono text-[11px] text-muted-foreground'>
           {entries.length}
         </span>
         <div className='ml-auto flex items-center gap-1'>

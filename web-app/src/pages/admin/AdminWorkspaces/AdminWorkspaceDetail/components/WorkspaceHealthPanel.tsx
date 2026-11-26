@@ -109,7 +109,7 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
         {(health) =>
           health && (
             <div className='space-y-6'>
-              <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+              <section className='space-y-4 border border-border/60 bg-card p-6'>
                 <div className='flex flex-wrap items-center gap-3'>
                   <HealthIcon status={health.status} />
                   <AdminStatusPill
@@ -139,7 +139,7 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
                     {health.dimensions.map((d) => (
                       <li
                         key={d.dimension}
-                        className='flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2'
+                        className='flex items-center justify-between gap-3 border border-border/50 px-3 py-2'
                       >
                         <span className='font-medium text-xs'>
                           {DIMENSION_LABELS[d.dimension] ?? d.dimension}
@@ -162,7 +162,7 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
                   each time lasted, is this. */}
               <HealthHistory workspaceId={workspaceId} labelOf={dimensionLabel} />
 
-              <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
+              <section className='space-y-3 border border-border/60 bg-card p-6'>
                 <AdminSectionLabel>Signals (recent window)</AdminSectionLabel>
                 <dl className='grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2'>
                   {SIGNAL_ROWS.map((row) => (
@@ -187,7 +187,7 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
               </section>
 
               {health.reconciliation.length > 0 ? (
-                <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
+                <section className='space-y-3 border border-border/60 bg-card p-6'>
                   <AdminSectionLabel>Reconciliation</AdminSectionLabel>
                   <ul className='space-y-1.5'>
                     {health.reconciliation.map((check) => (
@@ -231,7 +231,7 @@ const ReconciliationRow = ({ check }: { check: WorkspaceHealthReconciliationChec
   const windowLabel = formatWindow(check);
 
   return (
-    <li className='flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2'>
+    <li className='flex items-center justify-between gap-3 border border-border/50 px-3 py-2'>
       <div className='min-w-0 space-y-1'>
         <span className='font-medium text-xs'>{check.check}</span>
         {check.description ? (

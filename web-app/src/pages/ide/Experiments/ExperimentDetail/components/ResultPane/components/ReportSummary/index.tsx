@@ -91,7 +91,7 @@ export default function ReportSummary({ result }: { result: ResultResponse }) {
   const refused = report.refusal !== null;
   return (
     <section
-      className='overflow-hidden rounded-lg border bg-card'
+      className='overflow-hidden border bg-card'
       data-testid='experiment-report-summary'
       data-kind={report.status.kind}
     >
