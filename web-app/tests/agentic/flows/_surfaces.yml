@@ -7,6 +7,43 @@
 # Path patterns are substring-prefixed (e.g. "src/pages/home/" matches
 # any file under that directory). Use the new flow file's name (without
 # the .flow.test.yml suffix). Keep paths relative to web-app/.
+#
+# THE CORE SURFACES COME FIRST — the custom app (served, and its console) and
+# the data pipeline (ingestion → Airway → stores → semantic model). Everything
+# below them is a surface that still ships and is still covered but is no
+# longer what the suite is for. The order is editorial, not mechanical:
+# `matchSurfacePath` tests every entry regardless, but this file is also how
+# someone reads what the suite protects, and for a long time it opened with
+# the chat panel.
+
+# ── custom apps ──────────────────────────────────────────────────────────────
+
+# One app's console: the overview's integrity checks, the release timeline and
+# the activity reading. A substring of `admin-customer-apps`' own path below,
+# so an edit here advises both — deliberately: a console change can break the
+# lifecycle card's navigation as easily as the console's own pages.
+- surface: custom-app-console
+  paths:
+    - "src/pages/admin/AdminCustomApps/components/AppConsole/"
+    - "src/hooks/api/customApps/"
+  flows:
+    - custom-app-console-health
+    - admin-custom-apps-lifecycle
+    - custom-app-staging-console
+
+# ── data pipeline ────────────────────────────────────────────────────────────
+
+# `/admin/data-flow` — the one page that draws ingestion → pipelines → stores →
+# apps as a graph. Its edges come from compiled `.airway.yml` files and from
+# each app's live build, so the Rust handler is named here too (repo-relative;
+# `matchSurfacePath` is a plain substring test against staged paths).
+- surface: data-flow
+  paths:
+    - "src/pages/admin/AdminDataFlow/"
+    - "src/types/dataFlow.ts"
+    - "crates/api-custom-apps/src/admin/apps/data_flow.rs"
+  flows:
+    - pipeline-data-flow
 
 - surface: chat-panel
   paths:
@@ -188,11 +225,17 @@
   paths:
     - "src/pages/airway/"
     - "src/components/airway/"
-    - "src/pages/ide/pipelines/"
+    # `src/pages/ide/pipelines/` was listed here and does not exist — the
+    # pipeline page is `pages/airway/` under a workspace route
+    # (`pipelines/:pathb64`, App.tsx). A path that matches nothing advises
+    # nobody, silently.
     - "src/hooks/api/airway/"
     - "src/services/api/airway.ts"
   flows:
     - airway-pipeline-run
+    # The graph that draws what a pipeline feeds. An Airway change can break
+    # the picture without touching the pipeline page.
+    - pipeline-data-flow
 
 - surface: experiments
   paths:

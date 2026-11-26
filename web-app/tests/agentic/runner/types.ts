@@ -1,6 +1,23 @@
 import type { Page } from "@playwright/test";
 
-export type FlowTarget = "chat" | "ide" | "threads" | "onboarding" | "any";
+/**
+ * The product surface a flow is about. A documentation hint — it does not
+ * change the toolkit the LLM gets — but it is how the suite says what it
+ * covers, so it tracks the product rather than its history.
+ *
+ * `custom-app` and `pipeline` are the two the product is built on now: the
+ * served custom app and its console, and ingestion → Airway → stores → the
+ * semantic model. `chat` and `threads` are still shipping surfaces and still
+ * covered; they are no longer the centre.
+ */
+export type FlowTarget =
+  | "custom-app"
+  | "pipeline"
+  | "chat"
+  | "ide"
+  | "threads"
+  | "onboarding"
+  | "any";
 
 /**
  * Which oxy backend mode the flow exercises.

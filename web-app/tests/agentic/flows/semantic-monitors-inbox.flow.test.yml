@@ -72,7 +72,7 @@
 # scope is `flows/` only.
 
 name: monitors load and the insights inbox is confirmed quiet, not broken
-target: ide
+target: pipeline
 
 settings:
   runs: 1

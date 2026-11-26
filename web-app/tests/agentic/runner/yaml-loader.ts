@@ -20,7 +20,15 @@ export const DEFAULT_SETTINGS: FlowSettings = {
   backend_mode: "cloud"
 };
 
-const VALID_TARGETS: FlowTarget[] = ["chat", "ide", "threads", "onboarding", "any"];
+const VALID_TARGETS: FlowTarget[] = [
+  "custom-app",
+  "pipeline",
+  "chat",
+  "ide",
+  "threads",
+  "onboarding",
+  "any"
+];
 
 export function loadFlow(filePath: string): FlowTest {
   const raw = parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;

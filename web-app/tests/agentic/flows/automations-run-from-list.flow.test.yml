@@ -44,7 +44,7 @@
 # themselves are mode-independent.
 
 name: automation lists, opens, runs, and reports output
-target: any
+target: pipeline
 
 settings:
   runs: 1
@@ -59,7 +59,7 @@ setup:
 
 cases:
   - name: run external-factors-correlation and read its output
-    tags: [automations, compile-boundary, fleet, critical]
+    tags: [automations, compile-boundary, fleet, warehouse-query, critical]
     steps:
       # data-testid='automations-list-page'
       #   — web-app/src/pages/automation/AutomationsListPage.tsx:26

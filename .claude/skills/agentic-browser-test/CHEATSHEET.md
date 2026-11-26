@@ -14,9 +14,12 @@ it whenever you suspect this cheatsheet has drifted.
 web-app/tests/agentic/flows/<descriptive-kebab-name>.flow.test.yml
 ```
 
-Lower-kebab. **Prefix the stem with the bucket it'll land in**:
-`builder-…`, `semantic-…`, `chat-…`, `threads-…`, `ide-…`,
-`metric-tree-…`. CI bucketing keys off this prefix.
+Lower-kebab. **Prefix the stem with the surface it is about**, so the
+`flows/` listing reads like the product: `custom-app-…` /
+`customer-apps-…` for the app and its console, `pipeline-…` / `airway-…`
+/ `semantic-…` for the data pipeline, `chat-…` / `threads-…` / `ide-…`
+for the rest. CI bucketing no longer keys off the prefix — the matrix
+names full filenames — so this is for a reader, not a rule.
 
 Always include the `# yaml-language-server: $schema=` header pointing at
 `json-schemas/flow-test.json` — IDE autocomplete and inline diagnostics
@@ -54,7 +57,8 @@ cases:                              # at least one
       - judge:  <claim>
 ```
 
-`target:` enum: `chat`, `ide`, `threads`, `onboarding`, `any`.
+`target:` enum: `custom-app`, `pipeline` (the product's core surfaces),
+`chat`, `ide`, `threads`, `onboarding`, `any`.
 
 ---
 
@@ -298,22 +302,39 @@ room to improve.
 The agentic-tests job is a reusable workflow at
 `.github/workflows/agentic-tests.yaml` (called from `ci.yaml` via
 `workflow_call`, also dispatchable standalone). A `resolve-matrix`
-setup job emits the matrix as JSON. Flows run in **6 domain
-buckets** (not one job per flow):
+setup job emits the matrix as JSON. Flows run in domain buckets (not one
+job per flow), recentred 2026-11-26 on the custom app and the data
+pipeline. A bucket is **(flows, seed, identity)**:
 
-| Bucket | Flows | Mode |
-|---|---|---|
-| `semantic` | `semantic-builder-ask` | local |
-| `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | local |
-| `threads` | `threads-list` | local |
-| `ide` | `ide-save` | local |
-| `metric-tree` | `metric-tree`, `metric-tree-scenario` | local |
+| Bucket | Flows | Seeds | Signs in as |
+|---|---|---|---|
+| `custom-app-console` | `admin-custom-apps-lifecycle`, `custom-app-console-health` | `examples --fixtures` | `global-admin@oxy.local` |
+| `pipeline` | `airway-pipeline-run`, `semantic-monitors-inbox` | `examples` | `flow@oxy.local` |
+| `pipeline-admin` | `pipeline-data-flow` | `examples` | `global-admin@oxy.local` |
+| `chat` | `chat-ask`, `chat-panel-agent-switch`, `threads-list` | `demo_project` | `flow@oxy.local` |
 
-Buckets share `backend_mode`. Adding a cloud-mode flow to a local-mode
-bucket needs a bucket split first.
+Buckets share `backend_mode` (all `cloud` today). They also share one
+session, so a bucket cannot mix an `/admin` surface with a workspace
+surface — that is why `pipeline` and `pipeline-admin` are separate.
 
-`ide-compile-error` is in `flows/` but **not in any bucket** — gated on a
-Monaco SQL diagnostic service shipping.
+Check a matrix edit with `pnpm -C web-app exec vitest run tests/agentic/runner`
+(`suite.test.ts`): a bucket naming no real file is not a runtime error,
+it is a green job that ran no test.
+
+**A case that executes a query carries the `warehouse-query` tag**, and
+`suite.test.ts` refuses to let it sit in a bucket whose fixture has no
+warehouse. `examples/`'s `local` is `airhouse_managed` and the job runs
+no Airhouse, and the seed *skips the tenant and stays green* — so the
+failure would otherwise land on the flow and read like a product bug.
+`demo_project/`'s `local` is a file DuckDB, so `chat` can query.
+
+Flows deliberately outside the matrix — `customer-apps-oxy-starter-fleet`,
+`automations-run-from-list`, `semantic-object-detail` (all
+`warehouse-query`), `custom-app-staging-console`, `admin-airway-config`,
+`admin-airhouse-fleet`, `metric-tree*`, the `*-fleet` flows — are listed
+with their reasons in the workflow's own matrix comment.
+(`ide-compile-error`, which older docs name as the flow in no bucket, no
+longer exists.)
 
 ### `agentic_only` fast-iteration dispatch
 

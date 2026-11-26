@@ -59,7 +59,7 @@
 # extract), so cold cost is dominated by the single act's tool-pick.
 
 name: Airway pipeline run page
-target: any
+target: pipeline
 
 settings:
   runs: 1

@@ -58,7 +58,7 @@
 # exercising the empty-state path — see internal-docs/local-split-fleet-testing.md.
 
 name: admin Airhouse fleet page
-target: ide
+target: pipeline
 
 settings:
   runs: 1

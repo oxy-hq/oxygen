@@ -44,10 +44,10 @@ on:
         type: choice
         options:
           - all
-          - builder
-          - ask-agent
-          - threads
-          - metric-tree
+          - custom-app-console
+          - pipeline
+          - pipeline-admin
+          - chat
         default: all
       oxy_binary_run_id:
         description: Run id of an earlier CI workflow on this branch whose `oxy-binary-ci` artifact should be downloaded. Required for standalone runs.
@@ -87,14 +87,49 @@ jobs:
         env:
           FLOW_BUCKET: ${{ inputs.flow_bucket }}
         run: |
-          # One bucket per product domain; flows in a bucket share a
-          # backend mode (the runner refuses a mixed-mode invocation).
-          # `cloud` is enterprise mode, the production path and every
-          # bucket's mode: `oxy serve --enterprise` with `demo_project/`
-          # seeded as the Demo workspace, driven on the public port (3000)
-          # signed in as flow@oxy.local. `local` is the legacy no-auth
-          # `--local` mode; keep a bucket on it only for a flow that tests
-          # legacy local mode itself.
+          # One bucket per product domain, and the domains are the ones the
+          # product is built on: the custom app (served, and its console) and
+          # the data pipeline (ingestion → Airway → stores → semantic model).
+          # `chat` is one demoted bucket — those surfaces still ship and are
+          # still covered, they are just no longer what this matrix is for.
+          # Until 2026-11-26 the whole matrix was `ask-agent` + `threads` +
+          # `metric-tree`: five flows, none of them about either core, while
+          # every custom-app and pipeline flow in `flows/` ran only from
+          # `scripts/verify-all.sh` on someone's laptop, or had never run at
+          # all.
+          #
+          # A bucket is (flows, seed, identity), and all three matter:
+          #
+          # `mode` — `cloud` is enterprise mode, the production path and every
+          # bucket's mode: `oxy serve --enterprise` on the public port (3000).
+          # `local` is the legacy no-auth `--local` mode; keep a bucket on it
+          # only for a flow that tests legacy local mode itself.
+          #
+          # `seed_path` — WHICH workspace `oxy dev seed` writes as the Demo
+          # workspace. This is the change that made the core testable at all:
+          # `demo_project/` holds a semantic model and two automations and
+          # NOTHING else — no custom app, no `.airway.yml`, no `.monitor.yml` —
+          # so no custom-app or pipeline flow could ever have passed against
+          # it. `examples/` (the seed's own default) holds the published
+          # example apps, six Airway pipelines and the monitors.
+          #
+          # `seed_flags` — `--llm-keys` stores the workspace's LLM key so an
+          # agentic run can happen; `--fixtures` additionally builds
+          # `local/pulse-demo`, five real builds with a seven-day release
+          # history, the bad release live and seeded traffic. The console
+          # bucket needs it: it is the only app in a fresh database with
+          # enough history for the console to have anything to say.
+          #
+          # `identity` — the email the runner signs in as (`OXY_FLOW_EMAIL`,
+          # runner/session.ts). The runner injects exactly ONE session per
+          # invocation, so a bucket cannot mix a workspace surface with an
+          # `/admin` one: `flow@oxy.local` is bound Owner of `local` by the
+          # seed and is correct for app/workspace surfaces, while staff are
+          # bounced off every tenant workspace into `/admin`. That is why
+          # `pipeline` and `pipeline-admin` are two buckets rather than one.
+          # `global-admin@oxy.local` gets its standing from a seeded
+          # `app_admins` ROW (`seed_platform_grants`), not from an env var, so
+          # nothing here has to make an identity staff by hand.
           #
           # FULL FILENAMES, not bare names. The runner selects a flow whose
           # filename CONTAINS a positional argument (runner/cli.ts, `globs`),
@@ -104,13 +139,70 @@ jobs:
           # is no proxy at all. It failed, and the failure said nothing about
           # the product. Adding a flow whose name extends an existing one
           # widens that bucket without touching this file; the suffix stops it.
-          # The `semantic` and `ide` buckets ran semantic-builder-ask and ide-save,
-          # which drove the Builder and the Files editor; both were removed with
-          # the IDE (factory-retirement.md, phase 5), and so were the buckets.
+          #
+          # NO WAREHOUSE HERE, which decides three flows. `examples/config.yml`
+          # declares `local` (and `training`, `local-acme`) as
+          # `type: airhouse_managed`, and `oxy dev seed` loads `.db/` into that
+          # tenant — but this job's only service is Postgres and the backend is
+          # `oxy serve --enterprise`, so no Airhouse is running.
+          # `seed_airhouse::provision_tenants` then prints `skipping Airhouse
+          # tenants — no Airhouse` and returns false, and the seed step stays
+          # GREEN with no data loaded. So any flow that executes a query
+          # against `local` would fail here on an empty warehouse, and the
+          # failure would read exactly like a product bug.
+          #
+          # `demo_project/config.yml` declares `local` as `type: duckdb,
+          # dataset: .db/` — a file in the checkout — which is why the `chat`
+          # bucket has always been able to run an analytics question here, and
+          # why it keeps that fixture.
+          #
+          # Starting one is not a one-line change: `docker compose -f
+          # docker-compose.airhouse.yml up -d` is seven containers and a GHCR
+          # pull, and `oxy serve` autodetects a local Airhouse ONLY under
+          # `--local` (commands/serve.rs), so the job would also have to set
+          # the `AIRHOUSE_*` vars by hand for the server half.
+          #
+          # DELIBERATELY NOT HERE, and each for a reason that is not "we
+          # forgot":
+          #   customer-apps-oxy-starter-fleet, automations-run-from-list,
+          #   semantic-object-detail — all three execute a query against
+          #     `local`: the served app's three data panels, the automation's
+          #     six `execute_sql` tasks, and the topic's Run-query button. No
+          #     Airhouse, no data. `airway-pipeline-run` is unaffected (its
+          #     destination is `kind: memory`, deliberately, so the pipeline
+          #     runs in the UI with no warehouse infra) and so is
+          #     `semantic-monitors-inbox` (it reads compiled monitor config and
+          #     the anomalies table, and executes nothing).
+          #   admin-workspace-health — NOTHING EVALUATES HEALTH HERE. The page
+          #     reads `workspace_health_state` rows written by the health eval
+          #     pass, which a `health_check:` block schedules at 10m and the
+          #     global singleton worker drives; a bare `oxy serve` runs no such
+          #     worker, so the table is empty and the page correctly renders
+          #     "No workspaces are being evaluated." The first run failed
+          #     exactly there (30s on `workspace-health-row`), and tightening
+          #     the flow to accept that empty state would void it for
+          #     verify-all, where health IS evaluated. The flow is right; this
+          #     job is the wrong home for it.
+          #   custom-app-staging-console — its own header leaves open whether
+          #     the seeded app carries a distinct `staging_url` at all, and
+          #     says to point the flow at an app that does rather than loosen
+          #     it. A bucket cannot settle that; a person has to.
+          #   admin-airway-config, admin-airhouse-fleet — their `setup:` is a
+          #     `goto:/dev-login?email=e2e@oxy.tech&next=…`, which re-mints a
+          #     session as an identity this server neither allows nor grants,
+          #     overriding the bucket's own. They belong here once that hop
+          #     comes out and the identity is the invocation's.
+          #   metric-tree, metric-tree-scenario — measure modelling, not the
+          #     pipeline, and $1.55 cold for the pair. They stay in
+          #     `fleet-assert.sh` / `verify-all.sh`.
+          #   chat-ask-fleet, the other *-fleet flows, partners-console-fleet,
+          #     ide-unavailable-fleet — they assert something about a
+          #     three-node fleet, which this job is not.
           ALL='[
-            {"name":"ask-agent","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml","mode":"cloud","port":3000},
-            {"name":"threads","flows":"threads-list.flow.test.yml","mode":"cloud","port":3000},
-            {"name":"metric-tree","flows":"metric-tree.flow.test.yml metric-tree-scenario.flow.test.yml","mode":"cloud","port":3000}
+            {"name":"custom-app-console","flows":"admin-custom-apps-lifecycle.flow.test.yml custom-app-console-health.flow.test.yml","mode":"cloud","port":3000,"seed_path":"examples","seed_flags":"--llm-keys --fixtures","identity":"global-admin@oxy.local"},
+            {"name":"pipeline","flows":"airway-pipeline-run.flow.test.yml semantic-monitors-inbox.flow.test.yml","mode":"cloud","port":3000,"seed_path":"examples","seed_flags":"--llm-keys","identity":"flow@oxy.local"},
+            {"name":"pipeline-admin","flows":"pipeline-data-flow.flow.test.yml","mode":"cloud","port":3000,"seed_path":"examples","seed_flags":"--llm-keys","identity":"global-admin@oxy.local"},
+            {"name":"chat","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml threads-list.flow.test.yml","mode":"cloud","port":3000,"seed_path":"demo_project","seed_flags":"--llm-keys","identity":"flow@oxy.local"}
           ]'
           if [ -z "$FLOW_BUCKET" ] || [ "$FLOW_BUCKET" = "all" ]; then
             FLOWS=$(echo "$ALL" | jq -c .)
@@ -160,9 +252,21 @@ jobs:
       OXY_BASE_URL: http://localhost:${{ matrix.flow.port }}
       OXY_HEALTH_URL: http://localhost:${{ matrix.flow.port }}/api/health
       # Enterprise mode signs the browser in through dev-login (runner/session.ts).
-      # The explicit allow-list is the only one a CI server honours; it names
-      # just the flow identity, which the seed binds as Owner of `local`.
-      OXY_DEV_LOGIN_EMAILS: flow@oxy.local
+      # The explicit allow-list is the only one a CI server honours, so it has
+      # to name every identity any bucket signs in as — a bucket whose identity
+      # is missing here gets a 403 from dev-login and fails before its first
+      # locator, which reads like a broken page.
+      #
+      # `flow@oxy.local` is bound Owner of `local` by the seed (through the
+      # inline `OXY_GLOBAL_ADMINS` below, which reaches the SEED process only).
+      # The two staff personas are seeded `app_admins` rows, so they are staff
+      # whether or not any env var says so — which is why `OXY_GLOBAL_ADMINS`
+      # must stay off the SERVER's environment: there it would make
+      # `flow@oxy.local` staff too, and the SPA bounces staff off every tenant
+      # workspace into `/admin`.
+      OXY_DEV_LOGIN_EMAILS: flow@oxy.local,global-admin@oxy.local,app-operator@oxy.local
+      # The identity this bucket drives the product as (runner/session.ts).
+      OXY_FLOW_EMAIL: ${{ matrix.flow.identity }}
       # Never send real email from a test server.
       MAGIC_LINK_LOCAL_TEST: "true"
       OXY_APP_EMAIL_LOCAL_TEST: "1"
@@ -186,7 +290,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The Demo workspace IS `demo_project/` inside this checkout, so the IDE
+      # The Demo workspace IS a directory inside this checkout (`examples/` for
+      # every core bucket, `demo_project/` for `chat`), so the IDE
       # sees this checkout's git state — and a `pull_request` checkout is a
       # detached HEAD. The server labels that `HEAD@<sha>`
       # (`get_current_branch`), the IDE sends the label back as `?branch=` on
@@ -196,7 +301,8 @@ jobs:
       # button up, the Metric Tree renders an error instead of the graph, the
       # Explorer lists no fields. That is what the ide, metric-tree and
       # semantic buckets failed on from the day they moved to enterprise mode;
-      # the buckets that never enter the IDE send no branch and passed.
+      # the buckets that never enter the IDE send no branch and passed. It
+      # still matters: `pipeline` enters the IDE for the semantic flows.
       #
       # A named, non-default branch is the state a developer's checkout is in
       # when these flows pass locally: the IDE reads and writes the working
@@ -271,20 +377,31 @@ jobs:
           done
           echo "Backend healthy at $OXY_HEALTH_URL"
 
-      # The fixture the flows are authored against, as the `local` org's Demo
-      # workspace: `oxy dev seed` writes the rows, binds OXY_GLOBAL_ADMINS (the
-      # flow identity, for THIS process only — exported to the server it would
-      # make the identity staff) as Owner, stores ANTHROPIC_API_KEY as a
-      # workspace secret (--llm-keys), and compiles + promotes every seeded
-      # workspace. Same fixture the runner seeds locally (runner/backend.ts).
+      # The fixture the bucket's flows are authored against, as the `local`
+      # org's Demo workspace: `oxy dev seed` writes the rows, binds
+      # OXY_GLOBAL_ADMINS (`flow@oxy.local`, for THIS process only — exported
+      # to the server it would make that identity staff) as Owner of `local`,
+      # seeds the partner tenants and the platform grants, deploys the example
+      # apps, and compiles + promotes every seeded workspace.
+      #
+      # WHICH workspace is the bucket's choice (`seed_path`), and the flags
+      # with it (`seed_flags`) — see the matrix comment. `examples/` for every
+      # bucket about the product's core, because `demo_project/` contains no
+      # custom app and no pipeline to test.
       - name: Seed the Demo workspace
         if: matrix.flow.mode == 'cloud'
         id: seed
         timeout-minutes: 10
+        env:
+          SEED_PATH: ${{ matrix.flow.seed_path }}
+          SEED_FLAGS: ${{ matrix.flow.seed_flags }}
         run: |
           set -o pipefail
+          # Unquoted on purpose: SEED_FLAGS is a word list from this file, not
+          # user input, and the flags have to arrive as separate argv entries.
+          # shellcheck disable=SC2086
           OXY_GLOBAL_ADMINS=flow@oxy.local \
-            oxy dev seed --workspace-path "$GITHUB_WORKSPACE/demo_project" --llm-keys \
+            oxy dev seed --workspace-path "$GITHUB_WORKSPACE/$SEED_PATH" $SEED_FLAGS \
             2>&1 | tee web-app/tests/agentic/.logs/seed.log | tail -n 40
 
       # Per-bucket action-cache. The exact key hashes every flow YAML

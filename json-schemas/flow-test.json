@@ -9,9 +9,18 @@
       "type": ["string", "null"]
     },
     "target": {
-      "description": "Surface area being tested (chat, ide, threads, onboarding, any). Documentation hint only — does not change the toolkit exposed to the LLM.",
+      "description": "Surface area being tested. `custom-app` and `pipeline` are the product's core surfaces (the served app and its console; ingestion → Airway → stores → semantic model); `chat`, `ide`, `threads` and `onboarding` still ship and are still covered, but are no longer the centre. Documentation hint only — does not change the toolkit exposed to the LLM.",
       "type": ["string", "null"],
-      "enum": ["chat", "ide", "threads", "onboarding", "any", null]
+      "enum": [
+        "custom-app",
+        "pipeline",
+        "chat",
+        "ide",
+        "threads",
+        "onboarding",
+        "any",
+        null
+      ]
     },
     "settings": {
       "default": {

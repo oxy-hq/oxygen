@@ -6,6 +6,58 @@
 # `cold_usd` applies when no actions replayed from cache (every step
 # hit the LLM). `warm_usd` applies when every action replayed from
 # cache (target steady state).
+#
+# The core surfaces first — custom apps, then the data pipeline — then the
+# rest. Same order as `_surfaces.yml`, for the same reason: the file should
+# read like what the suite is for.
+
+# ── custom apps ──────────────────────────────────────────────────────────────
+
+- flow: custom-app-staging-console
+  # Four acts (open the app's console, open Inspect, toggle the Draft channel,
+  # open the held-writes popover), five waits, three $0 asserts, one judge.
+  # Shaped like `admin-custom-apps-lifecycle`'s first case.
+  # This flow shipped with NO entry here — one of two the new
+  # `suite.test.ts` found. An ESTIMATE: it has never been run (its own header
+  # says so, and leaves open whether the seeded app has a staging host).
+  cold_usd: 0.55
+  warm_usd: 0.01
+
+- flow: custom-app-console-health
+  # FOUR cases over one app's console (overview → functions → releases →
+  # activity), three single-click acts between them, four judge calls.
+  #
+  # cold_usd is MEASURED across two runs, and the second one is the warning
+  # this number exists for. 2026-11-26 run 2: overview $0.0027, checks
+  # $0.0770, releases $0.0769 — and activity $1.0055, because its rail-click
+  # act could not succeed (the rail is `lg:hidden` when railed) and ran to 12
+  # iterations. One unsatisfiable act cost more than the other three cases and
+  # both judges together, which is the `max_steps` cost the README describes:
+  # a step that cannot succeed is not a failed step.
+  #
+  # Every page change is a `browser_navigate` now, so the expected shape is
+  # four cases at roughly the $0.08 the two working nav-plus-judge cases
+  # measured — about $0.32. 0.45 keeps ~40% headroom for act variance while
+  # staying low enough that a return of the hunt reports over budget instead
+  # of hiding inside a generous ceiling.
+  cold_usd: 0.45
+  warm_usd: 0.02
+
+# ── data pipeline ────────────────────────────────────────────────────────────
+
+- flow: pipeline-data-flow
+  # Two cases. Case 1 has no act at all (a deep link, two waits, seven $0
+  # asserts, one judge); case 2 is two single-click acts (expand-all, then a
+  # pipeline card) and one judge. No query execution, no run.
+  #
+  # cold_usd is MEASURED on a GREEN first run (2026-11-26, `pipeline-admin`):
+  # $0.0025 (case 1, judge only) + $0.0907 (case 2, 2 acts over 2 iterations)
+  # = $0.0932. The 0.35 ceiling was a 3.8x guess, so it is now 0.14 — still
+  # ~50% headroom over the measurement, which absorbs the act-iteration
+  # variance of the node hunt while leaving the ceiling able to fire. A 3.8x
+  # margin cannot fire on anything.
+  cold_usd: 0.14
+  warm_usd: 0.01
 
 - flow: chat-ask
   cold_usd: 0.50
@@ -145,6 +197,15 @@
   cold_usd: 0.30
   warm_usd: 0.005
 
+- flow: ide-world-model-graph-fleet
+  # The fleet twin of the entry above, and the same shape step for step: 3
+  # acts, four deterministic asserts, one judge, no query execution. It
+  # shipped with NO entry here — the other of the two the new
+  # `suite.test.ts` found — so the reporter has never had a ceiling to
+  # compare its runs against. Same numbers as the flow it mirrors.
+  cold_usd: 0.30
+  warm_usd: 0.005
+
 - flow: customer-apps-oxy-starter-fleet
   # Four cases over the app's four screens. Three act steps total (two nav
   # clicks and one deep-link browser_navigate); everything else is a
@@ -262,6 +323,11 @@
   # act and one judge call. No agent run. The pricing wait is wall-clock (placebo
   # power, three candidates), not LLM cost.
   cold_usd: 0.60
+  # This entry shipped without a `warm_usd` — the only one in the file that
+  # did, so the reporter had no steady-state ceiling for this flow and could
+  # never warn on it. Two judge calls once the acts replay.
+  warm_usd: 0.01
+
 - flow: settings-api-key-extend
   # Cloud mode. Five acts (create a personal access token with the dialog's
   # defaults, dismiss the one-time secret, open Extend, pick 90 days and

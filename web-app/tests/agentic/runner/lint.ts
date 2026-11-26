@@ -31,8 +31,19 @@ const CSS_CLASS_RE = /[.#][a-zA-Z][\w-]*\s+\w+/; // `.foo button`, `#bar input`
 // `\b` before `\[data-testid` never fires (space + `[` are both non-word
 // chars) — drop it so a properly-quoted testid in the act prompt counts
 // as a selector hint. Same for `\bbrowser_file_upload`-style additions.
+//
+// `navigate` belongs in this list even though it takes no selector — BECAUSE
+// it takes no selector. The rule exists to catch a step that makes the model
+// hunt the snapshot for its target; a `browser_navigate` act names a URL and
+// is the most deterministic step the runtime has. Without it here, the three
+// navigate acts in `custom-app-console-health` (which exist precisely because
+// the console's page rail is `lg:hidden` when railed, so clicking it burned 12
+// iterations and $1.00) were each reported as fragile, and the deep-link act
+// in `customer-apps-oxy-starter-fleet` was one of the pre-existing findings
+// the skill tells people to ignore. A lint that cries wolf about the right
+// answer teaches people to ignore it.
 const SELECTOR_HINT_RE =
-  /(\bbrowser_(click|type|press_key|fill|hover|select|file_upload)\b|selector\s|\[data-testid|\brole=|\bcss=|\btext=|#[a-z][\w-]+|\.[a-z][\w-]+)/i;
+  /(\bbrowser_(click|type|press_key|fill|hover|select|file_upload|navigate)\b|selector\s|\[data-testid|\brole=|\bcss=|\btext=|#[a-z][\w-]+|\.[a-z][\w-]+)/i;
 
 export function lintFlow(flow: FlowTest): LintFinding[] {
   const findings: LintFinding[] = [];

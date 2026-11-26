@@ -1,0 +1,162 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# The data pipeline, as one picture: `/admin/data-flow` — where data enters an
+# org (ingestion sources), what moves it (Airway pipelines, the OLTP change
+# stream), where it rests (Airhouse and OLTP schemas) and which custom apps
+# write, watch and feed it.
+#
+# WHY THIS FLOW EXISTS. The pipeline half of the product was covered one page
+# at a time and never end to end: `airway-pipeline-run` runs ONE pipeline and
+# reads its run page, `admin-airway-config` reads the admission-policy table,
+# `admin-airhouse-fleet` reads the warehouse fleet page, `semantic-object-detail`
+# reads the model the pipeline feeds. Nothing asserted that the platform can
+# still say how those parts connect for a real org — which is the first thing
+# anyone asks when a number is wrong, and the only surface that answers it.
+#
+# Every edge on this page is a DECLARATION, not an observation (the page says
+# so itself): a compiled `.airway.yml` gives source → pipeline → dataset, and
+# each custom app's live build gives its Airhouse and OLTP schemas, its change
+# stream, its functions' destinations and watched tables. So this flow asserts
+# the declared graph resolves and is navigable; it does not assert anything
+# about what ran.
+#
+# THE FIXTURE. `oxy dev seed` (default workspace path `./examples`, which this
+# flow's CI bucket and `verify-all.sh` phase 4 both use) compiles and promotes
+# the workspace, so its six `.airway.yml` pipelines —
+# `examples/pipelines/{weather,toast_pos,ubereats,sql_ingest,clickhouse_ingest,
+# oltp_toast}.airway.yml` — become compiled definitions, and it publishes the
+# example custom apps. `--fixtures` adds `local/pulse-demo`, whose live build
+# declares functions with destinations and watched tables. That is a graph with
+# sources, pipelines, stores and apps in it.
+#
+# DEEP LINK, NOT A PICKER. `/admin/data-flow` with no `?org=` renders the
+# "Choose an organization" empty state by design, so the org has to be named.
+# The `local` org's id is a CONSTANT, not a generated row id:
+# `airhouse::LOCAL_ORG_ID = Uuid::nil()` (crates/airhouse/src/config.rs), which
+# `ensure_local_org` uses verbatim when it creates the row. Hence the nil UUID
+# below. That is cheaper and far more deterministic than driving the
+# `admin-data-flow-org-picker` combobox, and it is the same reason the
+# workspace-scoped flows hard-code the demo workspace id.
+#
+# IDENTITY. Staff, over all orgs: the CI bucket signs in as
+# `global-admin@oxy.local` (a `global_admin` grant seeded as a ROW by
+# `seed_platform_grants`) and `verify-all.sh` passes its own staff session. No
+# `/dev-login` hop in `setup:` — the identity belongs to the invocation.
+# `/admin` is in `applyPathPrefix`'s TOP_LEVEL_SURFACES list, so the cloud-mode
+# workspace prefix does not reach this path.
+#
+# WHY CASE 2 EXPANDS FIRST. The canvas folds more than three sources,
+# pipelines or apps of one workspace into a single group card until it is
+# clicked (`admin-data-flow-group`), so with six pipelines there may be no
+# `admin-data-flow-node-pipeline` element on screen at all until
+# `admin-data-flow-expand-all` runs. Clicking expand-all first makes the case
+# independent of how many pipelines the fixture happens to carry.
+#
+# IF CASE 2 FAILS WITH NO PIPELINE NODE, read it as a fixture/compile finding
+# before a UI one: it means the seeded workspace's `.airway.yml` files did not
+# become compiled definitions (`oxy dev seed` compiles and promotes — check the
+# seed log), not that the canvas is broken. Case 1 still passes in that state,
+# which is the point of splitting them.
+#
+# ANCHORS (web-app/src/pages/admin/AdminDataFlow/):
+#   [data-testid=admin-data-flow]                 the page frame
+#   [data-testid=admin-data-flow-toolbar]         org/workspace/level/focus controls
+#   [data-testid=admin-data-flow-kpis]            Sources · Pipelines · Stores · Apps · Edges
+#   [data-testid=admin-data-flow-legend]          what the edge styles mean
+#   [data-testid=admin-data-flow-canvas]          the graph
+#   [data-testid=admin-data-flow-node-<type>]     type ∈ source|pipeline|store|schema|table|app|function
+#   [data-testid=admin-data-flow-group]           a folded card ("Click to expand")
+#   [data-testid=admin-data-flow-expand-all]      unfold every group
+#   [data-testid=admin-data-flow-details]         the selected node's neighbourhood
+#   [data-testid=admin-data-flow-details-empty]   nothing selected
+#   [data-testid=admin-data-flow-no-org]          no `?org=`
+#   [data-testid=admin-data-flow-empty]           nothing declared in this org
+#   [data-testid=admin-data-flow-view-empty]      the current view filters everything out
+#
+# NOT RUN YET. Authored from the page's source and the seed's contract; no live
+# run has recorded its actions, so `_budgets.yml`'s numbers for it are
+# estimates in the shape of the admin flows that resemble it.
+
+name: the org's declared data flow resolves and is navigable
+target: pipeline
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  # Case 2 is two single-click acts; case 1 has none.
+  max_steps: 12
+
+setup:
+  # `LOCAL_ORG_ID` is the nil UUID — see the deep-link note above.
+  - "goto:/admin/data-flow?org=00000000-0000-0000-0000-000000000000"
+
+cases:
+  - name: the graph resolves for the local org, with its counts and legend
+    tags: [pipeline, data-flow, airway, critical]
+    steps:
+      - wait_for: "selector:[data-testid=admin-data-flow];timeout_ms=30000"
+      # The graph is one fetch behind the frame, so gate on the canvas itself.
+      - wait_for: "selector:[data-testid=admin-data-flow-canvas];timeout_ms=30000"
+
+    expect:
+      - assert: "selector [data-testid=admin-data-flow-toolbar] is visible"
+      - assert: "selector [data-testid=admin-data-flow-kpis] is visible"
+      - assert: "selector [data-testid=admin-data-flow-legend] is visible"
+      - assert: "selector [data-testid=admin-data-flow-canvas] is visible"
+      # The three states that mean "we rendered, but there is nothing here".
+      - assert: "selector [data-testid=admin-data-flow-no-org] is not visible"
+      - assert: "selector [data-testid=admin-data-flow-empty] is not visible"
+      - assert: "selector [data-testid=admin-data-flow-view-empty] is not visible"
+
+      - judge: |
+          This is /admin/data-flow for the organization "Local". It shows a
+          toolbar (organization, workspace, level, focus), a strip of counts
+          labelled Sources, Pipelines, Stores, Apps and Edges, a legend
+          explaining the edge styles, and a graph canvas with cards for the
+          org's data-flow nodes connected by edges.
+
+          Fail if ANY of the following is true:
+          (a) the page asks you to choose an organization;
+          (b) the page says nothing is declared yet, or the current view is
+              empty;
+          (c) every count in the strip reads 0 or a dash;
+          (d) an error banner, a "Failed to load" message, or a graph
+              layout-failed message is visible;
+          (e) the page is a blank screen or an unresolved loading skeleton;
+          (f) any visible text contains a raw filesystem path or "os error".
+
+  - name: unfolding the canvas reaches a pipeline and reads its neighbourhood
+    tags: [pipeline, data-flow, airway, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-data-flow-canvas];timeout_ms=30000"
+
+      - act: |
+          Click [data-testid=admin-data-flow-expand-all] in the toolbar to
+          unfold every grouped card on the canvas.
+      # Pipelines may be folded into one group card before this — see the
+      # header. After expanding, each compiled `.airway.yml` is its own card.
+      - wait_for: "selector:[data-testid=admin-data-flow-node-pipeline];timeout_ms=30000"
+
+      - act: |
+          Click the first [data-testid=admin-data-flow-node-pipeline] card on
+          the canvas to select that pipeline.
+      - wait_for: "selector:[data-testid=admin-data-flow-details];timeout_ms=30000"
+
+    expect:
+      - assert: "selector [data-testid=admin-data-flow-node-pipeline] is visible"
+      - assert: "selector [data-testid=admin-data-flow-details] is visible"
+      # Something is selected, so the "nothing selected" panel must be gone.
+      - assert: "selector [data-testid=admin-data-flow-details-empty] is not visible"
+
+      - judge: |
+          A pipeline card on the /admin/data-flow canvas is selected (ringed or
+          highlighted) and a details panel names that pipeline and lists the
+          edges touching it — what it reads from and what it writes to, each
+          edge described in words rather than as a raw identifier.
+
+          Fail if ANY of the following is true:
+          (a) the details panel still says nothing is selected;
+          (b) the details panel names the node but lists no edges at all;
+          (c) an error banner or a "Failed to load" message is visible;
+          (d) the canvas emptied out when the groups were expanded.

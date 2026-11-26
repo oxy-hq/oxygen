@@ -23,7 +23,7 @@
 # path + server-side OXY_OWNER gating. Do NOT use `--local`.
 
 name: custom-app staging console banner
-target: ide
+target: custom-app
 
 settings:
   runs: 1

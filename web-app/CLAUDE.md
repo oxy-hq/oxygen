@@ -246,12 +246,22 @@ One motion language for Oxygen and every custom app. Its source is the SDK's `sd
 
 ## Agentic Browser Tests
 
-Cross-cutting UI flows are tested by `web-app/tests/agentic/`. Treat this as a regression-test surface for any change that touches:
+Cross-cutting UI flows are tested by `web-app/tests/agentic/`. **The suite is centred on the two surfaces the product is built on** — the custom app and the data pipeline — and those are the buckets CI runs on every PR. Treat this as a regression-test surface for any change that touches:
+
+**The core:**
+
+- Custom apps, served — the bundle, not a web-app page: the app owns its own shell (`examples/customer_apps/oxy-starter/`, repo-relative) → `flows/customer-apps-oxy-starter-fleet.flow.test.yml`
+- Custom apps, operated (`pages/admin/AdminCustomApps/**`, especially `components/AppConsole/**`, `hooks/api/customApps/**`) → `flows/custom-app-*.flow.test.yml`, `flows/admin-custom-apps-lifecycle.flow.test.yml`
+- The data pipeline (`pages/airway/**`, `components/airway/**`, `pages/admin/AdminDataFlow/**`, `pages/admin/AdminAirway/**`, `hooks/api/airway/**`) → `flows/pipeline-*.flow.test.yml`, `flows/airway-*.flow.test.yml`, `flows/admin-airway-config.flow.test.yml`
+- The semantic model the pipeline feeds, and its monitors (`pages/ide/SemanticLayer/**`) → `flows/semantic-*.flow.test.yml`
+
+**Still covered, no longer the centre:**
 
 - Chat panel / launcher / Ask surfaces (`pages/launcher/**`, `components/Ask/**`, `components/Chat/**`) → `flows/chat-*.flow.test.yml`, `flows/launcher-*.flow.test.yml`
 - IDE (`pages/ide/**`) → `flows/ide-*.flow.test.yml`
 - Onboarding (`pages/onboarding/**`, `components/workspaces/**`) → no flow today (`onboarding-blank-workspace` went with self-serve org creation); add one with `/test-feature` when you change these
-- Semantic model + agentic analytics integration (`pages/thread/analytics/**`, `pages/ide/Objects/SemanticLayer/**`) → `flows/semantic-*.flow.test.yml`
+
+`flows/_surfaces.yml` is the machine-readable version of this list and the one `--check-coverage --staged` reads; keep them in step. A new flow's `target:` says which group it joins (`custom-app` and `pipeline` are the core ones).
 
 **Skill-driven workflow (preferred for authoring + triage):**
 

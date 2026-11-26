@@ -124,17 +124,17 @@ FLOW_EMAIL="${FLOW_EMAIL:-flow@oxy.local}"
 # diskless replica.
 #
 # Deliberately excluded, none of them a fleet fault:
-#   ide-compile-error   — `wip`, NOT IN CI since 2026-05-10: Monaco has no SQL
-#                         diagnostics service yet, so the feature it asserts
-#                         does not exist on any deployment.
 #   launcher-home       — two of its three cases need a workspace with NO apps;
 #                         `oxy dev seed` always publishes oxy-starter, so that state
 #                         is unreachable here rather than broken.
-#   semantic-builder-ask— assumes an edit is visible to a semantic read without
-#                         a compile. There is no compile-on-save by design
-#                         (internal-docs/compile-boundary.md:13), so the flow's
-#                         premise, not the fleet, is what fails.
 #   admin-*             — need the staff identity; run them separately.
+# (`ide-compile-error` and `semantic-builder-ask` were listed here too; both
+# files are gone, deleted with the IDE's editor and the Builder.)
+# FOUR BELOW ARE ALSO CI BUCKETS NOW (automations-run-from-list,
+# chat-panel-agent-switch, semantic-object-detail, threads-list; recentred
+# 2026-11-26). Not duplication: CI drives ONE enterprise process, while the claim
+# here is that the flow also passes against a diskless replica that must proxy
+# IdeOnly routes to the ide. Green in CI and red here is this script's point.
 FLEET_FLOWS=(
   automations-run-from-list
   chat-panel-agent-switch

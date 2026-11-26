@@ -1,0 +1,314 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# "Is this custom app OK?" — the question an operator opens the console to
+# answer, on the one app in a dev/CI database that has enough history to
+# answer it honestly.
+#
+# WHY THIS FLOW EXISTS. Custom apps are the product's core surface, and until
+# this flow the suite covered two slices of them: the served app itself
+# (`customer-apps-oxy-starter-fleet` — the `-fleet` suffix names where it was
+# first run, not a requirement) and the publish/unpublish card plus the column
+# browser (`admin-custom-apps-lifecycle`). Nothing read the console's verdict —
+# the checks grid, the release timeline, the traffic reading — which is where
+# the two counterintuitive facts in `product-context.md` live:
+#
+#   - deployment integrity green is compatible with every request failing, and
+#   - a traffic verdict of "no reading" is NEVER healthy.
+#
+# Both are claims about what the console must SAY, so only a browser flow can
+# hold them. A unit test can assert a component renders a tone; it cannot
+# assert that the page an operator lands on distinguishes "serving fine" from
+# "integrity fine, requests failing".
+#
+# THE FIXTURE, AND WHY IT IS THE RIGHT ONE. `local/pulse-demo` ("Pulse (demo
+# fixture)") is built by `oxy dev seed --fixtures`, which `just up` passes and
+# which this flow's CI bucket passes too. Its contract is spelled out in
+# `crates/api-custom-apps/src/seed_fixture/mod.rs` and the numbers below come
+# from reading it, not from a run:
+#
+#   - FIVE releases, labelled `r1`..`r5` (`bundle::RELEASES`, `Release::label`).
+#   - r1, r2, r3 promoted in turn; **r4 promoted six hours ago and serving now**
+#     (`calendar::LIVE == 4`); r5 — the fix — published to staging only.
+#   - r4 is the BAD release: its `store` throws on a stale store id and runs
+#     several times slower. So the seeded invocation history (`history`) holds
+#     real failures and a real latency spread, and the Web Vitals (`vitals`)
+#     hold real sessions.
+#   - The builds, publishes and promotes are REAL (the production code paths,
+#     called in-process); only the timestamps, the pre-seed invocation rows and
+#     the vitals are written directly, because no real path can make either
+#     happen in the past.
+#
+# That is exactly the state the console is for: something is wrong, the page
+# has to say so, and the fix is already on staging. `oxy-starter` — the app
+# `customer-apps-oxy-starter-fleet` drives — has no functions and no history,
+# so it cannot answer any of this.
+#
+# READ-ONLY, DELIBERATELY. The fixture's own demo is "roll back from r4, then
+# promote r5", and that is the one thing this flow must not do. The fixture is
+# idempotent on PRESENCE, not on state: "a fixture whose five builds exist and
+# whose sentinel row is there is *present* and nothing is done, whatever the
+# presenter has since moved". A flow that rolled back would therefore pass once
+# and then assert against a world it had itself changed — the second run would
+# read r3 live, and the failure would look like a product regression. Every
+# step here navigates and reads.
+#
+# IDENTITY. Staff. `/admin/*` is gated by `AdminLayout`, and the console's
+# fleet/registry reads are staff-scoped, so the invocation must bring a staff
+# session: the CI bucket sets `OXY_FLOW_EMAIL=global-admin@oxy.local` (a
+# `global_admin` grant over all orgs, seeded as a ROW by
+# `seed_platform_grants`, not from an env var), and `verify-all.sh` phase 4
+# passes its own staff `OXY_SESSION_TOKEN`. There is no `/dev-login` hop in
+# `setup:` on purpose — the identity belongs to the invocation, and a flow that
+# re-mints one silently overrides the session its caller chose.
+#
+# An App Operator (`app-operator@oxy.local`, custom apps and nothing else)
+# should also reach every page here, and that is worth its own case one day.
+# It is NOT asserted here, because an out-of-scope App Operator answers *not
+# found* rather than forbidden, so a wrong expectation about its reach would
+# read as a broken page.
+#
+# `/admin` is in `applyPathPrefix`'s TOP_LEVEL_SURFACES list, so the workspace
+# prefix the runner sets for cloud mode does not reach these paths.
+#
+# ANCHORS (all read from the source, `web-app/src/pages/admin/AdminCustomApps/
+# components/AppConsole/`):
+#   [data-testid=apps-console]                    the console shell
+#   [data-testid=apps-console-nav]                the page rail
+#   [data-testid=apps-console-nav-<page>]         one rail item per CONSOLE_PAGES id
+#   [data-testid=apps-console-overview]           the overview page
+#   [data-testid=apps-console-kpis]               the numbers it leads with
+#   [data-testid=admin-app-checks]                the deployment-integrity grid
+#   [data-testid=admin-app-check-cell-production|staging]
+#   [data-testid=apps-console-page-releases]      the release timeline
+#   [data-testid=apps-console-page-activity]      the activity page
+#   [data-testid=admin-app-invocations]           the invocations panel
+#   [data-testid=admin-app-invocations-summary]   total + comparison
+#   [data-testid=admin-app-invocations-empty]     "no invocations in this window"
+#   [data-testid=apps-console-page-functions]     the Functions page
+#   [data-testid=admin-app-checks]                the deployment-integrity grid
+#   [data-testid=admin-app-check-cell-production|staging]
+#   [data-testid=app-lifecycle]                   the live-build card on the overview
+#   [data-testid=app-lifecycle-verdict|live]
+#
+# Latency (`admin-app-invocations-p95`) is deliberately NOT asserted: its strip
+# returns null when `latencyDistribution(rows).measured === 0`, which is a
+# property of the seeded rows rather than of the page working. The judge reads
+# it if it is there.
+#
+# WHAT THE FIRST RUN CORRECTED (2026-11-26, the `custom-app-console` bucket).
+# Three of this flow's anchors were collected by grepping the console directory
+# and were attributed to the wrong pages. The run is the record:
+#
+#   - `admin-app-checks` is NOT on the overview. `OverviewPage.tsx` renders a
+#     KPI strip, Issues, `AppLifecycle` and `PreviewCard`; the checks grid is
+#     `ChecksPanel`, rendered by `pages/FunctionsPage.tsx`. So the
+#     integrity-for-both-environments claim is case 2's, on Functions, and the
+#     overview case asserts what is actually there.
+#   - `admin-app-events` is NOT on Activity. `events` is its own entry in
+#     `CONSOLE_PAGES`, so the event stream has its own page; everything this
+#     flow claimed about invocations passed, and only that one assert failed.
+#   - **r5 is not on the Releases page.** The run saw four releases —
+#     `pulse-r4`, `pulse-r3`, `pulse-r2`, `pulse-r1` — because the page is
+#     scoped to the console's environment and production has only the promoted
+#     builds. r5 is published to staging and nothing more. Reaching it needs
+#     the environment switch (`apps-console-environment-select`, and `env` is
+#     in `consolePages.ts`'s `CARRIED` list), which is the obvious case to add
+#     next and is deliberately not guessed at here.
+#
+#     Note the labels are `pulse-r4`, not `r4`: the old `text "r4" is visible`
+#     assert passed on the substring while the claim beside it was wrong, which
+#     is why the asserts below name the full label.
+#
+# Everything else the run confirmed, and the numbers in the header above are
+# the fixture's real ones: the seed log reads "pulse-demo fixture built:
+# r1..r4 promoted to production (r4, the bad release, is live), r5 on staging;
+# 2357 seeded invocations, 1440 seeded vitals events".
+#
+# WHY THIS FLOW NAVIGATES BY URL AND NEVER CLICKS THE PAGE RAIL (the second
+# run's lesson, and the expensive one). `AppConsole/index.tsx:94` renders
+# `<ConsoleNav className={railed ? "lg:hidden" : undefined}>`: when the fleet's
+# column browser is railed — the default on this route — the console's OWN nav
+# is HIDDEN at `lg` and up, because the rail's Pages tier is the navigation
+# there (see `src/pages/admin/CLAUDE.md`, "the column browser's Pages tier,
+# which IS that sidebar at `lg` and up"). So `[data-testid=apps-console-nav]`
+# is correctly invisible at the CI viewport, and an `act:` told to click
+# `apps-console-nav-<page>` has nothing to click: one case burned TWELVE
+# iterations and $1.00 hunting for it, which is the `max_steps` cost the README
+# warns about — a step that cannot succeed is not a failed step.
+#
+# Each console page has its own URL (`consolePagePath`), and the sibling
+# `admin-custom-apps-lifecycle` proves the gate in this exact environment: it
+# waits on `[data-testid=apps-console-main][data-page=activity]` and passes. So
+# every page change here is one `browser_navigate` and one attribute gate —
+# deterministic, layout-independent, one action instead of a hunt. Do not
+# "simplify" these back into rail clicks.
+
+name: custom app console answers whether the app is OK
+target: custom-app
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  # Three single-click acts (one per page after the overview); the rest is
+  # waits and $0 asserts.
+  max_steps: 12
+
+setup:
+  # The overview is the BARE app route — `CONSOLE_PAGES`' overview entry has an
+  # empty `segment`, so `/overview` is a segment no page owns and the console
+  # renders `apps-console-page-missing` for it.
+  - "goto:/admin/apps/local/pulse-demo"
+
+cases:
+  - name: the overview leads with production's numbers and the live build
+    tags: [custom-apps, console, health, critical]
+    steps:
+      - wait_for: "selector:[data-testid=apps-console];timeout_ms=30000"
+      - wait_for: "selector:[data-testid=apps-console-overview];timeout_ms=30000"
+      # The lifecycle card is its own fetch, so give it its own gate rather
+      # than letting the shell's arrival stand in for it.
+      - wait_for: "selector:[data-testid=app-lifecycle];timeout_ms=30000"
+
+    expect:
+      # NOT `apps-console-nav`: it is `lg:hidden` while the fleet rail is
+      # railed, which is this route's default — see the header.
+      - assert: "selector [data-testid=apps-console-main] has attribute data-page=overview"
+      - assert: "selector [data-testid=apps-console-kpis] is visible"
+      # Proven present by `admin-custom-apps-lifecycle`'s first case, which
+      # asserts all three on this same card and passes.
+      - assert: "selector [data-testid=app-lifecycle] is visible"
+      - assert: "selector [data-testid=app-lifecycle-verdict] is visible"
+      - assert: "selector [data-testid=app-lifecycle-live] is visible"
+      - assert: "selector [data-testid=apps-console-page-missing] is not visible"
+
+      - judge: |
+          This is the admin console for the custom app "Pulse (demo fixture)"
+          (slug pulse-demo, org local), on its Overview page. It shows a rail
+          of console pages (Overview, Activity, Functions, Events, Releases,
+          Data, Secrets, Settings), a strip of headline numbers about
+          production, and a card naming the build production is serving.
+
+          Fail if ANY of the following is true:
+          (a) every number in the strip reads 0 or a dash;
+          (b) nothing on the page names the build production is serving;
+          (c) an error banner or a "Failed to load" message is visible;
+          (d) the page is a blank screen or an unresolved loading skeleton;
+          (e) the page says the console page does not exist;
+          (f) any visible text contains a raw filesystem path or "os error".
+
+  - name: checks report a verdict for production and for staging
+    tags: [custom-apps, console, health, critical]
+    steps:
+      - act: |
+          Use browser_navigate to open the app console's Functions page
+          directly: /admin/apps/local/pulse-demo/functions
+          Do NOT look for a page rail to click — it is hidden at this width.
+      - wait_for: "selector:[data-testid=apps-console-main][data-page=functions];timeout_ms=30000"
+      # The checks grid is a separate fetch from the function list.
+      - wait_for: "selector:[data-testid=admin-app-checks];timeout_ms=30000"
+
+    expect:
+      - assert: "selector [data-testid=admin-app-checks] is visible"
+      - assert: "selector [data-testid=admin-app-check-cell-production] is visible"
+      # NOT the staging cell. The second run's judge reported "no Staging
+      # column visible" for the `smoke` check WHILE
+      # `admin-app-check-cell-staging is visible` passed — so the element is in
+      # the DOM without carrying a verdict a reader can see. Asserting it would
+      # be a green that contradicts the screenshot beside it, which is the same
+      # trap as the old `text "r4"` matching `pulse-r4`. Production is the
+      # console's default environment and the cell that means something here;
+      # staging's verdict needs the console switched to staging and a checks
+      # run there, which is the follow-up case, not an assertion to fake.
+      # Every release of the fixture declares `smoke` with `"check": true`
+      # (customer-apps/examples/pulse-demo/*/oxy-app.json), so an empty grid
+      # here means the build's manifest was not read, not that the app has
+      # no checks.
+      - assert: "selector [data-testid=admin-app-checks-empty] is not visible"
+
+      - judge: |
+          This is the Functions page of the pulse-demo app console. It lists
+          the app's Oxy Functions, and a "Checks" section names at least one
+          check (the fixture's is `smoke`) with a result for the environment
+          the console is showing, which is production. A check that has never
+          run says so rather than reading as a pass.
+
+          Fail if ANY of the following is true:
+          (a) the Checks section says the app has no checks;
+          (b) no check carries any result or status at all;
+          (c) an error banner or a "Failed to load" message is visible;
+          (d) the page is a blank screen or an unresolved loading skeleton.
+
+          Do NOT fail because staging has no verdict beside production's: this
+          case does not switch the console's environment, and the fixture runs
+          no checks against staging.
+
+  - name: the release timeline shows production's history with the bad release live
+    tags: [custom-apps, console, releases, critical]
+    steps:
+      - act: |
+          Use browser_navigate to open the app console's Releases page
+          directly: /admin/apps/local/pulse-demo/releases
+          Do NOT look for a page rail to click — it is hidden at this width.
+      - wait_for: "selector:[data-testid=apps-console-main][data-page=releases];timeout_ms=30000"
+      - wait_for: "selector:[data-testid=apps-console-page-releases];timeout_ms=30000"
+
+    expect:
+      - assert: "selector [data-testid=apps-console-page-releases] is visible"
+      # The page is scoped to the console's environment, and production has
+      # the four promoted builds: r4 live, r3/r2/r1 behind it. r5 is published
+      # to staging only and is NOT here — see the header. Full labels, because
+      # `text "r4"` also matches "pulse-r4" and would pass for the wrong
+      # reason, which is how the old `r5` claim survived next to a false one.
+      - assert: 'text "pulse-r4" is visible'
+      - assert: 'text "pulse-r1" is visible'
+
+      - judge: |
+          This is the Releases page of the pulse-demo app console, showing
+          production. It lists the builds production has served — four of them,
+          labelled pulse-r1 through pulse-r4 — with their publish and promote
+          history, and it shows that pulse-r4 is the one live now, promoted a
+          few hours ago.
+
+          Fail if ANY of the following is true:
+          (a) the page lists no releases, or says there are none;
+          (b) nothing on the page indicates which build production is serving;
+          (c) an error banner or a "Failed to load" message is visible;
+          (d) the page is a blank screen or an unresolved loading skeleton.
+
+  - name: activity reads real traffic — a quiet panel would be the finding
+    tags: [custom-apps, console, activity, critical]
+    steps:
+      - act: |
+          Use browser_navigate to open the app console's Activity page
+          directly: /admin/apps/local/pulse-demo/activity
+          Do NOT look for a page rail to click — it is hidden at this width.
+          (The rail-click this replaced spent 12 iterations and $1.00 failing.)
+      - wait_for: "selector:[data-testid=apps-console-main][data-page=activity];timeout_ms=30000"
+      - wait_for: "selector:[data-testid=apps-console-page-activity];timeout_ms=30000"
+      - wait_for: "selector:[data-testid=admin-app-invocations];timeout_ms=30000"
+
+    expect:
+      - assert: "selector [data-testid=admin-app-invocations] is visible"
+      # The seeded history is the reason this assertion is allowed to be
+      # positive: "no reading" is never healthy, so an empty panel on THIS
+      # fixture is a failure, not an acceptable state.
+      - assert: "selector [data-testid=admin-app-invocations-empty] is not visible"
+      - assert: "selector [data-testid=admin-app-invocations-summary] is visible"
+      # The event stream is NOT here — `events` is its own entry in
+      # CONSOLE_PAGES and so its own page. The first run failed on exactly
+      # that assert while every invocations claim beside it passed.
+
+      - judge: |
+          This is the Activity page of the pulse-demo app console. It shows
+          this app's Oxy Function invocations over a time window — a total
+          count with a comparison against the previous period, filters, and a
+          list of individual invocations, some of which failed.
+
+          Fail if ANY of the following is true:
+          (a) the invocations panel says there are no invocations in the
+              window (the fixture seeds real traffic, so an empty reading is
+              the finding, not a pass);
+          (b) the panel shows a total but no invocation rows at all;
+          (c) an error banner or a "Failed to load" message is visible;
+          (d) the page is a blank screen or an unresolved loading skeleton.

@@ -29,6 +29,17 @@
 #           data, so the spans are inserted directly (the shape
 #           `just clickhouse-obs-verify` uses) rather than paying for agent runs.
 #
+# WHAT CI ALREADY COVERS, so you know what this script adds. Since 2026-11-26
+# the agentic matrix runs four buckets on every PR — `custom-app-console`,
+# `pipeline`, `pipeline-admin`, `chat` — each choosing its own seeded workspace
+# and its own identity. This script's job is what that one process cannot be:
+# the three-node fleet, the ClickHouse-backed pages, the flows whose premise is
+# still open — and, crucially, EVERY FLOW THAT EXECUTES A QUERY. The agentic
+# job runs no Airhouse, while `examples/`'s `local` is `airhouse_managed`, so
+# `customer-apps-oxy-starter-fleet`, `automations-run-from-list` and
+# `semantic-object-detail` can only get their data here. Running a core flow in
+# both places is deliberate, not duplication — see the note at phase 4.
+#
 # EVERY flow phase seeds first, through `scripts/seed-fixtures.sh`, and that
 # script verifies its own work over HTTP before any flow starts. It is not
 # ceremony: an unseeded target fails a flow on its FIRST locator, three minutes
@@ -312,24 +323,35 @@ if [ "$CLOUD_UP" = 1 ]; then
   # Owner of `local`. OWNER is appended so the staff session below is a member
   # there — otherwise airway-pipeline-run's /local/workspaces/… page answers
   # 403 assume_role_required instead of rendering.
+  # `--fixtures` builds `local/pulse-demo` — five real builds, a seven-day
+  # release history with the bad release live, seeded traffic. It is what
+  # `custom-app-console-health` reads, and the CI `custom-app-console` bucket
+  # passes the same flag. Local DB only, and idempotent on presence, so a
+  # rerun rebuilds nothing.
   if ! wet; then
-    printf '  [dry-run] OXY_DATABASE_URL=…@%s ./target/debug/oxy dev seed --workspace-path ./examples\n' "${CLOUD_DB##*@}"
+    printf '  [dry-run] OXY_DATABASE_URL=…@%s ./target/debug/oxy dev seed --workspace-path ./examples --fixtures\n' "${CLOUD_DB##*@}"
   elif OXY_DATABASE_URL="$CLOUD_DB" OXY_GLOBAL_ADMINS="${GLOBAL_ADMINS:+$GLOBAL_ADMINS,}${OWNER:-hello@oxy.tech},flow@oxy.local" \
-       ./target/debug/oxy dev seed --workspace-path ./examples > "$LOG_DIR/cloud-seed.log" 2>&1; then
+       ./target/debug/oxy dev seed --workspace-path ./examples --fixtures > "$LOG_DIR/cloud-seed.log" 2>&1; then
     record "B: cloud seed" PASS "oxy dev seed (compiled + promoted)"
     ok "oxy dev seed: local org + Demo workspace compiled + promoted"
   else
     record "B: cloud seed" FAIL "see $LOG_DIR/cloud-seed.log"
-    bad "oxy dev seed failed — the five flows below have nothing to render; see $LOG_DIR/cloud-seed.log"
+    bad "oxy dev seed failed — the flows below have nothing to render; see $LOG_DIR/cloud-seed.log"
   fi
   curl -s --max-time 10 "http://localhost:3000/api/auth/dev-login?email=${OWNER:-hello@oxy.tech}" -o "$LOG_DIR/staff.json" 2>/dev/null
   STOK=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["token"])' "$LOG_DIR/staff.json" 2>/dev/null || true)
   SUSR=$(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("user",{})))' "$LOG_DIR/staff.json" 2>/dev/null || true)
   # The admin surfaces are staff-only. Without this the pages redirect and the
   # flows time out on their first locator — indistinguishable from a real bug.
+  # The two core flows here — `custom-app-console-health` (one app's console)
+  # and `pipeline-data-flow` (the org's declared data flow) — are also CI
+  # buckets now. Running them here too is not duplication: CI drives one
+  # process with its own state dir, this phase drives the box a developer has,
+  # and the custom-app half of the product is exactly where those differ.
   if OXY_SESSION_TOKEN="$STOK" OXY_SESSION_USER="$SUSR" \
      flow_run admin-airway-config admin-custom-apps-lifecycle \
        admin-tenants-cockpit admin-workspace-health airway-pipeline-run \
+       custom-app-console-health pipeline-data-flow \
        > "$LOG_DIR/b-cloud.log" 2>&1; then
     record "B: cloud admin flows" PASS "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-cloud.log" | tail -1)"
     ok "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-cloud.log" | tail -1)"

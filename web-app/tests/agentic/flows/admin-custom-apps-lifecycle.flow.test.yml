@@ -32,7 +32,7 @@
 # launcher) sees the same state.
 
 name: admin custom apps lifecycle card
-target: ide
+target: custom-app
 
 settings:
   runs: 1

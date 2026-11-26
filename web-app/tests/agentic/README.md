@@ -6,6 +6,27 @@ The runtime lives in `runner/runtimes/bespoke.ts` (Anthropic SDK + Playwright wi
 
 See [`internal-docs/agentic-browser-testing-spec.md`](../../../internal-docs/agentic-browser-testing-spec.md) for the deep dive: architecture, action-cache schema, selector materialization (v2 durability), CI integration, cost model + cache-invalidation taxonomy, change log, and the 2026-05-06 incident retrospective.
 
+## What this suite is for (recentred 2026-11-26)
+
+**The two surfaces the product is built on are the custom app and the data pipeline**, so they are what CI runs on every PR:
+
+| `target:` | The surface | Flows |
+| --- | --- | --- |
+| `custom-app` | the served app at `/customer-apps/<org>/<slug>/`, and the console an operator publishes, promotes and diagnoses it from | `custom-app-console-health`, `admin-custom-apps-lifecycle` (in CI); `customer-apps-oxy-starter-fleet`, `custom-app-staging-console` |
+| `pipeline` | ingestion → Airway → stores → the semantic model that reads them, and the monitors over it | `airway-pipeline-run`, `semantic-monitors-inbox`, `pipeline-data-flow` (in CI); `automations-run-from-list`, `semantic-object-detail`, `admin-airway-config`, `admin-airhouse-fleet` |
+| `chat`, `threads`, `ide`, `any` | still shipping, still covered, no longer the centre | the rest |
+
+Until 2026-11-26 the CI matrix was three buckets — `ask-agent`, `threads`, `metric-tree` — five flows, none of them about either core. Every custom-app and pipeline flow in `flows/` ran only from `scripts/verify-all.sh` on someone's laptop, or had never been run at all. Two things made that possible and both are fixed:
+
+- **CI seeded `demo_project/`**, which holds a semantic model and two automations and nothing else — no custom app, no `.airway.yml`, no `.monitor.yml`. No flow about either core could have passed against it. Buckets now choose their fixture (`seed_path`), and the core ones take `examples/` plus `--fixtures`.
+- **CI signed in as one identity.** `/admin` surfaces need staff, workspace surfaces need a member, and the runner injects exactly one session per invocation, so a single identity put every operator surface out of reach. Buckets now choose their identity too (`OXY_FLOW_EMAIL`), from the personas `oxy dev seed` writes as rows.
+
+**One thing the recentring cannot fix on its own: this job has no warehouse.** `examples/config.yml` declares `local` as `type: airhouse_managed`, and the agentic job's only service is Postgres — so `oxy dev seed` prints "skipping Airhouse tenants — no Airhouse", returns false, and **stays green with no data loaded**. A flow that then executes a query against `local` fails on an empty warehouse and reads exactly like a product bug. `demo_project/config.yml`'s `local` is a file DuckDB in the checkout, which is why `chat` can run an analytics question here and always could.
+
+So the three flows that execute a query — `customer-apps-oxy-starter-fleet` (the served app's data panels), `automations-run-from-list` (six `execute_sql` tasks) and `semantic-object-detail` (the Run-query button) — are **not** in CI; they keep running from `scripts/verify-all.sh` and `scripts/fleet-assert.sh`. Each such case carries the **`warehouse-query`** tag. Bringing them back means giving the job an Airhouse (`docker compose -f docker-compose.airhouse.yml up -d` is seven containers and a GHCR pull) *and* setting the `AIRHOUSE_*` vars by hand, since `oxy serve` autodetects a local Airhouse only under `--local`.
+
+`runner/suite.test.ts` holds all of this together without a browser: every flow loads, every flow has a cost ceiling, every bucket names a flow that exists, no `warehouse-query` flow sits in a bucket whose fixture has no warehouse, and the matrix runs at least one `custom-app` and one `pipeline` flow. A bucket that matches no file is not an error at runtime — it is a green job that ran no test.
+
 ## Policy: read-only against external systems
 
 **Flows and fixtures must never seed, drop, mutate, or otherwise destructively interact with any database, warehouse, port-forward, or shared service.** Only Oxy's own local state (its embedded Postgres in Docker, its workspace files on the local filesystem, the action-cache file) and committed-to-repo fixtures (DuckDB / Parquet / CSV under `demo_project/.db/`) may be written. Live warehouses, ClickHouse, Snowflake, BigQuery, Slack, GitHub — never.
@@ -111,8 +132,11 @@ Override the resolved URL with `OXY_BASE_URL` / `OXY_HEALTH_URL` if you want the
 Files live in `flows/<name>.flow.test.yml`. Schema: [`json-schemas/flow-test.json`](../../../json-schemas/flow-test.json).
 
 ```yaml
-name: chat ask returns SQL artifact
-target: chat               # documentation hint only
+name: the app's data panels resolve against real data
+# custom-app | pipeline | chat | ide | threads | onboarding | any.
+# Documentation hint only — it does not change the toolkit the LLM gets — but
+# it is how the suite says what it covers, so pick the surface, not the page.
+target: custom-app
 
 settings:
   runs: 1
@@ -433,13 +457,15 @@ CI integration lives in `.github/workflows/agentic-tests.yaml`, a reusable workf
 
 **What actually gates it is the binary.** The matrix needs the `oxy-binary-ci` artifact from `cargo-check-and-test`, and a skipped need skips its dependents — so the `web-app == 'true'` in the job's own `if:` runs nothing by itself. `oxy` (any Rust change) builds the binary as part of the full check; `agentic` (the flows, the runner, `agentic-tests.yaml` and its composite actions, `demo_project/`) builds it in the build-only shape, with no clippy or nextest. A PR that changes only `web-app/src/**` still runs no browser test: nothing builds a binary carrying its bundle. Before the `agentic` group existed, a PR confined to this directory and the workflow ran none either, which is how every bucket moved to enterprise mode with three of the six red.
 
-A `resolve-matrix` setup job emits the 6-bucket matrix as JSON; the main `agentic-tests` job consumes it via `strategy.matrix.flow`. Each sub-job:
+A `resolve-matrix` setup job emits the bucket matrix as JSON; the main `agentic-tests` job consumes it via `strategy.matrix.flow`. A bucket is **(flows, seed, identity)** — the four are `custom-app-console`, `pipeline`, `pipeline-admin` and `chat`, and the matrix comment in the workflow says what each field decides and which flows are deliberately *not* in it. Each sub-job:
 
 - Downloads the prebuilt CI binary via the `download-oxy-binary` composite action (`.github/actions/download-oxy-binary/`), which supports both same-run and cross-run downloads.
 - Sets up pnpm + Node + Playwright (cached) via the `setup-web-app-test-env` composite action (`.github/actions/setup-web-app-test-env/`).
 - Puts the checkout on a named branch (`git switch -C agentic-ci`). A `pull_request` checkout is a detached HEAD, and the Demo workspace lives inside it — see "Git state" under Run.
 - Boots an ephemeral Postgres service container.
 - Boots Oxy in the bucket's `backend_mode` and health-checks the appropriate port.
+- **Seeds the bucket's fixture**: `oxy dev seed --workspace-path <seed_path> <seed_flags>`. `examples/` for every core bucket (it holds the published example apps, six Airway pipelines and the monitors), `demo_project/` for `chat`. `--fixtures` additionally builds `local/pulse-demo`: five real builds, a seven-day release history with the bad release live, and seeded traffic — the only app in a fresh database the console has anything to say about.
+- **Signs in as the bucket's identity** (`OXY_FLOW_EMAIL`, honoured by `runner/session.ts`). `flow@oxy.local` is bound Owner of `local` by the seed; `global-admin@oxy.local` is a seeded `app_admins` row. `OXY_GLOBAL_ADMINS` stays off the *server's* environment — there it would make the member identity staff, and the SPA bounces staff off every tenant workspace into `/admin`.
 - **Restores the action cache via `actions/cache`** keyed on a hash of every flow YAML + the bespoke runtime files. On a cache hit, every step that's text-identical to a previously-recorded step replays without an LLM call. Falls back to a prefix-match restore-key on flow edits, so unchanged steps still warm-replay.
 - Runs `pnpm test:agentic <flow1> <flow2> ... --no-auto-backend --no-auto-frontend --output ../agentic-results-<bucket>.json`.
 - Uploads `agentic-results-<bucket>.json`, `web-app/tests/agentic/.results/`, `.traces/`, and `.logs/` (`backend.log`, `seed.log`) as the `agentic-results-<bucket>` artifact. The three dot-directories need `include-hidden-files: true`; without it the artifact is the JSON alone.
@@ -457,7 +483,7 @@ If you intentionally want to nuke the cache (e.g. to remeasure cold cost), bump 
 ## Troubleshooting
 
 - **`backend did not become healthy`** — `oxy start --enterprise` (or the legacy `oxy start --local --enterprise`) failed. Tail `web-app/tests/agentic/.logs/backend.log`. Most often Docker isn't running, or the system `oxy` binary on PATH is older than the workspace build (set `$OXY_BIN` to the freshly built one).
-- **`oxy dev seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in `demo_project/` fails the seed (every seeded workspace points at it).
+- **`oxy dev seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in the bucket's seeded workspace fails the seed (every seeded workspace points at it), so a broken `.airway.yml` or `.monitor.yml` under `examples/` takes down all four core buckets at once, before any flow runs.
 - **`[session] dev-login as flow@oxy.local failed: 404 / 403`** — the backend you are reusing does not list the identity in `OXY_DEV_LOGIN_EMAILS`. Stop it and let the runner spawn its own, or see "Run" above for signing in as someone it does list.
 - **Every page lands on `/onboarding`** — dev-login minted an account that belongs to no org: the backend was never seeded with `OXY_GLOBAL_ADMINS=flow@oxy.local`.
 - **`[session] workspace … is on a detached HEAD`** — the checkout holding `demo_project/` has no branch. The IDE itself works there now (it no longer answers 400), but the flows are authored for a named branch and every git action a flow takes would be refused. `git switch -c <name>` and rerun. See "Git state" under Run.

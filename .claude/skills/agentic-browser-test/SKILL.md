@@ -250,29 +250,37 @@ These three rules trace back to the 2026-05-06 ClickHouse incident retrospective
 
 ## CI mechanics — what hits the matrix
 
-The agentic-tests job is a reusable workflow at `.github/workflows/agentic-tests.yaml` (called from `ci.yaml` via `workflow_call`, also triggerable standalone via `workflow_dispatch` with optional `flow_bucket` and `oxy_binary_run_id` inputs). A small `resolve-matrix` setup job emits the bucket matrix as JSON. Flows are grouped into **6 domain buckets** (not one job per flow):
+The agentic-tests job is a reusable workflow at `.github/workflows/agentic-tests.yaml` (called from `ci.yaml` via `workflow_call`, also triggerable standalone via `workflow_dispatch` with optional `flow_bucket` and `oxy_binary_run_id` inputs). A small `resolve-matrix` setup job emits the bucket matrix as JSON. Flows are grouped into **domain buckets** (not one job per flow).
 
-| Bucket | Flows | Mode | Port |
+**Recentred 2026-11-26.** The matrix was `ask-agent` + `threads` + `metric-tree` — five flows, none of them about the custom app or the data pipeline, which is what the product is built on. It is now:
+
+| Bucket | Flows | Seeds | Signs in as |
 |---|---|---|---|
-| `semantic` | `semantic-builder-ask` | cloud (enterprise) | 3000 |
-| `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | cloud (enterprise) | 3000 |
-| `threads` | `threads-list` | cloud (enterprise) | 3000 |
-| `ide` | `ide-save` | cloud (enterprise) | 3000 |
-| `metric-tree` | `metric-tree`, `metric-tree-scenario` | cloud (enterprise) | 3000 |
+| `custom-app-console` | `admin-custom-apps-lifecycle`, `custom-app-console-health` | `examples --fixtures` | `global-admin@oxy.local` |
+| `pipeline` | `airway-pipeline-run`, `semantic-monitors-inbox` | `examples` | `flow@oxy.local` |
+| `pipeline-admin` | `pipeline-data-flow` | `examples` | `global-admin@oxy.local` |
+| `chat` | `chat-ask`, `chat-panel-agent-switch`, `threads-list` | `demo_project` | `flow@oxy.local` |
 
-Every bucket is enterprise mode: `oxy serve --enterprise`, then `oxy dev seed` of `demo_project/` with `OXY_GLOBAL_ADMINS=flow@oxy.local`, and `OXY_DEV_LOGIN_EMAILS=flow@oxy.local` on the server so the runner can sign in.
+Every bucket is enterprise mode (`oxy serve --enterprise`, public port 3000), and **a bucket is (flows, seed, identity)** — all three are per-bucket fields in the matrix JSON:
 
-Filename → bucket mapping for new flows:
-- `builder-*` → `builder`
-- `semantic-*` → `semantic`
-- `chat-*` → `ask-agent`
-- `threads-*` → `threads`
-- `ide-*` → `ide`
-- `metric-tree-*` → `metric-tree`
+- **`seed_path` / `seed_flags`** — which workspace `oxy dev seed` writes as the Demo workspace. `demo_project/` holds a semantic model and two automations and nothing else: no custom app, no `.airway.yml`, no `.monitor.yml`. So **a flow about either core surface cannot pass against `demo_project/`** — use `examples`, and `--fixtures` as well if the flow needs `local/pulse-demo`'s release history and traffic.
+- **`identity`** — `OXY_FLOW_EMAIL`, which `runner/session.ts` honours. The runner injects exactly ONE session per invocation, and staff are bounced off every tenant workspace into `/admin`, so **a bucket cannot mix an `/admin` surface with a workspace surface.** That is why `pipeline` and `pipeline-admin` are two buckets. `OXY_GLOBAL_ADMINS` reaches only the seed process (it binds `flow@oxy.local` as Owner of `local`); the staff personas are seeded `app_admins` rows.
 
-If a new flow doesn't match any prefix, surface to the dev: "This needs a new bucket entry in the `resolve-matrix` job's inline JSON in `.github/workflows/agentic-tests.yaml`. Buckets share `backend_mode`, so don't add a cloud-mode flow to a local-mode bucket — split the bucket by mode first. Also add the bucket name to the `flow_bucket` choice list in the workflow_dispatch trigger so dispatch UIs can target it."
+There is **no filename → bucket mapping any more.** The matrix names full filenames explicitly, because the runner selects any flow whose filename *contains* a positional argument, and prefix rules made a bucket silently widen when someone added a flow whose name extended an existing one. So when you add a flow, tell the dev which bucket to put it in by identity and fixture, not by prefix — and that the `flow_bucket` choice list in the `workflow_dispatch` trigger needs the bucket name too if the bucket is new.
 
-**`ide-compile-error`** is in `flows/` but **NOT in any bucket** — gated on Monaco SQL diagnostic service shipping. Don't reference it as a CI-live example.
+**`runner/suite.test.ts` enforces the parts of this that can be checked without a browser**, so run `pnpm -C web-app exec vitest run tests/agentic/runner` after touching a flow or the matrix: every flow loads, every flow has a `_budgets.yml` entry (and no entry names a flow that is gone), every bucket names a flow that exists in exactly one bucket, every bucket's declared mode matches its flows', and the matrix runs at least one `custom-app` and one `pipeline` flow. A bucket naming no real file is not a runtime error — it is a green job that ran no test.
+
+**NO WAREHOUSE IN THIS JOB, and it decides which flows can be here at all.** `examples/config.yml` declares `local` as `type: airhouse_managed`, and the job runs no Airhouse — `provision_tenants` prints "skipping Airhouse tenants", returns false, and **the seed step stays green with no data loaded**. So a flow that executes a query against `local` fails here on an empty warehouse, looking exactly like a product bug. `demo_project/config.yml`'s `local` is a file DuckDB in the checkout, which is why the `chat` bucket can run an analytics question. A case that runs a query carries the **`warehouse-query`** tag, and `suite.test.ts` fails any bucket that pairs such a flow with a fixture that has no warehouse — so this cannot regress by someone helpfully adding a flow to a bucket.
+
+**Deliberately NOT in CI**, and the reasons are in the matrix comment:
+
+- `customer-apps-oxy-starter-fleet`, `automations-run-from-list`, `semantic-object-detail` — `warehouse-query`, per the paragraph above. Bringing them back means giving the job an Airhouse (`docker compose -f docker-compose.airhouse.yml up -d`, seven containers and a GHCR pull) *and* setting the `AIRHOUSE_*` vars by hand, because `oxy serve` autodetects a local Airhouse only under `--local`.
+- `custom-app-staging-console` — its own header leaves open whether the seeded app has a distinct `staging_url`.
+- `admin-airway-config`, `admin-airhouse-fleet` — their `setup:` re-mints a `/dev-login` session as an identity that overrides the bucket's.
+- `metric-tree*` — $1.55 cold, and measure modelling rather than the pipeline.
+- every `*-fleet` flow whose claim is about a three-node fleet.
+
+They run from `scripts/verify-all.sh` / `scripts/fleet-assert.sh`.
 
 **Fast-iteration dispatch:** `agentic_only=true` on `workflow_dispatch` cuts CI feedback from ~45 min to ~15 min by skipping typos / fmt-web / build-web / smoke / E2E / cargo clippy / cargo nextest:
 
@@ -342,7 +350,7 @@ The `/fix-agentic-test` command routes the dev through these tiers correctly. Th
 # <one or two lines describing what this flow tests and why>
 
 name: <human-readable summary>
-target: <chat | ide | threads | onboarding | any>
+target: <custom-app | pipeline | chat | ide | threads | onboarding | any>
 
 settings:
   runs: 1
@@ -368,7 +376,7 @@ cases:
       - judge:  <one sentence covering the success criterion>
 ```
 
-Filename: `web-app/tests/agentic/flows/<descriptive-kebab-name>.flow.test.yml`. Lower-kebab. Bucket-prefix the stem (`builder-…`, `chat-…`, `threads-…`, `ide-…`) so CI bucketing is unambiguous.
+Filename: `web-app/tests/agentic/flows/<descriptive-kebab-name>.flow.test.yml`. Lower-kebab, and named after the **surface** it is about so that the `flows/` listing reads like the product: `custom-app-…` / `customer-apps-…` for the app and its console, `pipeline-…` / `airway-…` / `semantic-…` for the pipeline. The stem no longer selects a CI bucket — the matrix names full filenames — so a prefix is there for a reader, not for a rule. Pick `target:` to match (`custom-app` and `pipeline` are the core surfaces).
 
 ---
 
@@ -401,11 +409,21 @@ The lint warns about `text=` only, bare CSS structure selectors, and steps with 
 
 ### 4. Budget entry
 
-When generating a new flow, append an entry to `web-app/tests/agentic/flows/_budgets.yml` using the defaults table above.
+When generating a new flow, append an entry to `web-app/tests/agentic/flows/_budgets.yml` using the defaults table above — **both `cold_usd` and `warm_usd`**, and say in a comment whether the numbers are measured or estimated. This is no longer optional politeness: `runner/suite.test.ts` fails on a flow with no entry, on an entry with only one of the two numbers, and on an entry naming a flow that is gone. It found two unbudgeted flows the day it was written.
 
-### 5. CI bucket assignment
+### 5. Suite-shape test
 
-Tell the dev which bucket the new flow lands in based on its filename prefix. If none matches, surface that they need to add a new bucket entry.
+```bash
+pnpm -C web-app exec vitest run tests/agentic/runner
+```
+
+Sub-second, no API key, no backend. It checks everything above plus the CI matrix.
+
+### 6. CI bucket assignment
+
+Tell the dev which bucket the new flow belongs in — by **identity and fixture**, not by filename prefix (see "CI mechanics"). A flow about an `/admin` surface goes in a staff bucket, a flow about a workspace or served-app surface in a member bucket, and a flow needing `local/pulse-demo` in a bucket whose `seed_flags` carry `--fixtures`. Adding it means editing the matrix JSON in `.github/workflows/agentic-tests.yaml`; the suite-shape test above then proves the filename matches a real file.
+
+Also add the flow to `web-app/tests/agentic/flows/_surfaces.yml` under the surface whose source paths would break it — that is what `--check-coverage --staged` and the pre-commit hook read.
 
 If any check fails, iterate. Don't hand off broken YAML.
 
@@ -439,7 +457,8 @@ After the file is written and self-checks pass:
 
 The bespoke runtime is in active development. Re-read the README each invocation. Likely evolutions to watch:
 
-- **Bucket layout per (domain, identity)** if staff-identity flows (`admin-*`, `airway-pipeline-run`) join CI: the runner injects one session per invocation, so they need buckets of their own. Every CI bucket is enterprise mode today; the admin flows run only from `scripts/verify-all.sh` phase 4.
+- ~~**Bucket layout per (domain, identity)** if staff-identity flows join CI~~ — **shipped 2026-11-26.** A bucket is now (flows, seed, identity), which is what let the operator surfaces into CI at all. The next step along the same line is a per-bucket *fixture* beyond `--fixtures`: the flows that still cannot run in CI mostly need a specific row (a staging host, a finished experiment report) that only a script can write.
+- **An `app-operator@oxy.local` bucket.** The seed grants an unscoped App Operator and an Acme-scoped one, and an out-of-scope App Operator answers *not found* rather than *forbidden* — a capability boundary nothing in the suite asserts today. The console flows would be the natural place.
 - **`cache_scope` collapsing to `shared: true` boolean** since only two values exist today.
 - **Structured shorthand DSL** (`click:` / `type:` / `press:` step kinds that compile to Playwright tool calls without an LLM round-trip) — discussed for ~40–50× cold cost reduction per pure-mechanical step. Not committed.
 
@@ -458,4 +477,8 @@ When the dev asks for something the current README doesn't support, **say so exp
 
 ---
 
-*Last verified against `oxy-hq/oxygen-internal` `main` after PR #2275 merged at `80023e576` (2026-05-19).*
+*Last verified against `oxy-hq/oxygen-internal` `main` on 2026-11-26, when the CI
+matrix was recentred on the custom-app and pipeline buckets. The sections above
+that were stale at that point — the bucket table, the filename→bucket mapping,
+the `target:` values — are the ones most worth re-reading against the files
+listed in Step 0 rather than trusting here.*

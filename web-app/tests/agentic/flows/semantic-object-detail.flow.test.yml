@@ -47,7 +47,7 @@
 # web-app/src/pages/ide/SemanticLayer/index.tsx:26-29), so there is no tab click.
 
 name: semantic topic and view detail reads
-target: ide
+target: pipeline
 
 settings:
   runs: 1
@@ -67,7 +67,7 @@ setup:
 
 cases:
   - name: open the retail_analytics topic and run a query from it
-    tags: [semantic, topic, compile-boundary, fleet, critical]
+    tags: [semantic, topic, compile-boundary, fleet, warehouse-query, critical]
     steps:
       # data-testid='rail-core' — web-app/src/components/Shell/WorkspaceShell.tsx:84
       # (the Oxygen Nexus / IDE rail tile; launcher-home asserts the same id).

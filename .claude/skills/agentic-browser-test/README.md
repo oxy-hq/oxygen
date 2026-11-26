@@ -51,7 +51,8 @@ and you say something like:
    - `internal-docs/agentic-browser-testing-{spec,team-overview}.md`.
 
 2. **Picks the right primitives for what you described.**
-   - `target:` — chat / ide / threads / onboarding / any.
+   - `target:` — custom-app / pipeline (the core surfaces) / chat / ide /
+     threads / onboarding / any.
    - `backend_mode:` — omitted: enterprise mode (`cloud`) is the default; `local` is legacy `--local` only.
    - `setup:` — the 3 documented fixture commands
      (`reset_test_file`, `restore_demo_file:<rel>`, `goto:<path>`).
@@ -100,29 +101,39 @@ The agentic-tests job is a reusable workflow at
 `.github/workflows/agentic-tests.yaml` (called from `ci.yaml` via
 `workflow_call`, also dispatchable standalone with optional
 `flow_bucket` / `oxy_binary_run_id` inputs). A `resolve-matrix`
-setup job emits the bucket matrix as JSON. Flows run in **6 domain
-buckets**, not one job per flow:
+setup job emits the bucket matrix as JSON. Flows run in domain
+buckets, not one job per flow. **Recentred 2026-11-26** on the two
+surfaces the product is built on:
 
-| Bucket | Flows in CI | Mode |
-|---|---|---|
-| `semantic` | `semantic-builder-ask` | local |
-| `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | local |
-| `threads` | `threads-list` | local |
-| `ide` | `ide-save` | local |
-| `metric-tree` | `metric-tree`, `metric-tree-scenario` | local |
+| Bucket | Flows in CI | Seeds | Signs in as |
+|---|---|---|---|
+| `custom-app-console` | `admin-custom-apps-lifecycle`, `custom-app-console-health` | `examples --fixtures` | `global-admin@oxy.local` |
+| `pipeline` | `airway-pipeline-run`, `semantic-monitors-inbox` | `examples` | `flow@oxy.local` |
+| `pipeline-admin` | `pipeline-data-flow` | `examples` | `global-admin@oxy.local` |
+| `chat` | `chat-ask`, `chat-panel-agent-switch`, `threads-list` | `demo_project` | `flow@oxy.local` |
 
-Filename → bucket mapping for new flows:
+Every bucket is enterprise mode. **A bucket is (flows, seed, identity)** —
+there is no filename → bucket mapping any more, because the matrix names
+full filenames and a prefix rule silently widened a bucket whenever
+someone added a flow whose name extended an existing one. Put a new flow
+in a bucket by what it needs:
 
-- `builder-*` → `builder`
-- `semantic-*` → `semantic`
-- `chat-*` → `ask-agent`
-- `threads-*` → `threads`
-- `ide-*` → `ide`
-- `metric-tree-*` → `metric-tree`
+- an `/admin` surface → a staff bucket; a workspace or served-app
+  surface → a member bucket. The runner injects one session per
+  invocation, so a bucket cannot mix the two.
+- `demo_project/` has no custom app and no pipeline in it, so anything
+  about either core surface seeds `examples`.
+- needs `local/pulse-demo`'s release history or traffic → a bucket whose
+  `seed_flags` carry `--fixtures`.
+- **executes a query against the workspace's `local` database → it cannot
+  be in CI yet.** `examples/`'s `local` is `airhouse_managed` and the job
+  runs no Airhouse; the seed skips the tenant and stays *green* with no
+  data. Tag such a case `warehouse-query` and `suite.test.ts` will keep
+  it out of a warehouse-less bucket for you.
 
-A flow that doesn't match any prefix needs a new bucket entry in the
-`resolve-matrix` job's inline JSON in `agentic-tests.yaml`. The skill
-surfaces this.
+`runner/suite.test.ts` then proves the bucket names a real file, in
+exactly one bucket, with a matching backend mode — and that the matrix
+still runs at least one `custom-app` and one `pipeline` flow.
 
 ## Action cache + healing
 
@@ -159,7 +170,7 @@ When a recorded primary selector drifts:
 
 ## What you get
 
-A new file at `web-app/tests/agentic/flows/<bucket>-<descriptive-name>.flow.test.yml`
+A new file at `web-app/tests/agentic/flows/<surface>-<descriptive-name>.flow.test.yml`
 that:
 
 - Uses the right `target:` and `backend_mode:` for the surface.

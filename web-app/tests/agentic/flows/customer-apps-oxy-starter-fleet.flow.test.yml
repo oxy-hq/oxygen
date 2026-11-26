@@ -117,7 +117,7 @@
 # else is a deterministic wait or a $0 assert. Warm replay is the judge calls.
 
 name: published custom app serves and its data panels resolve
-target: any
+target: custom-app
 
 settings:
   runs: 1
@@ -130,7 +130,7 @@ setup:
 
 cases:
   - name: the overview screen resolves the scalar query against real data
-    tags: [customer-apps, fleet, compile-boundary, critical]
+    tags: [customer-apps, fleet, compile-boundary, warehouse-query, critical]
     steps:
       # Two gates, and the order matters. `.skeleton` is the loading
       # placeholder and clears on EITHER outcome, so it proves only that the
@@ -176,7 +176,7 @@ cases:
               injected — the whole page would be one error panel).
 
   - name: navigating to a store is a URL, and the list query resolves on the way
-    tags: [customer-apps, fleet, compile-boundary]
+    tags: [customer-apps, fleet, compile-boundary, warehouse-query]
     steps:
       - act: |
           Click [data-testid=starter-nav-stores] to open the Stores screen.
@@ -212,7 +212,7 @@ cases:
           or if the page says the store number was not a store.
 
   - name: a deep link renders its screen on a cold load
-    tags: [customer-apps, fleet, critical]
+    tags: [customer-apps, fleet, warehouse-query, critical]
     steps:
       # The point of the rewrite: the app rebuilds itself from the address bar.
       # A cold navigate straight to a screen — no clicks, no in-app history —
