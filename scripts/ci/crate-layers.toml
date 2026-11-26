@@ -152,7 +152,6 @@ allowed = [
   "oxy-compile-runtime -> agentic-pipeline",
   "oxy-compile-runtime -> oxy-custom-apps",
   "oxy-compile-runtime -> oxy-preagg",
-  "oxy-compile-runtime -> oxy-previews",
   "oxy-custom-apps -> agentic-pipeline",
   "oxy-custom-apps -> oxy-cameras",
   "oxy-custom-apps -> oxy-server-authz",

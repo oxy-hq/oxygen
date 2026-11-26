@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::ports::{PreviewChangeCheck, queue_preview_check};
 use oxy_compile::{
     CompileError, CompileOutcome, CompileRequest, RevisionKind, RevisionStatus, compile_workspace,
     compiler_version,
@@ -48,13 +49,15 @@ pub struct CompileSpec {
     pub asked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(Clone)]
 pub struct CompileWorker {
     db: Arc<DatabaseConnection>,
+    preview_check: Arc<dyn PreviewChangeCheck>,
 }
 
 impl CompileWorker {
-    pub fn new(db: Arc<DatabaseConnection>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<DatabaseConnection>, preview_check: Arc<dyn PreviewChangeCheck>) -> Self {
+        Self { db, preview_check }
     }
 
     /// Spawn a compile against the supplied spec. The returned
@@ -66,7 +69,7 @@ impl CompileWorker {
         let (outcome_tx, outcome_rx) = mpsc::channel::<TaskOutcome>(OUTCOME_BUFFER);
         let cancel = CancellationToken::new();
 
-        let db = self.db.clone();
+        let worker = self.clone();
         let cancel_clone = cancel.clone();
         // Outer task watches the inner one so a panic / abort always
         // synthesizes a terminal Failed outcome rather than leaving
@@ -74,7 +77,7 @@ impl CompileWorker {
         // `AirwayWorker` pattern.
         let outcome_tx_watch = outcome_tx.clone();
         tokio::spawn(async move {
-            let handle = tokio::spawn(drive(spec, db, event_tx, cancel_clone, outcome_tx));
+            let handle = tokio::spawn(drive(spec, worker, event_tx, cancel_clone, outcome_tx));
             if let Err(join_err) = handle.await {
                 let msg = if join_err.is_panic() {
                     "compile worker panicked (internal error)".to_string()
@@ -100,7 +103,7 @@ impl CompileWorker {
 )]
 async fn drive(
     mut spec: CompileSpec,
-    db: Arc<DatabaseConnection>,
+    CompileWorker { db, preview_check }: CompileWorker,
     event_tx: mpsc::Sender<(String, Value)>,
     cancel: CancellationToken,
     outcome_tx: mpsc::Sender<TaskOutcome>,
@@ -326,7 +329,7 @@ async fn drive(
                     )
                     .await;
                 }
-                queue_preview_check(&db, &spec, o.revision_id).await;
+                queue_preview_check(&*preview_check, &db, &spec, o.revision_id).await;
                 move_environment_pins(&db, &spec, o.revision_id).await;
                 TaskOutcome::Done {
                     answer,
@@ -713,23 +716,6 @@ impl PreaggReconcile {
     pub fn settled(self) -> bool {
         !matches!(self, Self::Failed)
     }
-}
-
-/// After a `Ready` compile: when it is a staging revision of a branch staff
-/// preview, queue that revision's Airway change check. Best-effort; never
-/// fails the compile.
-async fn queue_preview_check(db: &DatabaseConnection, spec: &CompileSpec, revision_id: Uuid) {
-    if !matches!(spec.kind, RevisionKind::Staging) {
-        return;
-    }
-    oxy_previews::queue::analyze::enqueue_after_staging_compile(
-        db,
-        spec.workspace_id,
-        spec.branch.as_deref(),
-        spec.git_sha.as_deref(),
-        revision_id,
-    )
-    .await;
 }
 
 /// After a `Ready` compile: move every custom-app environment that is waiting

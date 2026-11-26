@@ -17,7 +17,34 @@ use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use oxy_compile_runtime::ports::PreviewChangeCheck;
 use oxy_compile_runtime::worker as compile_worker;
+
+/// The compile worker's [`PreviewChangeCheck`]: after a `Ready` staging
+/// compile, queue the revision's Airway change check in the previews' rows
+/// when staff preview the branch at that commit.
+pub struct OxyPreviewChangeCheck;
+
+#[async_trait]
+impl PreviewChangeCheck for OxyPreviewChangeCheck {
+    async fn after_staging_compile(
+        &self,
+        db: &DatabaseConnection,
+        workspace_id: Uuid,
+        branch: Option<&str>,
+        git_sha: Option<&str>,
+        revision_id: Uuid,
+    ) {
+        oxy_previews::queue::analyze::enqueue_after_staging_compile(
+            db,
+            workspace_id,
+            branch,
+            git_sha,
+            revision_id,
+        )
+        .await;
+    }
+}
 
 pub struct OxyCompileDispatcher {
     db: Arc<DatabaseConnection>,
@@ -26,6 +53,11 @@ pub struct OxyCompileDispatcher {
 impl OxyCompileDispatcher {
     pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
+    }
+
+    /// A compile worker over this dispatcher's database, with its adapters.
+    fn worker(&self) -> compile_worker::CompileWorker {
+        compile_worker::CompileWorker::new(self.db.clone(), Arc::new(OxyPreviewChangeCheck))
     }
 
     /// The worktree path of `branch` (subdirectory-aware, via
@@ -95,7 +127,7 @@ impl CompileDispatcher for OxyCompileDispatcher {
                 asked_at: compile_worker::asked_at(&self.db, task_id).await,
                 ..spec
             };
-            return Ok(compile_worker::CompileWorker::new(self.db.clone()).execute(spec));
+            return Ok(self.worker().execute(spec));
         }
         let workspace_path = oxy_compile::resolve_workspace_path(&self.db, workspace_id)
             .await
@@ -127,7 +159,6 @@ impl CompileDispatcher for OxyCompileDispatcher {
             kind.as_deref(),
             owner_user_id,
         )?;
-        let worker = compile_worker::CompileWorker::new(self.db.clone());
-        Ok(worker.execute(spec))
+        Ok(self.worker().execute(spec))
     }
 }

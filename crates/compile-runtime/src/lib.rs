@@ -27,7 +27,7 @@
 //!   `oxy_compile::compile_workspace` on the runtime's task channels and runs
 //!   what follows a promote (the OLTP settle, the health and pre-aggregation
 //!   schedule reconciles, the rollup nudge, the env pins and a preview's
-//!   checks) (was `server::compile_worker`, moved on 2026-11-22, the
+//!   checks, the last through [`ports::PreviewChangeCheck`]) (was `server::compile_worker`, moved on 2026-11-22, the
 //!   decompose's C4; its `oxy_app::server::compile_worker` re-export went in
 //!   decompose SHM).
 //!
@@ -40,6 +40,7 @@ pub mod config_gate;
 pub mod git;
 pub mod maintenance;
 pub mod oltp;
+pub mod ports;
 pub mod reconcile;
 pub mod request;
 pub mod worker;

@@ -10,6 +10,32 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 use super::*;
 use crate::test_support::{SKIP_MSG, test_db};
 
+/// The previews' change-check enqueue, as `oxy-workspace-runtime`'s
+/// `OxyPreviewChangeCheck` adapter makes it (that crate sits above this one, so
+/// the test spells the same call).
+struct PreviewsChangeCheck;
+
+#[async_trait::async_trait]
+impl crate::ports::PreviewChangeCheck for PreviewsChangeCheck {
+    async fn after_staging_compile(
+        &self,
+        db: &DatabaseConnection,
+        workspace_id: Uuid,
+        branch: Option<&str>,
+        git_sha: Option<&str>,
+        revision_id: Uuid,
+    ) {
+        oxy_previews::queue::analyze::enqueue_after_staging_compile(
+            db,
+            workspace_id,
+            branch,
+            git_sha,
+            revision_id,
+        )
+        .await;
+    }
+}
+
 const BRANCH: &str = "feat/x";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -38,7 +64,7 @@ fn working_copy() -> tempfile::TempDir {
 /// Run one staging compile of `branch` at [`SHA`] through the worker and wait
 /// for its terminal outcome.
 async fn compile_staging(db: &DatabaseConnection, ws: Uuid, root: &std::path::Path) {
-    let worker = CompileWorker::new(Arc::new(db.clone()));
+    let worker = CompileWorker::new(Arc::new(db.clone()), Arc::new(PreviewsChangeCheck));
     let mut task = worker.execute(CompileSpec {
         workspace_id: ws,
         workspace_path: root.to_path_buf(),
