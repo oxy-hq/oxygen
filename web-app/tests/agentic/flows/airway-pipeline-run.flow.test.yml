@@ -106,6 +106,14 @@ cases:
       # leaves headroom for a cold DNS/TLS handshake to the public API.
       - wait_for: "selector:text=done;timeout_ms=180000"
 
+      # THE LINEAGE GATE: the regression check for a race in LineageGraph.
+      # Every SSE event rebuilt every node without the size xyflow had
+      # measured, and xyflow keeps an unmeasured node `visibility: hidden`;
+      # a burst of events could leave the graph an empty dotted canvas for
+      # good (#4494). Waiting longer never helped: this fails when the bug is
+      # back, and the judge's Lineage claim with it.
+      - wait_for: "selector:.react-flow__node:has-text(\"weather_daily_forecast\");timeout_ms=15000"
+
     expect:
       # Structural, $0. `done` is the RUN_STATUS_LABEL text for the top
       # status badge (pages/airway/index.tsx:58-64) — distinct from
@@ -125,6 +133,10 @@ cases:
       # assertion that this really is the happy path, not a failed run that
       # merely rendered a badge.
       - assert: "selector [role=alert] is not visible"
+
+      # The lineage graph drew its resources (#4494), checked structurally
+      # before the judge looks.
+      - assert: "selector .react-flow__node:has-text(\"weather_daily_forecast\") is visible"
 
       - judge: |
           The page is a completed Airway pipeline run for
