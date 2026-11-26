@@ -132,7 +132,7 @@ jobs:
   #         retention-days: 1
 
   release:
-    runs-on: warp-ubuntu-latest-arm64-2x
+    runs-on: ubicloud-standard-2-arm
     # Release build of the oxy binary; 60m bounds a cold full compile.
     timeout-minutes: 60
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'

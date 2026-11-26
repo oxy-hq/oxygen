@@ -26,7 +26,7 @@ runs:
 
     # Keyed by architecture as well as OS: the browser build is per-arch, and
     # an exact-key hit skips the install below. Keyed by OS alone, an x64
-    # job's cache restored on a warp arm64 runner left no
+    # job's cache restored on an arm64 runner left no
     # chrome-headless-shell-linux-arm64 and nothing to install it.
     - name: Cache Playwright browsers
       if: inputs.install-playwright == 'true'
@@ -47,7 +47,7 @@ runs:
     # Deliberately NOT `install --with-deps`. That flag couples the browser
     # download (Playwright CDN) to an apt run against the runner's regional
     # Ubuntu mirror, and the regional pools baked into runner images
-    # (`us-east-2.ec2.ports.ubuntu.com` on the warp arm64 boxes,
+    # (`us-east-2.ec2.ports.ubuntu.com` on the old WarpBuild arm64 boxes,
     # `azure.archive.ubuntu.com` on ubuntu-latest) are DNS round-robins whose
     # unhealthy members answer 503 or hang. apt has no retry policy on these
     # images, so one bad node took down the whole setup step — and with it a

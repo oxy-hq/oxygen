@@ -1,0 +1,25 @@
+# Declares the self-hosted / third-party runner labels this repo uses, so
+# actionlint stops reporting every one of them as "unknown" and starts
+# catching the one mistake that actually matters here.
+#
+# Before this file there were 46 `runner-label` findings, one per label
+# occurrence, which is noise that hides signal: a MIS-TYPED runner label does
+# not fail: the job sits queued until its timeout, because no runner ever
+# matches it. That is the worst failure mode in this repo's CI config and it
+# was the only one actionlint could not help with, because every label looked
+# equally unknown to it.
+#
+# The RunsOn fleet labels are not here on purpose. Those come from repository
+# variables (`CI_RUST_RUNNER_4X` and friends), so the workflow contains an
+# expression rather than a literal and actionlint never sees a label to check.
+# Keep it that way: the variable is the rollback lever.
+#
+# Ubicloud's sizes are 2, 4, 8, 16 and 30 vCPU, x64 and `-arm`. Only the ones
+# this repo uses are listed, so adding a new size is a deliberate edit here
+# rather than a silent new label.
+self-hosted-runner:
+  labels:
+    - ubicloud-standard-2
+    - ubicloud-standard-2-arm
+    - ubicloud-standard-4-arm
+    - ubicloud-standard-8-arm

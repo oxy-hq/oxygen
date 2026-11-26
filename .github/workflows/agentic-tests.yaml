@@ -71,13 +71,13 @@ jobs:
     # oxygen-internal only, and the guard has to live HERE rather than only in
     # `ci.yaml`'s caller job: this file is independently `workflow_dispatch`-able,
     # so on the public mirror it would otherwise present a Run-workflow button
-    # that burns ANTHROPIC_API_KEY budget and then fails on a missing warp
+    # that burns ANTHROPIC_API_KEY budget and then fails on a missing runner
     # runner. Guarding the first job is enough to stop the matrix — a skipped
     # `needs` skips its dependents — but `agentic-tests` repeats it so neither
     # job's guard depends on the other still being wired this way.
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
-    # Just emits the bucket matrix JSON; sub-second work, so the smallest warp
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
+    # Just emits the bucket matrix JSON; sub-second work, so the smallest Ubicloud
     # runner (GitHub-hosted minutes draw on the org's Actions budget).
     timeout-minutes: 10
     outputs:
@@ -131,10 +131,10 @@ jobs:
     # without loosening the dependency.
     if: github.repository == 'oxy-hq/oxygen-internal'
     # Must match the binary's architecture (cargo-check-and-test builds
-    # `oxy-binary-ci` on `warp-ubuntu-latest-arm64-4x` in this repo).
+    # `oxy-binary-ci` on `ubicloud-standard-4-arm` in this repo).
     # Running on x86_64 ubuntu-latest produced an ENOEXEC fallback to
     # /bin/sh that surfaced as "Syntax error: Unterminated quoted string".
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # `continue-on-error: true` while we calibrate cost + reliability on
     # the matrix. Flip to false once the suite has ≥3 consecutive green
     # main-branch runs.

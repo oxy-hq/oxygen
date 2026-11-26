@@ -41,7 +41,7 @@ jobs:
       'oxy-hq/oxygen-internal' && !(startsWith(github.head_ref, 'release/') &&
       github.event.pull_request.user.login == 'oxyhelper[bot]' &&
       github.event.sender.login == 'oxyhelper[bot]') }}
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

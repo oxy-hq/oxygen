@@ -47,7 +47,7 @@ jobs:
   showcase:
     name: Preview the showcase
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: warp-ubuntu-latest-arm64-4x
+    runs-on: ubicloud-standard-4-arm
     timeout-minutes: 30
     concurrency:
       group: showcase-${{ inputs.pr }}

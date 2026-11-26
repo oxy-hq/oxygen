@@ -189,7 +189,7 @@ jobs:
     name: Fetch the private cargo deps
     needs: caps
     if: ${{ needs.caps.outputs.proceed == 'true' }}
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -269,7 +269,7 @@ jobs:
     name: Rank the debt and propose one change
     needs: [caps, deps]
     if: ${{ needs.caps.outputs.proceed == 'true' }}
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-8-arm' || 'ubuntu-latest' }}
     timeout-minutes: 60
     # `contents: read` and nothing else, spelled out rather than inherited.
     #
@@ -604,7 +604,7 @@ jobs:
     name: Verify on a clean checkout
     needs: [deps, propose]
     if: ${{ needs.propose.outputs.proceed == 'true' }}
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-8-arm' || 'ubuntu-latest' }}
     timeout-minutes: 60
     # This job runs the agent's code — `cargo nextest` and `vitest` are exactly
     # that — so it holds no credential beyond the job's own automatic token. It
@@ -755,7 +755,7 @@ jobs:
     # token minted at the end, not through the job's own permissions.
     permissions:
       contents: read
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       # The base commit again, and `propose`'s artifact — never anything the

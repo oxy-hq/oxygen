@@ -77,6 +77,13 @@ defaults:
   run:
     shell: bash
 
+# WHICH RUNNER A JOB GETS, and why each provider is picked:
+# internal-docs/ci-runners.md. The short version is that the three are
+# scarce in different ways -- the fleet in licence launches, Ubicloud in
+# memory and cache speed, GitHub-hosted in nothing but it must stay
+# independent of both -- so "fastest" is the wrong question. Read it
+# before adding or moving a `runs-on`.
+#
 # Runner gate for the four heaviest Rust jobs.
 #
 # These four are 4,206 of the 7,221 WarpBuild minutes a day -- $920 of the
@@ -84,14 +91,17 @@ defaults:
 # worth any complexity. CI_RUST_RUNNER_4X (clippy, build oxy, the test
 # partitions) and CI_RUST_RUNNER_8X (the archive) each hold a plain `runs-on`
 # label, used verbatim; both are set to RunsOn Fleet labels today. Unset one
-# and that size returns to WarpBuild, which is the rollback, with no deploy.
+# and that size returns to Ubicloud, which is the rollback, with no deploy.
 #
 # Not in scope: `cargo-test` ("...(test)") is the required status branch
 # protection binds -- it only reads the others' results and is GitHub-hosted.
 # Careful: its name shares a prefix with `cargo-clippy`, which is the job that
 # actually costs 4x minutes, so read the job key, not the display name.
 #
-# The swap top-up these jobs carry is sized for WarpBuild's 15.3 GiB runners;
+# The swap top-up these jobs carry was sized for WarpBuild's 15.3 GiB runners
+# and matters MORE now that the fallback is Ubicloud: `ubicloud-standard-4-arm`
+# is 12 GB and `-8-arm` is 24 GB, against WarpBuild's 16 and 32. So a job that
+# ran unswapped on Warp may swap on the fallback;
 # on a 32 GiB instance it is dead weight, not a hazard.
 #
 # These four also run on a ci.yaml edit, through the `oxy-ci` filter in
@@ -210,7 +220,7 @@ jobs:
       group: build-web-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.web-app == 'true'
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # `pnpm build` (turbo) runs in well under 10m; 25m absorbs a cold cache /
     # full TS rebuild while still bounding a hung Vite/tsc process.
     timeout-minutes: 25
@@ -292,9 +302,9 @@ jobs:
       inputs.agentic_only != true &&
       (needs.changesets.outputs.web-app == 'true' ||
        needs.changesets.outputs.ci-counter == 'true')
-    # Warp arm64, like every other job in this repo that runs tests — the lint
+    # Ubicloud arm64, like every other job in this repo that runs tests — the lint
     # and format jobs stay on `ubuntu-slim` because they are not tests.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # The Vitest unit suite runs in ~1-2m warm; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -518,9 +528,9 @@ jobs:
       group: sdk-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
       cancel-in-progress: true
     if: inputs.agentic_only != true && needs.changesets.outputs.sdk == 'true'
-    # Warp arm64 like the other jobs that run tests. `sdk/cli`'s suite spawns
+    # Ubicloud arm64 like the other jobs that run tests. `sdk/cli`'s suite spawns
     # the built binary, so it needs a real runner rather than ubuntu-slim.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # ~2m warm; 15m covers a cold pnpm store.
     timeout-minutes: 15
     env:
@@ -669,9 +679,9 @@ jobs:
     if: |
       inputs.agentic_only != true &&
       (needs.changesets.outputs.web-app == 'true' || needs.changesets.outputs.sdk == 'true')
-    # Warp arm64 like the other test jobs: this one does four real pnpm
+    # Ubicloud arm64 like the other test jobs: this one does four real pnpm
     # installs, which is the slow part.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # Four scaffolds x (install + tsc + vite build + vitest) is ~4-6m warm; 25m covers a
     # cold pnpm store.
     timeout-minutes: 25
@@ -897,9 +907,9 @@ jobs:
        needs.changesets.outputs.sdk == 'true' ||
        needs.changesets.outputs.ci-scripts == 'true' ||
        needs.changesets.outputs.lint-bugs == 'true')
-    # Warp arm64 rather than `ubuntu-slim`: the type-aware half builds a full
+    # Ubicloud arm64 rather than `ubuntu-slim`: the type-aware half builds a full
     # TypeScript program for web-app, which wants more than one core.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # Both linters finish in seconds; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -1084,8 +1094,8 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    # Warp arm64, like every other job in this repo that runs tests.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # Ubicloud arm64, like every other job in this repo that runs tests.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # The canary's vitest cases and two tsc projects finish in seconds; 15m
     # covers a cold pnpm store.
     timeout-minutes: 15
@@ -1148,7 +1158,7 @@ jobs:
         needs.changesets.outputs.oxy == 'true' ||
         needs.changesets.outputs.oxy-ci == 'true'
       )
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'warp-ubuntu-latest-arm64-4x' }}
+    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
     # Warm cache ~3m, a cold workspace clippy ~15m. 60m kills a true hang
     # within the hour (the 5h runaway that motivated these caps was here).
     timeout-minutes: 60
@@ -1267,7 +1277,7 @@ jobs:
     # against 6m12s on the 8x (2026-10-26). It runs beside cargo-test-archive,
     # not before it, so the 8x's cores go to test-compile.
     # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'warp-ubuntu-latest-arm64-4x' }}
+    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
     # A cold build; 45m kills a true hang.
     timeout-minutes: 45
     env:
@@ -1427,7 +1437,7 @@ jobs:
     # its memory peak (test-compile, 19–22 GB) outgrew 15 GiB of RAM and paged
     # (see "Add swap"). Trialled 2026-10-02: 8x took the old combined job from
     # ~30 to 17 minutes for ~$0.05 a run; 16x was no faster than 8x.
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_8X || 'warp-ubuntu-latest-arm64-8x' }}
+    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_8X || 'ubicloud-standard-8-arm' }}
     # A cold test compile; 60m kills a true hang within the hour.
     timeout-minutes: 60
     outputs:
@@ -1482,7 +1492,7 @@ jobs:
       # rust-cache's keys are untouched. CARGO_INCREMENTAL=0 is already the
       # workflow default, which sccache requires.
       # Gated on the fleet var because runs-on/action is for RunsOn runners; the
-      # job falls back to a Warp label when the var is unset, and there this
+      # job falls back to a Ubicloud label when the var is unset, and there this
       # step is skipped and the job is exactly what it was. The "Archive tests"
       # step reports the hit rate: dispatch twice and read the second.
       - name: Compile through sccache (RunsOn Magic Cache)
@@ -1683,7 +1693,7 @@ jobs:
       # actions/cache is Magic Cache, this stack's own S3 bucket -- measured at
       # 935 MB/s saving and 1.3 GB/s restoring, which took the per-partition
       # transfer from 4m15s to 13s. Unsetting either variable is the documented
-      # rollback to WarpBuild, and there actions/cache is GitHub's backend,
+      # rollback to Ubicloud, and there actions/cache is not Magic Cache,
       # where a 2.5 GiB per-run entry would evict the cargo caches at lines
       # 188-211 within about four runs. So the rollback has to switch transport
       # with the runner, which makes the artifact path below the rollback path
@@ -1715,7 +1725,7 @@ jobs:
           lookup-only: true
           fail-on-cache-miss: true
 
-      # The rollback path: WarpBuild or GitHub-hosted, where the 10 GB cache
+      # The rollback path: Ubicloud or GitHub-hosted, where the 10 GB cache
       # budget makes a 2.5 GiB entry a hazard. Slow (~11 MB/s) but bounded,
       # and `retention-days: 1` keeps it out of the cache budget entirely.
       - name: Upload test archive
@@ -1743,7 +1753,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: ${{ fromJSON(needs.cargo-test-archive.outputs.partitions) }}
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'warp-ubuntu-latest-arm64-4x' }}
+    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
     # A quarter of a ~16-minute suite plus setup; 30m kills a hang.
     timeout-minutes: 30
     env:
@@ -2147,9 +2157,9 @@ jobs:
         startsWith(github.event.head_commit.message, 'chore: release')) &&
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
-    # Warp arm64: the `oxy-binary-ci` artifact is built there, and `oxy` is
+    # Ubicloud arm64: the `oxy-binary-ci` artifact is built there, and `oxy` is
     # an arm64 binary.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-4-arm' || 'ubuntu-latest' }}
     # The script is ~30s locally. On the artifact path the job's own work is
     # checkout, the download, a cold pnpm store and the Playwright cache, then
     # the server boot — about 5–8 minutes, after the ~27-minute check job it

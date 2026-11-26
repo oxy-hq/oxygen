@@ -80,7 +80,7 @@ jobs:
   showcase:
     name: Showcase the release
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: warp-ubuntu-latest-arm64-4x
+    runs-on: ubicloud-standard-4-arm
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}

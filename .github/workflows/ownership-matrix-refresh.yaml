@@ -36,7 +36,7 @@ concurrency:
 jobs:
   refresh:
     if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2-arm' || 'ubuntu-latest' }}
     timeout-minutes: 15
 
     steps:

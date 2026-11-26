@@ -29,7 +29,7 @@ concurrency:
 jobs:
   move-code:
     # x64 keeps the copybara Docker run on the architecture it has always used.
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
     steps:
