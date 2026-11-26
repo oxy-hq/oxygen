@@ -11,10 +11,11 @@ authors.workspace = true
 # Errors + entity types are platform-shared.
 oxy-shared = { workspace = true }
 entity = { workspace = true }
-# The pool health monitor publishes its occupancy and probe timings into the
-# metrics sources. oxy-telemetry depends only on oxy-shared, so this adds no
-# cycle and no agentic reach.
-oxy-telemetry = { workspace = true }
+# The pool health monitor records its probe timings and failures through the
+# OpenTelemetry API's global meter (`db::pool_metrics`), not through
+# oxy-telemetry, which installs the provider at boot. Its gauges are atomics in
+# `oxy_shared::db_pool_metrics`.
+opentelemetry = { workspace = true }
 
 # Database
 sea-orm = { workspace = true }
@@ -48,6 +49,9 @@ dirs = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+# `db::pool_metrics`' test installs the real metrics provider and renders it.
+oxy-telemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 serial_test = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 

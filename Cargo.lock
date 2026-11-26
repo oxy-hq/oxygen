@@ -10934,6 +10934,8 @@ dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
  "entity",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "oxy-shared",
  "oxy-telemetry",
  "sea-orm",

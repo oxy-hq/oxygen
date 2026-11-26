@@ -5,7 +5,7 @@
 //! `oxy_db_pool_probe_failures_total`, and the `cause` on the "pool is starved"
 //! log line — so both can be tested on plain values.
 
-use oxy_telemetry::metrics::record::{
+use oxy_shared::db_pool_metrics::{
     DB_POOL_PROBE_FAILURE_ERROR, DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE,
     DB_POOL_PROBE_FAILURE_TIMEOUT,
 };
@@ -77,7 +77,7 @@ pub(super) fn cause_when_server_accepts(reason: &str) -> &'static str {
 mod tests {
     use std::time::Duration;
 
-    use oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_REASONS;
+    use oxy_shared::db_pool_metrics::DB_POOL_PROBE_FAILURE_REASONS;
 
     use super::*;
 

@@ -2,7 +2,7 @@
 //!
 //! An observable gauge needs its value *pulled* at collection time, which means
 //! the callback has to reach whatever owns the number. The owners here are in
-//! other crates — the Postgres pool in `oxy-platform`, the V8 isolate count in
+//! other crates — the V8 isolate count in
 //! `oxy-app` — and a callback registry that let them hand in closures would
 //! need `'static` closures holding those owners alive for the process lifetime.
 //!
@@ -23,41 +23,16 @@
 //! opposite of the `oxy_router_last_probe_received_timestamp_seconds` case,
 //! where zero would read as 1970. Keep the distinction when adding to this list.
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
-/// Connections the pool currently holds open (idle + in use).
-pub static DB_POOL_SIZE: AtomicU64 = AtomicU64::new(0);
-
-/// Connections the pool holds that are not checked out.
-pub static DB_POOL_IDLE: AtomicU64 = AtomicU64::new(0);
-
-/// The pool's configured ceiling — `OXY_DATABASE_MAX_CONNECTIONS`, or the
-/// default. Published once at pool construction so the saturation ratio
-/// `(size - idle) / max` can be computed entirely from exported series.
-pub static DB_POOL_MAX: AtomicU64 = AtomicU64::new(0);
-
-/// Whether the pool's own health probe last failed to acquire a connection.
-///
-/// This is the signal behind the "database connection pool is starved"
-/// `ERROR`, exported so an alert can fire on the condition rather than on a
-/// log-line pattern. Prod reached this state and served 30s stalls while the
-/// only evidence was a log line nothing was matching on.
-pub static DB_POOL_STARVED: AtomicBool = AtomicBool::new(false);
-
-/// How many times the pool has *entered* starvation — episodes, not probes.
-///
-/// A pool that stays starved across ten consecutive probes counts **one**;
-/// [`set_db_pool_starved`] increments only on the false-to-true edge, and
-/// `starvation_events_count_transitions_not_probes` below pins that. Counting
-/// probes instead would make the number track probe cadence rather than how
-/// often the pool broke.
-///
-/// Monotonic and per-process. The gauge above says "right now"; this says "has
-/// it been happening", which is what distinguishes a blip from a pattern
-/// between two scrapes. For failure *volume* and the split by cause,
-/// read `oxy_db_pool_probe_failures_total`, which counts every failed probe —
-/// the two answer different questions and neither substitutes for the other.
-pub static DB_POOL_STARVATION_EVENTS: AtomicU64 = AtomicU64::new(0);
+/// The Postgres pool's gauge values. Their owner is the kernel's
+/// `oxy_shared::db_pool_metrics`, so the pool monitor (`oxy-platform`) can
+/// publish them without depending on this crate; re-exported here for the
+/// observable callbacks in [`super::instruments`].
+pub use oxy_shared::db_pool_metrics::{
+    DB_POOL_IDLE, DB_POOL_MAX, DB_POOL_SIZE, DB_POOL_STARVATION_EVENTS, DB_POOL_STARVED,
+    set_db_pool, set_db_pool_starved,
+};
 
 /// V8 isolates alive in this process right now.
 ///
@@ -266,22 +241,6 @@ impl Drop for AdmissionGuard {
     }
 }
 
-/// Publish the pool's current occupancy. Called from the pool health monitor.
-pub fn set_db_pool(size: u64, idle: u64, max: u64) {
-    DB_POOL_SIZE.store(size, Ordering::Relaxed);
-    DB_POOL_IDLE.store(idle, Ordering::Relaxed);
-    DB_POOL_MAX.store(max, Ordering::Relaxed);
-}
-
-/// Publish whether the pool is currently starved, counting the transition into
-/// starvation so a between-scrapes blip still leaves evidence.
-pub fn set_db_pool_starved(starved: bool) {
-    let was = DB_POOL_STARVED.swap(starved, Ordering::Relaxed);
-    if starved && !was {
-        DB_POOL_STARVATION_EVENTS.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,28 +267,6 @@ mod tests {
             ISOLATES_LIVE_PEAK.load(Ordering::Relaxed),
             3,
             "the peak is the whole point of the second static"
-        );
-    }
-
-    /// Only the *transition* into starvation counts. A pool that stays starved
-    /// across ten probes is one incident, not ten — otherwise the counter
-    /// measures probe cadence rather than how often the pool broke.
-    #[test]
-    fn starvation_events_count_transitions_not_probes() {
-        DB_POOL_STARVED.store(false, Ordering::Relaxed);
-        DB_POOL_STARVATION_EVENTS.store(0, Ordering::Relaxed);
-
-        set_db_pool_starved(true);
-        set_db_pool_starved(true);
-        set_db_pool_starved(true);
-        assert_eq!(DB_POOL_STARVATION_EVENTS.load(Ordering::Relaxed), 1);
-
-        set_db_pool_starved(false);
-        set_db_pool_starved(true);
-        assert_eq!(
-            DB_POOL_STARVATION_EVENTS.load(Ordering::Relaxed),
-            2,
-            "recovering and breaking again is a second incident"
         );
     }
 }

@@ -53,8 +53,10 @@ pub mod sources;
 
 pub use instruments::Instruments;
 
-/// The instrumentation scope every Oxy instrument is created under.
-const SCOPE: &str = "oxy";
+/// The instrumentation scope every Oxy instrument is created under. The
+/// kernel's copy (`oxy_shared::db_pool_metrics::METER_SCOPE`), which the pool
+/// monitor records under through the global meter, is this value.
+const SCOPE: &str = oxy_shared::db_pool_metrics::METER_SCOPE;
 
 /// How long a provider shutdown may take before we stop waiting. Matches the
 /// trace/log exporters' budget in [`crate::otel`].

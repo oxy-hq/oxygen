@@ -10,6 +10,7 @@
 //! circular dependencies with core. They will be refactored in a future update.
 
 pub mod claude_pricing;
+pub mod db_pool_metrics;
 pub mod domain;
 pub mod duckdb_s3;
 pub mod errors;

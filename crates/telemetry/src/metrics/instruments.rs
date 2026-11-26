@@ -43,6 +43,8 @@ use opentelemetry::metrics::{
     Counter, Histogram, Meter, ObservableCounter, ObservableGauge, UpDownCounter,
 };
 
+use oxy_shared::db_pool_metrics;
+
 use super::sources;
 
 /// The label a custom-app series carries in place of an app or function
@@ -119,15 +121,6 @@ const INIT_DURATION_BUCKETS: &[f64] = &[
 /// slow dependency" from "a function looping queries", which a duration alone
 /// cannot.
 const HOST_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0];
-
-/// Seconds buckets for the pool health probe's checkout.
-///
-/// The probe is cancelled at `POOL_HEALTH_PROBE_TIMEOUT` (2 s), **not** at the
-/// 30 s `ACQUIRE_TIMEOUT` that real traffic waits out, so the whole observable
-/// range ends at 2 s. A probe that times out records no duration at all — it
-/// increments the failure counter instead, which is why the two instruments
-/// have to be read together.
-const POOL_PROBE_BUCKETS: &[f64] = &[0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0];
 
 /// Seconds buckets for the admission queue.
 ///
@@ -306,23 +299,19 @@ impl Instruments {
                 .with_unit("{request}")
                 .build(),
 
+            // Built from the kernel's definition (`oxy_shared::db_pool_metrics`),
+            // which the pool monitor records through the global meter: the same
+            // identity resolves to the same stream, and these seed it.
             db_pool_probe_duration: meter
-                .f64_histogram("oxy.db.pool.probe.duration")
-                .with_description(
-                    "Time the pool health probe waited for a connection. A sample of contention, \
-                     not the latency real traffic sees.",
-                )
-                .with_unit("s")
-                .with_boundaries(POOL_PROBE_BUCKETS.to_vec())
+                .f64_histogram(db_pool_metrics::PROBE_DURATION_NAME)
+                .with_description(db_pool_metrics::PROBE_DURATION_DESCRIPTION)
+                .with_unit(db_pool_metrics::PROBE_DURATION_UNIT)
+                .with_boundaries(db_pool_metrics::PROBE_DURATION_BUCKETS.to_vec())
                 .build(),
             db_pool_probe_failures: meter
-                .u64_counter("oxy.db.pool.probe.failures")
-                .with_description(
-                    "Pool health probes that did not acquire, by reason: timeout (pool exhausted), \
-                     server_unavailable (pool had room; waited on Postgres), error (checkout \
-                     failed). These record no duration, so this is not the histogram's _count.",
-                )
-                .with_unit("{probe}")
+                .u64_counter(db_pool_metrics::PROBE_FAILURES_NAME)
+                .with_description(db_pool_metrics::PROBE_FAILURES_DESCRIPTION)
+                .with_unit(db_pool_metrics::PROBE_FAILURES_UNIT)
                 .build(),
 
             custom_app_request_duration: meter
@@ -813,7 +802,10 @@ mod tests {
             ("function", FUNCTION_DURATION_BUCKETS),
             ("init", INIT_DURATION_BUCKETS),
             ("host_calls", HOST_CALL_BUCKETS),
-            ("pool_probe", POOL_PROBE_BUCKETS),
+            (
+                "pool_probe",
+                oxy_shared::db_pool_metrics::PROBE_DURATION_BUCKETS,
+            ),
             ("admission_wait", ADMISSION_WAIT_BUCKETS),
             ("compile", COMPILE_DURATION_BUCKETS),
             ("compile_fetch", COMPILE_FETCH_BUCKETS),
@@ -851,7 +843,9 @@ mod tests {
     /// `+Inf` alongside the pathological ones.
     #[test]
     fn pool_probe_buckets_top_out_at_the_probe_timeout() {
-        let last = *POOL_PROBE_BUCKETS.last().expect("non-empty");
+        let last = *oxy_shared::db_pool_metrics::PROBE_DURATION_BUCKETS
+            .last()
+            .expect("non-empty");
         assert_eq!(
             last, 2.0,
             "the probe's own timeout is 2s (POOL_HEALTH_PROBE_TIMEOUT), not the \

@@ -44,41 +44,15 @@ pub const COMPILE_OUTCOME_READY: &str = "ready";
 pub const COMPILE_OUTCOME_FAILED: &str = "failed";
 pub const COMPILE_OUTCOME_ERROR: &str = "error";
 
-/// The `reason` values [`db_pool_probe_failure`] can carry.
-///
-/// Public because `oxy-platform`'s probe selects from these rather than
-/// spelling its own literals. [`seed_zero_series`] has to seed *the same*
-/// series the probe will later increment, and two string literals in two
-/// crates drift without a compile error — which would leave a seeded decoy at
-/// 0 beside the real series. One definition makes that impossible.
-///
-/// `timeout` means the pool was **exhausted**: the probe's 2 s ran out with
-/// every connection the pool may open already open.
-pub const DB_POOL_PROBE_FAILURE_TIMEOUT: &str = "timeout";
-/// The probe's 2 s ran out while the pool still had room to open a connection,
-/// so the wait was on **Postgres**, not on the pool: it is down, restarting,
-/// refusing (`too many clients`), or too slow to accept.
-///
-/// This is its own value because sqlx hides the difference. It retries a
-/// refused connect, `53300` and `57P03` inside `acquire()` until its own 30 s
-/// deadline, so the probe's shorter timeout always wins and a server outage
-/// used to be labelled `timeout`, exactly like a full pool — the opposite fix.
-/// Raising the pool ceiling during a server-side shortage makes it worse.
-pub const DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE: &str = "server_unavailable";
-/// `acquire()` returned an error before the timeout: a failure sqlx does not
-/// retry, such as bad credentials, TLS, DNS or a closed pool. Configuration,
-/// not capacity.
-pub const DB_POOL_PROBE_FAILURE_ERROR: &str = "error";
-
-/// Every `reason` the probe may record, and so every one seeded at zero.
-///
-/// Public so `oxy-platform` can pin that its classifier only ever returns a
-/// member of this list: a value outside it would be born un-seeded.
-pub const DB_POOL_PROBE_FAILURE_REASONS: [&str; 3] = [
-    DB_POOL_PROBE_FAILURE_TIMEOUT,
-    DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE,
-    DB_POOL_PROBE_FAILURE_ERROR,
-];
+/// The `reason` values a failed pool probe carries, and the full list
+/// [`seed_zero_series`] seeds at zero. Defined once in the kernel
+/// (`oxy_shared::db_pool_metrics`), where the probe (`oxy-platform`) also
+/// reads them; re-exported here at their old paths.
+use oxy_shared::db_pool_metrics;
+pub use oxy_shared::db_pool_metrics::{
+    DB_POOL_PROBE_FAILURE_ERROR, DB_POOL_PROBE_FAILURE_REASONS,
+    DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE, DB_POOL_PROBE_FAILURE_TIMEOUT,
+};
 
 /// Every reason a trusted-access exchange is refused with — the wire `code`
 /// of the refusal, plus `malformed_request` for a body that named no token.
@@ -133,8 +107,13 @@ pub const OIDC_EXCHANGE_REJECT_REASONS: [&str; 14] = [
 pub(super) fn seed_zero_series(i: &Instruments) {
     i.custom_app_bundle_cache_evictions.add(0, &[]);
     for reason in DB_POOL_PROBE_FAILURE_REASONS {
-        i.db_pool_probe_failures
-            .add(0, &[KeyValue::new(REASON, reason)]);
+        i.db_pool_probe_failures.add(
+            0,
+            &[KeyValue::new(
+                db_pool_metrics::PROBE_FAILURE_REASON_KEY,
+                reason,
+            )],
+        );
     }
     // No org label, and a closed reason set: every series can exist from the
     // first scrape, so a first refusal of any kind is a visible delta.
@@ -152,29 +131,6 @@ pub(super) fn seed_zero_series(i: &Instruments) {
 pub fn oidc_exchange_rejected(reason: &'static str) {
     with_instruments(|i| {
         i.oidc_exchange_rejected
-            .add(1, &[KeyValue::new(REASON, reason)]);
-    });
-}
-
-/// One successful pool health probe, and how long it waited for a connection.
-pub fn db_pool_probe(seconds: f64) {
-    with_instruments(|i| i.db_pool_probe_duration.record(seconds, &[]));
-}
-
-/// One pool health probe that did not acquire.
-///
-/// `reason` is one of [`DB_POOL_PROBE_FAILURE_REASONS`]: `timeout` (the pool
-/// was exhausted), `server_unavailable` (the pool had room and the wait was on
-/// Postgres) or `error` (the checkout failed outright). They call for opposite
-/// fixes — a bigger pool helps the first and worsens the second.
-///
-/// None records a duration. A timeout never finished; an error finished
-/// without acquiring, so its elapsed time measures how fast the server said no
-/// rather than how long a checkout takes. So the histogram's `_count` and this
-/// counter differ by exactly the probes that did not acquire — read together.
-pub fn db_pool_probe_failure(reason: &'static str) {
-    with_instruments(|i| {
-        i.db_pool_probe_failures
             .add(1, &[KeyValue::new(REASON, reason)]);
     });
 }

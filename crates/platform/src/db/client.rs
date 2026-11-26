@@ -202,11 +202,7 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
             // a saturated pool is exactly the case where the probe fails, and
             // losing the numbers there would blind the metric precisely when it
             // matters.
-            oxy_telemetry::metrics::sources::set_db_pool(
-                u64::from(size),
-                idle as u64,
-                u64::from(max),
-            );
+            oxy_shared::db_pool_metrics::set_db_pool(u64::from(size), idle as u64, u64::from(max));
             let probe_started = std::time::Instant::now();
             let acquire = tokio::time::timeout(POOL_HEALTH_PROBE_TIMEOUT, pool.acquire()).await;
             let acquire_secs = probe_started.elapsed().as_secs_f64();
@@ -232,8 +228,8 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
                 // server said no, not how long a checkout takes. Recording
                 // either would put a number in the histogram that answers a
                 // different question from every other sample in it.
-                oxy_telemetry::metrics::record::db_pool_probe_failure(reason);
-                oxy_telemetry::metrics::sources::set_db_pool_starved(true);
+                super::pool_metrics::probe_failure(reason);
+                oxy_shared::db_pool_metrics::set_db_pool_starved(true);
                 tracing::error!(
                     pool_size = size,
                     pool_idle = idle,
@@ -248,8 +244,8 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
                 );
                 starved = true;
             } else {
-                oxy_telemetry::metrics::record::db_pool_probe(acquire_secs);
-                oxy_telemetry::metrics::sources::set_db_pool_starved(false);
+                super::pool_metrics::probe(acquire_secs);
+                oxy_shared::db_pool_metrics::set_db_pool_starved(false);
                 if starved {
                     tracing::info!(
                         pool_size = size,

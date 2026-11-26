@@ -35,7 +35,7 @@
 [depth]
 # Longest chain of internal normal + build dependencies, counted in edges.
 # Dev-dependencies are exempt, as for the rules below.
-max = 9
+max = 8
 # Where the ratchet ends. Lowering `max` below this is the next, stricter step.
 target = 4
 # Members that are not part of the crate graph proper. workspace-hack is cargo
@@ -157,7 +157,6 @@ allowed = [
   "oxy-metric-monitoring -> agentic-analytics",
   "oxy-oltp -> oxy-auth",
   "oxy-oltp -> oxy-platform",
-  "oxy-platform -> oxy-telemetry",
   "oxy-preagg -> agentic-automation",
   "oxy-preagg -> agentic-pipeline",
   "oxy-previews -> agentic-airway",

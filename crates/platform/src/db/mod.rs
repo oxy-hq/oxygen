@@ -14,6 +14,7 @@ mod client;
 mod failure;
 pub(crate) mod iam;
 mod listener;
+mod pool_metrics;
 mod pool_probe;
 
 pub use auth_mode::{DatabaseAuthMode, IamConfig, SslMode};
