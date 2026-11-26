@@ -396,6 +396,41 @@ async fn a_missing_declared_table_refuses_the_publish() {
     .await;
 }
 
+/// A declared table whose columns use an app type with a cast to `json`
+/// installs, and the cast runs inside the capture as the app's image role,
+/// not its owner: a cast that reports who it ran as writes that role's name
+/// into the image.
+#[tokio::test]
+async fn an_app_cast_to_json_runs_as_the_image_role() {
+    with_store(|s| async move {
+        s.provision(
+            "create type mood as enum ('ok', 'meh'); \
+             create function mood_json(mood) returns json language sql \
+               as $f$ select pg_catalog.to_json(current_user::text) $f$; \
+             create cast (mood as json) with function mood_json(mood); \
+             create table moods (id bigint primary key, mood mood)",
+        )
+        .await;
+        s.load_flags(true).await;
+        let summary = s
+            .install(vec![table("moods", &[])])
+            .await
+            .expect("install capture on moods");
+        assert_eq!(summary.installed, ["moods"]);
+        s.writer_exec("insert into moods values (1, 'ok')").await;
+
+        let tenant = s.fx.tenant_row().await.expect("the org's tenant");
+        let writer = app_writer_name(&s.slug).expect("the slug backs a schema");
+        let role =
+            oxy_oltp::changes::image_role_for(&tenant.provider, &tenant.database_name, &writer);
+        assert_eq!(
+            s.log("moods").await,
+            [("i".to_string(), 1, json!({ "id": 1, "mood": role }))]
+        );
+    })
+    .await;
+}
+
 /// A table the next build no longer declares loses its triggers, its
 /// functions and its `tables` row; its shapes and the changes already logged
 /// stay, and its writes are no longer captured. The table still declared is

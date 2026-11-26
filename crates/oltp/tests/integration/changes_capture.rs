@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use oxy_oltp::changes::{
     CaptureShape, CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, SHAPE_SQL, ShapeRow,
-    next_schema_version, owner_commit_sql, owner_drop_sql, owner_install_sql, owner_uninstall_sql,
-    shape_from_rows, validate, writer_install_sql, writer_uninstall_sql,
+    image_role_for, next_schema_version, owner_commit_sql, owner_drop_sql, owner_install_sql,
+    owner_uninstall_sql, shape_from_rows, validate, writer_install_sql, writer_uninstall_sql,
 };
 use oxy_oltp::platform::{
     CHANGES_ACTOR_SETTING, CHANGES_DROP_TRIGGER, CHANGES_GUARD_TRIGGER, CHANGES_INVOCATION_SETTING,
@@ -102,6 +102,11 @@ impl Store {
         scalar(&self.fx.owner_dsn, sql).await
     }
 
+    /// One `bigint` from `sql`, as the writer.
+    pub(crate) async fn writer_count(&self, sql: &str) -> Result<i64, String> {
+        scalar(&self.writer_dsn, sql).await
+    }
+
     /// `table`'s capture as the catalog has it now, `exclude` left out, read
     /// and validated as a publish reads it.
     pub(crate) async fn shape(
@@ -109,8 +114,18 @@ impl Store {
         table: &str,
         exclude: &[&str],
     ) -> Result<CaptureShape, String> {
+        self.shape_of(&self.app, table, exclude).await
+    }
+
+    /// [`Self::shape`], for a table of `app`'s.
+    pub(crate) async fn shape_of(
+        &self,
+        app: &WriterRef,
+        table: &str,
+        exclude: &[&str],
+    ) -> Result<CaptureShape, String> {
         let client = connect(&self.fx.owner_dsn).await?;
-        let schema = self.app.schema_name();
+        let schema = app.schema_name();
         let rows = client
             .query(SHAPE_SQL, &[&schema, &table])
             .await
@@ -127,22 +142,45 @@ impl Store {
         validate(&decl, shape_from_rows(&rows).as_ref()).map_err(|e| e.to_string())
     }
 
+    /// The writer's image role, which builds its captured images.
+    pub(crate) fn image_role(&self) -> String {
+        image_role_for("local", &self.fx.database, &self.writer)
+    }
+
     /// Install `capture` at `schema_version`: owner, writer, owner.
     pub(crate) async fn install(
         &self,
         capture: &CaptureShape,
         schema_version: i32,
     ) -> Result<(), String> {
+        self.install_for(&self.app, &self.writer_dsn, capture, schema_version)
+            .await
+    }
+
+    /// [`Self::install`], for a table of `app`'s, whose writer connects with
+    /// `writer_dsn`.
+    pub(crate) async fn install_for(
+        &self,
+        app: &WriterRef,
+        writer_dsn: &str,
+        capture: &CaptureShape,
+        schema_version: i32,
+    ) -> Result<(), String> {
+        let WriterRef::App(name) = app else {
+            return Err(format!("{app} is not an app writer"));
+        };
         let spec = CaptureSpec {
-            writer: self.writer.as_str(),
+            writer: name,
             capture,
             schema_version,
         };
-        let owner =
-            owner_install_sql(&spec, &self.fx.role_name(&self.app)).map_err(|e| e.to_string())?;
+        let image_role = image_role_for("local", &self.fx.database, name);
+        let owner = owner_install_sql(&spec, &self.fx.role_name(app), &image_role)
+            .map_err(|e| e.to_string())?;
         let writer = writer_install_sql(&spec).map_err(|e| e.to_string())?;
-        run(&self.fx.owner_dsn, &owner).await?;
-        run(&self.writer_dsn, &writer).await?;
+        // One transaction, as the promote runs it: its head is a `SET LOCAL`.
+        run_in_transaction(&self.fx.owner_dsn, &owner).await?;
+        run(writer_dsn, &writer).await?;
         run(
             &self.fx.owner_dsn,
             &[owner_commit_sql(capture.shape.relid, schema_version)],
@@ -282,6 +320,18 @@ async fn run(dsn: &str, statements: &[String]) -> Result<(), String> {
         .execute_batch(dsn, statements)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// `statements` in one transaction, each failure naming its statement.
+pub(crate) async fn run_in_transaction(dsn: &str, statements: &[String]) -> Result<(), String> {
+    let mut client = connect(dsn).await?;
+    let txn = client.transaction().await.map_err(render_pg_error)?;
+    for statement in statements {
+        txn.batch_execute(statement)
+            .await
+            .map_err(|e| format!("{statement}: {}", render_pg_error(e)))?;
+    }
+    txn.commit().await.map_err(render_pg_error)
 }
 
 fn ops(log: &[LogRow]) -> Vec<&str> {

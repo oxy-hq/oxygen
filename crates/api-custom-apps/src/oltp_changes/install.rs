@@ -37,16 +37,24 @@
 //! `schemas/*.sql` made in the app's schema (they run as the owner, and grant
 //! the writer `ALL` on it, but not its ownership).
 //!
+//! The install's session as the store's owner is pinned to `search_path =
+//! pg_catalog, pg_temp` ([`OWNER_SESSION_PIN_SQL`]) before its first read:
+//! the owner's default path names every app's schema, where an app could
+//! plant an operator or function for the owner to resolve. Each owner install
+//! also makes sure of the writer's image role (`image_role_for`), which builds
+//! its captured images so an app's cast to `json` runs with no privileges.
+//!
 //! A failure part way leaves the tables already done installed, each whole,
 //! and the same promote retried installs the rest. Nothing is undone, as
 //! nothing a migration did is.
 
 use oxy_custom_apps::manifest::OltpChangesConfig;
 use oxy_oltp::changes::{
-    CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, SHAPE_SQL, ShapeRow, owner_commit_sql,
-    owner_drop_sql, owner_install_sql, owner_uninstall_sql, shape_from_rows, writer_install_sql,
-    writer_uninstall_sql,
+    CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, OWNER_SESSION_PIN_SQL, SHAPE_SQL, ShapeRow,
+    image_role_for, owner_commit_sql, owner_drop_sql, owner_install_sql, owner_uninstall_sql,
+    shape_from_rows, writer_install_sql, writer_uninstall_sql,
 };
+use oxy_oltp::resolver::WriterConnection;
 use oxy_oltp::schema::{SchemaError, WriterRef, app_writer_name};
 use sea_orm::DatabaseConnection;
 use tokio_postgres::Client;
@@ -172,12 +180,20 @@ pub async fn install_on_promote(
     let owner = owner_client(&tenant, "oxy_changes install")
         .await
         .map_err(InstallError::Infra)?;
+    owner
+        .batch_execute(OWNER_SESSION_PIN_SQL)
+        .await
+        .map_err(|e| pg_infra("pin the owner's search_path", &e))?;
     let installed = read_installed(&owner, &writer.name).await?;
     if declared.is_empty() && installed.is_empty() {
         return Ok(InstallSummary::default());
     }
     let plan = plan_against(&owner, &writer, &declared, &installed).await?;
-    apply_plan(db, org_id, &writer, owner, &plan).await
+    let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
+        .await
+        .map_err(|e| infra("resolve the app's writer", e))?;
+    let image_role = image_role_for(&tenant.provider, &tenant.database_name, &writer.name);
+    apply_plan(&conn, &writer, owner, &plan, &image_role).await
 }
 
 /// Every declared table read and validated against its live shape, beside
@@ -200,22 +216,20 @@ async fn plan_against(
 
 /// Carry out `plan`: each table installed or reshaped, as the store's owner,
 /// then the table's owner, then the store's owner; then each removed table
-/// taken down the same way backwards.
+/// taken down the same way backwards. `conn` is the app's writer's
+/// connection; `image_role` is its writer's role that builds its images.
 async fn apply_plan(
-    db: &DatabaseConnection,
-    org_id: Uuid,
+    conn: &WriterConnection,
     writer: &Writer,
     owner: Client,
     plan: &Plan,
+    image_role: &str,
 ) -> Result<InstallSummary, InstallError> {
-    let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(db, org_id, &writer.writer)
-        .await
-        .map_err(|e| infra("resolve the app's writer", e))?;
     // Every statement is generated, and every table's owner checked, before
     // the first runs: a name the capture SQL refuses, or a table neither the
     // writer nor the store's owner owns, is the author's to fix, and is
     // refused with nothing changed.
-    let tables = install_sql(plan, writer, &conn.role)?;
+    let tables = install_sql(plan, writer, &conn.role, image_role)?;
     let store_owner = attach::store_owner(&owner).await?;
     let roles = Roles {
         writer: &conn.role,
@@ -366,8 +380,13 @@ struct TableSql {
 }
 
 /// `role` is the writer's real role name (qualified on a shared-cluster
-/// provider), the one `EXECUTE` is granted to.
-fn install_sql(plan: &Plan, writer: &Writer, role: &str) -> Result<Vec<TableSql>, InstallError> {
+/// provider), the one `EXECUTE` is granted to; `image_role` builds images.
+fn install_sql(
+    plan: &Plan,
+    writer: &Writer,
+    role: &str,
+    image_role: &str,
+) -> Result<Vec<TableSql>, InstallError> {
     plan.install
         .iter()
         .map(|t| -> Result<TableSql, InstallError> {
@@ -380,7 +399,7 @@ fn install_sql(plan: &Plan, writer: &Writer, role: &str) -> Result<Vec<TableSql>
             Ok(TableSql {
                 table: table.clone(),
                 relid: t.capture.shape.relid,
-                owner_install: owner_install_sql(&spec, role)
+                owner_install: owner_install_sql(&spec, role, image_role)
                     .map_err(|e| schema_refusal(table, &e))?,
                 writer_install: writer_install_sql(&spec).map_err(|e| schema_refusal(table, &e))?,
                 owner_commit: owner_commit_sql(t.capture.shape.relid, t.schema_version),

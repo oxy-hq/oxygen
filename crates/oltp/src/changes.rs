@@ -3,13 +3,15 @@
 //! transaction, into `oxy_changes.log` (platform step 8). Design:
 //! `internal-docs/2026-11-22-oltp-change-stream-design.md` §5.1 and §5.2.
 //!
-//! A publish, after the app's migrations:
+//! A publish, after the app's migrations, on a session as the store's owner
+//! pinned with [`OWNER_SESSION_PIN_SQL`]:
 //! 1. reads each declared table's shape ([`SHAPE_SQL`], [`shape_from_rows`])
 //!    and [`validate`]s every one before changing anything, so a refusal
 //!    ([`DeclError`]) names each table at fault and removes nothing;
 //! 2. diffs against what is installed ([`INSTALLED_SQL`]) and picks each
 //!    table's [`next_schema_version`];
-//! 3. per table, runs [`owner_install_sql`] as the owner,
+//! 3. per table, runs [`owner_install_sql`] as the owner in one transaction
+//!    (with [`image_role_for`] the writer),
 //!    [`writer_install_sql`] as the table's owner (the writer, or the owner
 //!    for a table a workspace's schemas made), then [`owner_commit_sql`] as
 //!    the owner;
@@ -20,9 +22,13 @@
 //! capture itself is four statement-level triggers per table calling four
 //! definer functions the owner writes into the app's own schema, so the
 //! writer can attach them but neither replace nor drop them, and the log
-//! stays out of its reach.
+//! stays out of its reach. They build each image through their writer's
+//! `oxy_changes.image_<writer>`, a definer owned by a role with no privileges, since
+//! `to_jsonb` runs any cast to `json` an app defines on its own types
+//! ([`image`]).
 
 mod capture;
+mod image;
 mod install;
 mod relay;
 mod shape;
@@ -43,6 +49,7 @@ pub const SEED_BRANCH_STREAM_SQL: &str = "DO $$ BEGIN \
      END IF; \
      END $$";
 
+pub use image::{OWNER_SESSION_PIN_SQL, image_function, image_role_for, image_role_prefix};
 pub use install::{
     CaptureSpec, INSTALLED_SQL, owner_commit_sql, owner_drop_sql, owner_install_sql,
     owner_uninstall_sql, writer_install_sql, writer_uninstall_sql,

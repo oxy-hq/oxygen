@@ -23,8 +23,14 @@
 //! the next install records a new shape. An update pairs old and new rows on
 //! that key `jsonb` too, which is why the pairing holds through a renamed
 //! key column, and why no name the app chose reaches this SQL as an
-//! identifier. `to_jsonb(r.*)`, not `to_jsonb(r)`: a bare `r` is a column
-//! when the table has one named `r`.
+//! identifier. `image(r.*)`, not `image(r)`: a bare `r` is a column when the
+//! table has one named `r`.
+//!
+//! **The row becomes `jsonb` through the writer's `oxy_changes.image_<writer>`,
+//! never `to_jsonb` here.** `to_jsonb` runs a cast to `json` an app defined on its own type;
+//! called from this definer it would run as the store's owner. The image
+//! function is a definer owned by a role with no privileges, so the cast runs
+//! as that role ([`super::image`]).
 //!
 //! `#variable_conflict use_variable`, because the statements read the
 //! function's own variables beside a transition table whose columns the app
@@ -37,6 +43,7 @@ use crate::platform::{
 use crate::roles::quote_literal;
 
 use super::CaptureSpec;
+use super::image::image_function;
 
 /// The four operations a table's capture covers, one function and one
 /// trigger each.
@@ -141,23 +148,24 @@ fn log_insert(spec: &CaptureSpec<'_>, op: Op) -> String {
         spec.schema_version
     );
     let signed = "v_actor, v_invocation::uuid, decode(v_provenance, 'hex')";
+    let image = image_function(spec.writer);
     match op {
         Op::Insert => format!(
             "{head}\n  SELECT {stamp}, 'i'::\"char\", {}, {}, {signed}\n    FROM oxy_new r",
-            filtered("r", &key),
-            filtered("r", &columns)
+            filtered(&image, "r", &key),
+            filtered(&image, "r", &columns)
         ),
         Op::Delete => format!(
             "{head}\n  SELECT {stamp}, 'd'::\"char\", {}, {}, {signed}\n    FROM oxy_old r",
-            filtered("r", &key),
-            filtered("r", &columns)
+            filtered(&image, "r", &key),
+            filtered(&image, "r", &columns)
         ),
         Op::Update => {
             let side = |table: &str| {
                 format!(
                     "(SELECT true AS present, {} AS k, {} AS img FROM {table} r)",
-                    filtered("r", &key),
-                    filtered("r", &columns)
+                    filtered(&image, "r", &key),
+                    filtered(&image, "r", &columns)
                 )
             };
             format!(
@@ -180,10 +188,16 @@ fn log_insert(spec: &CaptureSpec<'_>, op: Op) -> String {
     }
 }
 
-/// Row `alias` as `jsonb`, holding only the keys `names` (a `text[]`) lists.
-fn filtered(alias: &str, names: &str) -> String {
+/// Row `alias` as `jsonb` through `image`, holding only the keys `names` (a
+/// `text[]`) lists. `image` is the function that turns the row into `jsonb`,
+/// and it runs any cast to `json` an app defined: SQL running as a definer
+/// passes its writer's [`image_function`], so the cast runs with no
+/// privileges.
+/// Only SQL running in the writer's own session may pass
+/// `pg_catalog.to_jsonb`, since a cast there runs as the writer anyway.
+fn filtered(image: &str, alias: &str, names: &str) -> String {
     format!(
-        "(SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(to_jsonb({alias}.*)) e \
+        "(SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each({image}({alias}.*)) e \
          WHERE e.key = ANY({names}))"
     )
 }
@@ -243,7 +257,10 @@ mod tests {
     #[test]
     fn image_sql_filters_by_name_not_by_reference() {
         let insert = body_of(Op::Insert);
-        assert!(insert.contains("jsonb_each(to_jsonb(r.*))"), "{insert}");
+        assert!(
+            insert.contains("jsonb_each(oxy_changes.\"image_x\"(r.*))"),
+            "{insert}"
+        );
         assert!(
             insert.contains("WHERE e.key = ANY(ARRAY['id','name']::text[])"),
             "the image keeps the captured columns: {insert}"
@@ -357,6 +374,24 @@ mod tests {
             early < body.find("FROM oxy_changes.stream").unwrap(),
             "{body}"
         );
+    }
+
+    /// A capture function never calls `to_jsonb` itself, which would run an
+    /// app's cast as the store's owner: every key and image goes through the
+    /// image function, the key and the image of each side.
+    #[test]
+    fn every_image_goes_through_the_image_role() {
+        for (op, body) in bodies() {
+            assert!(!body.contains("to_jsonb"), "{op:?}: {body}");
+            assert!(!body.contains("to_json("), "{op:?}: {body}");
+            let images = body.matches("oxy_changes.\"image_x\"(r.*)").count();
+            let expected = match op {
+                Op::Insert | Op::Delete => 2,
+                Op::Update => 4,
+                Op::Truncate => 0,
+            };
+            assert_eq!(images, expected, "{op:?}: {body}");
+        }
     }
 
     #[test]

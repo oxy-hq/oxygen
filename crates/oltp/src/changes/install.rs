@@ -13,7 +13,10 @@
 //! caller reads which role owns each table and runs the trigger SQL on that
 //! role's connection. So:
 //!
-//! 1. **as the owner**, [`owner_install_sql`]: seed `stream` if it has no row,
+//! 1. **as the owner**, [`owner_install_sql`], in one transaction pinned to
+//!    `search_path = pg_catalog, pg_temp`: make sure of the writer's image
+//!    role and `oxy_changes.image_<writer>`, which its images are built with
+//!    ([`super::image`]), seed `stream` if it has no row,
 //!    write the table's `tables` row with `installed = false`, record its
 //!    shape, and create the four functions in `app_<writer>`, owned by the
 //!    owner, `EXECUTE` revoked from `PUBLIC` and granted to that writer
@@ -40,6 +43,7 @@ use crate::roles::quote_literal;
 use crate::schema::{SchemaError, WriterRef, quote_ident, validate_name};
 
 use super::capture::{self, Op};
+use super::image::{OWNER_TRANSACTION_PIN_SQL, image_sql};
 use super::shape::CaptureShape;
 
 /// One declared table's capture, as one install writes it.
@@ -74,12 +78,14 @@ pub const INSTALLED_SQL: &str = "SELECT t.relid, t.schema_name, t.table_name, t.
 /// Triggers are named this and the operation: `oxy_capture_i`.
 const TRIGGER_PREFIX: &str = "oxy_capture_";
 
-/// Step 1 of an install, as the owner. `writer_role` is the writer's real
-/// role name (qualified on a shared-cluster provider), the one `EXECUTE` is
-/// granted to.
+/// Step 1 of an install, as the owner, in one transaction (its head is a
+/// `SET LOCAL`). `writer_role` is the writer's real role name (qualified on a
+/// shared-cluster provider), the one `EXECUTE` is granted to; `image_role` is
+/// [`super::image_role_for`] the writer, the role that builds its images.
 pub fn owner_install_sql(
     spec: &CaptureSpec<'_>,
     writer_role: &str,
+    image_role: &str,
 ) -> Result<Vec<String>, SchemaError> {
     let target = Target::of(spec)?;
     validate_name(writer_role)?;
@@ -94,7 +100,10 @@ pub fn owner_install_sql(
             .map(|c| serde_json::json!({"attnum": c.attnum, "name": c.name, "type": c.type_name}))
             .collect(),
     );
-    let mut sql = vec![
+    // The image function before any capture function that calls it.
+    let mut sql = vec![OWNER_TRANSACTION_PIN_SQL.to_string()];
+    sql.extend(image_sql(spec.writer, image_role)?);
+    sql.extend([
         format!(
             "INSERT INTO {CHANGES_STREAM_TABLE} (generation, capturing) VALUES (1, true) \
              ON CONFLICT (one) DO NOTHING"
@@ -119,7 +128,7 @@ pub fn owner_install_sql(
             key = text_array(&shape.primary_key),
             excluded = text_array(&spec.capture.excluded()),
         ),
-    ];
+    ]);
     for op in Op::ALL {
         let function = target.function(op);
         sql.push(format!(

@@ -480,6 +480,19 @@ impl OltpProvider for LocalProvider {
             "DROP DATABASE IF EXISTS \"{project_id}\" WITH (FORCE)"
         ))
         .await?;
+        // The roles that build change images, one per writer
+        // (`crate::changes::image`): the owner creates them on the cluster at
+        // a writer's first capture install, and a later owner of a database
+        // by this name could not take them over. Before the owner, whose
+        // memberships in them go with them.
+        self.exec(&format!(
+            "DO $$ DECLARE r text; BEGIN \
+             FOR r IN SELECT rolname FROM pg_catalog.pg_roles \
+               WHERE pg_catalog.starts_with(rolname::text, '{}') LOOP \
+             EXECUTE pg_catalog.format('DROP ROLE %I', r); END LOOP; END $$",
+            crate::changes::image_role_prefix(project_id)
+        ))
+        .await?;
         self.exec(&format!("DROP ROLE IF EXISTS \"{project_id}_owner\""))
             .await?;
         Ok(())

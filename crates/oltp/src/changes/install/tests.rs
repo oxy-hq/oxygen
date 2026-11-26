@@ -11,7 +11,19 @@ fn owner(capture: &CaptureShape) -> Vec<String> {
         capture,
         schema_version: 1,
     };
-    owner_install_sql(&spec, "app_x_rw").expect("valid names")
+    owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE).expect("valid names")
+}
+
+const IMAGE_ROLE: &str = "oxy_changes_image_x";
+
+/// The statements after the image setup: the bookkeeping, then the capture
+/// functions.
+fn after_image(sql: &[String]) -> &[String] {
+    let stream = sql
+        .iter()
+        .position(|s| s.starts_with("INSERT INTO oxy_changes.stream"))
+        .expect("the stream seed");
+    &sql[stream..]
 }
 
 fn writer(capture: &CaptureShape) -> Vec<String> {
@@ -25,7 +37,7 @@ fn writer(capture: &CaptureShape) -> Vec<String> {
 
 fn functions(sql: &[String]) -> Vec<&String> {
     sql.iter()
-        .filter(|s| s.starts_with("CREATE OR REPLACE FUNCTION"))
+        .filter(|s| s.starts_with("CREATE OR REPLACE FUNCTION \"app_x\""))
         .collect()
 }
 
@@ -67,9 +79,40 @@ fn execute_goes_to_the_writer_alone() {
         assert!(create < revoke && revoke < grant, "{sql:#?}");
     }
     assert_eq!(
-        sql.iter().filter(|s| s.starts_with("GRANT")).count(),
+        after_image(&sql)
+            .iter()
+            .filter(|s| s.starts_with("GRANT"))
+            .count(),
         4,
         "nothing else is granted: {sql:#?}"
+    );
+}
+
+/// The owner's install runs pinned to Postgres's own names, and makes sure
+/// of the image function before it creates any capture function that calls
+/// it.
+#[test]
+fn the_install_is_pinned_and_the_image_function_comes_first() {
+    let sql = owner(&leases());
+    assert_eq!(sql[0], "SET LOCAL search_path = pg_catalog, pg_temp");
+    let image = image_sql("x", IMAGE_ROLE).expect("a valid role");
+    assert_eq!(&sql[1..=image.len()], image.as_slice());
+    assert_eq!(
+        sql.len(),
+        1 + image.len() + after_image(&sql).len(),
+        "{sql:#?}"
+    );
+    assert!(
+        owner_install_sql(
+            &CaptureSpec {
+                writer: "x",
+                capture: &leases(),
+                schema_version: 1,
+            },
+            "app_x_rw",
+            "bad role"
+        )
+        .is_err()
     );
 }
 
@@ -128,7 +171,7 @@ fn a_quote_in_a_name_is_escaped() {
         schema_version: 1,
     };
     assert!(writer_install_sql(&spec).is_err());
-    assert!(owner_install_sql(&spec, "app_x_rw").is_err());
+    assert!(owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE).is_err());
 
     // A column name the app chose is a literal, quote doubled.
     let mut odd = leases();
@@ -149,7 +192,7 @@ fn a_table_outside_the_writers_schema_is_refused() {
         schema_version: 1,
     };
     assert_eq!(
-        owner_install_sql(&spec, "app_x_rw"),
+        owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE),
         Err(SchemaError::InvalidName("app_y".into()))
     );
     assert!(
@@ -158,7 +201,8 @@ fn a_table_outside_the_writers_schema_is_refused() {
                 writer: "X",
                 ..spec
             },
-            "app_x_rw"
+            "app_x_rw",
+            IMAGE_ROLE
         )
         .is_err()
     );
@@ -168,7 +212,8 @@ fn a_table_outside_the_writers_schema_is_refused() {
                 capture: &leases(),
                 ..spec
             },
-            "bad role"
+            "bad role",
+            IMAGE_ROLE
         )
         .is_err()
     );
@@ -178,7 +223,8 @@ fn a_table_outside_the_writers_schema_is_refused() {
 /// until the commit, and a shape already recorded is kept.
 #[test]
 fn install_order_bookkeeping() {
-    let sql = owner(&leases());
+    let all = owner(&leases());
+    let sql = after_image(&all);
     assert_eq!(
         sql[0],
         "INSERT INTO oxy_changes.stream (generation, capturing) VALUES (1, true) \

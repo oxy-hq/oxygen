@@ -161,6 +161,15 @@ pub const CHANGES_PROVENANCE_SETTING: &str = "oxy_changes.provenance";
 /// Every capture function is named this, then the table's oid and the
 /// operation (`i`, `u`, `d`, `t`): `_oxy_capture_16423_i`.
 pub const CAPTURE_FUNCTION_PREFIX: &str = "_oxy_capture_";
+/// Each writer's image function in `oxy_changes` is named this and the
+/// writer, `image_<writer>(anyelement)` returning `jsonb`: a definer owned by
+/// that writer's image role, so any cast `to_jsonb` reaches runs with no
+/// privileges ([`crate::changes::image_function`]).
+pub const CHANGES_IMAGE_FUNCTION_PREFIX: &str = "image_";
+/// Each writer's image role, which owns its image function and holds no
+/// privilege it was not given, is named from this
+/// ([`crate::changes::image_role_for`]).
+pub const CHANGES_IMAGE_ROLE: &str = "oxy_changes_image";
 
 // The events outbox's later steps.
 mod outbox;
