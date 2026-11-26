@@ -23,13 +23,6 @@ use crate::common::admin_url;
 use crate::custom_app_functions_fixture::invocations;
 use crate::oltp_changes_fixture::{App, LEASES_SQL, NOTES_SQL, WRITE, connect, with_app};
 
-/// The next migration: a column added to `leases` and backfilled in the same
-/// file.
-const REGION_SQL: (&str, &[u8]) = (
-    "migrations/0002_region.sql",
-    b"alter table leases add column region text; update leases set region = 'north';",
-);
-
 /// The four capture triggers, by name, each enabled always (`tgenabled`).
 fn capture_triggers() -> Vec<(String, String)> {
     ["d", "i", "t", "u"]
@@ -89,18 +82,6 @@ impl App {
             .await
             .unwrap_or_else(|e| panic!("give leases away: {}", oxy_oltp::connect::pg_detail(&e)));
         other_role
-    }
-
-    /// The ids of the rows `leases` holds, as the writer reads them.
-    async fn live_ids(&self) -> Vec<i64> {
-        connect(&self.writer().await.dsn)
-            .await
-            .query("select id from leases order by id", &[])
-            .await
-            .expect("read leases")
-            .iter()
-            .map(|r| r.get(0))
-            .collect()
     }
 }
 
@@ -200,25 +181,6 @@ impl OwnerReads {
             .collect()
     }
 
-    /// The names of the columns `relid`'s shape at `version` captures.
-    async fn shape_columns(&self, relid: u32, version: i32) -> Vec<String> {
-        let columns: String = self
-            .client
-            .query_one(
-                "SELECT columns::text FROM oxy_changes.shapes \
-                  WHERE relid = $1 AND schema_version = $2",
-                &[&relid, &version],
-            )
-            .await
-            .expect("read the shape")
-            .get(0);
-        let columns: Vec<Value> = serde_json::from_str(&columns).expect("columns are JSON");
-        columns
-            .iter()
-            .map(|c| c["name"].as_str().expect("a column's name").to_string())
-            .collect()
-    }
-
     async fn stream_rows(&self) -> i64 {
         self.client
             .query_one("SELECT count(*) FROM oxy_changes.stream", &[])
@@ -242,21 +204,6 @@ impl OwnerReads {
             .iter()
             .map(change_of)
             .collect()
-    }
-
-    /// Each row's latest change to `table` in the log, by its `id`; markers,
-    /// which carry no key, left out.
-    async fn latest_changes(&self, table: &str) -> Vec<Change> {
-        let mut latest: Vec<Change> = Vec::new();
-        for change in self.log(table).await {
-            if change.key.is_null() {
-                continue;
-            }
-            latest.retain(|c| c.key != change.key);
-            latest.push(change);
-        }
-        latest.sort_by_key(|c| c.key["id"].as_i64());
-        latest
     }
 }
 
@@ -425,82 +372,6 @@ async fn a_table_owned_by_another_role_is_refused() {
         assert!(store.triggers("leases").await.is_empty(), "no triggers");
         assert_eq!(store.functions(relid).await, 0, "no functions");
         assert_eq!(store.stream_rows().await, 0, "the stream is not seeded");
-    })
-    .await;
-}
-
-/// `leases` captured from a first promote, two rows written to it through
-/// the host, then a second promote whose migration adds `region` and
-/// backfills it before the install reshapes the table. The log as it stood
-/// before the second promote.
-async fn installed_then_backfilled(app: &App, store: &OwnerReads) -> Vec<Change> {
-    app.promote("chg-1", true, &[LEASES_SQL])
-        .await
-        .expect("install capture on leases");
-    app.write("insert into leases (id, name) values (1, 'Flat 1'), (2, 'Flat 2')")
-        .await;
-    let before = store.log("leases").await;
-    assert_eq!(before.len(), 2, "{before:?}");
-    app.promote("chg-2", true, &[LEASES_SQL, REGION_SQL])
-        .await
-        .expect("the backfill applies and the install reshapes leases");
-    before
-}
-
-/// The acceptance test for the reshape baseline (design §5.5): a backfill
-/// in the migration that adds a column reaches the change stream, so after
-/// the promote every live row's latest change is a snapshot at the new
-/// `schema_version` carrying the column. Today the backfill's update images
-/// are filtered to the old shape and dropped as unchanged, so this fails;
-/// PR 3 un-ignores it and deletes
-/// `a_backfill_before_the_reshape_writes_no_change_today`.
-#[tokio::test]
-#[ignore = "needs the reshape baseline: design §5.5, review F14; PR 3"]
-async fn a_backfill_in_the_migration_that_adds_a_column_reaches_the_change_stream() {
-    with_app(|app| async move {
-        let store = app.as_owner().await;
-        installed_then_backfilled(&app, &store).await;
-        assert_eq!(app.live_ids().await, [1, 2]);
-        let latest = store.latest_changes("leases").await;
-        let ids: Vec<i64> = latest.iter().filter_map(|c| c.key["id"].as_i64()).collect();
-        assert_eq!(ids, [1, 2], "every live row has a change: {latest:?}");
-        for change in &latest {
-            assert_eq!(
-                (change.op.as_str(), change.schema_version),
-                ("s", 2),
-                "a snapshot of the new shape: {change:?}"
-            );
-            assert_eq!(change.image["region"], json!("north"), "{change:?}");
-        }
-    })
-    .await;
-}
-
-/// Today's capture of that same promote, pinned so a change to it is
-/// noticed: the backfill runs while the triggers still bake in the old shape,
-/// so each update's images are filtered to `id` and `name`, compare equal and
-/// are dropped, and the backfill writes no log row; the reinstall after it
-/// records `schema_version` 2, whose shape lists `region`. Replaced by
-/// `a_backfill_in_the_migration_that_adds_a_column_reaches_the_change_stream`
-/// once the reshape baseline lands (design §5.5, PR 3).
-#[tokio::test]
-async fn a_backfill_before_the_reshape_writes_no_change_today() {
-    with_app(|app| async move {
-        let store = app.as_owner().await;
-        let before = installed_then_backfilled(&app, &store).await;
-        assert_eq!(
-            store.log("leases").await,
-            before,
-            "the backfill logged nothing"
-        );
-        let relid = store.relid("leases").await;
-        assert_eq!(store.tables().await, [("leases".to_string(), 2, true)]);
-        assert_eq!(store.shapes(relid).await, [1, 2]);
-        assert_eq!(store.shape_columns(relid, 1).await, ["id", "name"]);
-        assert_eq!(
-            store.shape_columns(relid, 2).await,
-            ["id", "name", "region"]
-        );
     })
     .await;
 }

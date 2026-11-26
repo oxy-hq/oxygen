@@ -13,7 +13,9 @@
 //! - [`sink`]: the workspace Airhouse, behind a trait tests replace.
 //! - [`check`]: the restore check, run before every batch.
 //! - `store`: the store's side of a pass, as its owner.
+//! - `run`: the pass under the lease, steps 1 to 5 below.
 //! - `pass`: one writer's batches.
+//! - `baseline`: the store's baselines, begun, copied and completed.
 //! - `settle`: the end of a pass: the mark's backoff, its drain, the next pass.
 //! - `executor`: the pass as a queued task ([`enqueue_relay`], [`RelayExecutor`]).
 //!
@@ -27,20 +29,33 @@
 //! 1. `started` from the platform's clock, which the marks are on. With no
 //!    store that captures (none, inactive, or below step 8), or capture never
 //!    installed (no `stream` row, and so no log row), the pass ends here with
-//!    nothing shipped and drains the mark (5), so the sweep stops waking the
+//!    nothing shipped and drains the mark (7), so the sweep stops waking the
 //!    store. A generation bump re-stamping ends it too, leaving the mark due.
 //! 2. A log row older than the stream's generation logs
 //!    `oltp_changes_old_generation_row`.
-//! 3. Each writer with changes waiting, the longest waiting first, ships
+//! 3. **Requests.** An open baseline whose table's capture is gone is
+//!    abandoned, and each installed table with no baseline in the stream's
+//!    generation gets one requested (`missing`): tables captured before
+//!    baselines existed, and a safety net. A failure here is recorded as
+//!    `baselines: …`, and the pass ships anyway.
+//! 4. Each writer with changes waiting, the longest waiting first, ships
 //!    batches until it has none left, or reaches [`Limits`]; no batch starts
 //!    after the pass's budget. A writer that fails is logged and passed over.
-//! 4. The lease is released, on every exit after it was taken.
-//! 5. The mark is settled (`settle`): a pass that failed after taking the
+//! 5. **Views pending**, after the shipping: each current-state view an
+//!    earlier render left pending (Airhouse refused it) is made again, whether
+//!    or not its table shipped rows; then the **baselines**, so a failing one
+//!    never stops the shipping (see below). None begins or copies after the
+//!    pass's budget.
+//! 6. The lease is released, on every exit after it was taken.
+//! 7. The mark is settled (`settle`): a pass that failed after taking the
 //!    lease backs it off ([`BACKOFF_BASE`] doubling to [`BACKOFF_CAP`]), and
 //!    one with no failed writer ends any backoff. The mark is drained as of
 //!    `started` only if no writer failed and none stopped with rows left (a
 //!    held row is not left); with rows left and none failed, a next pass is
-//!    queued now rather than at the sweep.
+//!    queued now rather than at the sweep. A baseline left open, or one that
+//!    wrote log rows this pass, is rows left. A pass that leaves a baseline
+//!    backing off also wakes the mark after its delay (`wake_at`), counting no
+//!    failure, so the baseline is retried though no write nudges the store.
 //!
 //! # One batch of a writer
 //!
@@ -66,7 +81,12 @@
 //!    and each change table made or given its new columns.
 //! 7. **Write**, after renewing the lease again: one DuckLake transaction of
 //!    every table's idempotent `INSERT`s, at most [`INSERT_ROWS`] rows each,
-//!    then `_progress`.
+//!    then `_progress`. Then each current-state view the batch needs, on its
+//!    own, after renewing the lease again, with the latest shape's columns and
+//!    the key of the shape the latest complete baseline copied, once the batch
+//!    is confirmed (8). Best effort: a view Airhouse refuses, or any error of
+//!    its bookkeeping, logs `oltp_changes_view_failed`; a refused one is
+//!    recorded pending in the store for a later pass (5, above).
 //! 8. **Confirm and delete**, in one store transaction: the batch recorded
 //!    shipped only if it is still the intent, then exactly its `seq`s
 //!    deleted. An intent that moved means the store was rewound under the
@@ -80,15 +100,45 @@
 //! [`LEASE_TTL`]: a hung call fails its writer rather than outlast the lease.
 //! A write that times out after its `COMMIT` was sent is the pass that died
 //! between 7 and 8.
+//!
+//! # A baseline (design §5.5)
+//!
+//! A baseline restarts a table's current state in Airhouse from a fresh copy
+//! of its rows: a `b` marker, chunks of `s` (snapshot) rows, then a `c`
+//! marker, each a log row the next batches ship like any other. The pass
+//! takes the store's open baselines in `id` order, a writer at a time, each
+//! under the lease renewed first:
+//!
+//! - A held writer's or table's baseline waits, and does not keep the mark
+//!   due: the hold's removal nudges.
+//! - **Begin** a requested one. It may not begin while an install of its
+//!   table is in progress: the install's own nudge brings the next pass.
+//! - **Copy** in chunks of at most [`COPY_CHUNK_ROWS`], each only as large as
+//!   keeps the writer's unshipped rows (its held tables left out) under
+//!   [`COPY_BACKLOG`]. A full backlog pauses the writer's copies, left open
+//!   for the next pass, which ships some first. Each chunk resumes past the
+//!   last key the store recorded, so no row is copied twice.
+//! - **Complete** it once a chunk finds no rows left.
+//!
+//! A begin and each chunk take two sessions on the store: the writer's takes
+//! the lock (the table's `SHARE`, or the chunk's rows `FOR SHARE`) and the
+//! owner's writes the marker or the rows and commits **first**, so they draw
+//! their `seq` while the table's writers are held off; only then does the
+//! writer's commit release the lock. Every transaction of a step pins its
+//! search path to `pg_catalog`, so nothing the app's schema defines is
+//! reached, and its statements to [`BASELINE_STATEMENT_TIMEOUT`].
+//!
+//! A lock that waits past [`BEGIN_LOCK_TIMEOUT`], or a chunk whose rows keep
+//! changing under its reads, backs that baseline off in the store, doubling
+//! from 5 seconds to 30 minutes; it waits out its backoff without failing the
+//! writer, and the pass wakes the mark when it ends. So does a key whose type
+//! has no default btree order. Any other error fails the writer for the pass,
+//! and the mark's backoff retries it.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
-use tokio_postgres::Client;
 use uuid::Uuid;
-
-use crate::app_events::marks::platform_now;
 
 // `error` in production, `warn` elsewhere: how each of the relay's alarm
 // lines is logged. Every pass is production in phase 1.
@@ -102,12 +152,14 @@ macro_rules! alarm {
     };
 }
 
+mod baseline;
 pub mod check;
 mod executor;
 pub mod holds;
 pub mod marks;
 mod pass;
 pub mod render;
+mod run;
 mod settle;
 pub mod sink;
 mod store;
@@ -116,9 +168,8 @@ pub mod table;
 
 pub use executor::{RelayExecutor, enqueue_relay};
 
-use pass::{Pass, Stop, WriterPass};
-use settle::Ran;
-use store::Waiting;
+use baseline::Baselines;
+use pass::WriterPass;
 
 /// The `TaskSpec::Custom` kind, and the run's `source_type`.
 pub const RELAY_KIND: &str = "oltp_changes_relay";
@@ -173,6 +224,19 @@ pub const STALE_AFTER: Duration = Duration::from_secs(5 * 60);
 pub const BACKOFF_BASE: Duration = Duration::from_secs(5);
 /// The longest the sweep leaves a failing mark.
 pub const BACKOFF_CAP: Duration = Duration::from_secs(30 * 60);
+/// The most rows one chunk of a baseline's copy reads: [`BATCH_ROWS`], so a
+/// chunk, one source transaction, is read whole by one batch's head.
+pub const COPY_CHUNK_ROWS: i64 = 1000;
+/// A writer's unshipped log rows at which its copies pause:
+/// `2 × BATCHES_PER_WRITER × BATCH_ROWS`, so a copy never puts more in the log
+/// than two passes ship.
+pub const COPY_BACKLOG: i64 = 10_000;
+/// How long a baseline's begin waits for its locks, and a chunk for its rows'
+/// `FOR SHARE`, before the baseline backs off.
+pub const BEGIN_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+/// The longest one statement of a baseline's step may run, on either session,
+/// before it fails the writer for the pass.
+pub const BASELINE_STATEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 const _: () = assert!(NUDGE_DEBOUNCE.as_secs() < REDRAIN_MARGIN.as_secs());
 const _: () = assert!(PASS_BUDGET.as_secs() < LEASE_TTL.as_secs());
@@ -180,6 +244,12 @@ const _: () = assert!(SINK_TIMEOUT.as_secs() < LEASE_TTL.as_secs());
 // Between two renewals a batch makes at most two Airhouse calls (the DDL's
 // column read and its statements), so even both hung cannot outlast it.
 const _: () = assert!(2 * SINK_TIMEOUT.as_secs() < LEASE_TTL.as_secs());
+const _: () = assert!(COPY_CHUNK_ROWS <= BATCH_ROWS);
+// Between two renewals a step runs at most four statements that do work (a
+// chunk's read, its txid and its write, then a complete), so even all of them
+// cut off at the timeout cannot outlast the lease.
+const _: () = assert!(4 * BASELINE_STATEMENT_TIMEOUT.as_secs() < LEASE_TTL.as_secs());
+const _: () = assert!(COPY_BACKLOG < BATCH_CEILING);
 
 /// How much one pass ships.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +262,10 @@ pub struct Limits {
     pub batches_per_writer: usize,
     /// [`PASS_BUDGET`].
     pub budget: Duration,
+    /// [`COPY_CHUNK_ROWS`].
+    pub copy_chunk_rows: i64,
+    /// [`COPY_BACKLOG`].
+    pub copy_backlog: i64,
 }
 
 impl Default for Limits {
@@ -201,6 +275,8 @@ impl Default for Limits {
             batch_ceiling: BATCH_CEILING,
             batches_per_writer: BATCHES_PER_WRITER,
             budget: PASS_BUDGET,
+            copy_chunk_rows: COPY_CHUNK_ROWS,
+            copy_backlog: COPY_BACKLOG,
         }
     }
 }
@@ -215,6 +291,12 @@ pub struct RelayStats {
     /// Rows left in the log behind a hold the pass found or made: a held
     /// writer's waiting rows, and a held table's rows in a batch it read.
     pub held: u64,
+    /// Baselines begun: their `b` markers written to the log.
+    pub begun: u64,
+    /// Snapshot rows the baselines copied into the log.
+    pub copied: u64,
+    /// Baselines completed: their `c` markers written to the log.
+    pub completed: u64,
     /// Another relay held the lease: nothing was done.
     pub skipped_lease: bool,
 }
@@ -224,6 +306,12 @@ impl RelayStats {
         self.shipped += writer.shipped;
         self.batches += writer.batches;
         self.held += writer.held;
+    }
+
+    fn add_baselines(&mut self, baselines: &Baselines) {
+        self.begun += baselines.begun;
+        self.copied += baselines.copied;
+        self.completed += baselines.completed;
     }
 }
 
@@ -260,7 +348,7 @@ pub async fn relay_once_with(
             ..RelayStats::default()
         });
     };
-    let ran = run(db, org_id, environment, limits, &lease).await;
+    let ran = run::run(db, org_id, environment, limits, &lease).await;
     if let Err(e) = marks::release(db, &lease).await {
         tracing::warn!(%org_id, environment, error = %e, "oltp_changes: could not release the relay lease");
     }
@@ -275,89 +363,6 @@ pub async fn relay_once_with(
         ));
     }
     Ok(ran.stats)
-}
-
-/// The pass under the lease. `None` for the one exit that leaves the mark as
-/// it is: a bump re-stamping (PR 3), which a later pass must still drain.
-/// With no store that captures (none, inactive, or below step 8) or no
-/// `stream` row, nothing can be waiting, since no log row exists without a
-/// stream row: the pass is a drain that shipped nothing, so the sweep stops
-/// waking the store.
-async fn run(
-    db: &DatabaseConnection,
-    org_id: Uuid,
-    environment: &str,
-    limits: &Limits,
-    lease: &marks::Lease,
-) -> Result<Option<Ran>, String> {
-    let deadline = Instant::now() + limits.budget;
-    let started = platform_now(db)
-        .await
-        .map_err(|e| format!("read the platform clock: {e}"))?;
-    let Some(mut owner) = store::open(db, org_id).await? else {
-        tracing::debug!(%org_id, "oltp_changes: the org has no store that captures; nothing to relay");
-        return Ok(Some(Ran::nothing(started)));
-    };
-    let Some(stream) = store::stream(&owner).await? else {
-        tracing::debug!(%org_id, "oltp_changes: capture was never installed; nothing to relay");
-        return Ok(Some(Ran::nothing(started)));
-    };
-    if let Some(from) = stream.restamping {
-        tracing::info!(%org_id, from, to = stream.generation, "oltp_changes: a generation bump is re-stamping the log; nothing relayed");
-        return Ok(None);
-    }
-    let older = store::older_generation_rows(&owner, stream.generation).await?;
-    if older > 0 {
-        alarm!(environment, %org_id, environment, rows = older, generation = stream.generation, "oltp_changes_old_generation_row");
-    }
-    let waiting = store::waiting(&owner, stream.generation).await?;
-    let holds = holds::read(db, org_id, environment)
-        .await
-        .map_err(|e| format!("read the relay's holds: {e}"))?;
-    let sink = sink::Bounded::new(sink::sink(), SINK_TIMEOUT);
-    let pass = Pass {
-        db,
-        org_id,
-        environment,
-        lease,
-        limits,
-        deadline,
-        generation: stream.generation,
-        holds: &holds,
-        sink: &sink,
-    };
-    ship_all(&pass, &mut owner, &waiting, started)
-        .await
-        .map(Some)
-}
-
-/// Step 3 of a pass: each waiting writer's batches, while the budget lasts.
-/// A lost lease stops them all.
-async fn ship_all(
-    pass: &Pass<'_>,
-    owner: &mut Client,
-    waiting: &[Waiting],
-    started: DateTime<Utc>,
-) -> Result<Ran, String> {
-    let mut ran = Ran::nothing(started);
-    for writer in waiting {
-        if Instant::now() >= pass.deadline {
-            ran.left = true;
-            break;
-        }
-        match pass::ship_writer(pass, owner, writer).await {
-            Ok(one) => {
-                ran.stats.add(one);
-                ran.left |= one.left;
-            }
-            Err(Stop::Failed(error)) => {
-                tracing::warn!(org_id = %pass.org_id, environment = pass.environment, writer = %writer.writer, %error, "oltp_changes: could not relay one writer; relaying the others");
-                ran.failed.push(format!("{}: {error}", writer.writer));
-            }
-            Err(Stop::Abort(error)) => return Err(error),
-        }
-    }
-    Ok(ran)
 }
 
 #[cfg(test)]

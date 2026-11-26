@@ -26,7 +26,14 @@
 //! `oxy_changes.image_<writer>`, a definer owned by a role with no privileges, since
 //! `to_jsonb` runs any cast to `json` an app defines on its own types
 //! ([`image`]).
+//!
+//! A baseline restarts one table's current state from a fresh copy of its
+//! rows, as a window in the same log: requested ([`request_baseline_sql`]),
+//! begun ([`BEGIN_SQL`]), copied ([`CHUNK_WRITE_SQL`]) and completed
+//! ([`COMPLETE_SQL`]), each lock taken by the writer's session and each log
+//! row written by the owner's (design §5.5).
 
+mod baseline;
 mod capture;
 mod image;
 mod install;
@@ -47,8 +54,18 @@ pub const SEED_BRANCH_STREAM_SQL: &str = "DO $$ BEGIN \
      IF to_regclass('oxy_changes.progress') IS NOT NULL THEN \
      TRUNCATE oxy_changes.progress; \
      END IF; \
+     IF to_regclass('oxy_changes.baselines') IS NOT NULL THEN \
+     TRUNCATE oxy_changes.baselines; \
+     END IF; \
      END $$";
 
+pub use baseline::{
+    ABANDON_ORPHANS_SQL, BACKLOG_SQL, BACKOFF_SQL, BEGIN_SQL, BaselineReason, CHUNK_READ_ISOLATION,
+    CHUNK_WRITE_SQL, COMPLETE_SQL, DISCARD_SQL, KEY_TYPES_SQL, KeyOrder, LOCK_REQUEST_SQL,
+    OPEN_BASELINES_SQL, PENDING_VIEWS_SQL, PLATFORM_ACTOR, REQUEST_MISSING_SQL, SnapshotShape,
+    VIEW_PENDING_SQL, VIEW_RENDERED_SQL, abandon_baselines_sql, begin_lock_sql, chunk_read_sql,
+    lock_timeout_sql, pin_session_sql, request_baseline_sql, request_named_baseline_sql,
+};
 pub use image::{OWNER_SESSION_PIN_SQL, image_function, image_role_for, image_role_prefix};
 pub use install::{
     CaptureSpec, INSTALLED_SQL, owner_commit_sql, owner_drop_sql, owner_install_sql,

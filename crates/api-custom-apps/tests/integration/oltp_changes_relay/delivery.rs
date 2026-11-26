@@ -35,12 +35,13 @@ fn stats(shipped: u64, batches: u64) -> RelayStats {
     }
 }
 
-/// `leases` captured by a first promote.
+/// `leases` captured by a first promote, and its install's baseline shipped.
 async fn installed(r: &Relay) {
     r.app
         .promote("chg-1", true, &[LEASES_SQL])
         .await
         .expect("the promote installs capture on leases");
+    r.settle().await;
 }
 
 /// Airhouse's `_progress` and the store's `oxy_changes.progress` agree: the
@@ -64,6 +65,7 @@ async fn a_production_write_reaches_the_change_table_signed() {
             .promote("chg-1", true, &[LEASES_SQL])
             .await
             .expect("the promote installs capture on leases");
+        r.settle().await;
         r.app
             .write("insert into leases (id, name) values (1, 'Flat 1')")
             .await;

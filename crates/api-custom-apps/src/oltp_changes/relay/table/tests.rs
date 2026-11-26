@@ -16,6 +16,7 @@ fn version(schema_version: i32, columns: &[(i16, &str, &str)]) -> ShapeVersion {
                 type_name: ty.to_string(),
             })
             .collect(),
+        primary_key: Vec::new(),
     }
 }
 

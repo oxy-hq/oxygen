@@ -12,13 +12,17 @@
 //! - `failures`, `failed_at` and `retry_after`: the backoff after failed passes
 //!   ([`failed`], cleared by [`succeeded`]);
 //! - `stale_alarmed_at`: when the sweep last logged the mark stale
-//!   ([`alarm_stale`]).
+//!   ([`alarm_stale`]);
+//! - `wake_at`: when a pass that left a store baseline backing off should run
+//!   again ([`wake`]); cleared by a pass with no failure ([`succeeded`]), and
+//!   kept past a failed pass's backoff ([`failed`]).
 //!
 //! A mark is **due** while a nudge is not covered by a drain that began a
 //! margin after it, and not before the redrain interval has passed since that
 //! drain began ([`due`]); nor, after a failed pass, before its `retry_after`,
-//! unless nudged since the failure. The sweep reads only due marks, so it
-//! never connects to a store with nothing waiting.
+//! unless nudged since the failure. It is due as well once its `wake_at` has
+//! passed, with no change waiting ([`Due::waiting`]). The sweep reads only due
+//! marks, so it never connects to a store with nothing to do.
 //!
 //! The lease is one row's `lease_holder`, `lease_epoch` and `lease_expires_at`:
 //! [`acquire`] is one `INSERT … ON CONFLICT DO UPDATE … WHERE … RETURNING`, so
@@ -30,13 +34,17 @@ use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 use uuid::Uuid;
 
-/// A due mark: an (org, environment) whose store may have changes waiting.
+/// A due mark: an (org, environment) whose store may have changes waiting,
+/// or a baseline to retry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Due {
     pub org_id: Uuid,
     pub environment: String,
     /// Since when the work has waited.
     pub pending_since: DateTime<Utc>,
+    /// Whether changes may wait: due by a nudge, not only by its `wake_at`.
+    /// Only such a mark can be stale.
+    pub waiting: bool,
 }
 
 /// A held lease on (org, environment). The `epoch` fences a holder whose lease
@@ -73,7 +81,9 @@ pub async fn nudge(
 /// The marks the sweep should queue a relay pass for, oldest wait first. A
 /// mark backed off after a failed pass ([`failed`]) is not due before its
 /// `retry_after`, unless it was nudged since that failure: a fresh write
-/// means the store's compute is awake anyway.
+/// means the store's compute is awake anyway. A mark whose `wake_at` has
+/// passed ([`wake`]) is due whatever else it says, but has no change waiting
+/// for that alone ([`Due::waiting`]).
 pub async fn due(
     db: &impl ConnectionTrait,
     margin: Duration,
@@ -82,14 +92,19 @@ pub async fn due(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT org_id, environment, COALESCE(pending_since, nudged_at) AS pending_since \
-               FROM oltp_change_relays \
-              WHERE nudged_at IS NOT NULL \
-                AND (drain_started_at IS NULL \
-                     OR (drain_started_at < nudged_at + make_interval(secs => $1) \
-                         AND drain_started_at < now() - make_interval(secs => $2))) \
-                AND (retry_after IS NULL OR retry_after <= now() OR nudged_at > failed_at) \
-              ORDER BY COALESCE(pending_since, nudged_at)",
+            "SELECT org_id, environment, pending_since, waiting FROM ( \
+               SELECT org_id, environment, \
+                      COALESCE(pending_since, nudged_at, wake_at) AS pending_since, \
+                      COALESCE(nudged_at IS NOT NULL \
+                        AND (drain_started_at IS NULL \
+                             OR (drain_started_at < nudged_at + make_interval(secs => $1) \
+                                 AND drain_started_at < now() - make_interval(secs => $2))) \
+                        AND (retry_after IS NULL OR retry_after <= now() \
+                             OR nudged_at > failed_at), false) AS waiting, \
+                      COALESCE(wake_at <= now(), false) AS woken \
+                 FROM oltp_change_relays) m \
+              WHERE waiting OR woken \
+              ORDER BY pending_since",
             [margin.as_secs_f64().into(), every.as_secs_f64().into()],
         ))
         .await?;
@@ -99,6 +114,7 @@ pub async fn due(
                 org_id: row.try_get("", "org_id")?,
                 environment: row.try_get("", "environment")?,
                 pending_since: row.try_get("", "pending_since")?,
+                waiting: row.try_get("", "waiting")?,
             })
         })
         .collect()
@@ -134,9 +150,37 @@ pub async fn drained(
     .map(|_| ())
 }
 
+/// A pass left a store baseline backing off for `after`: wake the mark then
+/// (`wake_at`, by the platform's clock), whatever its drain or backoff say,
+/// so the sweep retries the baseline though no write nudges the store. It
+/// counts no failure and leaves the drain alone. A pass with no failure
+/// clears it ([`succeeded`]) before setting its own; a failed one keeps it,
+/// no sooner than its backoff ends ([`failed`]).
+pub async fn wake(
+    db: &impl ConnectionTrait,
+    org_id: Uuid,
+    environment: &str,
+    after: Duration,
+) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE oltp_change_relays SET wake_at = now() + make_interval(secs => $3) \
+          WHERE org_id = $1 AND environment = $2",
+        [
+            org_id.into(),
+            environment.into(),
+            after.as_secs_f64().into(),
+        ],
+    ))
+    .await
+    .map(|_| ())
+}
+
 /// A pass that took the lease failed: back the mark off. `failures` counts
 /// up, and the mark is not due again ([`due`]) for `base` doubled per earlier
-/// failure (from 9 on, no further), at most `cap`, unless nudged since.
+/// failure (from 9 on, no further), at most `cap`, unless nudged since. A
+/// pending wake is kept, moved no sooner than the backoff's end, so a
+/// baseline it woke for is still retried after the failure.
 pub async fn failed(
     db: &impl ConnectionTrait,
     org_id: Uuid,
@@ -150,7 +194,11 @@ pub async fn failed(
             SET failures = failures + 1, failed_at = now(), \
                 retry_after = now() + LEAST( \
                     make_interval(secs => $3::float8 * power(2::float8, LEAST(failures, 9))), \
-                    make_interval(secs => $4::float8)) \
+                    make_interval(secs => $4::float8)), \
+                wake_at = CASE WHEN wake_at IS NULL THEN NULL ELSE GREATEST(wake_at, \
+                    now() + LEAST( \
+                        make_interval(secs => $3::float8 * power(2::float8, LEAST(failures, 9))), \
+                        make_interval(secs => $4::float8))) END \
           WHERE org_id = $1 AND environment = $2",
         [
             org_id.into(),
@@ -164,7 +212,7 @@ pub async fn failed(
 }
 
 /// A pass that took the lease had no writer fail, whether it drained or left
-/// rows: the mark's backoff is over.
+/// rows: the mark's backoff is over, and so is any wake it ran for.
 pub async fn succeeded(
     db: &impl ConnectionTrait,
     org_id: Uuid,
@@ -172,9 +220,11 @@ pub async fn succeeded(
 ) -> Result<(), DbErr> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE oltp_change_relays SET failures = 0, failed_at = NULL, retry_after = NULL \
+        "UPDATE oltp_change_relays \
+            SET failures = 0, failed_at = NULL, retry_after = NULL, wake_at = NULL \
           WHERE org_id = $1 AND environment = $2 \
-            AND (failures <> 0 OR failed_at IS NOT NULL OR retry_after IS NOT NULL)",
+            AND (failures <> 0 OR failed_at IS NOT NULL OR retry_after IS NOT NULL \
+                 OR wake_at IS NOT NULL)",
         [org_id.into(), environment.into()],
     ))
     .await

@@ -50,9 +50,9 @@
 
 use oxy_custom_apps::manifest::OltpChangesConfig;
 use oxy_oltp::changes::{
-    CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, OWNER_SESSION_PIN_SQL, SHAPE_SQL, ShapeRow,
-    image_role_for, owner_commit_sql, owner_drop_sql, owner_install_sql, owner_uninstall_sql,
-    shape_from_rows, writer_install_sql, writer_uninstall_sql,
+    BaselineReason, CaptureSpec, Column, DeclaredTable, INSTALLED_SQL, OWNER_SESSION_PIN_SQL,
+    SHAPE_SQL, ShapeRow, image_role_for, owner_commit_sql, owner_drop_sql, owner_install_sql,
+    owner_uninstall_sql, shape_from_rows, writer_install_sql, writer_uninstall_sql,
 };
 use oxy_oltp::resolver::WriterConnection;
 use oxy_oltp::schema::{SchemaError, WriterRef, app_writer_name};
@@ -67,7 +67,7 @@ mod attach;
 mod plan;
 
 use attach::{Attach, Attacher, Detach, Roles};
-use plan::{Installed, Plan, Recorded};
+use plan::{Change, Installed, Plan, Recorded};
 
 /// The latest shape recorded for a table (`$1`, its oid), whether or not it is
 /// captured now: `INSTALLED_SQL` joins shapes only to tables still in
@@ -399,13 +399,24 @@ fn install_sql(
             Ok(TableSql {
                 table: table.clone(),
                 relid: t.capture.shape.relid,
-                owner_install: owner_install_sql(&spec, role, image_role)
+                owner_install: owner_install_sql(&spec, role, image_role, baseline_for(t.change))
                     .map_err(|e| schema_refusal(table, &e))?,
                 writer_install: writer_install_sql(&spec).map_err(|e| schema_refusal(table, &e))?,
                 owner_commit: owner_commit_sql(t.capture.shape.relid, t.schema_version),
             })
         })
         .collect()
+}
+
+/// Why a table's install needs a baseline: a table captured anew is opted in,
+/// one captured at a new shape restarts its current state; one reinstalled as
+/// it stands needs none.
+fn baseline_for(change: Change) -> Option<BaselineReason> {
+    match change {
+        Change::New => Some(BaselineReason::OptIn),
+        Change::Reshaped => Some(BaselineReason::Reshape),
+        Change::Unchanged => None,
+    }
 }
 
 fn schema_refusal(table: &str, e: &SchemaError) -> InstallError {

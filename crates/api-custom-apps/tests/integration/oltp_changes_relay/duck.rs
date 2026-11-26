@@ -1,7 +1,8 @@
-//! An in-memory DuckDB as the relay's Airhouse ([`DuckSink`]), and a sink
-//! that dies once after its commit lands ([`FailsOnceAfterCommit`]).
+//! An in-memory DuckDB as the relay's Airhouse ([`DuckSink`]), a sink that
+//! dies once after its commit lands ([`FailsOnceAfterCommit`]), and one that
+//! refuses its first views ([`RefusesViews`]).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
@@ -157,5 +158,119 @@ impl ChangeSink for FailsOnceAfterCommit {
             return Ok(());
         }
         Err(SinkError(LOST_AFTER_COMMIT.to_owned()))
+    }
+}
+
+/// [`DuckSink`] that refuses its first `refusals` current-state views, as
+/// DuckLake might refuse the view's `QUALIFY`, and counts every view it was
+/// sent.
+pub(super) struct RefusesViews {
+    inner: Arc<DuckSink>,
+    refusals: Mutex<usize>,
+    views: AtomicUsize,
+}
+
+/// What a refused view reports.
+pub(super) const VIEW_REFUSED: &str = "Not implemented Error: QUALIFY in a view";
+
+impl RefusesViews {
+    pub(super) fn new(inner: Arc<DuckSink>, refusals: usize) -> Self {
+        Self {
+            inner,
+            refusals: Mutex::new(refusals),
+            views: AtomicUsize::new(0),
+        }
+    }
+
+    /// How many view statements it was sent, refused or not.
+    pub(super) fn views(&self) -> usize {
+        self.views.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl ChangeSink for RefusesViews {
+    async fn has_airhouse(
+        &self,
+        db: &DatabaseConnection,
+        workspace: Uuid,
+    ) -> Result<bool, SinkError> {
+        self.inner.has_airhouse(db, workspace).await
+    }
+
+    async fn query(
+        &self,
+        workspace: Uuid,
+        sql: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SinkError> {
+        self.inner.query(workspace, sql).await
+    }
+
+    async fn admin(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
+        if statements
+            .iter()
+            .any(|s| s.contains("CREATE OR REPLACE VIEW"))
+        {
+            self.views.fetch_add(1, Ordering::SeqCst);
+            let mut left = self.refusals.lock().unwrap_or_else(|e| e.into_inner());
+            if *left > 0 {
+                *left -= 1;
+                return Err(SinkError(VIEW_REFUSED.to_owned()));
+            }
+        }
+        self.inner.admin(workspace, statements).await
+    }
+
+    async fn write(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
+        self.inner.write(workspace, statements).await
+    }
+}
+
+/// [`DuckSink`] that dies at its first current-state view, as a relay that
+/// died between a batch's confirm and its view would, then works.
+pub(super) struct DiesAtFirstView {
+    inner: Arc<DuckSink>,
+    died: AtomicBool,
+}
+
+impl DiesAtFirstView {
+    pub(super) fn new(inner: Arc<DuckSink>) -> Self {
+        Self {
+            inner,
+            died: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl ChangeSink for DiesAtFirstView {
+    async fn has_airhouse(
+        &self,
+        db: &DatabaseConnection,
+        workspace: Uuid,
+    ) -> Result<bool, SinkError> {
+        self.inner.has_airhouse(db, workspace).await
+    }
+
+    async fn query(
+        &self,
+        workspace: Uuid,
+        sql: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SinkError> {
+        self.inner.query(workspace, sql).await
+    }
+
+    async fn admin(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
+        let view = statements
+            .iter()
+            .any(|s| s.contains("CREATE OR REPLACE VIEW"));
+        if view && !self.died.swap(true, Ordering::SeqCst) {
+            panic!("the relay died before its view");
+        }
+        self.inner.admin(workspace, statements).await
+    }
+
+    async fn write(&self, workspace: Uuid, statements: &[String]) -> Result<(), SinkError> {
+        self.inner.write(workspace, statements).await
     }
 }

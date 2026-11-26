@@ -12,7 +12,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use oxy_api_custom_apps::oltp_changes::relay::holds::{self, HoldKey};
 use oxy_api_custom_apps::oltp_changes::relay::marks::{
-    acquire, drained, due, mark_all, nudge, release, renew,
+    acquire, drained, due, failed, mark_all, nudge, release, renew, succeeded, wake,
 };
 use oxy_api_custom_apps::oltp_changes::relay::sweep::{sweep_once, weekly_once};
 use sea_orm::sea_query::OnConflict;
@@ -183,6 +183,88 @@ async fn a_drain_within_every_is_not_due_until_every_has_passed() {
         due_with(10).await,
         "`every` has passed since the drain began"
     );
+}
+
+/// The production mark's due entry, if it is due.
+async fn due_entry(db: &DatabaseConnection, org_id: Uuid) -> Option<bool> {
+    due(db, MARGIN, NOW)
+        .await
+        .expect("due")
+        .into_iter()
+        .find(|d| d.org_id == org_id && d.environment == ENV)
+        .map(|d| d.waiting)
+}
+
+/// A wake leaves a drained mark drained and counts no failure: the mark is
+/// due once its `wake_at` passes, with no change waiting.
+#[tokio::test]
+async fn a_wake_makes_a_drained_mark_due_without_a_failure() {
+    let t = org().await;
+    let _sweep = guard(&t.db, false).await;
+    let nudged = nudged_a_minute_ago(&t.db, t.org_id).await;
+    drained(&t.db, t.org_id, ENV, nudged + secs(31), MARGIN)
+        .await
+        .expect("drained");
+    wake(&t.db, t.org_id, ENV, Duration::from_secs(3600))
+        .await
+        .expect("wake");
+    assert_eq!(due_entry(&t.db, t.org_id).await, None, "not before wake_at");
+    assert!(instant(&t.db, t.org_id, "wake_at").await.is_some());
+    assert!(instant(&t.db, t.org_id, "drain_started_at").await.is_some());
+    assert_eq!(instant(&t.db, t.org_id, "failed_at").await, None);
+    exec(
+        &t.db,
+        "UPDATE oltp_change_relays SET wake_at = now() - interval '1 second' \
+          WHERE org_id = $1 AND environment = $2",
+        t.org_id,
+    )
+    .await;
+    assert_eq!(
+        due_entry(&t.db, t.org_id).await,
+        Some(false),
+        "due at wake_at, nothing waiting"
+    );
+}
+
+/// A wake changes nothing of PR 2's rule: a drain that began inside the
+/// margin after a nudge, as a debounced write's, keeps the mark due, waiting.
+#[tokio::test]
+async fn a_debounced_write_keeps_a_woken_mark_due() {
+    let t = org().await;
+    let nudged = nudged_a_minute_ago(&t.db, t.org_id).await;
+    drained(&t.db, t.org_id, ENV, nudged + secs(10), MARGIN)
+        .await
+        .expect("drained");
+    wake(&t.db, t.org_id, ENV, Duration::from_secs(3600))
+        .await
+        .expect("wake");
+    assert_eq!(due_entry(&t.db, t.org_id).await, Some(true));
+}
+
+/// A failed pass keeps the wake it ran for, no sooner than its own backoff's
+/// end, so the baseline is still retried after the failure; a pass with no
+/// failure clears it.
+#[tokio::test]
+async fn a_failed_pass_keeps_its_wake_and_a_passing_one_clears_it() {
+    let t = org().await;
+    nudge(&t.db, t.org_id, ENV).await.expect("nudge");
+    wake(&t.db, t.org_id, ENV, Duration::from_secs(60))
+        .await
+        .expect("wake");
+    let hour = Duration::from_secs(3600);
+    failed(&t.db, t.org_id, ENV, hour, hour)
+        .await
+        .expect("failed");
+    let woken = instant(&t.db, t.org_id, "wake_at").await.expect("kept");
+    let retry = instant(&t.db, t.org_id, "retry_after")
+        .await
+        .expect("backed off");
+    assert!(
+        woken >= retry,
+        "no sooner than the backoff: {woken} {retry}"
+    );
+    succeeded(&t.db, t.org_id, ENV).await.expect("succeeded");
+    assert_eq!(instant(&t.db, t.org_id, "wake_at").await, None);
 }
 
 #[tokio::test]
@@ -494,4 +576,26 @@ async fn a_mark_waiting_past_the_stale_bound_is_reported() {
     .await;
     let report = sweep_once(&t.db).await.expect("sweep");
     assert!(report.stale.contains(&t.org_id), "{report:?}");
+}
+
+/// A mark due only to wake a baseline has no change waiting: however old its
+/// last nudge, the sweep queues it and never reports it stale.
+#[tokio::test]
+async fn a_mark_due_only_to_wake_is_not_reported_stale() {
+    let t = org_with_an_app().await;
+    let _sweep = guard(&t.db, false).await;
+    enable_oltp_changes(&t).await;
+    nudge(&t.db, t.org_id, ENV).await.expect("nudge");
+    exec(
+        &t.db,
+        "UPDATE oltp_change_relays SET nudged_at = now() - interval '10 minutes', \
+                pending_since = NULL, drain_started_at = now() - interval '9 minutes', \
+                wake_at = now() - interval '1 second' \
+          WHERE org_id = $1 AND environment = $2",
+        t.org_id,
+    )
+    .await;
+    assert_eq!(due_entry(&t.db, t.org_id).await, Some(false));
+    let report = sweep_once(&t.db).await.expect("sweep");
+    assert!(!report.stale.contains(&t.org_id), "{report:?}");
 }

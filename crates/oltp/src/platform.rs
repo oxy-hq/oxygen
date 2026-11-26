@@ -30,7 +30,7 @@ use crate::schema::{SchemaError, analyst_role_for, validate_name};
 ///
 /// Recorded on `oltp_tenants.platform_schema_version`. A tenant below this is
 /// reconciled the next time anything touches it.
-pub const PLATFORM_SCHEMA_VERSION: i32 = 9;
+pub const PLATFORM_SCHEMA_VERSION: i32 = 10;
 
 /// Table recording which workspace migrations a tenant has applied.
 ///
@@ -141,6 +141,8 @@ pub const CHANGES_TABLES_TABLE: &str = "oxy_changes.tables";
 pub const CHANGES_SHAPES_TABLE: &str = "oxy_changes.shapes";
 /// Per-writer relay progress: the batch each writer has intended and shipped.
 pub const CHANGES_PROGRESS_TABLE: &str = "oxy_changes.progress";
+/// Each baseline the relay has been asked for, and how far its copy has got.
+pub const CHANGES_BASELINES_TABLE: &str = "oxy_changes.baselines";
 /// The relay's batch numbers, at `CACHE 1`.
 pub const CHANGES_BATCH_SEQUENCE: &str = "oxy_changes.batches";
 /// The log's sequence, at `CACHE 1`: per-row order holds only then.
@@ -398,6 +400,7 @@ $$"
         outbox::invoker_step(),
         changes::changes_step(&analyst),
         changes::relay_step(),
+        changes::baselines_step(),
     ])
 }
 

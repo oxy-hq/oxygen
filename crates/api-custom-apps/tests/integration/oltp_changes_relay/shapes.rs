@@ -4,9 +4,8 @@
 //! other tables keep shipping.
 
 use oxy_api_custom_apps::oltp_changes::relay::RelayStats;
-use oxy_api_custom_apps::oltp_changes::relay::render::{PROGRESS_TABLE, changes_table_name};
 
-use super::{text, with_relay};
+use super::{Relay, text, with_relay};
 use crate::oltp_changes_fixture::LEASES_SQL;
 
 /// The next migration: a column added to `leases`, and nothing backfilled.
@@ -28,9 +27,27 @@ const RENAME_LABEL_SQL: (&str, &[u8]) = (
     b"alter table units rename column label to title;",
 );
 
+/// The writer's rows in the log that are not a baseline's markers or
+/// snapshots.
+async fn changes_waiting(r: &Relay) -> i64 {
+    r.app
+        .owner()
+        .await
+        .query_one(
+            "SELECT count(*) FROM oxy_changes.log \
+              WHERE writer = $1 AND op NOT IN ('b', 's', 'c')",
+            &[&r.writer()],
+        )
+        .await
+        .expect("count the writer's changes in the log")
+        .get(0)
+}
+
 /// Row 1 ships before the promote that adds `region`, row 2 is captured
 /// before it and ships after, row 3 carries it: the change table gains
-/// `region` (an `ALTER`, never a new table), null in rows 1 and 2.
+/// `region` (an `ALTER`, never a new table), null in rows 1 and 2. The
+/// reshape's baseline begins after the pass ships them, so its markers and
+/// snapshots are all the log keeps.
 #[tokio::test]
 async fn an_added_column_is_added_and_null_before() {
     with_relay(|r| async move {
@@ -38,6 +55,7 @@ async fn an_added_column_is_added_and_null_before() {
             .promote("chg-1", true, &[LEASES_SQL])
             .await
             .expect("the promote installs capture on leases");
+        r.settle().await;
         r.app
             .write("insert into leases (id, name) values (1, 'Flat 1')")
             .await;
@@ -68,15 +86,20 @@ async fn an_added_column_is_added_and_null_before() {
                 [text("3"), text("Flat 3"), text("north")],
             ]
         );
-        assert_eq!(r.waiting(None).await, 0);
+        assert_eq!(
+            changes_waiting(&r).await,
+            0,
+            "only the reshape's baseline waits"
+        );
     })
     .await;
 }
 
 /// `leases` and `units` declared and written; then `units.label` is renamed
 /// and both are written again. One pass ships `leases` and holds `units`
-/// alone, naming the rename, with its rows left in the log and no change
-/// table made for it.
+/// alone, naming the rename, with its rows left in the log, nothing more
+/// made in Airhouse and no `title` column for it. The rename's baseline of
+/// `units` waits behind the hold the pass made.
 #[tokio::test]
 async fn a_renamed_column_holds_only_its_table() {
     with_relay(|r| async move {
@@ -85,6 +108,7 @@ async fn a_renamed_column_holds_only_its_table() {
             .promote_declaring("chg-1", &both, &[LEASES_AND_UNITS_SQL])
             .await
             .expect("the promote installs capture on both tables");
+        r.settle().await;
         r.app
             .write("insert into leases (id, name) values (1, 'Flat 1')")
             .await;
@@ -102,11 +126,12 @@ async fn a_renamed_column_holds_only_its_table() {
             .write("insert into leases (id, name) values (2, 'Flat 2')")
             .await;
 
+        let tables = r.tables();
         let held = RelayStats {
             shipped: 2,
             batches: 1,
             held: 2,
-            skipped_lease: false,
+            ..RelayStats::default()
         };
         assert_eq!(r.pass().await, held);
         let leases = r.changes("leases", "id, name");
@@ -114,8 +139,9 @@ async fn a_renamed_column_holds_only_its_table() {
             leases,
             [[text("1"), text("Flat 1")], [text("2"), text("Flat 2")]]
         );
-        let tables = [PROGRESS_TABLE.to_string(), changes_table_name("leases")];
-        assert_eq!(r.tables(), tables, "no change table for units");
+        assert_eq!(r.tables(), tables, "nothing made for units");
+        let title = r.columns("units").into_iter().any(|(c, _)| c == "title");
+        assert!(!title, "units' change table does not follow the rename");
 
         let holds = r.holds().await;
         assert_eq!(holds.len(), 1, "{holds:?}");

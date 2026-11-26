@@ -194,8 +194,12 @@ fn log_insert(spec: &CaptureSpec<'_>, op: Op) -> String {
 /// passes its writer's [`image_function`], so the cast runs with no
 /// privileges.
 /// Only SQL running in the writer's own session may pass
-/// `pg_catalog.to_jsonb`, since a cast there runs as the writer anyway.
-fn filtered(image: &str, alias: &str, names: &str) -> String {
+/// `pg_catalog.to_jsonb`, since a cast there runs as the writer anyway. A
+/// baseline's snapshot rows ([`super::baseline`]) are built by it too, in
+/// the writer's session, so a snapshot image is exactly what a capture image
+/// of the same row would be, save what a cast that tells its caller apart
+/// returns.
+pub(super) fn filtered(image: &str, alias: &str, names: &str) -> String {
     format!(
         "(SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each({image}({alias}.*)) e \
          WHERE e.key = ANY({names}))"
@@ -203,7 +207,7 @@ fn filtered(image: &str, alias: &str, names: &str) -> String {
 }
 
 /// `ARRAY['a','b']::text[]`: column names as literals, never identifiers.
-fn text_array<'a>(names: impl Iterator<Item = &'a str>) -> String {
+pub(super) fn text_array<'a>(names: impl Iterator<Item = &'a str>) -> String {
     let quoted: Vec<String> = names.map(quote_literal).collect();
     format!("ARRAY[{}]::text[]", quoted.join(","))
 }

@@ -39,6 +39,7 @@ async fn an_unsigned_write_ships_unverified() {
             .promote("chg-1", true, &[NOTES_SQL])
             .await
             .expect("capture installs on the table the owner owns");
+        r.settle().await;
         let by_hand = format!(
             "insert into {}.leases (id, name) values (1, 'by hand')",
             r.app.schema()
@@ -82,6 +83,7 @@ async fn a_store_rewound_under_airhouse_holds_the_writer() {
             .promote("chg-1", true, &[LEASES_SQL])
             .await
             .expect("the promote installs capture on leases");
+        r.settle().await;
         r.app
             .write("insert into leases (id, name) values (1, 'Flat 1')")
             .await;
@@ -118,8 +120,8 @@ async fn a_store_rewound_under_airhouse_holds_the_writer() {
 
 /// A change waits in the log. A staging pass, and a production pass with the
 /// org's flag off, each return at once: no lease taken, no row shipped,
-/// nothing made in Airhouse. With the flag back on, a production pass ships
-/// it.
+/// nothing more made in Airhouse than the install's baseline made. With the
+/// flag back on, a production pass ships it.
 #[tokio::test]
 async fn the_relay_is_inert_outside_production_and_without_the_flag() {
     with_relay(|r| async move {
@@ -127,6 +129,9 @@ async fn the_relay_is_inert_outside_production_and_without_the_flag() {
             .promote("chg-1", true, &[LEASES_SQL])
             .await
             .expect("the promote installs capture on leases");
+        r.settle().await;
+        let (epoch, tables) = (r.lease_epoch(PRODUCTION).await, r.tables());
+        let epoch = epoch.expect("the install's baseline took the lease");
         r.app
             .write("insert into leases (id, name) values (1, 'Flat 1')")
             .await;
@@ -140,13 +145,14 @@ async fn the_relay_is_inert_outside_production_and_without_the_flag() {
         assert!(!enabled_for(r.app.org()), "the flag is off");
         let off = r.try_pass(PRODUCTION, &limits).await;
         assert_eq!(off, Ok(RelayStats::default()));
-        assert_eq!(r.lease_epoch(PRODUCTION).await, Some(0), "never leased");
+        let leased = r.lease_epoch(PRODUCTION).await;
+        assert_eq!(leased, Some(epoch), "not leased again");
         assert_eq!(r.waiting(None).await, 1, "the change still waits");
-        assert!(r.tables().is_empty(), "nothing made in Airhouse");
+        assert_eq!(r.tables(), tables, "nothing made in Airhouse");
 
         enable_oltp_changes(&r.app.t).await;
         assert_eq!(r.pass().await.shipped, 1, "the flag back on ships it");
-        assert_eq!(r.lease_epoch(PRODUCTION).await, Some(1));
+        assert_eq!(r.lease_epoch(PRODUCTION).await, Some(epoch + 1));
         assert_eq!(r.waiting(None).await, 0);
     })
     .await;

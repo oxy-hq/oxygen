@@ -11,7 +11,7 @@ fn owner(capture: &CaptureShape) -> Vec<String> {
         capture,
         schema_version: 1,
     };
-    owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE).expect("valid names")
+    owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE, None).expect("valid names")
 }
 
 const IMAGE_ROLE: &str = "oxy_changes_image_x";
@@ -110,7 +110,8 @@ fn the_install_is_pinned_and_the_image_function_comes_first() {
                 schema_version: 1,
             },
             "app_x_rw",
-            "bad role"
+            "bad role",
+            None
         )
         .is_err()
     );
@@ -171,7 +172,7 @@ fn a_quote_in_a_name_is_escaped() {
         schema_version: 1,
     };
     assert!(writer_install_sql(&spec).is_err());
-    assert!(owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE).is_err());
+    assert!(owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE, None).is_err());
 
     // A column name the app chose is a literal, quote doubled.
     let mut odd = leases();
@@ -192,7 +193,7 @@ fn a_table_outside_the_writers_schema_is_refused() {
         schema_version: 1,
     };
     assert_eq!(
-        owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE),
+        owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE, None),
         Err(SchemaError::InvalidName("app_y".into()))
     );
     assert!(
@@ -202,7 +203,8 @@ fn a_table_outside_the_writers_schema_is_refused() {
                 ..spec
             },
             "app_x_rw",
-            IMAGE_ROLE
+            IMAGE_ROLE,
+            None
         )
         .is_err()
     );
@@ -213,7 +215,8 @@ fn a_table_outside_the_writers_schema_is_refused() {
                 ..spec
             },
             "bad role",
-            IMAGE_ROLE
+            IMAGE_ROLE,
+            None
         )
         .is_err()
     );
@@ -264,9 +267,9 @@ fn install_order_bookkeeping() {
         "UPDATE oxy_changes.tables SET installed = false WHERE relid = 16423::oid"
     );
     let dropped = owner_drop_sql(16423, "app_x");
-    assert_eq!(dropped.len(), 5);
+    assert_eq!(dropped.len(), 6);
     assert_eq!(
-        dropped[4],
+        dropped[5],
         "DELETE FROM oxy_changes.tables WHERE relid = 16423::oid"
     );
     assert!(!dropped.iter().any(|s| s.contains("shapes")), "{dropped:?}");
@@ -287,4 +290,47 @@ fn the_dollar_quote_tag_is_one_the_body_lacks() {
         dollar_quote("'$oxy$' '$oxy1$'"),
         "$oxy2$'$oxy$' '$oxy1$'$oxy2$"
     );
+}
+
+#[test]
+fn a_requested_baseline_follows_the_shape_in_one_transaction() {
+    let spec = CaptureSpec {
+        writer: "x",
+        capture: &leases(),
+        schema_version: 2,
+    };
+    let sql = owner_install_sql(&spec, "app_x_rw", IMAGE_ROLE, Some(BaselineReason::Reshape))
+        .expect("valid");
+    let position = |pred: &dyn Fn(&String) -> bool| sql.iter().position(pred).expect("present");
+    let shape = position(&|s| s.starts_with("INSERT INTO oxy_changes.shapes"));
+    let function = position(&|s| s.starts_with("CREATE OR REPLACE FUNCTION \"app_x\""));
+    let requests: Vec<usize> = (0..sql.len())
+        .filter(|&i| sql[i].contains("oxy_changes.baselines"))
+        .collect();
+    assert_eq!(requests.len(), 3, "{sql:#?}");
+    assert!(
+        requests.iter().all(|&i| shape < i && i < function),
+        "{sql:#?}"
+    );
+    assert!(sql[requests[2]].contains("'reshape'"), "{sql:#?}");
+
+    let none = owner(&leases());
+    assert!(
+        !none.iter().any(|s| s.contains("oxy_changes.baselines")),
+        "{none:#?}"
+    );
+}
+
+#[test]
+fn dropping_a_table_abandons_its_baselines() {
+    let sql = owner_drop_sql(16423, "app_x");
+    let abandon = sql
+        .iter()
+        .position(|s| s == &abandon_baselines_sql(16423))
+        .expect("abandons the open baselines");
+    let delete = sql
+        .iter()
+        .position(|s| s.starts_with("DELETE FROM oxy_changes.tables"))
+        .expect("deletes the tables row");
+    assert!(abandon < delete, "{sql:#?}");
 }

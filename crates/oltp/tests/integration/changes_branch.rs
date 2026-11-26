@@ -103,3 +103,27 @@ async fn a_cut_branch_starts_with_no_progress() {
 
     assert_eq!(out, Ok(0), "production's progress does not reach a branch");
 }
+
+#[tokio::test]
+async fn a_cut_branch_starts_with_no_baselines() {
+    let Some(store) = Store::create("cap_branch_baselines").await else {
+        return;
+    };
+    let out = async {
+        store
+            .as_owner(
+                "INSERT INTO oxy_changes.baselines \
+                 (relid, writer, table_name, generation, reason, state) \
+                 VALUES (1, 'app', 'leases', 0, 'install', 'requested')",
+            )
+            .await?;
+        store.as_owner(SEED_BRANCH_STREAM_SQL).await?;
+        store
+            .owner_count("SELECT count(*) FROM oxy_changes.baselines")
+            .await
+    }
+    .await;
+    store.cleanup().await;
+
+    assert_eq!(out, Ok(0), "production's baselines do not reach a branch");
+}

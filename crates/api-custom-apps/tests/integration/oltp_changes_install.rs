@@ -271,6 +271,22 @@ impl Store {
             .collect()
     }
 
+    /// `(table_name, reason, state)` of each `oxy_changes.baselines` row, in
+    /// the order they were requested.
+    async fn baselines(&self) -> Vec<(String, String, String)> {
+        self.owner()
+            .await
+            .query(
+                "SELECT table_name, reason, state FROM oxy_changes.baselines ORDER BY id",
+                &[],
+            )
+            .await
+            .expect("read oxy_changes.baselines")
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect()
+    }
+
     async fn stream_rows(&self) -> i64 {
         self.owner()
             .await
@@ -521,6 +537,153 @@ async fn reinstalling_an_unchanged_table_keeps_its_schema_version() {
                 2,
                 json!({ "id": 1, "name": "Flat 1", "floor": 3 })
             )]
+        );
+    })
+    .await;
+}
+
+fn baseline(table: &str, reason: &str, state: &str) -> (String, String, String) {
+    (table.to_string(), reason.to_string(), state.to_string())
+}
+
+/// The first install requests the table's opt-in baseline in the transaction
+/// that records its shape; the relay (not the install) runs it.
+#[tokio::test]
+async fn a_first_install_requests_an_opt_in_baseline() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        s.install(vec![table("leases", &["contact_email"])])
+            .await
+            .expect("install capture on leases");
+        assert_eq!(
+            s.baselines().await,
+            [baseline("leases", "opt_in", "requested")]
+        );
+    })
+    .await;
+}
+
+/// A reshape requests a baseline too. The opt-in request nothing has begun is
+/// still `requested`, and covers the new shape, so a second request coalesces
+/// into it.
+#[tokio::test]
+async fn a_reshape_requests_a_baseline() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        s.install(vec![table("leases", &["contact_email"])])
+            .await
+            .expect("install capture on leases");
+        s.writer_exec("alter table leases add column floor int")
+            .await;
+        let reshaped = s
+            .install(vec![table("leases", &["contact_email"])])
+            .await
+            .expect("install the new shape");
+        assert_eq!(reshaped.reshaped, ["leases"]);
+        assert_eq!(
+            s.baselines().await,
+            [baseline("leases", "opt_in", "requested")]
+        );
+    })
+    .await;
+}
+
+/// A baseline already copying when the shape changes copied the old shape: the
+/// reshape abandons it and requests another.
+#[tokio::test]
+async fn a_reshape_after_a_begun_baseline_abandons_it_and_requests_again() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        s.install(vec![table("leases", &["contact_email"])])
+            .await
+            .expect("install capture on leases");
+        s.owner()
+            .await
+            .batch_execute(
+                "UPDATE oxy_changes.baselines SET state = 'copying', begun_at = now() \
+                 WHERE state = 'requested'",
+            )
+            .await
+            .expect("begin the first baseline");
+        s.writer_exec("alter table leases add column floor int")
+            .await;
+        s.install(vec![table("leases", &["contact_email"])])
+            .await
+            .expect("install the new shape");
+        assert_eq!(
+            s.baselines().await,
+            [
+                baseline("leases", "opt_in", "abandoned"),
+                baseline("leases", "reshape", "requested"),
+            ]
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn an_unchanged_reinstall_requests_nothing() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        let declared = || vec![table("leases", &["contact_email"])];
+        s.install(declared()).await.expect("install capture");
+        s.owner()
+            .await
+            .batch_execute("UPDATE oxy_changes.baselines SET state = 'complete'")
+            .await
+            .expect("finish the baseline");
+        let again = s.install(declared()).await.expect("install it again");
+        assert!(again.is_empty(), "{again:?}");
+        assert_eq!(
+            s.baselines().await,
+            [baseline("leases", "opt_in", "complete")]
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_removed_table_abandons_its_open_baseline() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        s.install(vec![table("leases", &[])])
+            .await
+            .expect("install capture on leases");
+        let removed = s.install(vec![]).await.expect("remove capture");
+        assert_eq!(removed.removed, ["leases"]);
+        assert_eq!(
+            s.baselines().await,
+            [baseline("leases", "opt_in", "abandoned")]
+        );
+    })
+    .await;
+}
+
+/// Removed, then declared again with its shape unchanged (so no new `shapes`
+/// row): it is `New`, so it is baselined again.
+#[tokio::test]
+async fn a_table_declared_again_is_baselined_again() {
+    with_store(|s| async move {
+        s.provision(LEASES).await;
+        s.load_flags(true).await;
+        s.install(vec![table("leases", &[])])
+            .await
+            .expect("install capture on leases");
+        s.install(vec![]).await.expect("remove capture");
+        s.install(vec![table("leases", &[])])
+            .await
+            .expect("declare it again");
+        assert_eq!(
+            s.baselines().await,
+            [
+                baseline("leases", "opt_in", "abandoned"),
+                baseline("leases", "opt_in", "requested"),
+            ]
         );
     })
     .await;

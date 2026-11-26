@@ -32,6 +32,7 @@
 //! again in the way that looks green.
 
 mod branches_local;
+mod changes_baseline;
 mod changes_branch;
 mod changes_capture;
 mod changes_casts;

@@ -236,3 +236,37 @@ async fn step_nine_applies_twice() {
     third.expect("and a third");
     assert_eq!(progress, Ok(1), "the progress table exists");
 }
+
+/// Step 10's statements alone, for this fixture's database.
+fn step_ten(fx: &Fixture) -> Vec<String> {
+    steps_since(9, "local", &fx.database)
+        .expect("platform sql")
+        .into_iter()
+        .filter(|step| step.version == 10)
+        .flat_map(|step| step.statements)
+        .collect()
+}
+
+#[tokio::test]
+async fn step_ten_applies_twice() {
+    let Some(fx) = Fixture::create("changes_step_ten").await else {
+        return;
+    };
+    let statements = step_ten(&fx);
+    let second = PgSqlExecutor
+        .execute_batch(&fx.owner_dsn, &statements)
+        .await;
+    let third = PgSqlExecutor
+        .execute_batch(&fx.owner_dsn, &statements)
+        .await;
+    let baselines = owner_scalar(
+        &fx,
+        "SELECT (to_regclass('oxy_changes.baselines') IS NOT NULL)::int::bigint",
+    )
+    .await;
+    fx.cleanup(&[]).await;
+
+    second.expect("step 10 runs a second time");
+    third.expect("and a third");
+    assert_eq!(baselines, Ok(1), "the baselines table exists");
+}

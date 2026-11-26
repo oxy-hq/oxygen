@@ -5,12 +5,15 @@
 //! - **Grouped by table**, each table planned from **every** shape recorded
 //!   for it, not only the ones the batch's rows use: a rename between two
 //!   shapes must not slip through as a new column.
+//! - **Snapshot rows ship like changes,** as `_op = 'snapshot'`. A `b` or `c`
+//!   marker goes only to `_baselines`, never to the change table; a `c` whose
+//!   image has no integer `begin_seq` holds the table.
 //! - **A row with op `t` needs no shape.** A table without shapes (dropped,
 //!   or no longer captured) plans from none when its rows are all truncates;
 //!   any other row of it holds the table.
 //! - **A table that cannot ship is refused whole**, with the reason it is
 //!   held for, and its rows stay in the log: an [`Unsupported`] plan, a row
-//!   without a shape for its `schema_version`, an op outside `i u d t`, an
+//!   without a shape for its `schema_version`, an op outside `i u d t s b c`, an
 //!   image that is not one, or a value [`insert_statements`] cannot render.
 //!   The writer's other tables ship.
 //! - **Each row's MAC is verified** (`oltp_changes::provenance`). A verified
@@ -26,7 +29,9 @@ use uuid::Uuid;
 
 use crate::oltp_changes::provenance::ChangeSigner;
 use crate::oltp_changes::relay::PRODUCTION;
-use crate::oltp_changes::relay::render::{ShipRow, insert_statements, parse_image};
+use crate::oltp_changes::relay::render::{
+    Marker, MarkerKind, ShipRow, baselines_insert_sql, insert_statements, parse_image,
+};
 use crate::oltp_changes::relay::table::{ChangeTable, ShapeVersion};
 
 /// The actor a change ships as when its MAC does not verify.
@@ -43,11 +48,21 @@ pub(super) struct Source<'a> {
 }
 
 /// A table ready to ship: its plan, its `INSERT`s (at least one, each of at
-/// most [`INSERT_ROWS`](crate::oltp_changes::relay::INSERT_ROWS) rows) and
-/// the `seq`s they write, every one of them.
+/// most [`INSERT_ROWS`](crate::oltp_changes::relay::INSERT_ROWS) rows, and
+/// the table's `_baselines` one when it has markers) and the `seq`s they
+/// write, every one of them.
 #[derive(Debug)]
 pub(super) struct Ready {
     pub table: ChangeTable,
+    /// The newest shape recorded for the table; the current-state view follows
+    /// it. None when no shape is known.
+    pub latest: Option<ShapeVersion>,
+    /// The shape version of the baseline the batch completes, when it carries
+    /// a `c` marker (the last, if several): the view is made again, keyed by
+    /// that version's key, since a reshape baseline may follow a key change.
+    pub completes_baseline: Option<i32>,
+    /// Each recorded shape version's primary key, for the view's key.
+    pub keys: BTreeMap<i32, Vec<String>>,
     pub inserts: Vec<String>,
     pub seqs: Vec<i64>,
 }
@@ -106,7 +121,9 @@ fn plan_table(
     verify: &impl Fn(&ChangeSigner<'_>, Option<&[u8]>) -> bool,
 ) -> Result<Ready, String> {
     for row in rows {
-        op_name(row.op).ok_or_else(|| unknown_op(row))?;
+        if op_name(row.op).is_none() && !matches!(row.op, 'b' | 'c') {
+            return Err(unknown_op(row));
+        }
         let shaped = versions
             .iter()
             .any(|v| v.schema_version == row.schema_version);
@@ -118,12 +135,13 @@ fn plan_table(
         }
     }
     let plan = ChangeTable::plan(table, versions).map_err(|e| e.to_string())?;
-    let ship = rows
-        .iter()
-        .map(|row| ship_row(row, source, verify))
-        .collect::<Result<Vec<_>, _>>()?;
-    let inserts = insert_statements(source.writer, &plan, source.generation, &ship)
+    let (changes, markers) = split(rows, source, verify)?;
+    let mut inserts = insert_statements(source.writer, &plan, source.generation, &changes)
         .map_err(|e| e.to_string())?;
+    let baselines = baselines_insert_sql(source.writer, source.generation, &markers);
+    if !baselines.is_empty() {
+        inserts.push(baselines);
+    }
     // A table is ready only with `INSERT`s that write its `seq`s: they are
     // confirmed and deleted once the batch commits.
     if inserts.is_empty() {
@@ -131,14 +149,76 @@ fn plan_table(
     }
     Ok(Ready {
         table: plan,
+        completes_baseline: markers
+            .iter()
+            .filter(|m| m.kind == MarkerKind::Complete)
+            .max_by_key(|m| m.seq)
+            .map(|m| m.schema_version),
+        keys: versions
+            .iter()
+            .map(|v| (v.schema_version, v.primary_key.clone()))
+            .collect(),
+        latest: versions.iter().max_by_key(|v| v.schema_version).cloned(),
         inserts,
         seqs: rows.iter().map(|row| row.seq).collect(),
     })
 }
 
-/// The `_op` a log row's op ships as; `None` for one outside `i u d t`.
+/// `rows` as the change rows and the baseline markers they hold.
+fn split(
+    rows: &[LogRow],
+    source: Source<'_>,
+    verify: &impl Fn(&ChangeSigner<'_>, Option<&[u8]>) -> bool,
+) -> Result<(Vec<ShipRow>, Vec<Marker>), String> {
+    let mut changes = Vec::new();
+    let mut markers = Vec::new();
+    for row in rows {
+        match marker(row)? {
+            Some(marker) => markers.push(marker),
+            None => changes.push(ship_row(row, source, verify)?),
+        }
+    }
+    Ok((changes, markers))
+}
+
+/// `row` as a baseline marker; `None` for any other op. A begin is its own
+/// `begin_seq`; a complete names its begin in its image.
+fn marker(row: &LogRow) -> Result<Option<Marker>, String> {
+    let (kind, begin_seq) = match row.op {
+        'b' => (MarkerKind::Begin, row.seq),
+        'c' => (MarkerKind::Complete, completed_begin(row)?),
+        _ => return Ok(None),
+    };
+    Ok(Some(Marker {
+        table: row.table_name.clone(),
+        seq: row.seq,
+        kind,
+        begin_seq,
+        schema_version: row.schema_version,
+        marked_at: row.changed_at,
+    }))
+}
+
+/// The `begin_seq` of a `c` row's image.
+fn completed_begin(row: &LogRow) -> Result<i64, String> {
+    let begin = row
+        .row_image
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .and_then(|image| image.get("begin_seq")?.as_i64());
+    begin.ok_or_else(|| {
+        format!(
+            "seq {}: a complete marker without an integer begin_seq",
+            row.seq
+        )
+    })
+}
+
+/// The `_op` a log row's op ships as; `None` for one outside `i u d t s`, and
+/// for the markers `b` and `c`, which are not changes.
 fn op_name(op: char) -> Option<&'static str> {
     match op {
+        's' => Some("snapshot"),
         'i' => Some("insert"),
         'u' => Some("update"),
         'd' => Some("delete"),
@@ -151,7 +231,7 @@ fn unknown_op(row: &LogRow) -> String {
     format!("seq {}: unknown op {:?}", row.seq, row.op)
 }
 
-/// `row` ready to render. An insert or an update carries the new row, a
+/// `row` ready to render. An insert, an update or a snapshot carries the new row, a
 /// delete the old one, each as its image; a truncate carries none.
 fn ship_row(
     row: &LogRow,

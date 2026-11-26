@@ -42,6 +42,7 @@ use crate::platform::{CHANGES_SHAPES_TABLE, CHANGES_STREAM_TABLE, CHANGES_TABLES
 use crate::roles::quote_literal;
 use crate::schema::{SchemaError, WriterRef, quote_ident, validate_name};
 
+use super::baseline::{BaselineReason, abandon_baselines_sql, request_baseline_sql};
 use super::capture::{self, Op};
 use super::image::{OWNER_TRANSACTION_PIN_SQL, image_sql};
 use super::shape::CaptureShape;
@@ -82,10 +83,15 @@ const TRIGGER_PREFIX: &str = "oxy_capture_";
 /// `SET LOCAL`). `writer_role` is the writer's real role name (qualified on a
 /// shared-cluster provider), the one `EXECUTE` is granted to; `image_role` is
 /// [`super::image_role_for`] the writer, the role that builds its images.
+/// `baseline` is why the table needs a fresh baseline, if it does: its
+/// request goes in after the `shapes` row, in the same transaction, so a
+/// reshape's request cannot be lost (design §5.2). Both rows it reads are
+/// written before it.
 pub fn owner_install_sql(
     spec: &CaptureSpec<'_>,
     writer_role: &str,
     image_role: &str,
+    baseline: Option<BaselineReason>,
 ) -> Result<Vec<String>, SchemaError> {
     let target = Target::of(spec)?;
     validate_name(writer_role)?;
@@ -129,6 +135,9 @@ pub fn owner_install_sql(
             excluded = text_array(&spec.capture.excluded()),
         ),
     ]);
+    if let Some(reason) = baseline {
+        sql.extend(request_baseline_sql(relid, reason));
+    }
     for op in Op::ALL {
         let function = target.function(op);
         sql.push(format!(
@@ -197,8 +206,8 @@ pub fn writer_uninstall_sql(schema: &str, table: &str) -> Vec<String> {
         .collect()
 }
 
-/// Step 3 of a removal, as the owner: the four functions, then the `tables`
-/// row. The `shapes` rows stay. No `CASCADE`: a function a trigger still
+/// Step 3 of a removal, as the owner: the four functions, the table's open
+/// baselines abandoned, then the `tables` row. The `shapes` rows stay. No `CASCADE`: a function a trigger still
 /// calls means step 2 did not run, and dropping it would leave that trigger
 /// failing every write.
 pub fn owner_drop_sql(relid: u32, schema: &str) -> Vec<String> {
@@ -212,6 +221,7 @@ pub fn owner_drop_sql(relid: u32, schema: &str) -> Vec<String> {
             )
         })
         .collect();
+    sql.push(abandon_baselines_sql(relid));
     sql.push(format!(
         "DELETE FROM {CHANGES_TABLES_TABLE} WHERE relid = {relid}::oid"
     ));

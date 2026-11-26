@@ -169,6 +169,12 @@ pub enum DeclError {
     )]
     ReservedColumn { table: String, column: String },
     #[error(
+        "oltpChanges table \"{table}\" has a name the change stream keeps for its own \
+         relations in oltp_<writer> (`_progress`, `_baselines` and names ending `__changes`): \
+         rename the table in a migration, or remove it from oltpChanges.tables"
+    )]
+    ReservedTable { table: String },
+    #[error(
         "oltpChanges table \"{table}\" excludes \"{column}\", which is not one of its \
          columns: correct the name, or remove it from exclude"
     )]
@@ -180,6 +186,14 @@ pub enum DeclError {
     ExcludesKey { table: String, column: String },
 }
 
+/// Whether `name` is one of the relations the relay owns in `oltp_<writer>`:
+/// `_progress`, `_baselines` or `<x>__changes`, compared without case as
+/// DuckDB's identifiers are.
+fn reserved_table(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name == "_progress" || name == "_baselines" || name.ends_with("__changes")
+}
+
 /// Whether `decl` can be captured as `shape` stands, and if so what its
 /// capture copies. The first fault found is the one reported.
 pub fn validate(
@@ -188,6 +202,9 @@ pub fn validate(
 ) -> Result<CaptureShape, DeclError> {
     let table = || decl.name.clone();
     let shape = shape.ok_or_else(|| DeclError::Missing { table: table() })?;
+    if reserved_table(&decl.name) {
+        return Err(DeclError::ReservedTable { table: table() });
+    }
     if shape.primary_key.is_empty() {
         return Err(DeclError::NoPrimaryKey { table: table() });
     }

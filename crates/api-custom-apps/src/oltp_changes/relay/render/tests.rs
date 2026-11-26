@@ -13,7 +13,9 @@ use super::{
 use crate::oltp_changes::relay::table::{ChangeTable, DuckType, ShapeVersion};
 
 mod chunked;
+mod markers;
 mod typed;
+mod view;
 
 use typed::{TYPED, TZ, typed_rows, typed_texts};
 
@@ -33,6 +35,7 @@ fn plan(table: &str, versions: &[(i32, &[(i16, &str, &str)])]) -> ChangeTable {
                     type_name: ty.to_string(),
                 })
                 .collect(),
+            primary_key: Vec::new(),
         })
         .collect();
     ChangeTable::plan(table, &versions).expect("a plan")
@@ -62,7 +65,7 @@ fn raw(json: &str) -> Box<RawValue> {
     RawValue::from_string(json.to_string()).expect("JSON")
 }
 
-/// An in-memory DuckDB with `WRITER`'s schema and `_progress`.
+/// An in-memory DuckDB with `WRITER`'s schema, `_progress` and `_baselines`.
 fn duck() -> Connection {
     let conn = Connection::open_in_memory().expect("an in-memory DuckDB");
     run(&conn, &ensure_schema_ddl(WRITER));

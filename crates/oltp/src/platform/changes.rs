@@ -23,9 +23,9 @@
 //! local provider), and the step succeeds either way.
 
 use super::{
-    CHANGES_BATCH_SEQUENCE, CHANGES_LOG_TABLE, CHANGES_PROGRESS_TABLE, CHANGES_SCHEMA,
-    CHANGES_SEQUENCE, CHANGES_SHAPES_TABLE, CHANGES_STREAM_TABLE, CHANGES_TABLES_TABLE,
-    PlatformStep,
+    CHANGES_BASELINES_TABLE, CHANGES_BATCH_SEQUENCE, CHANGES_LOG_TABLE, CHANGES_PROGRESS_TABLE,
+    CHANGES_SCHEMA, CHANGES_SEQUENCE, CHANGES_SHAPES_TABLE, CHANGES_STREAM_TABLE,
+    CHANGES_TABLES_TABLE, PlatformStep,
 };
 
 mod guard;
@@ -123,6 +123,49 @@ pub(super) fn relay_step() -> PlatformStep {
     }
 }
 
+/// Step 10: the store's baselines. `baselines` records each request for a
+/// table's baseline and how far its copy has got; at most one is requested and
+/// one copying per table. `stream.guardless_since` records when the store
+/// began running without its DDL guard. Nothing is revoked: the schema's
+/// revokes from step 8 already cover new objects.
+pub(super) fn baselines_step() -> PlatformStep {
+    PlatformStep {
+        version: 10,
+        description: "the store's baselines and when it went without the DDL guard",
+        statements: vec![
+            format!(
+                "CREATE TABLE IF NOT EXISTS {CHANGES_BASELINES_TABLE} (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  relid oid NOT NULL,
+  writer text NOT NULL,
+  table_name text NOT NULL,
+  generation bigint NOT NULL,
+  reason text NOT NULL,
+  state text NOT NULL CHECK (state IN ('requested', 'copying', 'complete', 'abandoned')),
+  schema_version int,
+  begin_seq bigint,
+  last_key jsonb,
+  copied bigint NOT NULL DEFAULT 0,
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  begun_at timestamptz,
+  completed_at timestamptz,
+  attempts int NOT NULL DEFAULT 0,
+  retry_at timestamptz,
+  view_pending boolean NOT NULL DEFAULT false)"
+            ),
+            format!(
+                "CREATE UNIQUE INDEX IF NOT EXISTS baselines_requested ON {CHANGES_BASELINES_TABLE} (relid) WHERE state = 'requested'"
+            ),
+            format!(
+                "CREATE UNIQUE INDEX IF NOT EXISTS baselines_copying ON {CHANGES_BASELINES_TABLE} (relid) WHERE state = 'copying'"
+            ),
+            format!(
+                "ALTER TABLE {CHANGES_STREAM_TABLE} ADD COLUMN IF NOT EXISTS guardless_since timestamptz"
+            ),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::platform::{CHANGES_SEQUENCE, PLATFORM_SCHEMA_VERSION, platform_steps};
@@ -135,12 +178,49 @@ mod tests {
     }
 
     #[test]
-    fn step_nine_is_the_last_step() {
+    fn step_ten_is_the_last_step() {
         let steps = platform_steps("neon", "neondb").unwrap();
         assert_eq!(steps[7].version, 8);
         assert_eq!(steps[8].version, 9);
-        assert_eq!(steps.len(), 9);
-        assert_eq!(PLATFORM_SCHEMA_VERSION, 9);
+        assert_eq!(steps[9].version, 10);
+        assert_eq!(steps.len(), 10);
+        assert_eq!(PLATFORM_SCHEMA_VERSION, 10);
+    }
+
+    #[test]
+    fn step_ten_adds_baselines_and_guardless_since() {
+        let step = platform_steps("local", "oxy_org_x").unwrap().remove(9);
+        assert_eq!(step.version, 10);
+        let expected = [
+            "CREATE TABLE IF NOT EXISTS oxy_changes.baselines (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  relid oid NOT NULL,
+  writer text NOT NULL,
+  table_name text NOT NULL,
+  generation bigint NOT NULL,
+  reason text NOT NULL,
+  state text NOT NULL CHECK (state IN ('requested', 'copying', 'complete', 'abandoned')),
+  schema_version int,
+  begin_seq bigint,
+  last_key jsonb,
+  copied bigint NOT NULL DEFAULT 0,
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  begun_at timestamptz,
+  completed_at timestamptz,
+  attempts int NOT NULL DEFAULT 0,
+  retry_at timestamptz,
+  view_pending boolean NOT NULL DEFAULT false)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS baselines_requested ON oxy_changes.baselines (relid) WHERE state = 'requested'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS baselines_copying ON oxy_changes.baselines (relid) WHERE state = 'copying'",
+            "ALTER TABLE oxy_changes.stream ADD COLUMN IF NOT EXISTS guardless_since timestamptz",
+        ];
+        for statement in expected {
+            assert!(
+                step.statements.iter().any(|s| s == statement),
+                "missing {statement}: {:?}",
+                step.statements
+            );
+        }
     }
 
     #[test]

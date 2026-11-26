@@ -20,6 +20,14 @@
 //!   Airhouse holds the writer; the relay is inert outside production and
 //!   with the flag off; a store where capture was never installed drains its
 //!   mark.
+//! - `baselines`: an install's baseline copies the rows already there, and a
+//!   reshape's carries a backfill; a copy paced by its backlog resumes at its
+//!   cursor; writes during a copy win over its snapshots; markers land once
+//!   after a pass that died; a held table's baseline waits.
+//!
+//! Every install now requests a baseline, so a test that installs capture
+//! calls [`Relay::settle`] right after, and the behaviour under test starts
+//! from a stream with nothing open and nothing waiting.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -34,10 +42,12 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use crate::oltp_changes_fixture::{App, with_app};
 
+mod baselines;
 mod ceiling;
 mod delivery;
 mod duck;
 mod guards;
+mod inspect;
 mod shapes;
 
 use duck::DuckSink;

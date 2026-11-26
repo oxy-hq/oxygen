@@ -31,10 +31,18 @@ pub use self::literal::literal;
 use super::INSERT_ROWS;
 use super::table::{ChangeTable, DuckType};
 
+mod baselines;
 mod literal;
+
+pub use self::baselines::{
+    Marker, MarkerKind, baselines_insert_sql, latest_complete_sql, view_columns, view_ddl,
+};
 
 /// The schema's progress table: the last batch shipped, one row.
 pub const PROGRESS_TABLE: &str = "_progress";
+
+/// The schema's baseline markers, one row per `b` or `c` log row.
+pub const BASELINES_TABLE: &str = "_baselines";
 
 /// The types of [`RESERVED_COLUMNS`], in their order: `_generation`, `_seq`,
 /// `_txid`, `_op`, `_changed_at`, `_actor`, `_invocation_id`.
@@ -54,7 +62,7 @@ pub struct ShipRow {
     pub generation: i64,
     pub seq: i64,
     pub txid: u64,
-    /// The `_op` written: `insert`, `update`, `delete` or `truncate`.
+    /// The `_op` written: `insert`, `update`, `delete`, `truncate` or `snapshot`.
     pub op: &'static str,
     pub changed_at: DateTime<Utc>,
     /// The verified actor, or `unverified`.
@@ -120,7 +128,8 @@ fn changes_table(writer: &str, table: &ChangeTable) -> String {
     qualified(writer, &changes_table_name(&table.table))
 }
 
-/// The schema and its `_progress` table, each made only when missing.
+/// The schema, its `_progress` and its `_baselines` table, each made only when
+/// missing.
 pub fn ensure_schema_ddl(writer: &str) -> Vec<String> {
     vec![
         format!(
@@ -132,6 +141,7 @@ pub fn ensure_schema_ddl(writer: &str) -> Vec<String> {
              shipped_at TIMESTAMPTZ NOT NULL)",
             qualified(writer, PROGRESS_TABLE)
         ),
+        baselines::baselines_ddl(writer),
     ]
 }
 

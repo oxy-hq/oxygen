@@ -7,16 +7,16 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use oxy_oltp::changes::{
     CONFIRM_SQL, Column, DECLARE_INTENT_SQL, DELETE_SHIPPED_SQL, LogRow, OLDER_GENERATION_SQL,
-    PROGRESS_SQL, READ_BATCH_SQL, SHAPES_SQL, STREAM_SQL, StreamState, TRANSACTION_ROWS_SQL,
-    WAITING_SQL,
+    PENDING_VIEWS_SQL, PROGRESS_SQL, READ_BATCH_SQL, SHAPES_SQL, STREAM_SQL, StreamState,
+    TRANSACTION_ROWS_SQL, VIEW_PENDING_SQL, VIEW_RENDERED_SQL, WAITING_SQL, pin_session_sql,
 };
 use sea_orm::DatabaseConnection;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client, Row, Transaction};
 use uuid::Uuid;
 
-use super::Limits;
 use super::table::ShapeVersion;
+use super::{BASELINE_STATEMENT_TIMEOUT, BEGIN_LOCK_TIMEOUT, Limits};
 use crate::oltp_changes::owner::{current_tenant, owner_client};
 
 /// A writer with changes waiting in the current generation.
@@ -47,18 +47,30 @@ pub(super) enum Next {
     Over { rows: i64 },
 }
 
-fn pg(doing: &str) -> impl Fn(tokio_postgres::Error) -> String + '_ {
+/// A failed statement as `doing` and the server's own message.
+pub(super) fn pg(doing: &str) -> impl Fn(tokio_postgres::Error) -> String + '_ {
     move |e| format!("{doing}: {}", oxy_oltp::connect::pg_detail(&e))
+}
+
+/// The org's store, open as its owner.
+pub(super) struct Opened {
+    pub owner: Client,
+    /// The store's database, which alarms name.
+    pub database: String,
 }
 
 /// The org's store as its owner, brought current. `None` when the org has
 /// none, it is not active, or it never reached the step that creates
 /// `oxy_changes`: nothing was ever captured there.
-pub(super) async fn open(db: &DatabaseConnection, org_id: Uuid) -> Result<Option<Client>, String> {
+pub(super) async fn open(db: &DatabaseConnection, org_id: Uuid) -> Result<Option<Opened>, String> {
     let Some(tenant) = current_tenant(db, org_id, false).await? else {
         return Ok(None);
     };
-    owner_client(&tenant, "oxy_changes relay").await.map(Some)
+    let owner = owner_client(&tenant, "oxy_changes relay").await?;
+    Ok(Some(Opened {
+        owner,
+        database: tenant.database_name,
+    }))
 }
 
 /// The stream's row; `None` where capture was never installed.
@@ -137,26 +149,30 @@ pub(super) async fn shapes(
         .map_err(pg(doing))?;
     let mut shapes: HashMap<String, Vec<ShapeVersion>> = HashMap::new();
     for row in &rows {
-        let (table, schema_version, columns, excluded) = shape_row(row).map_err(pg(doing))?;
+        let (table, schema_version, columns, excluded, primary_key) =
+            shape_row(row).map_err(pg(doing))?;
         let captured = captured(&columns, &excluded)
             .map_err(|e| format!("{doing}: {table:?} v{schema_version}: {e}"))?;
         shapes.entry(table).or_default().push(ShapeVersion {
             schema_version,
             captured,
+            primary_key,
         });
     }
     Ok(shapes)
 }
 
-/// A row of `SHAPES_SQL`: `table_name, schema_version, columns, excluded`.
+/// A row of `SHAPES_SQL`: `table_name, schema_version, columns, excluded,
+/// primary_key`.
 fn shape_row(
     row: &tokio_postgres::Row,
-) -> Result<(String, i32, String, Vec<String>), tokio_postgres::Error> {
+) -> Result<(String, i32, String, Vec<String>, Vec<String>), tokio_postgres::Error> {
     Ok((
         row.try_get("table_name")?,
         row.try_get("schema_version")?,
         row.try_get("columns")?,
         row.try_get("excluded")?,
+        row.try_get("primary_key")?,
     ))
 }
 
@@ -290,31 +306,116 @@ async fn transaction_rows(
     row.try_get(0).map_err(pg(doing))
 }
 
-/// In one transaction: record `batch` shipped, then delete exactly the
-/// `seqs` it shipped. `false`, with nothing deleted, when the writer's
-/// intent is no longer `batch`: the store was rewound under the relay.
+/// A batch to confirm: its number and generation, the `seqs` it shipped,
+/// and the tables whose current-state views it needs made.
+pub(super) struct Confirming<'a> {
+    pub batch: i64,
+    pub generation: i64,
+    pub seqs: &'a [i64],
+    pub views: &'a [String],
+}
+
+/// In one transaction: record the batch shipped, delete exactly the `seqs`
+/// it shipped, and flag its views pending ([`VIEW_PENDING_SQL`]), so a pass
+/// that dies before making them leaves them for the next. `None`, with
+/// nothing deleted, when the writer's intent is no longer the batch: the
+/// store was rewound under the relay. Otherwise whether the flags failed:
+/// they never stop the confirm.
 pub(super) async fn confirm_and_delete(
     owner: &mut Client,
     writer: &str,
-    batch: i64,
-    generation: i64,
-    seqs: &[i64],
-) -> Result<bool, String> {
+    batch: &Confirming<'_>,
+) -> Result<Option<Result<(), String>>, String> {
     let doing = "confirm the batch and delete what it shipped";
-    let txn = owner.transaction().await.map_err(pg(doing))?;
+    let mut txn = owner.transaction().await.map_err(pg(doing))?;
     let confirmed = txn
-        .execute(CONFIRM_SQL, &[&writer, &batch])
+        .execute(CONFIRM_SQL, &[&writer, &batch.batch])
         .await
         .map_err(pg(doing))?;
     if confirmed != 1 {
         txn.rollback().await.map_err(pg(doing))?;
-        return Ok(false);
+        return Ok(None);
     }
-    txn.execute(DELETE_SHIPPED_SQL, &[&generation, &seqs])
+    txn.execute(DELETE_SHIPPED_SQL, &[&batch.generation, &batch.seqs])
         .await
         .map_err(pg(doing))?;
+    let flagged = flag_views(&mut txn, writer, batch.views).await;
     txn.commit().await.map_err(pg(doing))?;
-    Ok(true)
+    Ok(Some(flagged))
+}
+
+/// Flag `views` pending inside `txn`, under a savepoint: a failure flags
+/// none, and leaves the transaction to commit.
+async fn flag_views(
+    txn: &mut Transaction<'_>,
+    writer: &str,
+    views: &[String],
+) -> Result<(), String> {
+    if views.is_empty() {
+        return Ok(());
+    }
+    let doing = "record the batch's views pending";
+    let point = txn.savepoint("views").await.map_err(pg(doing))?;
+    for table in views {
+        if let Err(e) = point.execute(VIEW_PENDING_SQL, &[&writer, table]).await {
+            point.rollback().await.map_err(pg(doing))?;
+            return Err(pg(doing)(e));
+        }
+    }
+    point.commit().await.map_err(pg(doing))
+}
+
+/// Every table whose current-state view waits to be made again
+/// ([`PENDING_VIEWS_SQL`]), as `(writer, table)`.
+pub(super) async fn pending_views(owner: &Client) -> Result<Vec<(String, String)>, String> {
+    let doing = "read the views left pending";
+    let rows = owner
+        .query(PENDING_VIEWS_SQL, &[])
+        .await
+        .map_err(pg(doing))?;
+    rows.iter()
+        .map(|row| Ok((row.try_get("writer")?, row.try_get("table_name")?)))
+        .collect::<Result<_, tokio_postgres::Error>>()
+        .map_err(pg(doing))
+}
+
+/// Flag `writer`'s `table`'s current-state view as pending
+/// ([`VIEW_PENDING_SQL`]).
+pub(super) async fn view_pending(
+    owner: &mut Client,
+    writer: &str,
+    table: &str,
+) -> Result<(), String> {
+    let doing = "record the current-state view pending";
+    pinned_update(owner, doing, VIEW_PENDING_SQL, writer, table).await
+}
+
+/// Clear `writer`'s `table`'s pending view flag ([`VIEW_RENDERED_SQL`]).
+pub(super) async fn view_rendered(
+    owner: &mut Client,
+    writer: &str,
+    table: &str,
+) -> Result<(), String> {
+    let doing = "record the current-state view made";
+    pinned_update(owner, doing, VIEW_RENDERED_SQL, writer, table).await
+}
+
+/// `sql` (`$1 writer, $2 table`) as the owner, one statement in a
+/// transaction pinned as a baseline's steps are ([`pin_session_sql`]).
+async fn pinned_update(
+    owner: &mut Client,
+    doing: &str,
+    sql: &str,
+    writer: &str,
+    table: &str,
+) -> Result<(), String> {
+    let txn = owner.transaction().await.map_err(pg(doing))?;
+    let pin = pin_session_sql(BEGIN_LOCK_TIMEOUT, BASELINE_STATEMENT_TIMEOUT);
+    txn.batch_execute(&pin).await.map_err(pg(doing))?;
+    txn.execute(sql, &[&writer, &table])
+        .await
+        .map_err(pg(doing))?;
+    txn.commit().await.map_err(pg(doing))
 }
 
 #[cfg(test)]

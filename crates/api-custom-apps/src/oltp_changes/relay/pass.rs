@@ -5,6 +5,8 @@
 //! - `target`: the writer's app and its workspace Airhouse (step 2).
 //! - `plan`: a batch's rows planned table by table (step 5).
 //! - `airhouse`: the batch's Airhouse side (steps 3, 6 and 7).
+//! - `views`: the current-state views made after a batch's write, and those
+//!   an earlier render left pending.
 
 use std::ops::ControlFlow;
 use std::time::Instant;
@@ -26,6 +28,9 @@ use crate::oltp_changes::provenance::{self, ChangeSigner};
 mod airhouse;
 mod plan;
 mod target;
+mod views;
+
+pub(super) use self::views::rerender_pending;
 
 use self::plan::{Ready, Refused};
 use self::target::Target;
@@ -35,6 +40,8 @@ pub(super) struct Pass<'a> {
     pub db: &'a DatabaseConnection,
     pub org_id: Uuid,
     pub environment: &'a str,
+    /// The store's database, which alarms name.
+    pub database: &'a str,
     pub lease: &'a Lease,
     pub limits: &'a Limits,
     /// When the pass's budget runs out: no batch starts after it.
@@ -181,15 +188,23 @@ async fn ship_batch(
             full,
         });
     }
-    write(pass, target, read.batch, &planned.ready).await?;
+    let views = write(pass, target, read.batch, &planned.ready).await?;
     let seqs: Vec<i64> = planned
         .ready
         .iter()
         .flat_map(|table| table.seqs.iter().copied())
         .collect();
-    if !confirm(pass, owner, target, read.batch, &seqs).await? {
+    let tables: Vec<String> = views.iter().map(|v| v.table.clone()).collect();
+    let confirming = store::Confirming {
+        batch: read.batch,
+        generation: pass.generation,
+        seqs: &seqs,
+        views: &tables,
+    };
+    if !confirm(pass, owner, target, &confirming).await? {
         return Ok(Batch::Rewound);
     }
+    views::after_confirm(pass, owner, target, &views).await?;
     let shipped = seqs.len() as u64;
     Ok(Batch::Done {
         shipped,
@@ -337,20 +352,30 @@ async fn hold(
 }
 
 /// Steps 6 and 7, each after renewing the lease: the DDL as Admin, then the
-/// batch's one DuckLake transaction as Writer. Each Airhouse call is bounded
-/// ([`SINK_TIMEOUT`](super::SINK_TIMEOUT)), so neither outlasts the lease.
-async fn write(pass: &Pass<'_>, target: &Target, batch: i64, ready: &[Ready]) -> Result<(), Stop> {
+/// batch's one DuckLake transaction as Writer. Returns the current-state
+/// views the batch needs, made only once it is confirmed (`views`). Each
+/// Airhouse call is bounded ([`SINK_TIMEOUT`](super::SINK_TIMEOUT)), so none
+/// outlasts the lease.
+async fn write(
+    pass: &Pass<'_>,
+    target: &Target,
+    batch: i64,
+    ready: &[Ready],
+) -> Result<Vec<airhouse::PendingView>, Stop> {
     renew(pass).await?;
-    airhouse::ddl(pass.sink, target, ready)
+    let views = airhouse::ddl(pass.sink, target, ready)
         .await
         .map_err(Stop::Failed)?;
     renew(pass).await?;
     airhouse::write(pass.sink, target, pass.generation, batch, ready)
         .await
-        .map_err(Stop::Failed)
+        .map_err(Stop::Failed)?;
+    Ok(views)
 }
 
-async fn renew(pass: &Pass<'_>) -> Result<(), Stop> {
+/// Renew the pass's lease: a lost one, or one that cannot be renewed, stops
+/// the whole pass.
+pub(super) async fn renew(pass: &Pass<'_>) -> Result<(), Stop> {
     match marks::renew(pass.db, pass.lease, LEASE_TTL).await {
         Ok(true) => Ok(()),
         Ok(false) => Err(Stop::Abort(
@@ -360,20 +385,32 @@ async fn renew(pass: &Pass<'_>) -> Result<(), Stop> {
     }
 }
 
-/// Step 8: confirm `batch` and delete its `seqs`. `false` when the writer's
-/// intent is no longer `batch`: the store was rewound under the relay, or the
-/// lease lapsed and another relay declared its own batch. Nothing is deleted,
-/// and the next pass's restore check decides.
+/// Step 8: confirm the batch, delete its `seqs`, and flag the views it
+/// needs pending. `false` when the writer's intent is no longer the batch:
+/// the store was rewound under the relay, or the lease lapsed and another
+/// relay declared its own batch. Nothing is deleted, and the next pass's
+/// restore check decides. Flags that fail are logged, never fail the batch.
 async fn confirm(
     pass: &Pass<'_>,
     owner: &mut Client,
     target: &Target,
-    batch: i64,
-    seqs: &[i64],
+    confirming: &store::Confirming<'_>,
 ) -> Result<bool, Stop> {
-    let confirmed = store::confirm_and_delete(owner, &target.name, batch, pass.generation, seqs)
+    let batch = confirming.batch;
+    let confirmed = store::confirm_and_delete(owner, &target.name, confirming)
         .await
         .map_err(Stop::Failed)?;
+    if let Some(Err(error)) = &confirmed {
+        alarm!(
+            pass.environment,
+            org_id = %pass.org_id,
+            environment = pass.environment,
+            writer = %target.name,
+            %error,
+            "oltp_changes_view_failed"
+        );
+    }
+    let confirmed = confirmed.is_some();
     if !confirmed {
         tracing::warn!(
             org_id = %pass.org_id,

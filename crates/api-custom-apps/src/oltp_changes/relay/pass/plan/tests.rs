@@ -34,6 +34,7 @@ fn shape(schema_version: i32, captured: Vec<Column>) -> ShapeVersion {
     ShapeVersion {
         schema_version,
         captured,
+        primary_key: vec!["id".to_owned()],
     }
 }
 
@@ -242,6 +243,137 @@ fn an_unsigned_or_forged_row_ships_unverified() {
     row.provenance = Some(sign_keyed(&KEY, &signer(row.txid, "app_shop")).to_vec());
     row.actor = None;
     assert_eq!(attribution(&row, SOURCE, &verify), unverified);
+}
+
+/// A baseline's three ops of `orders`: its begin, one snapshot and its
+/// complete, which names the begin.
+fn baseline() -> Vec<LogRow> {
+    vec![
+        row(1, "orders", 'b', None),
+        row(2, "orders", 's', Some(r#"{"id": 1, "total": 12.50}"#)),
+        row(3, "orders", 'c', Some(r#"{"begin_seq": 1}"#)),
+    ]
+}
+
+#[test]
+fn a_snapshot_ships_as_snapshot_with_its_platform_actor() {
+    let mut snapshot = row(1, "orders", 's', Some(r#"{"id": 1, "total": 12.50}"#));
+    snapshot.actor = Some("platform".to_owned());
+    snapshot.provenance = Some(
+        sign_keyed(
+            &KEY,
+            &ChangeSigner {
+                txid: snapshot.txid,
+                environment: "production",
+                writer: "app_shop",
+                actor: "platform",
+                invocation: None,
+            },
+        )
+        .to_vec(),
+    );
+    assert_eq!(
+        attribution(&snapshot, SOURCE, &verify),
+        ("platform".to_owned(), None)
+    );
+    let planned = batch(vec![snapshot], &shapes());
+    assert!(planned.refused.is_empty(), "{:?}", planned.refused);
+    let insert = planned.ready[0].inserts.concat();
+    assert!(insert.contains("'snapshot'"), "{insert}");
+    assert!(insert.contains("'platform'"), "{insert}");
+    assert!(!insert.contains(UNVERIFIED), "{insert}");
+}
+
+#[test]
+fn markers_go_to_baselines_not_the_change_table() {
+    let planned = batch(baseline(), &shapes());
+    assert!(planned.refused.is_empty(), "{:?}", planned.refused);
+    assert_eq!(ready_tables(&planned), vec![("orders", vec![1, 2, 3])]);
+    let [changes, baselines] = planned.ready[0].inserts.as_slice() else {
+        panic!("{:?}", planned.ready[0].inserts);
+    };
+    assert!(
+        changes.contains(r#""oltp_shop"."orders__changes""#),
+        "{changes}"
+    );
+    assert!(changes.contains("'snapshot'"), "{changes}");
+    assert!(!changes.contains("'begin'") && !changes.contains("'complete'"));
+    assert!(
+        baselines.contains(r#""oltp_shop"."_baselines""#),
+        "{baselines}"
+    );
+    assert!(baselines.contains("'begin'") && baselines.contains("'complete'"));
+    assert!(!baselines.contains("__changes"), "{baselines}");
+}
+
+#[test]
+fn a_table_with_only_markers_is_ready() {
+    let rows = vec![
+        row(1, "orders", 'b', None),
+        row(2, "orders", 'c', Some(r#"{"begin_seq": 1}"#)),
+    ];
+    let planned = batch(rows, &shapes());
+    assert!(planned.refused.is_empty(), "{:?}", planned.refused);
+    assert_eq!(ready_tables(&planned), vec![("orders", vec![1, 2])]);
+    let ready = &planned.ready[0];
+    assert_eq!(ready.inserts.len(), 1);
+    assert!(ready.inserts[0].contains("_baselines"));
+    // Its DDL makes the change table and the view, from the latest shape.
+    assert_eq!(ready.table.columns.len(), 2);
+    assert_eq!(ready.latest.as_ref().map(|l| l.schema_version), Some(1));
+    assert_eq!(ready.completes_baseline, Some(1));
+    assert_eq!(
+        ready.keys.get(&1).map(Vec::as_slice),
+        Some(&["id".to_owned()][..])
+    );
+}
+
+#[test]
+fn a_complete_marker_without_an_integer_begin_seq_refuses_the_table() {
+    for image in [
+        None,
+        Some("{}"),
+        Some(r#"{"begin_seq": "1"}"#),
+        Some(r#"{"begin_seq": 1.5}"#),
+    ] {
+        let rows = vec![
+            row(1, "orders", 'b', None),
+            row(2, "orders", 'c', image),
+            note(3),
+        ];
+        let planned = batch(rows, &shapes());
+        assert_eq!(
+            ready_tables(&planned),
+            vec![("notes", vec![3])],
+            "{image:?}"
+        );
+        assert_eq!(planned.refused[0].table, "orders");
+        assert!(
+            planned.refused[0].reason.contains("begin_seq"),
+            "{}",
+            planned.refused[0].reason
+        );
+    }
+}
+
+/// The `b` shipped in an earlier batch: the `c` alone is ready, and is
+/// confirmed with its batch.
+#[test]
+fn a_batch_holding_only_a_complete_marker_is_ready() {
+    let rows = vec![row(7, "orders", 'c', Some(r#"{"begin_seq": 1}"#))];
+    let planned = batch(rows, &shapes());
+    assert!(planned.refused.is_empty(), "{:?}", planned.refused);
+    assert_eq!(ready_tables(&planned), vec![("orders", vec![7])]);
+    assert_eq!(planned.ready[0].completes_baseline, Some(1));
+}
+
+#[test]
+fn a_marker_needs_a_shape_for_its_schema_version() {
+    let mut begin = row(1, "orders", 'b', None);
+    begin.schema_version = 9;
+    let planned = batch(vec![begin], &shapes());
+    assert!(planned.ready.is_empty());
+    assert!(planned.refused[0].reason.contains("schema_version 9"));
 }
 
 /// A table is ready only with an `INSERT` that writes its `seq`s, so a batch

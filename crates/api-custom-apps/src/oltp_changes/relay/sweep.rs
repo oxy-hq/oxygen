@@ -43,10 +43,11 @@ pub struct SweepReport {
 /// waited past [`STALE_AFTER`] (its `pending_since`, which neither a failed
 /// pass nor a nudge into a waiting mark moves): at every sweep, but only once
 /// per backoff window while failed passes back the mark off, since a nudge
-/// makes such a mark due at every sweep. Phase 1 relays production
-/// only, so any other environment's mark is passed by. A mark whose org has
-/// no app to queue a run under is marked drained, since nothing could be
-/// relayed for it; one that cannot be queued is logged and left due.
+/// makes such a mark due at every sweep. A mark due only to wake a store's
+/// baseline has no change waiting, and is never stale. Phase 1 relays
+/// production only, so any other environment's mark is passed by. A mark
+/// whose org has no app to queue a run under is marked drained, since nothing
+/// could be relayed for it; one that cannot be queued is logged and left due.
 pub async fn sweep_once(db: &DatabaseConnection) -> Result<SweepReport, DbErr> {
     let mut report = SweepReport::default();
     let now = platform_now(db).await?;
@@ -56,7 +57,8 @@ pub async fn sweep_once(db: &DatabaseConnection) -> Result<SweepReport, DbErr> {
             continue;
         }
         let waited = (now - due.pending_since).to_std();
-        if waited.is_ok_and(|waited| waited > STALE_AFTER) && alarm_stale(db, &due).await {
+        let stale = due.waiting && waited.is_ok_and(|waited| waited > STALE_AFTER);
+        if stale && alarm_stale(db, &due).await {
             alarm!(
                 environment,
                 %org_id,

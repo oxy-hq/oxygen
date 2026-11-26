@@ -138,6 +138,8 @@ pub struct ShapeVersion {
     pub schema_version: i32,
     /// The captured columns only: the relay removes the excluded ones first.
     pub captured: Vec<Column>,
+    /// The primary key's column names, in key order.
+    pub primary_key: Vec<String>,
 }
 
 /// One attribute column of a change table.

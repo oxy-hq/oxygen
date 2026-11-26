@@ -175,7 +175,7 @@ impl Store {
             schema_version,
         };
         let image_role = image_role_for("local", &self.fx.database, name);
-        let owner = owner_install_sql(&spec, &self.fx.role_name(app), &image_role)
+        let owner = owner_install_sql(&spec, &self.fx.role_name(app), &image_role, None)
             .map_err(|e| e.to_string())?;
         let writer = writer_install_sql(&spec).map_err(|e| e.to_string())?;
         // One transaction, as the promote runs it: its head is a `SET LOCAL`.

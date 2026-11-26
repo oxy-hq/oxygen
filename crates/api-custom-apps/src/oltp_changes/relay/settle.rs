@@ -11,8 +11,15 @@
 //!   failed and none stopped with rows left (a held row is not left).
 //! - **Next pass.** Rows left with no writer failed queue the next pass now,
 //!   rather than at the sweep; a failure waits out its backoff instead.
+//! - **Wake.** A pass that leaves a store baseline backing off, whatever else
+//!   it did, wakes the mark after that backoff's delay ([`marks::wake`]), on
+//!   the platform's clock, so the sweep retries the baseline though no write
+//!   nudges the store. It counts no failure. A pass with no failure clears an
+//!   earlier wake first; a failed one keeps it, past its own backoff.
 //!
 //! A failure to record any of these is logged, and leaves the mark due.
+
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -24,10 +31,14 @@ use super::{BACKOFF_BASE, BACKOFF_CAP, REDRAIN_MARGIN, RelayStats, enqueue_relay
 pub(super) struct Ran {
     pub stats: RelayStats,
     pub started: DateTime<Utc>,
-    /// Each failed writer, as `<writer>: <error>`.
+    /// Each failed writer, as `<writer>: <error>`, and `baselines: <error>`
+    /// when the store's baselines could not be read at all.
     pub failed: Vec<String>,
-    /// Whether rows may still wait outside a hold.
+    /// Whether rows may still wait outside a hold: a writer stopped short, a
+    /// baseline is left open, or one wrote log rows this pass.
     pub left: bool,
+    /// How long until the earliest open baseline backing off is retried.
+    pub wake_in: Option<Duration>,
 }
 
 impl Ran {
@@ -38,6 +49,7 @@ impl Ran {
             started,
             failed: Vec::new(),
             left: false,
+            wake_in: None,
         }
     }
 }
@@ -55,6 +67,15 @@ pub(super) async fn settle(
         Ok(Some(ran)) => !ran.failed.is_empty(),
         Ok(None) => false,
     };
+    let wake_in = match ran {
+        Ok(Some(ran)) => ran.wake_in,
+        _ => None,
+    };
+    // A failed pass's wake is set first, so its backoff moves it no sooner
+    // than the backoff's end; a passing one's after its backoff clears.
+    if failed {
+        wake(db, org_id, environment, wake_in).await;
+    }
     let backoff = if failed {
         marks::failed(db, org_id, environment, BACKOFF_BASE, BACKOFF_CAP).await
     } else {
@@ -63,10 +84,23 @@ pub(super) async fn settle(
     if let Err(e) = backoff {
         tracing::warn!(%org_id, environment, failed, error = %e, "oltp_changes: could not record the relay pass's backoff");
     }
+    if !failed {
+        wake(db, org_id, environment, wake_in).await;
+    }
     if let Ok(Some(ran)) = ran
         && ran.failed.is_empty()
     {
         drain_or_requeue(db, org_id, environment, ran).await;
+    }
+}
+
+/// Wake the mark after `after`, when a baseline backs off.
+async fn wake(db: &DatabaseConnection, org_id: Uuid, environment: &str, after: Option<Duration>) {
+    let Some(after) = after else {
+        return;
+    };
+    if let Err(e) = marks::wake(db, org_id, environment, after).await {
+        tracing::warn!(%org_id, environment, error = %e, "oltp_changes: could not wake the mark for a baseline backing off");
     }
 }
 

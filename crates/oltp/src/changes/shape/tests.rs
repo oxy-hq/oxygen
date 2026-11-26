@@ -71,6 +71,33 @@ fn validate_refuses_each_decl_error() {
 }
 
 #[test]
+fn validate_refuses_a_table_named_for_the_relays_relations() {
+    let keyed = shape(vec![column(1, "id", "bigint")], &["id"]);
+    for name in [
+        "_progress",
+        "_baselines",
+        "leases__changes",
+        "_Baselines",
+        "Leases__CHANGES",
+    ] {
+        let declared = DeclaredTable {
+            name: name.into(),
+            exclude: Vec::new(),
+        };
+        let error = refusal(&declared, Some(&keyed));
+        assert!(error.contains(&format!("\"{name}\"")), "{error}");
+        assert!(error.contains("oltp_<writer>"), "{error}");
+        assert!(
+            matches!(
+                validate(&declared, Some(&keyed)),
+                Err(DeclError::ReservedTable { .. })
+            ),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn captured_columns_drop_excluded_ones_in_attnum_order() {
     let unordered = shape(
         vec![
