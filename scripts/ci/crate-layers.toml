@@ -35,7 +35,7 @@
 [depth]
 # Longest chain of internal normal + build dependencies, counted in edges.
 # Dev-dependencies are exempt, as for the rules below.
-max = 10
+max = 9
 # Where the ratchet ends. Lowering `max` below this is the next, stricter step.
 target = 4
 # Members that are not part of the crate graph proper. workspace-hack is cargo
