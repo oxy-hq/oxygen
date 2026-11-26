@@ -1,11 +1,4 @@
-import {
-  applyEdgeChanges,
-  applyNodeChanges,
-  type Edge,
-  type Node,
-  type OnEdgesChange,
-  type OnNodesChange
-} from "@xyflow/react";
+import type { Edge, Node, OnEdgesChange, OnNodesChange } from "@xyflow/react";
 import { create } from "zustand";
 import { buildAutomationNodes } from "@/components/automation/AutomationDiagram/layout/nodeBuilder";
 
@@ -215,12 +208,12 @@ const useAutomation = create<AutomationState>((set, get) => ({
   setNodes: (nodes: TaskNode[]) => set({ nodes }),
   onNodesChange: (changes) => {
     set({
-      nodes: applyNodeChanges(changes, get().nodes)
+      nodes: changes.applyTo(get().nodes)
     });
   },
   onEdgesChange: (changes) => {
     set({
-      edges: applyEdgeChanges(changes, get().edges)
+      edges: changes.applyTo(get().edges)
     });
   },
   initFromTasks: (tasks: TaskConfigWithId[]) => {

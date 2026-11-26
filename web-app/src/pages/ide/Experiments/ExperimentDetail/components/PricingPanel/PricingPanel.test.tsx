@@ -505,10 +505,16 @@ describe("PricingPanel outcome", () => {
       rerender(<PricingPanel summary={summary} />);
       await screen.findByTestId("experiment-price-outcome");
 
-      const live = started.mock.results
-        .map((r) => r.value)
-        .filter((id) => !stopped.mock.calls.some(([cleared]) => cleared === id));
-      expect(live).toEqual([]);
+      // Wait on the condition rather than asserting once: jsdom (31+) runs its own
+      // 60 fps rendering-update interval for focus fixup when the focused submit
+      // button unmounts, and clears it on its next tick. A clock the panel leaks
+      // never clears, so this still times out and fails.
+      await vi.waitFor(() => {
+        const live = started.mock.results
+          .map((r) => r.value)
+          .filter((id) => !stopped.mock.calls.some(([cleared]) => cleared === id));
+        expect(live).toEqual([]);
+      });
     } finally {
       started.mockRestore();
       stopped.mockRestore();

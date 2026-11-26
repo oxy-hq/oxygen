@@ -13,14 +13,14 @@
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.8",
+    "@biomejs/biome": "^2.6.9",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@types/node": "^26.6.6",
     "husky": "^9.1.7",
-    "lint-staged": "^17.6.1",
-    "oxlint": "1.94.0",
-    "oxlint-tsgolint": "7.0.2007",
+    "lint-staged": "^17.6.2",
+    "oxlint": "1.95.0",
+    "oxlint-tsgolint": "7.0.2008",
     "prettier": "^3.10.1",
     "turbo": "^2.11.13",
     "typescript": "^7.0.2"

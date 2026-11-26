@@ -12,7 +12,9 @@ afterEach(() => {
 // on whichever file the worker timing picks. `test-setup.ts` takes the library
 // out of unit tests; this pins that it stays out.
 it("importing a persisted store leaves no timer for the environment teardown to race", async () => {
-  vi.useFakeTimers();
+  // Timers only: jsdom (31+) queues a style sheet's load task on `setImmediate`
+  // when a library injects a <style> on import, and that is not the restore timer.
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
   vi.resetModules();
   await import("@/stores/useDatabaseOperation");
   expect(vi.getTimerCount()).toBe(0);

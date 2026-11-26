@@ -358,7 +358,7 @@ export default function ExplainGraph({ result, height = 360 }: ExplainGraphProps
           nodes={positioned}
           edges={edges}
           nodeTypes={nodeTypes}
-          colorMode={theme as ColorMode}
+          forceColorMode={theme as ColorMode}
           onInit={(instance) => {
             rfRef.current = instance;
           }}

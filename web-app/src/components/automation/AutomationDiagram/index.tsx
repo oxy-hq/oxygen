@@ -76,7 +76,7 @@ const AutomationDiagram: React.FC<AutomationDiagramProps> = ({
           const viewport = _args[1] as { x: number; y: number; zoom: number } | undefined;
           saveViewport(viewport);
         }}
-        colorMode={theme as ColorMode}
+        forceColorMode={theme as ColorMode}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
         onNodesChange={onNodesChange}

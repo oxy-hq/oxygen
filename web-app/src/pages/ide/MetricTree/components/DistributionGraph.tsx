@@ -217,7 +217,7 @@ export default function DistributionGraph({ result, height = 360 }: Distribution
           nodes={positioned}
           edges={edges}
           nodeTypes={nodeTypes}
-          colorMode={theme as ColorMode}
+          forceColorMode={theme as ColorMode}
           fitView
           fitViewOptions={{ padding: 0.1 }}
           minZoom={0.05}

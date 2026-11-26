@@ -37,7 +37,7 @@ async function mountGrid(phone: boolean, count = 3, phonePairs = true) {
 describe("StatGrid phonePairs", () => {
   it("on a phone, sets two columns whatever min is", async () => {
     await mountGrid(true);
-    expect(grid().style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+    expect(grid().style.gridTemplateColumns).toBe("repeat(2, minmax(0px, 1fr))");
     expect(grid().className).toContain("oxy-ui-stat-grid--pairs");
   });
 

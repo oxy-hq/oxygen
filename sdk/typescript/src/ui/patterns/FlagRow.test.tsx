@@ -157,7 +157,11 @@ describe("FlagRow, painted", () => {
     const name = getComputedStyle($(".oxy-ui-flag-row__name") as HTMLElement);
     const figure = getComputedStyle($(".oxy-ui-flag-row__figure") as HTMLElement);
     // 16px on a 22.4px line and 24px on a 33.6px one, as the reference's computed.
-    expect([name.fontSize, name.lineHeight, name.fontWeight]).toEqual(["16px", "1.4", "500"]);
-    expect([figure.fontSize, figure.lineHeight, figure.fontWeight]).toEqual(["24px", "1.4", "600"]);
+    expect([name.fontSize, name.lineHeight, name.fontWeight]).toEqual(["16px", "22.4px", "500"]);
+    expect([figure.fontSize, figure.lineHeight, figure.fontWeight]).toEqual([
+      "24px",
+      "33.6px",
+      "600"
+    ]);
   });
 });

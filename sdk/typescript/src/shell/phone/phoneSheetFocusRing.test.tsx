@@ -7,9 +7,11 @@
 // Back in those (Locations' site sheet, opened by its link). Without the theme,
 // Back is focused as 2.28 focused it, its ring left to the browser.
 //
-// jsdom judges `:focus-visible` by the last input as a browser does (a key shows
-// focus, a mouse event hides it), so the opener's state is real here; what the
-// sheet asks of the browser is read off its focus() call. The browser's answer was
+// jsdom 31's selector engine matches `:focus-visible` exactly as `:focus`, with no
+// input-modality heuristic (nwsapi, before it, had one). `modalityFocusVisible`
+// below restores the browser's judgement — a key shows focus, a mouse event hides
+// it — so the opener's state is real here; what the sheet asks of the browser is
+// read off its focus() call. The browser's answer was
 // measured in Chrome for the PR (Locations, by link, by a tap and by Tab + Enter).
 
 import { useState } from "react";
@@ -57,11 +59,44 @@ function watchBackFocus() {
   return { calls, restore: () => spy.mockRestore() };
 }
 
+/** `:focus-visible` judged by the last input, as a browser judges it. */
+function modalityFocusVisible() {
+  let keyboard = false;
+  const onKey = () => {
+    keyboard = true;
+  };
+  const onPointer = () => {
+    keyboard = false;
+  };
+  window.addEventListener("keydown", onKey, true);
+  for (const type of ["pointerdown", "mousedown", "click"]) {
+    window.addEventListener(type, onPointer, true);
+  }
+  const real = Element.prototype.matches;
+  const spy = vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+    this: Element,
+    selectors: string
+  ) {
+    if (selectors === ":focus-visible") return keyboard && real.call(this, ":focus");
+    return real.call(this, selectors);
+  });
+  return () => {
+    spy.mockRestore();
+    window.removeEventListener("keydown", onKey, true);
+    for (const type of ["pointerdown", "mousedown", "click"]) {
+      window.removeEventListener(type, onPointer, true);
+    }
+  };
+}
+
 let watch: ReturnType<typeof watchBackFocus>;
+let restoreModality: () => void;
 beforeEach(() => {
   watch = watchBackFocus();
+  restoreModality = modalityFocusVisible();
 });
 afterEach(() => {
+  restoreModality();
   watch.restore();
   theme(false);
   document.body.innerHTML = "";

@@ -41,7 +41,8 @@ describe("Chip", () => {
     expect(chip().hasAttribute("data-tone")).toBe(false);
     expect(chip().style.color).toBe("rgb(10, 120, 200)");
     expect(chip().getAttribute("style")).toMatch(
-      /background: color-mix\(in srgb, rgb\(10, 120, 200\) 15%, transparent\)/
+      // jsdom 31+ re-serializes the colour as a browser does (`rgb(10 120 200)`, `transparent 85%`).
+      /background: color-mix\(in srgb, rgb\(10,? 120,? 200\) 15%, transparent( 85%)?\)/
     );
   });
 

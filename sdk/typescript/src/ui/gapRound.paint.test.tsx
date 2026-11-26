@@ -42,7 +42,8 @@ describe("ui.css after the gap round", () => {
       const message = $('[role="alert"]') as HTMLElement;
       const style = getComputedStyle(message);
       expect(style.fontSize, size).toBe("13px");
-      expect(style.lineHeight, size).toBe("1.45");
+      // 13px × 1.45: jsdom 31+ resolves a unitless line-height to px, as a browser does.
+      expect(style.lineHeight, size).toBe("18.85px");
       await page.unmount();
     }
   });

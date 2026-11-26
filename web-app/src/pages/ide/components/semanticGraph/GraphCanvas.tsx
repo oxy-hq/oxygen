@@ -73,7 +73,7 @@ export function GraphCanvas({
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        colorMode={theme as ColorMode}
+        forceColorMode={theme as ColorMode}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
