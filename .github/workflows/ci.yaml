@@ -108,6 +108,34 @@ defaults:
 # changesets.yaml, so a PR rewriting one of their `runs-on` lines has to run
 # it. Each job's own comment still owns why it is that size.
 
+# Lifecycle, on top of size: PULL REQUESTS ON-DEMAND, MAIN ON SPOT.
+#
+# CI_RUST_RUNNER_4X_SPOT and _8X_SPOT name the fleet's spot twins, and main
+# prefers them. The reasoning is risk rather than price. A PR run is what a
+# person is waiting on and what a reviewer reads, so an interruption there
+# costs attention -- and RunsOn's spot default, `retry=when-interrupted`,
+# drives GitHub's rerun-failed-jobs flow, which cannot tell a reclaimed runner
+# from a failed test. A main run is the final check after review, where a
+# rerun is cheap and shows up as attempt > 1 in the UI. So that masking risk
+# is accepted on main and paid off on pull requests. A green main straight
+# after a red one is worth checking the attempt count on.
+#
+# The spot branch requires its own on-demand variable to be set as well. That
+# is deliberate: unset the on-demand variable and the whole size returns to
+# Ubicloud, spot twin or not, so the rollback stays one variable per size.
+# It also keeps this in step with the cache-transport gate further down, which
+# reads the on-demand variables to decide whether `actions/cache` is Magic
+# Cache -- if `_SPOT` could stand alone, a main run could be on the fleet
+# while that gate thought it was not.
+#
+# Unset both _SPOT variables and everything is on-demand, which is what shipped
+# before this: merging the gate changes nothing on its own.
+#
+# What it saves is modest and worth knowing before adding to it: of the last
+# 100 CI runs, 80 were pull requests and 18 were pushes to main, so main is
+# under a fifth of the traffic. At ~$0.056 a run on spot against ~$0.24
+# on-demand that is roughly $70-95/month. Pull requests are where the bill is.
+
 # Runner gate for the light jobs, same shape as the one above.
 #
 # CI_SLIM_RUNNER holds a plain `runs-on` label, used verbatim; unset it and
@@ -1158,7 +1186,11 @@ jobs:
         needs.changesets.outputs.oxy == 'true' ||
         needs.changesets.outputs.oxy-ci == 'true'
       )
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
+      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
+      'ubicloud-standard-4-arm' }}
     # Warm cache ~3m, a cold workspace clippy ~15m. 60m kills a true hang
     # within the hour (the 5h runaway that motivated these caps was here).
     timeout-minutes: 60
@@ -1277,7 +1309,11 @@ jobs:
     # against 6m12s on the 8x (2026-10-26). It runs beside cargo-test-archive,
     # not before it, so the 8x's cores go to test-compile.
     # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
+      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
+      'ubicloud-standard-4-arm' }}
     # A cold build; 45m kills a true hang.
     timeout-minutes: 45
     env:
@@ -1437,7 +1473,11 @@ jobs:
     # its memory peak (test-compile, 19–22 GB) outgrew 15 GiB of RAM and paged
     # (see "Add swap"). Trialled 2026-10-02: 8x took the old combined job from
     # ~30 to 17 minutes for ~$0.05 a run; 16x was no faster than 8x.
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_8X || 'ubicloud-standard-8-arm' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_8X != '' &&
+      vars.CI_RUST_RUNNER_8X_SPOT) || vars.CI_RUST_RUNNER_8X ||
+      'ubicloud-standard-8-arm' }}
     # A cold test compile; 60m kills a true hang within the hour.
     timeout-minutes: 60
     outputs:
@@ -1753,7 +1793,11 @@ jobs:
       fail-fast: false
       matrix:
         partition: ${{ fromJSON(needs.cargo-test-archive.outputs.partitions) }}
-    runs-on: ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' || vars.CI_RUST_RUNNER_4X || 'ubicloud-standard-4-arm' }}
+    runs-on:
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      (github.ref == 'refs/heads/main' && vars.CI_RUST_RUNNER_4X != '' &&
+      vars.CI_RUST_RUNNER_4X_SPOT) || vars.CI_RUST_RUNNER_4X ||
+      'ubicloud-standard-4-arm' }}
     # A quarter of a ~16-minute suite plus setup; 30m kills a hang.
     timeout-minutes: 30
     env:
