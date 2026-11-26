@@ -23,7 +23,7 @@ In multi-workspace mode, Oxygen uses a **GitHub App** (not a personal OAuth app)
 The same GitHub App handles both user authentication and repository access. This guide walks through creating the app, configuring permissions, and setting the required environment variables.
 
 <Note>
-  GitHub App integration is only needed for **multi-workspace mode** (the default `oxy serve`). If you run `oxy serve --local`, the workspace files already exist on disk and no GitHub integration is required.
+  Every Oxygen workspace is backed by a GitHub repository, so a self-hosted `oxy serve` needs this GitHub App.
 </Note>
 
 ---

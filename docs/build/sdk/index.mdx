@@ -84,11 +84,12 @@ export default function App() {
 }
 ```
 
-To run the backend the SDK talks to during local development, start Oxygen with the
-enterprise surface enabled:
+During local development, point your dev server at a cloud environment of your
+app with `oxyc proxy`. It forwards the SDK's calls with your login attached, and
+holds side-effecting calls unless you allow them:
 
 ```bash
-oxy start --local --enterprise
+oxyc proxy --app <org>/<app> --app-env staging
 ```
 
 ## Identity (`oxy-app.json`)

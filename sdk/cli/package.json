@@ -19,8 +19,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oxy-hq/oxygen-internal.git",
+    "url": "git+https://github.com/oxy-hq/oxygen.git",
     "directory": "sdk/cli"
+  },
+  "homepage": "https://github.com/oxy-hq/oxygen/tree/main/sdk/cli#readme",
+  "bugs": {
+    "url": "https://github.com/oxy-hq/oxygen/issues"
   },
   "scripts": {
     "codegen": "node scripts/emit-version.mjs && node scripts/sync-schemas.mjs && node scripts/embed-assets.mjs",

@@ -1,7 +1,7 @@
 ---
 title: Install the Oxygen CLI
 sidebarTitle: Install the CLI
-description: Install the optional oxy command-line tool and run your first commands
+description: Install oxyc, the optional command-line client for your Oxygen deployment
 ---
 
 Oxygen is delivered as a hosted product at
@@ -9,147 +9,120 @@ Oxygen is delivered as a hosted product at
 data, and start asking questions. There is nothing to install to use the
 product.
 
-The **`oxy` CLI** is an optional companion for developers who want to work
-with an Oxygen project from the terminal — running automations, validating
-config, and previewing it locally. You do **not** need
-it to use Oxygen.
-
-The CLI is the **preferred way to test local changes before they ship to
-production.** Because Oxygen is code-first, you run your project on your machine
-with `oxy start --local`, iterate until your semantic model, agents, and apps
-behave the way you want, and only then commit and push — so what reaches your
-production deployment is already verified.
+The **`oxyc` CLI** is an optional companion that works with your Oxygen
+deployment from a terminal, a CI job or an AI coding agent: check your project's
+files before you push them, run automations and SQL on your deployment, gate
+pull requests on a clean compile, and connect your editor over MCP. You do
+**not** need it to use Oxygen.
 
 <Note>
-The CLI is for local development workflows. If you just want to ask questions of
-your data, use the web app — skip this page.
+If you just want to ask questions of your data, use the web app — skip this
+page.
 </Note>
 
 ## Install
 
-Run the install script. It downloads the right binary for your OS and
-architecture (macOS and Linux, `x86_64` and `arm64`) and drops it on your
-`PATH`:
+`oxyc` is published to npm as [`@oxy-hq/cli`](https://www.npmjs.com/package/@oxy-hq/cli).
+It needs Node.js 20 or later:
 
 ```bash
-bash <(curl -sSfL https://get.oxy.tech)
+npm install -g @oxy-hq/cli
 ```
 
-To pin a specific version, set `OXY_VERSION`:
+Or run it without installing:
 
 ```bash
-OXY_VERSION=<version> bash <(curl -sSfL https://get.oxy.tech)
+npx @oxy-hq/cli --help
 ```
-
-The script installs to `/usr/local/bin` when run as root, otherwise to
-`~/.local/bin` (and adds it to your `PATH` for bash/zsh). If `~/.local/bin`
-isn't already on your `PATH`, open a new shell after installing.
-
-<Note>
-The install script supports macOS and Linux. Windows isn't supported directly —
-use [WSL](https://learn.microsoft.com/windows/wsl/install).
-</Note>
 
 ### Verify
 
 ```bash
-oxy --version
+oxyc --version
 ```
 
 ### Update
 
-Re-run the install script to upgrade to the latest release:
+```bash
+npm install -g @oxy-hq/cli@latest
+```
+
+### Sign in
+
+Commands that talk to your deployment need a login. `oxyc login` opens your
+browser (or prints a URL and a code when there is no browser):
 
 ```bash
-bash <(curl -sSfL https://get.oxy.tech)
+oxyc login
+oxyc whoami
 ```
 
 ## Basic commands
 
-The CLI is self-documenting — run `oxy --help`, or `oxy <command> --help` for
+The CLI is self-documenting — run `oxyc --help`, or `oxyc <command> --help` for
 any subcommand. The commands you'll reach for most:
 
 | Command | What it does |
 | --- | --- |
-| `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
-| `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
+| `oxyc validate` | Check your project's files, offline |
+| `oxyc compile <branch>` | Compile a branch on your deployment, as a CI gate |
+| `oxyc run <file>` | Run an automation or a `.sql` file on your deployment |
+| `oxyc evals run` | Run agent tests (`.test.yml`) on your deployment |
+| `oxyc mcp` | Expose Oxygen to your editor over MCP |
 
-Agent tests (`.test.yml` files) run on your deployment with
-[`oxyc evals run`](/guide/build/test-evaluate/testing), and automations and
-`.sql` files with `oxyc run` (below).
+### Validate your project
 
-### Validate your config
-
-Checking your `config.yml`, automations, agents, views and topics is
-`oxyc validate`, in the `@oxy-hq/cli` package (`npm i -g @oxy-hq/cli`). It runs
-offline, needs no login, and exits `9` when it finds a problem:
+`oxyc validate` checks your `config.yml`, automations, agents, views and topics.
+It runs offline, needs no login, and exits `9` when it finds a problem:
 
 ```bash
 oxyc validate
 ```
 
-`oxy validate` still parses for one release, and prints that command.
+### Check a branch before it merges
+
+`oxyc compile` compiles a branch on your deployment without serving it, so a
+pull request can fail before a broken change reaches production:
+
+```bash
+oxyc compile my-branch --workspace <workspace-id> --wait
+```
+
+The Oxygen project template runs this in CI for you.
 
 ### Run an automation
 
-`oxyc run` (`npm i -g @oxy-hq/cli`) starts an automation or a SQL file on your
-deployment and prints the result. It runs the automation your deployment has
-compiled, so push a change first; a SQL file's text is sent and runs against
-the deployed database of that name:
+`oxyc run` starts an automation or a SQL file on your deployment and prints the
+result. It runs the automation your deployment has compiled, so push a change
+first; a SQL file's text is sent and runs against the deployed database of that
+name:
 
 ```bash
 oxyc run my_report.automation.yml --workspace <workspace-id>
 oxyc run queries/weekly.sql --database warehouse --workspace <workspace-id>
 ```
 
-`oxy run` itself now only prints the `oxyc` command and exits `2`.
-
-### Preview locally
-
-`oxy start` brings up a local PostgreSQL container and the Oxygen web server so you
-can preview your project in the browser. It needs a Docker-compatible container
-engine (Docker Engine, Docker Desktop, Rancher Desktop, Colima, Podman, …):
-
-```bash
-oxy start
-```
-
-For most local development, add `--local` — it runs a single workspace rooted at
-the current directory with guest authentication (no orgs, no login), so you can
-iterate on your project without any cloud setup:
-
-```bash
-oxy start --local
-```
-
-<Note>
-`--local` disables authentication entirely. Don't expose a `--local` instance on
-a non-loopback interface without a reverse proxy that restricts access.
-</Note>
-
-Add `--enterprise` to turn on the fuller feature set (observability, analytics,
-and the surfaces the SDK talks to). The flags combine — `oxy start --local
---enterprise` is the usual way to run the SDK against a project on disk:
-
-```bash
-oxy start --local --enterprise
-```
-
-Use `oxy serve` instead if you're supplying your own database via
-`OXY_DATABASE_URL`, `oxy start --clean` for a fresh slate, and
-`oxy start --db-only` to bring up the database and exit without starting the
-server.
+Agent tests run the same way, with
+[`oxyc evals run`](/guide/build/test-evaluate/testing).
 
 ### Expose Oxygen to your editor over MCP
 
 MCP-compatible tools such as Cursor, Claude Desktop and Claude Code reach Oxygen
-through `oxyc mcp`, from Oxy's `oxyc` client (`npm install -g @oxy-hq/cli`):
+through `oxyc mcp`:
 
 ```bash
 claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production
 ```
 
 See [MCP →](/guide/build/embed-extend/mcp) for editor configuration.
+
+<Note>
+**Coming from `oxy`?** The commands customers ran from the old `oxy` binary
+moved to `oxyc`: `oxy validate`, `oxy run`, `oxy agentic`, `oxy sync` and
+`oxy looker test` are now `oxyc validate`, `oxyc run`, `oxyc agentic`,
+`oxyc sync` and `oxyc looker test`. They run on your deployment rather than on
+your machine, so they need only a login, not your warehouse or LLM credentials.
+</Note>
 
 ## Next steps
 

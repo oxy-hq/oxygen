@@ -9,11 +9,10 @@ for Claude Code, then deploy by connecting your repo to Oxygen Cloud.
 
 <Steps>
   <Step title="Install the Oxygen CLI">
-    The install script downloads the right binary for your OS and drops it on
-    your `PATH`:
+    `oxyc` is published to npm:
 
     ```bash
-    bash <(curl -sSfL https://get.oxy.tech)
+    npm install -g @oxy-hq/cli
     ```
 
     Full details and first commands: [Install the CLI →](/guide/start/install-cli).
@@ -29,12 +28,12 @@ for Claude Code, then deploy by connecting your repo to Oxygen Cloud.
     ```
   </Step>
 
-  <Step title="Build a working version locally">
+  <Step title="Build your project">
     With the CLI and the skill in place, build your project: connect a data
     source, define your [semantic model](/guide/build/semantic-model/simple-model),
     compose your [World Model](/guide/build/world-model), and add an
-    [agent](/guide/build/agents). Preview it locally with `oxy start --local`
-    until it answers questions the way you want.
+    [agent](/guide/build/agents). Run `oxyc validate` as you go to catch mistakes
+    in your files before you push them.
 
     See [Connect your data →](/guide/build/connect-data) and
     [Your first project →](/guide/start/first-project).
