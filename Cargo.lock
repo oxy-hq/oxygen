@@ -474,7 +474,6 @@ dependencies = [
 name = "agentic-semantic"
 version = "0.5.162"
 dependencies = [
- "agentic-connector",
  "agentic-core",
  "chrono",
  "chrono-english",

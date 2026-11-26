@@ -267,7 +267,7 @@ async fn build_warehouse_table(
         &dialect,
     )?;
 
-    agentic_semantic::preagg::execute_build_plan(connector, &plan)
+    crate::warehouse::execute_build_plan(connector, &plan)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -382,7 +382,7 @@ async fn materialize_parquet(
         dialect.qualify_table(&rebuild_ctx.schema, &entry.table_name)
     };
 
-    let file_written = agentic_semantic::preagg::pull_rollup(connector, &fq_table, &temp_path)
+    let file_written = crate::warehouse::pull_rollup(connector, &fq_table, &temp_path)
         .await
         .map_err(|e| e.to_string())?;
 

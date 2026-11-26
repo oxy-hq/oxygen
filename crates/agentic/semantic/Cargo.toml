@@ -8,7 +8,6 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-agentic-connector = { workspace = true, features = ["duckdb"] }
 agentic-core = { workspace = true }
 chrono = { workspace = true }
 chrono-english = { workspace = true }

@@ -99,7 +99,6 @@ allowed = [
   "agentic-pipeline -> agentic-airway",
   "agentic-pipeline -> agentic-analytics",
   "agentic-pipeline -> agentic-automation",
-  "agentic-semantic -> agentic-connector",
   "agentic-semantic -> oxy-airlayer-compat",
   "airhouse -> agentic-connector",
   "airhouse -> oxy-auth",

@@ -38,4 +38,5 @@ pub mod manifest_lock;
 pub mod promote;
 pub mod rebuild;
 pub mod retract;
+pub mod warehouse;
 pub mod worker_config;
