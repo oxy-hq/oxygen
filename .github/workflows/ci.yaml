@@ -1518,28 +1518,8 @@ jobs:
           app-private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
           cache-key: test
           # The SAME nextest as the partitions: an archive is read back by the
-          # version that wrote it. sccache rides along: installing it changes
-          # nothing until the RunsOn step below sets RUSTC_WRAPPER.
-          tools: nextest@${{ env.NEXTEST_VERSION }},sccache
-
-      # EXPERIMENT, this job only. rust-cache restores third-party crates and
-      # strips workspace members before saving, so every run recompiles all of
-      # ours; sccache is the only thing here that can skip that, and only for
-      # the lib crates (it cannot cache anything that links: test binaries,
-      # bins, proc-macros). Entries live in the fleet's own Magic Cache bucket,
-      # scoped like actions/cache: a PR reads main's and writes its own.
-      # RUSTC_WRAPPER is set for the later steps only, so the other jobs and
-      # rust-cache's keys are untouched. CARGO_INCREMENTAL=0 is already the
-      # workflow default, which sccache requires.
-      # Gated on the fleet var because runs-on/action is for RunsOn runners; the
-      # job falls back to a Ubicloud label when the var is unset, and there this
-      # step is skipped and the job is exactly what it was. The "Archive tests"
-      # step reports the hit rate: dispatch twice and read the second.
-      - name: Compile through sccache (RunsOn Magic Cache)
-        if: github.repository == 'oxy-hq/oxygen-internal' && vars.CI_RUST_RUNNER_8X != ''
-        uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
-        with:
-          remote_cache: sccache
+          # version that wrote it.
+          tools: nextest@${{ env.NEXTEST_VERSION }}
 
       # Before the compile, so a broken selector fails in seconds. Everything
       # but a pull request tests the whole workspace. On a pull request the
@@ -1658,20 +1638,7 @@ jobs:
         run: |
           scripts/ci/mem-watermark.sh &
           watermark=$!
-          # The EXIT trap also reports sccache's counters, so a failed compile
-          # still says what it hit. No-op unless the step above set the wrapper.
-          sccache_report() {
-            [[ "${RUSTC_WRAPPER:-}" == sccache ]] || return 0
-            {
-              echo "### sccache"
-              echo
-              echo '```'
-              sccache --show-stats 2>&1 || echo "sccache --show-stats failed"
-              echo '```'
-              echo
-            } >>"$GITHUB_STEP_SUMMARY"
-          }
-          trap 'kill "$watermark" 2>/dev/null || true; sccache_report || true' EXIT
+          trap 'kill "$watermark" 2>/dev/null || true' EXIT
 
           mode=$(jq -r .mode "$RUNNER_TEMP/selection.json")
           case "$mode" in
