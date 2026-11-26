@@ -136,13 +136,20 @@ cases:
       - assert: selector [data-testid=admin-apps-browser-column-pages] is visible
       - assert: selector [data-testid=admin-apps-browser-path] is visible
       - assert: selector [data-testid=apps-console-main] has attribute data-page=activity
+      # Which page is showing is the assert above, not the judge's call. The
+      # Activity page leads with "Availability & visitors" and "Issues", which a
+      # judge asked "is this Activity?" read as an Overview about half the time
+      # (failed #4488 and #4491 with every assert green). The judge only checks
+      # the layout and that the pane rendered.
       - judge: |
           The page is /admin/apps with a narrow column of console page names
-          (Overview, Activity, Functions, …) on the left and oxy-starter's
-          Activity page beside it. A path bar along the bottom names the
-          selection, ending in Activity. The Organizations and Apps columns are
-          hidden and a control offers to show them again.
+          (Overview, Activity, Functions, …) on the left and a console page for
+          oxy-starter beside it, with panels titled "Availability & visitors"
+          and "Issues". A path bar along the bottom names the selection. The
+          Organizations and Apps columns are hidden and a control offers to
+          show them again. Which console page this is has already been checked;
+          do not judge it from the panel titles.
 
-          Fail if: no column of page names is visible; the Activity page is
-          blank or shows an error; the path bar is missing; the Organizations
-          column is still on screen.
+          Fail if: no column of page names is visible; the console pane is
+          blank, an unresolved loading skeleton, or shows an error; the path
+          bar is missing; the Organizations column is still on screen.
