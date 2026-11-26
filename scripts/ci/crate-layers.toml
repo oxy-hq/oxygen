@@ -156,7 +156,6 @@ allowed = [
   "oxy-custom-apps -> agentic-pipeline",
   "oxy-custom-apps -> oxy-cameras",
   "oxy-custom-apps -> oxy-server-authz",
-  "oxy-custom-apps -> oxy-tenancy",
   "oxy-feature-flags -> oxy-platform",
   "oxy-metric-monitoring -> agentic-analytics",
   "oxy-oltp -> oxy-auth",

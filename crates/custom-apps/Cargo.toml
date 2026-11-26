@@ -32,9 +32,6 @@ oxy-platform = { workspace = true }
 oxy-server-authz = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
-# The app-access write (`org_teams::service::write_access`) that `app_access`
-# wraps with this crate's cache flushes.
-oxy-tenancy = { workspace = true }
 
 async-trait = { workspace = true }
 aws-config = { workspace = true, features = ["behavior-version-latest"] }

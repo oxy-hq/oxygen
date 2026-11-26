@@ -14,7 +14,7 @@ edition.workspace = true
 oxy-app-core = { workspace = true }     # AppState (router state), the admin seam (AdminSection) + the audit reader
 oxy-workspace-health = { workspace = true } # the partner console's health rollup
 oxy-tenancy = { workspace = true }      # org teams / app-access grants
-oxy-custom-apps = { workspace = true }  # publish_authz (consent_enabled), app_access (the cache-flushing write_access)
+oxy-custom-apps = { workspace = true }  # publish_authz (consent_enabled), the caches write_access flushes
 oxy-server-authz = { workspace = true } # partner_authz, partner_allows, assume_liveness, enforce_for
 oxy-billing = { workspace = true }      # billing_service (seat sync after a member joins or leaves)
 oxy-compile-runtime = { workspace = true } # enqueue_import_compile (GitHub import)

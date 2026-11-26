@@ -135,10 +135,11 @@ const ALLOWED: &[(&str, &str)] = &[
 /// mandatory, so a caller cannot skip it by omission either.
 const DELEGATED: &[(&str, &str, &str)] = &[(
     "tenancy/src/org_teams/service.rs",
-    "custom-apps/src/app_access.rs",
+    "api-tenancy/src/org_teams/write_access.rs",
     "`write_access` updates `apps.visibility` and runs a caller-supplied \
-     `on_committed`; `oxy_custom_apps::app_access`'s 4-arg wrapper, which \
-     every surface calls, passes `invalidate_app_resolution_cache`",
+     `on_committed`; `oxy-api-tenancy`'s 4-arg wrapper (`org_teams::write_access`, \
+     was `oxy_custom_apps::app_access`), which both its doors call, passes \
+     `invalidate_app_resolution_cache`",
 )];
 
 /// The seed commands, which are the only row writers outside the server. They

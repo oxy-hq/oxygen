@@ -501,8 +501,22 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
 #[tokio::test]
 async fn the_access_settings_accept_an_active_worker_and_nobody_else() {
     use axum::http::StatusCode;
-    use oxy_custom_apps::app_access::write_access;
-    use oxy_tenancy::org_teams::dto::{GranteeRef, SetAppAccessRequest};
+    use oxy_tenancy::org_teams::dto::{AppAccessDto, GranteeRef, SetAppAccessRequest};
+
+    /// The write every door makes (`oxy-api-tenancy`'s cache-flushing
+    /// `org_teams::write_access`, above this crate), with the same flushes.
+    async fn write_access(
+        db: &DatabaseConnection,
+        app: &apps::Model,
+        actor: Uuid,
+        req: &SetAppAccessRequest,
+    ) -> Result<AppAccessDto, StatusCode> {
+        oxy_tenancy::org_teams::service::write_access(db, app, actor, req, &|| {
+            oxy_custom_apps::auth::invalidate_access_cache();
+            oxy_custom_apps::cache::invalidate_app_resolution_cache_for_app(app.id);
+        })
+        .await
+    }
 
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;

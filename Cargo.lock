@@ -10704,7 +10704,6 @@ dependencies = [
  "oxy-server-authz",
  "oxy-shared",
  "oxy-telemetry",
- "oxy-tenancy",
  "oxy-test-utils",
  "parking_lot 0.13.0",
  "rayon",

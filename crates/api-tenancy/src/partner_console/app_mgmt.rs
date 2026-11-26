@@ -31,9 +31,9 @@ use oxy_tenancy::org_teams::dto::{
 };
 use oxy_tenancy::org_teams::service as access_service;
 use std::sync::Arc;
-// The cache-flushing wrapper: the flushed caches are `oxy-custom-apps`'.
+// The cache-flushing wrapper (the flushed caches are `oxy-custom-apps`').
+use crate::org_teams::write_access::write_access;
 use oxy_app_core::audit::{self, ActorType, AuditEntry};
-use oxy_custom_apps::app_access::write_access;
 use oxy_server_authz::partner_authz::{PartnerCapability, PartnerScope};
 
 #[derive(Serialize)]

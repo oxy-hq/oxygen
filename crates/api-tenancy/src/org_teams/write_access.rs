@@ -3,26 +3,28 @@
 //!
 //! The write itself is [`oxy_tenancy::org_teams::service::write_access`]. That
 //! crate sits below the caches, so it takes the flush as an `on_committed`
-//! callback; this is the call that passes it. Both of `oxy-api-tenancy`'s doors
-//! onto an app's audience call this one: the org's own route
+//! callback; this is the call that passes it. Both of this crate's doors onto
+//! an app's audience call this one: the org's own route
 //! (`/orgs/{id}/apps/{id}/access`) and the partner console. Without the flush,
 //! a revoke keeps working on this replica until the cache's TTL.
 //!
-//! Lowered out of `oxy-app`'s `server::api::org_teams` (2026-11-16): it named
-//! nothing of `oxy-app`'s, since both caches are this crate's ([`crate::auth`],
-//! [`crate::cache`]). The staff console's door (`oxy-api-custom-apps`'
-//! `admin::apps::access`) still has its own copy of this wrapper.
+//! Up from `oxy-custom-apps`' `app_access` (2026-11-26), whose only callers were
+//! here, so that `oxy-custom-apps` no longer depends on `oxy-tenancy`
+//! (`internal-docs/crate-tiers.md`, stage A); both caches are still that
+//! crate's (`oxy_custom_apps::{auth, cache}`). The staff console's door
+//! (`oxy-api-custom-apps`' `admin::apps::access`) still has its own copy of
+//! this wrapper.
 
+use axum::http::StatusCode;
 use entity::apps;
-use http::StatusCode;
 use oxy_tenancy::org_teams::dto::{AppAccessDto, SetAppAccessRequest};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 /// [`oxy_tenancy::org_teams::service::write_access`], flushing the custom-app
 /// access cache and app-resolution cache once it commits. Without the flush, a
-/// revoke keeps working on this replica until the cache's TTL. Every surface
-/// writes access through this wrapper.
+/// revoke keeps working on this replica until the cache's TTL. Every door in
+/// this crate writes access through this wrapper.
 pub async fn write_access(
     db: &DatabaseConnection,
     app: &apps::Model,
@@ -30,8 +32,8 @@ pub async fn write_access(
     req: &SetAppAccessRequest,
 ) -> Result<AppAccessDto, StatusCode> {
     oxy_tenancy::org_teams::service::write_access(db, app, actor_id, req, &|| {
-        crate::auth::invalidate_access_cache();
-        crate::cache::invalidate_app_resolution_cache_for_app(app.id);
+        oxy_custom_apps::auth::invalidate_access_cache();
+        oxy_custom_apps::cache::invalidate_app_resolution_cache_for_app(app.id);
     })
     .await
 }
