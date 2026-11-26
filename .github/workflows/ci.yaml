@@ -98,6 +98,30 @@ defaults:
 # changesets.yaml, so a PR rewriting one of their `runs-on` lines has to run
 # it. Each job's own comment still owns why it is that size.
 
+# Runner gate for the light jobs, same shape as the one above.
+#
+# CI_SLIM_RUNNER holds a plain `runs-on` label, used verbatim; unset it and
+# these jobs return to `ubuntu-slim`, which is the rollback with no deploy.
+# Until it is set this gate changes nothing, so merging this is a no-op.
+#
+# `ubuntu-slim` is GITHUB-hosted, not WarpBuild -- the live runner reports
+# `group=GitHub Actions` -- so this trades GitHub's billed minutes for the
+# fleet's `arm64-2x` shape, which already exists for exactly these jobs.
+#
+# The trade, and it is a trade: a fleet runner is a fresh EC2 boot of ~40s,
+# against a GitHub-hosted runner that is already warm. Measured durations of
+# the six jobs gated here -- typecheck-ci-scripts 3m39s, sdk-typecheck 2m13s,
+# fmt-web 2m11s, cargo-fmt ~1m, code-metrics 47s, canary-zoo -- mean the
+# longer three absorb the boot easily and the shorter ones get cheaper while
+# ending up somewhat slower in wall-clock. `runs-on` is per job here, so any
+# job that turns out to be boot-dominated goes back on its own line.
+#
+# NOT gated: `cargo-test` ("...(test)"), which only reads the other jobs'
+# results and is the required status check branch protection binds. On the
+# fleet, a capacity problem there would block every merge in the repo rather
+# than fail one job, so it stays GitHub-hosted -- the same reasoning that
+# keeps it out of the Rust gate above.
+
 jobs:
   # Every other job needs this one, so the repository gate here keeps the public
   # oxy-hq/oxygen mirror from re-running CI on commits oxygen-internal already tested.
@@ -127,8 +151,8 @@ jobs:
       (needs.changesets.outputs.web-app == 'true' ||
        needs.changesets.outputs.ci-scripts == 'true')
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # Install + lint-staged on the diff runs in ~2m warm; 15m covers a cold
     # pnpm store with generous headroom.
     timeout-minutes: 15
@@ -373,8 +397,8 @@ jobs:
       (needs.changesets.outputs.sdk == 'true' ||
        needs.changesets.outputs.ci-counter == 'true')
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # One tsc over ~60 files; 15m covers a cold pnpm store.
     timeout-minutes: 15
     steps:
@@ -663,8 +687,8 @@ jobs:
       inputs.agentic_only != true &&
       needs.changesets.outputs.ci-scripts == 'true'
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # Install plus one tsc over a handful of files; 15m is hang insurance.
     timeout-minutes: 15
     steps:
@@ -739,8 +763,8 @@ jobs:
       inputs.agentic_only != true &&
       needs.changesets.outputs.code-metrics == 'true'
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # A 16 MB download and a ~3s scan. 10m is hang insurance.
     timeout-minutes: 10
     steps:
@@ -924,8 +948,8 @@ jobs:
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # rustfmt --check on the whole workspace is seconds; 10m is pure hang insurance.
     timeout-minutes: 10
     steps:
@@ -959,8 +983,8 @@ jobs:
       github.event.pull_request.draft != true &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
     runs-on:
-      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
-      'ubuntu-latest' }}
+      ${{ github.repository != 'oxy-hq/oxygen-internal' && 'ubuntu-latest' ||
+      vars.CI_SLIM_RUNNER || 'ubuntu-slim' }}
     # Two file comparisons and a JSON field read; 10m is pure hang insurance.
     timeout-minutes: 10
     steps:
