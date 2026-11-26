@@ -31,8 +31,8 @@ use chrono::{DateTime, Utc};
 use futures::future::FutureExt;
 use sea_orm::{DatabaseConnection, DbErr};
 
+use super::collect;
 use oxy_app_core::emails::usage_report::ReportMailer;
-use oxy_usage_report::collect;
 use oxy_usage_report::period::Period;
 use oxy_usage_report::store::{self, StoredReport};
 

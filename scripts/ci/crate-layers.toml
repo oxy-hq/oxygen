@@ -166,7 +166,6 @@ allowed = [
   "oxy-semantic -> oxy-airlayer-compat",
   "oxy-tenancy -> oxy-server-authz",
   "oxy-test-utils -> migration",
-  "oxy-usage-report -> oxy-custom-apps",
   "oxy-workspace-health -> oxy-metric-monitoring",
   "oxy-workspace-health -> oxy-usage-report",
 ]

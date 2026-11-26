@@ -1,6 +1,11 @@
-use super::super::model::fixtures::period;
 use super::*;
 use chrono::TimeZone;
+
+/// The week the cases read: the one before 2026-10-06 (the same week as
+/// `oxy-usage-report`'s own model fixtures).
+fn period() -> Period {
+    Period::last_completed(Utc.with_ymd_and_hms(2026, 10, 6, 12, 0, 0).unwrap())
+}
 
 fn catalog_row(app: u128, org: u128, name: &str, published: bool) -> CatalogRow {
     CatalogRow {

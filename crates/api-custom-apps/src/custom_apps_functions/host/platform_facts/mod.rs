@@ -18,7 +18,7 @@
 //! much happened, not who did it, and in an app's `lastActiveAt`, its last open.
 //!
 //! **Only production counts**, as in the usage report
-//! (`oxy_usage_report::collect`): a view or a function invocation in staging
+//! (`oxy-api-billing`'s `usage_report::collect`): a view or a function invocation in staging
 //! or a sandbox is a developer trying a build, not usage.
 //!
 //! **Weeks are completed ISO weeks**, Monday 00:00 UTC to the next, oldest

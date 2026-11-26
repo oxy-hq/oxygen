@@ -11364,7 +11364,6 @@ dependencies = [
  "entity",
  "oxy-app-core",
  "oxy-authz",
- "oxy-custom-apps",
  "oxy-shared",
  "sea-orm",
  "serde",

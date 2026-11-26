@@ -7,8 +7,9 @@
 //! recipients and the routes are the surface's, `oxy-api-billing` (admin split
 //! PR 8b). Operator notes: `internal-docs/custom-app-usage-report.md`.
 //!
-//! - [`period`] names the week; [`collect`] reads it out of Postgres (or the
-//!   workspace's Airhouse) into a [`model::Snapshot`]; [`store`] keeps it.
+//! - [`period`] names the week; [`model::Snapshot`] is what the surface's
+//!   `usage_report::collect` reads it into (out of Postgres, or the workspace's
+//!   Airhouse, through `oxy-custom-apps`' usage reads); [`store`] keeps it.
 //! - [`highlights`] is the judgement — what counts as quiet, falling, failing,
 //!   growing — and is pure, so it is where the rules are tested.
 //! - [`email`] writes the mail; [`view`] is the console's read of a report.
@@ -20,7 +21,6 @@
 //! - [`llm_usage`]: a run's token columns and the rate table that prices them,
 //!   for Admin → Metrics and `ctx.platform.facts()`.
 
-pub mod collect;
 pub mod customer_runs;
 pub mod email;
 pub mod highlights;

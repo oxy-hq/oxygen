@@ -10180,7 +10180,7 @@ metric = "abc"
 value = 49.09175083453431
 
 [[entry]]
-path = "crates/usage-report/src/collect.rs"
+path = "crates/api-billing/src/usage_report/collect.rs"
 qualified = "collect"
 metric = "abc"
 value = 42.21374183841087

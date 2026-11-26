@@ -15,6 +15,11 @@
 //! Every Postgres query names the apps it wants (`app_id = ANY`), which is what
 //! lets it use each table's `(app_id, …, time)` index. The invocation table is
 //! never pruned, so a scan by time alone would read all of it.
+//!
+//! Up from `oxy_usage_report::collect` (2026-11-26): this surface's weekly
+//! job is its only caller, and the custom-app usage reads it runs are
+//! `oxy-custom-apps`', so the report's domain half need not depend on custom
+//! apps (`internal-docs/crate-tiers.md`). The model it fills stays there.
 
 use std::collections::{HashMap, HashSet};
 
@@ -25,8 +30,8 @@ use uuid::Uuid;
 use oxy_custom_apps::usage_reads::{self, ReportApp};
 pub(super) use oxy_custom_apps::usage_reads::{ErrorRow, PersonRow, ViewRow};
 
-use super::model::{AppUsage, Counts, OrgUsage, Snapshot};
-use super::period::Period;
+use oxy_usage_report::model::{AppUsage, Counts, OrgUsage, Snapshot};
+use oxy_usage_report::period::Period;
 
 const CATALOG_SQL: &str = "\
 SELECT a.id AS app_id, a.org_id, a.project_id AS workspace_id, a.name, a.slug, a.published_at, \

@@ -5,7 +5,8 @@
 //! want it, and readable in the console — where, as in the mail, each reader
 //! sees the orgs their grant reaches and no others.
 //!
-//! - `period` names the week; `collect` reads it out of Postgres into a
+//! - `period` names the week; [`collect`] (this crate's, since it runs the
+//!   custom-app usage reads) reads it out of Postgres into a
 //!   `model::Snapshot`; `store` keeps it.
 //! - `highlights` is the judgement — what counts as quiet, falling, failing,
 //!   growing — and is pure, so it is where the rules are tested.
@@ -14,7 +15,7 @@
 //! - `view` is the console's read of a report, and `handlers` the routes;
 //!   [`recipients`] lists who gets it and lets an admin switch one person off.
 //!
-//! `period`, `collect`, `model`, `store`, `highlights`, `email` and `view` are
+//! `period`, `model`, `store`, `highlights`, `email` and `view` are
 //! the `oxy-usage-report` crate's (the report's domain half, with no route or
 //! `AppState`), imported from there; the rest is this surface. Out of
 //! `oxy-app`'s `api::admin::usage_report` in the admin split's PR 8b, where
@@ -22,6 +23,7 @@
 //!
 //! Operator notes: `internal-docs/custom-app-usage-report.md`.
 
+pub mod collect;
 pub mod delivery;
 mod handlers;
 pub mod job;

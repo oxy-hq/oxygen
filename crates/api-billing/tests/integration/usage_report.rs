@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Duration;
+use oxy_api_billing::usage_report::collect::collect;
 use oxy_api_billing::usage_report::{delivery, job};
 use oxy_app_core::emails::usage_report::{DeliveryMode, ReportMailer};
-use oxy_usage_report::collect::collect;
 use oxy_usage_report::store;
 
 use world::{Outbox, World, now};

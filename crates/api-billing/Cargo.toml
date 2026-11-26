@@ -16,7 +16,8 @@ edition.workspace = true
 # capability they name (`Action`) and the org role guards oxy-server-authz's,
 # and billing's base (`billing_service`) oxy-billing's.
 oxy-app-core = { workspace = true }     # AppState, admin_db, audit, emails::usage_report, the console's base url, seams, org_middleware
-oxy-usage-report = { workspace = true } # the report's domain half: period, collect, store, model, email, view
+oxy-usage-report = { workspace = true } # the report's domain half: period, store, model, email, view
+oxy-custom-apps = { workspace = true }  # `usage_reads`, the Postgres-or-Airhouse usage reads `usage_report::collect` runs
 oxy-auth = { workspace = true }         # the authenticated-user extractor
 oxy-feature-flags = { workspace = true } # the `billing` switch
 oxy-authz = { workspace = true }        # `Cap` (the audience), `Scope` (a reader's reach)

@@ -13,9 +13,9 @@
 use std::time::Duration;
 
 use chrono::Duration as Hours;
+use oxy_api_billing::usage_report::collect::collect;
 use oxy_custom_apps::usage_backfill::{self, Pass};
 use oxy_custom_apps::usage_fixtures::{Cast, FakeAirhouse, history};
-use oxy_usage_report::collect::collect;
 use sea_orm::ActiveModelTrait;
 use uuid::Uuid;
 

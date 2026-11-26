@@ -648,7 +648,7 @@ mod tests {
             "oxy_server_authz::staff::delegation",
             "oxy_server_authz::staff::stored_grant",
             "oxy_usage_report",
-            "oxy_usage_report::collect",
+            "oxy_api_billing::usage_report::collect",
             "oxy_usage_report::customer_runs",
             "oxy_usage_report::email",
             "oxy_usage_report::highlights",
@@ -1891,8 +1891,8 @@ mod tests {
             // verifies `audit_events`; no warehouse query.
             "oxy_api_admin::audit",
             // The admin split (PR 8b): the usage report's surface. It stores
-            // and mails a report and reads staff grants; the week's reads
-            // are `oxy_usage_report::collect`'s, below it.
+            // and mails a report and reads staff grants; the week's reads are
+            // its own `usage_report::collect` (pinned with the move-downs).
             "oxy_api_billing",
             "oxy_api_billing::usage_report",
             "oxy_api_billing::usage_report::delivery",
