@@ -200,8 +200,10 @@ async fn crud_round_trip_and_validation() {
         "rename must keep the slot"
     );
 
-    // Update WITH cadence change → next_run_at recomputed.
-    let updated2 = update_schedule(&db, ws, &created.id, input("renamed", &r, "0 * * * *"))
+    // Update WITH cadence change → next_run_at recomputed. The new cron fires at
+    // half past, so its next slot can never equal the daily 09:00 one: with
+    // "0 * * * *" both are 09:00 for a test that runs between 08:00 and 09:00 UTC.
+    let updated2 = update_schedule(&db, ws, &created.id, input("renamed", &r, "30 * * * *"))
         .await
         .unwrap();
     assert_ne!(
