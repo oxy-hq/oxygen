@@ -65,11 +65,12 @@ const ALLOWED: &[(&str, &str)] = &[
          revision; it reads no artifact.",
     ),
     (
-        "../custom-apps/src/staging_pin/mod.rs",
+        "../app-core/src/revision_pin.rs",
         "`check_pinnable` asks `revision_is_servable` whether a pinned revision's \
          compiled config loads, for a workspace preview header. There is no \
          manager to ask: the pin is what decides which revision a manager would \
-         read. It reads no artifact.",
+         read. It reads no artifact. (Was `../custom-apps/src/staging_pin/mod.rs` \
+         until the pin rule went down beside `compiled_reader`, 2026-11-26.)",
     ),
     (
         "../api-world-model/src/toast_webhook.rs",

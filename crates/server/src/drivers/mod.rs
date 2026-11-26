@@ -28,6 +28,7 @@ mod billing_reconciler;
 mod drive_policy;
 pub(crate) mod fleet_jobs;
 pub(crate) mod periodic;
+mod preview_tick;
 pub(crate) mod recovery;
 mod run_retention;
 #[cfg(test)]

@@ -170,7 +170,7 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 10] = [
     // the previews rows (2026-11-22). It settles the run through the state
     // machine above, so a line can quote the same failure text: shaped, as it
     // was under the `projects` prefix. The module only, not the rest of
-    // `oxy_previews::queue`, which never was.
+    // `oxy_previews::queue`. Moved on under the prefix above (2026-11-26); kept.
     "oxy_previews::queue::preview_settle",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.

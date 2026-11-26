@@ -166,7 +166,6 @@ allowed = [
   "oxy-preagg -> agentic-pipeline",
   "oxy-previews -> agentic-airway",
   "oxy-previews -> agentic-pipeline",
-  "oxy-previews -> oxy-custom-apps",
   "oxy-previews -> oxy-server-authz",
   "oxy-semantic -> oxy-airlayer-compat",
   "oxy-tenancy -> oxy-server-authz",

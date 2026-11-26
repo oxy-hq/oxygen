@@ -60,6 +60,7 @@ const CHARTER: &[(&str, Kind)] = &[
     ("preagg_context", Service),
     ("process_role", Request),
     ("rate_limit", Service),
+    ("revision_pin", Service),
     ("seams", Seam),
     ("semantic_limit", Service),
     ("semantic_pin_seam", Seam),

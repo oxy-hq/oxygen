@@ -10994,7 +10994,6 @@ dependencies = [
  "http 1.5.0",
  "oxy",
  "oxy-app-core",
- "oxy-custom-apps",
  "oxy-server-authz",
  "regex",
  "sea-orm",

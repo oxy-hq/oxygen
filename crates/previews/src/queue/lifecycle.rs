@@ -7,8 +7,10 @@ use sea_orm::{
 use uuid::Uuid;
 
 /// `agentic_runs.task_status` values after which a run does nothing more, as a
-/// SQL list. A run in any other status (or none) may still be working.
-pub const TERMINAL_RUN_STATUSES: &str = "('done','failed','cancelled','timed_out')";
+/// SQL list. A run in any other status (or none) may still be working. The
+/// runtime's list (`agentic_runtime::state::TERMINAL_TASK_STATUSES_SQL`), so
+/// the custom-app preview settle (`oxy-custom-apps`) reads the same one.
+pub const TERMINAL_RUN_STATUSES: &str = agentic_runtime::state::TERMINAL_TASK_STATUSES_SQL;
 
 /// Cancel every queued run of preview `preview_key`: its queue rows stop being
 /// claimable, its run ends `cancelled`, and its preview-run row `finished`,

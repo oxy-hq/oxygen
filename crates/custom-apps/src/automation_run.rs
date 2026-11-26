@@ -1,15 +1,16 @@
 //! The custom-app automation run's **row**: how a `customer_app_automation_runs`
 //! row is closed and begun ([`settle`]), the failure classifier
-//! ([`automation_error_to_code`]), and whether a row is a preview-mode run's
-//! ([`owns_run`]).
+//! ([`automation_error_to_code`]), whether a row is a preview-mode run's
+//! ([`owns_run`]), and closing a preview-mode run's row from its finished
+//! preview run ([`preview_settle`]).
 //!
 //! The handlers (`POST …/procedures/{procedure_id}/runs`, poll, cancel), the
 //! queued executor that drives a run and the TTL sweep are
 //! `oxy-api-custom-apps`' `automation_run`. A preview-mode run's row is settled
-//! from its finished preview run by `oxy-app`'s
-//! `server::api::projects::automation_run::preview_settle`, which the
-//! workspace-preview sweep (`previews::queue::sweep`) drives in the same tick it
-//! marks the preview run finished; it closes the row through this state
+//! from its finished preview run by [`preview_settle`], which the global
+//! driver runs right after the workspace-preview sweep
+//! (`oxy_previews::queue::sweep`), in the same tick it marks the preview run
+//! finished; it closes the row through this state
 //! machine, which is one thing whichever side writes it. Down from `oxy-app`'s
 //! `server::api::projects::automation_run` (2026-11-22), re-exported there and
 //! at the prelude's `automation_runs` until decompose R1 deleted both.
@@ -24,6 +25,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use tracing::warn;
 use uuid::Uuid;
 
+pub mod preview_settle;
 pub mod settle;
 
 /// Best-effort categorization of automation-runner failures.

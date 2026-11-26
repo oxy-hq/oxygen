@@ -52,6 +52,7 @@ pub mod preagg_cache_ctx;
 pub mod preagg_context;
 pub mod process_role;
 pub mod rate_limit;
+pub mod revision_pin;
 pub mod seams;
 pub mod semantic_limit;
 pub mod semantic_pin_seam;

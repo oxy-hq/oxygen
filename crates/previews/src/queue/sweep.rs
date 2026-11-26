@@ -1,9 +1,14 @@
 //! The held preview runs' per-pass step, run by the global driver on every
 //! pass (`drivers::recovery`): retire runs past the wall-clock ceiling
-//! ([`super::ceiling`]), finish rows whose run is terminal, settle a custom
-//! app's preview-mode automation run, queue the compare under each finished
-//! transform build ([`super::compare`]) and start each workspace's next queued
-//! run ([`super::run::advance`]).
+//! ([`super::ceiling`]), finish rows whose run is terminal, queue the compare
+//! under each finished transform build ([`super::compare`]) and start each
+//! workspace's next queued run ([`super::run::advance`]).
+//!
+//! A custom app's preview-mode automation run is settled from its finished
+//! preview run by `oxy_custom_apps::automation_run::preview_settle`, which the
+//! driver calls right after this, in the same tick. It used to be a step in
+//! here, between finishing rows and queueing compares; neither later step
+//! reads or writes what it does, so the order within the tick is moot.
 //!
 //! Row writes and queue inserts only, over the registry's tables, so it stays
 //! below the previews surface with the rest of the queue: the driver and
@@ -56,11 +61,6 @@ pub async fn sweep(db: &DatabaseConnection) {
         }
         Ok(_) => {}
         Err(e) => tracing::warn!(target: "preview", error = %e, "could not finish preview runs"),
-    }
-    // A custom app's automation run that ran as a preview: its poll row reads
-    // the outcome now that the run is finished.
-    if let Err(e) = super::preview_settle::settle_custom_app_runs(db).await {
-        tracing::warn!(target: "preview", error = %e, "could not settle custom-app preview runs");
     }
     // A transform build that just finished gets its compare this tick.
     if let Err(e) = super::compare::enqueue_compares(db).await {

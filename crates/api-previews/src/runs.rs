@@ -22,9 +22,10 @@
 //!    platform (`previews::runtime::PreviewRunResolver`).
 //! 4. [`sweep`], on the driver's periodic tick, retires runs past the
 //!    wall-clock ceiling ([`retire_overdue`], `OXY_PREVIEW_RUN_MAX_MINUTES`),
-//!    finishes rows whose run is terminal ([`mark_finished`]), settles the poll
-//!    row of a custom app's automation run that ran as a preview
-//!    (`settle_custom_app_runs`) and advances each workspace's queue.
+//!    finishes rows whose run is terminal ([`mark_finished`]) and advances each
+//!    workspace's queue. The driver then settles the poll row of a custom app's
+//!    automation run that ran as a preview, in the same tick
+//!    (`oxy_custom_apps::automation_run::preview_settle::settle_custom_app_runs`).
 //!
 //! Gated by `OXY_PREVIEW_RUNS`: every runs route answers `404
 //! preview_runs_disabled` without it, and the sweep starts nothing. Enable it

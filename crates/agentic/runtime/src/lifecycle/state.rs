@@ -272,6 +272,13 @@ impl RunStatus {
     }
 }
 
+/// `agentic_runs.task_status` values after which a run does nothing more, as a
+/// SQL list for a raw `IN` / `NOT IN`. A run in any other status (or none) may
+/// still be working. The workspace-preview rows (`oxy-previews`, its
+/// `TERMINAL_RUN_STATUSES`) and the custom-app preview settle
+/// (`oxy-custom-apps`) read this one list.
+pub const TERMINAL_TASK_STATUSES_SQL: &str = "('done','failed','cancelled','timed_out')";
+
 /// Error type for transport-agnostic run operations.
 #[derive(Debug)]
 pub enum RunError {

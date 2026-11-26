@@ -1,7 +1,14 @@
 //! Closing a custom app's preview-run poll rows from the finished run: the
-//! half of the automation run's row that the preview sweep
-//! (`previews::queue::sweep`) drives. It closes each row through
-//! `oxy_custom_apps::automation_run::settle`.
+//! half of the automation run's row that the workspace-preview sweep's tick
+//! drives. The global driver (`oxy-server`'s `drivers::recovery`) calls
+//! [`settle_custom_app_runs`] right after `oxy_previews::queue::sweep::sweep`,
+//! in the same tick it marks the preview run finished. It closes each row
+//! through [`super::settle`].
+//!
+//! Was `oxy_previews::queue::preview_settle`, called from inside the sweep,
+//! until previews stopped depending on this crate (`internal-docs/
+//! crate-tiers.md`, stage A). Its Sentry class is unchanged: shaped as data
+//! plane, now under the `oxy_custom_apps::automation_run` prefix.
 
 use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
@@ -9,9 +16,9 @@ use serde_json::Value as JsonValue;
 use tracing::warn;
 use uuid::Uuid;
 
-use oxy_custom_apps::automation_run::{automation_error_to_code, settle};
+use agentic_runtime::state::TERMINAL_TASK_STATUSES_SQL as TERMINAL_RUN_STATUSES;
 
-use super::lifecycle::TERMINAL_RUN_STATUSES;
+use super::{automation_error_to_code, settle};
 
 /// Close every open poll row whose preview run has finished, from its
 /// `agentic_runs` row: `done` with the steps' results as outputs, `failed`

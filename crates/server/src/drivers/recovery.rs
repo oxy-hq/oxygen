@@ -565,10 +565,8 @@ pub fn spawn_recovery(
                             "global driver loop: drove scope_owned=false runs"
                         );
                     }
-                    // Held workspace-preview runs: finish those whose run is
-                    // terminal, then start each workspace's next queued one.
-                    // Row writes only — the runs themselves are queue work.
-                    oxy_previews::queue::sweep::sweep(&db).await;
+                    // Held workspace-preview runs, and the custom-app runs they ran.
+                    super::preview_tick::run(&db).await;
                     // Token hygiene (spent OIDC jtis, long-expired `ci`
                     // tokens, expiry notices, unused tokens) is
                     // `oxy-api-identity`'s tick, run with the other surfaces'

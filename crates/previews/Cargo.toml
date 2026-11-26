@@ -2,7 +2,7 @@
 name = "oxy-previews"
 version.workspace = true
 authors.workspace = true
-description = "Workspace previews' rows: the registry (`workspace_previews`), the preview schemas' registry and DDL, the namespace, the Airway sample sources, the request pin, the read-only table, and the preview run queue with its sweep and the custom-app preview settle. Below the workspace runtime, the workspace middleware, the compile worker and the previews surface (oxy-api-previews); no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "Workspace previews' rows: the registry (`workspace_previews`), the preview schemas' registry and DDL, the namespace, the Airway sample sources, the request pin, the read-only table, and the preview run queue with its sweep. Below the workspace runtime, the workspace middleware, the compile worker and the previews surface (oxy-api-previews); no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -15,7 +15,8 @@ agentic-airway = { workspace = true }
 agentic-core = { workspace = true }
 # The task kinds the queue seeds (`PREVIEW_AIRWAY_SAMPLE`, ...).
 agentic-pipeline = { workspace = true }
-# `TaskScope` and the run/queue CRUD the sweep reads.
+# `TaskScope` and the run/queue CRUD the sweep reads, and the terminal
+# task statuses (`TERMINAL_RUN_STATUSES`).
 agentic-runtime = { workspace = true }
 # `preview_sql` (the namespace, the refusal, the shadow-map registry) and the
 # token broker the schema DDL mints a Writer through.
@@ -24,11 +25,9 @@ entity = { workspace = true }
 # `database::client::establish_connection`: the pin reads the registry.
 oxy = { workspace = true }
 # `sql_kind`, re-exported at `previews::sql_kind`; `pods::role_manifest::
-# pattern_matches`, which the read-only table matches routes with.
+# pattern_matches`, which the read-only table matches routes with;
+# `revision_pin::check_pinnable`, which the pin applies.
 oxy-app-core = { workspace = true }
-# `staging_pin::check_pinnable` (the pin) and `automation_run::settle` (the
-# custom-app preview settle).
-oxy-custom-apps = { workspace = true }
 # `role_guards::may_preview`: only staff may pin a request to a preview.
 oxy-server-authz = { workspace = true }
 

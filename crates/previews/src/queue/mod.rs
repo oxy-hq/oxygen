@@ -5,8 +5,9 @@
 //! ([`analyze::enqueue_after_staging_compile`], from the compile worker) and
 //! seeding an Airway sample's run ([`sample_seed`], from the queue step), and
 //! the per-pass [`sweep`] the global driver runs (with its [`ceiling`] and the
-//! compares it queues, [`compare`], and the custom-app preview runs it settles,
-//! [`preview_settle`]).
+//! compares it queues, [`compare`]). The custom-app preview runs it finishes
+//! are settled by `oxy_custom_apps::automation_run::preview_settle`, which the
+//! driver runs right after it.
 //!
 //! Rows only, over the registry's own tables: nothing here runs a check, a
 //! sample or a procedure. Its callers outside previews are the compile worker,
@@ -19,7 +20,6 @@ pub mod analyze;
 pub mod ceiling;
 pub mod compare;
 pub mod lifecycle;
-pub mod preview_settle;
 pub mod run;
 pub mod sample_seed;
 pub mod sweep;

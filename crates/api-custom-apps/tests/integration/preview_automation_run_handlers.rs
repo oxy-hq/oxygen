@@ -26,7 +26,6 @@ use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, RevisionKind, compile_workspace, compiler_version};
 use oxy_compile_runtime::config_gate::runtime_config_gate;
-use oxy_previews::queue::sweep::sweep;
 use oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use serde_json::json;
@@ -36,6 +35,16 @@ use uuid::Uuid;
 use crate::common::{demo_workspace_id, examples_path};
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
 use crate::staging_functions::{held_rows, make_guest_staff, staging_host};
+
+/// The global driver's preview tick, as `oxy-server`'s `drivers::recovery`
+/// runs it: the previews sweep, then custom apps' settle of the preview-mode
+/// runs it finished.
+async fn sweep(db: &sea_orm::DatabaseConnection) {
+    oxy_previews::queue::sweep::sweep(db).await;
+    oxy_custom_apps::automation_run::preview_settle::settle_custom_app_runs(db)
+        .await
+        .expect("settle the custom-app preview runs");
+}
 
 const AUTOMATION_ID: &str = "anonymize";
 const AUTOMATION_PATH: &str = "procedures/anonymize.automation.yml";

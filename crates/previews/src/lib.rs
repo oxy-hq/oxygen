@@ -3,9 +3,10 @@
 //! read and write about a preview, below all of them.
 //!
 //! Out of `oxy-app`'s `server::previews` (and the custom-app preview settle,
-//! `server::api::projects::automation_run::preview_settle`) on 2026-11-22, the
-//! decompose's P1, and re-exported at the old paths, so no caller in `oxy-app`
-//! changed:
+//! `server::api::projects::automation_run::preview_settle`, which moved on to
+//! `oxy_custom_apps::automation_run::preview_settle` on 2026-11-26) on
+//! 2026-11-22, the decompose's P1, and re-exported at the old paths, so no
+//! caller in `oxy-app` changed:
 //!
 //! - [`store`]: `workspace_previews`, which branches staff preview, at which
 //!   commit, and who asked.
@@ -16,7 +17,7 @@
 //! - [`pin`]: which requests are served from a preview, and the headers that
 //!   say so.
 //! - [`queue`]: the preview run queue, its sweep and ceiling, the compares
-//!   and change checks it queues, and the custom-app preview settle.
+//!   and change checks it queues.
 //! - [`read_only`]: what a request pinned to a preview may still call, and
 //!   what a refusal says (P2, 2026-11-22; the axum adapter that applies it,
 //!   `check` and `refusal`, stays beside the workspace middleware in

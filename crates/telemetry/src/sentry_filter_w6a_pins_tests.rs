@@ -91,8 +91,9 @@ fn the_semantic_boundary_row_claims_only_its_module() {
 /// segment: a sibling that shares the name, the surface's own
 /// `automation_run` and every other module of the crate stay dropped. Its
 /// preview settle kept the same class when it went down the same day to
-/// `oxy_previews::queue::preview_settle`; its queue siblings stay kept and
-/// unshaped.
+/// `oxy_previews::queue::preview_settle`, and again when it moved beside the
+/// state machine (`oxy_custom_apps::automation_run::preview_settle`,
+/// 2026-11-26); its old queue siblings stay kept and unshaped.
 #[test]
 fn the_automation_run_row_keeps_its_sentry_class_after_the_move() {
     for module in [
@@ -101,8 +102,10 @@ fn the_automation_run_row_keeps_its_sentry_class_after_the_move() {
         "oxy_app::server::api::projects::automation_run::preview_settle",
         "oxy_custom_apps::automation_run",
         "oxy_custom_apps::automation_run::settle",
-        // The preview settle at its new path (2026-11-22).
+        // The preview settle at its path from 2026-11-22, and at its path
+        // since 2026-11-26, beside the state machine.
         "oxy_previews::queue::preview_settle",
+        "oxy_custom_apps::automation_run::preview_settle",
     ] {
         assert_eq!(
             sentry_disposition(module, &Level::ERROR),
