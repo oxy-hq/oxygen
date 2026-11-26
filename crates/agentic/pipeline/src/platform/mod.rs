@@ -17,7 +17,7 @@ pub mod preview_stamp;
 
 use std::sync::Arc;
 
-pub(crate) use agent_connectors::agent_connectors;
+pub(crate) use agent_connectors::{fsm_connectors, react_connectors};
 pub use preview::{AirwayStepMode, IdentityResolver, PreviewScope, RunPlatformResolver};
 
 use agentic_analytics::config::{LlmVendor, ResolvedModelInfo};

@@ -37,6 +37,7 @@ pub mod run_execution;
 mod run_metadata;
 pub mod scheduler;
 mod start_guard;
+mod thread_history;
 pub mod usage;
 
 use std::collections::HashMap;
@@ -563,17 +564,15 @@ impl PipelineBuilder {
             .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
             .await;
 
-        let (effective_databases, connectors) =
-            platform::agent_connectors(&*self.platform, &config, base_dir).await;
-
         if pick.react {
-            // Clones: the FSM path below keeps the originals if react
-            // cannot serve this agent.
+            // Read-only connectors; the FSM's are built below if react declines.
+            let (databases, connectors) =
+                platform::react_connectors(&*self.platform, &config, base_dir).await;
             let inputs = react_served::ServedInputs {
                 agent_id: agent_id.to_string(),
                 workspace_id: self.workspace_id,
-                connectors: connectors.clone(),
-                databases: effective_databases.clone(),
+                connectors,
+                databases,
                 project_model: project_model.clone(),
                 domain_docs: domain_docs.clone(),
                 thinking_mode: self.thinking_mode,
@@ -596,6 +595,8 @@ impl PipelineBuilder {
                 return Ok(started.await);
             }
         }
+        let (effective_databases, connectors) =
+            platform::fsm_connectors(&*self.platform, &config, base_dir).await;
 
         // Automation runner.
         //
@@ -614,21 +615,7 @@ impl PipelineBuilder {
             platform::preview::automation_subrun_runner(&self.platform, ctx.automation_files)
         });
 
-        let (history, prior_spec_hint) = if let Some(tid) = self.thread_id {
-            let turns = agentic_runtime::crud::get_thread_history(db, tid, 10)
-                .await
-                .unwrap_or_default();
-            let history: Vec<agentic_analytics::ConversationTurn> = turns
-                .into_iter()
-                .map(|t| agentic_analytics::ConversationTurn {
-                    question: t.question,
-                    answer: t.answer,
-                })
-                .collect();
-            (history, None)
-        } else {
-            (vec![], None)
-        };
+        let history = thread_history::fsm_history(db, self.thread_id).await;
 
         // Build params.
         let params = agentic_analytics::PipelineParams {
@@ -640,7 +627,7 @@ impl PipelineBuilder {
             default_connector: effective_databases.first().cloned(),
             question: self.question,
             history,
-            prior_spec_hint,
+            prior_spec_hint: None,
             schema_cache: self.schema_cache,
             project_model,
             timezone: self.platform.timezone(),
@@ -725,18 +712,17 @@ impl PipelineBuilder {
             .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
             .await;
 
-        let (effective_databases, connectors) =
-            platform::agent_connectors(&*self.platform, &config, base_dir).await;
-
         // A react run resumes on react, decided by what the run persisted
         // (`react_resume`), never by the agent's `runtime:` key or the flag.
         if react_resume::is_react(&resume_data) {
             let input = react_resume::resume_input(run_id, &resume_data, &answer);
+            let (databases, connectors) =
+                platform::react_connectors(&*self.platform, &config, base_dir).await;
             let inputs = react_served::ServedInputs {
                 agent_id: agent_id.to_string(),
                 workspace_id: self.workspace_id,
                 connectors,
-                databases: effective_databases,
+                databases,
                 project_model,
                 domain_docs,
                 thinking_mode: react_resume::started_thinking_mode(db, run_id).await,
@@ -746,10 +732,12 @@ impl PipelineBuilder {
                 thread_id: self.thread_id,
                 question: self.question,
             };
-            let platform = self.platform.as_ref();
-            let resumed = react_resume::resume(platform, db, &config, inputs, base_dir, run, input);
+            let resumed =
+                react_resume::resume(&*self.platform, db, &config, inputs, base_dir, run, input);
             return Ok(resumed.await);
         }
+        let (effective_databases, connectors) =
+            platform::fsm_connectors(&*self.platform, &config, base_dir).await;
 
         // Automation runner.
         //
@@ -768,21 +756,7 @@ impl PipelineBuilder {
             platform::preview::automation_subrun_runner(&self.platform, ctx.automation_files)
         });
 
-        let (history, prior_spec_hint) = if let Some(tid) = self.thread_id {
-            let turns = agentic_runtime::crud::get_thread_history(db, tid, 10)
-                .await
-                .unwrap_or_default();
-            let history: Vec<agentic_analytics::ConversationTurn> = turns
-                .into_iter()
-                .map(|t| agentic_analytics::ConversationTurn {
-                    question: t.question,
-                    answer: t.answer,
-                })
-                .collect();
-            (history, None)
-        } else {
-            (vec![], None)
-        };
+        let history = thread_history::fsm_history(db, self.thread_id).await;
 
         let params = agentic_analytics::PipelineParams {
             domain_docs,
@@ -793,7 +767,7 @@ impl PipelineBuilder {
             default_connector: effective_databases.first().cloned(),
             question: self.question,
             history,
-            prior_spec_hint,
+            prior_spec_hint: None,
             schema_cache: self.schema_cache,
             project_model,
             timezone: self.platform.timezone(),
