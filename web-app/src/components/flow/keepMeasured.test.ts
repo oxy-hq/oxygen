@@ -1,7 +1,7 @@
 import type { Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 
-import { keepMeasured } from "./LineageGraph";
+import { keepMeasured } from "./keepMeasured";
 
 const node = (id: string, extra: Partial<Node> = {}): Node => ({
   id,

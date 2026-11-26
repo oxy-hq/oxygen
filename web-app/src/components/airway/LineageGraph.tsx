@@ -26,6 +26,7 @@ import { Database } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo } from "react";
 import "@xyflow/react/dist/style.css";
+import { keepMeasured } from "@/components/flow/keepMeasured";
 import { cn } from "@/libs/shadcn/utils";
 import type { AirwayRunView, ResourceRow, ResourceStatus } from "@/utils/airwayReducer";
 
@@ -176,22 +177,6 @@ function buildGraph(view: AirwayRunView): { nodes: Node[]; edges: Edge[] } {
   }
 
   return { nodes, edges };
-}
-
-/**
- * Rebuilt nodes keep the size xyflow already measured for their id.
- *
- * xyflow builds its internal nodes from `node.measured`. A rebuilt node
- * without one is hidden until it is measured again, and a burst of SSE events
- * can replace each view before that happens, leaving the graph an empty
- * canvas for good (#4494).
- */
-export function keepMeasured(prev: Node[], built: Node[]): Node[] {
-  const measured = new Map(prev.map((n) => [n.id, n.measured] as const));
-  return built.map((n) => {
-    const m = measured.get(n.id);
-    return m ? { ...n, measured: m } : n;
-  });
 }
 
 const LineageGraph: React.FC<{ view: AirwayRunView }> = ({ view }) => {

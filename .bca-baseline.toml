@@ -17311,11 +17311,11 @@ value = 25.0
 path = "web-app/src/pages/thread/analytics/BuilderActivityPanel/SemanticViewGraph.tsx"
 qualified = "SemanticViewGraph"
 metric = "abc"
-value = 41.38840417314975
+value = 42.16633728461603
 
 [[entry]]
 path = "web-app/src/pages/thread/analytics/BuilderActivityPanel/SemanticViewGraph.tsx"
-qualified = "SemanticViewGraph::<anon@L189>"
+qualified = "SemanticViewGraph::<anon@L190>"
 metric = "cognitive"
 value = 16.0
 

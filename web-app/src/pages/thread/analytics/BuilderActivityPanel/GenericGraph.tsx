@@ -7,12 +7,13 @@ import {
   Position,
   ReactFlow,
   type Edge as RFEdge,
-  type Node as RFNode
+  type Node as RFNode,
+  useNodesState
 } from "@xyflow/react";
 import ELK from "elkjs";
 import { CheckCircle2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-
+import { keepMeasured } from "@/components/flow/keepMeasured";
 import type { BuilderFileChange } from "@/hooks/useBuilderActivity";
 import { cn } from "@/libs/shadcn/utils";
 import useTheme from "@/stores/useTheme";
@@ -230,7 +231,10 @@ export const GenericGraph = ({
     [allItems]
   );
 
-  const [layoutedNodes, setLayoutedNodes] = useState<RFNode[]>([]);
+  // A delegated Builder run's events stream in one by one, and each re-parses the
+  // file and rebuilds every node: the nodes live in xyflow state so `onNodesChange`
+  // records each measurement, and `keepMeasured` carries it onto the next layout.
+  const [layoutedNodes, setLayoutedNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [layoutedEdges, setLayoutedEdges] = useState<RFEdge[]>([]);
   const [rfInstance, setRfInstance] = useState<{ fitView: (opts?: object) => void } | null>(null);
   const [layoutFailed, setLayoutFailed] = useState(false);
@@ -272,12 +276,11 @@ export const GenericGraph = ({
       .then((layout) => {
         if (cancelled) return;
         setLayoutFailed(false);
-        setLayoutedNodes(
-          baseNodes.map((node) => {
-            const pos = layout.children?.find((n) => n.id === node.id);
-            return { ...node, position: { x: pos?.x ?? 0, y: pos?.y ?? 0 } };
-          })
-        );
+        const laidOut = baseNodes.map((node) => {
+          const pos = layout.children?.find((n) => n.id === node.id);
+          return { ...node, position: { x: pos?.x ?? 0, y: pos?.y ?? 0 } };
+        });
+        setLayoutedNodes((prev) => keepMeasured(prev, laidOut));
 
         const pathMap = new Map<string, string>();
         for (const e of layout.edges ?? []) {
@@ -313,7 +316,7 @@ export const GenericGraph = ({
     return () => {
       cancelled = true;
     };
-  }, [baseNodes, rfEdges]);
+  }, [baseNodes, rfEdges, setLayoutedNodes]);
 
   useEffect(() => {
     if (layoutedNodes.length === 0 || !rfInstance) return;
@@ -363,6 +366,7 @@ export const GenericGraph = ({
       <div className='relative min-h-0 flex-1'>
         <ReactFlow
           nodes={layoutedNodes}
+          onNodesChange={onNodesChange}
           edges={layoutedEdges}
           nodeTypes={nodeTypes}
           edgeTypes={elkEdgeTypes}

@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
+import { keepMeasured } from "@/components/flow/keepMeasured";
 import { cn } from "@/libs/shadcn/utils";
 import { layoutTree } from "./elkLayout";
 
@@ -100,7 +101,9 @@ function Chart({
     layoutTree(rawNodes, rawEdges)
       .then((laidOut) => {
         if (cancelled) return;
-        setNodes(laidOut);
+        // A parent that rebuilds its node list every render re-runs this: keep the
+        // sizes xyflow measured, or the rebuilt nodes go hidden until re-measured.
+        setNodes((prev) => keepMeasured(prev, laidOut));
         setEdges(rawEdges);
         setLayoutFailed(false);
       })
