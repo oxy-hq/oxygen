@@ -6,8 +6,8 @@
 //! the release build (`.github/actions/build-oxy-cli`), so a shipped binary
 //! cannot seed. `internal-docs/oxy-cli-to-oxyc.md`, "Dev tooling (class d)".
 //!
-//! The old top-level `oxy seed` and `oxy test` still run for one release, in
-//! dev-tools builds only, and print the new spelling first (on stderr).
+//! The old top-level `oxy seed` and `oxy test` ran for one release as hidden
+//! aliases; 0.5.162 shipped them and they were deleted 2026-11-26.
 
 pub mod seed;
 
@@ -52,32 +52,6 @@ pub async fn run(group: DevGroup, seams: SurfaceSeams) -> RunResult {
         }
         DevCommand::App(command) => crate::cli::run_dev(command).await,
         DevCommand::Eval(command) => oxy_api_eval::run(command).await,
-    }
-}
-
-// The old top-level `oxy seed` and `oxy test`, kept for one release. Hidden.
-// `seed` was oxy-app's (its `SubCommand::Seed`) until decompose SD.
-#[derive(clap::Subcommand, Debug)]
-pub enum Renamed {
-    /// Renamed to `oxy dev seed` (kept for one release; dev-tools builds only)
-    #[command(hide = true)]
-    Seed(seed::SeedArgs),
-    /// Renamed to `oxy dev test` (kept for one release)
-    #[command(hide = true)]
-    Test(oxy_api_eval::TestArgs),
-}
-
-pub async fn run_renamed(command: Renamed, seams: SurfaceSeams) -> RunResult {
-    match command {
-        Renamed::Seed(seed_args) => {
-            eprintln!("{}", crate::cli::renamed_hint("seed"));
-            seed::handle_seed_command(seed_args, seams.example_apps).await?;
-            Ok(())
-        }
-        Renamed::Test(args) => {
-            eprintln!("{}", crate::cli::renamed_hint("test"));
-            oxy_api_eval::run(oxy_api_eval::Command::Test(args)).await
-        }
     }
 }
 
@@ -129,22 +103,17 @@ mod tests {
         }
     }
 
-    /// The old spellings still parse in a dev-tools build, hidden, for one
-    /// release; the top-level `compile` is not renamed (the template's CI gate
-    /// runs it on a release binary). `seed`'s alias is this crate's since
-    /// decompose SD, and the CLI's `SubCommand` has none.
+    /// The old top-level spellings are gone (their one-release aliases were
+    /// deleted 2026-11-26); the top-level `compile` was never renamed (the
+    /// template's CI gate runs it on a release binary).
     #[test]
-    fn the_old_spellings_are_hidden_aliases() {
-        assert!(Renamed::has_subcommand("test"));
-        assert!(Renamed::has_subcommand("seed"));
-        assert!(!crate::cli::SubCommand::has_subcommand("seed"));
-        assert!(crate::cli::SubCommand::has_subcommand("compile"));
-        let root = Renamed::augment_subcommands(crate::cli::SubCommand::augment_subcommands(
-            clap::Command::new("oxy"),
-        ));
+    fn the_old_spellings_are_not_top_level() {
         for name in ["seed", "test"] {
-            let sub = root.find_subcommand(name).expect(name);
-            assert!(sub.is_hide_set(), "`oxy {name}` shows in the root --help");
+            assert!(
+                !crate::cli::SubCommand::has_subcommand(name),
+                "`oxy {name}` is a top-level command again"
+            );
         }
+        assert!(crate::cli::SubCommand::has_subcommand("compile"));
     }
 }

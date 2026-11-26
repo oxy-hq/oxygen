@@ -16,14 +16,11 @@ use tracing::Level;
 use crate::sentry_filter::{Disposition, drop_log, is_data_plane_module, sentry_disposition};
 
 /// `(old path in oxy-app, new path in oxy-server)` for every module the move
-/// touched. The subtree kept its shape, so each path only changes its crate.
+/// touched that still exists (the one-release stubs' six modules were deleted
+/// 2026-11-26, so their pairs went with them). The subtree kept its shape, so each path only changes its crate.
 const PAIRS: &[(&str, &str)] = &[
     ("oxy_app::cli", "oxy_server::cli"),
     ("oxy_app::cli::commands", "oxy_server::cli::commands"),
-    (
-        "oxy_app::cli::commands::agentic_cli",
-        "oxy_server::cli::commands::agentic_cli",
-    ),
     (
         "oxy_app::cli::commands::compile",
         "oxy_server::cli::commands::compile",
@@ -31,10 +28,6 @@ const PAIRS: &[(&str, &str)] = &[
     (
         "oxy_app::cli::commands::dev",
         "oxy_server::cli::commands::dev",
-    ),
-    (
-        "oxy_app::cli::commands::looker",
-        "oxy_server::cli::commands::looker",
     ),
     (
         "oxy_app::cli::commands::migrate",
@@ -55,22 +48,6 @@ const PAIRS: &[(&str, &str)] = &[
     (
         "oxy_app::cli::commands::migrate_agents::translate",
         "oxy_server::cli::commands::migrate_agents::translate",
-    ),
-    (
-        "oxy_app::cli::commands::migrate_automations",
-        "oxy_server::cli::commands::migrate_automations",
-    ),
-    (
-        "oxy_app::cli::commands::run",
-        "oxy_server::cli::commands::run",
-    ),
-    (
-        "oxy_app::cli::commands::sync",
-        "oxy_server::cli::commands::sync",
-    ),
-    (
-        "oxy_app::cli::commands::validate",
-        "oxy_server::cli::commands::validate",
     ),
     (
         "oxy_app::managed_connection_resolver",

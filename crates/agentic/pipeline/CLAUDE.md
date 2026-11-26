@@ -59,7 +59,7 @@ with extension fallback:
 A path that exists but resolves outside `base_dir` once symlinks are followed is
 refused too. `oxyc agentic run` (over `POST /analytics/runs`) takes only the
 relative name; the Rust `oxy agentic run`, which turned an absolute path inside
-the workspace into it, is a stub since 2026-11-24.
+the workspace into it, became a stub on 2026-11-24 and was deleted 2026-11-26.
 
 ## Platform Boundary
 

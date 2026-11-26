@@ -277,8 +277,8 @@ oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged eva
   shape (a malformed `thinking`, a wrong type, a duplicate key) and a
   `databases:` entry or `llm.ref` that names nothing in `config.yml`. It does
   not expand globs, read `${VAR}` placeholders, check rule names or timezones,
-  or notice unknown keys (the runtime ignores them too). `oxy validate` is a
-  stub now that prints the `oxyc` command.
+  or notice unknown keys (the runtime ignores them too). The Rust
+  `oxy validate` is gone; use `oxyc validate`.
 - **The first full check is a run.** `oxyc agentic run <path> -q "<question>"
   --workspace <id>` runs the agent on the deployment and streams each state. It
   runs what the workspace has compiled (push first), not your checkout, and
@@ -287,7 +287,7 @@ oxyc evals run agents/sales.agentic.test.yml --workspace <id>   # LLM-judged eva
   exits `0` with the question; answer it with `oxyc agentic answer <run_id>
   --answer "..."` and follow the rest with `oxyc agentic events <run_id>`. An
   `error` or `cancelled` run exits `1`. (The Rust `oxy agentic run` ran a local
-  file against `OXY_DATABASE_URL`; it is a stub that prints this command.)
+  file against `OXY_DATABASE_URL`; it is gone, so use this command.)
 - **`oxyc evals run`** runs `.test.yml` evals against an agent on the
   deployment and scores each case with an LLM judge. It runs what the workspace
   has compiled (push first), not your checkout, and exits `9` under

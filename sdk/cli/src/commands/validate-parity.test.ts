@@ -25,7 +25,7 @@
  * and why — and the test checks the recorded verdict really does differ, so
  * an entry cannot sit there hiding an agreement.
  *
- * NOTHING RE-RECORDS. `oxy validate` is a stub now. A change to these fixtures
+ * NOTHING RE-RECORDS. `oxy validate` is deleted. A change to these fixtures
  * or to the recorded verdicts is a change to the oracle: say why in the PR.
  */
 

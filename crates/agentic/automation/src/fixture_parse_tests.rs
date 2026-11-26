@@ -4,7 +4,8 @@
 //! parse half of `crates/app/tests/platform/run.rs`'s automation case, which
 //! spawned `oxy run` and asserted stderr held no parse failure ("Failed to
 //! deserialize", "missing field", "invalid type", "Invalid variable"). `oxy run`
-//! is a stub now (`oxyc run` starts the run on the deployment), and the parse
+//! is `oxyc run` now (it starts the run on the deployment; the Rust stub was
+//! deleted 2026-11-26), and the parse
 //! those tests leaned on is this one: the server reads the compiled definition
 //! back as YAML and deserializes it into [`AutomationConfig`]. `-v name=value`
 //! is the run's `variables` now, so the override tests assert the precedence

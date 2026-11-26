@@ -1,7 +1,7 @@
 /**
  * Wires `oxyc run` onto the program, split out of `main.ts` for the same
- * reason `airway-cli.ts` is. The Rust `oxy run` is a one-release stub that
- * prints this command (`internal-docs/oxy-cli-to-oxyc.md`, step 10).
+ * reason `airway-cli.ts` is. The Rust `oxy run` was a one-release stub that
+ * printed this command, deleted 2026-11-26 (`internal-docs/oxy-cli-to-oxyc.md`, step 10).
  */
 
 import type { Command } from "commander";

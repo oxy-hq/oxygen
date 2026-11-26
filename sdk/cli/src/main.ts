@@ -2146,7 +2146,7 @@ function buildProgram(): Command {
       "\nOffline, no token. Each file is checked against its generated schema, then as the\n" +
         "runtime checks it once loaded: `database:`, `integration:`, `databases:` and `llm.ref`\n" +
         "against config.yml, automation rules, view and topic variables. It replaced\n" +
-        "`oxy validate` (now a stub). Exit 9 when a check fails.\n" +
+        "`oxy validate` (deleted). Exit 9 when a check fails.\n" +
         "\nEach oxy-app.json is checked for where its data goes: customerWarehouseWrites,\n" +
         "airhouse, airhouseMigrations (DuckLake-safe, schema-qualified SQL) and secrets\n" +
         "used as state. Its functions' sources are linted for a `ctx.*` call whose\n" +

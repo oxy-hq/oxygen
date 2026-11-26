@@ -28,8 +28,7 @@ default = ["custom-app-functions", "dev-tools"]
 # bf/rf.
 custom-app-functions = ["oxy-api-custom-apps/custom-app-functions"]
 
-# `oxy dev seed | compile | test` (and, for one release, the hidden top-level
-# `oxy seed` / `oxy test` aliases): dev tooling that writes demo rows straight
+# `oxy dev seed | compile | test`: dev tooling that writes demo rows straight
 # into a database. On by default, so debug builds, `just up`, CI's agentic job
 # and the fleet image have it; the release build
 # (`.github/actions/build-oxy-cli`) passes `--no-default-features --features

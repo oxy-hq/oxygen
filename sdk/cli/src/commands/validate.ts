@@ -9,7 +9,7 @@
  * `AgentConfig` would be a second definition that diverges silently — the
  * exact shape of bug this CLI has spent its whole review finding.
  *
- * IT REPLACED `oxy validate` (now a stub), so past the schema it does what that
+ * IT REPLACED `oxy validate` (deleted 2026-11-26), so past the schema it does what that
  * did — references and rules, view and topic checks: `src/validate/`. Verdicts
  * are pinned against the Rust binary's in `validate-parity.test.ts`.
  */

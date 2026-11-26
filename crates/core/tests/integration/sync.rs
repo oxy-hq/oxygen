@@ -3,8 +3,8 @@
 //! BigQuery `primary_database` (key from `BIGQUERY_SAMPLE_KEY`) and the DuckDB
 //! `local`.
 //!
-//! These were the `oxy sync` binary tests. The command is a stub now (`oxyc
-//! sync` writes what the route returns), so the file assertions they made run
+//! These were the `oxy sync` binary tests. The command is `oxyc sync` now
+//! (it writes what the route returns; the Rust stub was deleted 2026-11-26), so the file assertions they made run
 //! against the rendered files instead. The write rules they also pinned (skip
 //! an existing file, `--overwrite` prunes a stale `models/` file and never the
 //! database directory) moved with the writing, to

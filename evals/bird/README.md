@@ -107,18 +107,18 @@ per user".
 
 ```bash
 # 1. cold: learn on every question
-OXY_EVAL_MEMORY_WRITE=$OUT/financial.notes.jsonl oxy test financial.semantic.test.yml --output-json
+OXY_EVAL_MEMORY_WRITE=$OUT/financial.notes.jsonl oxy dev test financial.semantic.test.yml --output-json
 # 2. warm repeat: the same questions, reading what pass 1 saved
-OXY_EVAL_MEMORY_READ=$OUT/financial.notes.jsonl oxy test financial.semantic.test.yml --output-json
+OXY_EVAL_MEMORY_READ=$OUT/financial.notes.jsonl oxy dev test financial.semantic.test.yml --output-json
 # 3. transfer: learn on half a, test on half b
 python3 evals/bird/bird.py gen-cases --runtime semantic --half a   # and --half b
-OXY_EVAL_MEMORY_WRITE=$OUT/financial.a.jsonl oxy test financial.semantic.half-a.test.yml --output-json
-OXY_EVAL_MEMORY_READ=$OUT/financial.a.jsonl oxy test financial.semantic.half-b.test.yml --output-json
+OXY_EVAL_MEMORY_WRITE=$OUT/financial.a.jsonl oxy dev test financial.semantic.half-a.test.yml --output-json
+OXY_EVAL_MEMORY_READ=$OUT/financial.a.jsonl oxy dev test financial.semantic.half-b.test.yml --output-json
 ```
 
 Half files are generated. Do not commit them.
 
-**Merge step.** After a pass that wrote notes, `oxy test` merges the file once when the prompt
+**Merge step.** After a pass that wrote notes, `oxy dev test` merges the file once when the prompt
 cannot list every note (it lists at most 40 notes and 4,000 characters, newest first). One
 call on the agent's model rewrites the live notes into a shorter list, aiming at 3,000
 characters. The code rejects a reply that overflows the prompt or has a note over 600

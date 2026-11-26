@@ -27,16 +27,22 @@ fn a_build_without_dev_tools_cannot_seed() {
     assert!(names.iter().any(|n| n == "compile"), "{names:?}");
 }
 
-/// A default (debug) build has the `dev` group and, for one release, the
-/// old top-level `seed` and `test`.
+/// A default (debug) build has the `dev` group. The old top-level `seed` and
+/// `test` were one-release aliases, deleted 2026-11-26, so no build has them.
 #[cfg(feature = "dev-tools")]
 #[test]
-fn a_dev_tools_build_has_the_dev_group_and_the_old_spellings() {
+fn a_dev_tools_build_has_the_dev_group_and_not_the_old_spellings() {
     let names = root_commands();
-    for name in ["dev", "seed", "test", "compile", "serve"] {
+    for name in ["dev", "compile", "serve"] {
         assert!(
             names.iter().any(|n| n == name),
             "no `oxy {name}` in {names:?}"
+        );
+    }
+    for gone in ["seed", "test"] {
+        assert!(
+            !names.iter().any(|n| n == gone),
+            "`oxy {gone}` in {names:?}"
         );
     }
 }

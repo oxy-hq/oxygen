@@ -513,23 +513,19 @@ pub fn surface_seams() -> SurfaceSeams {
 /// Who owns which `oxy` subcommand. The parser is `oxy-cli-shim`'s and knows
 /// no command. This binary owns the long-lived ones (`start`, `serve`,
 /// `worker`), listed first; [`cli`] owns the one-shot rest. The hidden
-/// `oxy dev` group (`seed`, dev `compile`, and `test` from `oxy-api-eval`) and
-/// the one-release `oxy seed` / `oxy test` aliases exist only with the `dev-tools` feature,
-/// which the release build leaves off (`dev.rs`). `oxy airway` was
+/// `oxy dev` group (`seed`, dev `compile`, and `test` from `oxy-api-eval`)
+/// exists only with the `dev-tools` feature, which the release build leaves
+/// off (`dev.rs`); the one-release top-level `oxy seed` / `oxy test` aliases
+/// were deleted 2026-11-26. `oxy airway` was
 /// `oxy-api-airway`'s until it moved to `oxyc airway` on 2026-11-21.
 pub fn cli_owners() -> Vec<oxy_cli_shim::Owner<SurfaceSeams>> {
     let mut owners = vec![oxy_cli_shim::Owner::of::<commands::ServerCommand>(
         |command, seams| Box::pin(commands::run(command, seams)),
     )];
     #[cfg(feature = "dev-tools")]
-    owners.extend([
-        oxy_cli_shim::Owner::of::<dev::DevGroup>(|command, seams| {
-            Box::pin(dev::run(command, seams))
-        }),
-        oxy_cli_shim::Owner::of::<dev::Renamed>(|command, seams| {
-            Box::pin(dev::run_renamed(command, seams))
-        }),
-    ]);
+    owners.push(oxy_cli_shim::Owner::of::<dev::DevGroup>(
+        |command, seams| Box::pin(dev::run(command, seams)),
+    ));
     owners.push(oxy_cli_shim::Owner::of::<cli::SubCommand>(
         |command, seams| Box::pin(cli::run(command, seams)),
     ));

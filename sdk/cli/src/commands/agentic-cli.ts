@@ -1,7 +1,7 @@
 /**
  * Wires `oxyc agentic …` onto the program, split out of `main.ts` for the same
  * reason `airway-cli.ts` is. The Rust `oxy agentic` became a one-release stub
- * that prints these commands when this landed
+ * that printed these commands when this landed, deleted 2026-11-26
  * (`internal-docs/oxy-cli-to-oxyc.md`, step 9).
  */
 

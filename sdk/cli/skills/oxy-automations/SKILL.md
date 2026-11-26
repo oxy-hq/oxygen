@@ -36,7 +36,7 @@ The canonical extension is **`.automation.yml`**.
   `.automation.yml` target already exists, or a `.procedure.yml` beside a
   `.workflow.yml` of the same name, is reported and skipped (still exit 0), so
   read its warnings and resolve those by hand. The Rust
-  `oxy migrate-automations` only prints this command now.
+  `oxy migrate-automations` is gone; use this command.
 
 **Write new files as `.automation.yml`.** Do not copy the extension from a
 neighbouring file in the workspace you are editing — that is how the legacy name
@@ -82,8 +82,8 @@ Routes follow the same split: `/automations/:id` is canonical;
 
 `oxyc run <file> --workspace <id>` (`npm i -g @oxy-hq/cli`) takes a `.sql` file,
 an `.automation.yml`, or a `.procedure.yml` — nothing else. It runs **on the
-deployment**, never on this machine. The Rust `oxy run` is gone: it now prints
-the `oxyc` command and exits `2`.
+deployment**, never on this machine. The Rust `oxy run` is gone; use
+`oxyc run`.
 
 - **An automation runs what is deployed, not your edit.** The server runs the
   definition it has compiled for the workspace's served revision, on the worker

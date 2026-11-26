@@ -890,8 +890,7 @@ admin; staff act inside a tenant through `oxyc assume`.
 
 Ask a workspace's agentic agent a question on a deployment, follow and steer
 its run, and read the workspace's runs. These replaced the Rust `oxy agentic`
-(a one-release stub since 2026-11-24 that prints the `oxyc` command and exits
-`2`), which ran a `.agentic.yml` from a local checkout with the database URL
+(a one-release stub from 2026-11-24, deleted 2026-11-26), which ran a `.agentic.yml` from a local checkout with the database URL
 and the LLM keys in your shell.
 
 ```bash
@@ -941,8 +940,7 @@ faster than every 2 s.
 ## Running SQL and automations
 
 Run a `.sql` file or an automation on a deployment. It replaced the Rust
-`oxy run` (2026-11-24), which now prints this command and exits `2` for one
-release.
+`oxy run` (2026-11-24; its one-release stub was deleted 2026-11-26).
 
 ```bash
 oxyc run <file.sql> [--database <name>] [-v KEY=VALUE ...] [--json] --workspace <id>
@@ -979,7 +977,7 @@ Write a workspace's `.databases/` schema files (each dataset's DDL and one
 `<table>.schema.yml` per table) into your checkout. The server introspects the
 warehouses the **deployed** `config.yml` names, with the workspace's secrets,
 and renders the files; `oxyc` writes them. It replaced the Rust `oxy sync`
-(2026-11-21), which now prints this command and exits `2` for one release.
+(2026-11-21; its one-release stub was deleted 2026-11-26).
 
 ```bash
 oxyc sync [database] --workspace <id> [-d <dataset>]... [--tables <schema.table>]... [-o] [--dry-run] [--dir <checkout>] [--json]
@@ -1004,7 +1002,8 @@ sync outlasted the server's limit (narrow it with `-d`).
 ## Looker integrations
 
 Check a Looker integration's credentials on a deployment. This replaced the
-Rust `oxy looker test` (a one-release stub since 2026-11-21), which read
+Rust `oxy looker test` (a one-release stub from 2026-11-21, deleted
+2026-11-26), which read
 `config.yml` from a checkout and the credentials from your shell.
 
 ```bash
@@ -2040,8 +2039,8 @@ oxyc exit-codes
 
 **`validate`** checks workspace YAML against `json-schemas/*.json`, which are
 generated from the Rust config types, and then as the runtime checks each file
-once it has loaded. No network, no token. It replaced `oxy validate`, which is
-a stub for one release that prints this command and exits `2`.
+once it has loaded. No network, no token. It replaced `oxy validate`, whose
+one-release stub was deleted 2026-11-26.
 
 | File | Schema |
 | --- | --- |
@@ -2168,8 +2167,8 @@ oxyc proxy --app acme/store --app-env dev-a1    # then open the printed URL
 under `path` (default `.`) to `*.automation.yml`, then rewrites references to
 the old extensions — `src:`, `workflow_ref:`, glob includes — in every `.yml` /
 `.yaml` / `.sql` file. Local only: no network, no token. `--dry-run` prints the
-rename plan and writes nothing. It replaces the Rust `oxy migrate-automations`,
-which for one release only prints this command and exits `2`.
+rename plan and writes nothing. It replaced the Rust `oxy migrate-automations`,
+whose one-release stub was deleted 2026-11-26.
 
 - **It never overwrites.** A file whose `.automation.yml` target already exists,
   or two files that map to one name (`x.procedure.yml` beside `x.workflow.yml`),

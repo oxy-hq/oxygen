@@ -19,5 +19,6 @@ mod omni_query_workflow;
 mod serve;
 mod strict_validation;
 mod sync;
-mod validation;
+// `validation` pinned the one-release `oxy validate` stub; the stub was
+// deleted 2026-11-26 (its checks live in `oxyc validate`, `validate-parity.test.ts`).
 mod walker_storage_divergence;

@@ -78,8 +78,9 @@ wmc = 60
 
 # Test files are long on purpose here. CLAUDE.md requires integration tests to
 # live in a few GROUPED binaries — a new top-level tests/*.rs adds a whole link
-# to every full run — so `crates/app/tests/platform/` and friends are large by
-# policy, not by neglect. Gating them at the project limit would be gating the
+# to every full run — so each crate's `tests/integration/` group
+# (`crates/api-custom-apps/tests/integration/` the largest, since `crates/app`
+# was deleted 2026-11-25) is large by policy, not by neglect. Gating them at the project limit would be gating the
 # grouped-binary rule. They stay measured, at a limit chosen for that
 # population: the complexity limits above still apply, only size is relaxed.
 [[thresholds.path]]

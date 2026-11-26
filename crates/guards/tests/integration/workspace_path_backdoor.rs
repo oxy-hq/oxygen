@@ -155,8 +155,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The demo seed (`oxy dev seed`), `oxy-server`'s `dev/seed` since
         // 2026-11-24 (decompose SD, out of `src/cli/commands/seed*`, walked above).
         manifest.join("../server/src/dev"),
-        // The one-shot commands (`oxy compile`, `migrate`, `migrate-agents`,
-        // the stubs), `oxy-server`'s `cli` since 2026-11-25 (decompose CLI,
+        // The one-shot commands (`oxy compile`, `migrate`, `migrate-agents`),
+        // `oxy-server`'s `cli` since 2026-11-25 (decompose CLI,
         // out of `src/cli/commands`, walked above until then).
         manifest.join("../server/src/cli"),
         // The conversation surface, `oxy-api-threads` since 2026-11-16.

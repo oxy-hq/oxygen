@@ -1,16 +1,10 @@
-mod agentic_cli;
 mod compile;
 /// `oxy dev compile`, only with the `dev-tools` feature. `oxy dev seed` is
 /// `crate::dev::seed` (decompose SD, 2026-11-24).
 #[cfg(feature = "dev-tools")]
 pub mod dev;
-mod looker;
 pub(crate) mod migrate;
 mod migrate_agents;
-mod migrate_automations;
-pub mod run;
-mod sync;
-mod validate;
 
 /// The compile `oxy dev seed` runs on each seeded workspace
 /// (`crate::dev::seed::seed_compile`), the same entry point as `oxy compile`.
@@ -19,11 +13,6 @@ pub use compile::{CompileArgs, run_compile};
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
-use crate::cli::commands::migrate_automations::{
-    MOVED_EXIT_CODE, MigrateAutomationsArgs, moved_message,
-};
-use crate::cli::commands::run::RunArgs;
-use crate::cli::commands::sync::SyncArgs;
 use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
@@ -41,14 +30,6 @@ use std::process::exit;
 // the root command's `about`, above `Usage:`.
 #[derive(clap::Subcommand, Debug)]
 pub enum SubCommand {
-    /// Moved to `oxyc run` (prints the command and exits 2)
-    ///
-    /// Running a `.sql` file or an automation is
-    /// `oxyc run <file> --workspace <id>` now (`npm i -g @oxy-hq/cli`): it runs
-    /// on the deployment, against the deployed databases and the compiled
-    /// automations. This stub stays for one release so an old invocation is
-    /// told what to type instead.
-    Run(RunArgs),
     /// Compile the workspace into the compile-boundary Postgres schema (Phase 1.6a observation mode).
     ///
     /// Walks every recognized YAML/SQL file, parses it, and writes a
@@ -58,30 +39,8 @@ pub enum SubCommand {
     /// inspecting what the compile boundary produces before any read
     /// path depends on it.
     Compile(compile::CompileArgs),
-    /// Moved to `oxyc sync` (prints the command and exits 2)
-    ///
-    /// Introspecting the warehouses into `.databases/` is
-    /// `oxyc sync [database] --workspace <id>` now (`npm i -g @oxy-hq/cli`): the
-    /// server renders the files from the deployed config and `oxyc` writes
-    /// them. This stub stays for one release so an old invocation is told what
-    /// to type instead.
-    Sync(SyncArgs),
-    /// Moved to `oxyc validate` (prints the command and exits 2)
-    ///
-    /// Checking a workspace's YAML is `oxyc validate [--file <path>]` now
-    /// (`npm i -g @oxy-hq/cli`): offline, no login, and it exits 9 when a check
-    /// fails. This stub stays for one release so an old invocation is told
-    /// what to type instead.
-    Validate(validate::ValidateArgs),
     /// Migrate the database schema to the latest version
     Migrate,
-    /// Moved to `oxyc migrate-automations` (prints the command and exits 2)
-    ///
-    /// Renaming legacy `.procedure.yml` / `.workflow.yml` files to
-    /// `.automation.yml` is `oxyc migrate-automations [path] [--dry-run]` now
-    /// (`npm i -g @oxy-hq/cli`). This stub stays for one release so an old
-    /// invocation is told what to type instead.
-    MigrateAutomations(MigrateAutomationsArgs),
     /// Translate classic `.agent.yml` agents to `.agentic.yml`
     ///
     /// Translates every classic agent whose fields map onto the agentic
@@ -91,22 +50,6 @@ pub enum SubCommand {
     /// in place and reported, unless `--force` drops the field. Never
     /// overwrites; collisions are reported. Run `--dry-run --json` first.
     MigrateAgents(MigrateAgentsArgs),
-
-    /// Moved to `oxyc looker test` (prints the command and exits 2)
-    ///
-    /// Checking a Looker integration's credentials is
-    /// `oxyc looker test <name> --workspace <id>` now (`npm i -g @oxy-hq/cli`).
-    /// This stub stays for one release so an old invocation is told what to
-    /// type instead.
-    Looker(looker::LookerArgs),
-    /// Moved to `oxyc agentic` (prints the command and exits 2)
-    ///
-    /// Running and reading agentic runs is
-    /// `oxyc agentic run | list | events | answer | cancel | inspect | status
-    /// --workspace <id>` now (`npm i -g @oxy-hq/cli`), against the deployed
-    /// agent. This stub stays for one release so an old invocation is told
-    /// what to type instead.
-    Agentic(agentic_cli::AgenticArgs),
 }
 
 /// The committed JSON Schemas, and the Rust types they are generated from.
@@ -285,19 +228,7 @@ pub async fn run(
     seams: oxy_app_core::seams::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
-        SubCommand::Run(args) => {
-            eprintln!("{}", run::moved_message(&args).warning());
-            exit(run::MOVED_EXIT_CODE);
-        }
         SubCommand::Compile(compile_args) => compile_command(compile_args).await,
-        SubCommand::Sync(args) => {
-            eprintln!("{}", sync::moved_message(&args).warning());
-            exit(sync::MOVED_EXIT_CODE);
-        }
-        SubCommand::Validate(args) => {
-            eprintln!("{}", validate::moved_message(&args).warning());
-            exit(validate::MOVED_EXIT_CODE);
-        }
         SubCommand::Migrate => {
             if let Err(e) = migrate().await {
                 eprintln!("{}", format!("Migration failed: {e}").error());
@@ -311,23 +242,11 @@ pub async fn run(
                 eprintln!("{}", report(crate::build_identity::build_label()).await);
             }
         }
-        SubCommand::MigrateAutomations(args) => {
-            eprintln!("{}", moved_message(&args).warning());
-            exit(MOVED_EXIT_CODE);
-        }
         SubCommand::MigrateAgents(args) => {
             if let Err(e) = migrate_agents(args) {
                 eprintln!("{}", format!("Agent migration failed: {e}").error());
                 exit(1);
             }
-        }
-        SubCommand::Looker(looker_args) => {
-            eprintln!("{}", looker::moved_message(&looker_args).warning());
-            exit(looker::MOVED_EXIT_CODE);
-        }
-        SubCommand::Agentic(agentic_args) => {
-            eprintln!("{}", agentic_cli::moved_message(&agentic_args).warning());
-            exit(agentic_cli::MOVED_EXIT_CODE);
         }
     }
 

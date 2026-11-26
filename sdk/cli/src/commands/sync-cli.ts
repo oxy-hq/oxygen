@@ -1,7 +1,7 @@
 /**
  * Wires `oxyc sync` onto the program, split out of `main.ts` for the same
- * reason `airway-cli.ts` is. The Rust `oxy sync` is a one-release stub that
- * prints this command (`internal-docs/oxy-cli-to-oxyc.md`, step 12).
+ * reason `airway-cli.ts` is. The Rust `oxy sync` was a one-release stub that
+ * printed this command, deleted 2026-11-26 (`internal-docs/oxy-cli-to-oxyc.md`, step 12).
  */
 
 import type { Command } from "commander";

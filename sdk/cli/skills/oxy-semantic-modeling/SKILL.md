@@ -317,7 +317,7 @@ pre_aggregations:
   (`inherits_from:`, `{{ globals.* }}`), a malformed `{{variables.x}}`. Run it
   on every file you touch. It does **not** look inside `pre_aggregations:` or
   `refresh_key:`; mistakes there surface only when the model is loaded for a
-  query. (`oxy validate` is a stub now that prints this command.)
+  query. (The Rust `oxy validate` is gone; use this command.)
 - Bare **`oxyc validate`** (every file) checks views and topics wherever they
   are, as the compiler finds them — not only under `semantics/`. It exits `9`
   when anything fails.
@@ -328,7 +328,7 @@ pre_aggregations:
   to `.databases/`, which is the place to read real column names from. The
   server introspects the warehouse from the DEPLOYED `config.yml` and `oxyc`
   writes the files into the checkout (`-o` to replace existing ones). The old
-  `oxy sync` only prints this command now.
+  `oxy sync` is gone; use this command.
 - `inherits_from:` and `{{ globals.* }}` were removed from views; a file using
   either is refused at load. Inline the values.
 

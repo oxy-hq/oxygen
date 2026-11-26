@@ -82,10 +82,6 @@ pub fn tasks() -> Vec<TaskSeam> {
     }]
 }
 
-/// `oxy test`'s arguments, for `oxy-server`'s one-release hidden alias of the
-/// old top-level spelling (the command is `oxy dev test` now).
-pub use test_command::TestArgs;
-
 // `oxy dev test`: flattened into `oxy-server`'s `dev` group, registered only
 // with its `dev-tools` feature (dev tooling; deployments use `oxyc evals`).
 // The routes and the task kind above are mounted in every build.

@@ -2,7 +2,7 @@
 
 The smallest complete [Custom App](../../../internal-docs/customer-apps.md): a hand-written
 `index.html` plus one hashed stylesheet and one hashed module under `assets/` — no build
-step, no dependencies, no framework. `oxy seed` deploys it through the real publish path
+step, no dependencies, no framework. `oxy dev seed` deploys it through the real publish path
 (`put_build` → `app_builds` → channel pointers), so it exercises the same serve code an
 `oxyc publish` bundle does — and a fresh clone lands on a launcher with a working app on it.
 
@@ -43,7 +43,7 @@ OXY_ROLE=ide cargo run -p oxy-server -- serve --enterprise
    customer-apps repo shows both halves side by side.
 
 Both queries hit `oxymart` in the `local` database from `examples/config.yml` — the
-workspace's Airhouse tenant, which `oxy seed` loads from `examples/.db/` — the same demo
+workspace's Airhouse tenant, which `oxy dev seed` loads from `examples/.db/` — the same demo
 table the example dashboards use. No credentials beyond what the seed sets up.
 
 ## What Oxy adds for free (no bundle code)
@@ -131,7 +131,7 @@ repo. This is the floor; that's the ceiling.
 
 ## Editing it
 
-Edit and re-run `oxy seed`. The build id is a content hash, so changed bytes become a new
+Edit and re-run `oxy dev seed`. The build id is a content hash, so changed bytes become a new
 build and the bundle cache can't serve a stale page. **If you touch `assets/app-*.css` or
 `assets/app-*.js`, rename it to its new content hash and update the `<link>`/`<script>` in
 `index.html`** — see *Why the filenames carry a hash* above; a stale hash pins returning

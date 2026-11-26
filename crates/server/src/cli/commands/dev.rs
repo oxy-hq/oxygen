@@ -11,8 +11,6 @@
 
 use std::error::Error;
 
-use ::oxy::theme::StyledText;
-
 use super::compile;
 
 // The commands under `oxy dev`. A plain comment, not `///`: `crate::dev`
@@ -35,12 +33,4 @@ pub async fn run(command: DevCommand) -> Result<(), Box<dyn Error>> {
         DevCommand::Compile(compile_args) => super::compile_command(compile_args).await,
     }
     Ok(())
-}
-
-/// What a renamed top-level spelling prints before it runs, on stderr: `seed
-/// --org-workspace` prints its id last on stdout and callers read it.
-pub fn renamed_hint(command: &str) -> String {
-    format!("`oxy {command}` is now `oxy dev {command}`; the old spelling is kept for one release.")
-        .warning()
-        .to_string()
 }
