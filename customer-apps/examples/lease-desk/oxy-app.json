@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "slug": "lease-desk",
+  "name": "Lease Desk",
+  "migrations": { "dir": "migrations" },
+  "oltpChanges": {
+    "tables": {
+      "leases": { "exclude": ["tenant_email"] }
+    }
+  },
+  "functions": {
+    "leases": {
+      "route": true,
+      "timeoutSeconds": 30,
+      "oltp": { "enabled": true }
+    }
+  }
+}

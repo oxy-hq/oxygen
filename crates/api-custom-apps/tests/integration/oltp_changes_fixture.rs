@@ -152,6 +152,19 @@ impl App {
                 .collect();
             extra["oltpChanges"] = json!({ "tables": declared });
         }
+        self.promote_bundle(build_id, &[write_fn()], extra, files)
+            .await
+    }
+
+    /// A promoting publish of build `build_id` carrying `functions`, with
+    /// `extra` merged into its `oxy-app.json` and `files` beside it.
+    pub(crate) async fn promote_bundle(
+        &self,
+        build_id: &str,
+        functions: &[FunctionSpec],
+        extra: Value,
+        files: &[(&str, &[u8])],
+    ) -> Result<PublishResult, PublishError> {
         publish(PublishInput {
             org_ref: Some(OrgRef::Id(self.org())),
             app_slug: self.slug.clone(),
@@ -160,7 +173,7 @@ impl App {
             build_id: build_id.to_string(),
             name: None,
             promote: true,
-            tarball: bundle(&self.slug, &[write_fn()], extra, files),
+            tarball: bundle(&self.slug, functions, extra, files),
             manifest: None,
             source_repo: None,
             commit_sha: None,
@@ -181,12 +194,42 @@ impl App {
     /// [`WRITE`] called on production with `sql`, as the guest: through the
     /// serve route, the isolate and the host, which signs its transaction.
     pub(crate) async fn write(&self, sql: &str) {
-        let call =
-            call_function_in(&self.t.org_slug, &self.slug, WRITE, json!({ "sql": sql })).await;
+        self.call(WRITE, json!({ "sql": sql })).await;
+    }
+
+    /// `function` called on production with `body`, as the guest, through
+    /// the serve route: the `data` frame it answered, which names no `error`.
+    pub(crate) async fn call(&self, function: &str, body: Value) -> Value {
+        let call = call_function_in(&self.t.org_slug, &self.slug, function, body.clone()).await;
         let data = call
             .frame("data")
             .unwrap_or_else(|| panic!("no data frame ({}): {}", call.status, call.raw));
-        assert!(data.get("error").is_none(), "{sql}: {data}");
+        assert!(data.get("error").is_none(), "{body}: {data}");
+        data.clone()
+    }
+
+    /// A second app in this app's org, on the same workspace and store, with
+    /// a slug and writer of its own. Its writer is minted in the org's store
+    /// as another app's is, and this app's cleanup drops it with the store.
+    pub(crate) async fn sibling(&self, name: &str) -> App {
+        let t = Tenant {
+            db: self.t.db.clone(),
+            org_id: self.t.org_id,
+            org_slug: self.t.org_slug.clone(),
+            guest_id: self.t.guest_id,
+        };
+        let slug = format!("{}-{name}", self.slug);
+        let store = AppStore::new(&t, &slug).await;
+        self.store
+            .ensure_extra_writer(&store.writer, self.workspace)
+            .await;
+        App {
+            t,
+            slug,
+            workspace: self.workspace,
+            store,
+            _root: tempfile::tempdir().expect("a temp dir"),
+        }
     }
 
     pub(crate) async fn tenant(&self) -> oltp_tenants::Model {

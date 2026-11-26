@@ -35,6 +35,12 @@
 //!   ceiling is baselined whole.
 //! - `target`: a writer whose app's workspace has no Airhouse is held, and
 //!   once the Airhouse exists the next pass lifts the hold and ships.
+//! - `lease_desk`: the `customer-apps/examples/lease-desk` example's own
+//!   manifest, migration and function, end to end: every version of a lease
+//!   and each lease as it stands reach Airhouse, an excluded column never
+//!   does, and beside a second app of the same org both ship to their own
+//!   schemas, a restore re-baselines both, and a resync of one leaves the
+//!   other's rows.
 //!
 //! Every install now requests a baseline, so a test that installs capture
 //! calls [`Relay::settle`] right after, and the behaviour under test starts
@@ -61,6 +67,7 @@ mod drift;
 mod duck;
 mod guards;
 mod inspect;
+mod lease_desk;
 mod resync;
 mod shapes;
 mod target;
