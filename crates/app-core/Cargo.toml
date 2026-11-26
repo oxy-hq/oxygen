@@ -29,7 +29,6 @@ entity = { workspace = true }
 # AppState field types (lifted here so the router + surface crates can hold it):
 oxy-observability = { workspace = true }
 agentic-semantic = { workspace = true }
-agentic-http = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 
 # `function_seam`: the custom-app function seam traits name these. Both are

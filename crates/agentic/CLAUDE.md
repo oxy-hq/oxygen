@@ -38,11 +38,11 @@ the analytics solver.
 | ------- | ------------- | ----------- |
 | `core` | FSM framework + cross-domain subrun contract | `Domain`, `DomainSolver`, `Orchestrator`, `ProblemState`, `CoreEvent`, `UiBlock`, `SubrunRunner`, `SubrunStep`, `OxyCommentBlock` |
 | `runtime` | Two sub-layers: [`lifecycle`] (run row, events, suspensions, SSE plumbing — `RuntimeState`, `PipelineHandle`, `EventRegistry`) and [`orchestrator`] (durable task queue, coordinator, worker pool, transports). Top-level re-exports keep legacy flat paths working. | `lifecycle::state::RuntimeState`, `lifecycle::handle::PipelineHandle`, `lifecycle::event_registry::EventRegistry`, `orchestrator::coordinator::Coordinator`, `orchestrator::worker::Worker` |
-| `pipeline` | Pipeline setup, config resolution, type erasure | `PipelineBuilder`, `StartedPipeline`, `ThinkingMode` |
+| `pipeline` | Pipeline setup, config resolution, type erasure, the routes' shared state | `PipelineBuilder`, `StartedPipeline`, `ThinkingMode`, `AgenticState` |
 | `analytics` | Analytics solver, semantic model, extension table | `AnalyticsSolver`, `AnalyticsEvent`, `SchemaCatalog`, `AnalyticsMigrator` |
 | `connector` | Database backends | `DatabaseConnector`, `ConnectorConfig`, `SchemaInfo` |
 | `llm` | LLM provider abstraction | `LlmClient`, `LlmProvider`, `ThinkingConfig` |
-| `http` | Axum route handlers | `AgenticState`, `router()`, route handlers |
+| `http` | Axum route handlers | `router()`, route handlers (`AgenticState` re-exported from `pipeline`) |
 | `automation` | Sibling domain: stateless workflow runner + procedure execution + extension table. Implements `agentic_core::subrun::SubrunRunner` via `OxyAutomationRunner` (alias `OxyProcedureRunner`). | `WorkflowDecider`, `WorkflowRunState`, `commit_decision`, `WorkflowMigrator`, `OxyAutomationRunner`, `WorkflowEventBridge` |
 
 ## Migration Strategy

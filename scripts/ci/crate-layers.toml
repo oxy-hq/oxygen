@@ -35,7 +35,7 @@
 [depth]
 # Longest chain of internal normal + build dependencies, counted in edges.
 # Dev-dependencies are exempt, as for the rules below.
-max = 13
+max = 12
 # Where the ratchet ends. Lowering `max` below this is the next, stricter step.
 target = 4
 # Members that are not part of the crate graph proper. workspace-hack is cargo
@@ -134,7 +134,6 @@ allowed = [
   "oxy-api-world-model -> oxy-workspace-runtime",
   "oxy-app-core -> agentic-automation",
   "oxy-app-core -> agentic-connector",
-  "oxy-app-core -> agentic-http",
   "oxy-app-core -> agentic-pipeline",
   "oxy-app-core -> agentic-runtime",
   "oxy-app-core -> agentic-semantic",

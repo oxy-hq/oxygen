@@ -38,7 +38,8 @@ from the app's `workspace_middleware`.
 - **Never import `entity` crate.** Thread ownership queries go through `agentic-pipeline::get_thread_owner`.
 - `db.rs` is pure re-exports from runtime + pipeline — no custom logic.
 - `sse.rs` is domain-agnostic — `UiEvent`, `squash_deltas`, `is_terminal` only.
-- `state.rs` uses the `agentic_pipeline::AnalyticsSchemaCatalog` re-export.
+- `state.rs` re-exports `AgenticState` from `agentic_pipeline::state`, where it is defined so
+  `oxy-app-core`'s `AppState` can hold it without depending on this crate.
 - `routes.rs` uses `PipelineBuilder` for all pipeline creation — no inline config/solver setup.
 - **A caller-supplied `thread_id` is checked before a run starts on it** (`run_scope::ensure_thread_access`):
   404 for a missing thread or one in another workspace, 403 for another user's. The pipeline reads
@@ -48,7 +49,8 @@ from the app's `workspace_middleware`.
 
 ## State Management
 
-`AgenticState` wraps `RuntimeState` (via `Deref`) and adds:
+`AgenticState` (defined in `agentic_pipeline::state`, re-exported here) wraps `RuntimeState`
+(via `Deref`) and adds:
 
 - `db` — shared SeaORM `DatabaseConnection` (pool internally), cloned per handler
 - `schema_cache` — shared analytics schema introspection cache

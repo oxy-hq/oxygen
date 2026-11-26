@@ -41,7 +41,7 @@ pub struct AppState {
     /// pipeline. `None` for the internal API router (no agentic
     /// surface needed there). Handlers should 503 when this is
     /// `None` rather than panic.
-    pub agentic_state: Option<std::sync::Arc<agentic_http::AgenticState>>,
+    pub agentic_state: Option<std::sync::Arc<agentic_pipeline::state::AgenticState>>,
     /// Shared per-workspace semantic model cache. Avoids re-reading and
     /// re-parsing all `.view.yml`/`.topic.yml` files on every request.
     /// Keyed by workspace UUID; TTL of 60 s with explicit invalidation on
