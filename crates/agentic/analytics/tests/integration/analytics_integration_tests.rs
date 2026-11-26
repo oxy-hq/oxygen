@@ -93,7 +93,7 @@ fn run_query(db: &Arc<Mutex<Connection>>, sql: &str) -> Result<QueryResult, Stri
     let conn = db.lock().unwrap();
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let col_count = stmt.column_count();
-    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let column_names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
 
     let rows = stmt
         .query_map([], |row| {

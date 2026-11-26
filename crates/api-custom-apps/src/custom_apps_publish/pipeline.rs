@@ -48,7 +48,8 @@ pub(super) async fn store_and_point(
         .await
         .map_err(|e| Failed::unstaged(PublishError::Db(e.to_string())))?;
     let mut attempt = Attempt::begin(attempt_facts(&input, &target));
-    let published = stages(&db, input, &target, options, &mut attempt).await;
+    // Boxed for the reason given in `write`.
+    let published = Box::pin(stages(&db, input, &target, options, &mut attempt)).await;
     attempt
         .finish(&db, published.as_ref().err().map(ToString::to_string))
         .await;
@@ -127,7 +128,8 @@ async fn stages(
         options,
     };
     let (build_pk, warnings, broken) =
-        match write(&ctx, &mut guard, &mut attempt.clock, files).await {
+        // Boxed for the reason given in `write`.
+        match Box::pin(write(&ctx, &mut guard, &mut attempt.clock, files)).await {
             Ok(written) => written,
             Err(e) => {
                 guard.undo().await;
@@ -182,16 +184,36 @@ async fn write(
     clock: &mut StageTimer,
     files: Vec<(String, Vec<u8>)>,
 ) -> Result<(Uuid, Vec<String>, Vec<String>), PublishError> {
-    let stored = clock.run(Stage::Store, store_bytes(ctx, files)).await?;
+    // Every stage future is boxed before it is awaited. Awaited in place, a
+    // debug build gives each its own slot in this fn's future, and that future
+    // is polled inside `stages` and `store_and_point` on a 2 MiB stack (a
+    // server worker's, or a test thread's): with the stages held by value this
+    // frame alone came to ~245 KiB and every publish test overflowed its stack.
+    // Boxed, each leaves a pointer here. Same reason as `agent_ask::boxed`.
+    let stored = clock
+        .run(Stage::Store, Box::pin(store_bytes(ctx, files)))
+        .await?;
     guard.bytes_stored();
-    let build_pk = clock.run(Stage::Record, record(ctx, guard, stored)).await?;
-    let gate = production_gate::check(ctx.db, ctx.app_id, build_pk, ctx.input);
+    let build_pk = clock
+        .run(Stage::Record, Box::pin(record(ctx, guard, stored)))
+        .await?;
+    let gate = Box::pin(production_gate::check(
+        ctx.db, ctx.app_id, build_pk, ctx.input,
+    ));
     clock.run(Stage::Gate, gate).await?;
     // The event gate once production's blockers pass: the one refusal
     // `--break-listeners` overrides, still before any migration applies.
-    let (mut warnings, broken) = clock.run(Stage::Gate, event_gate(ctx, build_pk)).await?;
-    clock.run(Stage::Promote, promote(ctx, build_pk)).await?;
-    warnings.extend(clock.run(Stage::Point, point(ctx, build_pk)).await?);
+    let (mut warnings, broken) = clock
+        .run(Stage::Gate, Box::pin(event_gate(ctx, build_pk)))
+        .await?;
+    clock
+        .run(Stage::Promote, Box::pin(promote(ctx, build_pk)))
+        .await?;
+    warnings.extend(
+        clock
+            .run(Stage::Point, Box::pin(point(ctx, build_pk)))
+            .await?,
+    );
     Ok((build_pk, warnings, broken))
 }
 

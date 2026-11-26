@@ -39,9 +39,7 @@
 
 use std::sync::OnceLock;
 
-use argon2::password_hash::{
-    PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core,
-};
+use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use argon2::{Argon2, password_hash::Error as HashError};
 use chrono::Utc;
 use entity::{org_frontline_members, user_credentials, users};
@@ -146,10 +144,10 @@ impl PinVerdict {
 /// matter and are the wrong thing to tune without measuring on the serving
 /// hardware.
 pub fn hash_pin(pin: &str) -> Result<String, OxyError> {
-    let salt = SaltString::generate(&mut rand_core::OsRng);
+    // `hash_password` draws a fresh 16-byte salt from the OS RNG (getrandom).
     Argon2::default()
-        .hash_password(pin.as_bytes(), &salt)
-        .map(|h| h.to_string())
+        .hash_password(pin.as_bytes())
+        .map(|h: PasswordHash| h.to_string())
         .map_err(|e| OxyError::RuntimeError(format!("pin hash: {e}")))
 }
 
@@ -163,7 +161,7 @@ fn pin_matches(pin: &str, stored: &str) -> Result<bool, OxyError> {
         .map_err(|e| OxyError::RuntimeError(format!("stored pin hash is unreadable: {e}")))?;
     match Argon2::default().verify_password(pin.as_bytes(), &parsed) {
         Ok(()) => Ok(true),
-        Err(HashError::Password) => Ok(false),
+        Err(HashError::PasswordInvalid) => Ok(false),
         Err(e) => Err(OxyError::RuntimeError(format!("pin verify: {e}"))),
     }
 }
@@ -657,6 +655,17 @@ mod tests {
         assert!(pin_matches("4821", &hash).expect("verify"));
         assert!(!pin_matches("4822", &hash).expect("verify"));
         assert!(!pin_matches("482", &hash).expect("verify"));
+    }
+
+    /// A PIN stored before argon2 0.6 must still verify after it. This is an
+    /// Argon2id hash of "4821" at argon2's defaults (m=19456, t=2, p=1), made by
+    /// an independent implementation (argon2-cffi), the shape `hash_pin` wrote
+    /// on argon2 0.5. If it stops verifying, every enrolled worker is locked out.
+    #[test]
+    fn a_pin_stored_by_an_earlier_argon2_still_verifies() {
+        let stored = "$argon2id$v=19$m=19456,t=2,p=1$V+CtZUzP2/j487F8Q39TUQ$tpgO1S7FUv/8IPRR0YjpcNhlBSTvsa4zat7obFxEhWI";
+        assert!(pin_matches("4821", stored).expect("verify"));
+        assert!(!pin_matches("4822", stored).expect("verify"));
     }
 
     #[test]

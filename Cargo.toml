@@ -159,14 +159,14 @@ oxy-workspace-fs = { path = "crates/workspace-fs" }
 oxy-world-model = { path = "crates/world-model" }
 
 # External dependencies
-async-openai = { version = "0.41.3" }
+async-openai = { version = "0.43.0" }
 # `parquet` compiles DuckDB's Parquet reader in. Without it `read_parquet`
 # autoinstalls the extension from extensions.duckdb.org into ~/.duckdb, which
 # a pod with no cache or egress cannot do: Airhouse imports of `.parquet`
 # uploads failed on staging while CSV (built in) loaded.
 duckdb = { version = "=1.10501.0", features = ["bundled", "parquet"] }
 axum = { version = "0.8.9", features = ["macros", "http2"] }
-axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+axum-server = { version = "0.9.2", features = ["tls-rustls"] }
 # Not `"*"`. A wildcard accepts *any* release, so a routine `cargo update`
 # would pull a future breaking chrono (0.5, 1.0) into the build with no
 # semver gate — the lockfile is the only thing that was holding this at 0.4.
@@ -187,7 +187,7 @@ chrono = "0.4"
 # in-process, this comment goes stale silently and the bug reopens on exactly
 # the path that produces bucket labels. Re-check it when moving that rev.
 chrono-tz = "0.10"
-croner = "3"
+croner = "5"
 indexmap = { version = "2.14.0", features = ["serde"] }
 log = { version = "0.4" }
 minijinja = { version = "2.23.0" }
@@ -811,12 +811,12 @@ anyhow = "1.0.104"
 apalis = "0.7.4"
 apalis-core = "0.7.4"
 apalis-sql = "0.7.4"
-argon2 = "0.5"
+argon2 = "0.6"
 # Held at 58 — NOT a stale pin. duckdb (`=1.10501.0` below) declares `arrow ^58`,
-# connectorx 0.4.5 declares `^54`, and df-interchange's newest feature is
+# connectorx 0.4.6 declares `^56`, and df-interchange's newest feature is
 # `arrow_58`. arrow 59 exists but nothing in that trio can reach it, and arrow
 # types cross every one of those boundaries. Re-check when duckdb moves.
-arrow = { version = "=58.3.0", default-features = false }
+arrow = { version = "=58.4.2", default-features = false }
 assert_cmd = "2.2.2"
 async-std = "1.13.2"
 async-stream = "0.3.6"
@@ -836,19 +836,19 @@ bcrypt = "0.19.3"
 # `^0.20`, and each bollard `=`-pins its own bollard-stubs prerelease, so the two
 # cannot coexist in one graph. Moves when testcontainers does.
 bollard = "0.20.2"
-brotli = "8"
+brotli = "9"
 bytes = "1"
-chrono-english = "0.1.8"
+chrono-english = "0.2.1"
 clap = "4.6.6"
 clickhouse = "0.15.1"
 colored = "3.1.1"
 connectorx = "0.4.5"
-constant_time_eq = "0.5.0"
+constant_time_eq = "0.6.2"
 csv = "1.4.0"
 dashmap = "6"
 deser-incomplete = "0.1.2"
 df-interchange = "0.3.3"
-dirs = "6.0.0"
+dirs = "7.0.0"
 dotenv = "0.15.0"
 # RFC 8291 Web Push payload encryption (Mozilla's, MPL-2.0). Only its OpenSSL
 # backend exists, and openssl is already in the graph via connectorx.
@@ -861,7 +861,7 @@ futures = "0.3.33"
 futures-core = "0.3"
 fxhash = "0.2.1"
 garde = "0.23.0"
-# Held at 0.25 — 0.28 exists, but connectorx 0.4.5 declares `^0.25` and
+# Held at 0.25 — 0.28 exists, but connectorx 0.4.6 declares `^0.25` and
 # `connector/connectorx/bigquery.rs` implements connectorx's BigQuery source
 # against it. Two versions in the graph do not meet at connectorx's
 # `From<BQError>`, so this must track connectorx, not crates.io.
@@ -882,22 +882,22 @@ indoc = "2.0.7"
 itertools = "0.15.0"
 # JSON Schema (draft 2020-12) validation of app event payloads. No default features: they
 # enable remote and file `$ref` resolution, and schema validation must never reach the network.
-jsonschema = { version = "0.61", default-features = false }
+jsonschema = { version = "0.63", default-features = false }
 jsonwebtoken = "11"
 lazy_static = "1.5.0"
 # MIME assembly only — no transport. Oxy hands the composed message to SES v2
 # as `Content.Raw`, so every SMTP/TLS/pool feature is dead weight here.
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
 libc = "0.2"
-lru = "0.18"
+lru = "0.19"
 # Already in the graph via `tower-serve-static`; declared so the static handler
 # can name an asset's media type from the ORIGINAL path when it serves that
 # path's `.br` sibling.
 mime_guess = "2"
 once_cell = "1.21.4"
-parking_lot = "0.12"
+parking_lot = "0.13"
 # Must match `arrow` exactly; see the note there for why 58 is the ceiling.
-parquet = "=58.3.0"
+parquet = "=58.4.2"
 predicates = "3.1.4"
 pulldown-cmark = "0.13"
 rand = "0.10"
@@ -928,23 +928,22 @@ rayon = "1"
 reqwest = { version = "0.13", features = ["rustls", "multipart"] }
 # V8-isolate runtime for Oxy Functions (custom-app `functions/*.ts`).
 # See internal-docs/customer-apps-functions.md.
-deno_core = "0.412"
+deno_core = "0.413"
 # deno_core's `op2` macro requires fallible ops to return an error type
 # implementing `deno_error::JsErrorClass` (plain `anyhow::Error` does not
 # qualify); `JsErrorBox` is that type. Kept on the line deno_core pins — 0.7.x
-# for deno_core 0.412.
+# for deno_core 0.413.
 deno_error = "0.7"
 rkyv = "0.8.18"
-# Held at 0.10. It was held because rmcp 1.0 deleted the SSE *server*
-# transport that `oxy mcp sse` served; that command is gone (replaced by
-# `oxyc mcp`), and what is left is `oxy` core's use of rmcp's model types
-# (`crates/core/src/exec_types/output_container.rs`). A bump is now an ordinary
-# dependency change.
-rmcp = "0.10.0"
-# 0.39, not 0.40: rusqlite 0.40 wants libsqlite3-sys 0.38, sqlx-sqlite 0.9 caps
-# at `<0.38`, and libsqlite3-sys carries `links = "sqlite3"` so only one version
-# may exist in the graph at all.
-rusqlite = "0.39"
+# Model types only: `oxy` core converts its output into `rmcp::model::ContentBlock`
+# (`crates/core/src/exec_types/output_container.rs`). No MCP transport is served
+# from this workspace (`oxyc mcp` replaced `oxy mcp sse`), so it takes only the
+# `server` feature.
+rmcp = "3.11.0"
+# Must share a libsqlite3-sys with sqlx-sqlite: it carries `links = "sqlite3"`, so
+# only one version may exist in the graph. rusqlite 0.43 wants libsqlite3-sys
+# 0.40; sqlx-sqlite 0.9.1 accepts `<0.41`. Re-check both when bumping either.
+rusqlite = "0.43"
 rustc_version_runtime = "0.3.0"
 rustls = "0.23.43"
 # Held at 0.8 — DELIBERATE. schemars 1.0 replaced the whole `schemars::schema`
@@ -960,6 +959,12 @@ scopeguard = "1.2.0"
 secrecy = "0.10.3"
 semver = "1.0"
 serde_arrow = "0.15.0"
+# Held at 0.2. It canonicalizes the persisted automation step hashes
+# (crates/agentic/automation/src/hash.rs), which must not change across
+# serializer revs. 0.4 is a rewrite: digits match for safe integers and floats,
+# but an integer past 2^53 - 1 is now an error where 0.2 formatted it through
+# f64, so such a value in an automation would fail the run. Moving needs a plan
+# for those values; `unsafe_integer_hashes_as_before` pins today's behaviour.
 serde_jcs = "0.2.0"
 serde_urlencoded = "0.7"
 serde_with = "3.22.0"
@@ -980,7 +985,7 @@ strip-ansi-escapes = "=0.2.1"
 strsim = "0.11"
 syntect = "5.3"
 syn = { version = "2", default-features = false }
-tabled = "0.21.0"
+tabled = "0.22.0"
 terminal-light = "1.9.0"
 terminal_size = "0.4.4"
 # Integration-test container harness — used as a dev-dependency by 6 crates.
@@ -1024,13 +1029,13 @@ tracing-log = "0.2.0"
 tracing-subscriber = "0.3.23"
 # Platform telemetry (crates/telemetry): OTLP export to the cluster OTel
 # collector → ClickStack / HyperDX. The four opentelemetry-* crates move in
-# lockstep (0.32) and tracing-opentelemetry is one minor ahead of them (0.33
-# pairs with 0.32) — bump all five together. `http-proto` +
+# lockstep (0.33) and tracing-opentelemetry is one minor ahead of them (0.34
+# pairs with 0.33) — bump all five together. `http-proto` +
 # `reqwest-blocking-client` is the exporter transport on purpose: the SDK's
 # batch processors run on their own thread, and the blocking reqwest client is
 # the one transport that needs no async runtime there (the gRPC/tonic one
 # would also drag a second tonic feature-set into the graph).
-opentelemetry = "0.32"
+opentelemetry = "0.33"
 # `experimental_metrics_custom_reader` unlocks `ManualReader`, the `MetricReader`
 # trait and `Pipeline` — nothing else; it pulls no extra dependency and compiles
 # one more module. It is what lets `/metrics` be a *pull* endpoint sharing one
@@ -1040,10 +1045,10 @@ opentelemetry = "0.32"
 # mutex and a scrape that is one flush race away from stale. "Experimental" here
 # means the API may move on a minor bump; the used surface is one builder and
 # five trait methods, and any drift is a compile error, not a silent fault.
-opentelemetry_sdk = { version = "0.32", features = [
+opentelemetry_sdk = { version = "0.33", features = [
   "experimental_metrics_custom_reader",
 ] }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = [
+opentelemetry-otlp = { version = "0.33", default-features = false, features = [
   "http-proto",
   "reqwest-blocking-client",
   "trace",
@@ -1051,16 +1056,16 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "metrics",
   "internal-logs",
 ] }
-opentelemetry-appender-tracing = "0.32"
-opentelemetry-http = "0.32"
-tracing-opentelemetry = { version = "0.33", default-features = false, features = [
+opentelemetry-appender-tracing = "0.33"
+opentelemetry-http = "0.33"
+tracing-opentelemetry = { version = "0.34", default-features = false, features = [
   "tracing-log",
 ] }
 url = "2.5.8"
 urlencoding = "2.1.3"
-utoipa = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e" }
-utoipa-axum = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e" }
-utoipa-swagger-ui = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e" }
+utoipa = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e10994b2b24d649cd93931fbfdeff18b73" }
+utoipa-axum = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e10994b2b24d649cd93931fbfdeff18b73" }
+utoipa-swagger-ui = { git = "https://github.com/haitrr/utoipa.git", rev = "776f86e10994b2b24d649cd93931fbfdeff18b73" }
 wildcard = "0.3.0"
 wiremock = "0.6"
 xxhash-rust = "0.8"

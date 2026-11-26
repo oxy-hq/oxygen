@@ -454,7 +454,7 @@ pub(crate) fn resolve_context_pattern(
     };
     let mut paths = Vec::new();
     for entry in glob::glob(&abs_pattern)? {
-        paths.push(entry.map_err(|e| ConfigError::Io(e.into_error()))?);
+        paths.push(entry.map_err(|e| ConfigError::Io(e.into()))?);
     }
     Ok(paths)
 }

@@ -390,10 +390,10 @@ impl ClickHouseObservabilityStorage {
     pub(super) fn read_client(&self) -> Client {
         self.client
             .clone()
-            .with_option("max_execution_time", "30")
-            .with_option("max_result_rows", "1000000")
-            .with_option("max_result_bytes", "268435456") // 256 MiB
-            .with_option("result_overflow_mode", "throw")
+            .with_setting("max_execution_time", "30")
+            .with_setting("max_result_rows", "1000000")
+            .with_setting("max_result_bytes", "268435456") // 256 MiB
+            .with_setting("result_overflow_mode", "throw")
     }
 
     /// Ensure all observability tables exist.

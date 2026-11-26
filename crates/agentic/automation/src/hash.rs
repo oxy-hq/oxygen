@@ -135,4 +135,18 @@ mod tests {
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
         );
     }
+
+    /// An integer past 2^53 - 1 (a warehouse BIGINT id in a step's context, say)
+    /// must still hash, to the digest it always had: serde_jcs 0.2 formats it
+    /// through f64 (`9007199254740993` -> `9007199254740992`). serde_jcs 0.4
+    /// refuses such integers instead, which would fail the automation run with
+    /// "failed to hash automation config". See the pin in the workspace Cargo.toml.
+    #[test]
+    fn unsafe_integer_hashes_as_before() {
+        let h = canonical_hash(&json!({"id": 9_007_199_254_740_993_u64})).unwrap();
+        assert_eq!(
+            h,
+            "24bb430971eb50f964e63784a7ad4f3411bc7cdb1659188e371150793e872da1"
+        );
+    }
 }

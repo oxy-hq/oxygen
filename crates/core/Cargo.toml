@@ -127,11 +127,8 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 reqwest = { workspace = true, features = ["json"] }
 secrecy = { workspace = true }
 snowflake-api = { workspace = true }
-rmcp = { workspace = true, features = [
-  "server",
-  "transport-sse-server",
-  "transport-io",
-] }
+# Model types only (`rmcp::model::ContentBlock`); no transport is served from here.
+rmcp = { workspace = true, features = ["server"] }
 serde_with = { workspace = true }
 # we use chrono::DateTimeWithTimeZone, which is not currently supported by utoipa
 # need to use this until this PR is released https://github.com/juhaku/utoipa/pull/1367
@@ -143,7 +140,7 @@ fehler = { workspace = true }
 sqlparser = { workspace = true }
 # NOT a stale pin: this is connectorx's own sqlparser, used only to implement
 # its `Dialect` trait in connector/connectorx/bigquery.rs. It must track
-# connectorx (0.4.5 -> `^0.37`), not the workspace `sqlparser` above.
+# connectorx (0.4.6 -> `^0.37`), not the workspace `sqlparser` above.
 sqlparser_connectorx = { package = "sqlparser", version = "0.37" }
 backoff = { workspace = true, features = ["tokio"] }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
@@ -167,7 +164,7 @@ urlencoding = { workspace = true }
 tempfile = { workspace = true }
 xxhash-rust = { workspace = true, features = ["xxh3"] }
 sentry = { workspace = true }
-df-interchange = { workspace = true, features = ["arrow_54", "arrow_58"] }
+df-interchange = { workspace = true, features = ["arrow_56", "arrow_58"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]

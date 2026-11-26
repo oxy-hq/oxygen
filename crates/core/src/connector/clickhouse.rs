@@ -74,7 +74,7 @@ impl ClickHouse {
     /// Apply filters and role to a query client
     ///
     /// Returns a tuple of:
-    /// - Client with scalar filters applied via .with_option() and role set
+    /// - Client with scalar filters applied via .with_setting() and role set
     /// - Vec of (session_key, csv_value) pairs for array filters that need SET commands
     ///
     /// Array filters are handled separately to avoid URI length limits when using sessions.
@@ -89,7 +89,7 @@ impl ClickHouse {
                 database = ?self.config.database,
                 "Applying role to ClickHouse query"
             );
-            client = client.with_option("role", role);
+            client = client.with_setting("role", role);
         }
 
         // Apply filters as session variables
@@ -130,14 +130,14 @@ impl ClickHouse {
                     );
                     array_filters.push((session_key, session_value));
                 } else {
-                    // Scalar values use with_option (added to URI/query params)
+                    // Scalar values use with_setting (added to URI/query params)
                     tracing::debug!(
                         filter_name = %key,
                         session_key = %session_key,
                         session_value_length = session_value.len(),
-                        "Setting ClickHouse scalar filter via with_option"
+                        "Setting ClickHouse scalar filter via with_setting"
                     );
-                    client = client.with_option(&session_key, &session_value);
+                    client = client.with_setting(&session_key, &session_value);
                 }
             }
         } else {
@@ -234,7 +234,7 @@ impl Engine for ClickHouse {
             "Executing ClickHouse query with session"
         );
 
-        let session_client = client.with_option("session_id", &session_id);
+        let session_client = client.with_setting("session_id", &session_id);
 
         // Execute SET commands for array filters (if any)
         for (session_key, session_value) in &array_filters {

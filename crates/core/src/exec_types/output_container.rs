@@ -3,7 +3,7 @@ use std::{collections::HashMap, hash::Hash, path::PathBuf};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use minijinja::Value;
-use rmcp::model::Content;
+use rmcp::model::ContentBlock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -331,14 +331,14 @@ impl From<&OutputContainer> for Value {
     }
 }
 
-impl TryFrom<OutputContainer> for Content {
+impl TryFrom<OutputContainer> for ContentBlock {
     type Error = OxyError;
 
     fn try_from(value: OutputContainer) -> Result<Self, Self::Error> {
         let value = serde_json::to_string(&value).map_err(|e| {
             OxyError::SerializerError(format!("Error serializing OutputContainer to JSON: {e}"))
         })?;
-        Ok(Content::text(value))
+        Ok(ContentBlock::text(value))
     }
 }
 

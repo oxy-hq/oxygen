@@ -169,7 +169,7 @@ impl Engine for ConnectorX {
             let result = destination
                 .arrow()
                 .map_err(|err| connector_internal_error(LOAD_ARROW_RESULT, &err))?;
-            // `Interchange::from_arrow_54` shares the same empty-vec panic
+            // `Interchange::from_arrow_56` shares the same empty-vec panic
             // as `_58` (indexes `df[0]` without a guard). Return empty so the
             // `result.first()` check below yields the clean "No record batches
             // returned" error rather than panicking — zero rows is an error on
@@ -177,7 +177,7 @@ impl Engine for ConnectorX {
             if result.is_empty() {
                 return Result::<_, OxyError>::Ok(Vec::new());
             }
-            let converted_result = Interchange::from_arrow_54(result)
+            let converted_result = Interchange::from_arrow_56(result)
                 .map_err(|err| connector_internal_error(LOAD_ARROW_RESULT, &err))?
                 .to_arrow_58()
                 .map_err(|err| connector_internal_error(LOAD_ARROW_RESULT, &err))?;
