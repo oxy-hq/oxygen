@@ -108,13 +108,35 @@ defaults:
 # `group=GitHub Actions` -- so this trades GitHub's billed minutes for the
 # fleet's `arm64-2x` shape, which already exists for exactly these jobs.
 #
-# The trade, and it is a trade: a fleet runner is a fresh EC2 boot of ~40s,
-# against a GitHub-hosted runner that is already warm. Measured durations of
-# the six jobs gated here -- typecheck-ci-scripts 3m39s, sdk-typecheck 2m13s,
-# fmt-web 2m11s, cargo-fmt ~1m, code-metrics 47s, canary-zoo -- mean the
-# longer three absorb the boot easily and the shorter ones get cheaper while
-# ending up somewhat slower in wall-clock. `runs-on` is per job here, so any
-# job that turns out to be boot-dominated goes back on its own line.
+# TURNED OFF ON PURPOSE, 2026-11-26: the variable is unset and these six jobs
+# are on `ubuntu-slim`. Read the next three paragraphs before setting it, and
+# set it only if the licence arithmetic has changed.
+#
+# It was measured on, and the SPEED was better than this comment first
+# predicted: the boot is ~18s rather than the ~40s the fleet's own notes
+# assume, and both jobs that ran came out FASTER end to end than on
+# `ubuntu-slim` -- code-metrics 18s+21s=39s against 47s, cargo-fmt
+# 19s+24s=43s against ~60s. So this is not off because it was slow.
+#
+# It is off because of the LICENCE, which meters runner LAUNCHES, not minutes:
+# one launch per job, and RunsOn's Starter tier is under 50k jobs/month. The
+# four Rust jobs alone already measured ~832 launches/day, about 25k/month or
+# half of Starter. These six add roughly 17k/month on top -- another third of
+# the tier -- to save about eight seconds a job. The Rust jobs spend a
+# comparable share of the allowance to save two to five MINUTES each, so per
+# launch they are 20-40x the value. When the allowance is the scarce thing,
+# short jobs are the wrong place to spend it.
+#
+# Nothing is enforced and there is a two-month grace, so this was not urgent;
+# it is simply the cheapest headroom available, and unsetting a variable costs
+# nothing. Worth revisiting if the tier changes, if the per-job boot drops
+# further, or if the overall launch rate falls.
+#
+# The original trade, still true: a fleet runner is a fresh EC2 boot against an
+# already-warm GitHub-hosted runner, and the measured durations of the six jobs
+# gated here are typecheck-ci-scripts 3m39s, sdk-typecheck 2m13s, fmt-web
+# 2m11s, cargo-fmt ~1m, code-metrics 47s, canary-zoo short. `runs-on` is per
+# job here, so any one of them can move independently.
 #
 # NOT gated: `cargo-test` ("...(test)"), which only reads the other jobs'
 # results and is the required status check branch protection binds. On the
