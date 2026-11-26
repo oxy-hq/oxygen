@@ -139,10 +139,9 @@ pub fn init(observability_enabled: bool, otel: &OtelConfig, server_command: bool
     // target nothing at any level, and `http_trace`'s 5xx line Logs only. All of
     // it — the rule, its translation into sentry-tracing's flags, and the span
     // refusal — is built into `sentry_tracing_layer` itself
-    // (`oxy_telemetry::sentry_filter`), where a unit test pins them: constructing
-    // the layer here would leave a deleted `.event_filter(..)` green, and a
-    // SECOND `.event_filter(..)` anywhere would silently replace the first rather
-    // than compose with it. The `WARN` bound stays, so this layer neither widens
+    // (`oxy_telemetry::sentry_filter`), where a unit test pins them: wiring
+    // sentry-tracing's per-surface layers here would put a second decision point
+    // beside `sentry_disposition`, one a unit test there cannot see. The `WARN` bound stays, so this layer neither widens
     // what Sentry receives nor enables INFO/DEBUG callsites. Traces are pinned
     // off in `oxy::sentry_config`, which also holds barrier 2.
     layers.push(Box::new(

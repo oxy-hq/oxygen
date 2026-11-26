@@ -183,6 +183,7 @@ async function evaluateJudge(
   const screenshot = await page.screenshot({ fullPage: false }).catch(() => null);
   const fullText = await page
     .locator("body")
+    // biome-ignore lint/performance/useDomNodeTextContent: the judge reads the page as rendered; textContent would hand it hidden nodes' text (and is nullable)
     .innerText()
     .catch(() => "");
   // Chat/analytics threads render the agent's final answer at the BOTTOM of
@@ -236,7 +237,10 @@ async function evaluateJudge(
     },
     body: JSON.stringify({
       model: opts.model,
-      max_tokens: 256,
+      // Room for the envelope and a rationale that quotes the values it read.
+      // At 256 a judge listing a few numbers ran out mid-string: its
+      // `"passed": true` was cut off with the closing brace and read as a fail.
+      max_tokens: 1024,
       messages,
       system: `You evaluate claims about a web application screenshot. Respond ONLY with JSON: {"nonce": "${nonce}", "passed": boolean, "rationale": "<one sentence>"}. The nonce field MUST exactly equal the value in the user message.`
     })
@@ -254,6 +258,7 @@ async function evaluateJudge(
 
   const json = (await res.json()) as {
     content?: Array<{ type: string; text?: string }>;
+    stop_reason?: string;
     usage?: {
       input_tokens?: number;
       cache_read_input_tokens?: number;
@@ -273,14 +278,24 @@ async function evaluateJudge(
   }
 
   const text = json.content?.find((c) => c.type === "text")?.text ?? "";
-  const parsed = parseJudgeResponse(text, nonce);
+  const parsed = parseJudgeResponse(text, nonce, json.stop_reason);
   return { kind: "judge", passed: parsed.passed, claim, rationale: parsed.rationale };
 }
 
-function parseJudgeResponse(
+export function parseJudgeResponse(
   text: string,
-  expectedNonce: string
+  expectedNonce: string,
+  stopReason?: string
 ): { passed: boolean; rationale: string } {
+  // The whole response first, with any Markdown code fence stripped: the
+  // block scan below stops at the first `}`, so a rationale that quotes a
+  // brace would otherwise never parse.
+  const unfenced = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  const whole = verdictFrom(unfenced, expectedNonce);
+  if (whole) return whole;
   // Walk every {...} block in the response (longest-first, so a nested
   // object inside the model's outer JSON envelope still wins) and accept
   // the first one whose nonce matches. A response with no nonce-bearing
@@ -288,17 +303,32 @@ function parseJudgeResponse(
   const matches = Array.from(text.matchAll(/\{[\s\S]*?\}/g)).map((m) => m[0]);
   matches.sort((a, b) => b.length - a.length);
   for (const candidate of matches) {
-    try {
-      const obj = JSON.parse(candidate) as {
-        nonce?: string;
-        passed?: boolean;
-        rationale?: string;
-      };
-      if (obj.nonce !== expectedNonce) continue;
-      return { passed: obj.passed === true, rationale: obj.rationale ?? "" };
-    } catch {
-      // skip non-JSON blob, keep looking
-    }
+    const verdict = verdictFrom(candidate, expectedNonce);
+    if (verdict) return verdict;
   }
-  return { passed: false, rationale: `unparsable judge response: ${text.slice(0, 200)}` };
+  // Still fails closed, but says why: a cut-off answer is not a bad answer.
+  const why =
+    stopReason === "max_tokens"
+      ? "judge response truncated at max_tokens"
+      : "unparsable judge response";
+  return { passed: false, rationale: `${why}: ${text.slice(0, 200)}` };
+}
+
+/** The verdict in `candidate` when it is JSON carrying the expected nonce. */
+function verdictFrom(
+  candidate: string,
+  expectedNonce: string
+): { passed: boolean; rationale: string } | null {
+  try {
+    const obj = JSON.parse(candidate) as {
+      nonce?: string;
+      passed?: boolean;
+      rationale?: string;
+    };
+    if (obj?.nonce !== expectedNonce) return null;
+    return { passed: obj.passed === true, rationale: obj.rationale ?? "" };
+  } catch {
+    // not JSON; the caller keeps looking
+    return null;
+  }
 }

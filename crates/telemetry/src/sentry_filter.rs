@@ -19,9 +19,10 @@
 //!    This is also the one place that decides what an Oxy target becomes, so
 //!    the per-target signal rules live here too rather than in a second filter
 //!    beside it: [`HTTP_TRACE_TARGET`]'s 5xx line is a duplicate issue and is
-//!    demoted to [`Disposition::LogOnly`] (#3204). Two `event_filter`s cannot
-//!    coexist on one layer — the second silently replaces the first — so a new
-//!    rule belongs in [`sentry_disposition`], never in another filter function.
+//!    demoted to [`Disposition::LogOnly`] (#3204). [`sentry_tracing_layer`] asks
+//!    it once per event and fans out to sentry-tracing's per-surface layers,
+//!    which carry no filters of their own, so a new rule belongs in
+//!    [`sentry_disposition`], never in a filter on one of those layers.
 //! 2. [`drop_event`], `before_send`'s rule. It drops what the first barrier
 //!    cannot see by target: callees outside `custom_apps_*`,
 //!    `OxyError::capture_to_sentry` and panics. The signal that does that work
@@ -43,6 +44,8 @@
 use std::collections::BTreeMap;
 
 use tracing::Level;
+
+pub use crate::sentry_layer::{SentryTracingLayer, Surfaces};
 
 /// What the Sentry layer does with one `tracing` event.
 ///
@@ -282,34 +285,27 @@ pub fn sentry_disposition(target: &str, level: &Level) -> Disposition {
 /// are refused outright: Sentry records errors and panics only, and a
 /// transaction would carry span fields off the box.
 ///
-/// **This is the layer's one and only `event_filter`.** `SentryLayer` holds a
-/// single callback, so a second `.event_filter(..)` — here or at the call site
-/// — does not compose, it replaces, silently. A new rule about what a target
-/// becomes therefore goes into [`sentry_disposition`]; the closure below stays
-/// a pure translation of it into sentry-tracing's flags.
+/// **This is the layer's one and only decision point.** sentry-tracing 0.49.6
+/// deprecated the combined `SentryLayer` and its `EventFilter` flags in favour
+/// of one layer per surface (`BreadcrumbLayer`, `ErrorLayer`, `LogLayer`,
+/// `SpanLayer`), each filtered on its own. Three independent filters would be
+/// three places a rule could drift, so they are not used: [`SentryTracingLayer`]
+/// asks [`sentry_disposition`] once per event and hands the event to exactly the
+/// surfaces [`Disposition::surfaces`] names. No sub-layer is reachable any other
+/// way, so none can widen what another refuses, and a new rule about what a
+/// target becomes still goes into [`sentry_disposition`] and nowhere else.
 ///
-/// `EventFilter::Log` rides along with `Event` and `Breadcrumb`, as
-/// `default_event_filter` does, and is not inert: `ClientOptions::new()` is
-/// `Default::default()` and `enable_logs` defaults to **true** (sentry-core
-/// 0.49.1 `clientoptions.rs:859`). With the `logs` feature on — it is in
-/// `sentry`'s default set — those lines reach Sentry Logs, which is cheap and
-/// searchable and was never the noise. Only [`Disposition::Drop`] clears it: a
-/// custom-app target is refused Logs too, which is the point of barrier 1.
-pub fn sentry_tracing_layer<S>() -> sentry::integrations::tracing::SentryLayer<S>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    sentry::integrations::tracing::layer()
-        .event_filter(|metadata: &tracing::Metadata<'_>| {
-            use sentry::integrations::tracing::EventFilter;
-            match sentry_disposition(metadata.target(), metadata.level()) {
-                Disposition::Event => EventFilter::Event | EventFilter::Log,
-                Disposition::Breadcrumb => EventFilter::Breadcrumb | EventFilter::Log,
-                Disposition::LogOnly => EventFilter::Log,
-                Disposition::Drop => EventFilter::Ignore,
-            }
-        })
-        .span_filter(|_| false)
+/// Spans are refused by construction: no `SpanLayer` is installed, and the three
+/// event layers implement `on_event` only.
+///
+/// Logs are not inert: `ClientOptions::new()` is `Default::default()` and
+/// `enable_logs` defaults to **true**. With the `logs` feature on (it is in
+/// `sentry`'s default set) the lines reach Sentry Logs, which is cheap and
+/// searchable and was never the noise. Only [`Disposition::Drop`] keeps a line
+/// off Logs: a custom-app target is refused Logs too, which is the point of
+/// barrier 1.
+pub fn sentry_tracing_layer() -> SentryTracingLayer {
+    SentryTracingLayer::new()
 }
 
 /// The scope tag a custom-app surface puts on its hub, and its value.
@@ -1017,9 +1013,9 @@ mod tests {
     /// Barrier 1 is only real if the filter is actually *attached* to the layer
     /// the subscriber installs. This drives [`sentry_tracing_layer`] — the same
     /// constructor `oxy-server`'s `logging` pushes — rather than re-deciding the
-    /// rule, so deleting `.event_filter(..)` from it fails here instead of
-    /// silently restoring sentry-tracing's default (which makes ERROR an event
-    /// at every target, custom-app ones included).
+    /// rule, so wiring a sub-layer around [`sentry_disposition`] fails here
+    /// instead of silently making ERROR an event at every target, custom-app
+    /// ones included.
     #[test]
     fn the_shipped_tracing_layer_carries_the_custom_app_filter() {
         use tracing_subscriber::layer::SubscriberExt;
@@ -1046,8 +1042,7 @@ mod tests {
     }
 
     /// The other half of the same guarantee: a `warn` is kept as a breadcrumb,
-    /// never an event. Pins `.span_filter(|_| false)` and the level rule as the
-    /// layer really installs them.
+    /// never an event. Pins the level rule as the layer really installs it.
     #[test]
     fn the_shipped_tracing_layer_makes_warn_a_breadcrumb_not_an_event() {
         use tracing_subscriber::layer::SubscriberExt;
@@ -1426,7 +1421,7 @@ mod tests {
         let logs = logs.lock().expect("log recorder");
         let log = logs
             .first()
-            .expect("an ERROR must reach Sentry Logs; EventFilter::Log rides with Event");
+            .expect("an ERROR must reach Sentry Logs; Disposition::Event includes Logs");
         assert_eq!(
             log.attributes
                 .get(LOG_MODULE_ATTRIBUTE)
@@ -1440,7 +1435,7 @@ mod tests {
     /// The levelled 5xx rule, through the layer that really ships rather than
     /// through [`sentry_disposition`] alone: the ERROR line raises no issue, and
     /// the WARN line on the SAME target is still attached to the next issue as a
-    /// breadcrumb. `EventFilter::Breadcrumb` only means something if sentry
+    /// breadcrumb. `Surfaces::breadcrumb` only means something if sentry
     /// actually carries it onto an event, which is what this asserts.
     #[test]
     fn the_shipped_tracing_layer_keeps_the_probe_warn_as_a_breadcrumb() {

@@ -425,8 +425,8 @@ mod tests {
 
         let events = sentry::test::with_captured_events_options(
             || {
-                let subscriber =
-                    tracing_subscriber::registry().with(sentry::integrations::tracing::layer());
+                let subscriber = tracing_subscriber::registry()
+                    .with(sentry::integrations::tracing::ErrorLayer::new());
                 tracing::subscriber::with_default(subscriber, || {
                     tracing::error!("a real failure");
                 });
