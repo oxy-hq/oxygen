@@ -5,18 +5,21 @@
 //! install lock. A repair never adds or removes capture of a table: a pass
 //! between a promote's install and its pointer move, with the old build
 //! still declared, neither captures again a table the new build removed nor
-//! removes one it added. The local provider's owner may not create the guard,
-//! so the app's writer can disable its own capture here.
+//! removes one it added. A production build's manifest is read once: a
+//! second pass on the same build reads none, and a promote's new build is
+//! read by the next pass. The local provider's owner may not create the
+//! guard, so the app's writer can disable its own capture here.
 
 use oxy_api_custom_apps::oltp_changes::install::install_on_promote;
 use oxy_custom_apps::manifest::OltpChangesConfig;
 use oxy_oltp::changes::INSTALL_LOCK_SQL;
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use super::{Relay, text, with_relay};
 use crate::oltp_changes_fixture::{LEASES_SQL, NOTES_SQL, connect};
 
-/// Every capture trigger on `leases` enabled always, by name.
+/// Every capture trigger on a captured table enabled always, by name.
 const IN_PLACE: [(&str, &str); 4] = [
     ("oxy_capture_d", "A"),
     ("oxy_capture_i", "A"),
@@ -75,7 +78,12 @@ impl Relay {
 
     /// Each capture trigger on `leases` as `(tgname, tgenabled)`, by name.
     async fn capture_triggers(&self) -> Vec<(String, String)> {
-        let leases = format!("{}.leases", self.app.schema());
+        self.capture_triggers_on("leases").await
+    }
+
+    /// Each capture trigger on `table` as `(tgname, tgenabled)`, by name.
+    async fn capture_triggers_on(&self, table: &str) -> Vec<(String, String)> {
+        let qualified = format!("{}.{table}", self.app.schema());
         let rows = self
             .app
             .owner()
@@ -84,11 +92,32 @@ impl Relay {
                 "SELECT tgname::text, tgenabled::text FROM pg_trigger \
                   WHERE tgrelid = $1::text::regclass AND tgname LIKE 'oxy\\_capture\\_%' \
                   ORDER BY tgname",
-                &[&leases],
+                &[&qualified],
             )
             .await
             .expect("read the capture triggers");
         rows.iter().map(|row| (row.get(0), row.get(1))).collect()
+    }
+
+    /// Every build of the app rewritten on the platform to declare nothing
+    /// under `oltpChanges`. A build's manifest is never rewritten: this only
+    /// shows whether a pass reads it again.
+    async fn strip_declarations(&self) {
+        let sql = "UPDATE app_builds SET manifest_json = manifest_json - 'oltpChanges' \
+                    WHERE app_id = (SELECT id FROM apps WHERE org_id = $1 AND slug = $2)";
+        let stripped = self
+            .db()
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                sql,
+                [self.app.org().into(), self.app.slug.clone().into()],
+            ))
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
+        assert!(
+            stripped.rows_affected() > 0,
+            "the app has builds to rewrite"
+        );
     }
 
     /// The stream's `guardless_since`.
@@ -243,6 +272,50 @@ async fn a_pass_before_the_pointer_moves_keeps_an_addition() {
         r.pass().await;
         assert!(r.has_capture("notes").await, "notes stays captured");
         assert_eq!(r.capture_triggers().await, in_place(), "leases is repaired");
+    })
+    .await;
+}
+
+/// Production declares `leases`, and a pass reads its build. Rewritten on
+/// the platform to declare nothing, the build is not read again: with
+/// `leases`' insert trigger disabled, the next pass still checks and repairs
+/// it. A promote of a build declaring `notes` too moves the pointer, and the
+/// next pass reads that build: `notes`' insert trigger, disabled, is
+/// repaired.
+#[tokio::test]
+async fn a_pass_reads_a_build_once_and_a_promoted_build_again() {
+    with_relay(|r| async move {
+        r.app
+            .promote_declaring("chg-1", &["leases"], &[LEASES_SQL, NOTES_SQL])
+            .await
+            .expect("the promote installs capture on leases");
+        r.settle().await;
+        r.pass().await;
+        r.strip_declarations().await;
+        r.as_app_writer("ALTER TABLE leases DISABLE TRIGGER oxy_capture_i")
+            .await;
+
+        r.pass().await;
+        assert_eq!(
+            r.capture_triggers().await,
+            in_place(),
+            "leases is repaired: chg-1 is not read again"
+        );
+        r.settle().await;
+
+        r.app
+            .promote_declaring("chg-2", &["leases", "notes"], &[LEASES_SQL, NOTES_SQL])
+            .await
+            .expect("the promote installs capture on notes");
+        r.as_app_writer("ALTER TABLE notes DISABLE TRIGGER oxy_capture_i")
+            .await;
+
+        r.pass().await;
+        assert_eq!(
+            r.capture_triggers_on("notes").await,
+            in_place(),
+            "notes is repaired: the pass reads chg-2"
+        );
     })
     .await;
 }

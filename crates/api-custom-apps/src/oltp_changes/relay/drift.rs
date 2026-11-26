@@ -1,7 +1,9 @@
 //! The pass's drift check (OLTP change stream design §5.2, layer 3), after a
 //! bump's re-stamp and before the baselines' requests: every table the org's
 //! production builds declare under `oltpChanges`, checked against the capture
-//! the store has, in one store query (`drift_sql`).
+//! the store has, in one store query (`drift_sql`). What a build declares is
+//! read once a build: a pass reads a manifest only when production's build
+//! changed ([`manifests`]).
 //!
 //! - **A table whose triggers drifted**, or whose install was left
 //!   uncommitted, is repaired (`install::repair`): installed again as it
@@ -25,7 +27,7 @@
 //! fails the pass: the caller logs an error and ships anyway.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use entity::{app_builds, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
@@ -48,19 +50,25 @@ use super::store::pg;
 use super::{BASELINE_STATEMENT_TIMEOUT, BEGIN_LOCK_TIMEOUT};
 use crate::oltp_changes::install::repair::{Repair, repair};
 
+mod manifests;
+
+use manifests::{MANIFESTS, ReadBuilds};
+
 /// An app whose production build declares tables under `oltpChanges`.
 pub(super) struct Declared {
     pub app_slug: String,
     /// The bare writer name its slug derives.
     pub writer: String,
-    pub config: OltpChangesConfig,
+    pub config: Arc<OltpChangesConfig>,
 }
 
 /// The org's apps, their production builds through
 /// `load_environment_builds_batch` and `.resolve(&AppEnvironment::Production)`,
-/// then one `app_builds` query, read through `oltp_changes_from_manifest`.
-/// Three platform queries a pass. A manifest that does not parse is logged
-/// and skipped.
+/// then what each build declares ([`manifests`]): kept from an earlier pass
+/// while production is still at that build, else read in one `app_builds`
+/// query through `oltp_changes_from_manifest`. Two platform queries a pass,
+/// and a third when a production build changed. A manifest that does not
+/// parse is logged when read, and declares nothing.
 pub(super) async fn live_declared(
     db: &DatabaseConnection,
     org_id: Uuid,
@@ -83,34 +91,55 @@ pub(super) async fn live_declared(
     if production.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = app_builds::Entity::find()
-        .filter(app_builds::Column::Id.is_in(production.keys().copied()))
-        .all(db)
-        .await
-        .map_err(|e| format!("read the org's production builds: {e}"))?;
-    let mut declared: Vec<Declared> = rows
+    let live: Vec<(Uuid, Uuid)> = production
         .iter()
-        .filter_map(|build| declared_by(production.get(&build.id)?, build))
+        .map(|(build, app)| (app.id, *build))
+        .collect();
+    let configs = MANIFESTS
+        .declared(&live, |builds| read_declared(db, &production, builds))
+        .await?;
+    let mut declared: Vec<Declared> = production
+        .values()
+        .filter_map(|app| {
+            Some(Declared {
+                config: configs.get(&app.id)?.clone()?,
+                writer: app_writer_name(&app.slug)?,
+                app_slug: app.slug.clone(),
+            })
+        })
         .collect();
     declared.sort_by(|a, b| a.writer.cmp(&b.writer));
     Ok(declared)
 }
 
-/// What `build`, `app`'s production build, declares; `None` for nothing, a
-/// slug that backs no writer, or a block that does not parse (logged).
-fn declared_by(app: &apps::Model, build: &app_builds::Model) -> Option<Declared> {
-    let config = match oltp_changes_from_manifest(build.manifest_json.as_ref()?) {
-        Ok(config) => config?,
+/// What each of `builds`, production's builds in `production`, declares: one
+/// `app_builds` query. A build it does not find is left out.
+async fn read_declared(
+    db: &DatabaseConnection,
+    production: &HashMap<Uuid, &apps::Model>,
+    builds: Vec<Uuid>,
+) -> ReadBuilds {
+    let rows = app_builds::Entity::find()
+        .filter(app_builds::Column::Id.is_in(builds))
+        .all(db)
+        .await
+        .map_err(|e| format!("read the org's production builds: {e}"))?;
+    Ok(rows
+        .iter()
+        .filter_map(|build| Some((build.id, declared_by(production.get(&build.id)?, build))))
+        .collect())
+}
+
+/// What `build`, `app`'s production build, declares; `None` for nothing, or
+/// a block that does not parse (logged).
+fn declared_by(app: &apps::Model, build: &app_builds::Model) -> Option<OltpChangesConfig> {
+    match oltp_changes_from_manifest(build.manifest_json.as_ref()?) {
+        Ok(config) => config,
         Err(error) => {
             tracing::warn!(org_id = %app.org_id, app_slug = %app.slug, build = %build.id, %error, "oltp_changes: the production build's oltpChanges does not parse; its capture is not checked for drift");
-            return None;
+            None
         }
-    };
-    Some(Declared {
-        writer: app_writer_name(&app.slug)?,
-        app_slug: app.slug.clone(),
-        config,
-    })
+    }
 }
 
 /// What one `drift_sql` found.
