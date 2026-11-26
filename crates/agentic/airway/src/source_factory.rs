@@ -1693,9 +1693,9 @@ fn build_sp_api(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> {
 
 // ── amazon_ads (Amazon Ads API, Sponsored Products reports) ───────────────────
 
-/// `.airway.yml` config for `kind: amazon_ads`, read-only Sponsored Products
-/// reports (`sp_search_term`, `sp_placement`, `sp_advertised_product`) for one
-/// advertiser profile.
+/// `.airway.yml` config for `kind: amazon_ads`: read-only Sponsored Products
+/// reports and daily entity-list snapshots for one advertiser profile (the
+/// twelve resources are listed in `amazon_ads_builds_every_resource`).
 ///
 /// Its own struct rather than airway's `AmazonAdsConfig`, which does not
 /// derive `Deserialize`, and so that `deny_unknown_fields` refuses a typo here
@@ -2044,10 +2044,8 @@ mod tests {
         let source = build(&amazon_ads_cfg(json!({}))).expect("a valid config builds");
         assert_eq!(source.name(), "amazon_ads");
         let names: Vec<String> = source.resources().into_iter().map(|r| r.name).collect();
-        assert_eq!(
-            names,
-            ["sp_search_term", "sp_placement", "sp_advertised_product"]
-        );
+        let want = "sp_search_term sp_placement sp_advertised_product sp_targeting sp_campaigns sp_ad_groups sp_keywords sp_targets sp_negative_keywords sp_negative_targets sp_campaign_negative_keywords sp_product_ads";
+        assert_eq!(names.join(" "), want);
         // The optional knobs are accepted.
         build(&amazon_ads_cfg(
             json!({ "region": "NA", "poll_budget_minutes": 120 }),

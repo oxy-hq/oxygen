@@ -1276,7 +1276,21 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # `amazon_ads` pipeline that omits `resources:` WILL pull the new report on its
 # next run. No pipeline on prod names the kind yet; bmg's first one
 # (`amazon_ads_api`) lists only `sp_advertised_product`.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.66", default-features = false, features = [
+#
+# 0.1.67 carries airway-internal#258 and #259: nine more `amazon_ads`
+# resources. `sp_targeting` is a daily report of keyword and product targets
+# with their bid and top-of-search impression share. Eight are daily snapshots
+# of the Sponsored Products entity lists (`sp_campaigns`, `sp_ad_groups`,
+# `sp_keywords`, `sp_targets`, `sp_negative_keywords`, `sp_negative_targets`,
+# `sp_campaign_negative_keywords`, `sp_product_ads`), read through the eight
+# `POST /sp/*/list` calls, which the source's allowlist names one by one; their
+# write siblings stay refused. All eight land under one `snapshot_date` per
+# run. `git diff --name-only 0.1.66 0.1.67` is `amazon_ads.rs`, its probe
+# example, CHANGELOG and the version lines: no trait change, no new dependency,
+# no new config field. An `amazon_ads` pipeline that omits `resources:` WILL
+# pull all twelve on its next run. bmg's (`ads_api`) lists three, so it does not
+# change until it names the new ones.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.67", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }

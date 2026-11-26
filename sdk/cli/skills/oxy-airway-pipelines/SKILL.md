@@ -134,10 +134,18 @@ provisioned under.
   `sp_placement` (campaigns by placement: `top_of_search`, `rest_of_search`,
   `product_pages`, `off_amazon`), and `sp_advertised_product` (spend,
   clicks and attributed sales per advertised SKU, merged on date, campaign,
-  ad group and SKU; airway 0.1.66 or later), all daily. List the ones you
-  need under `resources:`: each is its own report, and a report can take
-  30 minutes or more to build. The source only requests and
-  downloads reports; it never changes a bid, budget or campaign.
+  ad group and SKU; airway 0.1.66 or later), and `sp_targeting` (keyword
+  and product targets with their bid and top-of-search impression share;
+  0.1.67 or later), all daily reports. From 0.1.67 there are also eight
+  daily snapshots of the entity lists: `sp_campaigns`, `sp_ad_groups`,
+  `sp_keywords`, `sp_targets`, `sp_negative_keywords`,
+  `sp_negative_targets`, `sp_campaign_negative_keywords` and
+  `sp_product_ads`, merged on `snapshot_date` and the entity's id. One run
+  dates all eight the same, so join them on an equal `snapshot_date`. List
+  the ones you need under `resources:`: each report is its own request, and
+  a report can take 30 minutes or more to build. The source only reads (it
+  requests and downloads reports and lists entities); it never changes a
+  bid, budget or campaign.
 - **Required:** `client_id`, `profile_id` (the advertiser profile, digits
   only; a number or a string), and `default_start` (`YYYY-MM-DD`). A config
   without `default_start` is refused. Amazon keeps about 90 days of these
