@@ -107,6 +107,7 @@ fn merge(graph: &mut Graph, edge: FlowEdge) {
         Some(seen) => {
             seen.via.extend(edge.via);
             seen.tables.extend(edge.tables);
+            seen.excluded.extend(edge.excluded);
             seen.from_functions.extend(edge.from_functions);
             seen.to_functions.extend(edge.to_functions);
             seen.events.extend(edge.events);

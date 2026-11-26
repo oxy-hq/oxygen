@@ -65,6 +65,10 @@ In the schema `oltp_lease_desk`:
 | `leases__changes` | Every change to a lease: its captured columns, then `_op` (`insert`, `update`, `delete`, or `snapshot` for a row the platform copied as it stood), `_generation` and `_seq` (together, the order), `_changed_at`, `_actor` (who made the change) and `_invocation_id` (the function run that made it). |
 | `leases` | A view: each lease as it stands now. A voided lease is gone from it. |
 
+The admin console's **Data flow** page draws the same thing: `leases` in the
+org's OLTP store ships to `oltp_lease_desk`, leaving `tenant_email` behind, and
+at table level `leases__changes` feeds the `leases` view.
+
 The platform copies a table's rows as `snapshot`s when capture begins, and
 again after a repair or a restore of the store (which also starts a new
 `_generation`). A history query reads `insert` and `update` for what the app
@@ -105,3 +109,6 @@ publishes this directory's manifest, migration and function. It then calls the
 function through the serve route and runs the relay. It checks the history,
 the current state, the excluded column, and the app beside a second app in the
 same org.
+
+`crates/api-custom-apps/src/admin/apps/data_flow/tests/lease_desk_example.rs`
+draws this directory's manifest on the data flow map.

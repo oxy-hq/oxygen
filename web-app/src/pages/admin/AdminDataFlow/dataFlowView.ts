@@ -175,6 +175,7 @@ function mergeEdges(edges: DataFlowEdge[]): ViewEdge[] {
             ...prev,
             via: union(prev.via, e.via) ?? [],
             tables: union(prev.tables, e.tables),
+            excluded: union(prev.excluded, e.excluded),
             from_functions: union(prev.from_functions, e.from_functions),
             to_functions: union(prev.to_functions, e.to_functions),
             events: union(prev.events, e.events),

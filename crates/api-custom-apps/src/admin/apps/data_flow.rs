@@ -17,7 +17,7 @@
 //! | a compiled `.airway.yml` (`airway_pipelines.definition`, the workspace's promoted revision) | source `reads` → pipeline, pipeline `writes` → its destination schema |
 //! | the live build's `airhouseMigrations` | app `writes` → `app_<writer>` in Airhouse |
 //! | the live build's `migrations` | app `writes` → `app_<writer>` in the org's OLTP store |
-//! | the live build's `oltpChanges` | OLTP table `ships` → `oltp_<writer>` in Airhouse |
+//! | the live build's `oltpChanges` | OLTP table `ships` → `oltp_<writer>` in Airhouse, its `exclude` in `excluded`; at table level into `<table>__changes`, which the current-state view `<table>` `reads` |
 //! | a function's `destinations` | function `writes` → that database |
 //! | a function's `airhouse` / `oltp` capability | function `writes` → the app's own schema |
 //! | a function's `on: { table }` | the watched table `triggers` → function |
@@ -194,6 +194,11 @@ pub struct FlowEdge {
     /// The tables it names, at schema level.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub tables: BTreeSet<String>,
+    /// On a `ships` edge, the columns left in the store
+    /// (`oltpChanges.tables.<table>.exclude`), as `<table>.<column>`: they
+    /// reach neither the change log nor Airhouse.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub excluded: BTreeSet<String>,
     /// The functions folded into the `from` app: on a `publishes` edge, the
     /// publishers.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]

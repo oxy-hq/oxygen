@@ -36,7 +36,9 @@ export interface DataFlowNode {
   /** A function's app. */
   parent?: string;
   /** Free-form facts: `workspace`, `plane` (`warehouse` | `oltp`), `source_kind`,
-   *  `missing`, `ambiguous`, `invalid`, `customer_warehouse`, `environment`, … */
+   *  `missing`, `ambiguous`, `invalid`, `customer_warehouse`, `environment`,
+   *  `object` (`changes` | `view`: a table the change stream ships into, or the
+   *  current-state view over it), … */
   meta: Record<string, unknown>;
 }
 
@@ -50,6 +52,9 @@ export interface DataFlowEdge {
    *  `destinations`, `airhouse`, `oltp`, `on`, `oxygen.sourceUploads`, `calls`, `events`. */
   via: string[];
   tables?: string[];
+  /** A `ships` edge's columns left in the store (`oltpChanges.tables.<t>.exclude`),
+   *  as `<table>.<column>`: they reach neither the change log nor Airhouse. */
+  excluded?: string[];
   /** The functions folded into the `from` app: a `publishes` edge's publishers. */
   from_functions?: string[];
   /** The functions folded into the `to` app: a `publishes` edge's subscribers,

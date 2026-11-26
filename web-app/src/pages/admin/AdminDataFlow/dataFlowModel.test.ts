@@ -112,6 +112,13 @@ describe("words", () => {
     expect(captionOf(byId("pipe:w:toast"))).toBe("toast → toast");
     expect(captionOf(byId("schema:w:toast"))).toBe("Airhouse · main");
     expect(captionOf(byId("oltp:app_x"))).toBe("org OLTP store");
+    const shipped = { plane: "warehouse", workspace: "main" };
+    expect(
+      captionOf(node("table:w:oltp_x.leases__changes", "table", { ...shipped, object: "changes" }))
+    ).toBe("change table · Airhouse · main");
+    expect(captionOf(node("table:w:oltp_x.leases", "table", { ...shipped, object: "view" }))).toBe(
+      "current-state view · Airhouse · main"
+    );
     expect(captionOf(byId("app:a"))).toBe("x");
     expect(captionOf(node("app:b", "app", { slug: "y", environment: "staging" }))).toBe(
       "y · staging build"
@@ -168,6 +175,17 @@ describe("words", () => {
     expect(text).toBe(
       "via airhouseMigrations, airhouse · tables: t · written by: f · not approved by an org admin"
     );
+  });
+
+  it("names the columns the change stream leaves in the store", () => {
+    const text = describeEdge(
+      edge("oltp:app_x", "schema:w:oltp_x", "ships", {
+        via: ["oltpChanges"],
+        tables: ["leases"],
+        excluded: ["leases.tenant_email"]
+      })
+    );
+    expect(text).toBe("via oltpChanges · tables: leases · left in the store: leases.tenant_email");
   });
 
   it("names a publishes edge's publishers and subscribers apart", () => {

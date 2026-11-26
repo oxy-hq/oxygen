@@ -93,6 +93,20 @@ const text = (value: unknown): string | undefined =>
 
 const joined = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ");
 
+/** What a table the change stream ships is in Airhouse (`meta.object`). */
+const SHIPPED_AS: Record<string, string> = {
+  changes: "change table",
+  view: "current-state view"
+};
+
+/** A schema's or table's second line: the OLTP store, or where in a warehouse it
+ *  sits and, for a table the change stream ships into, which of the two it is. */
+function placeCaption(m: DataFlowNode["meta"], workspace: string | undefined): string {
+  if (m.plane === "oltp") return "org OLTP store";
+  const object = text(m.object);
+  return joined(object && SHIPPED_AS[object], text(m.database) ?? "Airhouse", workspace);
+}
+
 /** A node's second line: what it is and where it lives. */
 export function captionOf(node: DataFlowNode): string {
   const m = node.meta;
@@ -107,9 +121,7 @@ export function captionOf(node: DataFlowNode): string {
     }
     case "schema":
     case "table":
-      return m.plane === "oltp"
-        ? "org OLTP store"
-        : joined(text(m.database) ?? "Airhouse", workspace);
+      return placeCaption(m, workspace);
     case "store":
       return joined(m.customer_warehouse === true ? "customer warehouse" : "database", workspace);
     case "app": {
@@ -247,11 +259,17 @@ const FUNCTION_SIDE_WORDS: Partial<Record<DataFlowEdgeKind, [string, string]>> =
 export function describeEdge(edge: DataFlowEdge): string {
   const parts = [`via ${edge.via.join(", ")}`];
   if (edge.kind === "calls") parts.push("call (now) or send (queued)");
-  if (edge.events?.length) parts.push(`events: ${edge.events.join(", ")}`);
-  if (edge.tables?.length) parts.push(`tables: ${edge.tables.join(", ")}`);
   const [fromWord, toWord] = FUNCTION_SIDE_WORDS[edge.kind] ?? FUNCTION_SIDE_DEFAULT;
-  if (edge.from_functions?.length) parts.push(`${fromWord}: ${edge.from_functions.join(", ")}`);
-  if (edge.to_functions?.length) parts.push(`${toWord}: ${edge.to_functions.join(", ")}`);
+  const named: [string, string[] | undefined][] = [
+    ["events", edge.events],
+    ["tables", edge.tables],
+    ["left in the store", edge.excluded],
+    [fromWord, edge.from_functions],
+    [toWord, edge.to_functions]
+  ];
+  for (const [word, items] of named) {
+    if (items?.length) parts.push(`${word}: ${items.join(", ")}`);
+  }
   if (edge.approved === false) parts.push("not approved by an org admin");
   for (const p of edge.problems ?? []) parts.push(`refused: ${PROBLEM_WORDS[p]}`);
   return parts.join(" · ");

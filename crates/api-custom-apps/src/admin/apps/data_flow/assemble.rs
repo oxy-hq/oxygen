@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::{EdgeKind, FlowEdge, FlowNode, Level, NodeKind};
-use crate::oltp_changes::relay::render::schema_name as shipped_schema;
+use crate::oltp_changes::relay::render::{changes_table_name, schema_name as shipped_schema};
 
 /// What one read of the org hands the assembler.
 pub(crate) struct Inputs {
@@ -110,6 +110,7 @@ impl Graph {
                 declared: true,
                 via: BTreeSet::new(),
                 tables: BTreeSet::new(),
+                excluded: BTreeSet::new(),
                 from_functions: BTreeSet::new(),
                 to_functions: BTreeSet::new(),
                 approved: None,
@@ -453,10 +454,37 @@ impl<'a> Builder<'a> {
             database: None,
             schema: &shipped,
         };
-        for table in changes.tables.keys() {
+        for (table, spec) in &changes.tables {
             let (from, recorded) = self.place(oltp, Some(table));
-            let (to, _) = self.place(into, Some(table));
-            self.link(&from, &to, EdgeKind::Ships, "oltpChanges", recorded);
+            let to = self.shipped_into(into, table);
+            let edge = self.link(&from, &to, EdgeKind::Ships, "oltpChanges", recorded);
+            let excluded = spec.exclude.iter().map(|c| format!("{table}.{c}"));
+            edge.excluded.extend(excluded);
+        }
+    }
+
+    /// Where the relay ships `table`: the writer's `oltp_<writer>` schema, or
+    /// at table level its change table `<table>__changes`, which the
+    /// current-state view `<table>` reads. The view keeps the table's own name
+    /// and node id, so a focus on it survives.
+    fn shipped_into(&mut self, into: Place<'_>, table: &str) -> String {
+        if self.level != Level::Table {
+            return self.place(into, Some(table)).0;
+        }
+        let changes = changes_table_name(table);
+        let (log, _) = self.place(into, Some(&changes));
+        self.mark(&log, "changes");
+        let (view, _) = self.place(into, Some(table));
+        self.mark(&view, "view");
+        self.graph.edge(&log, &view, EdgeKind::Reads, "oltpChanges");
+        log
+    }
+
+    /// What a shipped table is in Airhouse: `changes` (every version of every
+    /// row) or `view` (each row as it stands).
+    fn mark(&mut self, id: &str, object: &str) {
+        if let Some(node) = self.graph.nodes.get_mut(id) {
+            node.meta.insert("object".into(), json!(object));
         }
     }
 

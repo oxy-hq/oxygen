@@ -148,6 +148,20 @@ describe("viewFlow folding", () => {
     expect(bundle?.problems).toEqual(["never_published"]);
   });
 
+  it("keeps every column the change streams it folds leave in the store", () => {
+    const shipped = {
+      nodes: [
+        ...nodes,
+        ...range(BIG).map((i) => node(`oltp:app_s${i}`, "schema", { plane: "oltp" }))
+      ],
+      edges: range(BIG).map((i) =>
+        edge(`oltp:app_s${i}`, `schema:w:s${i}`, "ships", { excluded: [`t${i}.email`] })
+      )
+    };
+    const bundle = viewFlow(shipped, opts()).edges.find((e) => e.kind === "ships");
+    expect(bundle?.excluded).toEqual(range(BIG).map((i) => `t${i}.email`));
+  });
+
   it("draws no edge to a node that is not on the canvas", () => {
     const v = viewFlow(flow, opts());
     const drawn = new Set(ids(v));

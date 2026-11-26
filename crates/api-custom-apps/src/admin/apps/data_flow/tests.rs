@@ -10,6 +10,8 @@ use super::assemble::{AppIn, FunctionIn, Graph, Inputs, PipelineIn, WorkspaceIn,
 use super::shape::shape;
 use super::{DataFlowQuery, EdgeKind, FlowEdge, Level, NodeKind, Params};
 
+mod lease_desk_example;
+
 const WS: Uuid = Uuid::from_u128(0x1111);
 const OTHER_WS: Uuid = Uuid::from_u128(0x2222);
 const APP: Uuid = Uuid::from_u128(0xaaaa);
@@ -288,6 +290,7 @@ fn an_apps_manifest_declares_its_two_schemas_and_the_change_stream() {
     );
     let ships = edge(&graph, &oltp, &shipped, EdgeKind::Ships);
     assert_eq!(ships.tables, set(&["leases", "landlords"]));
+    assert_eq!(ships.excluded, set(&["landlords.email"]));
     assert_eq!(ships.via, set(&["oltpChanges"]));
     assert_eq!(graph.nodes[&oltp].meta["plane"], "oltp");
     assert_eq!(graph.nodes[&app_id()].meta["environment"], "production");
@@ -297,11 +300,29 @@ fn an_apps_manifest_declares_its_two_schemas_and_the_change_stream() {
 fn at_table_level_each_named_table_is_its_own_node() {
     let graph = assemble(&inputs(Level::Table));
     let from = "oltp:app_lease_desk.leases".to_string();
-    let to = format!("table:{WS}:oltp_lease_desk.leases");
-    let ships = edge(&graph, &from, &to, EdgeKind::Ships);
+    let changes = format!("table:{WS}:oltp_lease_desk.leases__changes");
+    let ships = edge(&graph, &from, &changes, EdgeKind::Ships);
     assert!(ships.tables.is_empty());
-    assert_eq!(graph.nodes[&to].kind, NodeKind::Table);
-    assert_eq!(graph.nodes[&to].label, "oltp_lease_desk.leases");
+    assert_eq!(graph.nodes[&changes].kind, NodeKind::Table);
+    assert_eq!(
+        graph.nodes[&changes].label,
+        "oltp_lease_desk.leases__changes"
+    );
+    assert_eq!(graph.nodes[&changes].meta["object"], "changes");
+    // The current-state view reads the change table, under the table's own
+    // name and node id.
+    let view = format!("table:{WS}:oltp_lease_desk.leases");
+    let reads = edge(&graph, &changes, &view, EdgeKind::Reads);
+    assert_eq!(reads.via, set(&["oltpChanges"]));
+    assert_eq!(graph.nodes[&view].label, "oltp_lease_desk.leases");
+    assert_eq!(graph.nodes[&view].meta["object"], "view");
+    let landlords = edge(
+        &graph,
+        "oltp:app_lease_desk.landlords",
+        &format!("table:{WS}:oltp_lease_desk.landlords__changes"),
+        EdgeKind::Ships,
+    );
+    assert_eq!(landlords.excluded, set(&["landlords.email"]));
     // A pipeline's resources split the same way; a schema named whole stays one.
     let pipe = format!("pipe:{WS}:toast_orders");
     edge(
