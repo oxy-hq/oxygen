@@ -20,7 +20,7 @@
 //!
 //! **The revision** is the request's effective semantic pin (the build the
 //! environment serves, else the environment's own pin — the gate already
-//! resolved it as `gate.staging_pin` and refused a pin that is not ready with
+//! resolved it as `gate.staging_pin()` and refused a pin that is not ready with
 //! `503 semantic_branch_not_ready`), else the workspace's promoted revision.
 //!
 //! **`OXY_PREVIEW_RUNS` off** answers `409 preview_runs_disabled`; a preview
@@ -139,7 +139,7 @@ fn environment_branch(app_id: Uuid, environment: &AppEnvironment) -> String {
 /// else the environment's own pin), else the workspace's promoted revision.
 /// `Ok(None)` when nothing is compiled yet; `Err` is the response to send.
 ///
-/// Resolved here from [`PreviewTarget`], not read from `gate.staging_pin`: the
+/// Resolved here from [`PreviewTarget`], not read from `gate.staging_pin()`: the
 /// gate names the app by `x-oxy-app` first, the hold by the `Host` first, and
 /// the two can disagree. A pin set but not ready is refused
 /// (`503 semantic_branch_not_ready`), never routed to production's revision.

@@ -87,18 +87,28 @@ pub struct CustomAppContext {
     /// who may see staging) whose calling app's staging build pins a semantic
     /// revision — see
     /// `custom_apps_staging_pin::request`. `None` for every live request.
-    pub staging_pin: Option<Uuid>,
+    ///
+    /// Private, read through [`Self::staging_pin`]: it picks the live/staging
+    /// result-cache partition (`staging_pin_scope::scope_for`), so only the
+    /// gate writes it (and, in tests, [`Self::with_staging_pin`]).
+    staging_pin: Option<Uuid>,
     /// Proof the gate chain ran. Private, so no code outside this module can
     /// build a `CustomAppContext` by hand: one comes only from
     /// [`check_custom_app_gates`] (or, in tests, from a fixture below). The
     /// runtime's `GatedCaller` is built only from one ([`Self::gated`]), so a
     /// caller and a staging pin the gate didn't establish cannot reach the
-    /// semantic boundary or the result-cache partition. The fields stay `pub`
-    /// to read.
+    /// semantic boundary or the result-cache partition. The other fields stay
+    /// `pub` to read.
     _gate_ran: (),
 }
 
 impl CustomAppContext {
+    /// The staging revision the gate pinned this request to; `None` on every
+    /// live request. Read-only: the gate is its one writer.
+    pub fn staging_pin(&self) -> Option<Uuid> {
+        self.staging_pin
+    }
+
     /// The gate's answer as the plain fields the workspace runtime takes
     /// (`oxy_app_core::gate_response::GatedCaller`). The one place they are
     /// built: every surface that ran the gate asks this, so the runtime can't

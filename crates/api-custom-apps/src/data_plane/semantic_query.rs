@@ -255,14 +255,12 @@ pub async fn run_semantic_query(
     } else {
         "semantic"
     };
-    let refresh = uri
-        .query()
-        .map(|q| {
-            q.split('&')
-                .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
-        })
-        .unwrap_or(false);
-    let cache_scope = result_cache::scope_for(ctx.staging_pin);
+    let refresh = uri.query().is_some_and(|q| {
+        q.split('&')
+            .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
+    });
+    let staging_pin = ctx.staging_pin();
+    let cache_scope = result_cache::scope_for(staging_pin);
     if !refresh
         && let Some(cached) = result_cache::get(project_id, cache_ns, &cache_scope, &cache_sql)
     {
@@ -392,8 +390,7 @@ pub async fn run_semantic_query(
     // SQL but not its rollup declaration would be answered from a rollup of
     // the old model, under a badge that is honest about the tier and wrong
     // about the model. Staging compiles to warehouse SQL: slower, always right.
-    let preagg = ctx
-        .staging_pin
+    let preagg = staging_pin
         .is_none()
         .then(|| {
             oxy_app_core::preagg_context::preagg_context(

@@ -76,7 +76,7 @@ impl ProcedureRunTask {
             workspace_id: gate.project_id,
             procedure_id: procedure_id.to_string(),
             user_id: gate.user.id,
-            staging_pin: gate.staging_pin,
+            staging_pin: gate.staging_pin(),
             automation: serde_json::to_value(automation)?,
             params,
         })

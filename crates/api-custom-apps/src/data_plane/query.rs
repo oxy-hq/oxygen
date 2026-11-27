@@ -241,7 +241,7 @@ pub async fn run_query(
     };
     // A pinned staging request may resolve a different `config.yml` (its
     // branch's databases), so it gets its own partition.
-    let cache_db = format!("{db_name}{}", result_cache::scope_for(ctx.staging_pin));
+    let cache_db = format!("{db_name}{}", result_cache::scope_for(ctx.staging_pin()));
     if !refresh && let Some(body) = result_cache::get(project_id, cache_ns, &cache_db, &sql) {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
