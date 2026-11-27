@@ -38,7 +38,7 @@ const CANCEL_ROUTE: &str = "/projects/{project_id}/agents/asks/{run_id}/cancel";
 
 /// One serve replica and the agentic state it holds.
 fn replica(t: &Tenant) -> (Router, Arc<AgenticState>) {
-    let agentic = Arc::new(AgenticState::new(
+    let agentic = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         t.db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(t.db.clone())),

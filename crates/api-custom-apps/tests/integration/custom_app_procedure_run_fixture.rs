@@ -148,7 +148,7 @@ pub(crate) async fn fixture_with(files: &[(&str, &str)]) -> Fixture {
 
 /// One serve replica: the three production handlers over state of its own.
 pub(crate) fn replica(db: &DatabaseConnection) -> Router {
-    let agentic = agentic_http::AgenticState::new(
+    let agentic = agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(db.clone())),

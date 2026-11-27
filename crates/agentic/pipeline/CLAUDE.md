@@ -69,7 +69,7 @@ state goes through three traits declared in [`platform`]:
 | Trait | Purpose |
 | ------- | --------- |
 | `platform::ProjectContext` | `resolve_connector`, `resolve_model`, `resolve_secret` |
-| `platform::ThreadOwnerLookup` | `thread_owner(thread_id)` — used by HTTP for auth |
+| `platform::ThreadOwnerLookup` | `thread_owner(thread_id)` — used by HTTP for auth. Defined in `agentic_runtime::agentic_state` beside `AgenticState`, which holds it; re-exported here |
 | `platform::PlatformContext` | Supertrait: `ProjectContext + agentic_automation::WorkspaceContext`. Anywhere pipeline needs both, take `Arc<dyn PlatformContext>`. |
 
 Adapters live in the host. For Oxy they live in

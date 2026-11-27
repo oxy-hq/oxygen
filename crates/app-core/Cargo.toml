@@ -31,17 +31,17 @@ oxy-observability = { workspace = true }
 agentic-semantic = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 
-# `function_seam`: the custom-app function seam traits name these. Both are
-# already in this crate's graph through `oxy`.
+# `function_seam`: the custom-app function seam traits name it. Already in
+# this crate's graph through `oxy`.
 agentic-connector = { workspace = true }
-agentic-pipeline = { workspace = true }
 
 # `sql_kind`: the workspace-preview statement classifier (airhouse's `sql-rules`
 # is_read_only and the same sqlparser version, so both read one AST).
 airhouse = { workspace = true, features = ["sql-rules"] }
 sqlparser = { workspace = true, features = ["visitor"] }
 
-# `notifications::task`: the delivery task's queue.
+# `notifications::task`: the delivery task's queue; `AppState::agentic_state`
+# (`agentic_state::AgenticState`) and `function_seam`'s `StartAirwayRequest`.
 agentic-runtime = { workspace = true }
 
 # `notifications`: the write path (inbox content in the org's OLTP store, the
@@ -67,7 +67,7 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 
 # `write_hold`: the request-scoped write hold a workspace preview and a custom
 # app's staging ask run under — the holding connector, and an http_request
-# step's review (`HttpReview`). Both already in the graph via agentic-pipeline.
+# step's review (`HttpReview`).
 agentic-automation = { workspace = true }
 futures = { workspace = true }
 

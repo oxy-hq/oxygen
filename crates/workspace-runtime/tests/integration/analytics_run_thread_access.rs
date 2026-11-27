@@ -16,7 +16,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agentic_http::AgenticState;
 use agentic_pipeline::platform::{PlatformContext, ProjectContext};
 use async_trait::async_trait;
 use axum::body::Body;
@@ -97,7 +96,7 @@ impl agentic_automation::WorkspaceContext for Platform {
 
 /// The analytics router as `user`, a member of `workspace_id`, reaches it.
 fn analytics_as(db: &DatabaseConnection, workspace_id: Uuid, user: &AuthenticatedUser) -> Router {
-    let state = Arc::new(AgenticState::new(
+    let state = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(db.clone())),

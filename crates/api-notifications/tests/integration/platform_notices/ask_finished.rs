@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use agentic_http::AgenticState;
 use agentic_pipeline::platform::PlatformContext;
 use agentic_runtime::lifecycle::done_hook::{RunDoneObserver, set_run_done_observer};
 use agentic_runtime::lifecycle::failure_hook::{RunFailureObserver, set_run_failure_observer};
@@ -247,7 +246,7 @@ fn install_observers(db: &DatabaseConnection) {
 
 /// The analytics router as `user`, a member of `workspace_id`, reaches it.
 fn analytics_as(db: &DatabaseConnection, workspace_id: Uuid, user: Uuid) -> Router {
-    let state = Arc::new(AgenticState::new(
+    let state = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(db.clone())),

@@ -109,7 +109,7 @@ async fn the_tenant_schedules_api_never_sees_an_environments_row() {
         .expect("the sandbox's row")
         .id;
 
-    let state = Extension(Arc::new(agentic_http::AgenticState::new(
+    let state = Extension(Arc::new(agentic_http::new_agentic_state(
         tokio_util::sync::CancellationToken::new(),
         db.clone(),
         Arc::new(NoThreads),

@@ -10430,7 +10430,6 @@ dependencies = [
  "agentic-automation",
  "agentic-connector",
  "agentic-core",
- "agentic-pipeline",
  "agentic-runtime",
  "agentic-semantic",
  "airhouse",

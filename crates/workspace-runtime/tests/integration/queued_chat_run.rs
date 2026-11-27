@@ -609,7 +609,7 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
     );
     let platform: Arc<dyn PlatformContext> = context;
     let state = Arc::new(
-        agentic_http::AgenticState::new(
+        agentic_http::new_agentic_state(
             tokio_util::sync::CancellationToken::new(),
             db.clone(),
             Arc::new(crate::run_routes_workspace_scope::NoThreads),
@@ -724,7 +724,7 @@ async fn workflow_app(
     );
     let platform: Arc<dyn PlatformContext> = context;
     let state = Arc::new(
-        agentic_http::AgenticState::new(
+        agentic_http::new_agentic_state(
             tokio_util::sync::CancellationToken::new(),
             f.db.clone(),
             Arc::new(crate::run_routes_workspace_scope::NoThreads),

@@ -4,9 +4,9 @@
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
-//! use agentic_http::{AgenticState, router};
+//! use agentic_http::{new_agentic_state, router};
 //!
-//! let state = Arc::new(AgenticState::new(shutdown_token, db));
+//! let state = Arc::new(new_agentic_state(shutdown_token, db, thread_owner));
 //!
 //! let app = axum::Router::new()
 //!     .nest("/analytics", router(state));
@@ -27,7 +27,7 @@ pub mod routes;
 pub mod sse;
 pub mod state;
 
-pub use state::{AgenticState, RunStatus};
+pub use state::{AgenticState, RunStatus, new_agentic_state};
 
 use sea_orm::DatabaseConnection;
 

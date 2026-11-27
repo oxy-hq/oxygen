@@ -107,7 +107,7 @@ pub(crate) fn test_agentic_state() -> std::sync::Arc<agentic_http::AgenticState>
         }
     }
 
-    std::sync::Arc::new(agentic_http::AgenticState::new(
+    std::sync::Arc::new(agentic_http::new_agentic_state(
         tokio_util::sync::CancellationToken::new(),
         sea_orm::DatabaseConnection::default(),
         std::sync::Arc::new(NoThreadOwner),
@@ -122,7 +122,6 @@ pub(crate) fn test_agentic_state() -> std::sync::Arc<agentic_http::AgenticState>
 /// modes, because git features and local setup are mounted by different ones and
 /// a guard has to see every route the server can serve.
 pub fn route_declarations() -> Vec<role_router::Decl> {
-    use agentic_http::AgenticState;
     use agentic_pipeline::platform::ThreadOwnerLookup;
     use std::sync::Arc;
 
@@ -139,7 +138,7 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
     }
 
     let app_state = bare_app_state();
-    let agentic_state = Arc::new(AgenticState::new(
+    let agentic_state = Arc::new(agentic_http::new_agentic_state(
         tokio_util::sync::CancellationToken::new(),
         sea_orm::DatabaseConnection::default(),
         Arc::new(NoThreadOwner),

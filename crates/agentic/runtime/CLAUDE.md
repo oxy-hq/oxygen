@@ -11,6 +11,7 @@ Stage 1 of the airway/airform extraction split the crate into two sub-layers; pi
 | `lifecycle/` | `state`, `handle`, `bridge`, `event_registry`, `entity/{run,run_event,run_suspension}`, `crud/{runs,events,suspension,queries}` | The "what a run *is*" half: run row + event log + suspensions + SSE plumbing. Zero orchestrator deps. |
 | `orchestrator/` | `coordinator/`, `worker`, `router/`, `transport/`, `background`, `entity/{task_queue,task_outcome}`, `crud/{queue,outcomes,recovery}` | The "how a run *executes*" half: durable task queue + coordinator + worker pool + transports. Built on top of lifecycle. |
 | (root) | `migration` | Single SeaORM migrator covering both layers (`seaql_migrations_orchestrator` tracking table). |
+| (root) | `agentic_state`, `airway_request` | The routes' shared state the host holds (`AgenticState`, with its `ThreadOwnerLookup` port and `ThreadScope`; runtime types only, built by the facade's `agentic_pipeline::state::new_agentic_state` with the domains' event registry) and the serde `StartAirwayRequest` the platform's function seam names. |
 
 The legacy flat paths (`agentic_runtime::coordinator`, `agentic_runtime::state`, `agentic_runtime::crud::*`, etc.) are still re-exported at the crate root for back-compat with the ~180 external callsites — new external code should prefer the canonical `lifecycle::…` / `orchestrator::…` paths so the layering shows up in `use` lists. Inside this crate the canonical paths are mandatory; the flat aliases are external-only.
 

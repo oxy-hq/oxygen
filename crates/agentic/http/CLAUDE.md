@@ -24,7 +24,7 @@ agentic-http depends on:
 ```
 
 **Zero `oxy::*` imports.** The host app opens its SeaORM `DatabaseConnection`
-once at startup and passes it to `AgenticState::new`. Per-request workspace
+once at startup and passes it to `new_agentic_state`. Per-request workspace
 state arrives as `Extension<Arc<agentic_pipeline::platform::OxyProjectContext>>`
 from the app's `workspace_middleware`.
 
@@ -38,8 +38,9 @@ from the app's `workspace_middleware`.
 - **Never import `entity` crate.** Thread ownership queries go through `agentic-pipeline::get_thread_owner`.
 - `db.rs` is pure re-exports from runtime + pipeline — no custom logic.
 - `sse.rs` is domain-agnostic — `UiEvent`, `squash_deltas`, `is_terminal` only.
-- `state.rs` re-exports `AgenticState` from `agentic_pipeline::state`, where it is defined so
-  `oxy-app-core`'s `AppState` can hold it without depending on this crate.
+- `state.rs` re-exports `AgenticState` (defined in `agentic_runtime::agentic_state`, so
+  `oxy-app-core`'s `AppState` can hold it without depending on this crate or the facade) and
+  the facade's constructor `new_agentic_state`, both through `agentic_pipeline::state`.
 - `routes.rs` uses `PipelineBuilder` for all pipeline creation — no inline config/solver setup.
 - **A caller-supplied `thread_id` is checked before a run starts on it** (`run_scope::ensure_thread_access`):
   404 for a missing thread or one in another workspace, 403 for another user's. The pipeline reads
@@ -49,7 +50,7 @@ from the app's `workspace_middleware`.
 
 ## State Management
 
-`AgenticState` (defined in `agentic_pipeline::state`, re-exported here) wraps `RuntimeState`
+`AgenticState` (defined in `agentic_runtime::agentic_state`, re-exported here) wraps `RuntimeState`
 (via `Deref`) and adds:
 
 - `db` — shared SeaORM `DatabaseConnection` (pool internally), cloned per handler

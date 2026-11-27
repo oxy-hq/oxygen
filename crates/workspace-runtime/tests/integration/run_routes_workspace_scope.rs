@@ -20,7 +20,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agentic_http::AgenticState;
 use agentic_pipeline::platform::{PlatformContext, ProjectContext, ThreadOwnerLookup};
 use agentic_runtime::lifecycle::crud::runs::insert_run;
 use async_trait::async_trait;
@@ -108,7 +107,7 @@ impl ThreadOwnerLookup for NoThreads {
 
 /// The three agentic routers, as a member of `workspace_id` reaches them.
 fn routes_as_member_of(db: &DatabaseConnection, workspace_id: Uuid) -> Router {
-    let state = Arc::new(AgenticState::new(
+    let state = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(NoThreads),

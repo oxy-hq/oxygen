@@ -138,7 +138,7 @@ impl WorkerRuntime {
             oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup::new(self.db.clone()),
         );
         Arc::new(
-            agentic_http::AgenticState::new(shutdown, self.db.clone(), thread_owner)
+            agentic_http::new_agentic_state(shutdown, self.db.clone(), thread_owner)
                 .with_router(self.router.clone())
                 .with_queued_starts(true),
         )

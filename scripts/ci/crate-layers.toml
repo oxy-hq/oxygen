@@ -133,7 +133,6 @@ allowed = [
   "oxy-api-world-model -> oxy-workspace-runtime",
   "oxy-app-core -> agentic-automation",
   "oxy-app-core -> agentic-connector",
-  "oxy-app-core -> agentic-pipeline",
   "oxy-app-core -> agentic-runtime",
   "oxy-app-core -> agentic-semantic",
   "oxy-app-core -> airhouse",

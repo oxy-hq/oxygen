@@ -62,7 +62,7 @@ impl Drop for DisklessReplica {
 /// One replica's analytics surface: its own `AgenticState` — so its own,
 /// empty, in-process run maps — over the shared database.
 fn replica(db: &DatabaseConnection, workspace_id: Uuid) -> (Router, Arc<AgenticState>) {
-    let state = Arc::new(AgenticState::new(
+    let state = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(NoThreads),

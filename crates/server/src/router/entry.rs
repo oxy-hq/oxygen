@@ -538,7 +538,7 @@ async fn new_agentic_state(
     });
 
     let state = Arc::new(
-        AgenticState::new(shutdown_token, db, thread_owner)
+        agentic_http::new_agentic_state(shutdown_token, db, thread_owner)
             .with_router(router)
             .with_queued_starts(true),
     );

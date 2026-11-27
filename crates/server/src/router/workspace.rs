@@ -264,7 +264,7 @@ mod tests {
     }
 
     fn test_agentic_state() -> Arc<AgenticState> {
-        Arc::new(AgenticState::new(
+        Arc::new(agentic_http::new_agentic_state(
             CancellationToken::new(),
             DatabaseConnection::default(),
             Arc::new(StubThreadOwner),

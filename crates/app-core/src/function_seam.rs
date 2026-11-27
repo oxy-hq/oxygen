@@ -152,6 +152,6 @@ pub trait FunctionProjectContext: Send + Sync {
     async fn start_airway_seed(
         &self,
         db: &sea_orm::DatabaseConnection,
-        request: agentic_pipeline::airway_run::StartAirwayRequest,
+        request: agentic_runtime::airway_request::StartAirwayRequest,
     ) -> Result<String, String>;
 }

@@ -18,7 +18,7 @@ which was deleted with `oxy-app` (decompose DEL, 2026-11-25).
 ```rust
 let thread_owner: Arc<dyn ThreadOwnerLookup> =
     Arc::new(OxyThreadOwnerLookup::new(db.clone()));
-let state = Arc::new(AgenticState::new(shutdown_token, db, thread_owner));
+let state = Arc::new(agentic_http::new_agentic_state(shutdown_token, db, thread_owner));
 ```
 
 ## Wiring per request

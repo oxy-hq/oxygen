@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use agentic_http::AgenticState;
 use agentic_pipeline::platform::ThreadOwnerLookup;
 use agentic_pipeline::scheduler::enqueue_app_function_job_in;
 use async_trait::async_trait;
@@ -48,7 +47,7 @@ impl ThreadOwnerLookup for NoThreads {
 
 fn project_routes(t: &Tenant) -> Router {
     let mut state = bare_app_state();
-    state.agentic_state = Some(Arc::new(AgenticState::new(
+    state.agentic_state = Some(Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         t.db.clone(),
         Arc::new(NoThreads),

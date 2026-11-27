@@ -48,7 +48,7 @@ use crate::staging_functions::{
 const AUTOMATION_ID: &str = "anonymize";
 
 fn state(t: &Tenant) -> AppState {
-    let agentic = agentic_http::AgenticState::new(
+    let agentic = agentic_http::new_agentic_state(
         tokio_util::sync::CancellationToken::new(),
         t.db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(t.db.clone())),

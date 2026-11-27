@@ -31,6 +31,11 @@
 //! re-exported below so existing callers keep working without
 //! touching every import.
 
+/// [`agentic_state::AgenticState`], the state the host shares with every
+/// agentic route, and the [`agentic_state::ThreadOwnerLookup`] port it holds.
+pub mod agentic_state;
+/// [`airway_request::StartAirwayRequest`], the inputs to start an airway run.
+pub mod airway_request;
 pub mod cron;
 pub mod lifecycle;
 pub mod migration;

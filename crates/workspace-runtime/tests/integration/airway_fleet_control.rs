@@ -69,7 +69,7 @@ impl ThreadOwnerLookup for NoThreads {
 /// One replica's airway surface: its own `AgenticState` (so its own, empty,
 /// in-process channel maps) over the shared database.
 fn replica(db: &DatabaseConnection, platform: Arc<dyn PlatformContext>) -> Router {
-    let state = Arc::new(AgenticState::new(
+    let state = Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(NoThreads),

@@ -48,7 +48,7 @@ const START_ROUTE: &str = "/projects/{project_id}/agents/{agent_id}/asks";
 /// One serve replica: the production start handler over state of its own.
 fn replica(db: &DatabaseConnection) -> Router {
     let mut state = bare_app_state();
-    state.agentic_state = Some(Arc::new(agentic_http::AgenticState::new(
+    state.agentic_state = Some(Arc::new(agentic_http::new_agentic_state(
         CancellationToken::new(),
         db.clone(),
         Arc::new(OxyThreadOwnerLookup::new(db.clone())),
