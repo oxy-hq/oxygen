@@ -18,10 +18,9 @@ agentic-connector = { workspace = true }
 # The automation run's error type, which `automation_run` classifies, and the
 # run and queue rows `automation_run::settle`'s orphan reconcile reads.
 agentic-runtime = { workspace = true }
-airhouse = { workspace = true, features = ["connector", "rest"] }
+airhouse = { workspace = true, features = ["connector", "rest", "tenant"] }
 entity = { workspace = true }
 oxy = { workspace = true }
-oxy-cameras = { workspace = true }
 oxy-app-core = { workspace = true }
 oxy-auth = { workspace = true }
 oxy-authz = { workspace = true }

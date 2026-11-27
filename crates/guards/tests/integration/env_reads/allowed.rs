@@ -10,7 +10,7 @@
 pub const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "OXY_AIRHOUSE_OBS_INSECURE",
-        "crates/cameras/src/airhouse/client.rs",
+        "crates/airhouse/src/tenant/client.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (
@@ -145,27 +145,27 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_CAMERAS_AIRHOUSE_CONNECT_TIMEOUT_SECS",
-        "crates/cameras/src/airhouse/mod.rs",
+        "crates/airhouse/src/tenant/mod.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (
         "OXY_CAMERAS_AIRHOUSE_INGEST_TTL_SECS",
-        "crates/cameras/src/airhouse/mod.rs",
+        "crates/airhouse/src/tenant/mod.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (
         "OXY_CAMERAS_AIRHOUSE_INSERT_CHUNK_ROWS",
-        "crates/cameras/src/airhouse/mod.rs",
+        "crates/airhouse/src/tenant/mod.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (
         "OXY_CAMERAS_AIRHOUSE_MAX_RECONNECT_ATTEMPTS",
-        "crates/cameras/src/airhouse/mod.rs",
+        "crates/airhouse/src/tenant/mod.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (
         "OXY_CAMERAS_AIRHOUSE_READ_TTL_SECS",
-        "crates/cameras/src/airhouse/mod.rs",
+        "crates/airhouse/src/tenant/mod.rs",
         "cameras domain setting; migrate into a cameras config in that crate",
     ),
     (

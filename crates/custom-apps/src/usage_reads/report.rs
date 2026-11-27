@@ -3,8 +3,8 @@
 
 use std::collections::HashSet;
 
+use airhouse::tenant::escape::sql_str;
 use chrono::{DateTime, Utc};
-use oxy_cameras::airhouse::escape::sql_str;
 use sea_orm::{DatabaseBackend, DatabaseConnection, DbErr, FromQueryResult, Statement, Value};
 use uuid::Uuid;
 

@@ -47,7 +47,7 @@ impl AirhouseLiveTables {
     /// the Airhouse admin client has no request timeout, and
     /// `Config::connect_timeout` covers only TCP — a handshake HAProxy holds
     /// open stalls until its server timeout (see
-    /// `oxy_cameras::airhouse::connect_timeout`). Unbounded, either leaves the
+    /// `airhouse::tenant::connect_timeout`). Unbounded, either leaves the
     /// check `pending` for as long as it stalls.
     async fn connect(&self) -> Result<tokio_postgres::Client, String> {
         tokio::time::timeout(AIRHOUSE_TIMEOUT, self.connect_unbounded())

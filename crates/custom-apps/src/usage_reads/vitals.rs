@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use super::{airhouse_workspace_of, facts, or_fall_back, query};
 use crate::usage_airhouse::{SinkError, micros, ts_literal};
-use oxy_cameras::airhouse::escape::sql_str;
+use airhouse::tenant::escape::sql_str;
 
 /// Screens shown per release, most page loads first.
 pub const MAX_SCREENS: usize = 8;

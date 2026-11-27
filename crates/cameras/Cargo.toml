@@ -23,7 +23,7 @@ oxy-platform = { workspace = true }
 # endpoint. Cameras doesn't initiate auth — it consumes the
 # context populated by app's auth middleware.
 oxy-auth = { workspace = true }
-airhouse = { workspace = true, features = ["admin"] }
+airhouse = { workspace = true, features = ["tenant"] }
 
 # Presigned S3 URLs for compliance clip archival (Tier B #6).
 # Server holds the only AWS principal; workers never see creds.
@@ -31,12 +31,9 @@ aws-config = { workspace = true, features = ["behavior-version-latest"] }
 aws-sdk-s3 = { workspace = true }
 
 # Pgwire client for the per-tenant Airhouse writes. tokio-postgres simple-query
-# (no $N placeholders) is what DuckLake speaks; see observability/airhouse for
-# the precedent.
+# (no $N placeholders) is what DuckLake speaks. The connection itself (TLS
+# included) is `airhouse::tenant`'s.
 tokio-postgres = { workspace = true }
-tokio-postgres-rustls = { workspace = true }
-rustls = { workspace = true }
-webpki-roots = { workspace = true }
 async-stream = { workspace = true }
 
 # Async runtime
@@ -102,6 +99,10 @@ oxy-test-utils = { workspace = true }
 # parallel threads — so the env tests must serialize against EACH OTHER, which
 # per-module locks cannot do.
 serial_test = { workspace = true }
+# `smoke_real_airhouse` connects over TLS the way `airhouse::tenant` does.
+tokio-postgres-rustls = { workspace = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }
 tower = { workspace = true, features = ["util"] }
 entity = { workspace = true }

@@ -1,8 +1,8 @@
 //! The Activity tab's reads: summary, visitors, event counts and the drill-down.
 
+use airhouse::tenant::escape::sql_str;
 use chrono::{DateTime, FixedOffset, Utc};
 use entity::{custom_app_event, custom_app_view_event};
-use oxy_cameras::airhouse::escape::sql_str;
 use sea_orm::{
     ColumnTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,

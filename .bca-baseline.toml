@@ -6807,7 +6807,7 @@ metric = "abc"
 value = 55.10898293381942
 
 [[entry]]
-path = "crates/cameras/src/airhouse/client.rs"
+path = "crates/airhouse/src/tenant/client.rs"
 qualified = "spawn_driver"
 metric = "cognitive"
 value = 22.0

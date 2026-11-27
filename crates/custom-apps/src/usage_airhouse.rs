@@ -50,10 +50,10 @@ use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use airhouse::entity::tenants::{self, TenantStatus};
+use airhouse::tenant::escape::{sql_opt_str, sql_str, sql_ts};
 use async_trait::async_trait;
 use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use entity::{custom_app_event, custom_app_view_event};
-use oxy_cameras::airhouse::escape::{sql_opt_str, sql_str, sql_ts};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use tokio_postgres::SimpleQueryMessage;
 use uuid::Uuid;
@@ -610,7 +610,7 @@ pub fn mirror_event(row: custom_app_event::Model) {
 // ── Production sink ─────────────────────────────────────────────────────────
 
 /// Appends through the camera fleet's persistent per-tenant Airhouse clients
-/// (`oxy_cameras::airhouse`), minted as [`airhouse::SystemPurpose::UsageIngest`].
+/// (`airhouse::tenant`), minted as [`airhouse::SystemPurpose::UsageIngest`].
 #[derive(Default)]
 pub struct AirhouseUsageSink {
     /// Workspace → (checked at, has an active tenant).
@@ -662,11 +662,11 @@ impl AirhouseUsageSink {
                 .or_default(),
         );
         cell.get_or_try_init(|| async {
-            let admin = oxy_cameras::airhouse::connect(
+            let admin = airhouse::tenant::connect(
                 workspace_id,
                 airhouse::UserRole::Admin,
                 airhouse::SystemPurpose::UsageIngest,
-                oxy_cameras::airhouse::ingest_ttl(),
+                airhouse::tenant::ingest_ttl(),
             )
             .await
             .map_err(|e| SinkError::Failed(truncate(e.to_string())))?;
@@ -700,12 +700,12 @@ impl UsageSink for AirhouseUsageSink {
             return Err(SinkError::NotConfigured);
         }
         self.ensure_table(workspace_id).await?;
-        let client = oxy_cameras::airhouse::client::tenant_client(
+        let client = airhouse::tenant::client::tenant_client(
             workspace_id,
             airhouse::UserRole::Writer,
             airhouse::SystemPurpose::UsageIngest,
-            oxy_cameras::airhouse::ingest_ttl(),
-            oxy_cameras::airhouse::client::Pool::Serving,
+            airhouse::tenant::ingest_ttl(),
+            airhouse::tenant::client::Pool::Serving,
         )
         .await
         .map_err(|e| SinkError::Failed(truncate(e.to_string())))?;
@@ -737,11 +737,11 @@ impl UsageSink for AirhouseUsageSink {
         // from a failure.
         self.ensure_table(workspace_id).await?;
         // Admin, as the DDL is: the delete is the platform's, not a Writer's.
-        let admin = oxy_cameras::airhouse::connect(
+        let admin = airhouse::tenant::connect(
             workspace_id,
             airhouse::UserRole::Admin,
             airhouse::SystemPurpose::UsageIngest,
-            oxy_cameras::airhouse::ingest_ttl(),
+            airhouse::tenant::ingest_ttl(),
         )
         .await
         .map_err(|e| SinkError::Failed(truncate(e.to_string())))?;
@@ -763,12 +763,12 @@ impl UsageSink for AirhouseUsageSink {
         }
         // The analytics pool when there is one, so a person opening the tab
         // never contends with the drain's inserts on the serving pool.
-        let client = oxy_cameras::airhouse::client::tenant_client(
+        let client = airhouse::tenant::client::tenant_client(
             workspace_id,
             airhouse::UserRole::Reader,
             airhouse::SystemPurpose::UsageRead,
-            oxy_cameras::airhouse::read_ttl(),
-            oxy_cameras::airhouse::client::Pool::Analytics,
+            airhouse::tenant::read_ttl(),
+            airhouse::tenant::client::Pool::Analytics,
         )
         .await
         .map_err(|e| SinkError::Failed(truncate(e.to_string())))?;

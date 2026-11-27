@@ -4,7 +4,8 @@
 //! STDIN` only over the simple query protocol, which `tokio_postgres` cannot
 //! send (its `copy_in` prepares the statement). So the file is read here, by
 //! DuckDB running in this process, and sent as SQL over the same wire every
-//! other Oxy writer uses (`oxy_cameras::airhouse`, the custom-app usage drain):
+//! other Oxy writer uses (`airhouse::tenant`: the camera fleet, the custom-app
+//! usage drain):
 //!
 //! 1. DuckDB's own reader (`read_csv_auto` / `read_parquet`) reads the file,
 //!    so a column gets the type a file DuckDB would give it, and `DESCRIBE`

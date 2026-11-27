@@ -97,6 +97,10 @@ pub mod ensure_tenant;
 #[cfg(feature = "admin")]
 pub mod workspace_delete;
 
+/// The system-purpose tenant client every Oxy Airhouse writer shares.
+#[cfg(feature = "tenant")]
+pub mod tenant;
+
 /// Load a CSV or Parquet file into a table in a workspace's tenant.
 #[cfg(feature = "import")]
 pub mod import;

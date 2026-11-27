@@ -1,4 +1,5 @@
-//! Persistent, **per-tenant** Airhouse clients for the camera fleet.
+//! Persistent, **per-tenant** Airhouse clients (first written for the camera
+//! fleet, now shared by every system-purpose tenant writer).
 //!
 //! # Why this exists
 //!
@@ -47,7 +48,7 @@ use tokio_postgres::{Client, NoTls, SimpleQueryMessage};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
-use airhouse::{AirhouseConfig, SystemPurpose, UserRole};
+use crate::{AirhouseConfig, SystemPurpose, UserRole};
 
 use super::AirhouseError;
 
@@ -141,8 +142,8 @@ pub enum Pool {
 impl Pool {
     /// Resolve to a concrete `(host, port)`, falling back to the serving
     /// endpoint when no analytics pool is configured.
-    fn endpoint(self, cfg: &airhouse::AirhouseRuntimeConfig) -> (String, u16) {
-        self.resolve(cfg, airhouse::analytics_wire_endpoint())
+    fn endpoint(self, cfg: &crate::AirhouseRuntimeConfig) -> (String, u16) {
+        self.resolve(cfg, crate::analytics_wire_endpoint())
     }
 
     /// The routing decision, with the analytics endpoint injected rather than
@@ -151,8 +152,8 @@ impl Pool {
     /// it.
     fn resolve(
         self,
-        cfg: &airhouse::AirhouseRuntimeConfig,
-        analytics: Option<airhouse::WireEndpoint>,
+        cfg: &crate::AirhouseRuntimeConfig,
+        analytics: Option<crate::WireEndpoint>,
     ) -> (String, u16) {
         let serving = || (cfg.wire_host.clone(), cfg.wire_port);
         match self {
@@ -296,7 +297,7 @@ fn make_cred_fn(
 ) -> CredFn {
     Arc::new(move || {
         Box::pin(async move {
-            let broker = airhouse::token_broker().ok_or(AirhouseError::Disabled)?;
+            let broker = crate::token_broker().ok_or(AirhouseError::Disabled)?;
             let cred = broker
                 .mint_for_system(workspace_id, purpose, role, ttl)
                 .await
@@ -680,8 +681,8 @@ mod tests {
         );
     }
 
-    fn cfg() -> airhouse::AirhouseRuntimeConfig {
-        airhouse::AirhouseRuntimeConfig {
+    fn cfg() -> crate::AirhouseRuntimeConfig {
+        crate::AirhouseRuntimeConfig {
             base_url: "http://cp:8080".into(),
             admin_token: "t".into(),
             wire_host: "serving-host".into(),
@@ -689,8 +690,8 @@ mod tests {
         }
     }
 
-    fn analytics() -> Option<airhouse::WireEndpoint> {
-        Some(airhouse::WireEndpoint {
+    fn analytics() -> Option<crate::WireEndpoint> {
+        Some(crate::WireEndpoint {
             host: "analytics-host".into(),
             port: 5446,
         })

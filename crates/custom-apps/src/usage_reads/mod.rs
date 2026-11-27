@@ -53,8 +53,8 @@ use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
+use airhouse::tenant::escape::sql_str;
 use chrono::{DateTime, FixedOffset, Utc};
-use oxy_cameras::airhouse::escape::sql_str;
 use sea_orm::{
     DatabaseBackend, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, QuerySelect,
     Statement,

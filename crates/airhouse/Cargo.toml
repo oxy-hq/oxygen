@@ -55,6 +55,21 @@ admin = [
     "dep:serde",
     "dep:serde_json",
 ]
+# The system-purpose tenant client (`tenant`): broker-minted pgwire clients to
+# one workspace's tenant, persistent or one-shot, plus the SQL-literal helpers
+# for DuckLake's simple-query path. Implies `admin` (the broker and config).
+tenant = [
+    "admin",
+    "dep:tokio-postgres",
+    "dep:tokio-postgres-rustls",
+    "dep:rustls",
+    "dep:webpki-roots",
+    "dep:tokio",
+    "dep:uuid",
+    "dep:chrono",
+    "dep:thiserror",
+    "dep:tracing",
+]
 # Axum HTTP handlers for `/airhouse/me/*`. Always implies `admin`.
 rest = ["admin", "dep:axum"]
 # Load a CSV or Parquet file into a table in a workspace's tenant (`import`):
@@ -77,6 +92,9 @@ tokio-postgres = { workspace = true, optional = true, features = [
     "with-chrono-0_4",
     "with-serde_json-1",
 ] }
+tokio-postgres-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 async-stream = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
@@ -119,6 +137,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# `tenant`'s env-knob tests call set_var/remove_var, which must serialize
+# against every other test in the binary that touches the env.
+serial_test = { workspace = true }
 wiremock = { workspace = true }
 # In-process stand-in for Airhouse in `tests/integration/preview_sql_duckdb.rs`
 # and `src/import_tests.rs`.

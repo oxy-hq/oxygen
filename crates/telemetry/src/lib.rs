@@ -181,6 +181,11 @@ pub fn directives_for_level(level: &str) -> String {
 #[cfg(test)]
 mod sentry_filter_previews_pins_tests;
 
+// Sentry pins for crate-tiers stage D1's move of the Airhouse tenant client
+// (`oxy_cameras::airhouse` → `airhouse::tenant`).
+#[cfg(test)]
+mod sentry_filter_tenant_client_pins_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
