@@ -584,7 +584,7 @@ pub async fn workspace_middleware(
     // request — the IDE on the same branch included, which sends no header — is
     // untouched. See `server::previews::pin`.
     let (mut request, preview) =
-        oxy_previews::pin::for_request(workspace_id, query.branch.as_deref(), request).await;
+        super::preview_pin::for_request(workspace_id, query.branch.as_deref(), request).await;
     // There is no working copy to read: the request is served from the
     // compiled revision whatever branch it names.
     let working_copy_branch: Option<String> = None;

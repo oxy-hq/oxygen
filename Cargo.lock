@@ -10987,7 +10987,6 @@ dependencies = [
  "entity",
  "http 1.5.0",
  "oxy",
- "oxy-server-authz",
  "oxy-shared",
  "regex",
  "sea-orm",

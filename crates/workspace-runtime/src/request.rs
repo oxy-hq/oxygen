@@ -14,8 +14,11 @@
 //! * [`preview_read_only`] — the axum adapter of the preview read-only guard
 //!   the middleware calls on a request pinned to a preview; the table is
 //!   `oxy_previews::read_only`.
+//! * `preview_pin` — the preview pin as the middleware applies it, with the
+//!   staff check it hands `oxy_previews::pin::for_request`.
 
 pub mod factory_access;
+mod preview_pin;
 pub mod preview_read_only;
 pub mod workspace_context;
 pub mod workspace_extractor;

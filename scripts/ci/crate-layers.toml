@@ -146,7 +146,6 @@ allowed = [
   "oxy-oltp -> oxy-auth",
   "oxy-oltp -> oxy-platform",
   "oxy-preagg -> agentic-automation",
-  "oxy-previews -> oxy-server-authz",
   "oxy-semantic -> oxy-airlayer-compat",
   "oxy-tenancy -> oxy-server-authz",
   "oxy-test-utils -> migration",

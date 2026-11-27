@@ -27,8 +27,6 @@ entity = { workspace = true }
 oxy = { workspace = true }
 # `fleet_role::pattern_matches`, which the read-only table matches routes with.
 oxy-shared = { workspace = true }
-# `role_guards::may_preview`: only staff may pin a request to a preview.
-oxy-server-authz = { workspace = true }
 
 async-trait = { workspace = true }
 chrono = { workspace = true }

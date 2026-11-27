@@ -7,7 +7,8 @@
 //! switch, and everything here is a no-op without it.
 //!
 //! With it, the request is pinned to the revision only when all three hold:
-//! the caller may preview (`WorkspacePreviewer`, staff); the revision is a
+//! the caller may preview (`WorkspacePreviewer`, staff: the [`MayPreview`]
+//! check the caller passes in); the revision is a
 //! ready `staging`/`main` revision of THIS workspace whose compiled config the
 //! runtime can load (`oxy::config::servability::check_pinnable`); and a **live
 //! preview** of this workspace is at the revision's commit
@@ -17,8 +18,22 @@
 //! still reads it. Any miss leaves the request exactly as it would have been
 //! without the header.
 
+use std::future::Future;
+use std::pin::Pin;
+
+use http::request::Parts;
 use http::{HeaderMap, HeaderValue, Request, Response};
 use uuid::Uuid;
+
+/// Whether the caller may preview: the staff check the pin consults.
+///
+/// Production passes one function, `oxy_server_authz::role_guards::may_preview`
+/// (the `WorkspacePreviewer` decision), from `oxy-workspace-runtime`. It is a
+/// parameter so this crate need not depend on the authz guards; it is a
+/// function, not a precomputed bool, so the check (which reads, and memoizes
+/// into, the request's extensions) runs only on a request that carries a
+/// preview header naming a revision, never on every request.
+pub type MayPreview = for<'a> fn(&'a mut Parts) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
 
 /// Request header that marks a preview request: the revision to read.
 pub const REQUEST_HEADER: &str = "x-oxy-preview-revision";
@@ -70,17 +85,20 @@ pub fn has_preview_header(headers: &HeaderMap) -> bool {
 /// The pin for this request, if it asked for one and may have it.
 ///
 /// Takes the request by value because the staff check reads (and memoizes into)
-/// its extensions; hands it back either way.
+/// its extensions; hands it back either way. `may_preview` is called only once
+/// the request carries a preview header naming a revision, and a `false` ends
+/// it there, before any database read.
 pub async fn for_request<B>(
     workspace_id: Uuid,
     query_branch: Option<&str>,
     request: Request<B>,
+    may_preview: MayPreview,
 ) -> (Request<B>, Option<PreviewPin>) {
     let Some(revision_id) = requested_revision(request.headers()) else {
         return (request, None);
     };
     let (mut parts, body) = request.into_parts();
-    let may_preview = oxy_server_authz::role_guards::may_preview(&mut parts).await;
+    let may_preview = may_preview(&mut parts).await;
     let request = Request::from_parts(parts, body);
     if !may_preview {
         tracing::debug!(%workspace_id, %revision_id, "preview header from a caller who may not preview; ignoring it");
@@ -131,6 +149,55 @@ async fn servable_pin(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// How many times a stub check below was asked.
+    static ASKED: AtomicUsize = AtomicUsize::new(0);
+
+    fn refuses(_: &mut Parts) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        ASKED.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { false })
+    }
+
+    fn request_with(header: Option<&str>) -> Request<()> {
+        let mut builder = Request::builder().uri("/api/x");
+        if let Some(value) = header {
+            builder = builder.header(REQUEST_HEADER, value);
+        }
+        builder.body(()).unwrap()
+    }
+
+    /// The staff check runs only on a request that names a revision: an
+    /// ordinary request, or one whose header is not a revision id, is handed
+    /// back unpinned without asking it. A refusal pins nothing and reads no
+    /// database (`servable_pin` would need one).
+    #[tokio::test]
+    async fn the_staff_check_runs_only_on_a_preview_request_and_a_refusal_pins_nothing() {
+        let ws = Uuid::new_v4();
+        let before = ASKED.load(Ordering::SeqCst);
+
+        let (_, pin) = for_request(ws, None, request_with(None), refuses).await;
+        assert_eq!(pin, None);
+        let (_, pin) = for_request(ws, None, request_with(Some("not-a-uuid")), refuses).await;
+        assert_eq!(pin, None);
+        assert_eq!(
+            ASKED.load(Ordering::SeqCst),
+            before,
+            "asked without a revision"
+        );
+
+        let revision = Uuid::new_v4().to_string();
+        let (request, pin) =
+            for_request(ws, Some("feat"), request_with(Some(&revision)), refuses).await;
+        assert_eq!(pin, None);
+        assert_eq!(ASKED.load(Ordering::SeqCst), before + 1);
+        // The request comes back intact, header included.
+        assert_eq!(
+            requested_revision(request.headers()).map(|r| r.to_string()),
+            Some(revision)
+        );
+    }
 
     fn headers(value: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
