@@ -1290,7 +1290,7 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # no new config field. An `amazon_ads` pipeline that omits `resources:` WILL
 # pull all twelve on its next run. bmg's (`ads_api`) lists three, so it does not
 # change until it names the new ones.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.67", default-features = false, features = [
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.68", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
