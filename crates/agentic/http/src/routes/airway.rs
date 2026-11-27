@@ -10,7 +10,7 @@
 //! routes by `source_type = "airway"`, so the shared `stream_events` handler
 //! needs no airway awareness. It does need a timer rather than the in-process
 //! notifier, though, now that the writer is usually another pod: see
-//! `REMOTE_DRIVER_POLL_INTERVAL` in `routes/run.rs`.
+//! `REMOTE_DRIVER_POLL_INTERVAL` in `agentic_runtime::lifecycle::run_stream`.
 //!
 //! ## Routes
 //!

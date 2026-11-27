@@ -6,7 +6,7 @@
 //! it may touch, so acking a live row cannot reverse a dismissal the user made
 //! and can no longer see.
 
-use agentic_http::AgenticState;
+use agentic_runtime::agentic_state::AgenticState;
 use axum::extract::{Extension, Json, Path};
 use chrono::Utc;
 use entity::metric_anomalies::{self, Entity as AnomaliesEntity};

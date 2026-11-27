@@ -115,7 +115,7 @@ impl AskOutcome {
 /// `None` when it did not wait. A failed read ends the wait early as
 /// `running`: the ask is started either way, and the stream has everything.
 pub(super) async fn outcome(
-    state: &agentic_http::AgenticState,
+    state: &agentic_runtime::agentic_state::AgenticState,
     run_id: &str,
     wait_seconds: u32,
 ) -> Option<AskOutcome> {

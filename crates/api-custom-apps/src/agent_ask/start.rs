@@ -84,7 +84,7 @@ pub(super) async fn queue_ask(
 /// Drive a staging ask in this process, inside its hold, as every ask was
 /// driven before asks were queued. Returns the run id.
 pub(super) async fn drive_here(
-    agentic_state: &Arc<agentic_http::AgenticState>,
+    agentic_state: &Arc<agentic_runtime::agentic_state::AgenticState>,
     platform: Arc<dyn PlatformContext>,
     gates_ctx: &CustomAppContext,
     req: &AskRequest,

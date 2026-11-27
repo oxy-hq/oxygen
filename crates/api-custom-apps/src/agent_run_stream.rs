@@ -31,7 +31,7 @@
 //! before its first read. A live ask is driven by whichever pod claimed it
 //! and a staging ask by this one, and either way the NOTIFY reaches this pod,
 //! so a ring is the one wake source. Without one the stream re-reads on the
-//! workspace stream's safety-net timer (`agentic_http::routes::run::poll_after`:
+//! workspace stream's safety-net timer (`agentic_runtime::lifecycle::run_stream::poll_after`:
 //! 10 s, then 30 s once quiet), which only matters while the listener is down.
 //! It used to re-read every 250 ms instead, four `agentic_run_events` reads a
 //! second for every open stream, quiet or not.
@@ -39,10 +39,10 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use agentic_http::routes::run::{ROW_CHECK_EVERY_N_TIMED_WAKES, poll_after};
 use agentic_runtime::crud::get_events_after;
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::lifecycle::remote_wake::RemoteWakes;
+use agentic_runtime::lifecycle::run_stream::{ROW_CHECK_EVERY_N_TIMED_WAKES, poll_after};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -272,7 +272,7 @@ pub fn run_events(
             // does.
             if let Some(run) = row_terminal.take() {
                 if let Some((event_type, payload)) =
-                    agentic_http::routes::run::terminal_event_for_status(
+                    agentic_runtime::lifecycle::run_stream::terminal_event_for_status(
                         run.task_status.as_deref(),
                         run.error_message.as_deref(),
                         run.answer.as_deref(),
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn every_ending_the_row_reports_is_an_event_the_bundle_stops_on() {
         for over in ["done", "failed", "cancelled", "timed_out"] {
-            let (event, _) = agentic_http::routes::run::terminal_event_for_status(
+            let (event, _) = agentic_runtime::lifecycle::run_stream::terminal_event_for_status(
                 Some(over),
                 Some("why"),
                 None,

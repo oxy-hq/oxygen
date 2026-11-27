@@ -15,9 +15,8 @@ test-fixtures = ["dep:duckdb"]
 
 [dependencies]
 agentic-connector = { workspace = true }
-# The automation run's error type, which `automation_run` classifies.
-agentic-pipeline = { workspace = true }
-# The run and queue rows `automation_run::settle`'s orphan reconcile reads.
+# The automation run's error type, which `automation_run` classifies, and the
+# run and queue rows `automation_run::settle`'s orphan reconcile reads.
 agentic-runtime = { workspace = true }
 airhouse = { workspace = true, features = ["connector", "rest"] }
 entity = { workspace = true }

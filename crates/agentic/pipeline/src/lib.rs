@@ -86,8 +86,8 @@ pub use agentic_core::human_input::{
 };
 pub use agentic_llm::LlmClient;
 pub use agentic_llm::{AnthropicProvider, OpenAiProvider};
-/// Re-exported so HTTP/CLI consumers name the seed-function ownership arg
-/// through the facade instead of importing `agentic-runtime` directly.
+/// The seed-function ownership arg, re-exported for older callers. A host
+/// names it at `agentic_runtime::crud::TaskScope` (`crates/agentic/CLAUDE.md`).
 pub use agentic_runtime::crud::TaskScope;
 pub use one_shot::{OneShotCompleter, prepare_one_shot};
 

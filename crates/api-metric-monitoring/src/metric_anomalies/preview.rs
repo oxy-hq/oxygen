@@ -11,7 +11,7 @@
 //! disk and any replica can serve it. The detection itself is
 //! `oxy_metric_monitoring::preview`.
 
-use agentic_http::AgenticState;
+use agentic_runtime::agentic_state::AgenticState;
 use axum::extract::{Extension, Json};
 use chrono::Utc;
 use oxy_auth::extractor::AuthenticatedUserExtractor;

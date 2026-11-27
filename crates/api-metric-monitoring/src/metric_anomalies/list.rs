@@ -6,7 +6,7 @@
 //! Everything in here follows from that: the two-phase ranking, `total` in
 //! event units, and a cap that trims within an event rather than across a page.
 
-use agentic_http::AgenticState;
+use agentic_runtime::agentic_state::AgenticState;
 use axum::extract::{Extension, Json, Query};
 use axum::http::StatusCode;
 use entity::metric_anomalies::{self, Entity as AnomaliesEntity};

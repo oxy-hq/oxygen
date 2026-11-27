@@ -82,7 +82,6 @@ airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "pr
 sqlparser = { workspace = true, features = ["visitor"] }
 oxy-oltp = { workspace = true }
 agentic-core = { workspace = true }
-agentic-http = { workspace = true }
 agentic-pipeline = { workspace = true }
 agentic-automation = { workspace = true }
 # `AirwayPipelineSpec`: the admin data-flow view reads each compiled pipeline
@@ -132,6 +131,8 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 brotli = { workspace = true }
+# `new_agentic_state`, the AgenticState the integration tests build.
+agentic-http = { workspace = true }
 # `usage_fixtures`: an in-memory stand-in for a workspace's Airhouse and a fixed
 # usage history, for the tests of the Activity tab's reads and the backfill.
 oxy-custom-apps = { workspace = true, features = ["test-fixtures"] }

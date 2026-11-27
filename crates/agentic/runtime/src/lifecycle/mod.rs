@@ -20,5 +20,6 @@ pub mod failure_hook;
 pub mod handle;
 pub mod notice_request;
 pub mod remote_wake;
+pub mod run_stream;
 pub mod state;
 pub mod suspend_hook;

@@ -28,7 +28,6 @@ use axum::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use agentic_http::AgenticState;
 use agentic_pipeline::WorkflowWorkspaceContext;
 use agentic_pipeline::function_schedule::FunctionScheduleRef;
 use agentic_pipeline::platform::PlatformContext;
@@ -37,6 +36,7 @@ use agentic_pipeline::scheduler::{
     create_schedule, delete_schedule, get_schedule, list_schedules, record_fire_success,
     run_schedule_now, update_schedule,
 };
+use agentic_runtime::agentic_state::AgenticState;
 use agentic_runtime::entity::schedule;
 use agentic_runtime::lifecycle::crud::runs::{
     insert_run_with_schedule, update_run_done, update_run_failed,

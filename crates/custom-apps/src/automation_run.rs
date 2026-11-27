@@ -20,7 +20,7 @@
 //! and lists it as data plane, so its lines are classified as they were under
 //! `oxy_app::server::api::projects`: an issue at `error`, shaped in Sentry Logs.
 
-use agentic_pipeline::automation_run::AutomationRunError;
+use agentic_runtime::automation_run::AutomationRunError;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use tracing::warn;
 use uuid::Uuid;

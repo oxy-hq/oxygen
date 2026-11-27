@@ -22,8 +22,7 @@ oxy-auth = { workspace = true }          # AuthenticatedUserExtractor
 # The scheduler itself and the run rows a manual fire writes. The schedule
 # handlers left `agentic-http` for oxy-app because they need `WorkspaceAdmin`;
 # they still take the `AgenticState` extension oxy-server layers over the
-# workspace seam.
-agentic-http = { workspace = true }
+# workspace seam, which they name through `agentic-runtime`.
 agentic-pipeline = { workspace = true }
 agentic-runtime = { workspace = true }
 axum = { workspace = true }
@@ -41,6 +40,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # The integration group (`tests/integration/`) reuses the shared per-test
 # database harness (`crates/test-utils/harness/mod.rs`, included by `#[path]`),
 # so it needs that harness's dependencies too. Dev-only: nothing here ships.
+agentic-http = { workspace = true }      # `new_agentic_state`, the test AgenticState
 migration = { workspace = true }
 airhouse = { workspace = true }
 oxy-oltp = { workspace = true }

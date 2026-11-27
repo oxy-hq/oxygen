@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use agentic_pipeline::automation_run::AutomationRunError;
+use agentic_runtime::automation_run::AutomationRunError;
 use chrono::Utc;
 use entity::customer_app_procedure_runs as proc_run;
 use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;

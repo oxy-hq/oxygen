@@ -10,7 +10,7 @@
 //! ask for the working copy and hand the runner no scan, so the runner read
 //! the semantic model off the workspace directory — which only the Factory has.
 
-use agentic_http::AgenticState;
+use agentic_runtime::agentic_state::AgenticState;
 use axum::extract::{Extension, Json, Path, Query};
 use chrono::Utc;
 use entity::metric_anomalies::{self, Entity as AnomaliesEntity};

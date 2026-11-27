@@ -9870,7 +9870,6 @@ version = "0.5.162"
 dependencies = [
  "agentic-analytics",
  "agentic-core",
- "agentic-http",
  "agentic-pipeline",
  "agentic-runtime",
  "airhouse",
@@ -10674,7 +10673,6 @@ version = "0.5.162"
 dependencies = [
  "agentic-connector",
  "agentic-core",
- "agentic-pipeline",
  "agentic-runtime",
  "airhouse",
  "async-trait",

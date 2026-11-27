@@ -25,8 +25,7 @@ oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
 oxy = { workspace = true }
 entity = { workspace = true }
 agentic-analytics = { workspace = true }       # the `MetricTreeRunner` trait, anomaly periods
-agentic-http = { workspace = true }            # `AgenticState`, the anomaly handlers' database handle
-agentic-runtime = { workspace = true }         # the manual scan's run row; `TaskExecutor`
+agentic-runtime = { workspace = true }         # `AgenticState`, the anomaly handlers' database handle; the manual scan's run row; `TaskExecutor`
 agentic-core = { workspace = true }            # the delivery task's spec and outcome
 async-trait = { workspace = true }
 futures = { workspace = true }

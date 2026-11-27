@@ -2,7 +2,7 @@
 //! finds. Long-running by nature — the handler waits a bounded time and then
 //! reports `pending`, leaving the scan to finish in the background.
 
-use agentic_http::AgenticState;
+use agentic_runtime::agentic_state::AgenticState;
 use agentic_runtime::lifecycle::crud::runs::{insert_run, update_run_done, update_run_failed};
 use axum::extract::{Extension, Json, Query};
 use chrono::{TimeZone, Utc};

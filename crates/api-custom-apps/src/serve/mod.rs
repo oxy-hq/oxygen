@@ -98,7 +98,7 @@ pub(crate) const FUNCTION_BODY_LIMIT: usize = 32 * 1024 * 1024;
 ///
 /// Declared here rather than at a mount because `/customer-apps/{*path}` sits
 /// on the outer router in `serve.rs`, outside `RoleRouter` — the same shape
-/// `agentic_http::router_roles()` uses.
+/// `agentic-http`'s `router_roles()` uses.
 pub fn serve_dispatch_roles() -> &'static [RouteRoleDecl] {
     &[
         RouteRoleDecl {

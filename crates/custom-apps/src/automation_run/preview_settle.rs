@@ -80,7 +80,7 @@ fn terminal_for(
             // have classified them under (`Inline` prefixes its text).
             let message = message.unwrap_or_else(|| "automation failed".to_string());
             let error =
-                agentic_pipeline::automation_run::AutomationRunError::Inline(message.clone());
+                agentic_runtime::automation_run::AutomationRunError::Inline(message.clone());
             let (code, _) = automation_error_to_code(&error);
             settle::failed_with(code, message)
         }
