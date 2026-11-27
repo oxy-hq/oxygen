@@ -333,11 +333,11 @@ pub async fn start_server_and_web_app(
 /// would otherwise read every flag at its registry
 /// default — the rollout gates off — for the life of the pod.
 pub(super) async fn init_feature_flags() -> Result<(), OxyError> {
-    // `cache::init` opens its own connection, starts the refresh, and does the
-    // first load. FAIL-FAST here (`?`): an unloaded cache reads the registry
-    // default for `billing` (OFF = paywall skipped for every org), so serve must
-    // not accept requests with an unknown billing state.
-    oxy_feature_flags::cache::init().await
+    // `cache::init` opens its own connection (through `establish_connection`,
+    // its `FlagDb` port), starts the refresh, and does the first load. FAIL-FAST
+    // (`?`): an unloaded cache reads the registry default for `billing` (OFF =
+    // paywall skipped for every org), so serve must not take requests then.
+    oxy_feature_flags::cache::init(establish_connection).await
 }
 
 /// One-shot bootstrap: if `OXY_GLOBAL_ADMINS` is set, ensure each email is

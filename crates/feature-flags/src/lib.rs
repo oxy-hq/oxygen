@@ -23,6 +23,7 @@
 pub mod cache;
 pub mod evaluate;
 pub mod exposure;
+pub mod ports;
 pub mod registry;
 pub mod rollout;
 pub mod store;

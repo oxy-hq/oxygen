@@ -103,7 +103,7 @@ pub async fn run_compile(args: CompileArgs) -> Result<(), OxyError> {
     // an unloaded cache reads them at their registry default — off — whatever
     // the admin page says. One load, no refresh: this process compiles once
     // and exits. Fail-fast, as `oxy serve` and `oxy worker` do.
-    oxy_feature_flags::cache::load_once().await?;
+    oxy_feature_flags::cache::load_once(establish_connection).await?;
 
     let workspace_id = args.workspace_id.unwrap_or(Uuid::nil());
 

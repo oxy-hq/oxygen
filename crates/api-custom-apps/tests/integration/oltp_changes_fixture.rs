@@ -304,9 +304,20 @@ pub(crate) async fn enable_oltp_changes(t: &Tenant) {
     .insert(&t.db)
     .await
     .expect("write the oltp_changes override");
-    oxy_feature_flags::cache::load_once()
+    oxy_feature_flags::cache::load_once(flag_db(&t.db))
         .await
         .expect("load the flag cache");
+}
+
+/// The flag cache's connector for a test: the test's own database handle, so a
+/// load reads the override row the test just wrote, through the connection it
+/// wrote it with (`OXY_DATABASE_URL` points at the same per-test database), not
+/// the process-wide pool.
+pub(crate) fn flag_db(
+    db: &sea_orm::DatabaseConnection,
+) -> impl oxy_feature_flags::ports::FlagDb + 'static {
+    let db = db.clone();
+    move || std::future::ready(Ok::<_, oxy_shared::errors::OxyError>(db.clone()))
 }
 
 pub(crate) async fn connect(dsn: &str) -> Client {

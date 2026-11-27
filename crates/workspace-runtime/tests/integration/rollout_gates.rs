@@ -49,7 +49,7 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
         "unloaded: registry default, off"
     );
 
-    cache::init()
+    cache::init(oxy::database::client::establish_connection)
         .await
         .expect("feature flag cache init, as the worker does");
 
@@ -91,7 +91,7 @@ fn every_process_that_compiles_loads_the_flag_cache_at_boot() {
         ),
         (
             "server/src/cli/commands/compile.rs",
-            "feature_flags::cache::load_once().await?",
+            "feature_flags::cache::load_once(establish_connection).await?",
         ),
     ] {
         let path = crates.join(file);

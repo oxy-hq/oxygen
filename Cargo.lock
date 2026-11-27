@@ -10739,9 +10739,9 @@ dependencies = [
 name = "oxy-feature-flags"
 version = "0.5.162"
 dependencies = [
+ "async-trait",
  "chrono",
  "entity",
- "oxy-platform",
  "oxy-shared",
  "sea-orm",
  "serde",

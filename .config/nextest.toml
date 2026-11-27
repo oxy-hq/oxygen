@@ -162,7 +162,7 @@ retries = 2
 # and never reach their `serial-db` pin below. `oxy-guards`'
 # `shared_db_registry` fails the build if the pin and the modules drift apart.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & !test(/^(authz_loader_differential|audit_append_only)::/)"
+filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & !test(/^(authz_loader_differential|audit_append_only|feature_flag_refresh|rollout_gates)::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -445,7 +445,12 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & test(/^(authz_loader_differential|audit_append_only)::/)"
+# `feature_flag_refresh` and `rollout_gates` (2026-11-27) load the flag cache
+# through the process-wide `establish_connection`, as `serve` and `worker` do:
+# the failed-load test drives it with a malformed `OXY_DATABASE_URL`, and the
+# boot-call source check names it. Their databases are per-test, but the gate
+# counts every module that names the shared connector, so they are pinned too.
+filter = "kind(test) & package(=oxy-workspace-runtime) & binary(=integration) & test(/^(authz_loader_differential|audit_append_only|feature_flag_refresh|rollout_gates)::/)"
 test-group = "serial-db"
 retries = 2
 

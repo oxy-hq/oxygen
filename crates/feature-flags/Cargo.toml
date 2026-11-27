@@ -10,10 +10,11 @@ edition.workspace = true
 [dependencies]
 # `feature_flag`, the flag table's row.
 entity = { workspace = true }
-# `db::establish_connection`: the cache opens its own connection (`init` takes none).
-oxy-platform = { workspace = true }
 oxy-shared = { workspace = true }
 sea-orm = { workspace = true }
+
+# `ports::FlagDb`, the connector the cache loads through.
+async-trait = { workspace = true }
 
 chrono = { workspace = true }
 serde = { workspace = true }

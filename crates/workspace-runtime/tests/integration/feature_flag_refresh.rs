@@ -32,7 +32,9 @@ async fn a_db_change_propagates_to_the_cache_via_the_refresh() {
     // Fallible now: a failed load is fatal for serve, so the test asserts it
     // succeeded rather than silently proceeding on an unloaded cache (which
     // would make the pre-condition below pass for the wrong reason).
-    cache::init().await.expect("feature flag cache init");
+    cache::init(oxy::database::client::establish_connection)
+        .await
+        .expect("feature flag cache init");
     assert!(
         !is_enabled("billing"),
         "cache loaded and the DB has no billing row, so it reads the default (off)"
@@ -71,7 +73,7 @@ async fn a_row_for_a_removed_flag_does_not_break_the_load() {
         .await
         .expect("upsert the leftover oltp row");
 
-    cache::init()
+    cache::init(oxy::database::client::establish_connection)
         .await
         .expect("a leftover row must not fail the load");
     assert!(
@@ -100,7 +102,9 @@ async fn a_failed_load_is_reported_so_serve_can_fail_fast() {
         std::env::set_var("OXY_DATABASE_URL", "not-a-postgres-url");
     }
     assert!(
-        cache::init().await.is_err(),
+        cache::init(oxy::database::client::establish_connection)
+            .await
+            .is_err(),
         "a failed flag load must surface as Err — serve `?`s it rather than accept \
          requests with an unknown billing state"
     );
@@ -157,7 +161,9 @@ async fn a_targeted_flag_reads_as_its_default_to_a_binary_without_targeting() {
     );
     assert!(row.targeting.is_some());
 
-    cache::init().await.expect("feature flag cache init");
+    cache::init(oxy::database::client::establish_connection)
+        .await
+        .expect("feature flag cache init");
     assert!(is_enabled("billing"), "everyone else gets on");
     assert!(
         !is_enabled_for("billing", &FlagContext::org(held_back)),

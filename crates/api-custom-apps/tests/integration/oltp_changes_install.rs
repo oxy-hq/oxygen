@@ -51,7 +51,8 @@ where
     F: FnOnce(Arc<Store>) -> Fut,
     Fut: Future<Output = ()>,
 {
-    // Points `OXY_DATABASE_URL` here, so the flag cache loads this database.
+    // Points `OXY_DATABASE_URL` here; the flag cache loads this database too,
+    // through its handle (`oltp_changes_fixture::flag_db`).
     let db = test_db_with(Schema::CentralOltp).await;
     let admin = admin_url().await;
     let provider = Arc::new(LocalProvider::new(admin.clone(), host_from_dsn(&admin)));
@@ -141,7 +142,7 @@ impl Store {
             .await
             .expect("write the oltp_changes override");
         }
-        oxy_feature_flags::cache::load_once()
+        oxy_feature_flags::cache::load_once(crate::oltp_changes_fixture::flag_db(&self.fx.db))
             .await
             .expect("load the flag cache");
     }

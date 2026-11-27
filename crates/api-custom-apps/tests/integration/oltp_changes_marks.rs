@@ -573,7 +573,7 @@ pub(crate) async fn enable_oltp_changes(t: &Tenant) {
         .exec(&t.db)
         .await
         .expect("write the oltp_changes override");
-        oxy_feature_flags::cache::load_once()
+        oxy_feature_flags::cache::load_once(crate::oltp_changes_fixture::flag_db(&t.db))
             .await
             .expect("load the flag cache");
         if oxy_api_custom_apps::oltp_changes::enabled_for(t.org_id) {

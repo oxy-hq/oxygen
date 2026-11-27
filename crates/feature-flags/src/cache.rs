@@ -22,6 +22,7 @@ use oxy_shared::errors::OxyError;
 use sea_orm::{DatabaseConnection, DbErr};
 
 use super::evaluate::{self, Evaluation, FlagContext, FlagState, RulesState};
+use super::ports::FlagDb;
 use super::registry::{self, FlagDef};
 use super::store;
 
@@ -76,24 +77,26 @@ fn parse_refresh_interval(raw: Option<&str>) -> Duration {
 ///
 /// The refresh is spawned UNCONDITIONALLY, before the fallible load, so a
 /// caller that tolerates a failed load still self-heals on a later tick. Takes
-/// NO connection argument — it opens its own.
-pub async fn init() -> Result<(), OxyError> {
-    spawn_refresh();
-    load_and_install().await
+/// NO connection — it opens its own through `db` at every load, the boot one
+/// and each tick, so a failed boot connect is retried too.
+pub async fn init(db: impl FlagDb + 'static) -> Result<(), OxyError> {
+    let db: Arc<dyn FlagDb> = Arc::new(db);
+    spawn_refresh(db.clone());
+    load_and_install(&*db).await
 }
 
 /// [`init`] without the refresh: one load, for a one-shot command (`oxy
 /// compile`) that reads the flags once and exits, where a refresh task would
 /// outlive nothing. Fallible for the same reason as [`init`].
-pub async fn load_once() -> Result<(), OxyError> {
-    load_and_install().await
+pub async fn load_once(db: impl FlagDb) -> Result<(), OxyError> {
+    load_and_install(&db).await
 }
 
 /// Open a connection, read the flag table, and install the map — unless a local
 /// PATCH raced the read, in which case its value already won and this snapshot
 /// is stale.
-async fn load_and_install() -> Result<(), OxyError> {
-    let db = oxy_platform::db::establish_connection().await?;
+async fn load_and_install(db: &dyn FlagDb) -> Result<(), OxyError> {
+    let db = db.connect().await?;
     let gen_before = GENERATION.load(Ordering::Acquire);
     let map = load_map(&db)
         .await
@@ -218,9 +221,10 @@ fn install_if_current(map: FlagMap, gen_before: u64) {
 /// every process and cannot be a queued job. It is detached (no shutdown
 /// token): it only reads and swaps a `HashMap`, holds nothing a drain must
 /// flush, and the runtime reaps it on exit — so a token would be plumbing for
-/// no gain, and plumbing that would also reintroduce an argument to the no-arg
-/// `init` whose whole point is that no caller can skip the hook.
-fn spawn_refresh() {
+/// no gain, and plumbing that would also add a shutdown argument to `init`
+/// (whose only argument is the connector), whose whole point is that no caller
+/// can skip the hook.
+fn spawn_refresh(db: Arc<dyn FlagDb>) {
     // Read the interval ONCE, at spawn — not per tick. A per-tick `std::env::var`
     // is a syscall on a timer forever, and under Rust 2024 a concurrent `set_var`
     // anywhere in the process is UB against it. The test sets the env before
@@ -235,7 +239,7 @@ fn spawn_refresh() {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(interval).await;
-            if let Err(e) = load_and_install().await {
+            if let Err(e) = load_and_install(&*db).await {
                 tracing::warn!(error = %e, "feature flag refresh failed; keeping current values");
             }
         }

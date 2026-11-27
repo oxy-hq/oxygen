@@ -451,7 +451,7 @@ pub(crate) async fn enable_app_events(t: &Tenant, orgs: &[Uuid]) {
     .insert(&t.db)
     .await
     .expect("write the app_events override");
-    oxy_feature_flags::cache::load_once()
+    oxy_feature_flags::cache::load_once(crate::oltp_changes_fixture::flag_db(&t.db))
         .await
         .expect("load the flag cache");
 }
