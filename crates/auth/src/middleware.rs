@@ -110,7 +110,7 @@ pub struct AuthState<T> {
     platform: AuthPlatform,
     /// When true, auth_middleware short-circuits: it never calls the
     /// authenticator and injects the local guest user into extensions.
-    /// Set by `AuthState::guest_only()`. Used only by the local-mode router.
+    /// Set by `AuthState::guest_only(platform)`. Used only by the local-mode router.
     pub guest_only: bool,
 }
 
