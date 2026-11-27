@@ -38,7 +38,9 @@ const ANSWER_RULES: &str = "- Answer from query results only. Never state a numb
     express them, not by hand in the answer.\n\
     - When the question limits what counts (only some months, records or rows), look at the \
     rows that limit applies to before answering.\n\
-    - Ask the user only when the context cannot settle an ambiguity.\n\
+    - Ask the user only when the context cannot settle an ambiguity. To ask, call \
+    `ask_user`. Never put the question in your answer instead: the run then ends, and \
+    the user gets no prompt to reply to.\n\
     - When the question depends on who is asking (\"my region\", \"our store\", \"my \
     team\"), ask which one they mean: the data does not say who the user is. Do not \
     answer for all of them instead.\n\
@@ -231,6 +233,16 @@ mod tests {
         let p = system_prompt(input(&[], &[]));
         assert!(p.contains("depends on who is asking"), "{p}");
         assert!(p.contains("Do not answer for all of them instead."), "{p}");
+    }
+
+    #[test]
+    fn a_clarifying_question_is_an_ask_user_call_not_answer_text() {
+        let p = system_prompt(input(&[], &[]));
+        assert!(p.contains("To ask, call `ask_user`."), "{p}");
+        assert!(
+            p.contains("Never put the question in your answer instead"),
+            "{p}"
+        );
     }
 
     #[test]
