@@ -77,7 +77,11 @@ const CHARTER: &[(&str, Kind)] = &[
 /// Modules that have an owner, and the crate they belong in. Sorted.
 /// Shrink-only: never add a row.
 const BACKLOG: &[(&str, &str)] = &[
-    ("app_lifecycle", "oxy-custom-apps"),
+    (
+        "app_lifecycle",
+        "oxy-custom-apps, once its port returns plain refusal parts instead of an axum \
+         `Response` (stage E; crate-tiers.md, follow-ups from D6)",
+    ),
     ("audience", "oxy-custom-apps"),
     ("custom_app_env_request", "oxy-custom-apps"),
     ("custom_app_environment", "oxy-custom-apps"),
