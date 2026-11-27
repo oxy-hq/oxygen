@@ -39,6 +39,9 @@ const ANSWER_RULES: &str = "- Answer from query results only. Never state a numb
     - When the question limits what counts (only some months, records or rows), look at the \
     rows that limit applies to before answering.\n\
     - Ask the user only when the context cannot settle an ambiguity.\n\
+    - When the question depends on who is asking (\"my region\", \"our store\", \"my \
+    team\"), ask which one they mean: the data does not say who the user is. Do not \
+    answer for all of them instead.\n\
     - Call `chart` only when the user asks for a chart, or when the answer is a trend over \
     time or a comparison across a few categories. Never chart a single number.";
 
@@ -221,6 +224,13 @@ mod tests {
         assert!(p.contains("Never state a number no result returned."));
         assert!(p.contains("not by hand in the answer"), "{p}");
         assert!(p.contains("look at the rows that limit applies to"), "{p}");
+    }
+
+    #[test]
+    fn a_question_about_the_askers_own_scope_is_asked_back() {
+        let p = system_prompt(input(&[], &[]));
+        assert!(p.contains("depends on who is asking"), "{p}");
+        assert!(p.contains("Do not answer for all of them instead."), "{p}");
     }
 
     #[test]
