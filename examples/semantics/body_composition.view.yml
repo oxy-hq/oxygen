@@ -1,7 +1,7 @@
 name: body_composition
 description: Daily body composition measurements — weight and body fat tracking.
 datasource: training
-table: "body_composition.csv"
+table: body_composition
 
 entities:
   - name: body_measurement

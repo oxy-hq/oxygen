@@ -10,7 +10,7 @@ description: |
   cost-side levers when sensitivity / predict_impact walks back from
   operating profit.
 datasource: local
-table: "operating_costs.csv"
+table: operating_costs
 
 refresh_key:
   every: "1h"

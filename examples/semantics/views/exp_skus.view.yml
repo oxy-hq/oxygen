@@ -5,7 +5,7 @@ description: |
   SKU experiment's `for_each` names; `brand` is what a grouped design
   randomises with `assign_by`.
 datasource: local
-table: exp_skus.csv
+table: exp_skus
 
 entities:
 - name: exp_sku

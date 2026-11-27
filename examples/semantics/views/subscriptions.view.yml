@@ -23,7 +23,7 @@ description: |
       across segments — SMB churns far worse than enterprise, which is real
       addressable headroom rather than a size artifact.
 datasource: local
-table: "subscription_movements.csv"
+table: subscription_movements
 
 refresh_key:
   every: "1h"

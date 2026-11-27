@@ -25,11 +25,14 @@ databases:
     # dry_run_limit: 1
 
   # The workspace's own Airhouse tenant. `oxy dev seed` loads every file in
-  # `.db/` and `.training_data/` into it, under the names a file DuckDB gave
-  # them (`orders.csv` is the table `main.orders`, with views
-  # `main."orders.csv"` and `orders.csv`), so `FROM 'orders.csv'`,
-  # `FROM "orders.csv"` and `FROM orders` all resolve. `local`, `training`
-  # and `local-acme` are the same tenant under three names.
+  # `.db/` and `.training_data/` into it as a table in `main` named after the
+  # file's stem (`orders.csv` is `main.orders`). Views and SQL here name that
+  # table (`table: orders`, `FROM orders`). The load also creates alias views
+  # (`main."orders.csv"`, `"orders"."csv"`) for SQL written against a file
+  # DuckDB, but a read-only credential refuses `orders.csv` as a file read,
+  # and `FROM 'orders.csv'` (a string literal) is a file read under any
+  # credential. `local`, `training` and `local-acme` are the same tenant under
+  # three names.
   - name: local
     type: airhouse_managed
 

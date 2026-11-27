@@ -14,7 +14,7 @@ instructions: |
   - **Automatically execute the SQL query** without seeking additional confirmation.
   - If the SQL query results in an error, **attempt to debug, fix, and re-execute it** without requesting confirmation.
   - Ensure the SQL query adheres to the **specific dialect of the database** being used.
-  - Pay attention to the table names always use fully qualified names e.g. `content_level_monthly_stats_fruits_veggies.csv` instead of `content_level_monthly_stats_fruits_veggies`.
+  - Use the table names exactly as given below (e.g. `content_level_monthly_stats_fruits_veggies`), never a file name such as `content_level_monthly_stats_fruits_veggies.csv`.
 
   **Schema information:**
   Entities:

@@ -1,7 +1,7 @@
 name: fruit_supplier_relationships
 description: Relationship between fruits and their suppliers with pricing
 datasource: local
-table: fruit_supplier_relationships.csv
+table: fruit_supplier_relationships
 
 refresh_key:
   every: "1h"

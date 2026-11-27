@@ -3,7 +3,7 @@
 name: economic_factors
 description: "Analysis of economic and environmental factors affecting retail sales including temperature, fuel prices, CPI, and unemployment"
 datasource: "local"
-table: "oxymart.csv"
+table: oxymart
 
 entities:
   - name: economic_observation

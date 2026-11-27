@@ -88,9 +88,12 @@ pub(crate) async fn provision_tenants(
 
 /// Load every `.csv` / `.parquet` file in the workspace's [`DEMO_DATA_DIRS`]
 /// into its tenant, under the names a file DuckDB gives the file
-/// ([`ImportFile::named_like_a_file_database`]), so the examples' SQL resolves
-/// unchanged. A table that already exists is left as it is, so a second seed
-/// loads only what is missing; drop a table to reload it.
+/// ([`ImportFile::named_like_a_file_database`]): the table `main.<stem>`
+/// (slugged), plus alias views for SQL written against a file DuckDB. The
+/// examples name the table itself (`table: orders`, `FROM oxymart`), because a
+/// read-only credential refuses a file-style name such as `orders.csv`. A
+/// table that already exists is left as it is, so a second seed loads only
+/// what is missing; drop a table to reload it.
 pub(crate) async fn load_demo_data(
     conn: &DatabaseConnection,
     workspace_id: Uuid,

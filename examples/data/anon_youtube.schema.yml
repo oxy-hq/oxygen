@@ -1,4 +1,4 @@
-table: content_level_monthly_stats_fruits_veggies.csv
+table: content_level_monthly_stats_fruits_veggies
 database: local
 description: Lorem ipsum
 

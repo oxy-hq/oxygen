@@ -3,7 +3,7 @@
 name: time_analysis
 description: "Temporal analysis of retail sales including seasonal patterns, trends, and holiday effects"
 datasource: "local"
-table: "oxymart.csv"
+table: oxymart
 
 entities:
   - name: time_period

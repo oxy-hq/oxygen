@@ -1,1 +1,1 @@
-select * from "large.csv" limit 10000;
+select * from large limit 10000;

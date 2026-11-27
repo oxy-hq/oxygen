@@ -1,7 +1,7 @@
 name: order_shipments
 description: Shipment tracking for order line items (demonstrates foreign reference to composite key)
 datasource: local
-table: order_shipments.csv
+table: order_shipments
 
 refresh_key:
   every: "1h"

@@ -1,10 +1,10 @@
 name: order_returns
 description: Product returns for order line items (another composite key reference example)
 datasource: local
-table: order_returns.csv
+table: order_returns
 
 refresh_key:
-  sql: "SELECT MAX(return_id) FROM 'order_returns.csv'"
+  sql: "SELECT MAX(return_id) FROM order_returns"
 
 pre_aggregations:
   - name: returns_summary

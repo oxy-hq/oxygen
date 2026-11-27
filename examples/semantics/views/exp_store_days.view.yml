@@ -8,7 +8,7 @@ description: |
   wave dates, and double-points weeks lift every store's revenue 6% on the
   'on' weeks of a switchback.
 datasource: local
-table: exp_store_days.csv
+table: exp_store_days
 
 entities:
 - name: exp_store

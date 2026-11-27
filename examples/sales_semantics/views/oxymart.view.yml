@@ -3,7 +3,7 @@
 name: oxymart
 description: "Retail store weekly sales data with environmental and economic factors"
 datasource: "local"
-table: "oxymart.csv"
+table: oxymart
 
 # Core entities in the data model
 entities:

@@ -1,7 +1,7 @@
 name: order_items
 description: Order line items with composite primary key (order_id, line_item_id)
 datasource: local
-table: order_items.csv
+table: order_items
 
 refresh_key:
   every: "1h"

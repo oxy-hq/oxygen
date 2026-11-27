@@ -6,7 +6,7 @@ description: |
   walks from net_revenue back to fully_loaded_cost and tells you the
   marginal headcount cost of a department change.
 datasource: local
-table: "employees.csv"
+table: employees
 
 refresh_key:
   every: "1h"

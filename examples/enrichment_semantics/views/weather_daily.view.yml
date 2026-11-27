@@ -6,7 +6,7 @@ description: >
   not business-owned, keyed by location + date, provenance-tracked). Sales
   join here on loc_date for weather-adjusted analysis.
 datasource: "local"
-table: "weather_daily.csv"
+table: weather_daily
 
 entities:
   - name: weather_day

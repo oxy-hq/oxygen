@@ -6,7 +6,7 @@ description: |
   upstream half of the metric tree — net_revenue's drivers chain back
   through paid_signups → signups → leads → sessions.
 datasource: local
-table: "marketing_funnel.csv"
+table: marketing_funnel
 
 refresh_key:
   every: "1h"

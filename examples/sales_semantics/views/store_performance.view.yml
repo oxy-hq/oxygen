@@ -3,7 +3,7 @@
 name: store_performance
 description: "Store-level performance analysis focusing on individual store metrics, rankings, and comparisons"
 datasource: "local"
-table: "oxymart.csv"
+table: oxymart
 
 entities:
   - name: store

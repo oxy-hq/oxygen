@@ -1,7 +1,7 @@
 name: fruit_suppliers
 description: Suppliers who provide fruits to the business
 datasource: local
-table: fruit_suppliers.csv
+table: fruit_suppliers
 
 refresh_key:
   every: "1h"

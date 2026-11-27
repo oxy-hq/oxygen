@@ -31,7 +31,7 @@ tasks:
           Weekly_Sales,
           Store,
           Date
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       temp_aggregates AS (
         SELECT
@@ -50,7 +50,7 @@ tasks:
         SELECT
           AVG(Weekly_Sales) AS overall_avg,
           CORR(Temperature, Weekly_Sales) AS overall_correlation
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       temp_ordered AS (
         SELECT
@@ -98,7 +98,7 @@ tasks:
           STDDEV(Fuel_Price) AS stddev_fuel,
           MIN(Fuel_Price) AS min_fuel,
           MAX(Fuel_Price) AS max_fuel
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       fuel_buckets AS (
         SELECT
@@ -113,7 +113,7 @@ tasks:
           Weekly_Sales,
           Unemployment,
           Date
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       fuel_analysis AS (
         SELECT
@@ -131,7 +131,7 @@ tasks:
         SELECT
           CORR(Fuel_Price, Weekly_Sales) AS fuel_sales_corr,
           AVG(Weekly_Sales) AS overall_avg
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       fuel_ordered AS (
         SELECT
@@ -184,7 +184,7 @@ tasks:
           Weekly_Sales,
           CPI,
           Fuel_Price
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       unemployment_analysis AS (
         SELECT
@@ -205,7 +205,7 @@ tasks:
           CORR(Unemployment, Weekly_Sales) AS unemployment_sales_corr,
           CORR(CPI, Weekly_Sales) AS cpi_sales_corr,
           AVG(Weekly_Sales) AS overall_avg
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       unemployment_ordered AS (
         SELECT
@@ -258,7 +258,7 @@ tasks:
           CORR(Fuel_Price, Weekly_Sales) AS fuel_corr,
           CORR(CPI, Weekly_Sales) AS cpi_corr,
           CORR(Unemployment, Weekly_Sales) AS unemployment_corr
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'Temperature' AS factor,
@@ -267,7 +267,7 @@ tasks:
           CORR(Fuel_Price, Temperature) AS fuel_corr,
           CORR(CPI, Temperature) AS cpi_corr,
           CORR(Unemployment, Temperature) AS unemployment_corr
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'Fuel_Price' AS factor,
@@ -276,7 +276,7 @@ tasks:
           1.0 AS fuel_corr,
           CORR(CPI, Fuel_Price) AS cpi_corr,
           CORR(Unemployment, Fuel_Price) AS unemployment_corr
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'CPI' AS factor,
@@ -285,7 +285,7 @@ tasks:
           CORR(Fuel_Price, CPI) AS fuel_corr,
           1.0 AS cpi_corr,
           CORR(Unemployment, CPI) AS unemployment_corr
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'Unemployment' AS factor,
@@ -294,7 +294,7 @@ tasks:
           CORR(Fuel_Price, Unemployment) AS fuel_corr,
           CORR(CPI, Unemployment) AS cpi_corr,
           1.0 AS unemployment_corr
-        FROM 'oxymart.csv'
+        FROM oxymart
       )
       SELECT
         factor,
@@ -330,7 +330,7 @@ tasks:
             ELSE 'Med Unemp'
           END AS unemployment_category,
           Holiday_Flag
-        FROM 'oxymart.csv'
+        FROM oxymart
       ),
       combinations AS (
         SELECT
@@ -347,7 +347,7 @@ tasks:
       ),
       overall_avg AS (
         SELECT AVG(Weekly_Sales) AS overall_avg
-        FROM 'oxymart.csv'
+        FROM oxymart
       )
       SELECT
         temp_category || ' + ' || fuel_category || ' + ' || unemployment_category || ' (' || week_type || ')' AS factor_combination,
@@ -373,7 +373,7 @@ tasks:
           CORR(Temperature, Weekly_Sales) AS correlation,
           STDDEV(Temperature) AS factor_stddev,
           STDDEV(Weekly_Sales) / STDDEV(Temperature) * CORR(Temperature, Weekly_Sales) AS beta_coefficient
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'Fuel Price' AS factor_name,
@@ -381,7 +381,7 @@ tasks:
           CORR(Fuel_Price, Weekly_Sales) AS correlation,
           STDDEV(Fuel_Price) AS factor_stddev,
           STDDEV(Weekly_Sales) / STDDEV(Fuel_Price) * CORR(Fuel_Price, Weekly_Sales) AS beta_coefficient
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'CPI' AS factor_name,
@@ -389,7 +389,7 @@ tasks:
           CORR(CPI, Weekly_Sales) AS correlation,
           STDDEV(CPI) AS factor_stddev,
           STDDEV(Weekly_Sales) / STDDEV(CPI) * CORR(CPI, Weekly_Sales) AS beta_coefficient
-        FROM 'oxymart.csv'
+        FROM oxymart
         UNION ALL
         SELECT
           'Unemployment' AS factor_name,
@@ -397,7 +397,7 @@ tasks:
           CORR(Unemployment, Weekly_Sales) AS correlation,
           STDDEV(Unemployment) AS factor_stddev,
           STDDEV(Weekly_Sales) / STDDEV(Unemployment) * CORR(Unemployment, Weekly_Sales) AS beta_coefficient
-        FROM 'oxymart.csv'
+        FROM oxymart
       )
       SELECT
         factor_name,

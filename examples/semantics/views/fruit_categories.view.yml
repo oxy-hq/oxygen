@@ -1,7 +1,7 @@
 name: fruit_categories
 description: Top-level product taxonomy — groups fruits into broad category families
 datasource: local
-table: fruit_categories.csv
+table: fruit_categories
 
 entities:
 - name: fruit_category

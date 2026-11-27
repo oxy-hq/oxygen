@@ -1,4 +1,4 @@
-table: monthly_active_user_by_platform.csv
+table: monthly_active_user_by_platform
 database: local
 description: ''
 entities: []

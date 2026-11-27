@@ -15,7 +15,7 @@ tasks:
     type: execute_sql
     database: local
     sql_query: |
-      SELECT * FROM monthly_active_user_by_platform.csv
+      SELECT * FROM monthly_active_user_by_platform
       WHERE month = '{{ month }}' AND platform = '{{ platform }}'
 
   - name: report

@@ -15,7 +15,7 @@ description: |
   biggest lever — precisely the case a raw total-to-total comparison misses,
   since EU carries the highest per-sale rate yet no addressable upside.)
 datasource: local
-table: "regional_sales.csv"
+table: regional_sales
 
 refresh_key:
   every: "1h"

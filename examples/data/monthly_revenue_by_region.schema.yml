@@ -1,4 +1,4 @@
-table: monthly_revenue_by_region.csv
+table: monthly_revenue_by_region
 database: local
 description: ''
 entities: []

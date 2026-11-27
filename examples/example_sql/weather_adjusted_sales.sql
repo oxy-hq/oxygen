@@ -16,7 +16,7 @@ SELECT
     ROUND(AVG(s.dine_in_sales), 0)                          AS avg_dine_in,
     ROUND(AVG(s.delivery_sales), 0)                         AS avg_delivery,
     ROUND(100.0 * AVG(s.delivery_sales) / AVG(s.net_sales), 1) AS delivery_mix_pct
-FROM 'sales_daily.csv' s
-JOIN 'weather_daily.csv' w ON s.loc_date = w.loc_date
+FROM sales_daily s
+JOIN weather_daily w ON s.loc_date = w.loc_date
 GROUP BY weather
 ORDER BY weather;

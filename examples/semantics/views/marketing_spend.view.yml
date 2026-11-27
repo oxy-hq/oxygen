@@ -5,7 +5,7 @@ description: |
   sessions drive leads, etc. Provides the inputs for CAC / CPC / CTR
   ratio metrics and the top of the predict_impact chain.
 datasource: local
-table: "marketing_spend.csv"
+table: marketing_spend
 
 refresh_key:
   every: "1h"

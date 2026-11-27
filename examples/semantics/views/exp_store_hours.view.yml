@@ -4,7 +4,7 @@ description: |
   hour-grain experiment example. Nothing is planted here: it is the history an
   hourly switchback is priced against.
 datasource: local
-table: exp_store_hours.csv
+table: exp_store_hours
 
 entities:
 - name: exp_store

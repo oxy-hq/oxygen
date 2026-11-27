@@ -31,7 +31,7 @@ tasks:
         strftime("Date", '%Y-%m') AS month,
         ROUND({{ aggregation_sql }}, 2) AS metric_value,
         COUNT(*) AS num_weeks
-      FROM oxymart.csv
+      FROM oxymart
       GROUP BY 1
       ORDER BY 1 ASC
       LIMIT 6

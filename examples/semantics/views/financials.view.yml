@@ -36,19 +36,19 @@ sql: |
            SUM(total_amount)                     AS gross_revenue,
            SUM(tax_amount)                       AS tax,
            SUM(shipping_cost)                    AS shipping
-    FROM 'orders.csv'
+    FROM orders
     GROUP BY 1
   ) o
   FULL OUTER JOIN (
     SELECT date_trunc('month', month)::DATE AS month,
            SUM(salary_cost + benefits_cost) AS payroll
-    FROM 'employees.csv'
+    FROM employees
     GROUP BY 1
   ) e ON e.month = o.month
   FULL OUTER JOIN (
     SELECT date_trunc('month', cost_date)::DATE AS month,
            SUM(amount)                          AS total_op_cost
-    FROM 'operating_costs.csv'
+    FROM operating_costs
     GROUP BY 1
   ) c ON c.month = COALESCE(o.month, e.month)
 

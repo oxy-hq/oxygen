@@ -1,7 +1,7 @@
 name: macro
 description: Daily macronutrient intake — calories, fat, carbs, and protein.
 datasource: training
-table: "macro.csv"
+table: macro
 
 entities:
   - name: nutrition_day

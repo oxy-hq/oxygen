@@ -17,8 +17,8 @@ sql: |
     s.name AS supplier_name,
     s.country AS supplier_country,
     s.rating AS supplier_rating
-  FROM 'fruit_supplier_relationships.csv' r
-  JOIN 'fruit_suppliers.csv' s
+  FROM fruit_supplier_relationships r
+  JOIN fruit_suppliers s
     ON r.supplier_id = s.id
 
 refresh_key:

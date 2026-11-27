@@ -5,4 +5,4 @@
       - What is the total weekly sales for all stores
 */
 SELECT SUM(Weekly_Sales) AS total_weekly_sales
-FROM 'oxymart.csv';
+FROM oxymart;

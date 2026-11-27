@@ -1,7 +1,7 @@
 name: customers
 description: Customer data for fruit sales analysis
 datasource: local
-table: customer.csv
+table: customer
 
 refresh_key:
   every: "1h"

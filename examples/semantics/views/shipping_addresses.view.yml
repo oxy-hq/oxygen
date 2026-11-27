@@ -1,7 +1,7 @@
 name: shipping_addresses
 description: Customer shipping addresses for order delivery
 datasource: local
-table: shipping_addresses.csv
+table: shipping_addresses
 entities:
 - name: shipping_address
   type: primary

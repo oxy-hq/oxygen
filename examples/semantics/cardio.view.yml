@@ -1,7 +1,7 @@
 name: cardio
 description: Cardio training log — treadmill and stairmaster sessions with heart rate zones.
 datasource: training
-table: "cardio_4_4.csv"
+table: cardio_4_4
 
 entities:
   - name: cardio_session

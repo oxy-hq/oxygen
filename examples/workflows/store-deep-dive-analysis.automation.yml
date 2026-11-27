@@ -24,7 +24,7 @@ tasks:
           AVG(Weekly_Sales) AS avg_weekly_sales,
           COUNT(*) AS weeks_active,
           RANK() OVER (ORDER BY SUM(Weekly_Sales) DESC) AS sales_rank
-        FROM 'oxymart.csv'
+        FROM oxymart
         GROUP BY Store
       )
       SELECT
@@ -62,7 +62,7 @@ tasks:
               EXTRACT(YEAR FROM CAST(Date AS DATE)) AS year,
               EXTRACT(MONTH FROM CAST(Date AS DATE)) AS month,
               EXTRACT(QUARTER FROM CAST(Date AS DATE)) AS quarter
-            FROM 'oxymart.csv'
+            FROM oxymart
             WHERE Store = {{ analyze_each_store.value }}
           ),
           metrics AS (
@@ -129,7 +129,7 @@ tasks:
               Weekly_Sales,
               Date,
               EXTRACT(MONTH FROM CAST(Date AS DATE)) AS month
-            FROM 'oxymart.csv'
+            FROM oxymart
             WHERE Store = {{ analyze_each_store.value }}
           ),
           holiday_metrics AS (
@@ -192,7 +192,7 @@ tasks:
               EXTRACT(QUARTER FROM CAST(Date AS DATE)) AS quarter,
               Weekly_Sales,
               Temperature
-            FROM 'oxymart.csv'
+            FROM oxymart
             WHERE Store = {{ analyze_each_store.value }}
           ),
           quarterly_performance AS (
@@ -271,7 +271,7 @@ tasks:
               Fuel_Price,
               CPI,
               Unemployment
-            FROM 'oxymart.csv'
+            FROM oxymart
             WHERE Store = {{ analyze_each_store.value }}
           ),
           correlations AS (
@@ -421,7 +421,7 @@ tasks:
       -- Aggregate insights from all analyzed stores
       WITH analyzed_stores AS (
         SELECT Store
-        FROM 'oxymart.csv'
+        FROM oxymart
         WHERE Store IN (20, 4, 14, 13, 2, 10, 27, 6, 1, 39)
         GROUP BY Store
       ),
@@ -433,7 +433,7 @@ tasks:
           STDDEV(om.Weekly_Sales) AS sales_volatility,
           AVG(CASE WHEN om.Holiday_Flag = 1 THEN om.Weekly_Sales END) AS holiday_avg,
           AVG(CASE WHEN om.Holiday_Flag = 0 THEN om.Weekly_Sales END) AS non_holiday_avg
-        FROM 'oxymart.csv' om
+        FROM oxymart om
         JOIN analyzed_stores ast ON om.Store = ast.Store
         GROUP BY om.Store
       )

@@ -1,7 +1,7 @@
 name: orders
 description: Customer orders with shipping and payment information
 datasource: local
-table: "orders.csv"
+table: orders
 
 refresh_key:
   every: "1h"

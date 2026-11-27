@@ -7,7 +7,7 @@ description: |
   and a search badge on ten tools and power SKUs (+15% conversion from
   2026-06-15, traffic unchanged).
 datasource: local
-table: exp_sku_days.csv
+table: exp_sku_days
 
 entities:
 - name: exp_sku

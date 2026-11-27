@@ -1,10 +1,10 @@
 name: fruits
 description: Fruit catalog data with pricing information
 datasource: local
-table: fruit.csv
+table: fruit
 
 refresh_key:
-  sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM 'fruit.csv'"
+  sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM fruit"
 
 pre_aggregations:
   # covers: revenue_by_fruit task — fruit_name dimension joined with order_items measures
@@ -15,7 +15,7 @@ pre_aggregations:
     measures:
       - total_fruits
     refresh_key:
-      sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM 'fruit.csv'"
+      sql: "SELECT COUNT(*) || '-' || CAST(MAX(price) AS VARCHAR) FROM fruit"
 
 entities:
 - name: fruit

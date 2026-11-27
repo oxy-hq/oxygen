@@ -8,7 +8,7 @@ description: >
   the underlying feed refreshes. Rounds the "provenance is first-class" claim
   from the data-enrichment pattern into the semantic model.
 datasource: "local"
-table: "signal_source.csv"
+table: signal_source
 
 entities:
   - name: signal_source

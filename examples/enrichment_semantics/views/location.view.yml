@@ -3,7 +3,7 @@
 name: location
 description: "Restaurant chain locations (owned business data) with geo coordinates."
 datasource: "local"
-table: "location.csv"
+table: location
 
 entities:
   - name: location

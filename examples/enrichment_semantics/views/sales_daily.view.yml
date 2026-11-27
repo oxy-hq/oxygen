@@ -6,7 +6,7 @@ description: >
   loc_date and to location on location_id, enabling weather-adjusted sales
   analysis (rain-day lift, sales by temperature bucket, etc.).
 datasource: "local"
-table: "sales_daily.csv"
+table: sales_daily
 
 entities:
   - name: sale_day

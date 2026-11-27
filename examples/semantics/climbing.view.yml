@@ -1,7 +1,7 @@
 name: climbing
 description: Bouldering session log — each row is one climb attempt.
 datasource: training
-table: "climbing.csv"
+table: climbing
 
 entities:
   - name: climb

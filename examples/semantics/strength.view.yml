@@ -1,7 +1,7 @@
 name: strength
 description: Strength training log — each row is one set of an exercise.
 datasource: training
-table: "strength.csv"
+table: strength
 
 entities:
   - name: strength_set
