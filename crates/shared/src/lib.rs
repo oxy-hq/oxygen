@@ -13,6 +13,7 @@ pub mod claude_pricing;
 pub mod db_pool_metrics;
 pub mod domain;
 pub mod duckdb_s3;
+pub mod duration_opt;
 pub mod email;
 pub mod errors;
 pub mod fleet_role;

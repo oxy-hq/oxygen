@@ -23,7 +23,7 @@ pub struct ReconcileConfig {
     /// has actually landed. Absent = zero. Overridable via `window.freshness`.
     #[serde(
         default,
-        with = "oxy_metric_monitoring::config::duration_opt",
+        with = "oxy_shared::duration_opt",
         skip_serializing_if = "Option::is_none"
     )]
     pub freshness: Option<std::time::Duration>,
@@ -213,7 +213,7 @@ pub struct Window {
     /// than `now`. Absent = the file-level `freshness`, else zero.
     #[serde(
         default,
-        with = "oxy_metric_monitoring::config::duration_opt",
+        with = "oxy_shared::duration_opt",
         skip_serializing_if = "Option::is_none"
     )]
     pub freshness: Option<std::time::Duration>,
