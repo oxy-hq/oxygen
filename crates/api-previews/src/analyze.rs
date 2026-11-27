@@ -86,7 +86,8 @@ pub async fn analyze(
     run: &entity::workspace_preview_runs::Model,
     live: &dyn LiveTables,
 ) -> Result<AnalyzeReport, DbErr> {
-    let promoted = oxy_preagg::promote::promoted_revision(db, run.workspace_id).await?;
+    let promoted =
+        oxy_compile_runtime::preagg_promote::promoted_revision(db, run.workspace_id).await?;
     let changed = changed_pipelines(db, run.revision_id, promoted).await?;
     let prepared = evaluate::prepare_all(changed.clone()).await;
     let managed = match promoted {

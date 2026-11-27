@@ -12,10 +12,9 @@ edition.workspace = true
 # The preview platform the runs execute on (the preview Airhouse and context,
 # the run resolver, the workspace middleware and SQL execution).
 oxy-workspace-runtime = { workspace = true }
-# The compile request, the commit compile and the revision-in-use clause.
+# The compile request, the commit compile, the revision-in-use clause and the
+# promoted revision the change check compares against (`preagg_promote`).
 oxy-compile-runtime = { workspace = true }
-# The promoted revision the change check compares against.
-oxy-preagg = { workspace = true }
 # The previews' rows (registry, DDL, namespace, sources, pin, the run queue),
 # below oxy-app since 2026-11-22.
 oxy-previews = { workspace = true }

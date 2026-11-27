@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`). Below oxy-server, above oxy-compile, oxy-app-core and oxy-preagg; a previewed branch's change check goes out through `ports::PreviewChangeCheck`; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`) with the post-promote rollup nudge it runs (`preagg_promote`). Below oxy-server, above oxy-compile and oxy-app-core; a previewed branch's change check goes out through `ports::PreviewChangeCheck`; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -10,7 +10,8 @@ edition.workspace = true
 [dependencies]
 # `TaskSpec` and its retry policy: a commit compile is a queued task.
 agentic-core = { workspace = true }
-# `worker`: the health and pre-aggregation schedule reconciles after a promote.
+# `worker`: the health and pre-aggregation schedule reconciles after a promote,
+# and `preagg_promote`'s post-promote cycle enqueue.
 agentic-pipeline = { workspace = true }
 # `COMPILE_GIT_SOURCE_TYPE` and `TaskScope`: the task's run stamp and scope.
 agentic-runtime = { workspace = true }
@@ -19,6 +20,8 @@ entity = { workspace = true }
 oxy = { workspace = true }
 # `process_role` and `workspace_repo_facts`.
 oxy-app-core = { workspace = true }
+# `preagg_promote`: parse a promoted revision's views for their rollup hashes.
+oxy-airlayer-compat = { workspace = true }
 oxy-compile = { workspace = true }
 # `request`: the working-copy fallback reads a branch's head and worktree.
 oxy-git = { workspace = true }
@@ -26,8 +29,6 @@ oxy-git = { workspace = true }
 oxy-feature-flags = { workspace = true }
 # `migrator`: apply a revision's OLTP schemas before it is promoted.
 oxy-oltp = { workspace = true }
-# `worker`: the post-promote rollup nudge (`promote`).
-oxy-preagg = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 

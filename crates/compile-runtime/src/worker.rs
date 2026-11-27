@@ -199,7 +199,7 @@ async fn drive(
     // recoverable from `workspaces` at all, and the `revisions` history cannot
     // say which of its rows was the one being served.
     let served_before = if spec.promote {
-        oxy_preagg::promote::promoted_revision(&db, spec.workspace_id)
+        crate::preagg_promote::promoted_revision(&db, spec.workspace_id)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(
@@ -321,7 +321,7 @@ async fn drive(
                             );
                             false
                         });
-                    oxy_preagg::promote::nudge_after_promote(
+                    crate::preagg_promote::nudge_after_promote(
                         &db,
                         spec.workspace_id,
                         served_before,
@@ -657,7 +657,7 @@ fn preagg_reconcile_target(
 ///
 /// Returns what it resolved ([`PreaggReconcile`]). The promote path reads the
 /// opt-in so a workspace with no `pre_aggregations:` block cannot be handed a
-/// cycle through [`oxy_preagg::promote::nudge_after_promote`]; the
+/// cycle through [`crate::preagg_promote::nudge_after_promote`]; the
 /// periodic driver reads whether it is settled, so a failed read or write
 /// leaves the workspace to be retried on its next claim.
 pub async fn reconcile_preagg_from_compiled(

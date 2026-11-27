@@ -724,7 +724,7 @@ aho-corasick = "1.1"
 #         engine that already validated — but that is where it is decided.
 #       - rebuild cycle (`preagg_executor::resolve_cycle_rollups`) → the cycle
 #         fails, naming view/rollup/measure, before the ledger prune.
-#       - promote tick (`oxy_preagg::promote::rollup_hashes`) → the view contributes
+#       - promote tick (`oxy_compile_runtime::preagg_promote::rollup_hashes`) → the view contributes
 #         no hashes, at warn — same standing as a view that won't parse.
 #       - rollups panel (`oxy_api_semantic::preagg::declared_rollups`) → rows stay listed
 #         and carry a new additive `refused` field; the web-app does not render

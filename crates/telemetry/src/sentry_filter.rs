@@ -1158,9 +1158,9 @@ mod tests {
             "oxy_preagg::generation",
             "oxy_preagg::rebuild",
             "oxy_preagg::retract",
-            // The post-promote nudge followed it (out of
-            // `oxy_app::server::preagg_promote`), classified as it was there.
-            "oxy_preagg::promote",
+            // The post-promote nudge (`oxy_app::server::preagg_promote`, then
+            // `oxy_preagg::promote`), classified as it was there.
+            "oxy_compile_runtime::preagg_promote",
             // The cycle's body followed it (out of
             // `oxy_app::server::preagg_executor`, which keeps the executor
             // shell), classified as it was there.
@@ -1735,9 +1735,9 @@ mod tests {
             "oxy_preagg::generation",
             "oxy_preagg::rebuild",
             "oxy_preagg::retract",
-            // The post-promote nudge followed it (out of
-            // `oxy_app::server::preagg_promote`), classified as it was there.
-            "oxy_preagg::promote",
+            // The post-promote nudge (`oxy_app::server::preagg_promote`, then
+            // `oxy_preagg::promote`), classified as it was there.
+            "oxy_compile_runtime::preagg_promote",
             // The cycle's body followed it (out of
             // `oxy_app::server::preagg_executor`, which keeps the executor
             // shell), classified as it was there.

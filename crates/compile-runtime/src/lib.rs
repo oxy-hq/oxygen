@@ -13,6 +13,9 @@
 //!   through `oxy_compile::ConfigGate`.
 //! - [`oltp`]: apply a revision's OLTP schemas, then promote it.
 //! - [`maintenance`]: the stuck-compile reaper and the revision retention loop.
+//! - [`preagg_promote`]: the pre-aggregation tick a promote owes (was
+//!   `oxy_preagg::promote`, moved to its only caller on 2026-11-27 so
+//!   `oxy-preagg` drops `agentic-pipeline`; `internal-docs/crate-tiers.md`).
 //! - [`request`]: the branch or commit compile a person waits on, its status
 //!   read, and the compile task enqueue (was `server::compile_request`, moved
 //!   on 2026-11-22, the decompose's C2; re-exported at
@@ -41,6 +44,7 @@ pub mod git;
 pub mod maintenance;
 pub mod oltp;
 pub mod ports;
+pub mod preagg_promote;
 pub mod reconcile;
 pub mod request;
 pub mod worker;

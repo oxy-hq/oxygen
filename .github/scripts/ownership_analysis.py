@@ -76,6 +76,10 @@ AREAS = [
     ("crates/app/src/server/authz",                       "Authorization (app enforce)"),
     ("crates/auth",                                       "Authentication"),
     ("crates/oxy-compile",                                "Compile boundary"),
+    # The post-promote rollup nudge moved out of crates/preagg into
+    # compile-runtime 2026-11-27 (crate depth); it stays pre-aggregation's, so
+    # it is listed before the crate's own prefix (first match wins).
+    ("crates/compile-runtime/src/preagg_promote.rs",      "Pre-aggregation runtime"),
     # The compile boundary's runtime leaves moved into crates/compile-runtime
     # 2026-11-21; the pre-extraction paths keep their history.
     ("crates/compile-runtime",                            "Compile boundary"),
@@ -179,7 +183,8 @@ AREAS = [
     ("crates/app/src/server/api/semantic_scan.rs",        "Semantic model"),
     # The pre-aggregation runtime's domain half, 2026-11-20; the pre-extraction
     # paths keep their history (`preagg_promote.rs` followed as
-    # `oxy_preagg::promote` the same day, the cycle's body as
+    # `oxy_preagg::promote` the same day, then moved on to
+    # `oxy_compile_runtime::preagg_promote` 2026-11-27; the cycle's body as
     # `oxy_preagg::cycle`), and the executor shell that stayed in oxy-app
     # joins them.
     ("crates/preagg",                                     "Pre-aggregation runtime"),
