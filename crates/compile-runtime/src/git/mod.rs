@@ -35,8 +35,6 @@ pub use download::MAX_ARCHIVE_BYTES;
 pub use task::{enqueue, fetch_for_task, retry_policy};
 pub use unpack::{Limits, MAX_TREE_BYTES, MAX_TREE_FILES, UnpackError, Unpacked};
 
-use oxy_app_core::workspace_repo_facts::stored_repo_subdir;
-
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGitError {
     #[error("workspace {0} is not registered")]
@@ -218,7 +216,7 @@ impl CommitSource {
             repo,
             sha,
             token,
-            repo_subdir: stored_repo_subdir(&row).map(str::to_string),
+            repo_subdir: row.stored_repo_subdir().map(str::to_string),
         })
     }
 }
@@ -325,7 +323,7 @@ pub async fn fetch(source: &CommitSource) -> Result<FetchedTree, CompileGitError
     let workspace_path = workspace_root_in(&tree, source.repo_subdir.as_deref())?;
     preflight::check(
         &workspace_path,
-        oxy_app_core::process_role::current_process_role() != oxy_shared::fleet_role::Role::All,
+        oxy_shared::fleet_role::current_process_role() != oxy_shared::fleet_role::Role::All,
         oxy_compile::blob_store::bucket().is_some(),
     )?;
     Ok(FetchedTree {

@@ -6,23 +6,12 @@ pub use crate::process_role::{
     current_process_role, init_process_role_from_env, init_process_role_from_env_with_default,
     role_owns_workspace_files,
 };
-pub use oxy_shared::fleet_role::{Role, RouteRole};
-
-pub fn process_can_compile() -> bool {
-    role_owns_workspace_files(current_process_role())
-}
-
-pub fn role_runs_inprocess_workers(role: Role) -> bool {
-    !matches!(role, Role::Serve)
-}
-
-/// Whether this process may write the workspace filesystem: only one that owns
-/// the workspace files (`Ide`, or `All` in single-process mode). This was
-/// `role != Serve`, which let a `worker` through, so a write a worker reached
-/// went to a checkout that process does not have.
-pub fn process_is_fs_writable() -> bool {
-    role_owns_workspace_files(current_process_role())
-}
+/// The role predicates and the route-pattern matcher live in the kernel
+/// (`oxy_shared::fleet_role`), re-exported here at their old paths.
+pub use oxy_shared::fleet_role::{
+    Role, RouteRole, pattern_matches, process_can_compile, process_is_fs_writable,
+    role_runs_inprocess_workers,
+};
 
 pub fn ensure_fs_writable(operation: &str) -> Result<(), OxyError> {
     if process_is_fs_writable() {
@@ -160,37 +149,4 @@ pub fn specificity(decl_method: &str, pattern: &str) -> u32 {
     (u32::from(!pattern.contains("{*")) << 16)
         | (literal_segments << 1)
         | u32::from(decl_method != "*")
-}
-
-pub fn pattern_matches(pattern: &str, path: &str) -> bool {
-    let mut pat = pattern.trim_start_matches('/').split('/');
-    let mut req = path.trim_start_matches('/').split('/');
-    loop {
-        match (pat.next(), req.next()) {
-            (None, None) => return true,
-            (Some(_), None) | (None, Some(_)) => return false,
-            (Some(p), Some(r)) => {
-                if is_rest_wildcard(p) {
-                    return !r.is_empty();
-                }
-                if is_param(p) {
-                    if r.is_empty() {
-                        return false;
-                    }
-                    continue;
-                }
-                if p != r {
-                    return false;
-                }
-            }
-        }
-    }
-}
-
-fn is_param(seg: &str) -> bool {
-    seg.starts_with('{') && seg.ends_with('}') && !seg.starts_with("{*")
-}
-
-fn is_rest_wildcard(seg: &str) -> bool {
-    seg.starts_with("{*") && seg.ends_with('}')
 }

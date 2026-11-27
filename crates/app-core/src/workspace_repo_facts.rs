@@ -22,14 +22,17 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 /// The default branch recorded on `row`, if one has been.
+/// [`workspaces::Model::stored_default_branch`], kept as a free function at its
+/// old path for the callers that name it here.
 pub fn stored_default_branch(row: &workspaces::Model) -> Option<String> {
-    row.default_branch.clone().filter(|b| !b.is_empty())
+    row.stored_default_branch()
 }
 
 /// The workspace's subdirectory in its repository as recorded on `row`.
 /// `None` is the repository root: NULL and the empty string mean the same.
+/// [`workspaces::Model::stored_repo_subdir`], kept at its old path.
 pub fn stored_repo_subdir(row: &workspaces::Model) -> Option<&str> {
-    row.repo_subdir.as_deref().filter(|s| !s.is_empty())
+    row.stored_repo_subdir()
 }
 
 /// Bring `row`'s two columns in line with the checkout at `workspace_path`,

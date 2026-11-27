@@ -22,7 +22,6 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 use super::{commit_sha, github_slug_of};
-use oxy_app_core::workspace_repo_facts::stored_default_branch;
 
 /// The commit a self-heal recompiles.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +52,7 @@ pub async fn heal(db: &DatabaseConnection, workspace_id: Uuid) -> Heal {
     let remote = row.git_remote_url.as_deref();
     let connected = row.git_namespace_id.is_some();
     let Some(promoted_id) = row.current_revision_id else {
-        return if first_compile_by_check(remote, connected, &stored_default_branch(&row)) {
+        return if first_compile_by_check(remote, connected, &row.stored_default_branch()) {
             Heal::CheckBranch
         } else {
             Heal::WorkingCopy
@@ -82,7 +81,7 @@ pub async fn heal(db: &DatabaseConnection, workspace_id: Uuid) -> Heal {
     plan(
         remote,
         connected,
-        stored_default_branch(&row).or(promoted.branch),
+        row.stored_default_branch().or(promoted.branch),
         &promoted.git_sha,
     )
     .map_or(Heal::WorkingCopy, Heal::Commit)

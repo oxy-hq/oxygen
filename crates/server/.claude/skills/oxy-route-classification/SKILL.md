@@ -98,4 +98,4 @@ A static list can only cover the routes someone remembered. Both of these are ze
 - `internal-docs/multi-instance-fleet.md` — the fleet guide (model, the stateful-vs-HA matrix, self-routing, `super_read_only`, code map).
 - `oxy-compile-boundary` skill — when the right fix is "compile it to Postgres" instead of "pin it to the ide".
 - `internal-docs/factory-retirement.md` — the plan to take the `IdeOnly` count to zero, with the full inventory of what is pinned and why.
-- `role_manifest.rs` module docs (`crates/app-core/src/pods/role_manifest.rs`) — the segment-by-segment matching semantics. Its tests live in `crates/server/src/role_manifest_tests.rs`.
+- `role_manifest.rs` (`crates/app-core/src/pods/role_manifest.rs`) — the declarations, `classify` and the specificity rank. The segment-by-segment matching semantics are `pattern_matches` in the kernel (`crates/shared/src/fleet_role.rs`), re-exported at the `role_manifest` path. The tests for both live in `crates/server/src/role_manifest_tests.rs`.

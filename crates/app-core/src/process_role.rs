@@ -4,13 +4,12 @@
 //! workspace files.
 //!
 //! The role manifest (`oxy_app::server::role_manifest`) re-exports all of this;
-//! it owns route classification, this owns the process-wide fact.
+//! it owns route classification, this owns reading the role from the
+//! environment. The cell itself, its getter and the role predicates live in
+//! the kernel (`oxy_shared::fleet_role`), so a crate below `oxy-app-core` can
+//! ask which pod it is; they are re-exported here at their old paths.
 
-use std::sync::OnceLock;
-
-pub use oxy_shared::fleet_role::Role;
-
-static PROCESS_ROLE: OnceLock<Role> = OnceLock::new();
+pub use oxy_shared::fleet_role::{Role, current_process_role, role_owns_workspace_files};
 
 pub fn init_process_role_from_env() -> Role {
     init_process_role_from_env_with_default(Role::All)
@@ -25,19 +24,11 @@ pub fn init_process_role_from_env() -> Role {
 /// the worker binary as an all-in-one.
 pub fn init_process_role_from_env_with_default(default: Role) -> Role {
     let role = crate::config::BootConfig::current().role.resolve(default);
-    let _ = PROCESS_ROLE.set(role);
+    let _ = oxy_shared::fleet_role::set_process_role(role);
     oxy::workspace_fs_probe::set_process_owns_workspace_files(role_owns_workspace_files(role));
     oxy::file_duckdb_limits::set_limits_apply(file_duckdb_limits_apply(role));
     tracing::info!(role = role.as_str(), "role manifest initialised");
     role
-}
-
-pub fn current_process_role() -> Role {
-    *PROCESS_ROLE.get().unwrap_or(&Role::All)
-}
-
-pub fn role_owns_workspace_files(role: Role) -> bool {
-    matches!(role, Role::Ide | Role::All)
 }
 
 /// Whether a file DuckDB (`dataset:` / `path:`) runs under the cloud limits on

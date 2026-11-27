@@ -124,4 +124,22 @@ pub struct Model {
     pub slack_threads: HasMany<super::slack_threads::Entity>,
 }
 
+impl Model {
+    /// The default branch recorded on this row, if one has been. An empty
+    /// string reads as none.
+    ///
+    /// Here, beside the column, so a crate that reads it needs `entity` and not
+    /// `oxy-app-core` (`oxy_app_core::workspace_repo_facts` re-exports it as a
+    /// free function and keeps the write side, `record_from_checkout`).
+    pub fn stored_default_branch(&self) -> Option<String> {
+        self.default_branch.clone().filter(|b| !b.is_empty())
+    }
+
+    /// The workspace's subdirectory in its repository as recorded on this row.
+    /// `None` is the repository root: NULL and the empty string mean the same.
+    pub fn stored_repo_subdir(&self) -> Option<&str> {
+        self.repo_subdir.as_deref().filter(|s| !s.is_empty())
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}

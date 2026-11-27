@@ -6609,12 +6609,6 @@ metric = "abc"
 value = 47.10626285325551
 
 [[entry]]
-path = "crates/app-core/src/pods/role_manifest.rs"
-qualified = "pattern_matches"
-metric = "cognitive"
-value = 16.0
-
-[[entry]]
 path = "crates/app-core/src/rate_limit.rs"
 qualified = "<file>"
 metric = "loc.ploc"
@@ -10058,6 +10052,12 @@ path = "crates/shared/src/errors.rs"
 qualified = "StatusCode::from"
 metric = "cyclomatic"
 value = 27.0
+
+[[entry]]
+path = "crates/shared/src/fleet_role.rs"
+qualified = "pattern_matches"
+metric = "cognitive"
+value = 16.0
 
 [[entry]]
 path = "crates/shared/src/http_tests.rs"

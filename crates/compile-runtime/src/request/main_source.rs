@@ -12,7 +12,6 @@ use entity::workspaces;
 
 use super::Refusal;
 use super::from_git::{Unresolved, branch_head};
-use oxy_app_core::workspace_repo_facts::stored_default_branch;
 
 /// What an operator's compile of `main` will read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +37,7 @@ pub async fn main_source(
         .map(str::trim)
         .filter(|b| !b.is_empty())
         .map(str::to_string)
-        .or_else(|| stored_default_branch(workspace));
+        .or_else(|| workspace.stored_default_branch());
     let Some(branch) = branch else {
         return no_branch(owns_working_copy);
     };

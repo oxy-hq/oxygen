@@ -18,9 +18,8 @@
 use std::sync::Arc;
 
 use oxy::config::model::{Config, DatabaseType, DuckDBOptions, SnowflakeAuthType};
-use oxy_app_core::process_role::current_process_role;
 use oxy_compile::{CompiledConfig, ConfigGate, merge_compiled_config};
-use oxy_shared::fleet_role::Role;
+use oxy_shared::fleet_role::{Role, current_process_role};
 
 use oxy_feature_flags::{cache, rollout};
 

@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use super::enqueue::{CompileEnqueue, enqueue_compile_deduped_as};
 use crate::git::github_repository;
-use oxy_app_core::workspace_repo_facts::stored_default_branch;
 
 /// How long a workspace GitHub will not answer for is left alone: its
 /// repository or branch is gone, or the token cannot see it. An hour is short
@@ -124,7 +123,7 @@ pub(super) async fn check(
     let Ok((owner, repo)) = github_repository(&row) else {
         return Outcome::Uncheckable("it has no github.com remote");
     };
-    let Some(branch) = stored_default_branch(&row) else {
+    let Some(branch) = row.stored_default_branch() else {
         return Outcome::Uncheckable("its default branch is not recorded");
     };
     let token = match github_token_for_workspace(&row).await {

@@ -153,7 +153,7 @@ async fn drive(
 
     // A commit compile brings its own tree, so the role's working copy — the
     // thing this check is about — is not involved.
-    if !spec.from_git && !oxy_app_core::pods::role_manifest::process_can_compile() {
+    if !spec.from_git && !oxy_shared::fleet_role::process_can_compile() {
         // FAIL, do not defer.
         //
         // An earlier revision deferred here, reasoning that "cannot compile" is
@@ -186,7 +186,7 @@ async fn drive(
             .send(TaskOutcome::Failed(format!(
                 "compile requires a workspace working copy, which OXY_ROLE={} does not own. \
                  Route Compile tasks to an ide or all node.",
-                oxy_app_core::process_role::current_process_role().as_str()
+                oxy_shared::fleet_role::current_process_role().as_str()
             )))
             .await;
         return;
