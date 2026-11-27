@@ -7642,24 +7642,6 @@ metric = "abc"
 value = 41.677331968349414
 
 [[entry]]
-path = "crates/core/src/execution_analytics/storage.rs"
-qualified = "ExecutionAnalyticsStorage::get_executions"
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "crates/core/src/execution_analytics/types.rs"
-qualified = "model_price_per_mtok"
-metric = "cognitive"
-value = 20.0
-
-[[entry]]
-path = "crates/core/src/execution_analytics/types.rs"
-qualified = "model_price_per_mtok"
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
 path = "crates/core/src/github/client.rs"
 qualified = "GitHubClient"
 metric = "nom"
@@ -7880,6 +7862,24 @@ path = "crates/custom-apps/src/environments.rs"
 qualified = "upsert_fixed"
 metric = "nargs"
 value = 6.0
+
+[[entry]]
+path = "crates/observability/src/execution_analytics/storage.rs"
+qualified = "ExecutionAnalyticsStorage::get_executions"
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "crates/observability/src/execution_analytics/types.rs"
+qualified = "model_price_per_mtok"
+metric = "cognitive"
+value = 20.0
+
+[[entry]]
+path = "crates/observability/src/execution_analytics/types.rs"
+qualified = "model_price_per_mtok"
+metric = "cyclomatic"
+value = 19.0
 
 [[entry]]
 path = "crates/workspace-runtime/src/result_cache.rs"

@@ -37,7 +37,7 @@ other domain crates     ┘
 | `metrics` (~1.3k) | Metrics plumbing. |
 | `github` (~0.9k) | GitHub API helpers. |
 | `observability` (~0.9k) | Core observability hooks (distinct from the `oxy-observability` crate). |
-| `tools`, `types`, `execution_analytics`, `database`, `render`, `state_dir` | Tool defs, shared types, exec analytics, DB helpers, client renderer (`render_stream`), state-dir resolution. `theme` (`StyledText`) is `oxy-shared`'s since 2026-11-21, re-exported here. |
+| `tools`, `types`, `database`, `render`, `state_dir` | Tool defs, shared types, DB helpers, client renderer (`render_stream`), state-dir resolution. `theme` (`StyledText`) is `oxy-shared`'s since 2026-11-21, re-exported here; `execution_analytics` (the exec-analytics response types and storage) is `oxy-observability`'s since 2026-11-27, re-exported here for one release. |
 
 ## Key entry points
 

@@ -2,10 +2,10 @@
 //!
 //! Delegates to the observability store for execution analytics data.
 
-use oxy_observability::WorkspaceScope;
+use crate::WorkspaceScope;
 use std::sync::Arc;
 
-use oxy_observability::{
+use crate::{
     AgentExecutionStatsData, ExecutionDetailData, ExecutionListData, ExecutionSummaryData,
     ExecutionTimeBucketData,
 };
@@ -21,18 +21,18 @@ use super::types::{
 /// Wraps an [`ObservabilityStore`] reference and converts its result types into the
 /// API-facing types defined in [`super::types`].
 pub struct ExecutionAnalyticsStorage {
-    storage: Arc<dyn oxy_observability::ObservabilityStore>,
+    storage: Arc<dyn crate::ObservabilityStore>,
 }
 
 impl ExecutionAnalyticsStorage {
-    pub fn new(storage: Arc<dyn oxy_observability::ObservabilityStore>) -> Self {
+    pub fn new(storage: Arc<dyn crate::ObservabilityStore>) -> Self {
         Self { storage }
     }
 
     /// Create from the global observability storage singleton.
     /// Returns an error if the global has not been initialized.
     pub fn from_global() -> Result<Self, OxyError> {
-        let storage = oxy_observability::global::require_global()?.clone();
+        let storage = crate::global::require_global()?.clone();
         Ok(Self { storage })
     }
 

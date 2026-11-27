@@ -1,5 +1,5 @@
 //! Anthropic list prices: the one table both `agentic_llm::pricing` (the react
-//! cost cap, run costs) and `oxy::execution_analytics` (the cost pages) read,
+//! cost cap, run costs) and `oxy_observability::execution_analytics` (the cost pages) read,
 //! so the two can never price one model differently.
 
 /// Per-million-token USD rates for one Claude model. `cache_write` is the

@@ -8,7 +8,9 @@ pub mod constants;
 pub mod database;
 pub mod exec_runtime;
 pub mod exec_types;
-pub mod execution_analytics;
+/// Moved to `oxy_observability::execution_analytics` (depth stage C, D6,
+/// 2026-11-27); re-exported here for one release.
+pub use oxy_observability::execution_analytics;
 pub mod file_duckdb_limits;
 pub mod github;
 pub mod metrics;

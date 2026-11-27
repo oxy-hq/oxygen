@@ -8,6 +8,7 @@ pub mod backends;
 pub mod burn_rate;
 pub mod custom_app_sink;
 pub mod duration;
+pub mod execution_analytics;
 pub mod fleet_health;
 pub(crate) mod flush_queue;
 pub mod global;

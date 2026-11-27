@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use oxy::execution_analytics::{
+use oxy_observability::execution_analytics::{
     AgentExecutionStats, ExecutionCostResponse, ExecutionDetail, ExecutionListResponse,
     ExecutionSummary, ExecutionTimeBucket, HistogramBucket, LatencyHistogramResponse,
     LatencyPercentilePoint, LatencyPercentilesResponse, LatencyTriple, ModelCost, model_cost_usd,

@@ -18,8 +18,8 @@ edition.workspace = true
 # bounded grant's reach by hand. Nothing depends back on this crate, so the
 # catalog note above still holds.
 oxy-app-core = { workspace = true }            # AppState and its observability store, seams::AdminSection, admin_db
-oxy-observability = { workspace = true }       # WorkspaceScope, the store's row types
-oxy = { workspace = true }                     # oxy::metrics / oxy::execution_analytics response shapes
+oxy-observability = { workspace = true }       # WorkspaceScope, the store's row types, `execution_analytics`' response shapes
+oxy = { workspace = true }                     # oxy::metrics response shapes
 oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
 oxy-auth = { workspace = true }                # AuthenticatedUserExtractor, for the admin section
 oxy-server-authz = { workspace = true }        # Action, staff::scope (the admin section's fence)
