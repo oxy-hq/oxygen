@@ -576,13 +576,8 @@ impl DatabaseConnector for MysqlConnector {
         // Meta-statements like SHOW/DESCRIBE/EXPLAIN produce result sets but
         // cannot be used as derived-table subqueries. Detect them early so we
         // can adjust both the column type mapping and the execution strategy.
-        let first_kw = sql
-            .trim_start()
-            .split_ascii_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_ascii_uppercase();
-        let wrappable = matches!(first_kw.as_str(), "SELECT" | "WITH" | "TABLE" | "VALUES");
+        // Leading comments are skipped, as on the first-row path.
+        let wrappable = is_wrappable_mysql(sql);
 
         // Use the prepared-statement protocol to get column type info without
         // creating a temp table. Falls back to execute() for DDL / DML that

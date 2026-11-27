@@ -24,6 +24,7 @@
 
 mod fetch;
 mod session_state;
+mod statement_kind;
 mod typed;
 
 use std::collections::HashMap;
@@ -43,6 +44,7 @@ use agentic_core::result::{
     TypedValue,
 };
 
+use self::statement_kind::{StatementKind, classify};
 use self::typed::{describe_type_to_typed, parse_cell};
 
 // ── Error helpers ─────────────────────────────────────────────────────────────
@@ -746,43 +748,6 @@ fn first_row_statement(sql: &str) -> Option<String> {
         .then(|| agentic_connector::first_row_probe_sql(sql, " AS _q"))
 }
 
-/// What shape of statement is this — for picking the right execution path?
-///
-/// Three categories matter to the airhouse connector:
-///
-/// - `Subquery`: `SELECT` / `WITH` / `FROM` / `TABLE` / `VALUES`. Pure
-///   relational expressions that can be wrapped in `CREATE TEMP TABLE AS
-///   (…)`, `DESCRIBE (…)`, and `SELECT … FROM (…)`. Goes through the
-///   typed path.
-/// - `Statement`: `SHOW` / `SUMMARIZE` / `DESCRIBE` / `EXPLAIN` / `PIVOT` /
-///   `UNPIVOT`. Top-level DuckDB statements that **return rows** but are
-///   **not** subquery-able — `DESCRIBE SHOW` and `SELECT * FROM (SHOW)` both
-///   error in DuckDB. Executed directly, all columns surfaced as `Text`.
-/// - `DdlDml`: `CREATE` / `INSERT` / `UPDATE` / `DELETE` / `ALTER` / `DROP` /
-///   anything else. Executed directly, returns no rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StatementKind {
-    Subquery,
-    Statement,
-    DdlDml,
-}
-
-fn classify(sql: &str) -> StatementKind {
-    let first = sql
-        .trim_start()
-        .split_ascii_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_ascii_uppercase();
-    match first.as_str() {
-        "SELECT" | "WITH" | "FROM" | "TABLE" | "VALUES" => StatementKind::Subquery,
-        "SHOW" | "SUMMARIZE" | "DESCRIBE" | "EXPLAIN" | "PIVOT" | "UNPIVOT" => {
-            StatementKind::Statement
-        }
-        _ => StatementKind::DdlDml,
-    }
-}
-
 /// Decode one row of the Airhouse simple-query result into [`TypedValue`]s.
 ///
 /// Each column's string is parsed according to its pre-computed
@@ -1015,7 +980,7 @@ fn detect_join_keys(tables: &[SchemaTableInfo]) -> Vec<(String, String, String)>
 
 #[cfg(test)]
 mod tests {
-    use super::{StatementKind, classify, first_row_statement};
+    use super::first_row_statement;
 
     #[test]
     fn first_row_probe_is_wrapped_limited_and_survives_a_trailing_comment() {
@@ -1041,53 +1006,5 @@ mod tests {
             first_row_statement("SET threads = 1; SELECT max(ts) FROM t"),
             None
         );
-    }
-
-    #[test]
-    fn select_family_is_subquery() {
-        for sql in [
-            "SELECT 1",
-            "  select 1",
-            "WITH t AS (SELECT 1) SELECT * FROM t",
-            "FROM t SELECT *",
-            "TABLE t",
-            "VALUES (1, 2)",
-        ] {
-            assert_eq!(classify(sql), StatementKind::Subquery, "sql: {sql}");
-        }
-    }
-
-    #[test]
-    fn duckdb_result_producing_keywords_are_statement_form() {
-        // These return rows but cannot be wrapped in `(…)` — DESCRIBE / temp
-        // table / subquery wrappings all reject them. Need to be executed
-        // directly via the `Statement` path.
-        for sql in [
-            "SHOW TABLES",
-            "show databases",
-            "SHOW SCHEMAS",
-            "SUMMARIZE my_table",
-            "DESCRIBE my_table",
-            "EXPLAIN SELECT 1",
-            "PIVOT t ON year USING sum(amount)",
-            "UNPIVOT t ON a, b",
-        ] {
-            assert_eq!(classify(sql), StatementKind::Statement, "sql: {sql}");
-        }
-    }
-
-    #[test]
-    fn ddl_dml_is_ddldml() {
-        for sql in [
-            "CREATE TABLE t (id INT)",
-            "INSERT INTO t VALUES (1)",
-            "UPDATE t SET id = 2",
-            "DELETE FROM t",
-            "DROP TABLE t",
-            "ALTER TABLE t ADD COLUMN c INT",
-            "",
-        ] {
-            assert_eq!(classify(sql), StatementKind::DdlDml, "sql: {sql}");
-        }
     }
 }

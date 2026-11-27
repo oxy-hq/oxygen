@@ -716,8 +716,8 @@ pub fn guard_row_stream(
 }
 
 /// Strip leading whitespace and SQL comments so the first real keyword can
-/// be inspected.
-pub(crate) fn strip_leading_noise(sql: &str) -> &str {
+/// be inspected. Connectors pick an execution path through this, never a bare first token.
+pub fn strip_leading_noise(sql: &str) -> &str {
     let mut s = sql.trim_start();
     loop {
         if let Some(rest) = s.strip_prefix("--") {
