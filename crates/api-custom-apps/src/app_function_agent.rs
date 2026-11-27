@@ -54,11 +54,14 @@ pub(crate) async fn recheck(
             tracing::info!(%token_id, error = %e, "queued check run: token not admitted again");
             ENDED.to_string()
         })?;
-    let minter = UserService::find_user_by_identity(&resolved.identity)
-        .await
-        .map_err(|e| format!("minter lookup failed: {e}"))?
-        .ok_or_else(|| ENDED.to_string())?
-        .with_credential(Some(resolved.credential));
+    let minter = UserService::find_user_by_identity(
+        oxy::database::client::establish_connection,
+        &resolved.identity,
+    )
+    .await
+    .map_err(|e| format!("minter lookup failed: {e}"))?
+    .ok_or_else(|| ENDED.to_string())?
+    .with_credential(Some(resolved.credential));
     let app = apps::Entity::find_by_id(app_id)
         .one(db)
         .await

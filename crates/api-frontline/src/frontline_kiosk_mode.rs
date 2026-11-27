@@ -189,7 +189,7 @@ pub(crate) async fn signed_in_account(headers: &HeaderMap) -> Option<String> {
         .authenticate(headers)
         .await
         .ok()?;
-    let user = UserService::find_user_by_identity(&identity)
+    let user = UserService::find_user_by_identity(establish_connection, &identity)
         .await
         .ok()
         .flatten()?;

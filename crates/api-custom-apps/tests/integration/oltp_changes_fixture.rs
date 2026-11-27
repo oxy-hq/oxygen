@@ -320,6 +320,13 @@ pub(crate) fn flag_db(
     move || std::future::ready(Ok::<_, oxy_shared::errors::OxyError>(db.clone()))
 }
 
+/// The same for an auth lookup (`UserService`): the test's own database
+/// handle, not the process-wide pool.
+pub(crate) fn auth_db(db: &sea_orm::DatabaseConnection) -> impl oxy_auth::ports::AuthDb + 'static {
+    let db = db.clone();
+    move || std::future::ready(Ok::<_, oxy_shared::errors::OxyError>(db.clone()))
+}
+
 pub(crate) async fn connect(dsn: &str) -> Client {
     oxy_oltp::connect::connect(dsn, "oltp_changes test")
         .await

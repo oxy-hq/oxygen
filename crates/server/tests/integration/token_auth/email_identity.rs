@@ -106,18 +106,24 @@ async fn a_new_account_is_stored_lowercase_and_made_once() {
         email,
     };
 
-    let first = UserService::get_or_create_user(&identity(format!("New.Person-{tag}@Example.com")))
-        .await
-        .expect("create");
+    let first = UserService::get_or_create_user(
+        oxy::database::client::establish_connection,
+        &identity(format!("New.Person-{tag}@Example.com")),
+    )
+    .await
+    .expect("create");
     assert_eq!(
         first.email.as_deref(),
         Some(format!("new.person-{tag}@example.com").as_str())
     );
 
     // The same mailbox in other capitals is the same account, not a second one.
-    let again = UserService::get_or_create_user(&identity(format!("NEW.PERSON-{tag}@example.COM")))
-        .await
-        .expect("find");
+    let again = UserService::get_or_create_user(
+        oxy::database::client::establish_connection,
+        &identity(format!("NEW.PERSON-{tag}@example.COM")),
+    )
+    .await
+    .expect("find");
     assert_eq!(again.id, first.id);
 }
 
@@ -180,12 +186,14 @@ async fn an_account_made_from_a_non_ascii_address_is_found_again() {
     // The write and then the read. Storing with one rule for "lowercase" and
     // looking up with another made the second sign-in miss the row the first
     // one wrote — and then collide with it on insert.
-    let first = UserService::get_or_create_user(&identity())
-        .await
-        .expect("create");
-    let again = UserService::get_or_create_user(&identity())
-        .await
-        .expect("find the account just made");
+    let first =
+        UserService::get_or_create_user(oxy::database::client::establish_connection, &identity())
+            .await
+            .expect("create");
+    let again =
+        UserService::get_or_create_user(oxy::database::client::establish_connection, &identity())
+            .await
+            .expect("find the account just made");
     assert_eq!(again.id, first.id);
     // ASCII letters are still folded on the way in; the rest is left to the
     // database, which is the one that compares.

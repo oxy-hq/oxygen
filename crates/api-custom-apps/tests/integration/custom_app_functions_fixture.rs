@@ -150,13 +150,16 @@ pub(crate) async fn throwaway_org(t: &Tenant) -> Tenant {
 }
 
 async fn add_guest_as_owner(db: &DatabaseConnection, org_id: Uuid) -> Uuid {
-    let guest = UserService::get_or_create_user(&Identity {
-        // A fixture that must MINT its guest, so no id.
-        user_id: None,
-        email: LOCAL_GUEST_EMAIL.to_string(),
-        name: Some("Local User".to_string()),
-        picture: None,
-    })
+    let guest = UserService::get_or_create_user(
+        oxy::database::client::establish_connection,
+        &Identity {
+            // A fixture that must MINT its guest, so no id.
+            user_id: None,
+            email: LOCAL_GUEST_EMAIL.to_string(),
+            name: Some("Local User".to_string()),
+            picture: None,
+        },
+    )
     .await
     .expect("guest user");
     let now = Utc::now().fixed_offset();

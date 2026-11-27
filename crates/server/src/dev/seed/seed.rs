@@ -347,13 +347,16 @@ async fn bind_org_admin_emails(conn: &sea_orm::DatabaseConnection) -> Result<(),
     let mut bound = 0u32;
     let mut skipped = 0u32;
     for email in &parsed {
-        let user = UserService::get_or_create_user(&Identity {
-            // A seed path: this must be able to mint the row, so no id.
-            user_id: None,
-            email: email.clone(),
-            name: Some(email.split('@').next().unwrap_or(email).to_string()),
-            picture: None,
-        })
+        let user = UserService::get_or_create_user(
+            establish_connection,
+            &Identity {
+                // A seed path: this must be able to mint the row, so no id.
+                user_id: None,
+                email: email.clone(),
+                name: Some(email.split('@').next().unwrap_or(email).to_string()),
+                picture: None,
+            },
+        )
         .await?;
 
         let existing = OrgMembers::find()

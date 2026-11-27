@@ -164,12 +164,13 @@ pub async fn auth_middleware<T: Authenticator>(
             name: Some("Local User".to_string()),
             picture: None,
         };
-        let user = UserService::get_or_create_user(&identity)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get or create local guest user: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let user =
+            UserService::get_or_create_user(oxy_platform::db::establish_connection, &identity)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get or create local guest user: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
         if user.status != UserStatus::Active {
             tracing::warn!(
                 "Local guest user is not active (status: {}) — refusing request",
@@ -215,7 +216,7 @@ pub async fn auth_middleware<T: Authenticator>(
         }
     };
 
-    let user = UserService::get_or_create_user(&claims)
+    let user = UserService::get_or_create_user(oxy_platform::db::establish_connection, &claims)
         .await
         .map_err(|e| match e {
             // A token that names a user who no longer exists is an
@@ -350,7 +351,7 @@ pub async fn api_key_only_middleware(
         }
     };
 
-    let user = UserService::get_or_create_user(&identity)
+    let user = UserService::get_or_create_user(oxy_platform::db::establish_connection, &identity)
         .await
         .map_err(|e| {
             tracing::error!("external API: failed to resolve user from API key: {e}");
@@ -388,12 +389,13 @@ pub async fn internal_auth_middleware(
         picture: None,
     };
 
-    let user = UserService::get_or_create_user(&internal_identity)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get or create internal user: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let user =
+        UserService::get_or_create_user(oxy_platform::db::establish_connection, &internal_identity)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get or create internal user: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     request.extensions_mut().insert(user);
     Ok(next.run(request).await)

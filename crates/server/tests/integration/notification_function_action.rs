@@ -92,6 +92,13 @@ fn bundle() -> Vec<u8> {
     gz.finish().expect("finish gzip")
 }
 
+/// The guest lookup's connector: this test's own database handle (the one
+/// `OXY_DATABASE_URL` points at), not the process-wide pool.
+fn own_db(db: &DatabaseConnection) -> impl oxy_auth::ports::AuthDb + 'static {
+    let db = db.clone();
+    move || std::future::ready(Ok::<_, oxy_shared::errors::OxyError>(db.clone()))
+}
+
 /// `seed_demo`'s Local org, with the guest as its Owner to publish.
 async fn local_org(db: &DatabaseConnection) -> (Uuid, Uuid) {
     let org = organizations::Entity::find()
@@ -101,12 +108,15 @@ async fn local_org(db: &DatabaseConnection) -> (Uuid, Uuid) {
         .expect("query org")
         .expect("seed_demo creates the local org")
         .id;
-    let guest = UserService::get_or_create_user(&Identity {
-        user_id: None,
-        email: LOCAL_GUEST_EMAIL.to_string(),
-        name: Some("Local User".to_string()),
-        picture: None,
-    })
+    let guest = UserService::get_or_create_user(
+        own_db(db),
+        &Identity {
+            user_id: None,
+            email: LOCAL_GUEST_EMAIL.to_string(),
+            name: Some("Local User".to_string()),
+            picture: None,
+        },
+    )
     .await
     .expect("guest user");
     let now = Utc::now().fixed_offset();

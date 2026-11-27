@@ -323,12 +323,15 @@ async fn staging_cancel_refuses_a_caller_who_may_not_open_staging() {
 /// The guest's thread in the demo workspace, with `source`.
 async fn guest_thread(t: &Tenant, source: &str) -> Uuid {
     // The guest the gates attach to a cookieless request.
-    let user = oxy_auth::user::UserService::get_or_create_user(&oxy_auth::types::Identity {
-        user_id: None,
-        email: oxy_auth::user::LOCAL_GUEST_EMAIL.to_string(),
-        name: Some("Local User".to_string()),
-        picture: None,
-    })
+    let user = oxy_auth::user::UserService::get_or_create_user(
+        crate::oltp_changes_fixture::auth_db(&t.db),
+        &oxy_auth::types::Identity {
+            user_id: None,
+            email: oxy_auth::user::LOCAL_GUEST_EMAIL.to_string(),
+            name: Some("Local User".to_string()),
+            picture: None,
+        },
+    )
     .await
     .expect("guest user");
     let id = Uuid::new_v4();

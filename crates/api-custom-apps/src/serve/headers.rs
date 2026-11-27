@@ -161,7 +161,7 @@ pub(super) async fn redirect_legacy_uuid(
             Ok(authenticated) => authenticated,
             Err(_) => return redirect_to_login(headers, uri).into_response(),
         };
-    let Some(user) = UserService::find_user_by_identity(&identity)
+    let Some(user) = UserService::find_user_by_identity(establish_connection, &identity)
         .await
         .unwrap_or(None)
     else {

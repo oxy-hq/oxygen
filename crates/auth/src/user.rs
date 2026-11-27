@@ -2,11 +2,11 @@ use entity::db_failure::DbFailure;
 use entity::filters::UserQueryFilterExt;
 use entity::prelude::Users;
 use entity::users;
-use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ActiveValue, DbErr, EntityTrait, Set, prelude::*};
 use uuid::Uuid;
 
+use crate::ports::AuthDb;
 use crate::types::{AuthenticatedUser, Identity};
 use entity::users::UserStatus;
 
@@ -37,9 +37,10 @@ impl UserService {
     /// Used by non-mutating endpoints (e.g. `GET /user`) where an incidental user
     /// row should not be minted just because someone hit the endpoint.
     pub async fn find_user_by_identity(
+        db: impl AuthDb,
         identity: &Identity,
     ) -> Result<Option<AuthenticatedUser>, OxyError> {
-        let connection = establish_connection().await?;
+        let connection = db.connect().await?;
         // By id when the credential carries one. A session JWT always does, and
         // for a frontline worker it is the only thing that resolves — their
         // `users.email` is NULL, so the address lookup below matches nothing.
@@ -61,8 +62,11 @@ impl UserService {
         Ok(user.map(|u| u.into()))
     }
 
-    pub async fn get_or_create_user(identity: &Identity) -> Result<AuthenticatedUser, OxyError> {
-        let connection = establish_connection().await?;
+    pub async fn get_or_create_user(
+        db: impl AuthDb,
+        identity: &Identity,
+    ) -> Result<AuthenticatedUser, OxyError> {
+        let connection = db.connect().await?;
 
         // A credential naming a user id resolves to that user, full stop. It
         // must NEVER fall through to the create path below: minting a second
@@ -139,11 +143,12 @@ impl UserService {
     }
 
     pub async fn update_user_profile(
+        db: impl AuthDb,
         user_id: Uuid,
         name: Option<String>,
         picture: Option<String>,
     ) -> Result<AuthenticatedUser, OxyError> {
-        let connection = establish_connection().await?;
+        let connection = db.connect().await?;
 
         let user = Users::find_by_id(user_id)
             .one(&connection)
@@ -169,8 +174,8 @@ impl UserService {
         Ok(updated_user.into())
     }
 
-    pub async fn list_all_users() -> Result<Vec<AuthenticatedUser>, OxyError> {
-        let connection = establish_connection().await?;
+    pub async fn list_all_users(db: impl AuthDb) -> Result<Vec<AuthenticatedUser>, OxyError> {
+        let connection = db.connect().await?;
 
         let users = Users::find()
             .all(&connection)
@@ -180,8 +185,8 @@ impl UserService {
         Ok(users.into_iter().map(|user| user.into()).collect())
     }
 
-    pub async fn delete_user(user_id: Uuid) -> Result<(), OxyError> {
-        let connection = establish_connection().await?;
+    pub async fn delete_user(db: impl AuthDb, user_id: Uuid) -> Result<(), OxyError> {
+        let connection = db.connect().await?;
 
         let user = Users::find_by_id(user_id)
             .filter_active()
@@ -200,8 +205,12 @@ impl UserService {
         Ok(())
     }
 
-    pub async fn update_user_status(user_id: Uuid, status: UserStatus) -> Result<(), OxyError> {
-        let connection = establish_connection().await?;
+    pub async fn update_user_status(
+        db: impl AuthDb,
+        user_id: Uuid,
+        status: UserStatus,
+    ) -> Result<(), OxyError> {
+        let connection = db.connect().await?;
 
         let user = Users::find_by_id(user_id)
             .one(&connection)

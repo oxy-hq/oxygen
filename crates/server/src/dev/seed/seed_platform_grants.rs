@@ -114,13 +114,16 @@ pub async fn seed_platform_grants() -> Result<(), OxyError> {
         // Create the user too. A grant is keyed by email and may precede signup by
         // design — but a seeded operator nobody can log in as demonstrates nothing,
         // and this is the same thing `bind_org_admin_emails` does for env admins.
-        UserService::get_or_create_user(&Identity {
-            // A seed path: this must be able to mint the row, so no id.
-            user_id: None,
-            email: grant.email.to_string(),
-            name: Some(grant.name.to_string()),
-            picture: None,
-        })
+        UserService::get_or_create_user(
+            establish_connection,
+            &Identity {
+                // A seed path: this must be able to mint the row, so no id.
+                user_id: None,
+                email: grant.email.to_string(),
+                name: Some(grant.name.to_string()),
+                picture: None,
+            },
+        )
         .await?;
 
         let scope_org = match grant.scope_org_slug {

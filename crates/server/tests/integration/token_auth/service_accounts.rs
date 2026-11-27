@@ -309,7 +309,12 @@ async fn a_service_account_cannot_be_invited_or_signed_in_to() {
             name: None,
             picture: None,
         };
-        let found = UserService::find_user_by_identity(&identity).await.unwrap();
+        let found = UserService::find_user_by_identity(
+            oxy::database::client::establish_connection,
+            &identity,
+        )
+        .await
+        .unwrap();
         assert!(
             found.is_none_or(|u| u.id != sa_id),
             "{address:?} must not resolve to the service account"

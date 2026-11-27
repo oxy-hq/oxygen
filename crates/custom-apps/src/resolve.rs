@@ -239,7 +239,7 @@ async fn cached_or_loaded_user(identity: &Identity) -> Result<AuthenticatedUser,
     if let Some(user) = cached_user(&cache_key) {
         return Ok(user);
     }
-    let user = UserService::find_user_by_identity(identity)
+    let user = UserService::find_user_by_identity(establish_connection, identity)
         .instrument(tracing::info_span!(
             target: "custom_apps_serve",
             "custom_app_user_lookup"

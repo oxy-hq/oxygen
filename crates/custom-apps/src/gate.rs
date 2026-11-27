@@ -327,7 +327,8 @@ pub async fn gate_user(identity: &Identity) -> Result<AuthenticatedUser, GateErr
     if let Some(user) = cached_user(&cache_key) {
         return Ok(user);
     }
-    match UserService::find_user_by_identity(identity).await {
+    match UserService::find_user_by_identity(oxy_platform::db::establish_connection, identity).await
+    {
         Ok(Some(user)) => {
             set_cached_user(cache_key, user.clone());
             Ok(user)

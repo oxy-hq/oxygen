@@ -82,15 +82,7 @@ async fn world() -> World {
         .expect("query org")
         .expect("seed_demo creates the local org")
         .id;
-    let guest = UserService::get_or_create_user(&Identity {
-        user_id: None,
-        email: LOCAL_GUEST_EMAIL.to_string(),
-        name: Some("Local User".to_string()),
-        picture: None,
-    })
-    .await
-    .expect("guest user")
-    .id;
+    let guest = guest_id(&db).await;
     let app = Uuid::new_v4();
     let now = chrono::Utc::now().fixed_offset();
     entity::apps::ActiveModel {
@@ -146,6 +138,30 @@ async fn both_values(w: &World) {
             .await
             .expect("app secret");
     }
+}
+
+/// The guest lookup's connector: this test's own database handle (the one
+/// `OXY_DATABASE_URL` points at), not the process-wide pool.
+fn own_db(db: &DatabaseConnection) -> impl oxy_auth::ports::AuthDb + 'static {
+    let db = db.clone();
+    move || std::future::ready(Ok::<_, oxy_shared::errors::OxyError>(db.clone()))
+}
+
+/// The guest user's id, looked up (or minted) through this test's own database
+/// handle (the one `OXY_DATABASE_URL` points at), not the process-wide pool.
+async fn guest_id(db: &DatabaseConnection) -> Uuid {
+    UserService::get_or_create_user(
+        own_db(db),
+        &Identity {
+            user_id: None,
+            email: LOCAL_GUEST_EMAIL.to_string(),
+            name: Some("Local User".to_string()),
+            picture: None,
+        },
+    )
+    .await
+    .expect("guest user")
+    .id
 }
 
 async fn row_id(db: &DatabaseConnection, name: &str) -> String {

@@ -250,7 +250,12 @@ pub async fn get_current_user_public(
             // The user carries the key or token that authenticated the request,
             // so the standing reported is what that credential holds — the same
             // thing every other route will enforce for it.
-            match UserService::find_user_by_identity(&identity).await {
+            match UserService::find_user_by_identity(
+                oxy::database::client::establish_connection,
+                &identity,
+            )
+            .await
+            {
                 Ok(Some(user)) => Ok(Json(Some(
                     user_info_from(user.with_credential(credential)).await,
                 ))),

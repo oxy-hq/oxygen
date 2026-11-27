@@ -67,7 +67,7 @@ pub fn holds_staging(caller: &oxy_server_authz::Caller, app: &apps::Model) -> bo
 /// The minter behind a sandbox agent token, read now. `Ok(None)` when no such
 /// user exists any more.
 pub async fn fresh_user(identity: &Identity) -> Result<Option<AuthenticatedUser>, OxyError> {
-    UserService::find_user_by_identity(identity).await
+    UserService::find_user_by_identity(oxy_platform::db::establish_connection, identity).await
 }
 
 /// [`resolve_app_role`] for a call that knows **which environment** it is
