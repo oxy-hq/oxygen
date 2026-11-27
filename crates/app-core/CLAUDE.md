@@ -16,7 +16,7 @@ The rule is S9 in `internal-docs/domain-boundaries.md`, enforced by
 | `Request` | Request state and context every surface reads | `app_state`, `serve_mode`, `process_role`, `config`, `forwarded`, `origin`, `org_host_dispatch`, `workspace_org`, `session`, `pods` (pod placement) |
 | `Authz` | Authorization and refusal plumbing (the decisions stay in `oxy-authz`) | `member_authz`, `gate_response`, `agent_refusal`, `agent_body`, `guards`, `assume` |
 | `Service` | Cross-cutting services with no owning context | `audit`, `pagination`, `http_cache`, `rate_limit`, `compiled_reader`, `sql_kind`, `listener` |
-| `Seam` | Traits that let a lower crate call up without depending up | `function_seam`, `semantic_pin_seam` |
+| `Seam` | Traits that let a lower crate call up without depending up | `function_seam`; `semantic_pin_seam` is now a re-export of `oxy_shared::semantic_pin_seam` |
 
 **`pods` is the split-fleet routing authority** (route roles, `RoleRouter`,
 the role middleware, the Factory relay, servability). Invoke

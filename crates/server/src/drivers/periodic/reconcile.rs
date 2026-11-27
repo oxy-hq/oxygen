@@ -21,6 +21,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Utc};
+use oxy_workspace_runtime::compile_dispatcher::OxyCompiledConfigReader;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -89,13 +90,16 @@ pub(super) async fn reconcile_workspace(db: &DatabaseConnection, ws: &Claimed) {
         revision = ?ws.current_revision_id,
         "periodic tick: reconciling schedules from the compiled revision"
     );
+    let reader = OxyCompiledConfigReader;
     let health =
-        oxy_compile_runtime::worker::reconcile_health_from_compiled(db, ws.workspace_id).await;
+        oxy_compile_runtime::worker::reconcile_health_from_compiled(db, &reader, ws.workspace_id)
+            .await;
     // The resolved opt-in is the promote path's business, not the tick's:
     // this backfills cadences, it does not seed ticks.
-    let preagg = oxy_compile_runtime::worker::reconcile_preagg_from_compiled(db, ws.workspace_id)
-        .await
-        .settled();
+    let preagg =
+        oxy_compile_runtime::worker::reconcile_preagg_from_compiled(db, &reader, ws.workspace_id)
+            .await
+            .settled();
     let monitors =
         monitors::bootstrap_from_compiled(db, ws.workspace_id, ws.current_revision_id).await;
     if health && preagg && monitors {

@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use oxy_compile_runtime::ports::PreviewChangeCheck;
+use oxy_compile_runtime::ports::{CompiledConfigReader, PreviewChangeCheck};
 use oxy_compile_runtime::worker as compile_worker;
 
 /// The compile worker's [`PreviewChangeCheck`]: after a `Ready` staging
@@ -46,6 +46,46 @@ impl PreviewChangeCheck for OxyPreviewChangeCheck {
     }
 }
 
+/// The compile worker's [`CompiledConfigReader`], over
+/// `oxy_app_core::compiled_reader`: the post-promote health and pre-aggregation
+/// reconciles read the promoted revision's compiled config through it. The
+/// compile worker takes it from [`OxyCompileDispatcher`], and `oxy-server`'s
+/// periodic reconcile driver passes it too.
+pub struct OxyCompiledConfigReader;
+
+#[async_trait]
+impl CompiledConfigReader for OxyCompiledConfigReader {
+    async fn resolve_request_revision(
+        &self,
+        workspace_id: Uuid,
+        branch_hint: Option<&str>,
+    ) -> Option<Uuid> {
+        oxy_app_core::compiled_reader::resolve_request_revision(workspace_id, branch_hint).await
+    }
+
+    async fn resolve_workspace_config_at(
+        &self,
+        revision_id: Uuid,
+    ) -> Result<Option<serde_json::Value>, sea_orm::DbErr> {
+        oxy_app_core::compiled_reader::resolve_workspace_config_at(revision_id).await
+    }
+
+    async fn resolve_reconcile_config_at(
+        &self,
+        revision_id: Uuid,
+    ) -> Result<Option<serde_json::Value>, sea_orm::DbErr> {
+        oxy_app_core::compiled_reader::resolve_reconcile_config_at(revision_id).await
+    }
+
+    async fn resolve_workspace_config(
+        &self,
+        workspace_id: Uuid,
+        branch_hint: Option<&str>,
+    ) -> Result<Option<serde_json::Value>, sea_orm::DbErr> {
+        oxy_app_core::compiled_reader::resolve_workspace_config(workspace_id, branch_hint).await
+    }
+}
+
 pub struct OxyCompileDispatcher {
     db: Arc<DatabaseConnection>,
 }
@@ -57,7 +97,11 @@ impl OxyCompileDispatcher {
 
     /// A compile worker over this dispatcher's database, with its adapters.
     fn worker(&self) -> compile_worker::CompileWorker {
-        compile_worker::CompileWorker::new(self.db.clone(), Arc::new(OxyPreviewChangeCheck))
+        compile_worker::CompileWorker::new(
+            self.db.clone(),
+            Arc::new(OxyPreviewChangeCheck),
+            Arc::new(OxyCompiledConfigReader),
+        )
     }
 
     /// The worktree path of `branch` (subdirectory-aware, via

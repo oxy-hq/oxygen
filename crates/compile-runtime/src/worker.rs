@@ -8,18 +8,17 @@
 //! (`compile_started`, `compile_progress` on each milestone,
 //! `compile_finished`) and a single terminal `TaskOutcome`.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use agentic_core::delegation::TaskOutcome;
 use agentic_runtime::orchestrator::worker::ExecutingTask;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::ports::{PreviewChangeCheck, queue_preview_check};
+use crate::ports::{CompiledConfigReader, PreviewChangeCheck, queue_preview_check};
 use oxy_compile::{
     CompileError, CompileOutcome, CompileRequest, RevisionKind, RevisionStatus, compile_workspace,
     compiler_version,
@@ -53,11 +52,20 @@ pub struct CompileSpec {
 pub struct CompileWorker {
     db: Arc<DatabaseConnection>,
     preview_check: Arc<dyn PreviewChangeCheck>,
+    compiled_config: Arc<dyn CompiledConfigReader>,
 }
 
 impl CompileWorker {
-    pub fn new(db: Arc<DatabaseConnection>, preview_check: Arc<dyn PreviewChangeCheck>) -> Self {
-        Self { db, preview_check }
+    pub fn new(
+        db: Arc<DatabaseConnection>,
+        preview_check: Arc<dyn PreviewChangeCheck>,
+        compiled_config: Arc<dyn CompiledConfigReader>,
+    ) -> Self {
+        Self {
+            db,
+            preview_check,
+            compiled_config,
+        }
     }
 
     /// Spawn a compile against the supplied spec. The returned
@@ -103,7 +111,11 @@ impl CompileWorker {
 )]
 async fn drive(
     mut spec: CompileSpec,
-    CompileWorker { db, preview_check }: CompileWorker,
+    CompileWorker {
+        db,
+        preview_check,
+        compiled_config,
+    }: CompileWorker,
     event_tx: mpsc::Sender<(String, Value)>,
     cancel: CancellationToken,
     outcome_tx: mpsc::Sender<TaskOutcome>,
@@ -298,29 +310,30 @@ async fn drive(
                 // workspace's `health_eval` schedule row from the freshly
                 // compiled `health_check`. Best-effort — never fail the compile.
                 if spec.promote {
-                    reconcile_health_from_compiled(&db, spec.workspace_id).await;
+                    reconcile_health_from_compiled(&db, &*compiled_config, spec.workspace_id).await;
                     // The reconcile settles the CADENCE and deliberately keeps
                     // the next fire slot; it is not a tick. A promote that
                     // re-hashed a rollup has work that would otherwise sit out
                     // the whole interval, so the nudge below asks for one —
                     // gated on the same opt-in the reconcile just resolved.
-                    let preagg_enabled = reconcile_preagg_from_compiled(&db, spec.workspace_id)
-                        .await
-                        .enabled()
-                        .unwrap_or_else(|| {
-                            // `None` and `Some(false)` both mean "no tick", but
-                            // they are different answers to "why didn't my
-                            // promote build it?" — one is the tenant's opt-out,
-                            // the other a read that failed. Only the second is
-                            // worth a line.
-                            tracing::debug!(
-                                target: "preagg",
-                                workspace_id = %spec.workspace_id,
-                                "the preagg reconcile carried no statement of intent; \
-                                 skipping the post-promote cycle"
-                            );
-                            false
-                        });
+                    let preagg_enabled =
+                        reconcile_preagg_from_compiled(&db, &*compiled_config, spec.workspace_id)
+                            .await
+                            .enabled()
+                            .unwrap_or_else(|| {
+                                // `None` and `Some(false)` both mean "no tick", but
+                                // they are different answers to "why didn't my
+                                // promote build it?" — one is the tenant's opt-out,
+                                // the other a read that failed. Only the second is
+                                // worth a line.
+                                tracing::debug!(
+                                    target: "preagg",
+                                    workspace_id = %spec.workspace_id,
+                                    "the preagg reconcile carried no statement of intent; \
+                                     skipping the post-promote cycle"
+                                );
+                                false
+                            });
                     crate::preagg_promote::nudge_after_promote(
                         &db,
                         spec.workspace_id,
@@ -467,7 +480,7 @@ fn health_settings_from_config(
 ///   *every* workspace at startup, so collapsing it into "disabled" would switch
 ///   off healthy tenants on one bad read and leave no trace.
 ///
-/// Mirrors `compiled_reader::resolve_workspace_config_typed`'s handling of the
+/// Mirrors `oxy-app-core`'s `resolve_workspace_config_typed` handling of the
 /// same three cases.
 fn health_reconcile_target(
     read: Result<Option<Value>, sea_orm::DbErr>,
@@ -508,14 +521,13 @@ fn health_reconcile_target(
 /// forced interval.
 pub async fn reconcile_health_from_compiled(
     db: &DatabaseConnection,
+    reader: &dyn CompiledConfigReader,
     workspace_id: uuid::Uuid,
 ) -> bool {
     // One revision for the whole pass: the schedule this writes and the
     // `reconcile.yml` the warning below looks for must describe the same
     // compile, or a promote landing mid-pass warns about the wrong one.
-    let Some(revision_id) =
-        oxy_app_core::compiled_reader::resolve_request_revision(workspace_id, None).await
-    else {
+    let Some(revision_id) = reader.resolve_request_revision(workspace_id, None).await else {
         tracing::debug!(
             target: "health_eval",
             %workspace_id,
@@ -523,13 +535,13 @@ pub async fn reconcile_health_from_compiled(
         );
         return true;
     };
-    let read = oxy_app_core::compiled_reader::resolve_workspace_config_at(revision_id).await;
+    let read = reader.resolve_workspace_config_at(revision_id).await;
     let read_failed = read.is_err();
     let Some((interval, opt_in)) = health_reconcile_target(read, workspace_id) else {
         return !read_failed;
     };
     if let Some((cause, remedy)) = opt_in.inert_reconcile_warning() {
-        warn_if_reconcile_goes_inert(workspace_id, revision_id, cause, remedy).await;
+        warn_if_reconcile_goes_inert(reader, workspace_id, revision_id, cause, remedy).await;
     }
     if let Err(e) = agentic_runtime::schedules::reconcile_health_schedule(
         db,
@@ -572,14 +584,13 @@ pub async fn reconcile_health_from_compiled(
 /// repetition is the feature; don't "fix" it. Best-effort: a read failure is
 /// not worth a log line of its own here.
 async fn warn_if_reconcile_goes_inert(
+    reader: &dyn CompiledConfigReader,
     workspace_id: uuid::Uuid,
     revision_id: uuid::Uuid,
     cause: &str,
     remedy: &str,
 ) {
-    if let Ok(Some(_)) =
-        oxy_app_core::compiled_reader::resolve_reconcile_config_at(revision_id).await
-    {
+    if let Ok(Some(_)) = reader.resolve_reconcile_config_at(revision_id).await {
         tracing::warn!(
             target: "health_eval",
             %workspace_id,
@@ -662,9 +673,10 @@ fn preagg_reconcile_target(
 /// leaves the workspace to be retried on its next claim.
 pub async fn reconcile_preagg_from_compiled(
     db: &DatabaseConnection,
+    reader: &dyn CompiledConfigReader,
     workspace_id: uuid::Uuid,
 ) -> PreaggReconcile {
-    let read = oxy_app_core::compiled_reader::resolve_workspace_config(workspace_id, None).await;
+    let read = reader.resolve_workspace_config(workspace_id, None).await;
     let read_failed = read.is_err();
     let Some((interval, enabled)) = preagg_reconcile_target(read, workspace_id) else {
         return if read_failed {
@@ -853,7 +865,6 @@ pub async fn asked_at(
     db: &DatabaseConnection,
     task_id: &str,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -885,7 +896,6 @@ async fn superseded_since(
     workspace_id: Uuid,
     asked_at: chrono::DateTime<chrono::Utc>,
 ) -> bool {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let found = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

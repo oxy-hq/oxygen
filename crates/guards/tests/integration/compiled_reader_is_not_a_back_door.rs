@@ -90,10 +90,14 @@ const ALLOWED: &[(&str, &str)] = &[
          into `oxy-workspace-runtime`, 2026-11-22.)",
     ),
     (
-        "../compile-runtime/src/worker.rs",
-        "Checks the revision it JUST wrote, before anything reads it. A manager \
-         reads the promoted revision, which is a different question. (Was \
-         `src/server/compile_worker.rs` until it moved down, 2026-11-22.)",
+        "../workspace-runtime/src/compile_dispatcher.rs",
+        "The compile worker's `CompiledConfigReader` adapter. The worker \
+         reconciles the health and pre-aggregation schedule rows from the \
+         compiled config right after its own promote, and `oxy-server`'s \
+         periodic driver does the same off the HTTP path; neither has a \
+         manager. (The worker, `../compile-runtime/src/worker.rs`, named \
+         `compiled_reader` itself until it took these reads through \
+         `oxy_compile_runtime::ports`, depth stage C, 2026-11-27.)",
     ),
     (
         "../app-core/src/pods/servability.rs",

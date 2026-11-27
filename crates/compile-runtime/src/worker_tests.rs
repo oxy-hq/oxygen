@@ -36,6 +36,44 @@ impl crate::ports::PreviewChangeCheck for PreviewsChangeCheck {
     }
 }
 
+/// The worker's compiled-config reads. These tests compile staging revisions
+/// without promoting them, so the post-promote reconciles that read through it
+/// never run; it answers "nothing compiled" if one ever does.
+struct NoCompiledConfig;
+
+#[async_trait::async_trait]
+impl crate::ports::CompiledConfigReader for NoCompiledConfig {
+    async fn resolve_request_revision(
+        &self,
+        _workspace_id: Uuid,
+        _branch_hint: Option<&str>,
+    ) -> Option<Uuid> {
+        None
+    }
+
+    async fn resolve_workspace_config_at(
+        &self,
+        _revision_id: Uuid,
+    ) -> Result<Option<Value>, sea_orm::DbErr> {
+        Ok(None)
+    }
+
+    async fn resolve_reconcile_config_at(
+        &self,
+        _revision_id: Uuid,
+    ) -> Result<Option<Value>, sea_orm::DbErr> {
+        Ok(None)
+    }
+
+    async fn resolve_workspace_config(
+        &self,
+        _workspace_id: Uuid,
+        _branch_hint: Option<&str>,
+    ) -> Result<Option<Value>, sea_orm::DbErr> {
+        Ok(None)
+    }
+}
+
 const BRANCH: &str = "feat/x";
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -64,7 +102,11 @@ fn working_copy() -> tempfile::TempDir {
 /// Run one staging compile of `branch` at [`SHA`] through the worker and wait
 /// for its terminal outcome.
 async fn compile_staging(db: &DatabaseConnection, ws: Uuid, root: &std::path::Path) {
-    let worker = CompileWorker::new(Arc::new(db.clone()), Arc::new(PreviewsChangeCheck));
+    let worker = CompileWorker::new(
+        Arc::new(db.clone()),
+        Arc::new(PreviewsChangeCheck),
+        Arc::new(NoCompiledConfig),
+    );
     let mut task = worker.execute(CompileSpec {
         workspace_id: ws,
         workspace_path: root.to_path_buf(),

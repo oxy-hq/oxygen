@@ -30,14 +30,17 @@
 //!   `oxy_compile::compile_workspace` on the runtime's task channels and runs
 //!   what follows a promote (the OLTP settle, the health and pre-aggregation
 //!   schedule reconciles, the rollup nudge, the env pins and a preview's
-//!   checks, the last through [`ports::PreviewChangeCheck`]) (was `server::compile_worker`, moved on 2026-11-22, the
-//!   decompose's C4; its `oxy_app::server::compile_worker` re-export went in
-//!   decompose SHM).
+//!   checks, the last through [`ports::PreviewChangeCheck`]; the reconciles
+//!   read compiled config through [`ports::CompiledConfigReader`]) (was
+//!   `server::compile_worker`, moved on 2026-11-22, the decompose's C4; its
+//!   `oxy_app::server::compile_worker` re-export went in decompose SHM).
 //!
-//! It is its own crate, not part of `oxy-compile`, because it needs
-//! `oxy-app-core` (the process role, the workspace's repository facts), and
-//! `oxy-app-core` depends on `oxy-compile`:
-//! `internal-docs/domain-boundaries.md`, End state.
+//! It is its own crate, not part of `oxy-compile`, because it needs `oxy` (the
+//! strict `Config` and the GitHub client), and `oxy` depends on `oxy-compile`:
+//! `internal-docs/domain-boundaries.md`, End state. It needed `oxy-app-core`
+//! too until depth stage C: the process role and the repository facts went
+//! down to `oxy-shared` and `entity`, the pin seam to `oxy-shared`, and the
+//! compiled-config reads come in through a port.
 
 pub mod config_gate;
 pub mod git;

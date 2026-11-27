@@ -10643,7 +10643,6 @@ dependencies = [
  "http 1.5.0",
  "oxy",
  "oxy-airlayer-compat",
- "oxy-app-core",
  "oxy-compile",
  "oxy-feature-flags",
  "oxy-git",

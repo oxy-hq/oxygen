@@ -2,7 +2,7 @@
 name = "oxy-compile-runtime"
 version.workspace = true
 authors.workspace = true
-description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`) with the post-promote rollup nudge it runs (`preagg_promote`). Below oxy-server, above oxy-compile and oxy-app-core; a previewed branch's change check goes out through `ports::PreviewChangeCheck`; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
+description = "The compile boundary's runtime half: the periodic branch check, the push webhook's reconciler, the env pins and the automatic compile enqueue (`reconcile`), the branch compile a person waits on and its status read (`request`), fetch and unpack a commit for a compile with no working copy (`git`), the config.yml gate (`config_gate`), apply-then-promote for a revision with OLTP schemas (`oltp`) and the revisions reaper and retention loop (`maintenance`), and the compile task's worker (`worker`) with the post-promote rollup nudge it runs (`preagg_promote`). Below oxy-server, above oxy-compile; it does not depend on oxy-app-core: a previewed branch's change check goes out through `ports::PreviewChangeCheck`, and the post-promote reconciles read compiled config through `ports::CompiledConfigReader`; no routes (internal-docs/domain-boundaries.md, End state: no oxy-app)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -17,8 +17,6 @@ agentic-runtime = { workspace = true }
 entity = { workspace = true }
 # The strict `Config` type the gate deserialises, and the GitHub client.
 oxy = { workspace = true }
-# `process_role` and `workspace_repo_facts`.
-oxy-app-core = { workspace = true }
 # `preagg_promote`: parse a promoted revision's views for their rollup hashes.
 oxy-airlayer-compat = { workspace = true }
 oxy-compile = { workspace = true }

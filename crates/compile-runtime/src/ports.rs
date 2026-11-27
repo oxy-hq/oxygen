@@ -5,7 +5,8 @@
 //! built without its adapter.
 
 use async_trait::async_trait;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, DbErr};
+use serde_json::Value;
 use uuid::Uuid;
 
 use oxy_compile::RevisionKind;
@@ -50,4 +51,42 @@ pub(crate) async fn queue_preview_check(
             revision_id,
         )
         .await;
+}
+
+/// The compiled-config reads a post-promote reconcile makes: which revision a
+/// workspace serves, and that revision's merged `config.yml` and
+/// `reconcile.yml` rows. The reads themselves (the revision resolution and the
+/// merge the compile-time gate uses) live in `oxy-app-core`, which this crate
+/// may not depend on, so the reconciles in [`crate::worker`] take this port.
+///
+/// One production adapter, `oxy-workspace-runtime`'s
+/// `OxyCompiledConfigReader`, which delegates to `oxy-app-core` and is passed
+/// by the compile worker ([`crate::worker::CompileWorker::new`]) and by
+/// `oxy-server`'s periodic reconcile driver. It is a parameter, never an
+/// `Option` or a process global, so a caller that forgets it fails to compile.
+/// Each method has the same contract as the `oxy-app-core` function it is named
+/// after.
+#[async_trait]
+pub trait CompiledConfigReader: Send + Sync {
+    /// The one revision a read of `workspace_id` uses, or `None` when there is
+    /// no compiled revision to read.
+    async fn resolve_request_revision(
+        &self,
+        workspace_id: Uuid,
+        branch_hint: Option<&str>,
+    ) -> Option<Uuid>;
+
+    /// The merged compiled `config.yml` of `revision_id`.
+    async fn resolve_workspace_config_at(&self, revision_id: Uuid) -> Result<Option<Value>, DbErr>;
+
+    /// The compiled `reconcile.yml` of `revision_id`, if it has one.
+    async fn resolve_reconcile_config_at(&self, revision_id: Uuid) -> Result<Option<Value>, DbErr>;
+
+    /// The merged compiled `config.yml` of the revision a read of
+    /// `workspace_id` uses.
+    async fn resolve_workspace_config(
+        &self,
+        workspace_id: Uuid,
+        branch_hint: Option<&str>,
+    ) -> Result<Option<Value>, DbErr>;
 }

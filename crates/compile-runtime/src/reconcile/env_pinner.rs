@@ -1,5 +1,5 @@
 //! `oxy-app`'s implementation of the pin port the environment planes routes
-//! call ([`oxy_app_core::semantic_pin_seam::SemanticPinner`]): a thin adapter
+//! call ([`oxy_shared::semantic_pin_seam::SemanticPinner`]): a thin adapter
 //! over [`super::env_pins`] that turns `compile_request::Refusal` into the
 //! refusal the route answers with.
 //!
@@ -8,7 +8,7 @@
 //! state: each call opens its own connection, as the planes handlers do.
 
 use entity::workspaces;
-use oxy_app_core::semantic_pin_seam::{PinRefusal, SemanticPinner};
+use oxy_shared::semantic_pin_seam::{PinRefusal, SemanticPinner};
 use sea_orm::{DatabaseConnection, DbErr, EntityTrait};
 use uuid::Uuid;
 

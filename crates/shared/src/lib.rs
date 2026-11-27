@@ -25,6 +25,7 @@ pub mod log_noise;
 pub mod openai_config;
 pub mod redact;
 pub mod semantic_error;
+pub mod semantic_pin_seam;
 pub mod sql_literal;
 pub mod state_dir;
 pub mod theme;
