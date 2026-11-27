@@ -6,6 +6,7 @@ use axum::{
 };
 use std::sync::Arc;
 
+use crate::ports::{AuthDb, AuthPlatform};
 use crate::token::CredentialContext;
 use crate::user::UserService;
 
@@ -104,6 +105,9 @@ async fn run_stamped(
 
 pub struct AuthState<T> {
     authenticator: Arc<T>,
+    /// What the guest and app-publish-token paths read through; the
+    /// authenticator holds its own clone.
+    platform: AuthPlatform,
     /// When true, auth_middleware short-circuits: it never calls the
     /// authenticator and injects the local guest user into extensions.
     /// Set by `AuthState::guest_only()`. Used only by the local-mode router.
@@ -114,6 +118,7 @@ impl<T> Clone for AuthState<T> {
     fn clone(&self) -> Self {
         Self {
             authenticator: Arc::clone(&self.authenticator),
+            platform: self.platform.clone(),
             guest_only: self.guest_only,
         }
     }
@@ -123,9 +128,10 @@ impl AuthState<BuiltInAuthenticator> {
     /// `sandbox_agent` is whether the tree this guards admits a sandbox agent
     /// token. `Admit` belongs only on a tree that also mounts the route
     /// allow-list (`app_grant_scope`), which is `api_auth_layers`.
-    pub fn built_in(sandbox_agent: crate::token::SandboxAgent) -> Self {
+    pub fn built_in(sandbox_agent: crate::token::SandboxAgent, platform: AuthPlatform) -> Self {
         Self {
-            authenticator: Arc::new(BuiltInAuthenticator::new(sandbox_agent)),
+            authenticator: Arc::new(BuiltInAuthenticator::new(sandbox_agent, platform.clone())),
+            platform,
             guest_only: false,
         }
     }
@@ -133,11 +139,13 @@ impl AuthState<BuiltInAuthenticator> {
     /// Returns an `AuthState` that bypasses the authenticator entirely and
     /// always attaches the local guest user. Only appropriate for the
     /// local-mode router.
-    pub fn guest_only() -> Self {
+    pub fn guest_only(platform: AuthPlatform) -> Self {
         Self {
             authenticator: Arc::new(BuiltInAuthenticator::new(
                 crate::token::SandboxAgent::Refuse,
+                platform.clone(),
             )),
+            platform,
             guest_only: true,
         }
     }
@@ -164,13 +172,12 @@ pub async fn auth_middleware<T: Authenticator>(
             name: Some("Local User".to_string()),
             picture: None,
         };
-        let user =
-            UserService::get_or_create_user(oxy_platform::db::establish_connection, &identity)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to get or create local guest user: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+        let user = UserService::get_or_create_user(auth_state.platform.clone(), &identity)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get or create local guest user: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         if user.status != UserStatus::Active {
             tracing::warn!(
                 "Local guest user is not active (status: {}) — refusing request",
@@ -194,7 +201,7 @@ pub async fn auth_middleware<T: Authenticator>(
     if let Some(bearer) = extract_bearer(request.headers())
         && crate::app_publish_token_domain::is_app_publish_token(&bearer)
     {
-        return authenticate_app_publish_token(&bearer, request, next).await;
+        return authenticate_app_publish_token(&auth_state.platform, &bearer, request, next).await;
     }
 
     // Authenticate using the configured authenticator — `authenticate_request`
@@ -216,7 +223,7 @@ pub async fn auth_middleware<T: Authenticator>(
         }
     };
 
-    let user = UserService::get_or_create_user(oxy_platform::db::establish_connection, &claims)
+    let user = UserService::get_or_create_user(auth_state.platform.clone(), &claims)
         .await
         .map_err(|e| match e {
             // A token that names a user who no longer exists is an
@@ -274,16 +281,15 @@ fn extract_bearer(headers: &axum::http::HeaderMap) -> Option<String> {
 /// `AppPublishTokenAuth` scope marker before running downstream. A revoked/unknown
 /// token, an inactive owner, or a DB error all yield `401`.
 async fn authenticate_app_publish_token(
+    platform: &AuthPlatform,
     bearer: &str,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let db = oxy_platform::db::establish_connection()
-        .await
-        .map_err(|e| {
-            tracing::error!("app-publish-token auth: DB connection failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let db = platform.connect().await.map_err(|e| {
+        tracing::error!("app-publish-token auth: DB connection failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let resolved = crate::app_publish_token_domain::resolve_app_publish_token(&db, bearer)
         .await
@@ -329,6 +335,7 @@ async fn authenticate_app_publish_token(
 /// `oxy_<hex>` key is also accepted as `Authorization: Bearer`, which is not
 /// ambient either.
 pub async fn api_key_only_middleware(
+    State(platform): State<AuthPlatform>,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -338,6 +345,7 @@ pub async fn api_key_only_middleware(
     }
 
     let (identity, credential) = match crate::token::authenticate_request(
+        &platform,
         request.headers(),
         crate::token::AuthSurface::ApiKeyOnly,
         crate::token::SandboxAgent::Refuse,
@@ -351,7 +359,7 @@ pub async fn api_key_only_middleware(
         }
     };
 
-    let user = UserService::get_or_create_user(oxy_platform::db::establish_connection, &identity)
+    let user = UserService::get_or_create_user(platform, &identity)
         .await
         .map_err(|e| {
             tracing::error!("external API: failed to resolve user from API key: {e}");
@@ -375,6 +383,7 @@ pub async fn api_key_only_middleware(
 /// Uses UserService::get_or_create_user to ensure the user exists in the database,
 /// so that foreign key constraints in downstream handlers work correctly.
 pub async fn internal_auth_middleware(
+    State(platform): State<AuthPlatform>,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -389,13 +398,12 @@ pub async fn internal_auth_middleware(
         picture: None,
     };
 
-    let user =
-        UserService::get_or_create_user(oxy_platform::db::establish_connection, &internal_identity)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get or create internal user: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let user = UserService::get_or_create_user(platform, &internal_identity)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get or create internal user: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     request.extensions_mut().insert(user);
     Ok(next.run(request).await)
@@ -407,13 +415,16 @@ mod tests {
 
     #[test]
     fn built_in_state_is_not_guest_only() {
-        let state = AuthState::<BuiltInAuthenticator>::built_in(crate::token::SandboxAgent::Refuse);
+        let state = AuthState::<BuiltInAuthenticator>::built_in(
+            crate::token::SandboxAgent::Refuse,
+            crate::ports::test_platform(),
+        );
         assert!(!state.guest_only);
     }
 
     #[test]
     fn guest_only_state_flags_itself() {
-        let state = AuthState::<BuiltInAuthenticator>::guest_only();
+        let state = AuthState::<BuiltInAuthenticator>::guest_only(crate::ports::test_platform());
         assert!(state.guest_only);
     }
 

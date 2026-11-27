@@ -72,7 +72,7 @@ pub async fn create_auth_token_with_ttl(
         iat: now.timestamp() as usize,
     };
 
-    let key = session_key::encoding_key(Purpose::Session)
+    let key = session_key::encoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let token = encode(&Header::default(), &claims, &key).map_err(|e| {

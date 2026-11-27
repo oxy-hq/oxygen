@@ -13,6 +13,7 @@
 //! wraps it.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use oxy_shared::errors::OxyError;
@@ -35,4 +36,55 @@ where
     async fn connect(&self) -> Result<DatabaseConnection, OxyError> {
         self().await
     }
+}
+
+/// Where the session signing root's master-key text comes from
+/// (`oxy_platform::secrets::master_key_text_for_signing` in production).
+pub type MasterKeyText = fn() -> Option<String>;
+
+/// Everything `oxy-auth` reaches the platform for: the connector each step
+/// opens its connection through, and the master-key text `session_key` mixes
+/// into the signing root. Built once by the host (`oxy::database::client::
+/// auth_platform`) and handed to `AuthState`, `BuiltInAuthenticator` and the
+/// entry points outside them. Cloning shares the connector.
+#[derive(Clone)]
+pub struct AuthPlatform {
+    db: Arc<dyn AuthDb>,
+    master_key_text: MasterKeyText,
+}
+
+impl AuthPlatform {
+    pub fn new(db: impl AuthDb + 'static, master_key_text: MasterKeyText) -> Self {
+        Self {
+            db: Arc::new(db),
+            master_key_text,
+        }
+    }
+
+    /// The master-key text, read at the moment it is asked for (after boot
+    /// has loaded a KMS key), exactly as the direct call read it.
+    pub fn master_key_text_for_signing(&self) -> Option<String> {
+        (self.master_key_text)()
+    }
+}
+
+#[async_trait]
+impl AuthDb for AuthPlatform {
+    async fn connect(&self) -> Result<DatabaseConnection, OxyError> {
+        self.db.connect().await
+    }
+}
+
+/// A platform for this crate's unit tests, which open no database: a connect
+/// fails with a database error, and there is no master key.
+#[cfg(test)]
+pub(crate) fn test_platform() -> AuthPlatform {
+    AuthPlatform::new(
+        || async {
+            Err(OxyError::DBError(
+                "no database in this unit test".to_string(),
+            ))
+        },
+        || None,
+    )
 }

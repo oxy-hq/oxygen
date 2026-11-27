@@ -741,10 +741,13 @@ async fn deleting_the_account_revokes_its_tokens() {
 async fn caller_of(fx: &Fixture, secret: &str, sa_id: Uuid) -> Caller {
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-    let (identity, credential) = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-        .authenticate_with_credential(&headers)
-        .await
-        .expect("the token authenticates");
+    let (identity, credential) = BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate_with_credential(&headers)
+    .await
+    .expect("the token authenticates");
     assert_eq!(identity.user_id, Some(sa_id));
     assert_eq!(
         identity.email, "",

@@ -435,7 +435,10 @@ pub async fn internal_api_router(
     let protected_routes = protected_routes
         .merge(extra_api_routes)
         .layer(middleware::from_fn(timeout_middleware))
-        .layer(middleware::from_fn(internal_auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy::database::client::auth_platform(),
+            internal_auth_middleware,
+        ));
 
     let app_routes = build_public_routes(&app_state)
         .into_router()

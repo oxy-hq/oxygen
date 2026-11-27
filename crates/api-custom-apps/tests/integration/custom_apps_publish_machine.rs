@@ -335,11 +335,13 @@ async fn ci_publisher(
     let mut headers = axum::http::HeaderMap::new();
     let bearer = format!("Bearer {}", minted.secret);
     headers.insert("authorization", bearer.parse().unwrap());
-    let (_identity, credential) =
-        oxy_auth::built_in::BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-            .authenticate_with_credential(&headers)
-            .await
-            .expect("the ci token authenticates");
+    let (_identity, credential) = oxy_auth::built_in::BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate_with_credential(&headers)
+    .await
+    .expect("the ci token authenticates");
     let row = users::Entity::find_by_id(account.user_id)
         .one(db)
         .await

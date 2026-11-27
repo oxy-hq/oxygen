@@ -135,7 +135,10 @@ pub(crate) const CALLS_ROUTE: &str = "/{id}/invocations/{invocation_id}/calls";
 
 fn admin_router() -> Router {
     guarded_admin().layer(middleware::from_fn_with_state(
-        AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
+        AuthState::built_in(
+            oxy_auth::token::SandboxAgent::Refuse,
+            oxy::database::client::auth_platform(),
+        ),
         auth_middleware,
     ))
 }
@@ -160,7 +163,10 @@ fn customer_apps_router() -> Router {
         .nest("/customer-apps", apps)
         .layer(middleware::from_fn(app_publish_token_scope_middleware))
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
+            AuthState::built_in(
+                oxy_auth::token::SandboxAgent::Refuse,
+                oxy::database::client::auth_platform(),
+            ),
             auth_middleware,
         ));
     Router::new().nest("/api", api)

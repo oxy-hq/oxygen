@@ -17,12 +17,13 @@
 //! 2. **Mixed with the master key, when the deployment has a fleet-wide one**:
 //!    `OXY_ENCRYPTION_KEY` while it is set, or the key loaded from KMS-sealed
 //!    `server_keys` (`oxy_platform::secrets::master_key`) once it is not
-//!    ([`oxy_platform::secrets::master_key_text_for_signing`], which gives the
+//!    (`oxy_platform::secrets::master_key_text_for_signing`, handed in as
+//!    [`AuthPlatform`]'s master-key text, which gives the
 //!    same text for the same key, so removing the variable keeps every
 //!    session). Then a copy of the database alone — a backup, a read replica,
 //!    a leaked dump — is not enough to sign a session: the KMS-sealed row is
 //!    useless without KMS. Never the state-dir key file
-//!    [`oxy_platform::secrets`] falls back to: the variable is the same on
+//!    `oxy_platform::secrets` falls back to: the variable is the same on
 //!    every pod of a fleet, the file is not.
 //!
 //! Each [`Purpose`] is signed with a key of its own, derived from that root, so
@@ -46,9 +47,9 @@
 //! The root is read once per process. A failed read is not cached, so a
 //! database that was briefly away costs one refused request, not a restart.
 
+use crate::ports::{AuthDb, AuthPlatform};
 use entity::prelude::ServerKeys;
 use jsonwebtoken::{DecodingKey, EncodingKey};
-use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use sha2::{Digest, Sha256};
@@ -135,13 +136,14 @@ async fn stored_secret<C: ConnectionTrait>(db: &C) -> Result<Vec<u8>, OxyError> 
         .ok_or_else(|| unavailable("read", "no usable row"))
 }
 
-async fn load_root() -> Result<[u8; 32], OxyError> {
-    let db = establish_connection()
+async fn load_root(auth: &AuthPlatform) -> Result<[u8; 32], OxyError> {
+    let db = auth
+        .connect()
         .await
         .map_err(|e| unavailable("connect", e))?;
     let stored = stored_secret(&db).await?;
     // Read after boot loaded the key, so a KMS-loaded key is already there.
-    let master = oxy_platform::secrets::master_key_text_for_signing();
+    let master = auth.master_key_text_for_signing();
     let root = root_from(&stored, master.as_deref());
     // Once per process, and never the key. Every instance of a deployment must
     // print the same fingerprint: one that differs is an instance whose
@@ -156,20 +158,20 @@ async fn load_root() -> Result<[u8; 32], OxyError> {
 }
 
 /// The raw key for `purpose`. Reads the database on the first call of the
-/// process and never again.
-pub async fn key(purpose: Purpose) -> Result<[u8; 32], OxyError> {
-    let root = ROOT.get_or_try_init(load_root).await?;
+/// process (through `auth`) and never again.
+pub async fn key(auth: &AuthPlatform, purpose: Purpose) -> Result<[u8; 32], OxyError> {
+    let root = ROOT.get_or_try_init(|| load_root(auth)).await?;
     Ok(derive(root, purpose))
 }
 
 /// The key to sign a `purpose` JWT with.
-pub async fn encoding_key(purpose: Purpose) -> Result<EncodingKey, OxyError> {
-    Ok(EncodingKey::from_secret(&key(purpose).await?))
+pub async fn encoding_key(auth: &AuthPlatform, purpose: Purpose) -> Result<EncodingKey, OxyError> {
+    Ok(EncodingKey::from_secret(&key(auth, purpose).await?))
 }
 
 /// The key to verify a `purpose` JWT with.
-pub async fn decoding_key(purpose: Purpose) -> Result<DecodingKey, OxyError> {
-    Ok(DecodingKey::from_secret(&key(purpose).await?))
+pub async fn decoding_key(auth: &AuthPlatform, purpose: Purpose) -> Result<DecodingKey, OxyError> {
+    Ok(DecodingKey::from_secret(&key(auth, purpose).await?))
 }
 
 /// Fix the root for this process without a database — for a test that signs or

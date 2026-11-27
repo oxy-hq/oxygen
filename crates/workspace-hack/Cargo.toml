@@ -35,6 +35,7 @@ async-openai = { version = "0.43", features = ["byot", "chat-completion", "respo
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = { version = "1", default-features = false, features = ["hardcoded-credentials", "test-util"] }
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
+aws-lc-sys = { version = "0.47", default-features = false, features = ["prebuilt-nasm"] }
 aws-runtime = { version = "1", default-features = false, features = ["event-stream", "http-1x", "sigv4a"] }
 aws-sdk-sts = { version = "1" }
 aws-sigv4 = { version = "1", features = ["sign-eventstream", "sigv4a"] }
@@ -225,6 +226,7 @@ zstd-sys = { version = "2", default-features = false, features = ["legacy", "std
 [build-dependencies]
 aho-corasick = { version = "1" }
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
+aws-lc-sys = { version = "0.47", default-features = false, features = ["prebuilt-nasm"] }
 base64-2b5c6dc72f624058 = { package = "base64", version = "0.23" }
 base64-3c51e837cfc5589a = { package = "base64", version = "0.22" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }

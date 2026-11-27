@@ -153,10 +153,11 @@ async fn org_door(
 
 /// The user behind the request's credential, the credential attached.
 async fn authenticate(headers: &HeaderMap) -> Result<AuthenticatedUser, ApiError> {
-    let (identity, credential) = BuiltInAuthenticator::new(SandboxAgent::Refuse)
-        .authenticate_with_credential(headers)
-        .await
-        .map_err(|e| ApiError::Unauthenticated(e.to_string()))?;
+    let (identity, credential) =
+        BuiltInAuthenticator::new(SandboxAgent::Refuse, oxy::database::client::auth_platform())
+            .authenticate_with_credential(headers)
+            .await
+            .map_err(|e| ApiError::Unauthenticated(e.to_string()))?;
     let user = oxy_custom_apps::gate::gate_user(&identity)
         .await
         .map_err(|_| ApiError::Unauthenticated("the credential names nobody".into()))?;

@@ -153,14 +153,16 @@ pub(super) async fn redirect_legacy_uuid(
 ) -> Response {
     // Auth gate first — same reason as the pretty path. Probing with a uuid
     // shouldn't reveal whether it's registered.
-    let (identity, credential) =
-        match BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-            .authenticate_with_credential(headers)
-            .await
-        {
-            Ok(authenticated) => authenticated,
-            Err(_) => return redirect_to_login(headers, uri).into_response(),
-        };
+    let (identity, credential) = match BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate_with_credential(headers)
+    .await
+    {
+        Ok(authenticated) => authenticated,
+        Err(_) => return redirect_to_login(headers, uri).into_response(),
+    };
     let Some(user) = UserService::find_user_by_identity(establish_connection, &identity)
         .await
         .unwrap_or(None)

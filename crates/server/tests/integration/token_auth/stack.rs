@@ -272,10 +272,13 @@ pub(crate) async fn mint(db: &DatabaseConnection, user_id: Uuid, reach: Reach) -
 pub(crate) async fn custom_app_caller(fx: &Fixture, secret: &str) -> Caller {
     let mut headers = HeaderMap::new();
     headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-    let (identity, credential) = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-        .authenticate_with_credential(&headers)
-        .await
-        .expect("the custom-app path authenticates the credential");
+    let (identity, credential) = BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate_with_credential(&headers)
+    .await
+    .expect("the custom-app path authenticates the credential");
     assert_eq!(identity.user_id, Some(fx.user.id));
     let user = AuthenticatedUser::from(fx.user.clone()).with_credential(credential);
     Caller::from_user(&user)

@@ -66,7 +66,8 @@ async fn verify(jwt: &str) -> Result<Claims, MobileAuthError> {
     if browser_session::token_id_of(jwt).is_some() {
         return Err(MobileAuthError::InvalidSession);
     }
-    let key = session_key::decoding_key(Purpose::Session).await?;
+    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
+        .await?;
     let mut validation = Validation::default();
     validation.leeway = 0;
     decode::<Claims>(jwt, &key, &validation)
@@ -161,7 +162,9 @@ mod tests {
     /// This process's session key, with a root fixed so no database is read.
     async fn our_key() -> [u8; 32] {
         session_key::install_root_for_tests([11; 32]);
-        session_key::key(Purpose::Session).await.expect("a key")
+        session_key::key(&oxy::database::client::auth_platform(), Purpose::Session)
+            .await
+            .expect("a key")
     }
 
     fn claims(exp_offset_secs: i64, window_secs: i64) -> Claims {

@@ -67,7 +67,10 @@ pub(crate) async fn publish(
         }));
     }
     let router = router.layer(middleware::from_fn_with_state(
-        AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
+        AuthState::built_in(
+            oxy_auth::token::SandboxAgent::Refuse,
+            oxy::database::client::auth_platform(),
+        ),
         auth_middleware,
     ));
     let request = Request::builder()

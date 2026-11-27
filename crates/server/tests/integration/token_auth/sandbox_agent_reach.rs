@@ -86,10 +86,13 @@ async fn the_token_authenticates_on_api_only_and_reaches_the_loop_only() {
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("authorization", bearer.parse().unwrap());
     assert!(
-        BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-            .authenticate_with_credential(&headers)
-            .await
-            .is_err()
+        BuiltInAuthenticator::new(
+            oxy_auth::token::SandboxAgent::Refuse,
+            oxy::database::client::auth_platform()
+        )
+        .authenticate_with_credential(&headers)
+        .await
+        .is_err()
     );
     // It never falls through to a session either: with a valid cookie beside
     // it, the token still decides the request.

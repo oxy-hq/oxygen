@@ -199,7 +199,7 @@ async fn authenticate(
     headers: &HeaderMap,
     sandbox_agent: SandboxAgent,
 ) -> Result<(Identity, Option<CredentialContext>), Refusal> {
-    BuiltInAuthenticator::new(sandbox_agent)
+    BuiltInAuthenticator::new(sandbox_agent, oxy::database::client::auth_platform())
         .authenticate_with_credential(headers)
         .instrument(tracing::info_span!(
             target: "custom_apps_serve",

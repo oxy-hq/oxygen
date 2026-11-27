@@ -71,12 +71,15 @@ pub async fn hydrate(
     request_headers: &HeaderMap,
     jwt: String,
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {
-    let (_, credential) = oxy_auth::token::authenticate_browser_session(&jwt)
-        .await
-        .map_err(|e| {
-            tracing::debug!("session hydrate: token session rejected: {e}");
-            StatusCode::UNAUTHORIZED
-        })?;
+    let (_, credential) = oxy_auth::token::authenticate_browser_session(
+        &oxy::database::client::auth_platform(),
+        &jwt,
+    )
+    .await
+    .map_err(|e| {
+        tracing::debug!("session hydrate: token session rejected: {e}");
+        StatusCode::UNAUTHORIZED
+    })?;
     let connection = establish_connection().await.map_err(|e| {
         tracing::error!("session hydrate: db connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR

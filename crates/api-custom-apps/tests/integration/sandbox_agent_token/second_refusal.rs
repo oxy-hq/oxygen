@@ -39,7 +39,7 @@ pub(super) fn unfenced(path: &str, handler: axum::routing::MethodRouter) -> Rout
     Router::new()
         .route(path, handler)
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(SandboxAgent::Admit),
+            AuthState::built_in(SandboxAgent::Admit, oxy::database::client::auth_platform()),
             auth_middleware,
         ))
 }

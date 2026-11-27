@@ -122,9 +122,14 @@ async fn a_legacy_key_is_refused_by_name() {
         headers(&[("authorization", &format!("Bearer {key}"))]),
     ] {
         for surface in [AuthSurface::Session, AuthSurface::ApiKeyOnly] {
-            let err = authenticate_request(&h, surface, SandboxAgent::Refuse)
-                .await
-                .expect_err("a legacy key authenticates nothing");
+            let err = authenticate_request(
+                &crate::ports::test_platform(),
+                &h,
+                surface,
+                SandboxAgent::Refuse,
+            )
+            .await
+            .expect_err("a legacy key authenticates nothing");
             let OxyError::AuthenticationError(message) = err else {
                 panic!("expected an authentication error");
             };
@@ -142,9 +147,14 @@ async fn a_failing_new_prefix_token_does_not_fall_through_to_a_valid_cookie() {
         ("x-api-key", broken_pat()),
     ] {
         let h = headers(&[("cookie", &cookie), (name, &value)]);
-        let err = authenticate_request(&h, AuthSurface::Session, SandboxAgent::Refuse)
-            .await
-            .expect_err("a bad oxy_pat_ must 401 even beside a valid cookie");
+        let err = authenticate_request(
+            &crate::ports::test_platform(),
+            &h,
+            AuthSurface::Session,
+            SandboxAgent::Refuse,
+        )
+        .await
+        .expect_err("a bad oxy_pat_ must 401 even beside a valid cookie");
         assert!(matches!(err, OxyError::AuthenticationError(_)), "{err}");
     }
 }
@@ -157,9 +167,14 @@ async fn a_failing_new_prefix_x_api_key_beats_a_valid_jwt_header() {
         ("x-api-key", &broken_pat()),
     ]);
     assert!(
-        authenticate_request(&h, AuthSurface::Session, SandboxAgent::Refuse)
-            .await
-            .is_err()
+        authenticate_request(
+            &crate::ports::test_platform(),
+            &h,
+            AuthSurface::Session,
+            SandboxAgent::Refuse
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -175,10 +190,14 @@ async fn a_valid_session_still_beats_a_removed_legacy_key() {
         ("cookie", &cookie),
         ("x-api-key", "oxy_0123456789abcdef0123456789abcdef"),
     ]);
-    let (identity, credential) =
-        authenticate_request(&h, AuthSurface::Session, SandboxAgent::Refuse)
-            .await
-            .expect("cookie wins");
+    let (identity, credential) = authenticate_request(
+        &crate::ports::test_platform(),
+        &h,
+        AuthSurface::Session,
+        SandboxAgent::Refuse,
+    )
+    .await
+    .expect("cookie wins");
     assert_eq!(identity.user_id, Some(user));
     assert!(credential.is_none(), "a session is not a credential");
 }
@@ -191,9 +210,14 @@ async fn the_api_key_only_surface_never_accepts_a_session() {
         headers(&[("authorization", &format!("Bearer {jwt}"))]),
         headers(&[("cookie", &format!("oxy_session={jwt}"))]),
     ] {
-        let err = authenticate_request(&h, AuthSurface::ApiKeyOnly, SandboxAgent::Refuse)
-            .await
-            .expect_err("no session on /external/api");
+        let err = authenticate_request(
+            &crate::ports::test_platform(),
+            &h,
+            AuthSurface::ApiKeyOnly,
+            SandboxAgent::Refuse,
+        )
+        .await
+        .expect_err("no session on /external/api");
         assert!(matches!(err, OxyError::AuthenticationError(_)));
     }
 }
@@ -237,9 +261,14 @@ async fn a_well_formed_sandbox_agent_token_is_refused_on_both_surfaces_in_both_h
             ("x-api-key", token.clone()),
         ] {
             let h = headers(&[("cookie", &cookie), (name, &value)]);
-            let err = authenticate_request(&h, surface, SandboxAgent::Refuse)
-                .await
-                .expect_err("an oxy_sbx_ token is refused, and never falls through");
+            let err = authenticate_request(
+                &crate::ports::test_platform(),
+                &h,
+                surface,
+                SandboxAgent::Refuse,
+            )
+            .await
+            .expect_err("an oxy_sbx_ token is refused, and never falls through");
             assert!(matches!(err, OxyError::AuthenticationError(_)), "{err}");
         }
     }

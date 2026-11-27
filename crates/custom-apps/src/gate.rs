@@ -250,14 +250,16 @@ pub async fn check_custom_app_gates(
     //
     // With the credential: an API token's grants and standing flags decide the
     // access check below exactly as they do on `/api`.
-    let (identity, credential) =
-        match BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-            .authenticate_with_credential(headers)
-            .await
-        {
-            Ok(authenticated) => authenticated,
-            Err(_) => return Err(GateError::AuthenticationRequired),
-        };
+    let (identity, credential) = match BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate_with_credential(headers)
+    .await
+    {
+        Ok(authenticated) => authenticated,
+        Err(_) => return Err(GateError::AuthenticationRequired),
+    };
 
     // ── 2. Origin allowlist ───────────────────────────────────────────
     if !oxy_app_core::origin::is_allowed_origin(headers) {

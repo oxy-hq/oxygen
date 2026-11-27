@@ -74,7 +74,10 @@ fn with_console_layers(routes: Router) -> Router {
     Router::new()
         .nest("/api/customer-apps", nest)
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
+            AuthState::built_in(
+                oxy_auth::token::SandboxAgent::Refuse,
+                oxy::database::client::auth_platform(),
+            ),
             auth_middleware,
         ))
 }

@@ -57,7 +57,7 @@ pub async fn get_session(
     if oxy_auth::token::browser_session::token_id_of(&jwt).is_some() {
         return hydrate_token_session(&headers, jwt).await;
     }
-    let key = session_key::decoding_key(Purpose::Session)
+    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let claims = decode::<Claims>(&jwt, &key, &Validation::default())
@@ -98,9 +98,10 @@ pub async fn issue_oauth_state() -> Result<Json<OAuthStateResponse>, StatusCode>
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
-    let key = session_key::encoding_key(Purpose::OAuthState)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let key =
+        session_key::encoding_key(&oxy::database::client::auth_platform(), Purpose::OAuthState)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let token = encode(&Header::default(), &claims, &key).map_err(|e| {
         tracing::error!("Failed to sign OAuth state: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR

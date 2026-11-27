@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::constants::{AUTHENTICATION_HEADER_KEY, SESSION_COOKIE_NAME};
 use oxy_shared::errors::OxyError;
 
+use crate::ports::AuthPlatform;
 use crate::token::{AuthSurface, Authenticated, SandboxAgent, authenticate_request};
 use crate::{authenticator::Authenticator, types::Identity};
 use jsonwebtoken::{DecodingKey, Validation, decode};
@@ -55,11 +56,12 @@ pub(crate) fn guest_identity() -> Identity {
 /// loads it, because that is the one part of reading a session that can wait
 /// on the database.
 pub(crate) fn session_identity(
+    auth: &AuthPlatform,
     header: &axum::http::HeaderMap,
     key: &DecodingKey,
 ) -> Result<Identity, OxyError> {
     // Reading a session never involves a token, so the choice is not used here.
-    let authenticator = BuiltInAuthenticator::new(SandboxAgent::Refuse);
+    let authenticator = BuiltInAuthenticator::new(SandboxAgent::Refuse, auth.clone());
     let token = authenticator.extract_token(header)?;
     authenticator.validate(&token, key)
 }
@@ -73,11 +75,16 @@ pub(crate) fn session_identity(
 /// the route allow-list that makes admitting safe.
 pub struct BuiltInAuthenticator {
     sandbox_agent: SandboxAgent,
+    /// The platform a token or session check reads through.
+    auth: AuthPlatform,
 }
 
 impl BuiltInAuthenticator {
-    pub fn new(sandbox_agent: SandboxAgent) -> Self {
-        Self { sandbox_agent }
+    pub fn new(sandbox_agent: SandboxAgent, auth: AuthPlatform) -> Self {
+        Self {
+            sandbox_agent,
+            auth,
+        }
     }
 }
 
@@ -92,7 +99,7 @@ impl Authenticator for BuiltInAuthenticator {
     /// A sandbox agent token is admitted only where this authenticator was
     /// built to admit one; everywhere else it answers 401.
     async fn authenticate(&self, header: &axum::http::HeaderMap) -> Result<Identity, Self::Error> {
-        authenticate_request(header, AuthSurface::Session, self.sandbox_agent)
+        authenticate_request(&self.auth, header, AuthSurface::Session, self.sandbox_agent)
             .await
             .map(|(identity, _)| identity)
     }
@@ -101,7 +108,7 @@ impl Authenticator for BuiltInAuthenticator {
         &self,
         header: &axum::http::HeaderMap,
     ) -> Result<Authenticated, Self::Error> {
-        authenticate_request(header, AuthSurface::Session, self.sandbox_agent).await
+        authenticate_request(&self.auth, header, AuthSurface::Session, self.sandbox_agent).await
     }
 }
 
@@ -228,7 +235,7 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert("authorization", "header-jwt".parse().unwrap());
         h.insert("cookie", "oxy_session=cookie-jwt".parse().unwrap());
-        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse, crate::ports::test_platform());
         assert_eq!(auth.extract_token(&h).unwrap(), "header-jwt");
     }
 
@@ -238,7 +245,7 @@ mod tests {
         // must come back without the scheme so it decodes as a JWT.
         let mut h = HeaderMap::new();
         h.insert("authorization", "Bearer header-jwt".parse().unwrap());
-        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse, crate::ports::test_platform());
         assert_eq!(auth.extract_token(&h).unwrap(), "header-jwt");
 
         let mut h2 = HeaderMap::new();
@@ -249,14 +256,14 @@ mod tests {
     #[test]
     fn extract_token_falls_back_to_cookie() {
         let h = make_headers("oxy_session=cookie-jwt");
-        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse, crate::ports::test_platform());
         assert_eq!(auth.extract_token(&h).unwrap(), "cookie-jwt");
     }
 
     #[test]
     fn extract_token_errors_when_neither_present() {
         let h = HeaderMap::new();
-        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse, crate::ports::test_platform());
         assert!(auth.extract_token(&h).is_err());
     }
 
@@ -296,7 +303,7 @@ mod session_identity_tests {
     }
 
     fn validate(token: &str) -> Result<Identity, OxyError> {
-        BuiltInAuthenticator::new(SandboxAgent::Refuse)
+        BuiltInAuthenticator::new(SandboxAgent::Refuse, crate::ports::test_platform())
             .validate(token, &DecodingKey::from_secret(KEY))
     }
 

@@ -25,7 +25,9 @@ use super::dto::Claims;
 /// answers is whether the *cookie* still backs that token.
 pub async fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
     let jwt = oxy_auth::built_in::extract_session_cookie(headers)?;
-    let key = session_key::decoding_key(Purpose::Session).await.ok()?;
+    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
+        .await
+        .ok()?;
     decode::<Claims>(&jwt, &key, &Validation::default())
         .ok()
         .map(|data| data.claims.sub)
@@ -41,7 +43,9 @@ mod tests {
     /// This process's session key, with a root fixed so no database is read.
     async fn session_key_bytes() -> [u8; 32] {
         session_key::install_root_for_tests([7; 32]);
-        session_key::key(Purpose::Session).await.expect("a key")
+        session_key::key(&oxy::database::client::auth_platform(), Purpose::Session)
+            .await
+            .expect("a key")
     }
 
     fn jwt(sub: &str, key: &[u8], exp_offset_secs: i64) -> String {

@@ -39,11 +39,11 @@
 
 use std::sync::OnceLock;
 
+use crate::ports::AuthDb;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use argon2::{Argon2, password_hash::Error as HashError};
 use chrono::Utc;
 use entity::{org_frontline_members, user_credentials, users};
-use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
@@ -578,11 +578,12 @@ pub async fn enroll_worker(
 
 /// Convenience wrapper for callers holding no connection of their own.
 pub async fn verify_pin_with_default_db(
+    db: impl AuthDb,
     org_id: Uuid,
     identifier: &str,
     pin: &str,
 ) -> Result<PinVerdict, OxyError> {
-    let db = establish_connection().await?;
+    let db = db.connect().await?;
     verify_pin(&db, org_id, identifier, pin, PinPolicy::default()).await
 }
 

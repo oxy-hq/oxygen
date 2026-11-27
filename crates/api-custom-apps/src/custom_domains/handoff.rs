@@ -194,7 +194,12 @@ pub async fn session(
     // Admit it as every later request will. An org whose token policy refuses
     // personal tokens refuses this one too — answered here, once, rather than
     // by a redirect back to step 1 that would loop.
-    if let Err(e) = oxy_auth::token::authenticate_browser_session(&session.jwt).await {
+    if let Err(e) = oxy_auth::token::authenticate_browser_session(
+        &oxy::database::client::auth_platform(),
+        &session.jwt,
+    )
+    .await
+    {
         tracing::info!(domain = %ctx.domain, "custom domain session not admitted: {e}");
         return page(
             StatusCode::FORBIDDEN,

@@ -37,8 +37,8 @@
 //! the publish-token path before calling this, exactly as before; everywhere
 //! else they fail as they always have (they are not a JWT and match no key).
 
+use crate::ports::{AuthDb, AuthPlatform};
 use axum::http::HeaderMap;
-use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 
 use super::browser_session;
@@ -88,6 +88,7 @@ pub type Authenticated = (Identity, Option<CredentialContext>);
 /// order. `sandbox_agent` is whether this entry point admits an `oxy_sbx_`
 /// token; it changes nothing for any other credential.
 pub async fn authenticate_request(
+    auth: &AuthPlatform,
     headers: &HeaderMap,
     surface: AuthSurface,
     sandbox_agent: SandboxAgent,
@@ -103,7 +104,7 @@ pub async fn authenticate_request(
 
     if let Some((token, format)) = new_prefix_token(headers) {
         refuse_sandbox_agent(format, sandbox_agent)?;
-        let (identity, credential) = authenticate_token(&token, format).await?;
+        let (identity, credential) = authenticate_token(auth, &token, format).await?;
         return Ok((identity, Some(credential)));
     }
 
@@ -111,10 +112,10 @@ pub async fn authenticate_request(
         if let Some(jwt) = session_jwt(headers)
             && browser_session::token_id_of(&jwt).is_some()
         {
-            let (identity, credential) = authenticate_browser_session(&jwt).await?;
+            let (identity, credential) = authenticate_browser_session(auth, &jwt).await?;
             return Ok((identity, Some(credential)));
         }
-        match login_session(headers).await {
+        match login_session(auth, headers).await {
             Ok(identity) => return Ok((identity, None)),
             Err(err) => tracing::debug!("JWT validation failed, will try API key: {}", err),
         }
@@ -205,14 +206,14 @@ fn api_key_header(headers: &HeaderMap) -> Option<String> {
 /// A login session: the JWT [`session_jwt`] finds, verified with this
 /// deployment's session key. The key is asked for only when there is a JWT to
 /// check, so a request that carries none never waits on it.
-async fn login_session(headers: &HeaderMap) -> Result<Identity, OxyError> {
+async fn login_session(auth: &AuthPlatform, headers: &HeaderMap) -> Result<Identity, OxyError> {
     if session_jwt(headers).is_none() {
         return Err(OxyError::AuthenticationError(
             "Missing or invalid authentication header".to_string(),
         ));
     }
-    let key = session_key::decoding_key(Purpose::Session).await?;
-    session_identity(headers, &key)
+    let key = session_key::decoding_key(auth, Purpose::Session).await?;
+    session_identity(auth, headers, &key)
 }
 
 /// What a session is read from: the `Authorization` value, else the
@@ -261,6 +262,7 @@ fn new_prefix_token(headers: &HeaderMap) -> Option<(String, TokenFormat)> {
 /// A sandbox agent token skips the cache in both directions: its row, its
 /// grants and its minter are read on every request.
 async fn authenticate_token(
+    auth: &AuthPlatform,
     token: &str,
     format: TokenFormat,
 ) -> Result<(Identity, CredentialContext), OxyError> {
@@ -270,12 +272,12 @@ async fn authenticate_token(
     let cached = format != TokenFormat::SandboxAgent;
     let hash = hash_token(token);
     if cached && let Some((identity, credential)) = cache::get(&hash) {
-        let credential = live_principal(credential).await?;
-        record_use(&credential).await;
+        let credential = live_principal(auth, credential).await?;
+        record_use(auth, &credential).await;
         return Ok((identity, credential));
     }
 
-    let db = connect().await?;
+    let db = connect(auth).await?;
     let resolved = store::resolve(&db, token, format).await?;
     if cached {
         cache::put(
@@ -285,7 +287,7 @@ async fn authenticate_token(
             resolved.expires_at,
         );
     }
-    record_use(&resolved.credential).await;
+    record_use(auth, &resolved.credential).await;
     Ok((resolved.identity, resolved.credential))
 }
 
@@ -297,18 +299,19 @@ async fn authenticate_token(
 /// `pub` for the one caller outside the dispatch: cookie hydration, which
 /// reads the cookie alone and must not turn a token session into a login.
 pub async fn authenticate_browser_session(
+    auth: &AuthPlatform,
     jwt: &str,
 ) -> Result<(Identity, CredentialContext), OxyError> {
     let token_id = browser_session::token_id_of(jwt)
         .ok_or_else(|| OxyError::AuthenticationError("Not a token session".to_string()))?;
     let key = browser_session::cache_key(jwt);
     if let Some((identity, credential)) = cache::get(&key) {
-        let credential = live_principal(credential).await?;
-        record_use(&credential).await;
+        let credential = live_principal(auth, credential).await?;
+        record_use(auth, &credential).await;
         return Ok((identity, credential));
     }
 
-    let db = connect().await?;
+    let db = connect(auth).await?;
     let resolved = browser_session::resolve(&db, jwt, token_id).await?;
     cache::put(
         key,
@@ -316,7 +319,7 @@ pub async fn authenticate_browser_session(
         resolved.credential.clone(),
         resolved.expires_at,
     );
-    record_use(&resolved.credential).await;
+    record_use(auth, &resolved.credential).await;
     Ok((resolved.identity, resolved.credential))
 }
 
@@ -329,9 +332,12 @@ pub async fn authenticate_browser_session(
 /// principal's `users` row still active — for a person, a legacy key's owner
 /// and a service account alike — and, for a service account, is the account
 /// still enabled.
-async fn live_principal(credential: CredentialContext) -> Result<CredentialContext, OxyError> {
+async fn live_principal(
+    auth: &AuthPlatform,
+    credential: CredentialContext,
+) -> Result<CredentialContext, OxyError> {
     let token_id = credential.token_id;
-    let db = connect().await?;
+    let db = connect(auth).await?;
     reread_principal(&db, credential)
         .await
         .inspect_err(|_| cache::invalidate_token(token_id))
@@ -348,8 +354,8 @@ async fn reread_principal(
     Ok(credential)
 }
 
-async fn connect() -> Result<sea_orm::DatabaseConnection, OxyError> {
-    establish_connection().await.map_err(|e| {
+async fn connect(auth: &AuthPlatform) -> Result<sea_orm::DatabaseConnection, OxyError> {
+    auth.connect().await.map_err(|e| {
         tracing::error!(
             "Failed to establish database connection for API key validation: {}",
             e
@@ -358,11 +364,11 @@ async fn connect() -> Result<sea_orm::DatabaseConnection, OxyError> {
     })
 }
 
-async fn record_use(credential: &CredentialContext) {
+async fn record_use(auth: &AuthPlatform, credential: &CredentialContext) {
     if !cache::claim_touch(credential.token_id) {
         return;
     }
-    match establish_connection().await {
+    match auth.connect().await {
         Ok(db) => store::touch_last_used(&db, credential).await,
         Err(e) => tracing::warn!(error = %e, "could not record token use"),
     }

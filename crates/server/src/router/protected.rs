@@ -150,7 +150,10 @@ pub fn api_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> R
         // every other credential's response through untouched.
         .layer(middleware::from_fn(shape_for_agent))
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(oxy_auth::token::SandboxAgent::Admit),
+            AuthState::built_in(
+                oxy_auth::token::SandboxAgent::Admit,
+                oxy::database::client::auth_platform(),
+            ),
             auth_middleware,
         ))
         // Run BEFORE the auth gate so EventSource (SSE) can authenticate
@@ -169,7 +172,10 @@ pub fn external_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>)
     routes
         .layer(middleware::from_fn(timeout_middleware))
         .layer(middleware::from_fn(token_usage_middleware))
-        .layer(middleware::from_fn(api_key_only_middleware))
+        .layer(middleware::from_fn_with_state(
+            oxy::database::client::auth_platform(),
+            api_key_only_middleware,
+        ))
         .layer(middleware::from_fn(api_key_query_middleware))
 }
 
@@ -231,7 +237,7 @@ pub(super) fn apply_local_middleware(
     Ok(protected_routes
         .route_layer(middleware::from_fn(timeout_middleware))
         .route_layer(middleware::from_fn_with_state(
-            AuthState::guest_only(),
+            AuthState::guest_only(oxy::database::client::auth_platform()),
             auth_middleware,
         ))
         .route_layer(middleware::from_fn(api_key_query_middleware)))

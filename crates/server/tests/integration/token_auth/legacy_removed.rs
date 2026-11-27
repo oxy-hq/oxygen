@@ -44,9 +44,12 @@ async fn assert_refused_everywhere(fx: &Fixture, key: &str) {
     // `/api` layers, so it is checked on its own.
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("x-api-key", key.parse().unwrap());
-    let refused = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
-        .authenticate(&headers)
-        .await;
+    let refused = BuiltInAuthenticator::new(
+        oxy_auth::token::SandboxAgent::Refuse,
+        oxy::database::client::auth_platform(),
+    )
+    .authenticate(&headers)
+    .await;
     assert!(refused.is_err(), "the custom-app path admits no legacy key");
 }
 

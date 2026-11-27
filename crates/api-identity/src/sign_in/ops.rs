@@ -72,9 +72,12 @@ pub(super) async fn verify_oauth_state(state: &str) -> Result<(), StatusCode> {
     let validation = Validation::default();
     // Its own key, not the session's: a `state` can never be presented as a
     // session, and a session never as a `state`.
-    let key = oxy_auth::session_key::decoding_key(oxy_auth::session_key::Purpose::OAuthState)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let key = oxy_auth::session_key::decoding_key(
+        &oxy::database::client::auth_platform(),
+        oxy_auth::session_key::Purpose::OAuthState,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let data = decode::<OAuthStateClaims>(state, &key, &validation).map_err(|e| {
         tracing::warn!("OAuth state rejected: {}", e);
         StatusCode::UNAUTHORIZED
