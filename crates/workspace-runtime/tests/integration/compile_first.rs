@@ -252,7 +252,6 @@ async fn an_empty_workspace_is_compiled_from_its_branch_by_a_context_with_no_fil
             state.clone(),
             ctx.clone(),
             resolver.clone(),
-            None,
             Arc::new(agentic_runtime::router::NoopTaskRouter),
             Some(fx.ws),
             None,

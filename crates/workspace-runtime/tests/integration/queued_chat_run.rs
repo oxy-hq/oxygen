@@ -136,10 +136,7 @@ async fn queued_chat(f: &Fixture, who: Option<&Requester>) -> String {
 }
 
 fn executor(db: &DatabaseConnection) -> ChatRunExecutor {
-    ChatRunExecutor {
-        db: db.clone(),
-        schema_cache: None,
-    }
+    ChatRunExecutor { db: db.clone() }
 }
 
 /// Hand `run_id`'s claim to the executor, as a worker that claimed it would.
@@ -315,7 +312,6 @@ async fn a_latency_pass_drives_a_queued_chat_to_a_terminal_event() {
                 db.clone(),
                 Arc::new(IdentityResolver),
             )),
-            None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),
@@ -554,7 +550,6 @@ async fn a_queued_chat_start_is_driven_by_whichever_driver_claims_it() {
                 db.clone(),
                 Arc::new(IdentityResolver),
             )),
-            None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),
@@ -678,7 +673,6 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
                 db.clone(),
                 Arc::new(IdentityResolver),
             )),
-            None,
             agentic_runtime::router::noop_router(),
             Some(f.workspace_id),
             None,

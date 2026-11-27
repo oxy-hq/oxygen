@@ -263,8 +263,7 @@ async fn create_run_on(
     let mut builder = PipelineBuilder::new(platform.clone())
         .workspace_id(platform.workspace_id())
         .question(&question)
-        .thinking_mode(body.thinking_mode)
-        .schema_cache(Arc::clone(&state.schema_cache));
+        .thinking_mode(body.thinking_mode);
     // Who asked, on the run's own insert: whatever drives this run later
     // without this request (recovery after a restart, a queued start's driver)
     // builds the requester's context from it instead of running the root on
@@ -307,7 +306,6 @@ async fn create_run_on(
     state.register(&run_id, answer_tx, cancel_tx);
 
     let runtime_state = state.runtime.clone();
-    let schema_cache = Some(state.schema_cache.clone());
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -317,7 +315,6 @@ async fn create_run_on(
             answer_rx,
             cancel_rx,
             platform,
-            schema_cache,
             router,
         )
         .await;
@@ -1099,8 +1096,7 @@ async fn answer_run_on(
     // a fresh insert.
     let mut builder = PipelineBuilder::new(platform.clone())
         .workspace_id(platform.workspace_id())
-        .question(&run.question)
-        .schema_cache(Arc::clone(&state.schema_cache));
+        .question(&run.question);
 
     if let Some(tid) = run.thread_id {
         builder = builder.thread(tid);
@@ -1155,7 +1151,6 @@ async fn answer_run_on(
     state.register(&run_id, answer_tx, cancel_tx);
 
     let runtime_state = state.runtime.clone();
-    let schema_cache = Some(state.schema_cache.clone());
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -1165,7 +1160,6 @@ async fn answer_run_on(
             answer_rx,
             cancel_rx,
             platform,
-            schema_cache,
             router,
         )
         .await;

@@ -69,11 +69,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use chrono_tz::Tz;
 
-use crate::catalog::SchemaCatalog;
 use crate::engine::cube::CubeEngine;
 use crate::engine::looker::LookerEngine;
 use crate::engine::{EngineError, SemanticEngine};
@@ -244,8 +243,6 @@ pub struct BuildContext {
     /// Project-level timezone (from `config.yml` `timezone:`). Used as the
     /// fallback for the date hint when the agent YAML omits `timezone:`.
     pub timezone: Option<Tz>,
-    /// Optional schema cache shared across requests.
-    pub schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     /// Runtime thinking config override (from UI "extended thinking" mode toggle).
     pub thinking_override: Option<ThinkingConfig>,
     /// Runtime model override (from UI "extended thinking" mode toggle).

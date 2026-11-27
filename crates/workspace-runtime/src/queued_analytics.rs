@@ -38,13 +38,6 @@ pub mod requester;
 
 pub use admission::INTERRUPTED_MESSAGE;
 
-/// The schema cache a driver shares across the analytics runs it drives: a
-/// custom-app ask (`oxy-api-custom-apps`'s `AgentAskExecutor`) and a chat run
-/// ([`chat`]).
-pub type SchemaCache = std::sync::Arc<
-    std::sync::Mutex<std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>>,
->;
-
 /// One claimed attempt, start to report.
 ///
 /// `prepare` turns the admitted run into whatever the pipeline is built from —

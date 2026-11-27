@@ -59,7 +59,6 @@ use agentic_runtime::state::RuntimeState;
 use sea_orm::DatabaseConnection;
 
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
-use oxy_workspace_runtime::queued_analytics::SchemaCache;
 use oxy_workspace_runtime::queued_analytics::caller::CallerRunResolver;
 
 use super::recovery::{self, CustomTasks};
@@ -93,7 +92,6 @@ fn tick_batch_from(value: Option<&str>) -> i64 {
 pub(super) struct TickDeps {
     pub db: DatabaseConnection,
     pub runtime: Arc<RuntimeState>,
-    pub schema_cache: Option<SchemaCache>,
     pub router: Arc<dyn agentic_runtime::router::TaskRouter>,
     pub ws_cache: Arc<WorkspaceContextCache>,
     pub preagg: PreaggCacheCtx,
@@ -202,14 +200,12 @@ async fn drive_workspace(deps: &TickDeps, ws: &claim::Claimed) -> usize {
         deps.runtime.clone(),
         platform,
         CallerRunResolver::shared(db),
-        deps.schema_cache.clone(),
         deps.router.clone(),
         Some(workspace_id),
         Some(recovery::build_custom_task_registry(
             db,
             &deps.preagg,
             &deps.custom_tasks,
-            deps.schema_cache.clone(),
         )),
         deps.policy,
     )

@@ -39,15 +39,12 @@ use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use tracing::Instrument;
 
-use super::SchemaCache;
 use super::requester::{RequesterContextError, requester_context};
 use super::{Settled, admission, attempt, beside_the_pipeline, heartbeat};
 use crate::project_ctx::OxyProjectContext;
 
 pub struct ChatRunExecutor {
     pub db: DatabaseConnection,
-    /// The driver's shared schema cache, as the handler passes its process's.
-    pub schema_cache: Option<SchemaCache>,
 }
 
 /// Refuse any spec that is not a queued chat, rather than guess at it.
@@ -87,9 +84,7 @@ impl ChatRunExecutor {
             chat,
             context,
         } = prepared;
-        let builder = chat
-            .builder(Arc::new(context), self.schema_cache.clone())
-            .existing_run(run_id.clone());
+        let builder = chat.builder(Arc::new(context)).existing_run(run_id.clone());
         // Boxed: the start's future is a large one, and this runs on a driver
         // task's stack beside the claim loop's.
         match Box::pin(builder.start(&self.db)).await {

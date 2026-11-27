@@ -9,9 +9,8 @@
 //! re-exports it at `agentic_http::state`, so the routes and the host name it
 //! there as before.
 
-use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::router::{NoopTaskRouter, TaskRouter};
@@ -19,19 +18,17 @@ use agentic_runtime::state::RuntimeState;
 use sea_orm::DatabaseConnection;
 use tokio_util::sync::CancellationToken;
 
-use crate::AnalyticsSchemaCatalog;
 use crate::platform::ThreadOwnerLookup;
 
 /// Shared state for all agentic routes.
 ///
 /// Wraps the transport-agnostic [`RuntimeState`] and adds domain-specific
-/// extensions (schema cache, event registry). Holds the
+/// extensions (the event registry). Holds the
 /// shared SeaORM [`DatabaseConnection`] so handlers don't open a new one per
 /// request, and a [`ThreadOwnerLookup`] so thread-ownership auth checks do
 /// not reach into the platform `threads` table from this crate.
 pub struct AgenticState {
     pub runtime: Arc<RuntimeState>,
-    pub schema_cache: Arc<Mutex<HashMap<String, AnalyticsSchemaCatalog>>>,
     pub event_registry: Arc<EventRegistry>,
     pub shutdown_token: CancellationToken,
     pub db: DatabaseConnection,
@@ -62,7 +59,6 @@ impl AgenticState {
     ) -> Self {
         Self {
             runtime: Arc::new(RuntimeState::new()),
-            schema_cache: Arc::new(Mutex::new(HashMap::new())),
             event_registry: Arc::new(crate::build_event_registry()),
             shutdown_token,
             db,

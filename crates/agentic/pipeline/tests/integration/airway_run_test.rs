@@ -703,7 +703,6 @@ resources:
         Arc::new(agentic_runtime::state::RuntimeState::new()),
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
-        None,
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(workspace_id),
         None,

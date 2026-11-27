@@ -5,10 +5,8 @@
 //! only sees [`TaskExecutor`]; this crate knows how to start the right pipeline
 //! for each [`TaskSpec`] variant.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use agentic_analytics::SchemaCatalog;
 use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
@@ -25,7 +23,6 @@ use crate::{PipelineBuilder, ThinkingMode};
 /// HTTP/CLI layer.
 pub struct PipelineTaskExecutor {
     pub platform: Arc<dyn PlatformContext>,
-    pub schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     pub db: DatabaseConnection,
     /// Runtime state for registering answer channels (needed by automation
     /// orchestrator tasks so the coordinator can resume them via answer channel
@@ -573,7 +570,6 @@ impl PipelineTaskExecutor {
     pub fn bare(platform: Arc<dyn PlatformContext>, db: DatabaseConnection) -> Self {
         Self {
             platform,
-            schema_cache: None,
             db,
             state: None,
             custom_executors: None,
@@ -630,10 +626,6 @@ impl PipelineTaskExecutor {
             builder = builder.human_input(provider);
         }
 
-        if let Some(cache) = &self.schema_cache {
-            builder = builder.schema_cache(cache.clone());
-        }
-
         let started = builder
             .start(&self.db)
             .await
@@ -688,9 +680,6 @@ impl PipelineTaskExecutor {
         let mut builder = PipelineBuilder::new(self.platform.clone())
             .workspace_id(self.platform.workspace_id())
             .question(&run.question);
-        if let Some(cache) = &self.schema_cache {
-            builder = builder.schema_cache(cache.clone());
-        }
         if let Some(tid) = run.thread_id {
             builder = builder.thread(tid);
         }
@@ -822,7 +811,6 @@ impl PipelineTaskExecutor {
     fn with_platform(&self, platform: Arc<dyn PlatformContext>) -> Self {
         Self {
             platform,
-            schema_cache: self.schema_cache.clone(),
             db: self.db.clone(),
             state: self.state.clone(),
             custom_executors: self.custom_executors.clone(),
@@ -2304,7 +2292,6 @@ mod tests {
     fn executor_on(platform: Arc<OneSecretPlatform>) -> PipelineTaskExecutor {
         PipelineTaskExecutor {
             platform,
-            schema_cache: None,
             // Never queried: `resolve_airway_source_secrets` reads only the
             // platform port. A `Disconnected` handle errors on any query, so a
             // future DB read here fails the test rather than passing quietly.

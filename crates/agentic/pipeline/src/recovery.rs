@@ -9,8 +9,7 @@
 //! 5. Mark stale tasks as failed (parent will re-delegate)
 //! 6. Process PendingResumes (children done, parent not yet resumed)
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::coordinator::Coordinator;
@@ -135,7 +134,6 @@ pub async fn recover_active_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -176,7 +174,6 @@ pub async fn recover_active_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            schema_cache.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Startup,
@@ -325,7 +322,6 @@ pub async fn recover_stranded_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -382,7 +378,6 @@ pub async fn recover_stranded_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            schema_cache.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Loop,
@@ -451,7 +446,6 @@ pub async fn recover_pending_global_runs(
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
     run_platform: Arc<dyn RunPlatformResolver>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
@@ -503,7 +497,6 @@ pub async fn recover_pending_global_runs(
             db.clone(),
             state.clone(),
             root_platform,
-            schema_cache.clone(),
             router.clone(),
             custom_executors.clone(),
             RecoveryOrigin::Loop,
@@ -534,7 +527,6 @@ async fn recover_single_run(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
     origin: RecoveryOrigin,
@@ -681,7 +673,6 @@ async fn recover_single_run(
         db.clone(),
         state,
         platform,
-        schema_cache,
         router,
         custom_executors,
         driver_id,
@@ -768,7 +759,6 @@ async fn recover_single_run_owned(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
     // The lease this frame owns — the heartbeat ticker downstream renews it.
@@ -798,7 +788,6 @@ async fn recover_single_run_owned(
     }
     let executor = Arc::new(PipelineTaskExecutor {
         platform,
-        schema_cache,
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors,

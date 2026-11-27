@@ -36,7 +36,7 @@ pub use extension::{
     update_run_spec_hint, update_run_thinking_mode,
 };
 
-// ── Catalog (only SchemaCatalog needed externally for schema cache) ──────────
+// ── Catalog (SchemaCatalog, for the integration tests) ─────────────────────────
 
 pub use catalog::SchemaCatalog;
 

@@ -49,7 +49,6 @@ async fn a_queued_builder_task_fails_the_run_with_a_terminal_builder_removed_err
         Arc::new(RuntimeState::new()),
         Arc::new(FakePlatform),
         Arc::new(IdentityResolver),
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         None,

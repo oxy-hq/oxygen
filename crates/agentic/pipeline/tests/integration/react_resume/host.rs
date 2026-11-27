@@ -302,7 +302,7 @@ impl TaskExecutor for ChatRun {
             .ok_or("no run")?;
         let chat = ChatStart::from_run(&run)?;
         let started = chat
-            .builder(self.host.clone(), None)
+            .builder(self.host.clone())
             .existing_run(assignment.run_id.clone())
             .start(&self.db)
             .await
@@ -326,7 +326,6 @@ pub(super) async fn latency_pass(db: &DatabaseConnection, ws: Uuid, host: &Arc<H
         Arc::new(RuntimeState::new()),
         platform,
         Arc::new(IdentityResolver),
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         Some(Arc::new(registry)),

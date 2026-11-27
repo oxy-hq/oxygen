@@ -106,7 +106,6 @@ async fn latency_pass(db: &DatabaseConnection, ws: Uuid, state: &Arc<RuntimeStat
         state.clone(),
         Arc::new(FakePlatform),
         Arc::new(IdentityResolver),
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         Some(Arc::new(registry)),

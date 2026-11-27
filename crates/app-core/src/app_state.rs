@@ -35,7 +35,7 @@ pub struct AppState {
     /// so the query read-path uses the operator-configured value, not a
     /// hardcoded default. `None` when no worker is running.
     pub preagg_renewal_threshold_secs: Option<u64>,
-    /// Shared agentic state — runtime, schema cache, event registry,
+    /// Shared agentic state — runtime, event registry,
     /// task router. Populated for the main API router so custom-app
     /// endpoints (useAsk, useProcedureRun, useAgentRun) can reach the
     /// pipeline. `None` for the internal API router (no agentic

@@ -129,18 +129,6 @@ pub struct TaskDeps<'a> {
     /// The node's Layer-1 preagg cache. Default (no cache) compiles to
     /// warehouse SQL.
     pub preagg: &'a PreaggCacheCtx,
-    /// The driver's analytics schema cache, shared with the chat runs it
-    /// drives. A custom-app ask's executor takes it; `None` builds the schema
-    /// per run. Spelled out rather than named through
-    /// `queued_analytics::SchemaCache` (the same type): the seams are base,
-    /// and the queued-run machinery is not (`base_boundary`).
-    pub schema_cache: Option<
-        &'a std::sync::Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
 }
 
 /// One `TaskSpec::Custom` kind an extracted surface runs, with the executor

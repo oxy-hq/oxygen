@@ -101,7 +101,6 @@ pub(super) async fn drive_here(
         gates_ctx.workspace.id,
         &req.question,
         Some(thread_id),
-        Some(Arc::clone(&agentic_state.schema_cache)),
         agent_id,
     )
     .run_metadata(
@@ -135,7 +134,6 @@ pub(super) async fn drive_here(
 
     let db = agentic_state.db.clone();
     let runtime_state = agentic_state.runtime.clone();
-    let schema_cache = Some(agentic_state.schema_cache.clone());
     let router = agentic_state.router.clone();
     let run_id_for_drive = run_id.clone();
     // Built in `boxed`'s frame too: the drive's future is a large one.
@@ -148,7 +146,6 @@ pub(super) async fn drive_here(
                 answer_rx,
                 cancel_rx,
                 platform,
-                schema_cache,
                 router,
             )
             .await;

@@ -51,12 +51,10 @@ use oxy_workspace_runtime::queued_analytics::{
     self as queued_analytics, Settled, admission, heartbeat,
 };
 
-pub use oxy_workspace_runtime::queued_analytics::{INTERRUPTED_MESSAGE, SchemaCache};
+pub use oxy_workspace_runtime::queued_analytics::INTERRUPTED_MESSAGE;
 
 pub struct AgentAskExecutor {
     pub db: DatabaseConnection,
-    /// The driver's shared schema cache, as the handler passes its process's.
-    pub schema_cache: Option<SchemaCache>,
 }
 
 #[async_trait]
@@ -104,7 +102,6 @@ impl AgentAskExecutor {
             ask.workspace_id,
             &ask.question,
             ask.thread_id,
-            self.schema_cache.clone(),
             &ask.agent_id,
         )
         .existing_run(ask.run_id.clone())

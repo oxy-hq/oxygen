@@ -50,14 +50,12 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
         // A custom app's ask: every live one is queued by its start
         // (`agent_ask::start`). It builds its own context from the caller the
         // request authenticated — read off the run row — never from this
-        // driver's subject-less platform, and shares the driver's schema cache
-        // with the chat runs beside it.
+        // driver's subject-less platform.
         TaskSeam {
             kind: oxy_api_custom_apps::agent_ask::task::AGENT_ASK_KIND,
             build: |deps| {
                 Arc::new(oxy_api_custom_apps::agent_ask::executor::AgentAskExecutor {
                     db: deps.db.clone(),
-                    schema_cache: deps.schema_cache.cloned(),
                 })
             },
         },

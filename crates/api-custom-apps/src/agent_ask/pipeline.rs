@@ -12,11 +12,10 @@
 //! Analytics domain only — the builder is workspace-scoped and not exposed to
 //! bundles.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use agentic_pipeline::PipelineBuilder;
 use agentic_pipeline::platform::PlatformContext;
-use agentic_pipeline::{AnalyticsSchemaCatalog, PipelineBuilder};
 use uuid::Uuid;
 
 /// The builder for one ask. The caller adds the one thing that differs between
@@ -28,15 +27,11 @@ pub(super) fn ask_pipeline(
     project_id: Uuid,
     question: &str,
     thread_id: Option<Uuid>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, AnalyticsSchemaCatalog>>>>,
     agent_id: &str,
 ) -> PipelineBuilder {
     let mut builder = PipelineBuilder::new(platform)
         .workspace_id(project_id)
         .question(question);
-    if let Some(cache) = schema_cache {
-        builder = builder.schema_cache(cache);
-    }
     if let Some(thread_id) = thread_id {
         builder = builder.thread(thread_id);
     }

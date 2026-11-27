@@ -274,7 +274,6 @@ pub(crate) async fn drive_once(
         state.clone(),
         platform,
         Arc::new(agentic_pipeline::platform::IdentityResolver),
-        None,
         noop_router(),
         Some(workspace_id),
         Some(registry(db)),

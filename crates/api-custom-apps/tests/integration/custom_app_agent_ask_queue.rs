@@ -102,10 +102,7 @@ fn caller() -> RunCaller {
 }
 
 fn executor(db: &DatabaseConnection) -> AgentAskExecutor {
-    AgentAskExecutor {
-        db: db.clone(),
-        schema_cache: None,
-    }
+    AgentAskExecutor { db: db.clone() }
 }
 
 /// Hand `run_id`'s claim to the executor, as a worker that claimed it would.
@@ -223,7 +220,6 @@ async fn a_latency_pass_drives_a_queued_ask_to_a_terminal_event() {
                 db.clone(),
                 Arc::new(IdentityResolver),
             )),
-            None,
             noop_router(),
             Some(f.workspace_id),
             Some(registry.clone()),

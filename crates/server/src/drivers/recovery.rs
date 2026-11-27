@@ -381,7 +381,6 @@ pub fn spawn_recovery(
 ) {
     let db = agentic_state.db.clone();
     let runtime = agentic_state.runtime.clone();
-    let schema_cache = Some(agentic_state.schema_cache.clone());
     let router = agentic_state.router.clone();
     let shutdown = agentic_state.shutdown_token.clone();
     // §12 FU4c: long-lived cache so repeated periodic ticks (and the
@@ -416,7 +415,6 @@ pub fn spawn_recovery(
         spawn_latency_worker(
             db.clone(),
             runtime.clone(),
-            schema_cache.clone(),
             router.clone(),
             mode,
             shutdown.clone(),
@@ -451,7 +449,6 @@ pub fn spawn_recovery(
                 let recovered = run_recovery(
                     &db,
                     runtime.clone(),
-                    schema_cache.clone(),
                     router.clone(),
                     mode,
                     false, // one-shot startup recovery: every coordinator is dead
@@ -470,10 +467,9 @@ pub fn spawn_recovery(
                     );
                 }
                 // Once more after the lease TTL — see `LAPSED_LEASE_PASS_DELAY`.
-                let (db, runtime, schema_cache, ws_cache, preagg, shutdown, custom_tasks) = (
+                let (db, runtime, ws_cache, preagg, shutdown, custom_tasks) = (
                     db.clone(),
                     runtime.clone(),
-                    schema_cache.clone(),
                     ws_cache.clone(),
                     preagg.clone(),
                     shutdown.clone(),
@@ -488,7 +484,6 @@ pub fn spawn_recovery(
                     let recovered = run_recovery(
                         &db,
                         runtime,
-                        schema_cache,
                         router,
                         mode,
                         false,
@@ -548,7 +543,6 @@ pub fn spawn_recovery(
                     let n = run_recovery(
                         &db,
                         runtime.clone(),
-                        schema_cache.clone(),
                         router.clone(),
                         mode,
                         true, // periodic tick: stranded runs only (never poach a live interactive run)
@@ -590,13 +584,6 @@ pub fn spawn_recovery(
 pub(super) async fn run_recovery(
     db: &DatabaseConnection,
     runtime: Arc<RuntimeState>,
-    schema_cache: Option<
-        Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     mode: ServeMode,
     // `true` = periodic global-driver tick (drive stranded runs only);
@@ -616,7 +603,6 @@ pub(super) async fn run_recovery(
             recover_local(
                 db,
                 runtime,
-                schema_cache,
                 router,
                 periodic,
                 ws_cache,
@@ -632,7 +618,6 @@ pub(super) async fn run_recovery(
             super::periodic::tick(&super::periodic::TickDeps {
                 db: db.clone(),
                 runtime,
-                schema_cache,
                 router,
                 ws_cache,
                 preagg,
@@ -642,17 +627,8 @@ pub(super) async fn run_recovery(
             .await
         }
         ServeMode::Cloud => {
-            recover_all_workspaces(
-                db,
-                runtime,
-                schema_cache,
-                router,
-                ws_cache,
-                preagg,
-                custom_tasks,
-                policy,
-            )
-            .await
+            recover_all_workspaces(db, runtime, router, ws_cache, preagg, custom_tasks, policy)
+                .await
         }
     }
 }
@@ -660,13 +636,6 @@ pub(super) async fn run_recovery(
 async fn recover_local(
     db: &DatabaseConnection,
     runtime: Arc<RuntimeState>,
-    schema_cache: Option<
-        Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
@@ -706,15 +675,9 @@ async fn recover_local(
             runtime,
             platform,
             CallerRunResolver::shared(db),
-            schema_cache.clone(),
             router,
             Some(LOCAL_WORKSPACE_ID),
-            Some(build_custom_task_registry(
-                db,
-                &preagg,
-                &custom_tasks,
-                schema_cache,
-            )),
+            Some(build_custom_task_registry(db, &preagg, &custom_tasks)),
             policy,
         )
         .await;
@@ -766,15 +729,9 @@ async fn recover_local(
             runtime,
             platform,
             CallerRunResolver::shared(db),
-            schema_cache.clone(),
             router,
             Some(LOCAL_WORKSPACE_ID),
-            Some(build_custom_task_registry(
-                db,
-                &preagg,
-                &custom_tasks,
-                schema_cache,
-            )),
+            Some(build_custom_task_registry(db, &preagg, &custom_tasks)),
             policy,
         )
         .await
@@ -787,13 +744,6 @@ async fn recover_local(
 async fn recover_all_workspaces(
     db: &DatabaseConnection,
     runtime: Arc<RuntimeState>,
-    schema_cache: Option<
-        Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
@@ -839,15 +789,9 @@ async fn recover_all_workspaces(
             runtime.clone(),
             platform,
             CallerRunResolver::shared(db),
-            schema_cache.clone(),
             router.clone(),
             Some(ws.id),
-            Some(build_custom_task_registry(
-                db,
-                &preagg,
-                &custom_tasks,
-                schema_cache.clone(),
-            )),
+            Some(build_custom_task_registry(db, &preagg, &custom_tasks)),
             policy,
         )
         .await;
@@ -912,13 +856,6 @@ fn spawn_airhouse_tenant_sweeper(
 fn spawn_latency_worker(
     db: sea_orm::DatabaseConnection,
     runtime: Arc<RuntimeState>,
-    schema_cache: Option<
-        Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     mode: ServeMode,
     shutdown: tokio_util::sync::CancellationToken,
@@ -967,7 +904,6 @@ fn spawn_latency_worker(
                                 tick_local(
                                     &db,
                                     &runtime,
-                                    schema_cache.as_ref(),
                                     &router,
                                     &ws_cache,
                                     &preagg,
@@ -980,7 +916,6 @@ fn spawn_latency_worker(
                                 tick_cloud(
                                     &db,
                                     &runtime,
-                                    schema_cache.as_ref(),
                                     &router,
                                     &ws_cache,
                                     &preagg,
@@ -1032,13 +967,6 @@ fn spawn_latency_worker(
 async fn tick_local(
     db: &sea_orm::DatabaseConnection,
     runtime: &Arc<RuntimeState>,
-    schema_cache: Option<
-        &Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
@@ -1060,7 +988,6 @@ async fn tick_local(
         db,
         runtime,
         ctx,
-        schema_cache,
         router,
         Some(LOCAL_WORKSPACE_ID),
         preagg,
@@ -1089,13 +1016,6 @@ async fn tick_local(
 async fn tick_cloud(
     db: &sea_orm::DatabaseConnection,
     runtime: &Arc<RuntimeState>,
-    schema_cache: Option<
-        &Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
@@ -1232,7 +1152,6 @@ async fn tick_cloud(
                     db,
                     runtime,
                     ctx,
-                    schema_cache,
                     router,
                     Some(ws_id),
                     preagg,
@@ -1247,7 +1166,6 @@ async fn tick_cloud(
             db,
             runtime,
             ctx,
-            schema_cache,
             router,
             Some(ws_id),
             preagg,
@@ -1371,7 +1289,6 @@ pub(super) fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
     preagg: &PreaggCacheCtx,
     tasks: &[TaskSeam],
-    schema_cache: Option<oxy_workspace_runtime::queued_analytics::SchemaCache>,
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
     use oxy_workspace_runtime::preagg_executor::PreaggTaskExecutor;
     let mut reg = agentic_runtime::worker::CustomTaskRegistry::new();
@@ -1385,15 +1302,10 @@ pub(super) fn build_custom_task_registry(
     // A chat run (`/analytics`): every plain chat is queued by its start. It
     // runs as the requester the run records, never as this driver. (A custom
     // app's ask, its sibling, is `oxy-api-custom-apps`'s and arrives through
-    // `tasks` below, with the same schema cache.)
+    // `tasks` below.)
     reg.register(
         agentic_pipeline::queued_run::CHAT_RUN_KIND,
-        Arc::new(
-            oxy_workspace_runtime::queued_analytics::chat::ChatRunExecutor {
-                db: db.clone(),
-                schema_cache: schema_cache.clone(),
-            },
-        ),
+        Arc::new(oxy_workspace_runtime::queued_analytics::chat::ChatRunExecutor { db: db.clone() }),
     );
     // Same shape as health eval: one executor instance, workspace context
     // rebuilt fresh per task from `workspace_id` in the payload. See
@@ -1427,11 +1339,7 @@ pub(super) fn build_custom_task_registry(
     // process without the custom-app, notification, health, anomaly and
     // preview ones, and
     // `oxy-server`'s own test holds the experiment ones to the composition.
-    let deps = oxy_app_core::seams::TaskDeps {
-        db,
-        preagg,
-        schema_cache: schema_cache.as_ref(),
-    };
+    let deps = oxy_app_core::seams::TaskDeps { db, preagg };
     for seam in tasks {
         reg.register(seam.kind, (seam.build)(&deps));
     }
@@ -1444,13 +1352,6 @@ async fn drive_pending(
     db: &sea_orm::DatabaseConnection,
     runtime: &Arc<RuntimeState>,
     ctx: Arc<OxyProjectContext>,
-    schema_cache: Option<
-        &Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
-            >,
-        >,
-    >,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     preagg: &PreaggCacheCtx,
@@ -1461,12 +1362,7 @@ async fn drive_pending(
     // The latency worker is where freshly-seeded Global runs (incl. per-workspace
     // `health_eval_workspace` Custom tasks) are drained, so inject the host's
     // Custom-kind executors here. Cheap to build per call (a few Arc clones).
-    let custom_executors = Some(build_custom_task_registry(
-        db,
-        preagg,
-        custom_tasks,
-        schema_cache.cloned(),
-    ));
+    let custom_executors = Some(build_custom_task_registry(db, preagg, custom_tasks));
     // The real gate: `policy` is checked inside `recover_pending_global_runs`,
     // immediately before `try_acquire_driver`, so a declined run keeps
     // `driver_id IS NULL` and stays selectable by a node that can take it. It
@@ -1479,7 +1375,6 @@ async fn drive_pending(
         // Preview-owned roots get the preview platform, a custom-app ask its
         // caller's context; everything else `platform`.
         CallerRunResolver::shared(db),
-        schema_cache.cloned(),
         router.clone(),
         workspace_id,
         custom_executors,

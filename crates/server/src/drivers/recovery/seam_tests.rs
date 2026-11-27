@@ -27,7 +27,6 @@ fn registry(tasks: &[TaskSeam]) -> Arc<agentic_runtime::worker::CustomTaskRegist
         &sea_orm::DatabaseConnection::default(),
         &PreaggCacheCtx::default(),
         tasks,
-        None,
     )
 }
 

@@ -135,7 +135,6 @@ async fn recover_stranded(db: &DatabaseConnection, ws: Uuid, host: &Arc<Host>) {
         Arc::new(RuntimeState::new()),
         platform,
         Arc::new(IdentityResolver),
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         None,

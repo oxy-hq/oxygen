@@ -307,21 +307,12 @@ impl ChatStart {
     /// The `PipelineBuilder` for this chat. The caller adds what differs
     /// between the two drives: the request names no run (the insert is the
     /// start's); a driver adds `existing_run`.
-    pub fn builder(
-        &self,
-        platform: Arc<dyn PlatformContext>,
-        schema_cache: Option<
-            Arc<std::sync::Mutex<std::collections::HashMap<String, crate::AnalyticsSchemaCatalog>>>,
-        >,
-    ) -> crate::PipelineBuilder {
+    pub fn builder(&self, platform: Arc<dyn PlatformContext>) -> crate::PipelineBuilder {
         let mut builder = crate::PipelineBuilder::new(platform)
             .workspace_id(self.workspace_id)
             .question(&self.question)
             .thinking_mode(self.thinking_mode)
             .recorded_runtime(self.recorded_runtime.clone());
-        if let Some(cache) = schema_cache {
-            builder = builder.schema_cache(cache);
-        }
         if let Some(thread_id) = self.thread_id {
             builder = builder.thread(thread_id);
         }

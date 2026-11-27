@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use agentic_core::hub_task::spawn_with_hub;
 use chrono_tz::Tz;
@@ -23,7 +23,6 @@ use agentic_runtime::handle::{PipelineHandle, PipelineOutcome};
 use uuid::Uuid;
 
 use crate::anomaly_store::AnomalyStore;
-use crate::catalog::SchemaCatalog;
 use crate::config::{AgentConfig, BuildContext, ConfigError, ResolvedModelInfo};
 use crate::events::AnalyticsEvent;
 use crate::metric_sink::SharedMetricSink;
@@ -48,7 +47,6 @@ pub struct PipelineParams {
     pub question: String,
     pub history: Vec<ConversationTurn>,
     pub prior_spec_hint: Option<SpecHint>,
-    pub schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     pub project_model: Option<ResolvedModelInfo>,
     /// Project-level timezone (from `config.yml` `timezone:`), forwarded into
     /// [`BuildContext`] as the fallback for the agent's date hint.
@@ -155,7 +153,6 @@ pub async fn start_pipeline(
             workspace_id: Some(params.workspace_id.to_string()),
             ..Default::default()
         },
-        schema_cache: params.schema_cache,
         thinking_override,
         model_override,
         preagg: params.preagg,
@@ -329,7 +326,6 @@ pub async fn resume_pipeline(
             workspace_id: Some(params.workspace_id.to_string()),
             ..Default::default()
         },
-        schema_cache: params.schema_cache,
         thinking_override,
         model_override,
         preagg: params.preagg,

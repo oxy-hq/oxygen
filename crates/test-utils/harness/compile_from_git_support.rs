@@ -152,7 +152,6 @@ where
             state.clone(),
             platform.clone(),
             resolver.clone(),
-            None,
             Arc::new(agentic_runtime::router::NoopTaskRouter),
             Some(ws),
             None,

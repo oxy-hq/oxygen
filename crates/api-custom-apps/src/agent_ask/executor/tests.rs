@@ -13,7 +13,6 @@ async fn a_spec_of_another_kind_is_refused_before_any_read() {
     let executor = AgentAskExecutor {
         // Disconnected: a read would fail the test with a different error.
         db: DatabaseConnection::default(),
-        schema_cache: None,
     };
     let refused = executor
         .execute(TaskAssignment {

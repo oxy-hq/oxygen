@@ -53,7 +53,6 @@ from the app's `workspace_middleware`.
 (via `Deref`) and adds:
 
 - `db` — shared SeaORM `DatabaseConnection` (pool internally), cloned per handler
-- `schema_cache` — shared analytics schema introspection cache
 - `event_registry` — domain event processors for SSE streaming
 
 ## SSE Streaming

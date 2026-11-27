@@ -55,7 +55,6 @@ fn the_driver_registry_executes_queued_chat_runs() {
         &sea_orm::DatabaseConnection::default(),
         &PreaggCacheCtx::default(),
         &[],
-        None,
     );
     let kind = agentic_pipeline::queued_run::CHAT_RUN_KIND;
     assert!(

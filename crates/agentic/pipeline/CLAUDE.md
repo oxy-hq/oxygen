@@ -117,7 +117,7 @@ dependency to this crate.
   platform crate that `oxy` and `oxy-server` also dev-depend on, needs no
   `agentic-*` dependency of its own.
 - Consumers (`http`, `app/cli`) should import `agentic-pipeline`, NOT domain crates.
-- Re-exports domain types that consumers need: `ThinkingMode`, `SchemaCatalog`.
+- Re-exports the domain types consumers need (the `pub use` block in `src/lib.rs`: `AnalyticsRunMeta`, `AnalyticsMigrator`, `AnalyticsMetricSink`, `SharedMetricSink`, the automation migrator), and defines `ThinkingMode`.
 
 ## Testing
 

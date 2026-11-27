@@ -41,10 +41,8 @@ pub mod state;
 mod thread_history;
 pub mod usage;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use agentic_analytics::SchemaCatalog;
 use agentic_analytics::config::AgentConfig;
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::event_registry::EventRegistry;
@@ -76,7 +74,6 @@ pub use agentic_airway::{
 };
 /// Re-export so HTTP/CLI don't import domain crates directly.
 pub use agentic_analytics::AnalyticsRunMeta;
-pub use agentic_analytics::SchemaCatalog as AnalyticsSchemaCatalog;
 pub use agentic_analytics::extension::AnalyticsMigrator;
 pub use agentic_analytics::{AnalyticsMetricSink, SharedMetricSink};
 pub use agentic_automation::{
@@ -133,7 +130,6 @@ pub struct PipelineBuilder {
     question: String,
     thread_id: Option<Uuid>,
     thinking_mode: ThinkingMode,
-    schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     /// When set, use this run_id and skip the DB `insert_run` call.
     /// Used for delegation children where the coordinator already created
     /// the run via `insert_run_with_parent`.
@@ -270,7 +266,6 @@ impl PipelineBuilder {
             question: String::new(),
             thread_id: None,
             thinking_mode: ThinkingMode::Auto,
-            schema_cache: None,
             existing_run_id: None,
             recorded_runtime: react_resume::RecordedRuntime::Unread,
             starting_driver: None,
@@ -384,12 +379,6 @@ impl PipelineBuilder {
 
     pub fn thinking_mode(mut self, mode: ThinkingMode) -> Self {
         self.thinking_mode = mode;
-        self
-    }
-
-    /// Set schema cache (shared across requests in HTTP mode).
-    pub fn schema_cache(mut self, cache: Arc<Mutex<HashMap<String, SchemaCatalog>>>) -> Self {
-        self.schema_cache = Some(cache);
         self
     }
 
@@ -629,7 +618,6 @@ impl PipelineBuilder {
             question: self.question,
             history,
             prior_spec_hint: None,
-            schema_cache: self.schema_cache,
             project_model,
             timezone: self.platform.timezone(),
             use_extended_thinking: self.thinking_mode.is_extended(),
@@ -769,7 +757,6 @@ impl PipelineBuilder {
             question: self.question,
             history,
             prior_spec_hint: None,
-            schema_cache: self.schema_cache,
             project_model,
             timezone: self.platform.timezone(),
             use_extended_thinking: self.thinking_mode.is_extended(),
@@ -1074,7 +1061,6 @@ pub async fn drive_with_coordinator(
     answer_rx: mpsc::Receiver<String>,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     platform: Arc<dyn PlatformContext>,
-    schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
 ) {
     use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
@@ -1112,7 +1098,6 @@ pub async fn drive_with_coordinator(
     // Create the task executor for child tasks (delegation).
     let executor = Arc::new(executor::PipelineTaskExecutor {
         platform,
-        schema_cache,
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,
