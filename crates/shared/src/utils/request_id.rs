@@ -13,7 +13,7 @@
 //! already depend on. So the name and the parse live here; the minting policy
 //! stays in the middleware, where it belongs.
 
-use axum::http::HeaderMap;
+use ::http::HeaderMap;
 use uuid::Uuid;
 
 /// Wire name, on the request (for handlers), the response (for callers), and

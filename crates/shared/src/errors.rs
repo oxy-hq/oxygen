@@ -1,8 +1,8 @@
 use std::sync::{PoisonError, TryLockError};
 
 use crate::semantic_error::SemanticLayerError;
+use ::http::StatusCode;
 use async_openai::error::OpenAIError;
-use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::{sync::mpsc::error::SendError, task::JoinError};
 

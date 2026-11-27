@@ -4,8 +4,8 @@
 //! allowing different providers (OpenAI, Azure, Anthropic, Gemini, Ollama) to
 //! use a unified configuration interface.
 
+use ::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue};
 use async_openai::config::{AzureConfig, Config, OpenAIConfig};
-use axum::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue};
 use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};

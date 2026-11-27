@@ -41,7 +41,7 @@ hex = { workspace = true }
 schemars = { workspace = true, features = ["derive", "impl_json_schema"] }
 
 # HTTP/API
-axum = { workspace = true }
+http = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 
 # AI/LLM
