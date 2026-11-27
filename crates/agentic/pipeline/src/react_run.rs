@@ -26,7 +26,7 @@ use agentic_runtime::react::{LoopConfig, LoopOutcome, RunMemory, run_loop};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::headless::{EventDestination, HeadlessError};
+use crate::headless::{CLARIFYING_QUESTION_PREFIX, EventDestination, HeadlessError};
 use crate::platform::PlatformContext;
 use crate::react_config::{default_connector, dynamic_hint, engine_config, refuse_unsupported};
 
@@ -339,7 +339,7 @@ pub(crate) fn headless_result(outcome: LoopOutcome) -> Result<String, HeadlessEr
     match outcome {
         LoopOutcome::Done { answer } => Ok(answer.text),
         LoopOutcome::Suspended { question, .. } => Err(HeadlessError::Run(format!(
-            "agentic pipeline asked a clarifying question: {question}"
+            "{CLARIFYING_QUESTION_PREFIX}{question}"
         ))),
         LoopOutcome::Failed { message } => Err(HeadlessError::Run(message)),
         // Unreachable today: the headless token is never cancelled.

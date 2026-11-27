@@ -98,5 +98,7 @@ pub(super) fn parse_correctness_record(output: Output) -> Result<Record, OxyErro
         timing: None,
         runtime: None,
         model: None,
+        observed: None,
+        unmet_expectations: vec![],
     })
 }

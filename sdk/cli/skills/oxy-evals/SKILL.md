@@ -41,8 +41,10 @@ Reference docs (field tables, CI usage):
   automation files are gone too. A `.test.yml` file is the only entry point.
 - **Only the final answer text is judged.** The judge sees the question, `expected`, and the
   agent's answer. It doesn't see the SQL, the tool calls, or the rows.
-- **`tool:` on a case is accepted but not enforced.** It has no effect on pass/fail. Don't
-  rely on it to assert that the agent used a particular path.
+- **Behaviour is checked separately, by an `expect:` block** (see "Behaviour checks" below):
+  whether the agent asked a clarifying question, drew a chart, hit a pre-aggregation, which
+  source its answer's query came from, and which tools it called. These are read from the
+  run's events, not judged. `tool: <name>` on a case is shorthand for `expect.tools: [<name>]`.
 
 ## The `.test.yml` format
 
@@ -65,13 +67,14 @@ cases:
 Rules the parser enforces:
 
 - **Unknown keys are rejected at every level** (file, `settings`, each case). A typo such as
-  `judge-model:` or `expect:` makes the file fail to parse. Run it by path and
+  `judge-model:` or `expects:` makes the file fail to parse. Run it by path and
   `oxyc evals run` exits `6` with `Failed to deserialize test config …`. **Run with no file
   and a broken file is skipped silently.** It just isn't in the run, with no error. A file
   that isn't valid YAML, or has no `cases:` list, isn't compiled at all, so by path it answers
   exit `5` (not in the served revision), as if it had never been pushed. After pushing a test
   file, run it by path once.
-- **`prompt` and `expected` are required strings.** Everything else is optional.
+- **`prompt` is required, and so is `expected`** unless the case has an `expect:` block (or
+  `tool:`): such a case can be graded on its behaviour alone. Everything else is optional.
 - **`target`** is resolved from the project root (the directory holding `config.yml`). If you
   omit it, it's inferred from the filename, in the same directory: `sales.agentic.test.yml`
   targets `sales.agentic.yml` beside it. Tests kept in a separate `tests/` folder must set
@@ -81,6 +84,37 @@ Rules the parser enforces:
   `config.yml`. An unknown name fails the run before any judging (`LLM model '<name>' could not
   be resolved from project config`). Google/Gemini models can't be used. Prefer a judge from a
   different model family than the agent's, to avoid self-preference bias.
+
+### Behaviour checks (`expect:`)
+
+An optional per-case block. Every field is optional; a case fails when any field it sets is
+unmet, and the record names each unmet one in `unmet_expectations` (and at the end of `cot`).
+
+```yaml
+cases:
+  - name: ambiguous-region
+    prompt: What were sales in the region?
+    expect:
+      asks_user: true            # the run must stop on a clarifying question
+  - name: weekly-revenue-chart
+    prompt: Chart weekly revenue for November 2025
+    expected: A weekly revenue series for November 2025
+    expect:
+      chart: true                # a chart was drawn (a plain table does not count)
+      preagg: true               # a successful query was served from a pre-aggregation
+      query_source: semantic     # the answer's query: semantic | llm | vendor | verified_sql
+      tools: [query]             # tools that must be called, by the runtime's own names
+```
+
+- **A case with `expect:` and no `expected` is not judged.** It passes on its expectations
+  alone.
+- **`asks_user: true`** makes a clarifying question a graded outcome: the question becomes the
+  record's `actual_output`, the answer text is not judged, and the case passes. A run that
+  answers instead fails. Without it, a question is still a run error.
+- **Tool names differ between runtimes** (`runtime: react` and the default), so prefer the
+  flags to `tools:` when a case must hold for both.
+- What the run did is in every agentic record's `observed` object, met or not; check it when
+  writing an expectation.
 
 Naming and placement: `<agent-stem>.<topic>.test.yml` (for example
 `sales.performance.test.yml`) in the folder the project already uses for tests. With no file,
@@ -105,7 +139,8 @@ Naming and placement: `<agent-stem>.<topic>.test.yml` (for example
 - **Make prompts specific enough to answer without a follow-up question.** Tests run
   headless. If the agent stops to ask the user something, the run ends as an **error**
   (`agentic pipeline asked a clarifying question: …`), which counts as a FAIL. An ambiguous
-  prompt shows up as a run error, not as a wrong answer.
+  prompt shows up as a run error, not as a wrong answer. The exception is a case written to
+  test exactly that, with `expect: {asks_user: true}`.
 - **Test one thing per case.** "Revenue by region and the top product in each" is two cases.
 - **Name every case** (`name:`), with a short stable slug.
 
@@ -190,7 +225,9 @@ oxyc evals wait <run-id> --workspace <id> --json                                
   actual answers are only in the results document.
 - `--regrade <results.json>` grades a results file's recorded answers again, without running
   the agent. It needs the test file the results came from, and can't be combined with
-  `--case` or `--tag`.
+  `--case` or `--tag`. Each run is held to the `expect:` checks of the test-file case with
+  the same prompt, read from the test file as it is now; a recorded clarifying question its
+  case no longer expects is a run error, as on a fresh run.
 - `--min-accuracy` compares **per-file** scores. `--threshold-mode average` (the default)
   checks the mean across files, and `all` checks every file. It doesn't check individual
   cases.

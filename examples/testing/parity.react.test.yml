@@ -1,0 +1,198 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent-test.json
+#
+# FSM-vs-react parity cases (internal-docs/agent-engine-runtime.md, "Parity
+# checklist before Phase 5"). The same cases run against both runtimes:
+#
+#   parity.fsm.test.yml    -> analytics.agentic.yml        (the FSM)
+#   parity.react.test.yml  -> analytics.react.agentic.yml  (its react twin)
+#
+# The two files differ only in `name:` and `target:`. A unit test
+# (`parity_cases_are_the_same_for_both_runtimes` in
+# crates/core/src/config/test_config.rs) fails when their cases drift, so
+# edit both together.
+#
+# Run against a seeded stack (`just up` from the repo root; it seeds the Demo
+# workspace from this directory, loads examples/.db into Airhouse, and runs
+# the worker that builds the pre-aggregation rollups):
+#
+#   cd examples && oxy dev test testing/parity.fsm.test.yml --format json
+#   cd examples && oxy dev test testing/parity.react.test.yml --format json
+#
+# Five items, a few cases each. Each case checks the one behaviour its item is
+# about (`expect:`), plus an `expected` answer where the numbers are known.
+# Metric tree and anomalies are not here: under `oxy test` neither runtime has
+# those tools.
+#
+#   verified-*  the answer runs a verified query (example_sql/*.sql) as-is.
+#               Prompts repeat each file's `embed:` text.
+#   fresh-*     the answer says the orders data runs only through 2026-07-16
+#               (the `meta:` freshness contract on semantics/views/orders.view.yml).
+#   preagg-*    the query is served from a rollup in a view's `pre_aggregations:`.
+#               Needs the rollups built (the refresh worker `just up` runs);
+#               otherwise the FSM falls back to the warehouse and fails too.
+#   chart-*     the run draws a chart (an FSM table does not count).
+#   clarify-*   the run stops to ask the user what they mean.
+#
+# Expected to fail on react today, by design: every `verified-*` case (react
+# has no verified-query path, so its query source is never `verified_sql`) and
+# every `preagg: true` case (react reports `is_preagg: false` on every query).
+# They are the evidence for the Phase 4 fixes. Do not weaken them to pass.
+#
+# A case the FSM fails on its first run is not a parity case: fix the prompt
+# or fixture until the FSM passes, or drop the case from both files.
+#
+# Dates: orders.csv runs 2024-07-17..2026-07-16, marketing_spend.csv
+# 2024-07-01..2026-06-30. Every period is named, none is relative.
+
+name: parity-react
+target: analytics.react.agentic.yml
+
+settings:
+  concurrency: 5
+  runs: 1 # a milestone run raises it
+  grader: judge
+
+cases:
+  # ── 1. Verified queries run as-is ───────────────────────────────────────
+  - name: verified-store-count
+    prompt: "How many stores do I have?"
+    expected: "45 stores"
+    tags: [parity, verified-query]
+    expect:
+      query_source: verified_sql
+
+  - name: verified-total-weekly-sales
+    prompt: "What is the total weekly sales for all stores?"
+    expected: "Total weekly sales across all stores of about $6.74 billion (6,737,218,987)"
+    tags: [parity, verified-query]
+    expect:
+      query_source: verified_sql
+
+  - name: verified-rain-effect
+    prompt: "How does rain affect sales?"
+    expected: |
+      Rain days average lower net sales than dry days (about 6,216 vs 6,422 per
+      location-day, over 289 rain and 671 dry location-days), and rain shifts
+      the mix toward delivery (about 44.8% of sales on rain days vs 38.2% on
+      dry days).
+    tags: [parity, verified-query]
+    expect:
+      query_source: verified_sql
+
+  - name: verified-rain-vs-dry
+    prompt: "Show me sales on rainy versus dry days"
+    expected: |
+      Average net sales per location-day of about 6,216 on rain days (289
+      location-days) and about 6,422 on dry days (671), with delivery at about
+      44.8% of sales on rain days and 38.2% on dry days.
+    tags: [parity, verified-query]
+    expect:
+      query_source: verified_sql
+
+  # ── 2. Answers state data freshness ─────────────────────────────────────
+  - name: fresh-july-2026-orders
+    prompt: "How many orders were placed in July 2026?"
+    expected: |
+      4,512 orders, and the answer says the orders data only runs through
+      2026-07-16, so July 2026 is a partial month.
+    tags: [parity, freshness]
+
+  - name: fresh-2026-orders
+    prompt: "How many orders were placed in 2026?"
+    expected: |
+      54,647 orders, and the answer says the orders data only runs through
+      2026-07-16, so 2026 is a partial year.
+    tags: [parity, freshness]
+
+  - name: fresh-q3-2026-orders
+    prompt: "What was the order count for Q3 2026?"
+    expected: |
+      4,512 orders, and the answer says the orders data only runs through
+      2026-07-16, so Q3 2026 covers about two weeks of July, not the quarter.
+    tags: [parity, freshness]
+
+  # ── 3. The pre-aggregated badge ─────────────────────────────────────────
+  # orders.orders_by_status: total_orders by order_status.
+  - name: preagg-orders-by-status
+    prompt: "How many orders are there in each order status?"
+    tags: [parity, preagg]
+    expect:
+      preagg: true
+
+  # orders.orders_by_month / orders_kpis_by_month: total_orders by month.
+  - name: preagg-orders-by-month-2025
+    prompt: "How many orders were placed in each month of 2025?"
+    tags: [parity, preagg]
+    expect:
+      preagg: true
+
+  # marketing_spend.spend_by_channel: total_spend by channel, month grain.
+  - name: preagg-spend-by-channel-2025
+    prompt: "What was total marketing spend by channel in 2025?"
+    tags: [parity, preagg]
+    expect:
+      preagg: true
+
+  # Control: no rollup carries total_tax_collected, so nothing may claim one.
+  - name: preagg-control-tax-2025
+    prompt: "What was the total tax collected on orders in 2025?"
+    tags: [parity, preagg, control]
+    expect:
+      preagg: false
+
+  # ── 4. Charts ───────────────────────────────────────────────────────────
+  - name: chart-monthly-orders-2025
+    prompt: "Chart the number of orders per month in 2025 as a line chart."
+    tags: [parity, chart]
+    expect:
+      chart: true
+
+  - name: chart-spend-by-channel-2025
+    prompt: "Show a bar chart of total marketing spend by channel for 2025."
+    tags: [parity, chart]
+    expect:
+      chart: true
+
+  - name: chart-daily-spend-march-2026
+    prompt: "Plot daily marketing spend for March 2026."
+    tags: [parity, chart]
+    expect:
+      chart: true
+
+  # Control: a single number, asked for without a chart.
+  - name: chart-control-orders-2025
+    prompt: "How many orders were placed in 2025? Just the number, no chart."
+    expected: "99,906 orders"
+    tags: [parity, chart, control]
+    expect:
+      chart: false
+
+  # ── 5. Asking the user to clarify ───────────────────────────────────────
+  # Which region? The model has several region dimensions and no default.
+  - name: clarify-which-region
+    prompt: "What were sales in the region?"
+    tags: [parity, clarify]
+    expect:
+      asks_user: true
+
+  # Which store? Three datasets carry stores (oxymart, orders, stores).
+  - name: clarify-which-store
+    prompt: "How did the store do?"
+    tags: [parity, clarify]
+    expect:
+      asks_user: true
+
+  # An undefined metric: nothing in the model is called efficiency.
+  - name: clarify-undefined-metric
+    prompt: "What is our efficiency number?"
+    tags: [parity, clarify]
+    expect:
+      asks_user: true
+
+  # Control: a fully specified question must be answered, not asked about.
+  - name: clarify-control-orders-2025
+    prompt: "How many orders were placed in 2025?"
+    expected: "99,906 orders"
+    tags: [parity, clarify, control]
+    expect:
+      asks_user: false

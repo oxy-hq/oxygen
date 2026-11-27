@@ -51,7 +51,7 @@ set:
 ]
 ```
 
-What is **not** in it: the SQL, the tool calls, the rows the agent saw. Records for an
+What is **not** in it: the SQL, the tool calls' inputs and outputs, the rows the agent saw. Records for an
 `.agentic.yml` target carry no `references` array. Diagnose the path with the commands under
 "Seeing what the agent did" below.
 
@@ -66,7 +66,9 @@ What is **not** in it: the SQL, the tool calls, the rows the agent saw. Records 
 | `choice` | The parsed verdict. Compare it with `cot` to spot judge parse problems. |
 | `score` | `choice` as a number. |
 | `duration_ms`, `*_tokens` | Cost and latency of the agent run, not of the judge. Zero on errored runs. |
-| `errors` | The error text of every run that never answered, in run order. |
+| `observed` | What the run did, read off its events: `tools` (every call's name, in order), `query_sources` (each successful query's source), `answer_source`, `preagg`, `charts`, and `asked_user` (the clarifying question it stopped on). Absent on errored runs. |
+| `unmet_expectations` | The case's `expect:` checks the run failed, each named. Absent when all were met or none were set. |
+| `errors` | The error text of every run that never answered, in run order. A clarifying question its case expects (`asks_user: true`) is not an error; any other is. |
 | `stats.answered` vs `total_attempted` | The answer rate. A gap means runs ended in errors. |
 
 ## Ordering

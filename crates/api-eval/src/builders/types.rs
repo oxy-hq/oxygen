@@ -242,7 +242,7 @@ impl MetricKind {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct Record {
     pub cot: String,
     /// `PASS` / `FAIL` (and `SKIP`). Execution grader: follows the judge
@@ -286,6 +286,14 @@ pub struct Record {
     /// The model the agent's LLM calls reported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// What the run did (agentic target runs that answered or asked): tools
+    /// called, query sources, pre-aggregation, charts, the question it asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observed: Option<oxy::exec_types::RunObserved>,
+    /// The case's `expect:` checks the run failed, each named; any one fails
+    /// the record.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unmet_expectations: Vec<String>,
 }
 
 impl std::fmt::Display for Record {

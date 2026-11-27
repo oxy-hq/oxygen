@@ -95,8 +95,8 @@ resolves relative dates against today in its `timezone:` (UTC when unset).
   missing, so you can't tell which half broke.
 - **Propose a rewrite** when the runs answer different, reasonable readings of the prompt
   (net or gross, calendar or fiscal year), or when the agent stops to ask a clarifying
-  question. That ends the run as an error. Show the user the readings you saw, and let them
-  choose.
+  question. That ends the run as an error (unless the case sets `expect: {asks_user: true}`,
+  to test that the agent asks). Show the user the readings you saw, and let them choose.
 - **Flag, don't draft,** when no view or table holds the data. That's a gap in the agent, not
   something a test can fix.
 

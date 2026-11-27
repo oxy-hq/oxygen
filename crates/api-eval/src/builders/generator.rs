@@ -6,7 +6,7 @@ use oxy::{
 };
 use oxy_shared::errors::OxyError;
 
-use super::{EvalRun, target_agentic::run_target, types::AgenticInput};
+use super::{EvalRun, expectations, target_agentic::run_target, types::AgenticInput};
 
 /// Run the eval target for every case × run and pair each result with its
 /// expected answer, on the plain-async agentic path (no old-executor
@@ -56,6 +56,8 @@ pub(super) async fn run_generator(
             timing: None,
             runtime: None,
             model: None,
+            observed: None,
+            expect: case.expectations(),
         };
         for _ in 0..runs {
             all_targets.push(AgenticInput {
@@ -117,23 +119,38 @@ pub(super) async fn run_generator(
         tracing::warn!("eval: failed to emit target progress Finished: {e}");
     }
 
-    // Pair results back with their expected outputs.
+    Ok(pair_with_expected(results, expected_outputs))
+}
+
+type Paired = (
+    Vec<(TargetOutput, TargetOutput)>,
+    Vec<(String, TargetOutput)>,
+);
+
+/// Pair each run's result back with its expected output: answers (and the
+/// questions their cases expect) for grading, errors for counting as FAILs
+/// against the correct denominator. A question the case does not expect is
+/// the run error it always was.
+fn pair_with_expected(
+    results: Vec<Result<Vec<TargetOutput>, OxyError>>,
+    expected_outputs: Vec<TargetOutput>,
+) -> Paired {
     let mut all_outputs = Vec::new();
     let mut all_errors = Vec::new();
     for (result, expected) in results.into_iter().zip(expected_outputs) {
-        match result {
-            Ok(actual_outputs) => {
-                for actual in actual_outputs {
-                    all_outputs.push((actual, expected.clone()));
-                }
-            }
+        let actual_outputs = match result {
+            Ok(actual_outputs) => actual_outputs,
             Err(err) => {
-                // Pair the error with its expected output so the solver can
-                // count it as a FAIL against the correct denominator.
                 all_errors.push((err.to_string(), expected));
+                continue;
+            }
+        };
+        for actual in actual_outputs {
+            match expectations::unexpected_question(&actual, &expected) {
+                Some(msg) => all_errors.push((msg, expected.clone())),
+                None => all_outputs.push((actual, expected.clone())),
             }
         }
     }
-
-    Ok((all_outputs, all_errors))
+    (all_outputs, all_errors)
 }

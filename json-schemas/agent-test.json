@@ -41,6 +41,16 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "ExpectQuerySource": {
+      "description": "Which code path produced the SQL the answer rests on.",
+      "type": "string",
+      "enum": [
+        "semantic",
+        "llm",
+        "vendor",
+        "verified_sql"
+      ]
+    },
     "Grader": {
       "description": "How a case's answer is graded.",
       "oneOf": [
@@ -66,6 +76,17 @@
         "prompt"
       ],
       "properties": {
+        "expect": {
+          "description": "Behaviours the run must show, checked from its events.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TestExpect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "expected": {
           "default": "",
           "type": "string"
@@ -96,11 +117,58 @@
           }
         },
         "tool": {
-          "description": "Optional: assert that this tool was invoked (deterministic check). TODO: implement tool-use verification in the eval pipeline.",
+          "description": "Optional: assert that this tool was invoked (deterministic check). Shorthand for `expect.tools: [<tool>]`.",
           "type": [
             "string",
             "null"
           ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TestExpect": {
+      "description": "Behaviours the run must show. Every field is optional; an unset field is not checked, and a case fails when any set field is unmet.",
+      "type": "object",
+      "properties": {
+        "asks_user": {
+          "description": "`true`: the run must stop to ask the user a clarifying question. `false`: it must answer.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "chart": {
+          "description": "Whether the run must (`true`) or must not (`false`) draw a chart.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "preagg": {
+          "description": "Whether a successful query must (`true`) or must not (`false`) be served from a pre-aggregation.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "query_source": {
+          "description": "The source of the query the answer rests on.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExpectQuerySource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tools": {
+          "description": "Tools the run must call, by name.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

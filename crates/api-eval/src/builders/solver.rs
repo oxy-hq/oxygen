@@ -13,6 +13,7 @@ use super::{
     EvalRun,
     correctness_solver::{parse_correctness_record, render_correctness_prompt},
     execution_solver::run_execution_solver,
+    expectations,
     types::{Correctness, MetricKind, Record},
 };
 
@@ -66,6 +67,9 @@ pub(super) async fn run_solver(
     .await
     .map_err(OxyError::RuntimeError)?;
     let prompt_template = correctness_solver.prompt.to_string();
+    let (outputs, ungraded): (Vec<_>, Vec<_>) = outputs
+        .into_iter()
+        .partition(|(actual, expected)| judges_answer(actual, expected));
 
     // Judge each (actual, expected) pair concurrently. `buffered` preserves
     // input order, though this arm no longer relies on it (each future pairs its
@@ -119,12 +123,21 @@ pub(super) async fn run_solver(
         .into_iter()
         .collect::<Result<Vec<Record>, OxyError>>()?;
 
+    for (actual, expected) in &ungraded {
+        records.push(ungraded_record(actual, expected));
+    }
     // Errored runs count as FAILs so the denominator is correct.
     for (error_msg, expected) in &errors_with_expected {
         records.push(errored_record(error_msg, expected));
     }
 
     Ok(MetricKind::Correctness(Correctness::from_records(records)))
+}
+
+/// The judge reads this run's answer: the run answered, and the case has an
+/// `expected` to compare it with.
+fn judges_answer(actual: &TargetOutput, expected: &TargetOutput) -> bool {
+    expectations::grades_answer(actual, expected, !expected.output.trim().is_empty())
 }
 
 /// One judged run: the judge's verdict, with the case and the agent's answer.
@@ -141,7 +154,23 @@ pub(super) fn judged_record(
     record.duration_ms = actual.duration_ms;
     record.input_tokens = actual.input_tokens;
     record.output_tokens = actual.output_tokens;
+    expectations::check_judged(&mut record, actual, expected);
     Ok(record)
+}
+
+/// One run whose answer text is not judged (it asked the question its case
+/// expects, or the case has no `expected`): graded on its expectations alone.
+pub(super) fn ungraded_record(actual: &TargetOutput, expected: &TargetOutput) -> Record {
+    let base = Record {
+        prompt: expected.task_description.clone(),
+        expected: Some(expected.output.clone()).filter(|e| !e.trim().is_empty()),
+        actual_output: Some(actual.output.clone()),
+        duration_ms: actual.duration_ms,
+        input_tokens: actual.input_tokens,
+        output_tokens: actual.output_tokens,
+        ..Record::default()
+    };
+    expectations::ungraded_judged(base, actual, expected)
 }
 
 /// A run that errored before answering counts as a FAIL, so the denominator
@@ -168,5 +197,7 @@ pub(super) fn errored_record(error_msg: &str, expected: &TargetOutput) -> Record
         timing: None,
         runtime: None,
         model: None,
+        observed: None,
+        unmet_expectations: vec![],
     }
 }

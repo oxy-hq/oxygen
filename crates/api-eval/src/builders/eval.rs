@@ -138,7 +138,7 @@ async fn run_one_eval(
     let (outputs, errors_with_expected) = match regrade_from {
         Some(source) => {
             refuse_regrade_unless_execution(&eval.metrics)?;
-            regrade::load(source)?
+            regrade::load(source, test_cases(&eval.kind))?
         }
         None => {
             let ran = run_generator(&eval_context, eval.kind, target.clone(), eval.concurrency);
@@ -189,6 +189,15 @@ async fn run_one_eval(
         })
         .await?;
     Ok(result)
+}
+
+/// The test file's cases (after `--case` / `--tag`), whose `expect:` checks a
+/// regrade applies to the recorded runs.
+fn test_cases(kind: &EvalKind) -> &[oxy::config::test_config::TestCase] {
+    match kind {
+        EvalKind::TestCase(TestCaseEval { cases, .. }) => cases,
+        _ => &[],
+    }
 }
 
 /// A regrade rebuilds the execution grader's inputs only, so the test file

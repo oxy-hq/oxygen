@@ -43,10 +43,20 @@ cases:
 #
 #   name: <string>   A stable label for the case. Used by `--case <name>` and
 #                    shown in the progress bar instead of the truncated prompt.
-#   tool: <string>   Parsed and accepted, but tool-use assertion is NOT yet
-#                    implemented in the eval pipeline (see the TODO on
-#                    TestCase::tool in crates/core/src/config/test_config.rs).
-#                    Setting it currently has no effect on pass/fail.
+#   tool: <string>   Shorthand for `expect: {tools: [<string>]}`: the run must
+#                    call this tool, or the case fails.
+#   expect:          Behaviours the run must show, read off its events (each
+#                    optional; any unmet one fails the case and is named in the
+#                    record's `unmet_expectations`):
+#     asks_user: true|false     stop on a clarifying question (true), or answer.
+#                               With true the question is graded, not an error.
+#     chart: true|false         draw a chart (a plain table does not count)
+#     preagg: true|false        a successful query hit a pre-aggregation
+#     query_source: semantic|llm|vendor|verified_sql
+#                               where the answer's query came from
+#     tools: [<name>, ...]      tools the run must call (names differ by runtime)
+#                    With `expect:` (or `tool:`) set, `expected` may be left out:
+#                    the case is then graded on its behaviour alone.
 #
 # How evaluation works:
 #

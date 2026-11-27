@@ -23,11 +23,12 @@ use std::time::Instant;
 use agentic_analytics::AnalyticsEvent;
 use agentic_core::events::{CoreEvent, Event as AgenticEvent};
 use oxy::adapters::workspace::manager::WorkspaceManager;
-use oxy::exec_types::TargetOutput;
+use oxy::exec_types::{RunObserved, TargetOutput};
 use oxy_shared::errors::OxyError;
 use tokio::sync::mpsc;
 
 use super::EvalRun;
+use super::observed::{Observer, clarifying_question};
 use super::reflect_phase::{self, ReflectPhase};
 use super::run_timing::{TimingAccumulator, source_name};
 use super::types::AgenticInput;
@@ -53,18 +54,18 @@ pub(super) async fn run_target(
     let run_start = Instant::now();
     let usage_consumer = spawn_event_consumer(event_rx, run_start);
 
-    let answer_text = agentic_pipeline::run_agentic_streaming_with_states(
+    let result = agentic_pipeline::run_agentic_streaming_with_states(
         platform,
         &input.config_path,
         input.prompt,
         event_tx,
         &target_memory(run.reads_working_copy(), |k| std::env::var_os(k)),
     )
-    .await
-    .map_err(OxyError::RuntimeError)?;
+    .await;
+    let (answer_text, asked) = answer_or_question(result)?;
     let run_end = Instant::now();
 
-    let (usage, timing, reflect) = usage_consumer
+    let (usage, timing, reflect, observer) = usage_consumer
         .await
         .map_err(|e| OxyError::RuntimeError(format!("usage consumer join: {e}")))?;
     // A memory reflection is not the answer's: its time comes off the run.
@@ -81,11 +82,30 @@ pub(super) async fn run_target(
     out.llm_rounds = usage.llm_rounds;
     out.runtime = usage.runtime;
     out.model = usage.model;
+    out.observed = Some(RunObserved {
+        asked_user: asked,
+        ..observer.finish(usage.answer_source.clone())
+    });
     let mut timing = timing.finish(answer_end);
     timing.answer_source = usage.answer_source;
     timing.reflect = reflect;
     out.timing = Some(timing);
     Ok(vec![out])
+}
+
+/// The run's answer text, or the clarifying question it stopped on (as both
+/// the text and the question): a suspended run is graded, not an error. Any
+/// other failure is the run's error.
+fn answer_or_question(
+    result: Result<String, String>,
+) -> Result<(String, Option<String>), OxyError> {
+    match result {
+        Ok(text) => Ok((text, None)),
+        Err(e) => match clarifying_question(&e) {
+            Some(question) => Ok((question.to_string(), Some(question.to_string()))),
+            None => Err(OxyError::RuntimeError(e)),
+        },
+    }
 }
 
 /// [`eval_memory`] for `oxy test` (`working_copy`) only: an eval the server
@@ -137,7 +157,7 @@ async fn check_target_in_working_copy(
         })
 }
 
-type Consumed = (RunUsage, TimingAccumulator, Option<ReflectPhase>);
+type Consumed = (RunUsage, TimingAccumulator, Option<ReflectPhase>, Observer);
 
 /// Drain the run's event stream, stamping each event with its receipt instant.
 /// From a memory reflection's start on, events count to the [`ReflectPhase`],
@@ -150,6 +170,7 @@ fn spawn_event_consumer(
         let mut usage = RunUsage::default();
         let mut timing = TimingAccumulator::new(run_start);
         let mut reflect: Option<ReflectPhase> = None;
+        let mut observer = Observer::default();
         while let Some(ev) = event_rx.recv().await {
             let now = Instant::now();
             if reflect.is_none() && reflect_phase::starts(&ev) {
@@ -163,10 +184,11 @@ fn spawn_event_consumer(
                 None => {
                     timing.observe(now, &ev);
                     usage.observe(&ev);
+                    observer.observe(&ev);
                 }
             }
         }
-        (usage, timing, reflect)
+        (usage, timing, reflect, observer)
     })
 }
 
@@ -321,6 +343,8 @@ fn build_target_output(
         timing: None,
         runtime: None,
         model: None,
+        observed: None,
+        expect: None,
     }
 }
 
@@ -480,7 +504,7 @@ mod tests {
             tx.send(ev).await.unwrap();
         }
         drop(tx);
-        let (usage, _, _) = consumer.await.unwrap();
+        let (usage, _, _, _) = consumer.await.unwrap();
         assert_eq!(usage.final_sql.as_deref(), Some("b"));
         assert_eq!(usage.runtime.as_deref(), Some("react"));
     }
@@ -551,6 +575,48 @@ mod tests {
     }
 
     #[test]
+    fn a_suspended_run_answers_with_its_question() {
+        let asked = Err(format!(
+            "{}Which region?",
+            agentic_pipeline::CLARIFYING_QUESTION_PREFIX
+        ));
+        let (text, question) = answer_or_question(asked).unwrap();
+        assert_eq!(text, "Which region?");
+        assert_eq!(question.as_deref(), Some("Which region?"));
+        let (text, question) = answer_or_question(Ok("42".into())).unwrap();
+        assert_eq!((text.as_str(), question), ("42", None));
+        let err = answer_or_question(Err("max iterations exceeded".into())).unwrap_err();
+        assert_eq!(err.to_string(), "max iterations exceeded");
+    }
+
+    /// The observer sees the answer's events and not the reflection's.
+    #[tokio::test]
+    async fn the_observer_reads_the_answer_events_only() {
+        let (tx, rx) = mpsc::channel(32);
+        let consumer = spawn_event_consumer(rx, Instant::now());
+        let call = |name: &str| {
+            AgenticEvent::Core(CoreEvent::ToolCall {
+                name: name.into(),
+                input: "{}".into(),
+                llm_duration_ms: 0,
+                sub_spec_index: None,
+            })
+        };
+        let enter = AgenticEvent::Core(CoreEvent::StateEnter {
+            state: agentic_runtime::react::REFLECT_STATE.into(),
+            revision: 0,
+            trace_id: "t".into(),
+            sub_spec_index: None,
+        });
+        for ev in [selected(), call("query"), enter, call("remember")] {
+            tx.send(ev).await.unwrap();
+        }
+        drop(tx);
+        let (_, _, _, observer) = consumer.await.unwrap();
+        assert_eq!(observer.finish(None).tools, vec!["query"]);
+    }
+
+    #[test]
     fn eval_memory_reads_its_two_variables_and_treats_empty_as_unset() {
         use std::ffi::OsString;
         let off = eval_memory(|_| None);
@@ -613,7 +679,7 @@ mod tests {
             tx.send(ev).await.unwrap();
         }
         drop(tx);
-        let (usage, timing, reflect) = consumer.await.unwrap();
+        let (usage, timing, reflect, _) = consumer.await.unwrap();
         assert_eq!((usage.input_tokens, usage.output_tokens), (10, 5));
         assert_eq!(usage.llm_rounds, 1);
         assert_eq!(usage.final_sql.as_deref(), Some("select 5"));

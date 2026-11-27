@@ -42,6 +42,11 @@ pub(crate) enum EventDestination {
     ForwardWithStates(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
 }
 
+/// How a headless run's error text starts when the run stopped on a
+/// clarifying question (either runtime); the question follows it. The eval
+/// harness reads it to grade a run that asked rather than answered.
+pub const CLARIFYING_QUESTION_PREFIX: &str = "agentic pipeline asked a clarifying question: ";
+
 /// Why a headless run produced no answer, split where its callers need it: an
 /// agent that could not be read is a run that never started; anything after
 /// that is the agent failing.
@@ -396,10 +401,7 @@ fn orchestrator_error_text(e: OrchestratorError<AnalyticsDomain>) -> String {
                 _ => vec![],
             };
             let prompts: Vec<_> = questions.iter().map(|q| q.prompt.as_str()).collect();
-            format!(
-                "agentic pipeline asked a clarifying question: {}",
-                prompts.join("; ")
-            )
+            format!("{CLARIFYING_QUESTION_PREFIX}{}", prompts.join("; "))
         }
         OrchestratorError::MaxIterationsExceeded => "max iterations exceeded".into(),
         OrchestratorError::ResumeNotSupported => "resume not supported".into(),

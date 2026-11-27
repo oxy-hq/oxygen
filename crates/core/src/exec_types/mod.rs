@@ -7,6 +7,7 @@ mod output;
 mod output_container;
 mod prompt;
 mod reference;
+mod run_observed;
 mod run_timing;
 mod sql;
 mod table;
@@ -26,6 +27,7 @@ pub use prompt::Prompt;
 pub use reference::DataAppReference;
 pub use reference::ReferenceKind;
 pub use reference::SemanticQueryReference;
+pub use run_observed::RunObserved;
 pub use run_timing::{
     LlmStateTiming, MAX_TOOL_ERROR_CHARS, MAX_TOOL_ERRORS, ReflectTiming, RunTiming, ToolTiming,
 };

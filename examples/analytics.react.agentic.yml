@@ -1,0 +1,29 @@
+# Eval twin of analytics.agentic.yml on the react runtime, for the FSM-vs-react
+# parity cases in testing/parity.react.test.yml. Not meant for chat.
+#
+# It is analytics.agentic.yml with two changes: no `states:` block (react
+# refuses `states.<name>.max_retries` and every state's `thinking` except
+# `solving`'s) and `runtime: react`. Keep it that way: a unit test in
+# crates/agentic/pipeline/src/react_config_tests.rs fails when the two drift.
+llm:
+  # A model this config.yml declares. `claude` is demo_project's name for it,
+  # and this file was copied from there: here it failed at run time with
+  # "Model 'claude' not found in config".
+  ref: claude-sonnet-4-6
+  # max_tokens: 8000
+  thinking: disabled
+  extended_thinking:
+    model: claude-opus-4-6
+    thinking: adaptive
+context:
+  - ./semantics/**/*
+  - ./sales_semantics/**/*
+  - ./airhouse_semantics/**/*
+  # Per-org OLTP Postgres: live app state (app_bookings.orders) alongside
+  # Airway-landed ETL data (raw_toast.sales). Both read-only from here — the
+  # postgres_managed connector always resolves the analyst role.
+  - ./oltp_semantics/**/*
+  - ./enrichment_semantics/**/*
+  - ./workflows/**/*.automation.yml
+  - ./example_sql/*.sql
+runtime: react

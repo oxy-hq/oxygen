@@ -9,7 +9,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use oxy::exec_types::{RunTiming, TargetOutput};
+use oxy::config::test_config::TestCase;
+use oxy::exec_types::{RunObserved, RunTiming, TargetOutput};
 use oxy_shared::errors::OxyError;
 
 /// The prefix `failed_run_record` puts on the `actual_output` of a run that
@@ -39,6 +40,9 @@ struct SavedRecord {
     /// Kept so a regraded react file still reads as react.
     runtime: Option<String>,
     model: Option<String>,
+    /// Kept so a regraded record still says what the run did.
+    #[serde(default)]
+    observed: Option<RunObserved>,
 }
 
 #[derive(Deserialize)]
@@ -63,13 +67,55 @@ pub(super) type LoadedOutputs = (
     Vec<(String, TargetOutput)>,
 );
 
-/// Rebuild the generator's outputs from a results document, wherever it is.
-pub(super) fn load(source: &super::types::RegradeSource) -> Result<LoadedOutputs, OxyError> {
-    match source {
-        super::types::RegradeSource::File(path) => load_outputs(path),
-        super::types::RegradeSource::Text(text) => {
-            parse_outputs(text).map_err(|e| OxyError::ConfigurationError(format!("regrade: {e}")))
+/// Rebuild the generator's outputs from a results document, wherever it is,
+/// with each run's `expect:` checks taken from `cases` (the test file).
+pub(super) fn load(
+    source: &super::types::RegradeSource,
+    cases: &[TestCase],
+) -> Result<LoadedOutputs, OxyError> {
+    let mut loaded = match source {
+        super::types::RegradeSource::File(path) => load_outputs(path)?,
+        super::types::RegradeSource::Text(text) => load_text(text)?,
+    };
+    attach_expectations(&mut loaded, cases);
+    Ok(route_unexpected_questions(loaded))
+}
+
+/// A recorded clarifying question its case (as the test file reads now) does
+/// not expect is the run error a fresh run makes of it, as in the generator.
+fn route_unexpected_questions((outputs, mut errors): LoadedOutputs) -> LoadedOutputs {
+    let mut answered = Vec::with_capacity(outputs.len());
+    for (actual, expected) in outputs {
+        match super::expectations::unexpected_question(&actual, &expected) {
+            Some(msg) => errors.push((msg, expected)),
+            None => answered.push((actual, expected)),
         }
+    }
+    (answered, errors)
+}
+
+fn load_text(text: &str) -> Result<LoadedOutputs, OxyError> {
+    parse_outputs(text).map_err(|e| OxyError::ConfigurationError(format!("regrade: {e}")))
+}
+
+/// Give each loaded run the `expect:` checks of the case whose prompt it
+/// answers. A results file does not save them, so they come from the test
+/// file, as they do on a fresh run; files written before `expect:` existed
+/// regrade the same way. A run no case matches is checked against nothing.
+fn attach_expectations(loaded: &mut LoadedOutputs, cases: &[TestCase]) {
+    let expect_for = |prompt: Option<&str>| {
+        cases
+            .iter()
+            .find(|c| Some(c.prompt.as_str()) == prompt)
+            .and_then(TestCase::expectations)
+    };
+    let (outputs, errors) = loaded;
+    let expected_sides = outputs
+        .iter_mut()
+        .map(|(_, e)| e)
+        .chain(errors.iter_mut().map(|(_, e)| e));
+    for expected in expected_sides {
+        expected.expect = expect_for(expected.task_description.as_deref());
     }
 }
 
@@ -143,6 +189,7 @@ fn actual_from(record: SavedRecord) -> TargetOutput {
         timing: record.timing,
         runtime: record.runtime,
         model: record.model,
+        observed: record.observed,
         ..Default::default()
     }
 }
@@ -213,6 +260,89 @@ mod tests {
             "duration_ms": 1.0, "input_tokens": 1, "output_tokens": 1, "llm_rounds": 1}]}]}]"#;
         let err = parse_outputs(text).expect_err("a correctness file must not be regraded");
         assert!(err.contains("only execution-graded"), "{err}");
+    }
+
+    fn case(yaml: &str) -> TestCase {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    /// A regraded run is held to its case's `expect:` checks: one that drew no
+    /// chart where the case wants one stays `INCORRECT`, though the judge
+    /// called its answer correct.
+    #[test]
+    fn a_regrade_keeps_the_cases_expectations() {
+        let text = file(
+            r#"{"cot": "x", "choice": "PASS", "score": 1.0, "prompt": "Chart it",
+                "expected": "SELECT 1", "actual_output": "Here.", "answer_text": "Here.",
+                "duration_ms": 1.0, "input_tokens": 1, "output_tokens": 1, "llm_rounds": 1,
+                "observed": {"tools": ["query"], "query_sources": ["llm"],
+                             "answer_source": "llm", "preagg": false, "charts": 0}}"#,
+        );
+        let cases = [
+            case("prompt: Chart it\nexpected_sql: SELECT 1\nexpect:\n  chart: true\n"),
+            case("prompt: Other\nexpected_sql: SELECT 2\ntool: search\n"),
+        ];
+        let source = super::super::types::RegradeSource::Text(text);
+        let (outputs, _) = load(&source, &cases).unwrap();
+        let (actual, expected) = &outputs[0];
+        assert_eq!(expected.expect.as_ref().and_then(|e| e.chart), Some(true));
+        assert_eq!(actual.observed.as_ref().map(|o| o.charts), Some(0));
+
+        let mut record = super::super::types::Record {
+            choice: "PASS".into(),
+            score: 1.0,
+            judge_verdict: Some(super::super::types::VERDICT_CORRECT.into()),
+            ..Default::default()
+        };
+        super::super::expectations::check_executed(&mut record, actual, expected);
+        assert_eq!(record.choice, "FAIL");
+        assert_eq!(
+            record.judge_verdict.as_deref(),
+            Some(super::super::types::VERDICT_INCORRECT)
+        );
+        assert!(record.unmet_expectations[0].starts_with("chart:"));
+    }
+
+    /// A recorded question whose case no longer sets `asks_user: true` is a
+    /// run error, as it would be on a fresh run, not an ungraded pass.
+    #[test]
+    fn a_recorded_question_its_case_does_not_expect_is_a_run_error() {
+        let text = file(
+            r#"{"cot": "x", "choice": "PASS", "score": 0.0, "prompt": "Sales?",
+                "expected": "SELECT 1", "actual_output": "Which region?",
+                "answer_text": "Which region?", "duration_ms": 1.0, "input_tokens": 1,
+                "output_tokens": 1, "llm_rounds": 1,
+                "observed": {"asked_user": "Which region?"}}"#,
+        );
+        let source = super::super::types::RegradeSource::Text(text);
+        let cases = [case("prompt: Sales?\nexpected_sql: SELECT 1\n")];
+        let (outputs, errors) = load(&source, &cases).unwrap();
+        assert!(outputs.is_empty());
+        assert_eq!(
+            errors[0].0,
+            "agentic pipeline asked a clarifying question: Which region?"
+        );
+
+        let cases = [case(
+            "prompt: Sales?\nexpected_sql: SELECT 1\nexpect:\n  asks_user: true\n",
+        )];
+        let (outputs, errors) = load(&source, &cases).unwrap();
+        assert_eq!((outputs.len(), errors.len()), (1, 0));
+    }
+
+    #[test]
+    fn a_regrade_with_no_matching_case_checks_nothing() {
+        let text = file(
+            r#"{"cot": "Run failed", "choice": "FAIL", "score": 0.0, "prompt": "Q",
+                "expected": "SELECT 1", "actual_output": "[ERROR] llm 400",
+                "duration_ms": 0.0, "input_tokens": 0, "output_tokens": 0, "llm_rounds": 0}"#,
+        );
+        let cases = [case(
+            "prompt: Other\nexpected_sql: SELECT 2\ntool: search\n",
+        )];
+        let source = super::super::types::RegradeSource::Text(text);
+        let (_, errors) = load(&source, &cases).unwrap();
+        assert_eq!(errors[0].1.expect, None);
     }
 
     #[test]

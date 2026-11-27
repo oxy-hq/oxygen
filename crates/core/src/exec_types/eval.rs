@@ -36,6 +36,11 @@ pub struct TargetOutput {
     pub runtime: Option<String>,
     /// Model the run's LLM calls reported (first `LlmEnd`); eval target only.
     pub model: Option<String>,
+    /// What the run did (tools, query sources, charts, a clarifying
+    /// question); agentic eval target only.
+    pub observed: Option<super::RunObserved>,
+    /// The case's behaviour checks; expected side only.
+    pub expect: Option<crate::config::test_config::TestExpect>,
 }
 
 #[derive(Debug)]
@@ -100,6 +105,8 @@ impl TryFrom<OutputGetter<'_>> for TargetOutput {
             timing: None,
             runtime: None,
             model: None,
+            observed: None,
+            expect: None,
         })
     }
 }

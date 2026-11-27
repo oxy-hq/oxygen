@@ -6,6 +6,16 @@ table: "orders.csv"
 refresh_key:
   every: "1h"
 
+# Freshness contract. The seeded orders.csv is a fixed demo extract whose last
+# order is dated 2026-07-16, so both runtimes' "Data coverage" hint reads
+# "orders through 2026-07-16". The parity evals (testing/parity.*.test.yml)
+# check that an answer touching that edge says so.
+meta:
+  freshness_watermark_column: ["order_date"]
+  freshness_expected_cadence: ["fixed demo extract, not refreshed"]
+  freshness_complete_through: ["2026-07-16"]
+  freshness_caveat: ["No orders exist after 2026-07-16; a period that runs past that date is partial."]
+
 pre_aggregations:
   # total_order_value / total_shipping_costs are cross-view composite
   # measures (rolled up live from order_items / order_shipments), same as

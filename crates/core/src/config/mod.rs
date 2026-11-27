@@ -7,6 +7,7 @@ mod parser;
 pub mod preagg_check;
 pub mod schema_type_converter;
 pub mod test_config;
+mod test_expect;
 pub mod validate;
 use garde::Validate;
 mod agent_census;

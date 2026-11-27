@@ -84,7 +84,10 @@ fn build_allows_state_model() {
     let yaml =
         "runtime: react\nstates:\n  solving:\n    model: some-model\n    thinking: disabled\n";
     let config = AgentConfig::from_yaml(yaml).unwrap();
-    crate::react_config::refuse_unsupported(&config, &BuildContext::default()).unwrap();
+    let ctx = BuildContext::default();
+    if let Err(e) = crate::react_config::refuse_unsupported(&config, &ctx) {
+        panic!("{e}");
+    }
 }
 
 /// A connector that answers the freshness probe with one date.
@@ -214,7 +217,10 @@ fn build_refuses_an_advisor_on_a_provider_that_has_none() {
 fn build_honors_an_advisor_on_anthropic_with_defaults() {
     let yaml = "runtime: react\nllm:\n  vendor: anthropic\n  model: claude-sonnet-5-5\n  advisor:\n    model: claude-opus-5-5\n";
     let config = AgentConfig::from_yaml(yaml).unwrap();
-    crate::react_config::refuse_unsupported(&config, &BuildContext::default()).unwrap();
+    let ctx = BuildContext::default();
+    if let Err(e) = crate::react_config::refuse_unsupported(&config, &ctx) {
+        panic!("{e}");
+    }
     let advisor = config.llm.advisor.as_ref().unwrap().to_config();
     assert_eq!(advisor.model, "claude-opus-5-5");
     assert_eq!(
@@ -331,4 +337,50 @@ async fn build_refuses_semantic_only_without_a_semantic_model() {
         err.starts_with("semantic_only: true needs a semantic model"),
         "{err}"
     );
+}
+
+const DEMO_FSM: &str = include_str!("../../../../examples/analytics.agentic.yml");
+const DEMO_REACT: &str = include_str!("../../../../examples/analytics.react.agentic.yml");
+
+/// The Demo workspace's react eval twin (the parity cases'
+/// `examples/testing/parity.react.test.yml` target) builds: react refuses
+/// none of its keys.
+#[test]
+fn the_demo_react_twin_is_accepted() {
+    let config = AgentConfig::from_yaml(DEMO_REACT).unwrap();
+    assert_eq!(config.runtime, AgentRuntime::React);
+    let ctx = BuildContext::default();
+    if let Err(e) = crate::react_config::refuse_unsupported(&config, &ctx) {
+        panic!("{e}");
+    }
+}
+
+/// The twin is the FSM agent minus its `states:` block (react refuses those
+/// keys) plus `runtime: react`, below a header comment. Any other drift
+/// would make a parity difference the config's, not the runtime's.
+#[test]
+fn the_demo_react_twin_differs_from_the_fsm_agent_only_by_runtime() {
+    let mut in_states = false;
+    let fsm: Vec<&str> = DEMO_FSM
+        .lines()
+        .filter(|l| {
+            if l.starts_with("states:") {
+                in_states = true;
+            } else if !l.starts_with(' ') {
+                in_states = false;
+            }
+            !in_states
+        })
+        .collect();
+    let react: Vec<&str> = DEMO_REACT
+        .lines()
+        .skip_while(|l| l.starts_with('#'))
+        .collect();
+    assert_eq!(react.iter().filter(|l| **l == "runtime: react").count(), 1);
+    let react: Vec<&str> = react
+        .into_iter()
+        .filter(|l| *l != "runtime: react")
+        .collect();
+    assert_eq!(react, fsm);
+    assert!(!fsm.iter().any(|l| l.starts_with("runtime:")));
 }

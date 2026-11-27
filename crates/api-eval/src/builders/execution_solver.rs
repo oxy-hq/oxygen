@@ -22,6 +22,7 @@ use super::{
     answer_judge::{AnswerJudge, judge_answer, render_gold_table},
     execution_grade::{Cell, canonical, execution_match, soft_f1},
     execution_metric::choice_for_verdict,
+    expectations,
     types::{Execution, MetricKind, Record, VERDICT_INCORRECT},
 };
 
@@ -135,6 +136,8 @@ fn base_record(actual: &TargetOutput, expected: &TargetOutput) -> Record {
         timing: actual.timing.clone(),
         runtime: actual.runtime.clone(),
         model: actual.model.clone(),
+        observed: actual.observed.clone(),
+        unmet_expectations: vec![],
     }
 }
 
@@ -150,6 +153,9 @@ async fn grade_pair(
     expected: &TargetOutput,
 ) -> Record {
     let mut record = base_record(actual, expected);
+    if !expectations::grades_answer(actual, expected, expected.final_sql.is_some()) {
+        return expectations::ungraded_executed(record, actual, expected);
+    }
     let gold = match fetch_gold(db, expected).await {
         Ok(set) => set,
         Err(e) => {
@@ -167,6 +173,7 @@ async fn grade_pair(
     record.judge_verdict = Some(judgement.verdict.to_string());
     record.judge_reason = Some(judgement.reason);
     record.gold_preview = Some(preview);
+    expectations::check_executed(&mut record, actual, expected);
     record
 }
 
@@ -259,6 +266,8 @@ fn failed_run_record(error_msg: &str, expected: &TargetOutput) -> Record {
         timing: None,
         runtime: None,
         model: None,
+        observed: None,
+        unmet_expectations: vec![],
     }
 }
 
