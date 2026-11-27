@@ -6,7 +6,7 @@
 //! lift it (`SET TRANSACTION READ WRITE` as the first statement, before a
 //! snapshot exists) — both reproduced against Postgres in the Phase 3 review.
 //! So every statement is classified first, with the previews classifier
-//! (`previews::sql_kind::classify`, Postgres dialect), and only a single
+//! (`oxy_app_core::sql_kind::classify`, Postgres dialect), and only a single
 //! `Read` is sent. Transaction control, session statements, `DO`, `CALL`,
 //! `COPY`, `LOCK`, `LISTEN`/`NOTIFY`, several statements in one string, and
 //! SQL that does not parse are all held.

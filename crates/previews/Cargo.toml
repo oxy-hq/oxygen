@@ -23,12 +23,11 @@ agentic-runtime = { workspace = true }
 # token broker the schema DDL mints a Writer through.
 airhouse = { workspace = true, features = ["admin", "preview-registry"] }
 entity = { workspace = true }
-# `database::client::establish_connection`: the pin reads the registry.
+# `database::client::establish_connection`: the pin reads the registry;
+# `config::servability::check_pinnable`, which the pin applies.
 oxy = { workspace = true }
-# `sql_kind`, re-exported at `previews::sql_kind`; `pods::role_manifest::
-# pattern_matches`, which the read-only table matches routes with;
-# `revision_pin::check_pinnable`, which the pin applies.
-oxy-app-core = { workspace = true }
+# `fleet_role::pattern_matches`, which the read-only table matches routes with.
+oxy-shared = { workspace = true }
 # `role_guards::may_preview`: only staff may pin a request to a preview.
 oxy-server-authz = { workspace = true }
 

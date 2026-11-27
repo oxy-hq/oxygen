@@ -20,7 +20,7 @@
 //! entry's configured database — never by a production database the mapping
 //! names. Everything else is held unsent: `ALTER`, views, other engines,
 //! `ATTACH`/`USE`/`SET`/`PRAGMA`/`COPY`, several statements in one string, and
-//! SQL that does not parse (`previews::sql_kind::classify` decides read from
+//! SQL that does not parse (`oxy_app_core::sql_kind::classify` decides read from
 //! write, in the connector's dialect).
 //!
 //! Which part of a name is a database is the dialect's: `db.schema.table` for
@@ -64,7 +64,7 @@ pub struct DestinationFence {
 }
 
 /// `Ok` when `sql` may be sent on the mapped connection. Parsed once, the way
-/// `previews::sql_kind::classify` parses — SQL nested too deep to check is
+/// `oxy_app_core::sql_kind::classify` parses — SQL nested too deep to check is
 /// held unparsed, and the statement is walked and dropped on a stack that
 /// holds it.
 pub fn admit_mapped_statement(fence: &DestinationFence, sql: &str) -> Result<(), HeldStatement> {

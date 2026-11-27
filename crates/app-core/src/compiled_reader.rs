@@ -33,8 +33,6 @@
 use crate::process_role::current_process_role;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 tokio::task_local! {
@@ -120,59 +118,12 @@ async fn resolve_revision(
     last_known_good_revision(&db, workspace_id, candidate).await
 }
 
-/// Whether `revision_id` can be pinned for a request: its compiled config (if
-/// any) deserialises into the runtime `Config`. The same check
-/// [`resolve_request_revision`] makes before pinning the promoted revision,
-/// exposed for the preview pin, which must refuse a broken preview outright —
-/// the last-known-good walk that rescues a broken promoted revision would hand
-/// a preview request MAIN's content.
-pub async fn revision_is_servable(db: &DatabaseConnection, revision_id: Uuid) -> bool {
-    revision_config_loads(db, revision_id).await
-}
-
-/// Process-local memo of "revision R's compiled config deserialises into
-/// `Config`". Revision IDs are immutable, so the answer is stable for a
-/// revision's lifetime; this keeps the happy path O(1) after the first check.
-fn config_validity_cache() -> &'static Mutex<HashMap<Uuid, bool>> {
-    static CACHE: OnceLock<Mutex<HashMap<Uuid, bool>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// True when this revision's compiled config deserialises into the runtime
-/// `Config` (i.e. the request hot path can serve it). A revision with NO config
-/// row is treated as valid — there's no config to 503 on, and the existing
-/// FS/NeedsRecompile fallthrough handles it; we only walk back on an actual
-/// deserialise failure. DB errors are treated as valid (fail open to the
-/// existing behaviour rather than blanking a workspace on a transient hiccup).
-async fn revision_config_loads(db: &DatabaseConnection, revision_id: Uuid) -> bool {
-    if let Some(v) = config_validity_cache()
-        .lock()
-        .ok()
-        .and_then(|c| c.get(&revision_id).copied())
-    {
-        return v;
-    }
-    let valid = match load_config_value(db, revision_id).await {
-        Ok(Some(value)) => serde_json::from_value::<oxy::config::model::Config>(value).is_ok(),
-        Ok(None) => true,
-        Err(e) => {
-            // Fail OPEN (don't blank a workspace on a transient hiccup) but do
-            // NOT cache it: memoising `true` here would permanently mark a
-            // genuinely-broken revision valid for this process, defeating the
-            // last-known-good fallback whose whole job is preventing 503s.
-            // Re-evaluate on the next request instead. (#2524 review)
-            tracing::warn!(
-                ?e, %revision_id,
-                "config validity check: DB error; treating as valid for this request only (not cached)"
-            );
-            return true;
-        }
-    };
-    if let Ok(mut c) = config_validity_cache().lock() {
-        c.insert(revision_id, valid);
-    }
-    valid
-}
+/// Whether `revision_id` can be pinned for a request, and the check behind it.
+/// They live in `oxy::config::servability` with the one validity cache, which
+/// this resolver shares (the promoted-revision pin above and the
+/// last-known-good walk below); re-exported here at the old path.
+pub use oxy::config::servability::revision_is_servable;
+use oxy::config::servability::{load_config_value, revision_config_loads};
 
 /// Walk recent `ready` `main` revisions newest-first and return the first whose
 /// compiled config deserialises. Bounded scan so a long broken history can't
@@ -322,32 +273,6 @@ pub async fn resolve_workspace_config_at(
     revision_id: Uuid,
 ) -> Result<Option<Value>, sea_orm::DbErr> {
     load_config_value(&conn().await?, revision_id).await
-}
-
-/// Load and merge the compiled config for a specific revision into the single
-/// top-level object `config.yml` deserialises from. Uses the SAME merge as the
-/// compile-time gate (`oxy_compile::merge_compiled_config`) so the shape the
-/// gate validated and the shape the reader serves can never drift.
-async fn load_config_value(
-    db: &DatabaseConnection,
-    revision_id: Uuid,
-) -> Result<Option<Value>, sea_orm::DbErr> {
-    let Some(row) = entity::workspace_compiled_configs::Entity::find_by_id(revision_id)
-        .one(db)
-        .await?
-    else {
-        return Ok(None);
-    };
-    let cfg = oxy_compile::CompiledConfig {
-        databases: row.databases,
-        models: row.models,
-        integrations: row.integrations,
-        repositories: row.repositories,
-        builder_agent: row.builder_agent,
-        mcp: row.mcp,
-        other: row.other,
-    };
-    Ok(Some(oxy_compile::merge_compiled_config(&cfg)))
 }
 
 /// [`resolve_reconcile_config`] against a revision the caller already holds.

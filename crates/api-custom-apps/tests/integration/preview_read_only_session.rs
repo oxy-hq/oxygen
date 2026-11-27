@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 use agentic_connector::{DatabaseConnector, PostgresConnector};
 use agentic_core::result::CellValue;
 use async_trait::async_trait;
+use oxy_app_core::sql_kind::StatementKind;
 use oxy_app_core::write_hold::connector::HoldingConnector;
 use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
-use oxy_previews::sql_kind::StatementKind;
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};

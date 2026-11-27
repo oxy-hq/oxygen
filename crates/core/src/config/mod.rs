@@ -25,6 +25,7 @@ mod revision_files;
 pub mod scan;
 mod scan_identity;
 pub mod semantic_check;
+pub mod servability;
 mod served_revision;
 mod storage;
 

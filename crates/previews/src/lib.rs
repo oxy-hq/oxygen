@@ -22,7 +22,6 @@
 //!   what a refusal says (P2, 2026-11-22; the axum adapter that applies it,
 //!   `check` and `refusal`, stays beside the workspace middleware in
 //!   `oxy-app`).
-//! - [`sql_kind`]: `oxy_app_core::sql_kind`, re-exported at its old path.
 //!
 //! It is its own crate because the preview platform (`agentic_wiring::
 //! preview_ctx`, `oxy-workspace-runtime`'s since W5) and these rows named
@@ -42,5 +41,4 @@ pub mod queue;
 pub mod read_only;
 pub mod registry;
 pub mod sources;
-pub mod sql_kind;
 pub mod store;

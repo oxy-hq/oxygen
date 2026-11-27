@@ -7,7 +7,7 @@
 //! * here — read a build's pin ([`pinned_revision_for`]) and validate one at
 //!   publish ([`validate_pin_for_publish`]); the rule it applies, and
 //!   [`check_pinnable`] for a workspace preview header, are
-//!   `oxy_app_core::revision_pin`'s, re-exported here;
+//!   `oxy::config::servability`'s, re-exported here;
 //! * [`environment`] — an environment's own pin
 //!   ([`environment::environment_pin`]) and how it combines with a build's
 //!   ([`effective_pin`]); a branch with no ready compile is refused;
@@ -35,10 +35,11 @@ use uuid::Uuid;
 
 pub use drift::{SemanticPinNotice, pin_drift};
 pub use environment::{EnvironmentPin, NotReadyCause, PinNotReady, effective_pin, environment_pin};
-// The pin rule itself is `oxy_app_core::revision_pin`'s, since a workspace
-// preview (`oxy-previews`) applies it too; re-exported under its old names.
-use oxy_app_core::revision_pin::check_revision;
-pub use oxy_app_core::revision_pin::{PinRefusal, check_pinnable};
+// The pin rule itself is `oxy::config::servability`'s, since a workspace
+// preview (`oxy-previews`) applies it too; re-exported under its old names
+// for one release (`internal-docs/crate-tiers.md`, stage C follow-ups).
+use oxy::config::servability::check_revision;
+pub use oxy::config::servability::{PinRefusal, check_pinnable};
 
 /// The semantic revision `build_id` (an `app_builds.id`) pins, if any.
 ///

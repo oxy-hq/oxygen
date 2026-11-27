@@ -65,14 +65,6 @@ const ALLOWED: &[(&str, &str)] = &[
          revision; it reads no artifact.",
     ),
     (
-        "../app-core/src/revision_pin.rs",
-        "`check_pinnable` asks `revision_is_servable` whether a pinned revision's \
-         compiled config loads, for a workspace preview header. There is no \
-         manager to ask: the pin is what decides which revision a manager would \
-         read. It reads no artifact. (Was `../custom-apps/src/staging_pin/mod.rs` \
-         until the pin rule went down beside `compiled_reader`, 2026-11-26.)",
-    ),
-    (
         "../api-world-model/src/toast_webhook.rs",
         "Same, on the public webhook router (`oxy-api-world-model`'s since \
          2026-11-15, was `src/server/api/webhooks/toast.rs`).",
@@ -448,4 +440,43 @@ fn the_origin_resolver_still_exists() {
              queries."
         );
     }
+}
+
+/// The servability check's validity cache is one instance, in
+/// `oxy::config::servability`, and the resolver here reads it through
+/// `revision_config_loads`. A second memo in `compiled_reader` would let the
+/// promoted-revision pin and the preview pin disagree about one revision.
+#[test]
+fn the_resolver_shares_the_one_validity_cache() {
+    let path = crate::guards_root().join("../app-core/src/compiled_reader.rs");
+    let body =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    assert!(
+        body.contains("oxy::config::servability::{load_config_value, revision_config_loads}"),
+        "`compiled_reader` should take `revision_config_loads` from \
+         `oxy::config::servability`, the one home of the validity cache"
+    );
+    assert!(
+        !body.contains("fn config_validity_cache")
+            && !body.contains("OnceLock<Mutex<HashMap<Uuid, bool>>>"),
+        "`compiled_reader` must not keep its own validity cache: the one instance \
+         lives in `oxy::config::servability`"
+    );
+    let home = crate::guards_root().join("../core/src/config/servability.rs");
+    let home =
+        std::fs::read_to_string(&home).unwrap_or_else(|e| panic!("read {}: {e}", home.display()));
+    assert_eq!(
+        home.matches("fn config_validity_cache").count(),
+        1,
+        "exactly one validity cache, in `oxy::config::servability`"
+    );
+    // The pin rule left the walk above with it (`crates/core` is not walked:
+    // it is `ConfigManager`'s home), so the moved file is checked here. `oxy`
+    // sits below `oxy-app-core` and cannot call `compiled_reader`; this keeps
+    // a re-export or a doc from naming it without a reason either.
+    assert!(
+        !mentions_compiled_reader(&home),
+        "`oxy::config::servability` should not name `compiled_reader`: it was \
+         `../app-core/src/revision_pin.rs`, whose allowlist entry went with the move"
+    );
 }
