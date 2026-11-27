@@ -101,7 +101,6 @@ mod factory_access;
 mod feature_flag_refresh;
 mod file_credentials_at_compile;
 mod fleet_claim;
-mod frontline_app_grant;
 mod frontline_pin;
 mod master_key_kms;
 mod migration_rollback_safety;

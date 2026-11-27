@@ -163,12 +163,9 @@ tar = { workspace = true }
 # R-d: `authz_loader_differential` checks the loaded facts against the model
 # (`allows`, `PrincipalFacts`, `TokenGrant`).
 oxy-authz = { workspace = true }
-# R-d: `frontline_app_grant` grants app access to an org team (`org_teams::dto`).
-oxy-tenancy = { workspace = true }
-# `frontline_app_grant` drives the gate's frontline decision
-# (`gate::frontline_worker_with_app_grant`) and its caches. Not a normal
-# dependency since depth stage C (A2): the gate runs in the surfaces.
-oxy-custom-apps = { workspace = true }
+# (`frontline_app_grant`, which drove the gate's frontline decision and needed
+# `oxy-custom-apps` and `oxy-tenancy`, moved to `oxy-api-custom-apps`' group
+# beside the gate it tests: D6, 2026-11-27.)
 
 [lints]
 workspace = true

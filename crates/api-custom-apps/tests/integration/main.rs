@@ -209,6 +209,7 @@ mod env_schedules;
 mod env_webhooks;
 mod environment_scoped_keys;
 mod example_app_serving;
+mod frontline_app_grant;
 mod function_env_rotation;
 mod function_failure_alerts;
 mod home_preferences;
