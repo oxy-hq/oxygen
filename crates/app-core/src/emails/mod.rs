@@ -14,11 +14,10 @@ pub mod token_leaked;
 pub mod token_mail;
 pub mod usage_report;
 
-pub struct EmailMessage {
-    pub subject: String,
-    pub html_body: String,
-    pub text_body: String,
-}
+/// The kernel's, so a domain crate can write a mail without depending on the
+/// crate that sends it (`oxy_usage_report::email` does). Re-exported here, at
+/// the path every sender already names.
+pub use oxy_shared::email::EmailMessage;
 
 #[async_trait]
 pub trait EmailProvider: Send + Sync {

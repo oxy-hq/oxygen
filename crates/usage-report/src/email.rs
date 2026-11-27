@@ -7,10 +7,11 @@
 
 use oxy_shared::errors::OxyError;
 
-use oxy_app_core::emails::EmailMessage;
-use oxy_app_core::emails::usage_report::{
-    EmailHighlight, EmailOrg, EmailStat, ReportEmail, render,
-};
+use oxy_shared::email::EmailMessage;
+
+pub mod template;
+
+use template::{EmailHighlight, EmailOrg, EmailStat, ReportEmail, render};
 
 use super::highlights::{Highlight, Tone, highlights};
 use super::model::{OrgUsage, Snapshot, Summary, plural};

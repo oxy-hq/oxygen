@@ -1,5 +1,5 @@
 //! Usage reporting's domain logic (`internal-docs/domain-boundaries.md` S3,
-//! S9): below `oxy-app` and every `api-*` surface, above `oxy-app-core`. No
+//! S9): below `oxy-app` and every `api-*` surface. No
 //! routes, no entities, no migrator.
 //!
 //! The weekly custom-app usage report's pure half, out of `oxy-app`'s
@@ -12,7 +12,9 @@
 //!   Airhouse, through `oxy-custom-apps`' usage reads); [`store`] keeps it.
 //! - [`highlights`] is the judgement — what counts as quiet, falling, failing,
 //!   growing — and is pure, so it is where the rules are tested.
-//! - [`email`] writes the mail; [`view`] is the console's read of a report.
+//! - [`email`] writes the mail, template included (`email::template`); how
+//!   it is sent is `oxy-app-core`'s `emails::usage_report`. [`view`] is the
+//!   console's read of a report.
 //!
 //! And two readers' shared rules, out of `oxy-app-core`'s charter backlog:
 //!

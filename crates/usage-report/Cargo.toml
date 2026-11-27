@@ -2,14 +2,13 @@
 name = "oxy-usage-report"
 version.workspace = true
 authors.workspace = true
-description = "Usage reporting's domain logic: the weekly custom-app usage report's model, judgement, store and mail body, and the customer-run predicate and token rate table the platform's usage readers share. Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
+description = "Usage reporting's domain logic: the weekly custom-app usage report's model, judgement, store and mail body (template included), and the customer-run predicate and token rate table the platform's usage readers share. Below oxy-server and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
 
 [dependencies]
 entity = { workspace = true }
-oxy-app-core = { workspace = true }           # `emails::usage_report`, the mail renderer `email` fills
 oxy-authz = { workspace = true }              # `Scope`, the reader's reach a report is narrowed to
 oxy-shared = { workspace = true }
 
@@ -18,6 +17,8 @@ agentic-llm = { workspace = true }
 agentic-runtime = { workspace = true }
 
 chrono = { workspace = true }
+handlebars = { workspace = true }             # `email::template`, the mail body
+once_cell = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
