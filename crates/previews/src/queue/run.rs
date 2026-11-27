@@ -5,6 +5,8 @@
 //! Below the line the previews lift draws: the custom-app automation run's
 //! preview mode starts its run through [`advance`], from `oxy-api-custom-apps`.
 
+mod automation_seed;
+
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
 };
@@ -108,7 +110,7 @@ async fn seed_started(
             .await
             .map_err(|e| e.to_string());
     }
-    let seed = agentic_pipeline::automation_run::PreviewAutomationSeed {
+    let seed = automation_seed::PreviewAutomationSeed {
         run_id: &run_id,
         target_ref: target,
         variables: options.get("variables").filter(|v| !v.is_null()).cloned(),
@@ -116,7 +118,7 @@ async fn seed_started(
         preview_key: &key,
         branch: &branch,
     };
-    agentic_pipeline::automation_run::seed_preview_automation_run(txn, seed)
+    automation_seed::seed_preview_automation_run(txn, seed)
         .await
         .map_err(|e| e.to_string())
 }

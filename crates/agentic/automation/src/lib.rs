@@ -5,7 +5,10 @@ pub mod error;
 pub mod extension;
 pub mod hash;
 pub mod preagg_event;
-pub mod preview_names;
+/// Preview-scoped names live in `agentic-runtime`, so a crate below the
+/// domains (the preview queue, `oxy-previews`) can scope a ref without
+/// depending on this one. Re-exported at their old path.
+pub use agentic_runtime::preview_names;
 pub(crate) mod render;
 pub mod resolve;
 pub mod review;
@@ -60,7 +63,10 @@ pub use step_orchestrator::AutomationStepOrchestrator as WorkflowStepOrchestrato
 
 /// `source_type` to register this domain under in the runtime event registry.
 /// Used by the SSE layer to look up the right processor for a run's events.
-pub const SOURCE_TYPE: &str = "workflow";
+/// Defined in `agentic-runtime` (`automation_run::SOURCE_TYPE`), beside the
+/// run rows it tags, so the preview queue can seed an automation run without
+/// depending on this crate; re-exported here at its old path.
+pub use agentic_runtime::automation_run::SOURCE_TYPE;
 
 /// Build a [`DomainHandler`] for registering workflow events with the
 /// runtime's [`EventRegistry`].

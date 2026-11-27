@@ -48,6 +48,8 @@ agentic-analytics = { path = "../analytics" }
 # `migrate_shared_test_db` — central-then-runtime migration ordering shared
 # with agentic-pipeline / agentic-airway fixtures. See oxy-test-utils::migration.
 oxy-test-utils = { workspace = true }
+# `preview_names`' test: a scoped method must not parse as an HTTP method.
+reqwest = { workspace = true }
 
 [lints]
 workspace = true

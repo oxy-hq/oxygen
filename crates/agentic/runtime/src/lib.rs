@@ -36,10 +36,14 @@
 pub mod agentic_state;
 /// [`airway_request::StartAirwayRequest`], the inputs to start an airway run.
 pub mod airway_request;
+/// An automation run's `source_type`, its error and its ref validator.
+pub mod automation_run;
 pub mod cron;
 pub mod lifecycle;
 pub mod migration;
 pub mod orchestrator;
+/// Preview-scoped names: `preview:<run_id>:<name>`.
+pub mod preview_names;
 pub mod react;
 pub mod schedules;
 

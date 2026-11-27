@@ -27,7 +27,9 @@ use super::{LoadFailureAction, PipelineTaskExecutor, action_for_load_failure, de
 
 /// The `TaskSpec::Custom` kind that runs a sample, the `source_type` of its
 /// `agentic_runs` row, and the key its Airway events are rendered under.
-pub const PREVIEW_AIRWAY_SAMPLE: &str = "preview_airway_sample";
+/// Defined in `agentic_airway::preview`, so the preview queue (`oxy-previews`)
+/// names it without depending on this crate; re-exported here at its old path.
+pub use agentic_airway::preview::PREVIEW_AIRWAY_SAMPLE;
 
 /// Who a prepared Airway run belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

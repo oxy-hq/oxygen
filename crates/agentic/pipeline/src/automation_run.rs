@@ -26,7 +26,7 @@ use agentic_runtime::crud;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
 use agentic_runtime::worker::{SlotPool, Worker};
-use sea_orm::{DatabaseConnection, DbErr, TransactionTrait};
+use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -34,8 +34,12 @@ use uuid::Uuid;
 use crate::executor::PipelineTaskExecutor;
 use crate::platform::PlatformContext;
 
-mod preview;
-pub use preview::{PreviewAutomationSeed, seed_preview_automation_run};
+/// The error type and the ref validator live in `agentic-runtime`, so the
+/// preview queue (`oxy-previews`) seeds its preview automation run with them
+/// without depending on this crate. The error is re-exported here at its old
+/// path; the validator was private here and stays crate-internal.
+pub use agentic_runtime::automation_run::AutomationRunError;
+use agentic_runtime::automation_run::validate_automation_ref;
 
 /// Inputs for [`start_automation_run`].
 #[derive(Debug, Clone, Deserialize)]
@@ -154,39 +158,6 @@ impl StartAutomationRequest {
     }
 }
 
-fn validate_automation_ref(workflow_ref: &str) -> Result<(), AutomationRunError> {
-    if workflow_ref.is_empty() {
-        return Err(AutomationRunError::InvalidInput(
-            "workflow_ref is empty".into(),
-        ));
-    }
-    // `preview:<run_id>:<ref>` is what a workspace-preview run's root task
-    // carries, and only `seed_preview_automation_run` writes one. From any other
-    // caller it would be a forged preview run — or, on a pod that knows
-    // previews, a request to be driven like one.
-    if agentic_automation::preview_names::is_scoped(workflow_ref) {
-        return Err(AutomationRunError::InvalidInput(format!(
-            "workflow_ref {workflow_ref:?} uses the reserved `{}` prefix",
-            agentic_automation::preview_names::PREVIEW_PREFIX
-        )));
-    }
-    let candidate = std::path::Path::new(workflow_ref);
-    if candidate.is_absolute() {
-        return Err(AutomationRunError::InvalidInput(format!(
-            "workflow_ref {workflow_ref:?} must be relative to the workspace"
-        )));
-    }
-    if candidate
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(AutomationRunError::InvalidInput(format!(
-            "workflow_ref {workflow_ref:?} must not contain `..` segments"
-        )));
-    }
-    Ok(())
-}
-
 /// Snapshot of an automation run: the platform-side run record plus the
 /// agentic-automation state row, flattened for serialization.
 #[derive(Debug, Clone, Serialize)]
@@ -211,23 +182,6 @@ pub struct AutomationRunSummary {
     pub status: String,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub updated_at: chrono::DateTime<chrono::FixedOffset>,
-}
-
-/// Errors from [`start_automation_run`] / [`get_automation_snapshot`] /
-/// [`run_inline_automation`].
-#[derive(Debug, thiserror::Error)]
-pub enum AutomationRunError {
-    #[error("database: {0}")]
-    Db(#[from] DbErr),
-    #[error("run not found")]
-    NotFound,
-    #[error("inline automation: {0}")]
-    Inline(String),
-    /// Client-supplied [`StartAutomationRequest`] failed validation. HTTP
-    /// callers should map this to `400 Bad Request` with the message — the
-    /// content is shaped for end-user display.
-    #[error("invalid request: {0}")]
-    InvalidInput(String),
 }
 
 /// Maximum entries allowed in [`StartAutomationRequest::invalidate_steps`].

@@ -8,14 +8,20 @@
 //! finds the run in its registry) and strips the prefix for this run only. A
 //! pod that does not resolves nothing under that name, and the run fails
 //! instead of running as production.
+//!
+//! It lives beside its one caller, the preview queue ([`super::advance`]); it
+//! moved here from `agentic_pipeline::automation_run`, and the vocabulary it
+//! needs (`preview_names`, the automation `SOURCE_TYPE`, the error and the ref
+//! validator) moved down to `agentic-runtime`, so `oxy-previews` depends on
+//! neither the facade nor the automation domain.
 
 use agentic_core::delegation::TaskSpec;
+use agentic_runtime::automation_run::{AutomationRunError, SOURCE_TYPE, validate_automation_ref};
 use agentic_runtime::crud;
+use agentic_runtime::preview_names;
 use sea_orm::ConnectionTrait;
 use serde_json::{Value, json};
 use uuid::Uuid;
-
-use super::{AutomationRunError, validate_automation_ref};
 
 /// Everything the seed needs. `run_id` is the host's registry id, which the
 /// `agentic_runs` row shares.
@@ -41,7 +47,7 @@ pub async fn seed_preview_automation_run<C: ConnectionTrait>(
     seed: PreviewAutomationSeed<'_>,
 ) -> Result<(), AutomationRunError> {
     validate_automation_ref(seed.target_ref)?;
-    let scoped = agentic_automation::preview_names::scoped(seed.run_id, seed.target_ref);
+    let scoped = preview_names::scoped(seed.run_id, seed.target_ref);
     let metadata = json!({
         "workflow_ref": scoped,
         "trigger": "preview",
@@ -55,7 +61,7 @@ pub async fn seed_preview_automation_run<C: ConnectionTrait>(
         seed.run_id,
         &format!("preview of {} on {}", seed.target_ref, seed.branch),
         None,
-        agentic_automation::SOURCE_TYPE,
+        SOURCE_TYPE,
         Some(metadata),
         seed.workspace_id,
     )

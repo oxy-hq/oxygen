@@ -8,7 +8,7 @@ use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use agentic_pipeline::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
+use agentic_airway::preview::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
 
 /// The `workspace_preview_runs.kind` of a sample. Defined here, beside the
 /// queue that seeds the run; the preview platform a sample runs on

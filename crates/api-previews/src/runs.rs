@@ -15,7 +15,7 @@
 //!    [`advance`].
 //! 2. [`advance`] starts the oldest queued run of a workspace when none is
 //!    running, and seeds its `agentic_runs` row and root task
-//!    (`agentic_pipeline::automation_run::seed_preview_automation_run`, or
+//!    (`oxy_previews::queue::run`'s `seed_preview_automation_run`, or
 //!    `previews::sample::seed` for a sample) in the same transaction. Preview work serialises per workspace; the
 //!    `one_running` partial unique index settles a race.
 //! 3. The global-run driver claims the task and drives it with the preview
