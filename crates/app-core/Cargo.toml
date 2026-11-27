@@ -66,9 +66,8 @@ base64 = { workspace = true, features = ["std"] }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 
 # `write_hold`: the request-scoped write hold a workspace preview and a custom
-# app's staging ask run under — the holding connector, and an http_request
-# step's review (`HttpReview`).
-agentic-automation = { workspace = true }
+# app's staging ask run under — the holding connector. An http_request step's
+# review (`HttpReview`) is `agentic_runtime::step_review`'s.
 futures = { workspace = true }
 
 # `pods::ide_proxy`: the Factory relay streams a request body upstream

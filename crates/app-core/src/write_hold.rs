@@ -46,8 +46,8 @@ use std::future::Future;
 use std::sync::Arc;
 
 use crate::custom_app_environment::AppEnvironment;
-use agentic_automation::HttpReview;
 use agentic_connector::{DatabaseConnector, SqlDialect};
+use agentic_runtime::step_review::HttpReview;
 use async_trait::async_trait;
 use futures::future::Either;
 use uuid::Uuid;

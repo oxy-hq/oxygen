@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use agentic_automation::HttpReview;
 use agentic_connector::{ConnectorError, DatabaseConnector, ExecutionResult, SqlDialect};
+use agentic_runtime::step_review::HttpReview;
 use async_trait::async_trait;
 
 use super::connector::Session;

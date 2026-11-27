@@ -10429,7 +10429,6 @@ dependencies = [
 name = "oxy-app-core"
 version = "0.5.162"
 dependencies = [
- "agentic-automation",
  "agentic-connector",
  "agentic-core",
  "agentic-runtime",
@@ -10976,7 +10975,6 @@ dependencies = [
 name = "oxy-previews"
 version = "0.5.162"
 dependencies = [
- "agentic-airway",
  "agentic-core",
  "agentic-runtime",
  "airhouse",

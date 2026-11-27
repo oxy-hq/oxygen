@@ -92,7 +92,10 @@ pub const MAX_CONCURRENCY: usize = 16;
 /// `airway_pipeline_state` adoption (keyed by name alone) could hand a sample
 /// production's cursor. So [`AirwayPipelineSpec::validate`] refuses the
 /// prefix from every caller that parses authored YAML.
-pub const RESERVED_NAME_PREFIX: &str = "preview:";
+///
+/// It is `agentic_runtime::preview_names::PREVIEW_PREFIX`, the one reserved
+/// prefix, so the two cannot drift.
+pub const RESERVED_NAME_PREFIX: &str = agentic_runtime::preview_names::PREVIEW_PREFIX;
 
 fn default_concurrency() -> usize {
     1

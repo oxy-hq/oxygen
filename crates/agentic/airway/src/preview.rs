@@ -48,13 +48,11 @@ pub const SAMPLE_REFUSED_KINDS: [&str; 4] = ["postgres_cdc", "pgoutput", "sp_api
 /// grant. A sample of one runs only against a registered sandbox company.
 pub const ROTATE_ON_USE_KINDS: [&str; 1] = ["quickbooks"];
 
-/// The `TaskSpec::Custom` kind that runs a sample, the `source_type` of its
-/// `agentic_runs` row, and the key its Airway events are rendered under.
-///
-/// Defined here, beside the sample itself, so the preview queue that seeds the
-/// run (`oxy-previews`) names it without depending on the facade;
-/// `agentic_pipeline::PREVIEW_AIRWAY_SAMPLE` re-exports it.
-pub const PREVIEW_AIRWAY_SAMPLE: &str = "preview_airway_sample";
+/// The `TaskSpec::Custom` kind that runs a sample. Defined in
+/// `agentic_runtime::preview_sample`, so the preview queue that seeds the run
+/// (`oxy-previews`) names it without depending on airway; re-exported here for
+/// one release, and by `agentic_pipeline::PREVIEW_AIRWAY_SAMPLE`.
+pub use agentic_runtime::preview_sample::PREVIEW_AIRWAY_SAMPLE;
 
 /// A windowed sample with no window asked for covers the last week.
 pub const DEFAULT_WINDOW_DAYS: i64 = 7;

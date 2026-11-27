@@ -8,16 +8,15 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `preview::SandboxSource`: a QuickBooks sample's sandbox company, and
-# `preview::PREVIEW_AIRWAY_SAMPLE`, the task kind a sample's run is seeded as.
-agentic-airway = { workspace = true }
 # `TaskSpec` and its retry policy: the change check, a compare and a sample
 # are queued tasks.
 agentic-core = { workspace = true }
 # `TaskScope` and the run/queue CRUD the sweep reads, and the terminal
 # task statuses (`TERMINAL_RUN_STATUSES`); `preview_names` and
 # `automation_run` (`SOURCE_TYPE`, the error, the ref validator), which the
-# preview automation run's seed (`queue::run::automation_seed`) writes with.
+# preview automation run's seed (`queue::run::automation_seed`) writes with;
+# `preview_sample` (`SandboxSource`, a QuickBooks sample's sandbox company, and
+# `PREVIEW_AIRWAY_SAMPLE`, the task kind a sample's run is seeded as).
 agentic-runtime = { workspace = true }
 # `preview_sql` (the namespace, the refusal, the shadow-map registry) and the
 # token broker the schema DDL mints a Writer through.

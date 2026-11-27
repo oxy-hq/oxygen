@@ -44,8 +44,12 @@ pub mod migration;
 pub mod orchestrator;
 /// Preview-scoped names: `preview:<run_id>:<name>`.
 pub mod preview_names;
+/// The workspace-preview Airway sample's task kind and sandbox source.
+pub mod preview_sample;
 pub mod react;
 pub mod schedules;
+/// [`step_review::HttpReview`], a host's answer about an `http_request` step.
+pub mod step_review;
 
 // ── Back-compat top-level paths ────────────────────────────────────────────
 //

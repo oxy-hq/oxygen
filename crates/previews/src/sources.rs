@@ -28,7 +28,7 @@
 
 mod guard;
 
-use agentic_airway::preview::SandboxSource;
+use agentic_runtime::preview_sample::SandboxSource;
 use http::StatusCode;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use serde::{Deserialize, Serialize};
@@ -164,7 +164,7 @@ pub async fn save(
 }
 
 fn check_request(pipeline: &str, req: &PutSource) -> Result<(), SourceRequestError> {
-    if pipeline.is_empty() || pipeline.starts_with(agentic_airway::config::RESERVED_NAME_PREFIX) {
+    if pipeline.is_empty() || pipeline.starts_with(agentic_runtime::preview_names::PREVIEW_PREFIX) {
         return Err(SourceRequestError::BadRequest(format!(
             "`{pipeline}` is not a pipeline name"
         )));

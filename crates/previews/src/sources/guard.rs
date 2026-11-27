@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use agentic_airway::preview::SandboxSource;
+use agentic_runtime::preview_sample::SandboxSource;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::Value;
 use uuid::Uuid;

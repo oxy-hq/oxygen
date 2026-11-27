@@ -28,12 +28,8 @@ pub enum SqlReview {
     Rewrite { sql: String, notes: Value },
 }
 
-/// The answer to `review_http(method, url)`, asked after the URL is rendered
-/// and before any request is built.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HttpReview {
-    /// Send the request. The default.
-    Proceed,
-    /// Do not send it; the step succeeds with the hold recorded.
-    Hold { reason: String },
-}
+/// The answer to `review_http(method, url)`. Defined in
+/// `agentic_runtime::step_review`, so the request-scoped write hold
+/// (`oxy-app-core`'s `write_hold`) answers it without depending on this
+/// crate; re-exported here (and from the crate root) for one release.
+pub use agentic_runtime::step_review::HttpReview;
