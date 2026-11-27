@@ -12,11 +12,24 @@
 # edit both together.
 #
 # Run against a seeded stack (`just up` from the repo root; it seeds the Demo
-# workspace from this directory, loads examples/.db into Airhouse, and runs
-# the worker that builds the pre-aggregation rollups):
+# workspace from this directory and loads examples/.db into Airhouse), through
+# the eval route, which runs the promoted revision on the worker fleet:
 #
-#   cd examples && oxy dev test testing/parity.fsm.test.yml --format json
-#   cd examples && oxy dev test testing/parity.react.test.yml --format json
+#   oxyc evals run testing/parity.fsm.test.yml --workspace <ws> --wait --json
+#   oxyc evals run testing/parity.react.test.yml --workspace <ws> --wait --json
+#
+# (or `POST /api/{ws}/evals/runs` with `{"test_file":"testing/parity.react.test.yml"}`,
+# then `GET /api/{ws}/evals/runs/{run_id}`). `oxy dev test` cannot run these:
+# it runs under the nil workspace id, which has no Airhouse tenant, so it
+# reaches neither the airhouse_managed warehouse nor the rollups.
+#
+# The preagg-* cases need the rollups built. The scheduled preagg cycle builds
+# them in time; to have them now, `POST /api/{ws}/semantic/preagg-rebuild` with
+# `{}` (`oxyc api {ws}/semantic/preagg-rebuild -X POST --input - <<< '{}'`) and
+# wait for the cycle to finish. Without them the FSM falls back to the
+# warehouse and the preagg-* cases fail on both runtimes. The eval reads rollups
+# through the draining node's pre-aggregation cache, as a served chat does:
+# `just up`'s `oxy serve` has one; a standalone `oxy worker` does not.
 #
 # Five items, a few cases each. Each case checks the one behaviour its item is
 # about (`expect:`), plus an `expected` answer where the numbers are known.
@@ -28,7 +41,7 @@
 #   fresh-*     the answer says the orders data runs only through 2026-07-16
 #               (the `meta:` freshness contract on semantics/views/orders.view.yml).
 #   preagg-*    the query is served from a rollup in a view's `pre_aggregations:`.
-#               Needs the rollups built (the refresh worker `just up` runs);
+#               Needs the rollups built (`preagg-rebuild`, above);
 #               otherwise the FSM falls back to the warehouse and fails too.
 #   chart-*     the run draws a chart (an FSM table does not count).
 #   clarify-*   the run stops to ask the user what they mean.

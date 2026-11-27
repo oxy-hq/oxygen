@@ -50,7 +50,7 @@ pub(super) struct EvalRun {
     pub workspace: WorkspaceManager<WorkingCopy>,
     /// The project context every agent run and judge in this eval shares,
     /// when the caller built one: the server's, from
-    /// `workspace_runtime::build_workspace_ctx` (compiled revision, the
+    /// `workspace_runtime::build_eval_workspace_ctx` (compiled revision, the
     /// caller's identity). `None` builds one per use from `workspace`, as
     /// `oxy test` always has.
     project: Option<Arc<OxyProjectContext>>,

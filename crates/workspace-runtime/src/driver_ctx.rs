@@ -109,6 +109,47 @@ pub async fn build_workspace_ctx(
     workspace_id: uuid::Uuid,
     db: &DatabaseConnection,
 ) -> Option<Arc<OxyProjectContext>> {
+    // No preagg context: this builder serves the workspace-health smoke probes
+    // and the reconciliation check, both of which exist to test the WAREHOUSE.
+    // Reconciliation compares an Oxy measure against a live external source, so
+    // answering the Oxy side from a rollup would report drift that is really
+    // rollup lag — the check would be measuring its own cache.
+    build_compiled_scan_ctx(workspace_id, db, &PreaggCacheCtx::default()).await
+}
+
+/// [`build_workspace_ctx`] for a queued eval run (`oxy-api-eval`'s
+/// `EvalRunExecutor`): the same promoted revision and compiled semantic scan,
+/// plus the node's Layer-1 pre-aggregation cache.
+///
+/// An eval scores the answer a served chat gives, and a served chat is
+/// answered from a rollup whenever one covers the query (the workspace
+/// middleware attaches this same cache). Built without it, every query compiles
+/// to warehouse SQL, so a case asserting `preagg: true` can never pass — not
+/// even with every rollup built. `preagg` is the one the executor was built
+/// with (`TaskDeps::preagg`). That is the cache only where the eval drains in
+/// `oxy serve`'s in-process driver (a single instance, a `just up` stack); a
+/// standalone `oxy worker` has none (`commands::worker`), so an eval drained
+/// there reads the warehouse, as every other queued run on that pod does.
+///
+/// A promoted revision with no compiled semantic model is not fatal here
+/// either: the context is still built, and the eval's semantic queries report
+/// the model unavailable until a compile lands.
+pub async fn build_eval_workspace_ctx(
+    workspace_id: uuid::Uuid,
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+) -> Option<Arc<OxyProjectContext>> {
+    build_compiled_scan_ctx(workspace_id, db, preagg).await
+}
+
+/// The body [`build_workspace_ctx`] and [`build_eval_workspace_ctx`] share: the
+/// workspace row's path, the driver context over the promoted revision, and a
+/// semantic scan root resolved from the compile boundary and nowhere else.
+async fn build_compiled_scan_ctx(
+    workspace_id: uuid::Uuid,
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+) -> Option<Arc<OxyProjectContext>> {
     let path = match entity::workspaces::Entity::find_by_id(workspace_id)
         .one(db)
         .await
@@ -117,17 +158,11 @@ pub async fn build_workspace_ctx(
         Ok(None) => return None,
         Err(e) => {
             tracing::warn!(target: "recovery", %workspace_id, error = %e,
-                "build_workspace_ctx: workspace lookup failed");
+                "build_compiled_scan_ctx: workspace lookup failed");
             return None;
         }
     };
-    // No preagg context: this builder serves the workspace-health smoke probes
-    // and the reconciliation check, both of which exist to test the WAREHOUSE.
-    // Reconciliation compares an Oxy measure against a live external source, so
-    // answering the Oxy side from a rollup would report drift that is really
-    // rollup lag — the check would be measuring its own cache.
-    let ctx =
-        build_cloud_project_ctx_inner(workspace_id, &path, db, &PreaggCacheCtx::default()).await?;
+    let ctx = build_cloud_project_ctx_inner(workspace_id, &path, db, preagg).await?;
 
     // Resolve the semantic scan root from the PROMOTED REVISION, and only from
     // it. Two failures, one line:
@@ -164,8 +199,8 @@ pub async fn build_workspace_ctx(
                 target: "health_eval",
                 %workspace_id,
                 reason = %unavailable.message(),
-                "no compiled semantic model for the health eval; semantic checks will \
-                 report unavailable until a compile lands"
+                "no compiled semantic model for the health eval or eval run; semantic \
+                 checks will report unavailable until a compile lands"
             );
             ctx
         }
@@ -347,11 +382,24 @@ mod health_scan_wiring_tests {
             .expect("source splits on its own test-module attribute")
     }
 
+    /// One function's body: from its signature to the first line that closes
+    /// a top-level item, so an assertion about one builder cannot be satisfied
+    /// by the next one down the file.
+    fn body(name: &str) -> &'static str {
+        let after = src()
+            .split(&format!("async fn {name}("))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{name} is defined here"));
+        after.split("\n}\n").next().expect("the body closes")
+    }
+
     /// `build_workspace_ctx` is the ONLY context builder the workspace-health
-    /// eval uses. That eval judges a workspace, so it must read the promoted
-    /// revision and nothing else: the fleet node it runs on may not hold the
-    /// workspace directory at all, and a node that does holds whatever is being
-    /// edited in the IDE.
+    /// eval uses, and `build_eval_workspace_ctx` the one a queued eval run
+    /// uses. Both judge a workspace, so they must read the promoted revision
+    /// and nothing else: the fleet node they run on may not hold the workspace
+    /// directory at all, and a node that does holds whatever is being edited in
+    /// the IDE. Both go through `build_compiled_scan_ctx`, which is where that
+    /// is decided.
     ///
     /// Guarded as source shape because the regression is an ABSENCE: dropping
     /// either call compiles perfectly and silently restores the working-copy
@@ -360,22 +408,66 @@ mod health_scan_wiring_tests {
     /// wrong door — it falls back to the working copy by design.
     #[test]
     fn the_health_context_reads_the_promoted_revision_and_nothing_else() {
-        let s = src();
-        let body = s
-            .split("pub async fn build_workspace_ctx")
-            .nth(1)
-            .expect("build_workspace_ctx is defined here");
+        let shared = body("build_compiled_scan_ctx");
         assert!(
-            body.contains("resolve_compiled_scan_source") && body.contains("with_semantic_scan"),
-            "build_workspace_ctx must hand its context a compile-boundary scan root; \
+            shared.contains("resolve_compiled_scan_source")
+                && shared.contains("with_semantic_scan"),
+            "build_compiled_scan_ctx must hand its context a compile-boundary scan root; \
              without one the health eval parses the semantic model out of a working \
              copy the fleet does not have"
         );
         assert!(
-            body.contains("requiring_compiled_semantic_scan"),
+            shared.contains("requiring_compiled_semantic_scan"),
             "and it must REFUSE the working-copy fallback: on a node that does hold the \
              files, falling back judges someone's uncommitted IDE edit and pages the \
              on-call about a promoted revision that is fine"
+        );
+        assert!(
+            !shared.contains("resolve_query_scan_source("),
+            "the serving resolver falls back to the working copy by design"
+        );
+        for builder in ["build_workspace_ctx", "build_eval_workspace_ctx"] {
+            assert!(
+                body(builder).contains("build_compiled_scan_ctx("),
+                "{builder} must build through build_compiled_scan_ctx, which holds the \
+                 compiled-scan resolution"
+            );
+        }
+    }
+
+    /// The eval context carries the node's pre-aggregation cache; the health
+    /// context does not.
+    ///
+    /// An eval scores the answer a served chat gives, and a chat is answered
+    /// from a rollup when one covers the query. Handing the eval the health
+    /// builder's `PreaggCacheCtx::default()` made every query compile to
+    /// warehouse SQL, so a case asserting `preagg: true` failed on both
+    /// runtimes with all 30 Demo rollups built (parity run, 2026-11-27). The
+    /// health context is the reverse: reconciliation compares an Oxy measure
+    /// with a live source, so a rollup there reports its own lag as drift.
+    #[test]
+    fn the_eval_context_reads_rollups_and_the_health_context_does_not() {
+        let eval = body("build_eval_workspace_ctx");
+        assert!(
+            eval.contains("preagg: &PreaggCacheCtx")
+                && eval.contains("build_compiled_scan_ctx(workspace_id, db, preagg)"),
+            "build_eval_workspace_ctx must pass its caller's preagg cache through; \
+             without it an eval can never be answered from a rollup"
+        );
+        assert!(
+            !eval.contains("PreaggCacheCtx::default()"),
+            "build_eval_workspace_ctx must not drop the cache it is handed"
+        );
+        let health = body("build_workspace_ctx");
+        assert!(
+            health.contains("PreaggCacheCtx::default()") && !health.contains("preagg:"),
+            "build_workspace_ctx must stay preagg-free: the health probes and \
+             reconciliation exist to test the warehouse, not a rollup of it"
+        );
+        let shared = body("build_compiled_scan_ctx");
+        assert!(
+            shared.contains("build_cloud_project_ctx_inner(workspace_id, &path, db, preagg)"),
+            "build_compiled_scan_ctx must build with the preagg it is given"
         );
     }
 }

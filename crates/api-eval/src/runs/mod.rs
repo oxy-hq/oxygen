@@ -11,9 +11,12 @@
 //!
 //! The executor ([`executor::EvalRunExecutor`], registered through
 //! `SurfaceSeams::tasks`) builds the workspace's context over the PROMOTED
-//! revision (`workspace_runtime::build_workspace_ctx`, as the health eval
-//! does), carrying the caller's identity so an `airhouse_managed` query runs
-//! as them, and runs the same engine `oxy test` runs.
+//! revision and compiled semantic scan
+//! (`workspace_runtime::build_eval_workspace_ctx`: the health eval's builder
+//! plus the node's pre-aggregation cache, so an eval is answered from a rollup
+//! as a served chat is), carrying the caller's identity so an
+//! `airhouse_managed` query runs as them, and runs the same engine `oxy test`
+//! runs.
 //!
 //! Both routes are FleetOk: Postgres reads and one enqueue, no disk. The guard
 //! is the one starting an agent run has (`POST …/analytics/runs`): the

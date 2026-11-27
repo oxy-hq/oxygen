@@ -77,6 +77,8 @@ pub fn tasks() -> Vec<TaskSeam> {
         build: |deps| {
             Arc::new(runs::executor::EvalRunExecutor {
                 db: deps.db.clone(),
+                // A served chat's rollups: an eval scores the answer a chat gives.
+                preagg: deps.preagg.clone(),
             })
         },
     }]

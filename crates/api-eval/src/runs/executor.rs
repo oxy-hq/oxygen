@@ -1,9 +1,10 @@
 //! `EvalRunExecutor`: runs one queued `eval_run` task on the worker fleet.
 //!
 //! It builds the workspace's context over the promoted revision
-//! (`workspace_runtime::build_workspace_ctx`, the health eval's builder: no
-//! working copy, the compiled semantic scan), stamps the caller's identity on
-//! it, reads each test file from the compile boundary and runs the same engine
+//! (`workspace_runtime::build_eval_workspace_ctx`: the health eval's promoted
+//! revision and compiled semantic scan, no working copy, plus the node's
+//! pre-aggregation cache, so a query is answered from a rollup as a served chat
+//! is), stamps the caller's identity on it, reads each test file from the compile boundary and runs the same engine
 //! `oxy test` runs. The outcome's answer is the results document's text
 //! ([`crate::reporters::results_json`]), which the coordinator stores on the
 //! run row (`agentic_runs.answer`) for `GET …/evals/runs/{id}`.
@@ -18,8 +19,10 @@ use oxy::config::EvalTest;
 use oxy::config::test_config::TestFileConfig;
 use oxy::exec_runtime::writer::EventHandler;
 use oxy::exec_types::Event;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_shared::errors::OxyError;
-use oxy_workspace_runtime::{driver_ctx::build_workspace_ctx, project_ctx::OxyProjectContext};
+use oxy_workspace_runtime::driver_ctx::build_eval_workspace_ctx;
+use oxy_workspace_runtime::project_ctx::OxyProjectContext;
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -37,6 +40,9 @@ pub const EVAL_RUN_SOURCE: &str = "eval_run";
 
 pub struct EvalRunExecutor {
     pub db: DatabaseConnection,
+    /// The draining node's Layer-1 pre-aggregation cache (`TaskDeps::preagg`).
+    /// The default (no cache) compiles every query to warehouse SQL.
+    pub preagg: PreaggCacheCtx,
 }
 
 #[async_trait]
@@ -58,10 +64,11 @@ impl TaskExecutor for EvalRunExecutor {
         let (outcome_tx, outcome_rx) = mpsc::channel(4);
         let cancel = CancellationToken::new();
         let db = self.db.clone();
+        let preagg = self.preagg.clone();
         let watch = cancel.clone();
         tokio::spawn(async move {
             let outcome = tokio::select! {
-                outcome = guarded(db, payload) => outcome,
+                outcome = guarded(db, preagg, payload) => outcome,
                 () = watch.cancelled() => TaskOutcome::Cancelled,
             };
             let _ = outcome_tx.send(outcome).await;
@@ -77,9 +84,13 @@ impl TaskExecutor for EvalRunExecutor {
 
 /// A terminal outcome whatever happens: a panic inside the engine would
 /// otherwise drop the sender with nothing sent and leave the run `running`.
-async fn guarded(db: DatabaseConnection, payload: EvalRunPayload) -> TaskOutcome {
+async fn guarded(
+    db: DatabaseConnection,
+    preagg: PreaggCacheCtx,
+    payload: EvalRunPayload,
+) -> TaskOutcome {
     let workspace_id = payload.workspace_id;
-    match std::panic::AssertUnwindSafe(run_queued(&db, payload))
+    match std::panic::AssertUnwindSafe(run_queued(&db, &preagg, payload))
         .catch_unwind()
         .await
     {
@@ -102,8 +113,12 @@ async fn guarded(db: DatabaseConnection, payload: EvalRunPayload) -> TaskOutcome
 
 /// Run every test file of the payload, in order, and render the results
 /// document `oxy test` wrote for the same files.
-async fn run_queued(db: &DatabaseConnection, payload: EvalRunPayload) -> Result<String, String> {
-    let ctx = project_for(db, &payload).await?;
+async fn run_queued(
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+    payload: EvalRunPayload,
+) -> Result<String, String> {
+    let ctx = project_for(db, preagg, &payload).await?;
     let mut all = Vec::new();
     for file in &payload.test_files {
         all.extend(
@@ -115,12 +130,14 @@ async fn run_queued(db: &DatabaseConnection, payload: EvalRunPayload) -> Result<
     crate::reporters::results_json(&all).map_err(|e| e.to_string())
 }
 
-/// The workspace's context over the promoted revision, as the caller.
+/// The workspace's context over the promoted revision, as the caller, with the
+/// rollups a served chat would read.
 async fn project_for(
     db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
     payload: &EvalRunPayload,
 ) -> Result<Arc<OxyProjectContext>, String> {
-    let ctx = build_workspace_ctx(payload.workspace_id, db)
+    let ctx = build_eval_workspace_ctx(payload.workspace_id, db, preagg)
         .await
         .ok_or_else(|| format!("workspace {} could not be loaded", payload.workspace_id))?;
     // Freshly built, so this is the only handle; stamping the identity needs
@@ -215,6 +232,7 @@ mod tests {
     fn executor() -> EvalRunExecutor {
         EvalRunExecutor {
             db: DatabaseConnection::default(),
+            preagg: PreaggCacheCtx::default(),
         }
     }
 
