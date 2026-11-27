@@ -205,8 +205,8 @@ pub fn cache_lookup(
     if refresh {
         return None;
     }
-    let scope = boundary.app.cache_scope();
-    oxy_custom_apps::result_cache::get(boundary.project_id(), ns, &scope, key).map(|arc| {
+    let scope = crate::result_cache::scope_for(boundary.app.staging_pin);
+    crate::result_cache::get(boundary.project_id(), ns, &scope, key).map(|arc| {
         (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             (*arc).clone(),
@@ -227,8 +227,8 @@ pub fn cache_store<T: Serialize>(
     match serde_json::to_vec(value) {
         Ok(bytes) => {
             let arc = std::sync::Arc::new(bytes);
-            let scope = boundary.app.cache_scope();
-            oxy_custom_apps::result_cache::put(boundary.project_id(), ns, &scope, key, arc.clone());
+            let scope = crate::result_cache::scope_for(boundary.app.staging_pin);
+            crate::result_cache::put(boundary.project_id(), ns, &scope, key, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),

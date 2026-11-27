@@ -14,7 +14,7 @@
 //! Both sit behind the customer-app gate (`check_custom_app_gates`, inline: a
 //! session cookie or an API key), so they ride `SurfaceSeams::public` outside
 //! the auth stack, declared FleetOk. Their result cache is
-//! `oxy_custom_apps::result_cache`, keyed `project_id` first and read after the
+//! `oxy_workspace_runtime::result_cache`, keyed `project_id` first and read after the
 //! gate, shared with the semantic boundary the metric-tree twins
 //! and `oxy-api-world-model`'s customer-app twins go through. [`query::DataPlaneQueryExecutor`] is the same SQL path behind
 //! `ctx.warehouse` / `ctx.semantic` in a Function; `oxy-server` installs it on

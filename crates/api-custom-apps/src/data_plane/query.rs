@@ -38,6 +38,7 @@ use uuid::Uuid;
 
 use crate::custom_apps_gates::check_custom_app_gates;
 use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::result_cache;
 use oxy_workspace_runtime::string_literal::string_literal_of;
 use oxy_workspace_runtime::typed_stream::typed_stream_to_json_objects;
 use utoipa::ToSchema;
@@ -240,11 +241,8 @@ pub async fn run_query(
     };
     // A pinned staging request may resolve a different `config.yml` (its
     // branch's databases), so it gets its own partition.
-    let cache_db = format!("{db_name}{}", ctx.cache_scope());
-    if !refresh
-        && let Some(body) =
-            oxy_custom_apps::result_cache::get(project_id, cache_ns, &cache_db, &sql)
-    {
+    let cache_db = format!("{db_name}{}", result_cache::scope_for(ctx.staging_pin));
+    if !refresh && let Some(body) = result_cache::get(project_id, cache_ns, &cache_db, &sql) {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             (*body).clone(),
@@ -284,7 +282,7 @@ pub async fn run_query(
                 }
             };
             let arc = std::sync::Arc::new(bytes);
-            oxy_custom_apps::result_cache::put(project_id, cache_ns, &cache_db, &sql, arc.clone());
+            result_cache::put(project_id, cache_ns, &cache_db, &sql, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),

@@ -46,13 +46,19 @@ expensive to retrofit under load.
   `try_send` onto the bounded queue in `custom_apps_usage_queue`; a full queue drops and
   counts, never blocks. Do not add a `tokio::spawn` or a DB read to the page-load tail.
 
-## Data plane — `api-custom-apps/src/data_plane/{query,semantic_query}.rs`, `custom-apps/src/result_cache.rs`
+## Data plane — `api-custom-apps/src/data_plane/{query,semantic_query}.rs`, `workspace-runtime/src/result_cache.rs`
 
 - **Short-TTL result cache, keyed by `project_id` FIRST.** The cache key is
   `(project_id, namespace, database, sql)`. `project_id` is the multi-tenant
   isolation boundary — a shared process-global cache without it **leaks results
   across tenants**. `result_cache.rs` has a `miss_on_different_project_or_sql_or_db`
   test asserting exactly this; keep it. Namespace by endpoint (`query` vs `semantic`).
+- **Partition staging from live through `result_cache::scope_for(staging_pin)`.**
+  It is `""` on live and `staging-pin:<uuid>` on a pinned staging request, and
+  it is the only place that rule is written (it re-exports
+  `oxy_app_core::staging_pin_scope::scope_for`, which `cache_partition` also
+  reads). Never build the `db` partition by hand: a second copy that drifts
+  serves a branch's answer to live users.
 - **Read the cache AFTER auth.** The `result_cache::get` must sit *below*
   `check_custom_app_gates` in the handler, or a cached hit bypasses authorization.
   Cache only successful responses (never error bodies).

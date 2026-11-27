@@ -53,13 +53,26 @@ pub fn current_staging_pin() -> Option<Uuid> {
     STAGING_PIN.try_with(|pin| *pin).ok()
 }
 
-/// The result-cache partition for the current task: `""` unpinned, the pin
-/// under one, so a branch's answer never serves live and live's never answers
-/// the branch. The same shape `CustomAppContext::cache_scope` uses.
-pub fn cache_partition() -> String {
-    current_staging_pin()
+/// The result-cache partition for a request carrying `staging_pin`: `""` on
+/// live, `staging-pin:<uuid>` on a pinned staging request, so a branch's answer
+/// never serves live users and live's never answers the staging preview.
+///
+/// The one statement of the rule. Every result-cache key goes through it —
+/// [`cache_partition`] for code that reads the pin from the task, and
+/// `oxy_workspace_runtime::result_cache::scope_for` (a re-export) for the
+/// data-plane routes and the semantic boundary, which hold the gate's
+/// `staging_pin`. A second copy that drifted would be a live/staging data
+/// leak, not a build error.
+pub fn scope_for(staging_pin: Option<Uuid>) -> String {
+    staging_pin
         .map(|pin| format!("staging-pin:{pin}"))
         .unwrap_or_default()
+}
+
+/// The result-cache partition for the current task: [`scope_for`] of the pin
+/// this task runs under.
+pub fn cache_partition() -> String {
+    scope_for(current_staging_pin())
 }
 
 #[cfg(test)]
@@ -110,5 +123,19 @@ mod tests {
 
         let untouched = with_staging_pin(None, async { (current_staging_pin(), rollups()) }).await;
         assert_eq!(untouched, (None, true), "no pin means no scope at all");
+    }
+
+    /// The result-cache partition rule, pinned: live is `""` and a pinned
+    /// staging request is `staging-pin:<uuid>`. Every result-cache key — the
+    /// data-plane routes, the semantic boundary and [`cache_partition`] — is
+    /// built from this one function, so a change here is a change to all of
+    /// them at once.
+    #[test]
+    fn scope_for_is_empty_on_live_and_names_the_pin_on_staging() {
+        let pin = Uuid::new_v4();
+        assert_eq!(scope_for(None), "");
+        assert_eq!(scope_for(Some(pin)), format!("staging-pin:{pin}"));
+        assert_ne!(scope_for(Some(pin)), scope_for(None));
+        assert_ne!(scope_for(Some(pin)), scope_for(Some(Uuid::new_v4())));
     }
 }

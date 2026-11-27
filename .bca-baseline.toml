@@ -7882,7 +7882,7 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/custom-apps/src/result_cache.rs"
+path = "crates/workspace-runtime/src/result_cache.rs"
 qualified = "put_with_ttl"
 metric = "nargs"
 value = 6.0

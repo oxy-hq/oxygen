@@ -43,6 +43,7 @@ use super::query::{QueryResponse, json_objects_to_table};
 use crate::custom_apps_gates::check_custom_app_gates;
 use oxy_app_core::AppState;
 use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::result_cache;
 use oxy_workspace_runtime::typed_stream::typed_stream_to_json_objects;
 
 const MAX_ROWS: usize = 10_000;
@@ -261,9 +262,9 @@ pub async fn run_semantic_query(
                 .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
         })
         .unwrap_or(false);
+    let cache_scope = result_cache::scope_for(ctx.staging_pin);
     if !refresh
-        && let Some(cached) =
-            oxy_custom_apps::result_cache::get(project_id, cache_ns, &ctx.cache_scope(), &cache_sql)
+        && let Some(cached) = result_cache::get(project_id, cache_ns, &cache_scope, &cache_sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -654,13 +655,7 @@ pub async fn run_semantic_query(
         }
     };
     let arc = std::sync::Arc::new(bytes);
-    oxy_custom_apps::result_cache::put(
-        project_id,
-        cache_ns,
-        &ctx.cache_scope(),
-        &cache_sql,
-        arc.clone(),
-    );
+    result_cache::put(project_id, cache_ns, &cache_scope, &cache_sql, arc.clone());
     (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         (*arc).clone(),

@@ -125,6 +125,7 @@ pub mod queued_analytics;
 pub mod react_results;
 mod read_only_airhouse;
 pub mod request;
+pub mod result_cache;
 pub mod runtime_artifact;
 pub mod scan_source;
 pub mod semantic_boundary;

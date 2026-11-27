@@ -94,7 +94,6 @@ pub mod precompress;
 pub mod publish_authz;
 pub mod reach;
 pub mod resolve;
-pub mod result_cache;
 pub mod sandbox_instance;
 pub mod sandbox_reach;
 pub mod secret_audit;

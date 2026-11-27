@@ -90,18 +90,6 @@ pub struct CustomAppContext {
     pub staging_pin: Option<Uuid>,
 }
 
-impl CustomAppContext {
-    /// Result-cache partition for this request: `""` on live, the pin on a
-    /// pinned staging request, so a branch's answer never serves live users
-    /// and live's never answers the staging preview.
-    pub fn cache_scope(&self) -> String {
-        match self.staging_pin {
-            Some(pin) => format!("staging-pin:{pin}"),
-            None => String::new(),
-        }
-    }
-}
-
 /// Why a decision step refused or failed, as plain values: the HTTP status, the
 /// message and the optional machine-readable code the response body carries.
 /// `oxy-app` builds the response from them, so every status and message is

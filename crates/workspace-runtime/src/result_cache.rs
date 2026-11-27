@@ -4,6 +4,11 @@
 //! `(project_id, namespace, database, sql)` so repeat loads of the same query
 //! skip the warehouse. `project_id` in the key is the multi-tenant isolation
 //! boundary — results never cross tenants. A `?refresh` request bypasses it.
+//!
+//! Its callers are the data-plane routes in `oxy-api-custom-apps`
+//! (`data_plane/{query,semantic_query}.rs`) and [`crate::semantic_boundary`];
+//! nothing in `oxy-custom-apps` reads it, so it moved here from there
+//! (`oxy_custom_apps::result_cache`, 2026-11-27, depth stage C, A1).
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
@@ -12,6 +17,12 @@ use std::time::{Duration, Instant};
 use lru::LruCache;
 use parking_lot::Mutex;
 use uuid::Uuid;
+
+/// The `db` partition a request's entries live under: `""` on live,
+/// `staging-pin:<uuid>` on a pinned staging request. Stated once, in
+/// `oxy_app_core::staging_pin_scope`, which the task-local
+/// `cache_partition` also reads, so the two can never disagree.
+pub use oxy_app_core::staging_pin_scope::scope_for;
 
 const MAX_ENTRIES: usize = 2048;
 /// Default freshness window. Short — custom-app dashboards want recent data;
@@ -168,6 +179,39 @@ mod tests {
                 .as_deref()
                 .map(|v| v.as_slice()),
             Some(&b"U"[..])
+        );
+    }
+
+    /// A pinned staging request's entry never answers live, and live's never
+    /// answers staging: the partition from [`scope_for`] is part of the key.
+    #[test]
+    fn staging_and_live_partitions_never_cross_read() {
+        let p = Uuid::new_v4();
+        let pin = Uuid::new_v4();
+        put(
+            p,
+            "semantic",
+            &scope_for(Some(pin)),
+            "SPEC",
+            std::sync::Arc::new(b"STAGING".to_vec()),
+        );
+        assert!(
+            get(p, "semantic", &scope_for(None), "SPEC").is_none(),
+            "live must not be served a staging answer"
+        );
+        put(
+            p,
+            "semantic",
+            &scope_for(None),
+            "SPEC",
+            std::sync::Arc::new(b"LIVE".to_vec()),
+        );
+        assert_eq!(
+            get(p, "semantic", &scope_for(Some(pin)), "SPEC")
+                .as_deref()
+                .map(|v| v.as_slice()),
+            Some(&b"STAGING"[..]),
+            "staging keeps its own entry"
         );
     }
 }
