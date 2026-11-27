@@ -21,23 +21,48 @@
 #
 # Every workspace crate sits in one of five tiers, and a dependency may only
 # point to a LOWER tier. With no sideways edges, the longest chain from
-# oxy-server to a leaf is at most 4 edges. The rule and the reasons are in
+# oxy-server to a leaf with no agentic crate in it is at most 4 edges; one
+# through the agentic stack may reach 5 (`[depth]` below). The rule and the reasons are in
 # internal-docs/crate-tiers.md (the plan) and backend-architecture.md ("Crate
 # tiers and depth").
 #
-# Today's graph does not meet it yet. Two things hold the line: `[depth] max`
+# Today's graph does not meet it yet. Three things hold the line: `[depth] max`
 # fails when the longest chain gets longer (a shorter one prints a notice to
-# lower it), and `[tier_edges] allowed` names every sideways or upward
-# dependency still allowed. Never raise the one or add to the other to turn a
-# red build green.
+# lower it), `[depth] non_agentic_max` does the same for the chains with no
+# agentic crate in them, and `[tier_edges] allowed` names every sideways or
+# upward dependency still allowed. Never raise a cap or add to the list to turn
+# a red build green.
 # ---------------------------------------------------------------------------
 
 [depth]
 # Longest chain of internal normal + build dependencies, counted in edges.
 # Dev-dependencies are exempt, as for the rules below.
 max = 6
-# Where the ratchet ends. Lowering `max` below this is the next, stricter step.
-target = 4
+# Where the ratchet ends for a chain through the agentic stack. The agentic
+# layers are five deep by rule (backend-architecture.md, "Dependency
+# Direction"), so 4 for them is revisited after stage E.
+target = 5
+# The same ratchet over the chains that contain NO agentic crate: the graph with
+# every crate in `agentic` below removed. A chain with any agentic crate in it
+# is held to `max` only; a non-agentic crate below one still counts here from
+# itself down.
+non_agentic_max = 6
+non_agentic_target = 4
+# Pinned, and checked: it must equal the crates whose manifest is under
+# crates/agentic/. Moving a crate in or out changes which cap its chains fall
+# under, so it is a reviewed change to this list, never a silent relabelling.
+agentic = [
+  "agentic-airway",
+  "agentic-analytics",
+  "agentic-automation",
+  "agentic-connector",
+  "agentic-core",
+  "agentic-http",
+  "agentic-llm",
+  "agentic-pipeline",
+  "agentic-runtime",
+  "agentic-semantic",
+]
 # Members that are not part of the crate graph proper. workspace-hack is cargo
 # hakari's feature-unification crate: it depends only on third-party crates.
 exclude = ["workspace-hack"]

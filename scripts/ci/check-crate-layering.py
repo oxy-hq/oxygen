@@ -2,9 +2,10 @@
 """Fail if a crate depends across a layer boundary it may not cross.
 
 It also holds the whole workspace to the five-tier rule (crate_tiers.py): the
-longest internal dependency chain may only get shorter, and every dependency
-that breaks the tiers must be named in the config's allowed list, which only
-shrinks.
+longest internal dependency chain may only get shorter, the longest chain with
+no agentic crate in it may only get shorter under its own cap, and every
+dependency that breaks the tiers must be named in the config's allowed list,
+which only shrinks.
 
 The dependency-direction rules in internal-docs/backend-architecture.md are
 marked HARD and were enforced by nothing but review. This is the check that
@@ -224,7 +225,9 @@ def main(argv: list[str]) -> int:
 
     with open(RULES_PATH, "rb") as f:
         tier_config = crate_tiers.load_tiers(tomllib.load(f))
-    failures, summary = crate_tiers.check_tiers(tier_config, graph)
+    failures, summary = crate_tiers.check_tiers(
+        tier_config, graph, agentic_members(metadata)
+    )
     if failures:
         print("Crate tiers and depth:", file=sys.stderr)
         for failure in failures:
