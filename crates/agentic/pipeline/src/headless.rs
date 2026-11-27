@@ -243,8 +243,9 @@ async fn run_agentic_headless(
     let base_dir = ctx_root.path().to_path_buf();
 
     let (config, domain_docs) = load_agent(&*platform, agent_ref, &base_dir).await?;
-    let ctx = build_context(&*platform, &config, domain_docs, &base_dir).await;
-    if react_run::picks_react(&config, react, agent_ref) {
+    let runs_react = react_run::picks_react(&config, react, agent_ref);
+    let ctx = build_context(&*platform, &config, domain_docs, &base_dir, runs_react).await;
+    if runs_react {
         let memory = memory.cloned().unwrap_or_default();
         let run = (agent_ref, base_dir.as_path(), &memory);
         return react_run::run_headless(&*platform, &config, ctx, run, prompt, destination).await;
@@ -317,11 +318,16 @@ async fn load_agent(
 
 /// The solver's build context: model, timezone, and the connectors for the
 /// agent's databases plus any its `context:` references.
+/// The run's context. A react run gets the platform's read-only connector
+/// where it has one, as a served react chat does
+/// ([`platform::react_connectors`]); without it, an `airhouse_managed`
+/// database has only the role connection, which react refuses.
 async fn build_context(
     platform: &dyn PlatformContext,
     config: &AgentConfig,
     domain_docs: Option<Vec<String>>,
     base_dir: &Path,
+    runs_react: bool,
 ) -> BuildContext {
     let mut ctx = BuildContext {
         domain_docs,
@@ -332,17 +338,11 @@ async fn build_context(
         .await;
     ctx.timezone = platform.timezone();
 
-    let mut effective_databases: Vec<String> = config.databases.clone();
-    if let Ok(resolved) = config.resolve_context(base_dir) {
-        for db_name in resolved.referenced_databases {
-            if !effective_databases.contains(&db_name) {
-                effective_databases.push(db_name);
-            }
-        }
-    }
-    let resolved = platform::resolve_connectors(&effective_databases, platform).await;
-    let mut connectors = agentic_connector::build_named_connectors(resolved.configs).await;
-    connectors.extend(resolved.pre_built);
+    let (effective_databases, connectors) = if runs_react {
+        platform::react_connectors(platform, config, base_dir).await
+    } else {
+        platform::fsm_connectors(platform, config, base_dir).await
+    };
     ctx.extra_default_connector = effective_databases
         .iter()
         .find(|name| connectors.contains_key(*name))
