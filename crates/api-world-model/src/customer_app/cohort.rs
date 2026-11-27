@@ -35,11 +35,12 @@ use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter};
 // One definition of the contract, shared with the IDE surface so the two
 // cannot drift. `COHORT_TIMEOUT` is THE deadline, not a copy of it: both
 // surfaces query the same warehouse.
+use super::enter_semantic_boundary;
 use oxy_app_core::AppState;
 use oxy_app_core::operating_graph::binding::NO_REACH_SENTINEL;
 use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 use oxy_workspace_runtime::semantic_boundary::{
-    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
+    cache_lookup, cache_store, err_with_code, load_layer, wants_refresh,
 };
 use oxy_world_model::cohort::{
     COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
@@ -166,7 +167,7 @@ pub async fn post_cohort(
     body: axum::body::Bytes,
 ) -> Response {
     // Gate before the cache read so a cached hit cannot bypass authorization.
-    let boundary = match enter_semantic_boundary(&headers, project_id).await {
+    let (app, boundary) = match enter_semantic_boundary(&headers, project_id).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -216,11 +217,7 @@ pub async fn post_cohort(
     // the security boundary, not just the row set. Scope it to the caller's
     // reach the way `semantic_query.rs` does.
     let reach = oxy_custom_apps::reach::reach_for_viewer(
-        &boundary.app.db,
-        boundary.app.org_id,
-        &boundary.app.user,
-        project_id,
-        req.app,
+        &app.db, app.org_id, &app.user, project_id, req.app,
     )
     .await;
 
@@ -255,8 +252,8 @@ pub async fn post_cohort(
             .collect::<BTreeSet<_>>()
         {
             match oxy_app_core::operating_graph::binding::external_ids_for_locations(
-                &boundary.app.db,
-                boundary.app.org_id,
+                &app.db,
+                app.org_id,
                 &system,
                 &reach.locations,
             )
@@ -319,7 +316,7 @@ pub async fn post_cohort(
         engine,
         databases,
         workspace_manager.into_read_only(),
-        boundary.app.user.id,
+        app.user.id,
         entity::workspace_members::WorkspaceRole::Viewer,
         tokio::runtime::Handle::current(),
         oxy_workspace_runtime::metric_tree_runner::RunnerPreagg {

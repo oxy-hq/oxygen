@@ -27,13 +27,14 @@ use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
 use uuid::Uuid;
 
+use crate::custom_apps_gates::enter_semantic_boundary;
 use oxy_metric_monitoring::metric_tree_projection::ProjectionRequest;
 use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 use oxy_workspace_runtime::metric_tree_exec::{
     MetricTreeError, ProjectionExec, ProjectionOutcome, run_projection,
 };
 use oxy_workspace_runtime::semantic_boundary::{
-    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
+    cache_lookup, cache_store, err_with_code, load_layer, wants_refresh,
 };
 
 /// Map the shared projection core's error onto this surface's coded envelope.
@@ -127,7 +128,7 @@ pub async fn post_projection(
             .workspace_manager()
             .clone()
             .into_read_only(),
-        user_id: boundary.app.user.id,
+        user_id: boundary.user_id,
         // Customer-app requests carry no workspace role of their own to read
         // through; Viewer matches `runner_for`'s read-only posture here.
         role: WorkspaceRole::Viewer,

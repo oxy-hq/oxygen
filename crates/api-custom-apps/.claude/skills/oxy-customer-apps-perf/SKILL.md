@@ -61,6 +61,11 @@ expensive to retrofit under load.
   serves a branch's answer to live users.
 - **Read the cache AFTER auth.** The `result_cache::get` must sit *below*
   `check_custom_app_gates` in the handler, or a cached hit bypasses authorization.
+  The semantic-analysis twins get that from `enter_semantic_boundary`, which runs
+  in the surface (`custom_apps_gates.rs` here, `customer_app/mod.rs` in
+  `oxy-api-world-model`): the gate first, then the workspace runtime's
+  `open_semantic_boundary`, whose `SemanticBoundary.staging_pin` picks the
+  partition.
   Cache only successful responses (never error bodies).
 - **Honor `?refresh`.** Every cached endpoint parses `?refresh` (or `refresh=`) and
   bypasses the cache so callers can force-run.

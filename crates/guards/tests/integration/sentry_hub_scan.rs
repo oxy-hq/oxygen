@@ -16,8 +16,9 @@
 //! walk.
 //!
 //! The two tests that drive the real gate (`enter_semantic_boundary`) need
-//! `oxy-workspace-runtime`, which this crate does not link: they are
-//! `oxy-workspace-runtime`'s `sentry_surface_gate` (decompose R-a).
+//! the surface that runs it, which this crate does not link: they are
+//! `oxy-api-custom-apps`' `sentry_surface_gate` (decompose R-a, then up from
+//! `oxy-workspace-runtime` with the gate in depth stage C, A2).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -171,8 +172,8 @@ fn a_platform_request_is_not_tagged() {
 /// Serve one request through `app` behind the two layers serve.rs installs,
 /// and return the tag on an event captured later in the same request. (The
 /// two tests that drive the real gate, `enter_semantic_boundary`, through a
-/// copy of this moved to `oxy-workspace-runtime`'s integration group as
-/// `sentry_surface_gate`, decompose R-a.) The capture happens in a
+/// copy of this moved to `oxy-api-custom-apps`' integration group as
+/// `sentry_surface_gate`: decompose R-a, then depth stage C, A2.) The capture happens in a
 /// layer *inside* `NewSentryLayer`, so it lands on the request's own hub —
 /// standing in for the handler's `error!`, an `OxyError::capture_to_sentry`
 /// or a panic later in the same request.
@@ -424,15 +425,21 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// surfaces (metric tree, cohort, world model, projection), whose handlers
 /// never name the gate themselves.
 ///
+/// `open_semantic_boundary` is the workspace runtime's half of the boundary,
+/// which the surface wrappers call after the gate (depth stage C, A2). It runs
+/// no gate itself, so it is listed as a root, like the marker: a new caller of
+/// it is on the data plane and falls inside the walk.
+///
 /// A helper that wraps the gate and is called from another file MUST be
 /// listed, or every one of its callers is invisible to the walk — which is
 /// how the metric-tree baseline and the cohort read shipped their warehouse
 /// queries on bare `spawn_blocking`s. `gate_entry_points_are_complete`
 /// derives that set from the source and fails on an unlisted one.
-const GATE_ENTRY_POINTS: [&str; 3] = [
+const GATE_ENTRY_POINTS: [&str; 4] = [
     "check_custom_app_gates",
     "mark_custom_app_surface",
     "enter_semantic_boundary",
+    "open_semantic_boundary",
 ];
 
 /// The `oxy` binary's files [`server_sources`] walks, each once `oxy-app`'s.
@@ -611,14 +618,23 @@ const PROCEDURE_RUN_EXECUTOR: &str = "../api-custom-apps/src/automation_run/exec
 /// Publish, in `oxy-api-custom-apps`.
 const CUSTOM_APPS_PUBLISH: &str = "../api-custom-apps/src/custom_apps_publish.rs";
 
+/// The semantic boundary the metric-tree, cohort and world-model twins open
+/// after their surface's gate (`open_semantic_boundary`, `load_layer`). It
+/// called the gate itself until depth stage C (A2, 2026-11-27) moved the gate
+/// up into the surfaces, and that call is what kept it in the walk. It runs
+/// inside a gated request all the same, so it is kept in by name, and its
+/// blocking layer parse keeps the hub check it had.
+const SEMANTIC_BOUNDARY: &str = "../workspace-runtime/src/semantic_boundary.rs";
+
 /// The files the data-plane walk reads: every module whose production code
-/// calls one of `entry_points`, plus three kept in by name — the two places
+/// calls one of `entry_points`, plus four kept in by name — the two places
 /// a hub is *made* rather than inherited from a request (the function
-/// runtime and the job executor), and `custom_apps_publish.rs`, which never
+/// runtime and the job executor), `custom_apps_publish.rs`, which never
 /// passes the gate and is never tagged but carries the request hub across
 /// its unpack and file-walk pool hops on purpose, so a panic there is not
-/// attributed to whatever the pool thread last ran; that carry keeps its
-/// remove-it test here. By call, not by mention: a bare-name match would
+/// attributed to whatever the pool thread last ran (that carry keeps its
+/// remove-it test here), and the semantic boundary ([`SEMANTIC_BOUNDARY`]),
+/// which a gated request reaches only after its surface ran the gate. By call, not by mention: a bare-name match would
 /// take the IDE's own metric-tree and world-model handlers in through the
 /// comments that name `enter_semantic_boundary`, and it was only such a
 /// comment that ever put publish in.
@@ -630,7 +646,8 @@ fn data_plane_scope(entry_points: &[&str]) -> Vec<(String, String)> {
                 .starts_with("../api-custom-apps/src/custom_apps_functions/")
                 || relative == "../api-custom-apps/src/app_function_executor.rs"
                 || relative == PROCEDURE_RUN_EXECUTOR
-                || relative == CUSTOM_APPS_PUBLISH;
+                || relative == CUSTOM_APPS_PUBLISH
+                || relative == SEMANTIC_BOUNDARY;
             let production = production_text(text);
             let reaches_the_gate = entry_points
                 .iter()
@@ -879,6 +896,12 @@ fn the_data_plane_scope_follows_every_gate_entry_point() {
             paths.iter().any(|path| path == CUSTOM_APPS_PUBLISH),
             "custom_apps_publish.rs is kept in the scope by name"
         );
+        // So is the semantic boundary, whose gate moved up into the surfaces:
+        // its layer parse is still request work under the gate's hub.
+        assert!(
+            paths.iter().any(|path| path == SEMANTIC_BOUNDARY),
+            "semantic_boundary.rs is kept in the scope by name"
+        );
     }
 }
 
@@ -945,7 +968,9 @@ fn gate_entry_points_are_complete() {
     }
     for entry in GATE_ENTRY_POINTS {
         // The marker is the root: it sets the tag rather than calling a gate.
-        if entry == "mark_custom_app_surface" {
+        // So is the boundary's runtime half: the surfaces call it after the
+        // gate, and it is listed so that a new caller is walked.
+        if entry == "mark_custom_app_surface" || entry == "open_semantic_boundary" {
             continue;
         }
         assert!(

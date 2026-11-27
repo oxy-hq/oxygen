@@ -80,11 +80,13 @@
 //! (`oxy-app` re-exports each at its old path for its `tests/`:
 //! `server::api::custom_apps_gates`, `server::api::projects::semantic_boundary`):
 //!
-//! - [`custom_apps_gates`]: the gate chain answered as a response,
+//! - [`custom_apps_gates`]: the gate's answer as plain fields (`GatedCaller`),
 //!   `parse_versioned_body`, and `build_project_context*` /
 //!   `build_caller_context`, which compose the data plane's `OxyProjectContext`.
+//!   The gate chain itself runs in the surfaces since depth stage C (A2).
 //! - [`semantic_boundary`]: the prelude the semantic-analysis twins (metric
-//!   tree, world model, cohort) enter by: the gate, the context and the scan.
+//!   tree, world model, cohort) enter by, after their surface's gate: the
+//!   context and the scan.
 //!
 //! Then (decompose W7, 2026-11-22) the workspace request, [`request`]: the
 //! workspace middleware that builds an `OxyProjectContext` per request, the Factory-access

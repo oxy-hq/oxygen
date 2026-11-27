@@ -8,6 +8,10 @@
 //!
 //! Here, below both `oxy-app` (the data plane's handlers) and the
 //! `oxy-api-custom-apps` surface, because both turn a refusal into a response.
+//!
+//! [`GatedCaller`], the gate's admitted caller as plain fields, is here too:
+//! `oxy-custom-apps` builds it and `oxy-workspace-runtime` reads it, and this
+//! is the crate both reach.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -132,6 +136,60 @@ pub fn gate_refusal(
     match not_ready {
         Some(not_ready) => pin_refused(not_ready),
         None => refusal(status, message, code),
+    }
+}
+
+/// What the custom-app gate admitted a request as: the workspace row it
+/// resolved, the authenticated caller, the project and the staging pin (`None`
+/// on every live request). The workspace runtime takes this instead of the
+/// gate's `CustomAppContext`, which lives above it.
+///
+/// **Built in one place.** [`GatedCaller::from_gate`] has one production
+/// caller, `oxy_custom_apps::gate::CustomAppContext::gated`, and every surface
+/// that ran the gate asks the context for it. `staging_pin` picks the
+/// result-cache partition (`staging_pin_scope::scope_for`), so a second
+/// constructor that read the pin from somewhere else would serve a branch's
+/// answer to live users; `oxy-guards`' `gated_caller_has_one_constructor` fails
+/// the build on one. The fields are private for the same reason.
+#[derive(Clone, Copy)]
+pub struct GatedCaller<'a> {
+    workspace: &'a entity::workspaces::Model,
+    user_id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    staging_pin: Option<uuid::Uuid>,
+}
+
+impl<'a> GatedCaller<'a> {
+    /// The gate's answer as plain fields. Call it only from
+    /// `CustomAppContext::gated` (see the type's doc).
+    pub fn from_gate(
+        workspace: &'a entity::workspaces::Model,
+        user_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        staging_pin: Option<uuid::Uuid>,
+    ) -> Self {
+        Self {
+            workspace,
+            user_id,
+            project_id,
+            staging_pin,
+        }
+    }
+
+    pub fn workspace(&self) -> &'a entity::workspaces::Model {
+        self.workspace
+    }
+
+    pub fn user_id(&self) -> uuid::Uuid {
+        self.user_id
+    }
+
+    pub fn project_id(&self) -> uuid::Uuid {
+        self.project_id
+    }
+
+    pub fn staging_pin(&self) -> Option<uuid::Uuid> {
+        self.staging_pin
     }
 }
 

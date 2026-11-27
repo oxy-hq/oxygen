@@ -3,7 +3,9 @@
 //!
 //! Both surfaces run the same dance before they can touch the semantic
 //! model: pass the customer-app gate chain, build the project context, and
-//! resolve a semantic-model scan directory. On the stateless serve fleet —
+//! resolve a semantic-model scan directory. The gate runs in the surface (its
+//! `enter_semantic_boundary`, which calls `check_custom_app_gates` and then
+//! [`open_semantic_boundary`] with the gate's answer); the rest is here. On the stateless serve fleet —
 //! where customer apps actually run — the workspace FS scan path does not
 //! exist, so the layer must be materialised from the compile boundary
 //! (Postgres `semantic_views` / `semantic_topics` rows) into a tempdir.
@@ -26,12 +28,12 @@
 //! own row in `DATA_PLANE_MODULE_PREFIXES` keeps).
 
 use axum::Json;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::custom_apps_gates::{CustomAppContext, CustomAppContextExt, check_custom_app_gates};
+use crate::custom_apps_gates::{GatedCaller, GatedCallerExt};
 use crate::project_ctx::OxyProjectContext;
 use oxy::config::scan::{ScanDir, scan_dir};
 
@@ -68,37 +70,44 @@ pub fn err_with_code(status: StatusCode, msg: impl Into<String>, code: &'static 
 }
 
 /// Everything a semantic-analysis handler needs after the shared prelude:
-/// the gate context, the per-request project context, and the resolved scan
-/// (the compiled revision's files on a serve replica, the working copy's
-/// directory where one is held).
+/// who the gate admitted (the caller and the staging pin, as plain fields),
+/// the per-request project context, and the resolved scan (the compiled
+/// revision's files on a serve replica, the working copy's directory where one
+/// is held). The gate's own `CustomAppContext` stays with the surface that ran
+/// the gate.
 pub struct SemanticBoundary {
-    pub app: CustomAppContext,
+    project_id: Uuid,
+    /// The authenticated caller the gate admitted.
+    pub user_id: Uuid,
+    /// The staging revision the request is pinned to; `None` on live. It picks
+    /// the result-cache partition ([`cache_lookup`], [`cache_store`]).
+    pub staging_pin: Option<Uuid>,
     pub proj_ctx: OxyProjectContext,
     pub scan: ScanDir,
 }
 
 impl SemanticBoundary {
     pub fn project_id(&self) -> Uuid {
-        self.app.project_id
+        self.project_id
     }
 }
 
-/// Run the customer-app gate chain, build the project context, and resolve
+/// Build the project context for a caller the gate has admitted, and resolve
 /// the semantic-model scan directory (compile boundary first, FS fallback).
+/// The surface runs the gate first (its `enter_semantic_boundary`), so a
+/// request reaches this only after auth and before its body is parsed.
 ///
 /// On a stateless serve replica with no materialised layer, returns the same
 /// `503 + X-Oxy-Needs-Recompile` contract as `semantic_query.rs` (and
 /// enqueues a lazy recompile) so the SDK's retry path kicks in rather than
 /// the handler compiling against an empty directory.
-pub async fn enter_semantic_boundary(
-    headers: &HeaderMap,
-    project_id: Uuid,
-) -> Result<SemanticBoundary, Response> {
-    // 1. Shared gates (auth → origin → workspace → org membership).
-    let app = check_custom_app_gates(headers, project_id).await?;
+pub async fn open_semantic_boundary(caller: GatedCaller<'_>) -> Result<SemanticBoundary, Response> {
+    let project_id = caller.project_id();
 
+    // 1. The gates (auth → origin → workspace → org membership) ran in the
+    //    surface; `caller` is their answer.
     // 2. Per-request project context (WorkspaceManager + subject).
-    let proj_ctx = app.build_project_context().await?;
+    let proj_ctx = caller.build_project_context().await?;
 
     // 3. Resolve the scan directory.
     let materialised = match scan_dir(&proj_ctx.workspace_manager().config_manager).await {
@@ -151,7 +160,9 @@ pub async fn enter_semantic_boundary(
     };
 
     Ok(SemanticBoundary {
-        app,
+        project_id,
+        user_id: caller.user_id(),
+        staging_pin: caller.staging_pin(),
         proj_ctx,
         scan,
     })
@@ -205,7 +216,7 @@ pub fn cache_lookup(
     if refresh {
         return None;
     }
-    let scope = crate::result_cache::scope_for(boundary.app.staging_pin);
+    let scope = crate::result_cache::scope_for(boundary.staging_pin);
     crate::result_cache::get(boundary.project_id(), ns, &scope, key).map(|arc| {
         (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -227,7 +238,7 @@ pub fn cache_store<T: Serialize>(
     match serde_json::to_vec(value) {
         Ok(bytes) => {
             let arc = std::sync::Arc::new(bytes);
-            let scope = crate::result_cache::scope_for(boundary.app.staging_pin);
+            let scope = crate::result_cache::scope_for(boundary.staging_pin);
             crate::result_cache::put(boundary.project_id(), ns, &scope, key, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],

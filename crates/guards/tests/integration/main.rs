@@ -29,6 +29,7 @@ mod compiled_reader_is_not_a_back_door;
 mod config_write_routes;
 mod document_write_guards;
 mod env_reads;
+mod gated_caller_has_one_constructor;
 mod handler_spawns;
 mod no_dropped_partner_tables;
 mod paginated_links_keep_the_api_prefix;

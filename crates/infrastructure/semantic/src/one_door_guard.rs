@@ -103,8 +103,8 @@ const ALLOWED: &[(&str, &str)] = &[
          the world-model breakdown above: these routes are merged beside the \
          public tree, which does not carry `workspace_middleware`, so \
          the `SemanticEngineCacheCtx` extension that supplies the cache is \
-         never inserted. `SemanticBoundary` holds a `CustomAppContext` and a \
-         scan dir and nothing else. The workspace twin \
+         never inserted. `SemanticBoundary` holds the gate's caller, a project \
+         context and a scan dir and nothing else. The workspace twin \
          (`oxy-api-metric-monitoring`'s `metric_tree.rs`) takes the extractor and IS cached.",
     ),
     (

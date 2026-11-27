@@ -179,43 +179,7 @@ pub mod custom_apps_auth {
     pub use oxy_custom_apps::authenticate::*;
 }
 
-/// The data-plane gate chain, answered as a response: `oxy_custom_apps::gate`
-/// holds the steps and the refusals; this maps a refusal onto the JSON envelope
-/// the SDK reads (`oxy_app_core::gate_response`).
-pub mod custom_apps_gates {
-    use axum::http::HeaderMap;
-    use axum::response::Response;
-    use uuid::Uuid;
-
-    pub use oxy_custom_apps::gate::{CustomAppContext, frontline_worker_with_app_grant};
-
-    /// `oxy_custom_apps::gate::check_custom_app_gates`, with a refusal turned
-    /// into its response.
-    pub async fn check_custom_app_gates(
-        headers: &HeaderMap,
-        project_id: Uuid,
-    ) -> Result<CustomAppContext, Response> {
-        oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
-            .await
-            .map_err(|e| {
-                let fix = e.pin_not_ready().map(|p| p.fix());
-                let not_ready = e.pin_not_ready().zip(fix.as_deref()).map(|(p, fix)| {
-                    oxy_app_core::gate_response::NotReady {
-                        environment: &p.environment,
-                        git_sha: p.git_sha(),
-                        fix,
-                        planes_unreadable: p.is_planes_unreadable(),
-                    }
-                });
-                oxy_app_core::gate_response::gate_refusal(
-                    e.status(),
-                    e.message(),
-                    e.code(),
-                    not_ready,
-                )
-            })
-    }
-}
+pub mod custom_apps_gates;
 
 /// A staging build's semantic pin and the request that names one.
 pub mod custom_apps_staging_pin {

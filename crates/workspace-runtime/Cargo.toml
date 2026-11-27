@@ -40,9 +40,6 @@ oxy-compile = { workspace = true }
 # `scan_source`: a scan miss enqueues the lazy compile (`reconcile::enqueue`),
 # and so does `semantic_boundary` on a diskless replica.
 oxy-compile-runtime = { workspace = true }
-# `custom_apps_gates`: the gate's decision half (`gate`, `CustomAppContext`,
-# `staging_pin`) it answers as a response, which `semantic_boundary` carries.
-oxy-custom-apps = { workspace = true }
 # `project_ctx`: the React runtime flag an agent run reads.
 oxy-feature-flags = { workspace = true }
 # `compile_dispatcher`: the branch worktree a staging compile reads.
@@ -143,10 +140,9 @@ airhouse = { workspace = true, features = ["rest"] }
 base64 = { workspace = true, features = ["std"] }
 # `airhouse_pool_poison` parses the pgwire DSN it poisons.
 tokio-postgres = { workspace = true }
-# `sentry_surface_gate`: `sentry::test::with_captured_events`, the custom-app
-# surface tag, and the request it serves through the gate.
-sentry = { workspace = true, features = ["test"] }
-oxy-telemetry = { workspace = true }
+# The route tests drive a router with `ServiceExt::oneshot`. (`sentry`'s `test`
+# feature and `oxy-telemetry` went with `sentry_surface_gate` to
+# `oxy-api-custom-apps`, beside the gate it drives: depth stage C, A2.)
 tower = { workspace = true, features = ["util"] }
 # A `wiremock` Airhouse admin API.
 wiremock = { workspace = true }
@@ -169,6 +165,10 @@ tar = { workspace = true }
 oxy-authz = { workspace = true }
 # R-d: `frontline_app_grant` grants app access to an org team (`org_teams::dto`).
 oxy-tenancy = { workspace = true }
+# `frontline_app_grant` drives the gate's frontline decision
+# (`gate::frontline_worker_with_app_grant`) and its caches. Not a normal
+# dependency since depth stage C (A2): the gate runs in the surfaces.
+oxy-custom-apps = { workspace = true }
 
 [lints]
 workspace = true

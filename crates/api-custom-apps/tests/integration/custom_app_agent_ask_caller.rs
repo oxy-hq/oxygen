@@ -28,10 +28,10 @@ use axum::routing::post;
 use entity::{revisions, workspace_compiled_configs};
 use oxy_api_custom_apps::agent_ask::caller::{CallerRunResolver, RUN_CALLER_KEY, RunCaller};
 use oxy_api_custom_apps::agent_ask::start_ask;
-use oxy_app_core::app_state::bare_app_state;
-use oxy_workspace_runtime::custom_apps_gates::{
+use oxy_api_custom_apps::custom_apps_gates::{
     CustomAppContext, CustomAppContextExt, check_custom_app_gates,
 };
+use oxy_app_core::app_state::bare_app_state;
 use oxy_workspace_runtime::thread_owner::OxyThreadOwnerLookup;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
@@ -155,7 +155,7 @@ async fn a_started_ask_is_driven_by_recovery_as_the_caller_the_gate_authenticate
     let metadata = root.metadata.clone().expect("the run has metadata");
     assert_eq!(
         metadata[RUN_CALLER_KEY],
-        RunCaller::of(&gate).to_metadata(),
+        RunCaller::of(&gate.gated()).to_metadata(),
         "metadata: {metadata}"
     );
     assert_eq!(
@@ -249,10 +249,7 @@ async fn a_recovered_ask_reads_the_staging_pin_its_request_had() {
         .build_project_context()
         .await
         .unwrap_or_else(|_| panic!("the live context builds"));
-    let staging_gate = CustomAppContext {
-        staging_pin: Some(pin),
-        ..gate(f.workspace_id).await
-    };
+    let staging_gate = gate(f.workspace_id).await.with_staging_pin(Some(pin));
     let handler_context = staging_gate
         .build_project_context()
         .await
@@ -264,7 +261,7 @@ async fn a_recovered_ask_reads_the_staging_pin_its_request_had() {
         "the control: without the pin the same caller reads another revision"
     );
 
-    let recorded = RunCaller::of(&staging_gate);
+    let recorded = RunCaller::of(&staging_gate.gated());
     assert_eq!(recorded.staging_pin, Some(pin));
     let root = root_with(
         &f.t.db,

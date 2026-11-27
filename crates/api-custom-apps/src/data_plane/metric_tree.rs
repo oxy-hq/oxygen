@@ -31,6 +31,7 @@ use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
 use uuid::Uuid;
 
+use crate::custom_apps_gates::enter_semantic_boundary;
 use oxy_app_core::AppState;
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
 use oxy_app_core::preagg_context::RollupFreshness;
@@ -40,8 +41,7 @@ use oxy_workspace_runtime::metric_tree_runner::{
     OxyMetricTreeRunner, RunnerPreagg, build_query_executor,
 };
 use oxy_workspace_runtime::semantic_boundary::{
-    SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
-    load_layer, wants_refresh,
+    SemanticBoundary, cache_lookup, cache_store, err_with_code, load_layer, wants_refresh,
 };
 // `BASELINE_TIMEOUT` is THE workspace handler's constant, not a copy of it:
 // both surfaces query the same warehouse, so the deadline is one number in
@@ -93,7 +93,7 @@ fn runner_for(boundary: &SemanticBoundary, app_state: &AppState) -> OxyMetricTre
         preagg_ctx.renewal_threshold_secs_or(&workspace_manager.config_manager);
     OxyMetricTreeRunner::new(
         workspace_manager.into_read_only(),
-        boundary.app.user.id,
+        boundary.user_id,
         WorkspaceRole::Viewer,
     )
     .with_scan(boundary.scan.clone())
@@ -457,7 +457,7 @@ async fn run_baseline_query(
         .workspace_manager()
         .clone()
         .into_read_only();
-    let user_id = boundary.app.user.id;
+    let user_id = boundary.user_id;
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();

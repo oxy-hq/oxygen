@@ -3,10 +3,11 @@
 //! custom app's errors still reach Sentry under the custom-app surface.
 //!
 //! Moved here from `oxy-app`'s `tests/routing/sentry_hub_scan.rs` in decompose
-//! R-a (2026-11-24). These two tests drive
-//! `oxy_workspace_runtime::semantic_boundary::enter_semantic_boundary`, the
-//! real gate, so they need this crate's graph; the URL-rule tests, the plain
-//! platform call and the source walks stayed with the text scans.
+//! R-a (2026-11-24), into `oxy-workspace-runtime`'s integration group, and on
+//! with the gate into this crate in depth stage C (A2, 2026-11-27). These two
+//! tests drive `oxy_api_custom_apps::custom_apps_gates::enter_semantic_boundary`,
+//! the real gate, so they need this crate's graph; the URL-rule tests, the
+//! plain platform call and the source walks stayed with the text scans.
 //! `route_surface_tag` is a copy of the one beside those: the plain-call test
 //! there still uses it.
 
@@ -40,7 +41,7 @@ fn data_plane_surface_tag(host: &str) -> Option<String> {
                 |axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
                  headers: axum::http::HeaderMap| async move {
                     use axum::response::IntoResponse as _;
-                    match oxy_workspace_runtime::semantic_boundary::enter_semantic_boundary(
+                    match oxy_api_custom_apps::custom_apps_gates::enter_semantic_boundary(
                         &headers, project_id,
                     )
                     .await

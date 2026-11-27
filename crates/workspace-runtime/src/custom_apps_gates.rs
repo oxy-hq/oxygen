@@ -34,20 +34,21 @@
 //! ## Where the halves live
 //!
 //! The decisions — the user lookup, the workspace row, the shipped access
-//! check, the ring's term, [`CustomAppContext`] — are in
-//! `oxy_custom_apps::gate`, which has no web framework and reports a failure as a
-//! `GateError`: the steps themselves (`check_custom_app_gates`: Sentry mark,
-//! authentication, origin, user, database, access, staging pin) and the
-//! decisions behind them. Its module doc says what the chain remembers and what
-//! it reads fresh on every call; read that before changing the order of the
-//! steps. What is here needs `Response` or `OxyProjectContext`:
-//! [`check_custom_app_gates`] (the same chain, with a `GateError` mapped onto
-//! the response), [`parse_versioned_body`], and `build_project_context*`, which
-//! compose the data plane's project context. The moved items are re-exported
-//! at the old path.
+//! check, the ring's term, `CustomAppContext` — are in `oxy_custom_apps::gate`,
+//! which has no web framework and reports a failure as a `GateError`. The gate
+//! chain itself, answered as a response, runs in the surfaces that take the
+//! request: `oxy-api-custom-apps`' `custom_apps_gates::check_custom_app_gates`
+//! (and its `CustomAppContextExt`), and `oxy-api-world-model`'s
+//! `customer_app`. Read `oxy_custom_apps::gate`'s module doc before changing
+//! the order of the steps. What is here needs `Response` or
+//! `OxyProjectContext` but no gate: [`GatedCaller`], the gate's output as
+//! plain fields, [`parse_versioned_body`], and `build_project_context*`,
+//! which compose the data plane's project context.
 //!
 //! Down from `oxy-app`'s `server::api::custom_apps_gates` on 2026-11-22 (W6a),
-//! re-exported there. The module keeps `custom_apps` in its path on purpose:
+//! re-exported there. The gate's response half moved up into the surfaces in
+//! depth stage C (A2, 2026-11-27), so this crate does not depend on
+//! `oxy-custom-apps`. The module keeps `custom_apps` in its path on purpose:
 //! `oxy_telemetry::sentry_filter`'s marker drops its lines from Sentry exactly
 //! as it did at the old path.
 
@@ -57,9 +58,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::{builder::WorkspaceBuilder, effective_workspace_path};
-use oxy_custom_apps::gate::GateError;
-#[cfg(test)]
-use oxy_custom_apps::staging_pin::PinNotReady;
 use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
@@ -67,12 +65,16 @@ use uuid::Uuid;
 use crate::project_ctx::OxyProjectContext;
 use oxy::service::secret_manager::SecretManagerService;
 
-pub use oxy_custom_apps::gate::{CustomAppContext, frontline_worker_with_app_grant};
+/// What the custom-app gate admitted a request as, as plain fields. Built in
+/// one place, `oxy_custom_apps::gate::CustomAppContext::gated`, by the surface
+/// that ran the gate; everything here that needs the gate's answer takes this,
+/// and nothing here needs `oxy-custom-apps`.
+pub use oxy_app_core::gate_response::GatedCaller;
 
-/// What [`CustomAppContext`] needs from the workspace runtime: the project context built
-/// from its workspace. It is a trait because the type lives below
-/// `OxyProjectContext`; import it to call `ctx.build_project_context()`.
-pub trait CustomAppContextExt {
+/// What the workspace runtime adds to a [`GatedCaller`]: the project context
+/// built from its workspace. A trait because the type lives below
+/// `OxyProjectContext`; import it to call `caller.build_project_context()`.
+pub trait GatedCallerExt {
     /// Build the per-request `OxyProjectContext` derived from the
     /// resolved workspace. Each call constructs a fresh
     /// `WorkspaceManager` keyed off the workspace's effective path;
@@ -87,46 +89,19 @@ pub trait CustomAppContextExt {
     ) -> impl std::future::Future<Output = Result<OxyProjectContext, Response>> + Send;
 }
 
-impl CustomAppContextExt for CustomAppContext {
+impl GatedCallerExt for GatedCaller<'_> {
     async fn build_project_context(&self) -> Result<OxyProjectContext, Response> {
         build_caller_context(
-            &self.workspace,
-            self.user.id,
-            self.project_id,
-            self.staging_pin,
+            self.workspace(),
+            self.user_id(),
+            self.project_id(),
+            self.staging_pin(),
         )
         .await
     }
 }
 
 use oxy_app_core::gate_response::{err, err_with_code};
-
-/// The response for a refusal or failure the decision half reports.
-fn gate_error_response(e: &GateError) -> Response {
-    let fix = e.pin_not_ready().map(|p| p.fix());
-    let not_ready = e.pin_not_ready().zip(fix.as_deref()).map(|(p, fix)| {
-        oxy_app_core::gate_response::NotReady {
-            environment: &p.environment,
-            git_sha: p.git_sha(),
-            fix,
-            planes_unreadable: p.is_planes_unreadable(),
-        }
-    });
-    oxy_app_core::gate_response::gate_refusal(e.status(), e.message(), e.code(), not_ready)
-}
-
-/// Run the gate chain (`oxy_custom_apps::gate::check_custom_app_gates`).
-/// Returns the resolved context on success or a fully-formed HTTP error
-/// response on any failure. Handlers should pattern-match the `Err` arm and
-/// early-return.
-pub async fn check_custom_app_gates(
-    headers: &HeaderMap,
-    project_id: Uuid,
-) -> Result<CustomAppContext, Response> {
-    oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
-        .await
-        .map_err(|e| gate_error_response(&e))
-}
 
 /// Parse a custom-app endpoint's JSON body, enforcing the
 /// `"v": 1` versioning convention.
@@ -217,7 +192,7 @@ fn strip_version_field(body: &[u8]) -> Cow<'_, [u8]> {
 /// no role, resolved at `staging_pin` when the request was a staging one.
 ///
 /// One function for both places that build it — the request
-/// ([`CustomAppContext::build_project_context`]) and a driver executing work
+/// ([`GatedCallerExt::build_project_context`]) and a driver executing work
 /// that request queued (`oxy-api-custom-apps`' `automation_run::executor`). The driver has
 /// no request, so identity reaches it as these arguments; going through the
 /// same body is what keeps a queued run on the credentials the request would
@@ -424,75 +399,8 @@ async fn context_root(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxy::database::client::DbFailure;
     use serde::Deserialize;
     use serde_json::json;
-
-    fn pin_not_ready() -> PinNotReady {
-        PinNotReady::branch("staging", "feat-x".into(), Some("abc123".into()))
-    }
-
-    /// The decision half states a status, a message and a code as plain values;
-    /// the response built from them must put exactly those on the wire, in the
-    /// `{ message, code? }` envelope the SDK reads.
-    #[tokio::test]
-    async fn a_gate_error_becomes_the_response_it_always_was() {
-        let unreachable = DbFailure::Unreachable.code();
-        let cases = [
-            (
-                GateError::UserNotFound,
-                StatusCode::UNAUTHORIZED,
-                json!({ "message": "user not found" }),
-            ),
-            (
-                GateError::UserLookupFailed { code: unreachable },
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "message": "user lookup failed", "code": "database_unreachable" }),
-            ),
-            (
-                GateError::ProjectNotFound,
-                StatusCode::NOT_FOUND,
-                json!({ "message": "project not found" }),
-            ),
-            (
-                GateError::WorkspaceLookupFailed {
-                    code: DbFailure::Query.code(),
-                },
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "message": "workspace lookup failed", "code": "database_query_failed" }),
-            ),
-            (
-                GateError::NoOwningOrganization,
-                StatusCode::FORBIDDEN,
-                json!({ "message": "workspace has no owning organization" }),
-            ),
-            (
-                GateError::MembershipCheckFailed { code: unreachable },
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "message": "org membership check failed", "code": "database_unreachable" }),
-            ),
-            (
-                GateError::SemanticBranchNotReady(pin_not_ready()),
-                StatusCode::SERVICE_UNAVAILABLE,
-                json!({
-                    "error": "semantic_branch_not_ready",
-                    "environment": "staging",
-                    "message": pin_not_ready().fix(),
-                    "git_sha": "abc123",
-                    "fix": pin_not_ready().fix(),
-                }),
-            ),
-        ];
-        for (error, status, body) in cases {
-            let response = gate_error_response(&error);
-            assert_eq!(response.status(), status, "{error:?}");
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            let sent: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(sent, body, "{error:?}");
-        }
-    }
 
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(deny_unknown_fields)]

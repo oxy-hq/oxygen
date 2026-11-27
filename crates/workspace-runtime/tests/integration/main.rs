@@ -28,9 +28,6 @@
 //!   rollout gates (`feature_flag_refresh`, `rollout_gates`) and the
 //!   repository facts (`workspace_repo_facts`). All take their own database
 //!   through the harness.
-//! * `sentry_surface_gate` (decompose R-a), the two tests out of `oxy-app`'s
-//!   `routing::sentry_hub_scan` that drive the real custom-app gate
-//!   (`enter_semantic_boundary`). In-process; they open no database.
 //! * The OLTP tests (decompose R-c), out of `oxy-app`'s `platform` binary:
 //!   `oltp_provisioner` and the `oltp_branches*` / `oltp_env_branches*` files
 //!   that share its fixture (`with_fx`, `seed_org`, the harness's `oltp_fx.rs`),
@@ -125,6 +122,5 @@ mod revision_miss_not_from_disk;
 mod rollout_gates;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
-mod sentry_surface_gate;
 mod worker_ctx_follows_promote;
 mod workspace_repo_facts;

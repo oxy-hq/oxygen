@@ -20,11 +20,11 @@ use entity::workspace_members::WorkspaceRole;
 use oxy::utils::create_sse_stream;
 use uuid::Uuid;
 
+use super::enter_semantic_boundary;
 use crate::graph::WorkspaceWarehouse;
 use agentic_semantic::config::{SemanticFilter, SemanticFilterType};
 use oxy_workspace_runtime::semantic_boundary::{
-    cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code, load_layer,
-    wants_refresh,
+    cache_lookup, cache_store, err, err_with_code, load_layer, wants_refresh,
 };
 use oxy_world_model::graph::{
     WmInstanceItem, WmInstanceLocation, WmInstancesQuery, WmMeasureBreakdownQuery,
@@ -39,7 +39,7 @@ pub async fn get_world_model(
     headers: HeaderMap,
 ) -> Response {
     // Gate before cache read so a cached hit can't bypass authorization.
-    let boundary = match enter_semantic_boundary(&headers, project_id).await {
+    let (_app, boundary) = match enter_semantic_boundary(&headers, project_id).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -108,7 +108,7 @@ pub async fn get_world_model_instances(
     Query(q): Query<WmInstancesQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let boundary = match enter_semantic_boundary(&headers, project_id).await {
+    let (app, boundary) = match enter_semantic_boundary(&headers, project_id).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -122,9 +122,9 @@ pub async fn get_world_model_instances(
     let reach = if q.scope.as_deref() == Some("reach") {
         Some(
             oxy_custom_apps::reach::reach_for_viewer(
-                &boundary.app.db,
-                boundary.app.org_id,
-                &boundary.app.user,
+                &app.db,
+                app.org_id,
+                &app.user,
                 project_id,
                 q.app_id(),
             )
@@ -134,8 +134,8 @@ pub async fn get_world_model_instances(
         None
     };
     let graph = GraphScope {
-        db: boundary.app.db.clone(),
-        org_id: boundary.app.org_id,
+        db: app.db.clone(),
+        org_id: app.org_id,
         reach,
     };
     // The core's refusals first (unknown entity, no table, no key), then the
@@ -150,7 +150,7 @@ pub async fn get_world_model_instances(
     let workspace_manager = boundary.proj_ctx.workspace_manager();
     let warehouse = WorkspaceWarehouse {
         workspace_manager: workspace_manager.clone(),
-        user_id: boundary.app.user.id,
+        user_id: app.user.id,
         role: WorkspaceRole::Viewer,
     };
     let mut resp = match instances_core(
@@ -183,7 +183,7 @@ pub async fn get_measure_breakdown(
     Query(q): Query<WmMeasureBreakdownQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let boundary = match enter_semantic_boundary(&headers, project_id).await {
+    let (app, boundary) = match enter_semantic_boundary(&headers, project_id).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
@@ -196,7 +196,7 @@ pub async fn get_measure_breakdown(
     let workspace_manager = boundary.proj_ctx.workspace_manager();
     let warehouse = WorkspaceWarehouse {
         workspace_manager: workspace_manager.clone(),
-        user_id: boundary.app.user.id,
+        user_id: app.user.id,
         role: WorkspaceRole::Viewer,
     };
     // No engine cache on this path: `enter_semantic_boundary` is headers-driven

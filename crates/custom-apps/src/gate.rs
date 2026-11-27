@@ -1,15 +1,15 @@
 //! The decision half of the custom-app data-plane gate: who the caller is, which
 //! workspace the request is for, and whether that caller may read its data.
 //!
-//! `oxy-workspace-runtime`'s `custom_apps_gates` runs the gate chain for every custom-app
-//! endpoint (`POST /api/projects/:id/query`, `/semantic-query`,
-//! `/agents/.../asks`, `/automations/.../runs`): cookie / API-key auth, Origin
-//! allowlist, user lookup, DB connection, workspace lookup, org-membership
-//! check. The steps that need HTTP types (`HeaderMap`, the authenticator, the
-//! response) stay there. The steps that only read the database and decide —
-//! the user lookup, the workspace row, the shipped access check, the ring's
-//! term — are here, and report a failure as a [`GateError`] (a status, a
-//! message and an optional code) that `oxy-app` turns into the response.
+//! The surfaces (`oxy-api-custom-apps`' `custom_apps_gates`, `oxy-api-world-model`'s
+//! `customer_app`) run the gate chain for every custom-app endpoint
+//! (`POST /api/projects/:id/query`, `/semantic-query`, `/agents/.../asks`,
+//! `/automations/.../runs`): cookie / API-key auth, Origin allowlist, user
+//! lookup, DB connection, workspace lookup, org-membership check. The steps
+//! that only read the database and decide — the user lookup, the workspace
+//! row, the shipped access check, the ring's term — are here, and report a
+//! failure as a [`GateError`] (a status, a message and an optional code) that
+//! the surface turns into the response ([`GateError::render`]).
 //!
 //! ## Cost, and what is — and is not — remembered
 //!
@@ -88,6 +88,42 @@ pub struct CustomAppContext {
     /// revision — see
     /// `custom_apps_staging_pin::request`. `None` for every live request.
     pub staging_pin: Option<Uuid>,
+    /// Proof the gate chain ran. Private, so no code outside this module can
+    /// build a `CustomAppContext` by hand: one comes only from
+    /// [`check_custom_app_gates`] (or, in tests, from a fixture below). The
+    /// runtime's `GatedCaller` is built only from one ([`Self::gated`]), so a
+    /// caller and a staging pin the gate didn't establish cannot reach the
+    /// semantic boundary or the result-cache partition. The fields stay `pub`
+    /// to read.
+    _gate_ran: (),
+}
+
+impl CustomAppContext {
+    /// The gate's answer as the plain fields the workspace runtime takes
+    /// (`oxy_app_core::gate_response::GatedCaller`). The one place they are
+    /// built: every surface that ran the gate asks this, so the runtime can't
+    /// be handed a caller or a staging pin the gate didn't establish.
+    pub fn gated(&self) -> oxy_app_core::gate_response::GatedCaller<'_> {
+        oxy_app_core::gate_response::GatedCaller::from_gate(
+            &self.workspace,
+            self.user.id,
+            self.project_id,
+            self.staging_pin,
+        )
+    }
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl CustomAppContext {
+    /// Test-only: this gate's answer, re-pinned to `staging_pin`, for a test
+    /// that drives a staging read without a staging host. Outside this module
+    /// a context can't be built by hand (`_gate_ran`), so this is the one way.
+    pub fn with_staging_pin(self, staging_pin: Option<Uuid>) -> Self {
+        Self {
+            staging_pin,
+            ..self
+        }
+    }
 }
 
 /// Why a decision step refused or failed, as plain values: the HTTP status, the
@@ -192,6 +228,31 @@ impl GateError {
             | GateError::OriginNotAllowed
             | GateError::NotAMember => None,
         }
+    }
+
+    /// Hand this refusal's parts to `render`: the status, the message, the
+    /// code and, on a pin refusal, what its `503` names. Every surface passes
+    /// `oxy_app_core::gate_response::gate_refusal`, so the parts are picked
+    /// out here once and this crate stays free of the web framework.
+    pub fn render<R>(
+        &self,
+        render: impl for<'a> FnOnce(
+            u16,
+            &'a str,
+            Option<&'static str>,
+            Option<oxy_app_core::gate_response::NotReady<'a>>,
+        ) -> R,
+    ) -> R {
+        let fix = self.pin_not_ready().map(|p| p.fix());
+        let not_ready = self.pin_not_ready().zip(fix.as_deref()).map(|(p, fix)| {
+            oxy_app_core::gate_response::NotReady {
+                environment: &p.environment,
+                git_sha: p.git_sha(),
+                fix,
+                planes_unreadable: p.is_planes_unreadable(),
+            }
+        });
+        render(self.status(), self.message(), self.code(), not_ready)
     }
 }
 
@@ -305,6 +366,7 @@ pub async fn check_custom_app_gates(
         org_id: verdict.org_id,
         db,
         staging_pin,
+        _gate_ran: (),
     })
 }
 
@@ -675,6 +737,57 @@ mod tests {
             assert_eq!(error.status(), status, "{error:?}");
             assert_eq!(error.message(), message, "{error:?}");
             assert_eq!(error.code(), code, "{error:?}");
+        }
+    }
+
+    fn context(staging_pin: Option<Uuid>) -> CustomAppContext {
+        let now = chrono::Utc::now().fixed_offset();
+        let workspace = entity::workspaces::Model {
+            id: Uuid::new_v4(),
+            name: "gated-ws".into(),
+            git_namespace_id: None,
+            git_remote_url: None,
+            created_at: now,
+            updated_at: now,
+            path: None,
+            last_opened_at: None,
+            created_by: None,
+            org_id: Some(Uuid::new_v4()),
+            status: entity::workspaces::WorkspaceStatus::Ready,
+            error: None,
+            monthly_vlm_budget_micros: None,
+            current_revision_id: None,
+            default_branch: None,
+            repo_subdir: None,
+            default_branch_attempted_at: None,
+        };
+        CustomAppContext {
+            user: oxy_app_core::agent_fixture::user(None),
+            project_id: workspace.id,
+            org_id: workspace.org_id.unwrap(),
+            workspace,
+            db: DatabaseConnection::default(),
+            staging_pin,
+            _gate_ran: (),
+        }
+    }
+
+    /// The one constructor of the runtime's `GatedCaller` carries the gate's
+    /// own caller, project, workspace and staging pin, unchanged. Both surfaces
+    /// (`oxy-api-custom-apps`' `custom_apps_gates`, `oxy-api-world-model`'s
+    /// `customer_app`) take it from here (`oxy-guards`'
+    /// `gated_caller_has_one_constructor`), so the pin that picks the
+    /// result-cache partition is the one the gate set: `None` stays live.
+    #[test]
+    fn gated_carries_the_gates_own_caller_and_pin() {
+        let pin = Uuid::new_v4();
+        for staging_pin in [None, Some(pin)] {
+            let ctx = context(staging_pin);
+            let gated = ctx.gated();
+            assert_eq!(gated.staging_pin(), staging_pin);
+            assert_eq!(gated.user_id(), ctx.user.id);
+            assert_eq!(gated.project_id(), ctx.project_id);
+            assert_eq!(gated.workspace().id, ctx.workspace.id);
         }
     }
 }

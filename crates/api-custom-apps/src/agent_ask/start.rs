@@ -65,7 +65,7 @@ pub(super) async fn queue_ask(
         thinking_mode: Default::default(),
         metadata: [(
             caller::RUN_CALLER_KEY.to_string(),
-            caller::RunCaller::of(gates_ctx).to_metadata(),
+            caller::RunCaller::of(&gates_ctx.gated()).to_metadata(),
         )]
         .into_iter()
         .collect(),
@@ -105,7 +105,7 @@ pub(super) async fn drive_here(
     )
     .run_metadata(
         caller::RUN_CALLER_KEY,
-        caller::RunCaller::of(gates_ctx).to_metadata(),
+        caller::RunCaller::of(&gates_ctx.gated()).to_metadata(),
     );
 
     // Inside the hold, so the run row is stamped.

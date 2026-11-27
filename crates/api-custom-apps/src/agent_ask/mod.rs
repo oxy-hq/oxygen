@@ -38,10 +38,10 @@ use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 use crate::agent_ask_staging::{ask_scope, thread_source};
-use crate::custom_apps_gates::check_custom_app_gates;
+use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_gates};
 use oxy_app_core::AppState;
 use oxy_app_core::write_hold::scope_if;
-use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 
 /// Who an ask runs as when its request is not the one driving it. `oxy-app`'s,
 /// since recovery and the chat executor resolve every root through it.

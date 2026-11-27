@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::custom_apps_gates::{CustomAppContext, build_caller_context};
+use crate::custom_apps_gates::{GatedCaller, build_caller_context};
 use crate::preview_runtime::PreviewRunResolver;
 use crate::project_ctx::OxyProjectContext;
 
@@ -70,10 +70,10 @@ impl RunCaller {
     /// The record for a request that has passed the gate. Read from the gate's
     /// own context, in this one place, so a caller cannot be recorded as a
     /// user or at a pin the gate did not establish.
-    pub fn of(gate: &CustomAppContext) -> Self {
+    pub fn of(gate: &GatedCaller<'_>) -> Self {
         Self {
-            user_id: gate.user.id,
-            staging_pin: gate.staging_pin,
+            user_id: gate.user_id(),
+            staging_pin: gate.staging_pin(),
         }
     }
 

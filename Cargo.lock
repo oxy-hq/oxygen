@@ -11463,7 +11463,6 @@ dependencies = [
  "oxy-semantic",
  "oxy-server-authz",
  "oxy-shared",
- "oxy-telemetry",
  "oxy-tenancy",
  "oxy-test-utils",
  "oxy-world-model",

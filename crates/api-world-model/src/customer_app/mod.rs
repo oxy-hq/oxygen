@@ -12,7 +12,52 @@
 //! gate, the project context, the compile-boundary scan, the project-scoped
 //! result cache and the error envelope are the data plane's
 //! (`oxy_workspace_runtime::{custom_apps_gates, semantic_boundary}`), shared with the metric-tree
-//! twins in `oxy-api-custom-apps`.
+//! twins in `oxy-api-custom-apps`. The gate itself runs here, in
+//! [`enter_semantic_boundary`], since the workspace runtime takes only its
+//! answer (depth stage C, A2).
+
+use axum::http::HeaderMap;
+use axum::response::Response;
+use oxy_custom_apps::gate::CustomAppContext;
+use oxy_workspace_runtime::semantic_boundary::{SemanticBoundary, open_semantic_boundary};
+use uuid::Uuid;
 
 pub mod cohort;
 pub mod world_model;
+
+/// The response for a refusal or failure the gate's decision half reports:
+/// the same `oxy_app_core::gate_response::gate_refusal` envelope
+/// `oxy-api-custom-apps` answers with (`a_gate_error_becomes_the_response_it_always_was`
+/// pins both).
+fn gate_error_response(e: &oxy_custom_apps::gate::GateError) -> Response {
+    e.render(oxy_app_core::gate_response::gate_refusal)
+}
+
+/// Run the customer-app gate chain, then the workspace runtime's semantic
+/// boundary (the project context and the scan) at the gate's caller and pin.
+/// The gate runs first, so a request that fails it never reaches the boundary
+/// or its body parse. Returns the gate's own context beside the boundary: the
+/// twins read the viewer, the connection and the org from it.
+///
+/// `oxy-api-custom-apps` runs the same chain for the metric-tree twins
+/// (`custom_apps_gates::enter_semantic_boundary`); a surface may not import
+/// another, so each states the two steps, and both answer a refusal with
+/// `oxy_app_core::gate_response::gate_refusal`.
+pub async fn enter_semantic_boundary(
+    headers: &HeaderMap,
+    project_id: Uuid,
+) -> Result<(CustomAppContext, SemanticBoundary), Response> {
+    // 1. Shared gates (auth → origin → workspace → org membership).
+    let app = oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
+        .await
+        .map_err(|e| gate_error_response(&e))?;
+    // 2. The project context and the scan, at the gate's caller and pin.
+    //    `gated()` is the one place the gate's answer is built (it carries the
+    //    staging pin that picks the result-cache partition).
+    let boundary = open_semantic_boundary(app.gated()).await?;
+    Ok((app, boundary))
+}
+
+#[cfg(test)]
+#[path = "gate_tests.rs"]
+mod tests;

@@ -76,11 +76,11 @@ use oxy_auth::types::AuthenticatedUser;
 use sea_orm::DatabaseConnection;
 
 use crate::agent_ask_staging::{non_production_app, refused, workspace_actions_mode};
-use crate::custom_apps_gates::check_custom_app_gates;
+use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_gates};
 use oxy_app_core::AppState;
 use oxy_compile_runtime::reconcile::enqueue::enqueue_lazy_compile;
 use oxy_custom_apps::planes::WorkspaceActionsMode;
-use oxy_workspace_runtime::custom_apps_gates::{CustomAppContextExt, parse_versioned_body};
+use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 
 /// The surface an automation run's held row is listed under, and its `mode`.
 const AUTOMATION_SURFACE: &str = "automation";

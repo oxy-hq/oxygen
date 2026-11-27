@@ -25,8 +25,8 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
+use oxy_custom_apps::gate::frontline_worker_with_app_grant;
 use oxy_custom_apps::org_directory::org_directory;
-use oxy_workspace_runtime::custom_apps_gates::frontline_worker_with_app_grant;
 
 /// Two orgs with a workspace each, and one app of `org`'s in each workspace.
 ///

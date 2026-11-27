@@ -265,6 +265,10 @@ mod sandbox_warehouse_overrides;
 mod secrets_audit;
 mod secrets_promote_and_copy;
 mod seed_example_app;
+// The custom-app Sentry surface tag the real gate sets
+// (`custom_apps_gates::enter_semantic_boundary`): in-process, no database. Up
+// from `oxy-workspace-runtime`'s group with the gate (depth stage C, A2).
+mod sentry_surface_gate;
 mod shape_zoo;
 mod shape_zoo_coverage;
 mod staging_agent_ask;

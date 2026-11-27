@@ -30,7 +30,7 @@
 //! the source walks over `oxy-app`, the surfaces and `crates/agentic` included,
 //! live in `oxy-guards`' `tests/integration/sentry_hub_scan.rs` (oxy-app's
 //! `tests/routing/` until decompose GRD; the gate-driven tag tests are
-//! `oxy-workspace-runtime`'s `tests/integration/sentry_surface_gate.rs`).
+//! `oxy-api-custom-apps`' `tests/integration/sentry_surface_gate.rs`).
 
 use std::pin::Pin;
 use std::sync::Arc;
