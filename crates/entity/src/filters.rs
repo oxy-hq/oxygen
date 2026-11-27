@@ -1,11 +1,12 @@
 //! Sea-ORM query filter helpers for the `users` table.
 //!
-//! Used by `oxy-auth` and the platform's user-facing endpoints. Lives in
-//! `oxy-platform` (rather than the original `oxy::database::filters` location)
-//! so that leaf crates which need to read from `users` can avoid depending on
-//! the full `oxy` crate.
+//! Used by `oxy-auth` and the platform's user-facing endpoints. Lives beside
+//! the `users` entity (it was `oxy::database::filters`, then
+//! `oxy_platform::filters`, which still re-exports it) so that `oxy-auth` can
+//! read `users` without depending on `oxy-platform`
+//! (`internal-docs/crate-tiers.md`, stage B).
 
-use entity::users::{self, UserStatus};
+use crate::users::{self, UserStatus};
 use sea_orm::sea_query::{Expr, ExprTrait, Func, SimpleExpr};
 use sea_orm::{ColumnTrait, Condition, QueryFilter, QueryOrder, Select};
 
@@ -66,9 +67,9 @@ impl UserFilters {
 /// way they always have is moved to the other account. With no exact spelling,
 /// the oldest.
 fn exact_spelling_first(
-    select: Select<entity::users::Entity>,
+    select: Select<crate::users::Entity>,
     email: &str,
-) -> Select<entity::users::Entity> {
+) -> Select<crate::users::Entity> {
     select
         .order_by_desc(ExprTrait::eq(
             Expr::col((users::Entity, users::Column::Email)),
@@ -91,20 +92,20 @@ where
     fn filter_active_by_magic_link_token(self, token: &str) -> Select<E>;
 }
 
-impl UserQueryFilterExt<entity::users::Entity> for Select<entity::users::Entity> {
-    fn filter_active(self) -> Select<entity::users::Entity> {
+impl UserQueryFilterExt<crate::users::Entity> for Select<crate::users::Entity> {
+    fn filter_active(self) -> Select<crate::users::Entity> {
         self.filter(UserFilters::active())
     }
 
-    fn filter_by_email(self, email: &str) -> Select<entity::users::Entity> {
+    fn filter_by_email(self, email: &str) -> Select<crate::users::Entity> {
         exact_spelling_first(self.filter(UserFilters::by_email(email)), email)
     }
 
-    fn filter_active_by_email(self, email: &str) -> Select<entity::users::Entity> {
+    fn filter_active_by_email(self, email: &str) -> Select<crate::users::Entity> {
         exact_spelling_first(self.filter(UserFilters::active_by_email(email)), email)
     }
 
-    fn filter_active_by_magic_link_token(self, token: &str) -> Select<entity::users::Entity> {
+    fn filter_active_by_magic_link_token(self, token: &str) -> Select<crate::users::Entity> {
         self.filter(UserFilters::active_by_magic_link_token(token))
     }
 }
@@ -112,10 +113,10 @@ impl UserQueryFilterExt<entity::users::Entity> for Select<entity::users::Entity>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use entity::prelude::Users;
+    use crate::prelude::Users;
     use sea_orm::{DatabaseBackend, EntityTrait, QueryTrait};
 
-    fn sql(select: Select<entity::users::Entity>) -> String {
+    fn sql(select: Select<crate::users::Entity>) -> String {
         select.build(DatabaseBackend::Postgres).to_string()
     }
 

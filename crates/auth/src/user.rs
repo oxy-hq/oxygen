@@ -1,7 +1,8 @@
+use entity::db_failure::DbFailure;
+use entity::filters::UserQueryFilterExt;
 use entity::prelude::Users;
 use entity::users;
-use oxy_platform::db::{DbFailure, establish_connection};
-use oxy_platform::filters::UserQueryFilterExt;
+use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ActiveValue, DbErr, EntityTrait, Set, prelude::*};
 use uuid::Uuid;
@@ -97,7 +98,7 @@ impl UserService {
             id: Set(Uuid::new_v4()),
             // One spelling per mailbox — ASCII letters only. What "the same
             // letters" means beyond ASCII is Postgres's call, because it is the
-            // one that compares (`oxy_platform::filters`).
+            // one that compares (`entity::filters`).
             email: Set(Some(identity.email.to_ascii_lowercase())),
             name: Set(identity
                 .name

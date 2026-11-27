@@ -139,7 +139,7 @@ async fn member_by_email(
     org_id: Uuid,
     email: &str,
 ) -> Result<Vec<Uuid>, DbErr> {
-    // Both sides lowered by Postgres, as `oxy_platform::filters::email_matches`
+    // Both sides lowered by Postgres, as `entity::filters::email_matches`
     // does: one definition of "same letters", served by `idx_users_email_lower`.
     let ids: Vec<Uuid> = users::Entity::find()
         .filter(

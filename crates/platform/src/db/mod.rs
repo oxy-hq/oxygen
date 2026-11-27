@@ -11,7 +11,6 @@
 
 pub(crate) mod auth_mode;
 mod client;
-mod failure;
 pub(crate) mod iam;
 mod listener;
 mod pool_metrics;
@@ -19,5 +18,6 @@ mod pool_probe;
 
 pub use auth_mode::{DatabaseAuthMode, IamConfig, SslMode};
 pub use client::establish_connection;
-pub use failure::DbFailure;
+/// Now `entity::db_failure`; re-exported here so no caller changed.
+pub use entity::db_failure::DbFailure;
 pub use listener::{ListenerConnectFactory, listener_factory_from_env, listener_ssl_mode_from_env};

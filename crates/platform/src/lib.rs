@@ -6,5 +6,9 @@
 //! compatibility — see `oxy::database::client` and `oxy::adapters::secrets`.
 
 pub mod db;
-pub mod filters;
+/// The `users` query filters, now `entity::filters`; re-exported at their old
+/// path so no caller changed.
+pub mod filters {
+    pub use entity::filters::*;
+}
 pub mod secrets;

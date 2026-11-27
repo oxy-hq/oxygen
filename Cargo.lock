@@ -5638,6 +5638,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
+ "sqlx",
  "workspace-hack",
 ]
 

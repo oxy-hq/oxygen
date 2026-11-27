@@ -9,6 +9,9 @@ edition.workspace = true
 
 [dependencies]
 sea-orm = { workspace = true }
+# `db_failure` matches on the `sqlx` errors that sea-orm wraps (the same sqlx
+# sea-orm already pulls in).
+sqlx = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

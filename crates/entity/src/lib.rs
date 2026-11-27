@@ -63,6 +63,13 @@
 
 pub mod prelude;
 
+// Not entities: sea-orm-only helpers that `oxy-auth` and `oxy-platform` both
+// need, kept here so neither has to depend on the other for them
+// (`internal-docs/crate-tiers.md`, stage B). `oxy-platform` re-exports both at
+// their old paths (`oxy_platform::filters`, `oxy_platform::db::DbFailure`).
+pub mod db_failure;
+pub mod filters;
+
 #[cfg(test)]
 mod typed_column_guard;
 
