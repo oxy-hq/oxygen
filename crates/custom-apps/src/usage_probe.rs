@@ -1,12 +1,13 @@
 //! The usage count a sandbox agent token's request gets on the two paths that
 //! authenticate inline, `/fn` and `/logs`, and so sit outside `/api`'s usage
-//! layer. Split from `oxy_custom_apps::agent`, which holds the token's
-//! admission rules: this half names an axum `Response` and so cannot sit in
-//! the domain crate.
+//! layer. Beside [`crate::agent`], which holds the token's admission rules.
+//! It names `http` types only, no web framework: [`UsageProbe::counted`] is
+//! generic over the response body, so the surface hands it an axum handler
+//! as before. Up from `oxy_app_core::usage_probe` (D6, 2026-11-27), whose
+//! charter named this crate its owner.
 
 use std::future::Future;
 
-use axum::response::Response;
 use oxy_auth::token::CredentialContext;
 use oxy_auth::token::usage::{self, UsageSample};
 use oxy_telemetry::http_trace::RequestTokenId;
@@ -43,19 +44,19 @@ pub fn seen(credential: Option<&CredentialContext>) {
 pub struct UsageProbe(Option<(Option<String>, Option<String>)>);
 
 impl UsageProbe {
-    pub fn of(headers: &axum::http::HeaderMap) -> Self {
+    pub fn of(headers: &http::HeaderMap) -> Self {
         Self(oxy_auth::token::presents_api_token(headers).then(|| {
             (
-                crate::forwarded::client_ip(headers),
-                crate::audit::user_agent(headers),
+                oxy_app_core::forwarded::client_ip(headers),
+                oxy_app_core::audit::user_agent(headers),
             )
         }))
     }
 
     /// Run `handler`; count its response if the token authenticated.
-    pub async fn counted<F>(self, route: &'static str, handler: F) -> Response
+    pub async fn counted<B, F>(self, route: &'static str, handler: F) -> http::Response<B>
     where
-        F: Future<Output = Response>,
+        F: Future<Output = http::Response<B>>,
     {
         let Some((ip, user_agent)) = self.0 else {
             return handler.await;

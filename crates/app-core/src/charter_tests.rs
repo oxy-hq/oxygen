@@ -93,7 +93,6 @@ const BACKLOG: &[(&str, &str)] = &[
     ),
     ("staging_pin_scope", "oxy-custom-apps"),
     ("ttl_lru", "oxy-custom-apps"),
-    ("usage_probe", "oxy-custom-apps"),
     ("widgets", "a home-widgets domain crate"),
 ];
 

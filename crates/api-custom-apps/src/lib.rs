@@ -169,8 +169,8 @@ pub use oxy_custom_apps::usage_reads as custom_apps_usage_reads;
 /// A sandbox agent token on the custom-app serving paths: the admission rules
 /// (`oxy_custom_apps::agent`) and the usage count that wraps `/fn` and `/logs`.
 pub mod custom_apps_agent {
-    pub use oxy_app_core::usage_probe::{UsageProbe, seen};
     pub use oxy_custom_apps::agent::*;
+    pub use oxy_custom_apps::usage_probe::{UsageProbe, seen};
 }
 
 /// Who may open an app, and the request-facing flow every handler calls.

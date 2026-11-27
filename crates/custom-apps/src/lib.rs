@@ -112,6 +112,7 @@ pub mod usage_airhouse;
 pub mod usage_backfill;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod usage_fixtures;
+pub mod usage_probe;
 pub mod usage_queue;
 pub mod usage_reads;
 pub mod usage_rows;

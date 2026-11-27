@@ -62,7 +62,6 @@ pub mod shutdown;
 pub mod sql_kind;
 pub mod staging_pin_scope;
 pub mod ttl_lru;
-pub mod usage_probe;
 pub mod widgets;
 pub mod workspace_cache;
 pub mod workspace_org;

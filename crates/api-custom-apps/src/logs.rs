@@ -155,7 +155,7 @@ pub async fn get_logs(
 ) -> Response {
     // An API token's read is counted as its `/api` requests are; a session, an
     // anonymous request and a legacy key run the handler untouched.
-    let probe = oxy_app_core::usage_probe::UsageProbe::of(&headers);
+    let probe = oxy_custom_apps::usage_probe::UsageProbe::of(&headers);
     // This route authenticates in its handler, so no layer knows the caller.
     // A request that presents a sandbox agent token is refused in the token's
     // one body (a `401` aside); everyone else's response is returned as it is.

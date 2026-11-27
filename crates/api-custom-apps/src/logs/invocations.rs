@@ -55,7 +55,7 @@ pub async fn get_invocations(
     query: Result<Query<InvocationQuery>, QueryRejection>,
     headers: HeaderMap,
 ) -> Response {
-    let probe = oxy_app_core::usage_probe::UsageProbe::of(&headers);
+    let probe = oxy_custom_apps::usage_probe::UsageProbe::of(&headers);
     let handler = read_invocations(org_slug, app_slug, query, headers);
     probe.counted(INVOCATIONS_ROUTE, handler).await
 }

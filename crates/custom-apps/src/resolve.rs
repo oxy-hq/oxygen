@@ -217,7 +217,7 @@ async fn principal(
     identity: &Identity,
     credential: Option<CredentialContext>,
 ) -> Result<AuthenticatedUser, Refusal> {
-    oxy_app_core::usage_probe::seen(credential.as_ref());
+    crate::usage_probe::seen(credential.as_ref());
     let user = if agent::is_agent(credential.as_ref()) {
         // Boxed, so the token's branch adds a pointer to this future, which
         // the function route awaits inline.
