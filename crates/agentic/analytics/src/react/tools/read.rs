@@ -7,7 +7,7 @@ use agentic_core::tools::ToolDef;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use crate::react::files::{FileEntry, WorkspaceFiles};
+use crate::react::files::{FileEntry, WorkspaceFiles, stem};
 
 const DEFAULT_LIMIT: usize = 400;
 const MAX_CANDIDATES: usize = 5;
@@ -49,12 +49,6 @@ impl ReadTool {
                 .collect(),
         }
     }
-}
-
-/// File name up to the first `.` (`financial/account.view.yml` -> `account`).
-fn stem(path: &str) -> &str {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    name.split('.').next().unwrap_or(name)
 }
 
 fn int_arg(args: &Value, key: &str, default: usize) -> usize {

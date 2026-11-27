@@ -16,6 +16,7 @@ use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
 use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
 use super::tools::{ChartTool, QueryDeps, QueryTool, ReadTool, SearchTool};
+use super::verified::VerifiedQueries;
 use crate::events::AnalyticsEvent;
 use crate::semantic::SemanticCatalog;
 
@@ -64,12 +65,14 @@ impl ReactAnalytics {
             .map(|(name, c)| (name.clone(), c.dialect().as_str().to_string()))
             .collect();
         dbs.sort();
+        let verified = Arc::new(VerifiedQueries::from_files(&inputs.files));
         let system_prompt = system_prompt(PromptInput {
             instructions: &inputs.instructions,
             databases: &dbs,
             files: &inputs.files.paths(),
             semantic_only: inputs.semantic_only,
             advisor: inputs.advisor,
+            verified: verified.as_slice(),
         });
         let results = Arc::new(ResultStore::new());
         let tools: Vec<Arc<dyn Tool>> = vec![
@@ -80,6 +83,7 @@ impl ReactAnalytics {
                 catalog: inputs.catalog,
                 default_connector: inputs.default_connector,
                 semantic_only: inputs.semantic_only,
+                verified,
             })),
             Arc::new(ChartTool::new(results.clone())),
             Arc::new(AskUser),

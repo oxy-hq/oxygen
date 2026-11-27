@@ -6,15 +6,24 @@
 use std::fmt::Write;
 
 use super::files::FileKind;
+use super::verified::VerifiedQuery;
 
 /// Paths listed before the prompt says "use search" for the rest.
 const MAX_FILES_LISTED: usize = 200;
+/// Verified queries listed before the prompt says "use search" for the rest.
+const MAX_VERIFIED_LISTED: usize = 100;
 
 const CITATION_RULE: &str = "Cite each result you use as {{result:<id>}}. \
     Mark the one result that answers the question as {{result:<id>|primary}}.";
 
 const LOOK_RULE: &str = "- Look before you query: use search and read to find the views, \
     topics and SQL that cover the question.";
+
+/// Only when the agent has verified queries. Before the source rule: a
+/// verified query that answers the question outranks the semantic model.
+const VERIFIED_RULE: &str = "- Check the verified queries first. When one answers the question, \
+    run it with `query` and `verified` set to its id: it runs as written. Do not copy its SQL \
+    into `sql` or edit it. Write your own query only when none answers the question.";
 
 const SOURCE_RULE: &str = "- Prefer the semantic model when a view covers the question; write \
     raw SQL only for what it cannot express.";
@@ -49,13 +58,18 @@ pub(crate) const ADVISOR_NUDGE: &str = "[Note from the runtime: you ran 3 querie
     failed. Unless these results already answer the question, call the advisor before your \
     next query.]";
 
-fn tool_rules(semantic_only: bool, advisor: bool) -> String {
+fn tool_rules(semantic_only: bool, advisor: bool, verified: bool) -> String {
     let source = if semantic_only {
         SEMANTIC_ONLY_RULE
     } else {
         SOURCE_RULE
     };
-    let mut rules = format!("How to work:\n{LOOK_RULE}\n{source}\n{ANSWER_RULES}");
+    let verified = if verified {
+        format!("{VERIFIED_RULE}\n")
+    } else {
+        String::new()
+    };
+    let mut rules = format!("How to work:\n{LOOK_RULE}\n{verified}{source}\n{ANSWER_RULES}");
     if advisor {
         rules.push('\n');
         rules.push_str(ADVISOR_RULE);
@@ -72,6 +86,8 @@ pub struct PromptInput<'a> {
     pub semantic_only: bool,
     /// The agent has an advisor: the rules say when to call it.
     pub advisor: bool,
+    /// The agent's verified queries: listed, with a rule to try them first.
+    pub verified: &'a [VerifiedQuery],
 }
 
 fn kind_label(k: FileKind) -> &'static str {
@@ -102,6 +118,40 @@ fn files_section(files: &[(&str, FileKind)]) -> String {
     s
 }
 
+/// `- <id> (database <db>): <questions>`, the description standing in for
+/// questions the header does not list.
+fn verified_line(q: &VerifiedQuery) -> String {
+    let mut line = format!("- {}", q.id);
+    if let Some(db) = &q.database {
+        let _ = write!(line, " (database {db})");
+    }
+    let about = if q.questions.is_empty() {
+        q.description.clone().unwrap_or_default()
+    } else {
+        q.questions.join("; ")
+    };
+    if !about.is_empty() {
+        let _ = write!(line, ": {about}");
+    }
+    line
+}
+
+/// The verified queries, one line each.
+fn verified_section(queries: &[VerifiedQuery]) -> String {
+    let mut s = String::from(
+        "Verified queries (hand-written SQL for the questions listed; run one with `query` \
+         and `verified` set to its id):\n",
+    );
+    for q in queries.iter().take(MAX_VERIFIED_LISTED) {
+        let _ = writeln!(s, "{}", verified_line(q));
+    }
+    if queries.len() > MAX_VERIFIED_LISTED {
+        let more = queries.len() - MAX_VERIFIED_LISTED;
+        let _ = writeln!(s, "… {more} more, use search with kind sql");
+    }
+    s
+}
+
 pub fn system_prompt(p: PromptInput<'_>) -> String {
     let mut parts: Vec<String> = Vec::new();
     if !p.instructions.trim().is_empty() {
@@ -109,7 +159,11 @@ pub fn system_prompt(p: PromptInput<'_>) -> String {
     }
     parts.push(databases_section(p.databases));
     parts.push(files_section(p.files));
-    parts.push(tool_rules(p.semantic_only, p.advisor));
+    let has_verified = !p.verified.is_empty();
+    if has_verified {
+        parts.push(verified_section(p.verified));
+    }
+    parts.push(tool_rules(p.semantic_only, p.advisor, has_verified));
     parts.push(CITATION_RULE.to_string());
     parts.join("\n\n")
 }
@@ -125,6 +179,7 @@ mod tests {
             files,
             semantic_only: false,
             advisor: false,
+            verified: &[],
         }
     }
 

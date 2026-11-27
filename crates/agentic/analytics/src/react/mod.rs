@@ -10,12 +10,14 @@ pub mod read_only;
 pub mod render;
 pub mod run;
 pub mod tools;
+pub mod verified;
 
 pub use files::{FileEntry, FileKind, WorkspaceFiles};
 pub use read_only::check_read_only;
 pub use tools::{
     ChartKind, ChartSpec, ChartTool, MAX_CHART_ROWS, QueryDeps, QueryTool, ReadTool, SearchTool,
 };
+pub use verified::{VerifiedQueries, VerifiedQuery};
 
 /// The FSM's day-only date hint (`Today is YYYY-MM-DD.`) in `tz`, else UTC,
 /// for `EngineConfig::system_date_hint`. One wording for both runtimes.
@@ -31,3 +33,5 @@ mod query_routing_tests;
 mod query_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod verified_tests;

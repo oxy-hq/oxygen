@@ -118,6 +118,12 @@ impl WorkspaceFiles {
     }
 }
 
+/// File name up to the first `.` (`financial/account.view.yml` -> `account`).
+pub(crate) fn stem(path: &str) -> &str {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.split('.').next().unwrap_or(name)
+}
+
 /// `path` relative to `base_dir`, `/`-separated; `None` when it is not
 /// under `base_dir` or climbs with `..`.
 fn relative_path(base_dir: &Path, path: &Path) -> Option<String> {

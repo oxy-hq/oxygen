@@ -21,6 +21,7 @@ fn tool_with_default(conns: &[(&str, Arc<Fake>)], default: &str) -> QueryTool {
         catalog: None,
         default_connector: Some(default.to_owned()),
         semantic_only: false,
+        verified: Default::default(),
     })
 }
 
@@ -183,6 +184,7 @@ fn semantic_only_tool(db: Arc<Fake>) -> QueryTool {
         catalog: Some(Arc::new(account_catalog())),
         default_connector: None,
         semantic_only: true,
+        verified: Default::default(),
     })
 }
 

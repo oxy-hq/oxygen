@@ -152,8 +152,9 @@ pub struct OxyCommentBlock {
 /// only carries fields that are present and non-empty.
 pub fn parse_oxy_comment_block(content: &str) -> Option<OxyCommentBlock> {
     let start = content.find("/*")?;
-    let end_offset = content[start..].find("*/")?;
-    let comment = &content[start + 2..start + end_offset];
+    // Searched after the opener, so `/*/` is not read as an empty block.
+    let end_offset = content[start + 2..].find("*/")?;
+    let comment = &content[start + 2..start + 2 + end_offset];
 
     #[derive(Deserialize)]
     struct OxyInner {
@@ -198,6 +199,12 @@ mod tests {
     fn returns_none_when_block_has_no_oxy_key() {
         let sql = "/* not an oxy block */ SELECT 1;";
         assert!(parse_oxy_comment_block(sql).is_none());
+    }
+
+    #[test]
+    fn an_opener_that_touches_a_closer_is_not_a_block() {
+        // Once a panic: the closer was searched from the opener's own `/`.
+        assert!(parse_oxy_comment_block("/*/ SELECT 1").is_none());
     }
 
     #[test]

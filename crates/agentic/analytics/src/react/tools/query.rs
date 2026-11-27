@@ -1,9 +1,10 @@
 //! `query`: the agent's only path to a customer warehouse.
 //!
-//! Runs one read statement (raw `sql`, or a `semantic` query compiled by the
-//! semantic model) behind the read-only [`gate`] and then the connector's
-//! database-level read-only path (`execute_query_read_only`), stores the rows as `r<N>`, and
-//! leaves the same `query_executed` row the FSM writes for each execution.
+//! Runs one read statement (raw `sql`, a `semantic` query compiled by the
+//! semantic model, or a `verified` query run as written) behind the read-only
+//! [`gate`] and then the connector's database-level read-only path
+//! (`execute_query_read_only`), stores the rows as `r<N>`, and leaves the same
+//! `query_executed` row the FSM writes for each execution.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,8 +22,9 @@ use serde_json::{Value, json};
 use super::semantic::{
     SEMANTIC_SHAPE_HINT, compile_semantic, semantic_datasource, semantic_parameter,
 };
-use crate::react::read_only::{gate, sqlparser_dialect};
+use crate::react::read_only::{Refusal, gate, sqlparser_dialect};
 use crate::react::render::render_table;
+use crate::react::verified::VerifiedQueries;
 use crate::solver::lookup_connector;
 use crate::{AnalyticsEvent, QuerySource, SemanticCatalog};
 
@@ -39,6 +41,10 @@ const MAX_SHOWN: usize = 100;
 const MAX_CANDIDATES: usize = 5;
 /// Below this Jaro-Winkler score a name is not offered as a candidate.
 const MIN_SIMILARITY: f64 = 0.7;
+/// The hint when the gate refuses a verified query: the model cannot fix
+/// SQL it may not edit.
+const VERIFIED_REFUSED_HINT: &str = "this verified query cannot run here; answer with your \
+    own `sql` or `semantic` query";
 
 pub struct QueryDeps {
     pub connectors: HashMap<String, Arc<dyn DatabaseConnector>>,
@@ -46,8 +52,11 @@ pub struct QueryDeps {
     /// Used when `query` names no `database` and several are configured.
     pub default_connector: Option<String>,
     /// Refuse raw `sql`; only `semantic` queries run (the agent's
-    /// `semantic_only`).
+    /// `semantic_only`). A `verified` query still runs: the model did not
+    /// write it.
     pub semantic_only: bool,
+    /// What `verified` may name; empty drops the argument from the schema.
+    pub verified: Arc<VerifiedQueries>,
 }
 
 pub struct QueryTool {
@@ -58,15 +67,28 @@ pub struct QueryTool {
 struct Prepared {
     sql: String,
     source: QuerySource,
-    /// For a semantic query, the connector its views name; `None` for raw
-    /// `sql` and for views that name none.
+    /// The connector the statement must run on: a semantic query's views'
+    /// datasource, or a verified query's `database:`. `None` for raw `sql`
+    /// and when neither names one.
     datasource: Option<String>,
 }
 
 impl Prepared {
-    /// Compiled from a semantic query, so the model has not seen this SQL.
-    fn compiled(&self) -> bool {
-        self.source == QuerySource::Semantic
+    /// Compiled from a semantic query or read from a verified query's file,
+    /// so the model may not have seen this SQL: the reply shows it.
+    fn shows_sql(&self) -> bool {
+        matches!(
+            self.source,
+            QuerySource::Semantic | QuerySource::VerifiedSql
+        )
+    }
+
+    /// What named `datasource`, for a routing refusal.
+    fn routed_by(&self) -> &'static str {
+        match self.source {
+            QuerySource::VerifiedSql => "the verified query's `database:`",
+            _ => "the views' datasource",
+        }
     }
 }
 
@@ -75,10 +97,10 @@ impl QueryTool {
         Self { deps }
     }
 
-    /// The connector a statement runs on. A semantic query's views' datasource
-    /// decides (the FSM's routing); the model's `database` may only agree with
-    /// it. Otherwise the named connector, else the only one, else the agent's
-    /// default.
+    /// The connector a statement runs on. A semantic query's views' datasource,
+    /// or a verified query's `database:`, decides (the FSM's routing); the
+    /// model's `database` may only agree with it. Otherwise the named
+    /// connector, else the only one, else the agent's default.
     fn pick_connector(
         &self,
         p: &Prepared,
@@ -87,12 +109,12 @@ impl QueryTool {
         let Some(ds) = p.datasource.as_deref() else {
             return self.connector(requested);
         };
+        let by = p.routed_by();
         let (registered, connector) = lookup_connector(&self.deps.connectors, ds)
-            .ok_or_else(|| failure(&format!("no database {ds}, named by the views' datasource")))?;
+            .ok_or_else(|| failure(&format!("no database {ds}, named by {by}")))?;
         match requested {
             Some(r) if !r.eq_ignore_ascii_case(registered) => Err(failure(&format!(
-                "this semantic query runs on {registered}, the datasource of its views; \
-                 `database` {r} disagrees"
+                "this query runs on {registered}, named by {by}; `database` {r} disagrees"
             ))),
             _ => Ok(connector),
         }
@@ -126,8 +148,26 @@ impl QueryTool {
         lookup_connector(&self.deps.connectors, name).map(|(_, c)| c)
     }
 
-    /// Exactly one of `sql` and `semantic`; a semantic query compiles here.
+    /// A `verified` query, else exactly one of `sql` and `semantic`.
     fn prepare(&self, args: &Value) -> Result<Prepared, ToolFailure> {
+        match args.get("verified").filter(|v| !v.is_null()) {
+            Some(id) => self.prepare_verified(id, args),
+            None => self.prepare_written(args),
+        }
+    }
+
+    /// The verified query's SQL as written, on its declared database.
+    fn prepare_verified(&self, id: &Value, args: &Value) -> Result<Prepared, ToolFailure> {
+        let q = self.deps.verified.resolve(id, args)?;
+        Ok(Prepared {
+            sql: q.sql.clone(),
+            source: QuerySource::VerifiedSql,
+            datasource: q.database.clone(),
+        })
+    }
+
+    /// Exactly one of `sql` and `semantic`; a semantic query compiles here.
+    fn prepare_written(&self, args: &Value) -> Result<Prepared, ToolFailure> {
         let sql = args.get("sql").and_then(Value::as_str);
         let semantic = args
             .get("semantic")
@@ -209,6 +249,29 @@ fn received_keys(args: &Value) -> String {
         })
         .collect();
     format!("keys: {}", keys.join(", "))
+}
+
+/// `verified`: the id of a verified query the system prompt lists.
+fn verified_parameter() -> Value {
+    json!({
+        "type": "string",
+        "description": "Instead of `sql` or `semantic`: the id of a verified query from the \
+            system prompt. Its SQL runs as written, on the database it names."
+    })
+}
+
+/// A gate refusal as the model sees it; a verified query's says to answer
+/// another way, since its SQL may not be edited.
+fn gate_failure(p: &Prepared, r: &Refusal) -> ToolFailure {
+    let hint = match p.source {
+        QuerySource::VerifiedSql => VERIFIED_REFUSED_HINT,
+        _ => r.hint(),
+    };
+    ToolFailure {
+        error: r.message().to_owned(),
+        hint: Some(hint.into()),
+        candidates: Vec::new(),
+    }
 }
 
 fn failure(error: &str) -> ToolFailure {
@@ -310,7 +373,7 @@ fn success_reply(
     let artifact = query_executed(&p, duration_ms, Ok((columns.clone(), preview, row_count)));
     let id = cx.results.put(p.sql.clone(), columns, rows);
     let mut text = format!("result {id}: {}", row_count_text(&exec, row_count));
-    if p.compiled() {
+    if p.shows_sql() {
         text.push_str(&format!("\nsql: {}", p.sql));
     }
     text.push('\n');
@@ -338,7 +401,7 @@ fn row_count_text(exec: &ExecutionResult, shown: usize) -> String {
 fn failed_reply(p: Prepared, error: String, duration_ms: u64) -> ToolReply {
     let message = error.strip_prefix("query failed: ").unwrap_or(&error);
     let mut text = format!("query failed: {message}");
-    if p.compiled() {
+    if p.shows_sql() {
         text.push_str(&format!("\nsql: {}", p.sql));
     }
     let artifact = query_executed(&p, duration_ms, Err(error));
@@ -358,6 +421,9 @@ impl Tool for QueryTool {
             "database": {"type": "string", "description": "Required when there are several"},
             "limit": {"type": "integer", "description": "Rows shown (default 20, max 100)"}
         });
+        if !self.deps.verified.is_empty() {
+            properties["verified"] = verified_parameter();
+        }
         let description = if self.deps.semantic_only {
             properties.as_object_mut().map(|p| p.remove("sql"));
             "Run one read-only semantic-model query against a warehouse: `semantic` names \
@@ -392,11 +458,7 @@ impl Tool for QueryTool {
             &prepared.sql,
             sqlparser_dialect(connector.dialect()).as_ref(),
         )
-        .map_err(|r| ToolFailure {
-            error: r.message().to_owned(),
-            hint: Some(r.hint().into()),
-            candidates: Vec::new(),
-        })?;
+        .map_err(|r| gate_failure(&prepared, &r))?;
         let start = Instant::now();
         // The database-level backstop: the gate above is the fast refusal
         // with a hint, this is the guarantee (a connector without one never

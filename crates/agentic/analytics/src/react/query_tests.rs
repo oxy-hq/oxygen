@@ -128,6 +128,7 @@ pub(super) fn tool(conns: &[(&str, Arc<Fake>)], catalog: Option<SemanticCatalog>
         catalog: catalog.map(Arc::new),
         default_connector: None,
         semantic_only: false,
+        verified: Default::default(),
     })
 }
 
