@@ -32,6 +32,8 @@ mod query_routing_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]
+mod rollup_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod verified_tests;

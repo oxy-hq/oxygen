@@ -6,6 +6,7 @@
 
 pub mod compile;
 pub mod config;
+mod engine_compile;
 pub mod error;
 pub mod preagg;
 #[cfg(test)]

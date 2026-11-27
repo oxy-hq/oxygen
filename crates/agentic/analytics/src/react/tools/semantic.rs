@@ -1,19 +1,21 @@
 //! Compiling `query`'s `semantic` argument, with did-you-mean on bad names.
 
 use agentic_core::react::ToolFailure;
-use agentic_semantic::compile::compile_with_engine;
+use agentic_semantic::compile::compile_request_with_engine;
 use agentic_semantic::config::SemanticQueryConfig;
+use oxy_airlayer_compat::engine::query::QueryRequest;
 use serde_json::{Value, json};
 
 use super::query::closest;
 use crate::SemanticCatalog;
 
-/// The SQL for `config`. A member the catalog does not define fails before
-/// compiling, with the closest `view.member` names as candidates.
+/// The SQL for `config`, and the request it compiled from (what a rollup's
+/// coverage is judged against). A member the catalog does not define fails
+/// before compiling, with the closest `view.member` names as candidates.
 pub(super) fn compile_semantic(
     catalog: &SemanticCatalog,
     config: &SemanticQueryConfig,
-) -> Result<String, ToolFailure> {
+) -> Result<(String, QueryRequest), ToolFailure> {
     let known = members(catalog);
     let unknown: Vec<&str> = requested(config)
         .filter(|m| !known.iter().any(|k| k == m))
@@ -33,7 +35,7 @@ pub(super) fn compile_semantic(
             candidates,
         });
     }
-    compile_with_engine(catalog.engine(), config).map_err(|e| ToolFailure {
+    compile_request_with_engine(catalog.engine(), config).map_err(|e| ToolFailure {
         error: e.to_string(),
         hint: None,
         candidates: Vec::new(),

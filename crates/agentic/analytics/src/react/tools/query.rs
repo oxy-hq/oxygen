@@ -4,7 +4,9 @@
 //! semantic model, or a `verified` query run as written) behind the read-only
 //! [`gate`] and then the connector's database-level read-only path
 //! (`execute_query_read_only`), stores the rows as `r<N>`, and leaves the same
-//! `query_executed` row the FSM writes for each execution.
+//! `query_executed` row the FSM writes for each execution. A `semantic`
+//! query that a live rollup covers reads the rollup instead
+//! ([`super::rollup`]), and falls back to the warehouse when it will not read.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,8 +19,10 @@ use agentic_core::result::CellValue;
 use agentic_core::tools::ToolDef;
 use agentic_semantic::config::SemanticQueryConfig;
 use async_trait::async_trait;
+use oxy_airlayer_compat::engine::query::QueryRequest;
 use serde_json::{Value, json};
 
+use super::rollup::Rollups;
 use super::semantic::{
     SEMANTIC_SHAPE_HINT, compile_semantic, semantic_datasource, semantic_parameter,
 };
@@ -57,6 +61,10 @@ pub struct QueryDeps {
     pub semantic_only: bool,
     /// What `verified` may name; empty drops the argument from the schema.
     pub verified: Arc<VerifiedQueries>,
+    /// The platform's rollups: a `semantic` query one covers is read from it.
+    /// `None` (no rebuild worker, BIRD, the CLI) runs every query on the
+    /// warehouse.
+    pub rollups: Option<Rollups>,
 }
 
 pub struct QueryTool {
@@ -71,6 +79,13 @@ struct Prepared {
     /// datasource, or a verified query's `database:`. `None` for raw `sql`
     /// and when neither names one.
     datasource: Option<String>,
+    /// What a `semantic` query compiled from, which a rollup's coverage is
+    /// judged against. `None` for raw `sql` and `verified`: they never read a
+    /// rollup.
+    request: Option<QueryRequest>,
+    /// A rollup answered, not the warehouse: the row's `is_preagg`. `sql`
+    /// stays the warehouse SQL either way, as on the FSM.
+    from_rollup: bool,
 }
 
 impl Prepared {
@@ -148,6 +163,36 @@ impl QueryTool {
         lookup_connector(&self.deps.connectors, name).map(|(_, c)| c)
     }
 
+    /// Rows for `p`: from a covering live rollup when one reads, else from
+    /// the warehouse. Sets `p.from_rollup` to the tier that answered.
+    async fn execute(
+        &self,
+        p: &mut Prepared,
+        connector: &Arc<dyn DatabaseConnector>,
+    ) -> Result<ExecutionResult, String> {
+        if let Some(exec) = self.read_rollup(p).await {
+            p.from_rollup = true;
+            return Ok(exec);
+        }
+        // The database-level backstop: the gate in `call` is the fast refusal
+        // with a hint, this is the guarantee (a connector without one never
+        // reaches here; `build_react_run` refuses it). A rollup fallback runs
+        // here too, not on the FSM's unguarded `execute_query`.
+        connector
+            .execute_query_read_only(&p.sql, SAMPLE_LIMIT)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// The rollup's rows, when `p` is a semantic query, the run has rollups,
+    /// one covers it and it reads.
+    async fn read_rollup(&self, p: &Prepared) -> Option<ExecutionResult> {
+        let rollups = self.deps.rollups.as_ref()?;
+        let catalog = self.deps.catalog.as_deref()?;
+        let plan = rollups.plan(catalog, p.request.as_ref()?, &p.sql)?;
+        rollups.read(plan, SAMPLE_LIMIT).await
+    }
+
     /// A `verified` query, else exactly one of `sql` and `semantic`.
     fn prepare(&self, args: &Value) -> Result<Prepared, ToolFailure> {
         match args.get("verified").filter(|v| !v.is_null()) {
@@ -163,6 +208,8 @@ impl QueryTool {
             sql: q.sql.clone(),
             source: QuerySource::VerifiedSql,
             datasource: q.database.clone(),
+            request: None,
+            from_rollup: false,
         })
     }
 
@@ -188,6 +235,8 @@ impl QueryTool {
                 sql: sql.to_owned(),
                 source: QuerySource::Llm,
                 datasource: None,
+                request: None,
+                from_rollup: false,
             }),
             (None, Some(v)) => {
                 let catalog = self
@@ -203,11 +252,13 @@ impl QueryTool {
                     })?;
                 // Before compiling: views on two datasources have no one SQL.
                 let datasource = semantic_datasource(catalog, &config)?;
-                let sql = compile_semantic(catalog, &config)?;
+                let (sql, request) = compile_semantic(catalog, &config)?;
                 Ok(Prepared {
                     sql,
                     source: QuerySource::Semantic,
                     datasource,
+                    request: Some(request),
+                    from_rollup: false,
                 })
             }
             _ => Err(failure(&format!(
@@ -347,7 +398,9 @@ fn query_executed(
         columns,
         rows,
         source: p.source,
-        is_preagg: false,
+        // What answered: a warehouse fallback after a failed rollup read is
+        // not pre-aggregated.
+        is_preagg: p.from_rollup,
         sub_spec_index: None,
         semantic_query: None,
     };
@@ -373,6 +426,9 @@ fn success_reply(
     let artifact = query_executed(&p, duration_ms, Ok((columns.clone(), preview, row_count)));
     let id = cx.results.put(p.sql.clone(), columns, rows);
     let mut text = format!("result {id}: {}", row_count_text(&exec, row_count));
+    if p.from_rollup {
+        text.push_str(" (from a pre-aggregated rollup)");
+    }
     if p.shows_sql() {
         text.push_str(&format!("\nsql: {}", p.sql));
     }
@@ -448,7 +504,7 @@ impl Tool for QueryTool {
     }
 
     async fn call(&self, args: Value, cx: &ToolCx) -> Result<ToolReply, ToolFailure> {
-        let prepared = self.prepare(&args)?;
+        let mut prepared = self.prepare(&args)?;
         let limit = shown_limit(&args)?;
         let connector =
             self.pick_connector(&prepared, args.get("database").and_then(Value::as_str))?;
@@ -460,12 +516,7 @@ impl Tool for QueryTool {
         )
         .map_err(|r| gate_failure(&prepared, &r))?;
         let start = Instant::now();
-        // The database-level backstop: the gate above is the fast refusal
-        // with a hint, this is the guarantee (a connector without one never
-        // reaches here; `build_react_run` refuses it).
-        let result = connector
-            .execute_query_read_only(&prepared.sql, SAMPLE_LIMIT)
-            .await;
+        let result = self.execute(&mut prepared, connector).await;
         let duration_ms = start.elapsed().as_millis() as u64;
         Ok(match result {
             Ok(exec) => {
@@ -476,7 +527,7 @@ impl Tool for QueryTool {
                 }
                 reply
             }
-            Err(e) => failed_reply(prepared, e.to_string(), duration_ms),
+            Err(e) => failed_reply(prepared, e, duration_ms),
         })
     }
 }

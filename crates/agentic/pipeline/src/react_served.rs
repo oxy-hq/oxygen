@@ -227,6 +227,9 @@ pub(crate) fn build_context(
         model_override,
         timezone: platform.timezone(),
         domain_docs: inputs.domain_docs,
+        // The platform's rollups, as the FSM's served chat forwards them
+        // (`start_analytics`): `query` reads a covering live one.
+        preagg: platform.preagg_context(),
         ..BuildContext::default()
     }
 }

@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
 use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
-use super::tools::{ChartTool, QueryDeps, QueryTool, ReadTool, SearchTool};
+use super::tools::{ChartTool, QueryDeps, QueryTool, ReadTool, Rollups, SearchTool};
 use super::verified::VerifiedQueries;
 use crate::events::AnalyticsEvent;
 use crate::semantic::SemanticCatalog;
@@ -32,6 +32,9 @@ pub struct ReactInputs {
     pub semantic_only: bool,
     /// The agent has an `llm.advisor`: the prompt says when to consult it.
     pub advisor: bool,
+    /// The platform's rollups (`BuildContext::preagg`): `query` reads a
+    /// covering live one for a `semantic` query. `None` changes nothing.
+    pub preagg: Option<agentic_semantic::compile::PreaggContext>,
 }
 
 /// What the loop needs to run one analytics question.
@@ -84,6 +87,7 @@ impl ReactAnalytics {
                 default_connector: inputs.default_connector,
                 semantic_only: inputs.semantic_only,
                 verified,
+                rollups: inputs.preagg.map(Rollups::new),
             })),
             Arc::new(ChartTool::new(results.clone())),
             Arc::new(AskUser),

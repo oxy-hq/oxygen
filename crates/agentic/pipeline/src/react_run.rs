@@ -161,6 +161,7 @@ pub(crate) async fn build_react_run(
         files: Arc::new(files),
         semantic_only: config.semantic_only,
         advisor: config.llm.advisor.is_some(),
+        preagg: ctx.preagg,
     });
     Ok(ReactRun {
         engine,

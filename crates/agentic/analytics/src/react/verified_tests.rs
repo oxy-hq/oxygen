@@ -64,6 +64,7 @@ fn tool(conns: &[(&str, Arc<Fake>)]) -> QueryTool {
         default_connector: None,
         semantic_only: false,
         verified: Arc::new(VerifiedQueries::from_files(&files())),
+        rollups: None,
     })
 }
 
@@ -108,6 +109,7 @@ fn the_prompt_lists_verified_queries_and_query_offers_them() {
             files: Arc::new(files),
             semantic_only: false,
             advisor: false,
+            preagg: None,
         })
     };
     let with = build(files());
@@ -295,6 +297,7 @@ async fn the_read_only_gate_refuses_a_verified_write() {
         default_connector: None,
         semantic_only: false,
         verified: Arc::new(VerifiedQueries::from_files(&files)),
+        rollups: None,
     });
     let err = t
         .call(json!({"verified": "purge"}), &cx())
@@ -322,6 +325,7 @@ async fn semantic_only_still_runs_a_verified_query() {
         default_connector: None,
         semantic_only: true,
         verified: Arc::new(VerifiedQueries::from_files(&files())),
+        rollups: None,
     });
     let props = t.def().parameters["properties"].clone();
     assert!(props.get("verified").is_some() && props.get("sql").is_none());

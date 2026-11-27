@@ -46,10 +46,10 @@
 #   chart-*     the run draws a chart (an FSM table does not count).
 #   clarify-*   the run stops to ask the user what they mean.
 #
-# Expected to fail on react today, by design: every `verified-*` case (react
-# has no verified-query path, so its query source is never `verified_sql`) and
-# every `preagg: true` case (react reports `is_preagg: false` on every query).
-# They are the evidence for the Phase 4 fixes. Do not weaken them to pass.
+# Nothing here is expected to fail on react by design. React runs verified
+# queries as written and reads a covering live rollup for a semantic query
+# (agent-engine-runtime.md, "As built (Phase 4)"), so a react failure is a
+# measured gap, not a known one. Do not weaken a case to make it pass.
 #
 # A case the FSM fails on its first run is not a parity case: fix the prompt
 # or fixture until the FSM passes, or drop the case from both files.

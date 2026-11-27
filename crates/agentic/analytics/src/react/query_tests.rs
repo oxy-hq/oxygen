@@ -129,6 +129,7 @@ pub(super) fn tool(conns: &[(&str, Arc<Fake>)], catalog: Option<SemanticCatalog>
         default_connector: None,
         semantic_only: false,
         verified: Default::default(),
+        rollups: None,
     })
 }
 

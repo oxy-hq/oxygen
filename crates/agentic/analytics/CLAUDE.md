@@ -67,6 +67,13 @@ read-only gate, the system prompt, answer citations and table rendering. The loo
   role check, a locked DuckDB), which `query` calls and nothing else; it must hold with
   the gate deleted. Never route `query` through `execute_query`. A gate relaxation
   still needs a test that the fake connector never received the write.
+- **A rollup read is the one query that skips the connector.** `tools::rollup` answers
+  a covered `semantic` query from a live pre-aggregation's Parquet in an in-memory
+  DuckDB (`preagg_exec::execute_rollup`, the FSM's executor). It is safe because the SQL
+  is Oxy's (`generate_reagg_sql`), wrapped as `SELECT * FROM (…) LIMIT n`, and reads
+  only files the rebuild wrote. A raw `sql` or `verified` query must never reach it.
+  The `is_preagg` flag on the row names the tier that answered, so a fallback to the
+  warehouse reports `false`.
 
 ## Rules
 

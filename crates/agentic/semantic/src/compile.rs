@@ -24,6 +24,8 @@ use crate::config::{SemanticFilterType, SemanticQueryConfig, TimeGranularity};
 use crate::error::SemanticError;
 use crate::refresh_key_cache::RefreshKeyCache;
 
+pub use crate::engine_compile::{compile_request_with_engine, compile_with_engine};
+
 // Public types
 
 /// Result of compiling a semantic query.
@@ -309,41 +311,6 @@ fn compile_against(
     Ok(CompiledQuery::Warehouse { sql, database_name })
 }
 
-/// Compile a semantic query using a pre-built `SemanticEngine`.
-///
-/// Use this when compiling multiple queries against the same schema — build
-/// the engine once with [`oxy_airlayer_compat::SemanticEngine::from_semantic_layer`] and
-/// call this for each query so the expensive engine-build cost is paid once.
-/// Returns only the SQL string; no preagg check is performed.
-pub fn compile_with_engine(
-    engine: &oxy_airlayer_compat::SemanticEngine,
-    task: &SemanticQueryConfig,
-) -> Result<String, SemanticError> {
-    let semantic_layer = engine.semantic_layer();
-    let topic = resolve_topic(semantic_layer, task)?;
-    let views: Vec<&oxy_airlayer_compat::View> = semantic_layer
-        .views
-        .iter()
-        .filter(|v| topic.views.contains(&v.name))
-        .collect();
-    let date_fields = collect_date_fields(&views);
-    let request = build_query_request(
-        task,
-        &topic.name,
-        topic.base_view.as_ref(),
-        topic.default_filters.as_ref(),
-        &date_fields,
-    )?;
-    let result = engine
-        .compile_query(&request)
-        .map_err(|e| SemanticError::Runtime(format!("query compilation error: {e}")))?;
-    Ok(substitute_params(
-        &request_dialect(engine, &request),
-        &result.sql,
-        &result.params,
-    ))
-}
-
 /// Resolve a query against this workspace's rollups: local Parquet first, the
 /// blob store second, the warehouse if neither covers it.
 ///
@@ -498,7 +465,7 @@ pub fn get_database_from_views(views: &[oxy_airlayer_compat::View]) -> Option<St
 
 // Internal: topic resolution
 
-fn resolve_topic(
+pub(crate) fn resolve_topic(
     semantic_layer: &oxy_airlayer_compat::SemanticLayer,
     task: &SemanticQueryConfig,
 ) -> Result<oxy_airlayer_compat::Topic, SemanticError> {
@@ -553,7 +520,7 @@ fn resolve_topic(
 
 // Internal: date field tracking
 
-fn collect_date_fields(views: &[&oxy_airlayer_compat::View]) -> HashSet<String> {
+pub(crate) fn collect_date_fields(views: &[&oxy_airlayer_compat::View]) -> HashSet<String> {
     use oxy_airlayer_compat::schema::models::DimensionType;
     let mut date_fields = HashSet::new();
     for view in views {
@@ -585,7 +552,7 @@ fn normalize_date_value(date: &str) -> Result<String, SemanticError> {
 
 // Internal: query request building
 
-fn build_query_request(
+pub(crate) fn build_query_request(
     task: &SemanticQueryConfig,
     topic_name: &str,
     base_view: Option<&String>,
