@@ -22,6 +22,7 @@ use serde::{Deserialize, Deserializer};
 use uuid::Uuid;
 
 use super::blockers::Act;
+use super::checks_override::OverrideRequest;
 use super::error::PromoteError;
 use crate::custom_apps_build_history as history;
 use crate::custom_apps_env_resolve::{may_open_non_production, resolve_environment, sandbox_row};
@@ -45,6 +46,11 @@ pub struct PromoteRequest {
     /// act is checked against what this request reads.
     #[serde(default, deserialize_with = "present")]
     pub expect_current: Option<Option<Uuid>>,
+    /// Promote past the promote checks gate's blockers, with a reason
+    /// (`checks_override`). Read for a promote to production where the
+    /// app's org has the gate on; ignored otherwise.
+    #[serde(default)]
+    pub override_checks: Option<OverrideRequest>,
 }
 
 /// `POST /api/customer-apps/{id}/environments/{name}/rollback`.

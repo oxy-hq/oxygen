@@ -112,7 +112,7 @@ pub use credential::{
 };
 pub use dispatch::{
     AuthSurface, Authenticated, SandboxAgent, authenticate_browser_session, authenticate_request,
-    presents_api_token, presents_sandbox_agent,
+    presents_api_token, presents_app_checker, presents_sandbox_agent,
 };
 pub use format::{
     TokenFormat, generate_ci, generate_personal, generate_sandbox_agent, generate_service_account,

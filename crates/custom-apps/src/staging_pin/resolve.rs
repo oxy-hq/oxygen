@@ -50,7 +50,7 @@ pub async fn pin_for_environment(
     let Some(app) = find_app(db, app).await else {
         return Ok(None);
     };
-    if app.project_id != project_id || !may_open(db, caller, &app).await {
+    if app.project_id != project_id || !may_open(db, caller, &app, environment).await {
         return Ok(None);
     }
     let build_pin = match environment_build(db, &app, environment).await {
@@ -65,12 +65,17 @@ pub async fn pin_for_environment(
     effective_pin(build_pin, &env_pin)
 }
 
+/// The viewer may read this environment's pin: whoever may open it, and the
+/// platform checker on staging (`app_check`), which judges the build staging
+/// serves against the model that build reads.
 async fn may_open(
     db: &DatabaseConnection,
     caller: &oxy_server_authz::Caller,
     app: &entity::apps::Model,
+    environment: &AppEnvironment,
 ) -> bool {
     crate::non_production::may_open_non_production(db, caller, app).await
+        || crate::app_check::may_check_staging(db, caller, app, environment).await
 }
 
 /// The build `environment` — staging or a sandbox — serves.

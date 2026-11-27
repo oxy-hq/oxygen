@@ -458,6 +458,41 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
             "POST",
             "/api/customer-apps/{id}/environments/{name}/promote",
         ),
+        // Promote checks (`custom_apps_build_checks`), on the console tree.
+        ("GET", "/api/customer-apps/{id}/builds/{build}/checks"),
+        (
+            "POST",
+            "/api/customer-apps/{id}/builds/{build}/checks/rerun",
+        ),
+        (
+            "GET",
+            "/api/customer-apps/{id}/builds/{build}/checks/files/{name}",
+        ),
+        (
+            "POST",
+            "/api/customer-apps/{id}/builds/{build}/checks/changes/seen",
+        ),
+        // Their five runner routes, merged into the nest outside its layers.
+        (
+            "POST",
+            "/api/customer-apps/{id}/builds/{build}/checks/claim",
+        ),
+        (
+            "POST",
+            "/api/customer-apps/{id}/builds/{build}/checks/functions/settle",
+        ),
+        (
+            "GET",
+            "/api/customer-apps/{id}/builds/{build}/checks/stylesheets",
+        ),
+        (
+            "POST",
+            "/api/customer-apps/{id}/builds/{build}/checks/report",
+        ),
+        (
+            "PUT",
+            "/api/customer-apps/{id}/builds/{build}/checks/files/{name}",
+        ),
         ("GET", "/api/customer-apps/oxy-access"),
         ("POST", "/api/customer-apps/publish"),
         ("GET", "/api/{workspace_id}/custom-apps"),

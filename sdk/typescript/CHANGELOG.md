@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`checks.screens` in `oxy-app.json`: the screens an app declares for the promote checks.**
+  The manifest takes an optional `checks` block with one optional field, `screens`: the app's
+  screens as paths relative to its root (`"checks": { "screens": ["", "stores",
+  "reorder/plans"] }`, `""` the root), for the checks that open every screen of a build. An
+  entry may carry a query, for an app that picks its screen by one (`"?module=waste"`,
+  `"stores?tab=open"`). It has no leading slash, hash, `..` in its path or scheme, its query
+  is neither empty nor spaced, and it is at most 256 characters; the
+  list holds at most 30 entries, each once. `OxyAppManifest` gains `checks`
+  (`OxyAppChecksManifest`), the generated `schema/oxy-app.schema.json` carries the rule
+  (`items.pattern`, `items.maxLength`, `maxItems`, `uniqueItems`), and
+  `validateOxyAppManifest` refuses each bad shape as an error that names the entry
+  (`checks.screens.1`), so `oxyc validate`, `oxyc publish`, the Vite plugin and the SDK's
+  loader all do. `@oxy-hq/sdk/manifest` exports the rule: `isValidScreenPath`,
+  `SCREEN_PATH_PATTERN`, `SCREEN_PATH_MAX_LEN`, `SCREEN_PATH_RULE`, `SCREENS_MAX`; and
+  `ManifestSchemaNode` gains `maxItems` and `uniqueItems`, which the validator now walks. A
+  manifest without `checks` validates as before. An SDK from before this release reads
+  `checks` as an unknown field: a warning, not a refusal.
+- **`checkThemeCss(sources, { built: true })`, and `@oxy-hq/sdk/theme-guard`.** The theme
+  guard can read an app's built CSS (Vite + Tailwind v4 output, minified, with the SDK's own
+  stylesheets bundled in) as well as its source. With `built`, four readings are added: a rule
+  inside `@layer theme` reads as inside `@theme`; so does an unlayered rule whose selector is
+  exactly `:root, :host`, where Tailwind writes its compiled `@theme` when
+  `@oxy-hq/sdk/tailwind.css` is imported before `tailwindcss`; a rule that is one of the SDK's
+  own is skipped (its selector, and each declaration the SDK makes there); and selectors are
+  read with their CSS escapes, so `.dark\:bg-card` is no `.dark` and a `dark:` utility's
+  `:is(.dark *)` is allowed. Same rule ids and messages; an app's own `@theme` alias, allowed
+  as source, is not reported once built. Without `built` the guard reads as before.
+  `@oxy-hq/sdk/theme-guard` is a
+  Node-only entry with the guard alone (`checkThemeCss`, `formatThemeFindings`,
+  `SDK_THEME_NAMES` and their types): `oxyc` runs it for the platform's design-system check,
+  which replaces the server's Rust copy of the guard. `@oxy-hq/sdk/testing` still exports it.
+
 ### Fixed
 
 - **`OxyAnswer` counts a SQL artifact's hidden rows from `rowCount`.** `artifacts[].results.rows`
@@ -14,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count. The "+N more rows" note counted the preview, so a 30-row result sent as 10 rows showed
   no note at all; it now reads "+20 more rows" (`oxyAnswer.artifacts.test.tsx`). A preview that
   holds the whole result renders as before.
+- **`createRouter`'s `useRoute` re-renders when only the query changes.** It followed the path
+  alone, so `navigate(route, { search })` or a `Link` with `search` that kept the path
+  (`reports?range=week` to `?range=month`) changed the URL and left the screen as it was. The
+  path and the query re-render it now; a change of the hash alone still does not.
+- **`Sparkline shape="bars"` keeps every bar inside its box.** Each bar was centred on a line's
+  point, and the points run out to the 2px pad, so the first and last bars spilled over the
+  edges (three bars, `fluid` in a 600px panel: 57.6px past each). Bars now take equal steps of
+  the width, the end mark on the last; lines and areas draw exactly as before.
+- **The `.cjs` entries are CommonJS again.** tsdown's declaration pass wrote its ESM over every
+  `.cjs` entry (2.35.0 shipped that way), so `require("@oxy-hq/sdk")` and every other
+  `require` threw "Cannot use import statement outside a module". `tsdown.config.ts` drops that
+  pass's JavaScript, and `pnpm build` now ends with `scripts/check-dist.mjs`, which fails the
+  build unless every `.cjs` compiles as CommonJS and every entry loads by `require` and `import`.
 
 ## [2.35.0] - 2026-11-24
 

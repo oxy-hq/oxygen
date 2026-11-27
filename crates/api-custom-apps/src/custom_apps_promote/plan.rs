@@ -13,10 +13,11 @@
 //!   published the build (the app's four-eyes rule, `second_person`);
 //! - migrations: for production the pending files per store, applied before
 //!   the move; for staging the declared files, queued after it;
+//! - production only, where the org's `promote_checks_gate` flag is on and the
+//!   move is a promote: `checks`, where the build's newest staging attempt
+//!   stands against the checks the app requires (`checks_gate`), whether the
+//!   caller may override them, and the override the request carried;
 //! - blockers and warnings.
-//!
-//! Check and smoke results are not shown: nothing records a build's staging
-//! check results yet.
 
 use chrono::Utc;
 use entity::{app_builds, users};
@@ -26,6 +27,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::blockers::{self, Act, ProductionFacts};
+use super::checks_gate::{self, Checks, Overridden};
+use super::checks_override;
 use super::error::{Blocker, EVENT_LISTENERS_BROKEN, PromoteError};
 use super::functions_diff::{self, FunctionChanges};
 use super::production::{MigrationsApplied, load_build};
@@ -96,6 +99,10 @@ pub struct Plan {
     pub dry_run: bool,
     pub moved: bool,
     pub migrations_applied: Option<MigrationsApplied>,
+    /// Where the build stands against the checks the app requires
+    /// (`checks_gate`). `null` where the org's `promote_checks_gate` flag is
+    /// off, for a rollback, and for a move of staging.
+    pub checks: Option<Checks>,
 }
 
 /// What a request asks of the plan, beside what it names.
@@ -109,6 +116,9 @@ pub struct Asked<'a> {
     /// request's `break_listeners`; a real act passes `None`, and the
     /// production move is then the only place the gate runs.
     pub break_listeners: Option<bool>,
+    /// What the request asks of the promote checks gate, and whether its
+    /// caller may override (`checks_override::ask`).
+    pub checks: &'a checks_override::GateAsk,
 }
 
 /// Everything the plan reads, for `r`.
@@ -151,6 +161,7 @@ pub async fn build(
         dry_run: true,
         moved: false,
         migrations_applied: None,
+        checks: None,
     };
     if r.to == AppEnvironment::Production {
         production_checks(db, r, asked, &mut plan).await?;
@@ -158,8 +169,8 @@ pub async fn build(
     Ok(plan)
 }
 
-/// Production's half: schedules, required keys, who promotes, the blockers,
-/// and a dry run's preview of the event gate.
+/// Production's half: schedules, required keys, who promotes, the checks
+/// the app requires, the blockers, and a dry run's preview of the event gate.
 async fn production_checks(
     db: &DatabaseConnection,
     r: &Resolved,
@@ -174,6 +185,8 @@ async fn production_checks(
         .await
         .map_err(|e| PromoteError::internal("read staging's history", e))?;
     let removals = changes.removed_functions();
+    let mut checks = promote_checks(db, r).await?;
+    let overridden = asked.checks.ask.accepted();
     let (blockers, warnings) = blockers::evaluate(ProductionFacts {
         act: r.act,
         build_label: &r.build.build_id,
@@ -184,12 +197,33 @@ async fn production_checks(
         confirmed_removals: asked.confirmed,
         second_person_required: r.app.require_second_person_to_promote,
         mover_published: Identity::published(&r.build).is(asked.mover),
+        checks: checks.as_ref(),
+        checks_overridden: overridden.is_some(),
     });
+    if let Some(checks) = checks.as_mut() {
+        checks.overridable = asked.checks.may_override;
+        checks.overridden = overridden.map(|accepted| Overridden {
+            reason: accepted.reason().to_string(),
+        });
+    }
+    plan.checks = checks;
     plan.schedules = Some(changes);
     plan.required_secrets_unset = required_unset;
     plan.blockers = blockers;
     plan.warnings.extend(warnings);
     event_listeners(db, r, asked.break_listeners, plan).await
+}
+
+/// Where a promote's build stands against the checks the app requires; `None`
+/// for a rollback, the emergency path, and where the gate is off.
+async fn promote_checks(
+    db: &DatabaseConnection,
+    r: &Resolved,
+) -> Result<Option<Checks>, PromoteError> {
+    match r.act {
+        Act::Promote => checks_gate::read(db, &r.app, &r.build).await,
+        Act::Rollback => Ok(None),
+    }
 }
 
 /// A dry run's preview of the event gate (`app_events::gate`): a blocker per

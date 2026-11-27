@@ -150,6 +150,7 @@ pub(crate) fn input(
         published_via: who.published_via,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     }
 }
 

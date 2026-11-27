@@ -23,7 +23,8 @@ import type {
   FunctionLogLine,
   FunctionRunDetail,
   InvocationCalls,
-  OxyAccessRow
+  OxyAccessRow,
+  PromotionChecksUpdate
 } from "@/types/apps";
 import type { DataFlow, DataFlowQuery } from "@/types/dataFlow";
 import { apiClient } from "./axios";
@@ -188,6 +189,16 @@ export const CustomAppsService = {
     const response = await apiClient.put(`${appPath(id)}/promotion-rule`, {
       require_second_person_to_promote: requireSecondPerson
     });
+    return response.data;
+  },
+
+  /**
+   * Choose which checks hold Promote and what follows one (`PUT …/promotion-checks`).
+   * `required: null` keeps the defaults. Read as answering the app, as the promotion
+   * rule's route does; the console re-reads the app either way.
+   */
+  async setPromotionChecks(id: string, body: PromotionChecksUpdate): Promise<CustomApp> {
+    const response = await apiClient.put(`${appPath(id)}/promotion-checks`, body);
     return response.data;
   },
 

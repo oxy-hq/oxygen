@@ -159,6 +159,20 @@ pub fn presents_sandbox_agent(headers: &HeaderMap) -> bool {
     )
 }
 
+/// Whether the request presents the **platform checker's** service token: a
+/// configured `oxysvc_` service whose role is `app_checker`
+/// (`PlatformRole::AppChecker`). Read from the headers and the installed
+/// service list, no database: for the custom-app serve tree's fence, which
+/// keeps the checker to reading a page before anything else runs, and for
+/// naming that credential in the answer to a promote-checks claim. It names
+/// the credential and decides nothing: every door the checker passes asks
+/// `oxy-authz` (`Action::AppCheck`).
+pub fn presents_app_checker(headers: &HeaderMap) -> bool {
+    service_token(headers)
+        .and_then(|token| service::authenticate(&token))
+        .is_some_and(|entry| entry.role == oxy_authz::PlatformRole::AppChecker)
+}
+
 /// Whether the request presents a **new-format API token** — `oxy_pat_`,
 /// `oxy_sat_`, `oxy_ci_` or `oxy_sbx_` — judged by its prefix alone, exactly
 /// where [`authenticate_request`] looks for one. False for a session, an

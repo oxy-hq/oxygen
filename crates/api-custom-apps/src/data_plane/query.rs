@@ -36,7 +36,7 @@ use serde_json::Value as JsonValue;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
-use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_gates};
+use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_read_gates};
 use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 use oxy_workspace_runtime::result_cache;
 use oxy_workspace_runtime::string_literal::string_literal_of;
@@ -148,7 +148,7 @@ pub async fn run_query(
     // origin checks always run before any extractor-shaped error
     // leaks route existence or body schema to an unauthenticated
     // caller.
-    let ctx = match check_custom_app_gates(&headers, project_id).await {
+    let ctx = match check_custom_app_read_gates(&headers, project_id).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };

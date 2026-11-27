@@ -194,6 +194,22 @@ pub struct CreateAppAdminBody {
     pub scope_org_ids: Option<Vec<Uuid>>,
 }
 
+/// The role a create request names, `global_admin` when it names none.
+///
+/// Reject a role this build cannot expand, rather than storing a string the loader
+/// will later drop. The write side and `PlatformRole::from_str` must agree, or a
+/// typo becomes a grant that silently authorizes nothing.
+/// The platform checker is a service's standing, configured as code, and never a
+/// grant row a person holds (`PlatformRole::is_grantable`).
+fn requested_role(role: Option<&str>) -> Result<PlatformRole, StatusCode> {
+    match role {
+        None => Ok(PlatformRole::GlobalAdmin),
+        Some(r) => PlatformRole::from_str(r)
+            .filter(|role| role.is_grantable())
+            .ok_or(StatusCode::BAD_REQUEST),
+    }
+}
+
 pub async fn create_app_admin(
     State(_): State<AppState>,
     actor: oxy_app_core::audit::RequestActor,
@@ -209,13 +225,7 @@ pub async fn create_app_admin(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Reject a role this build cannot expand, rather than storing a string the loader
-    // will later drop. The write side and `PlatformRole::from_str` must agree, or a
-    // typo becomes a grant that silently authorizes nothing.
-    let role = match body.role.as_deref() {
-        None => PlatformRole::GlobalAdmin,
-        Some(r) => PlatformRole::from_str(r).ok_or(StatusCode::BAD_REQUEST)?,
-    };
+    let role = requested_role(body.role.as_deref())?;
     let scope_all = body.scope_org_ids.is_none();
     let scope_org_ids = body.scope_org_ids.unwrap_or_default();
     let scope = if scope_all {

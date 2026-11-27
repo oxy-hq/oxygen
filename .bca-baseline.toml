@@ -3840,7 +3840,7 @@ value = 6.0
 path = "crates/api-custom-apps/src/custom_apps_promote/error.rs"
 qualified = "PromoteError::code"
 metric = "cyclomatic"
-value = 19.0
+value = 21.0
 
 [[entry]]
 path = "crates/api-custom-apps/src/custom_apps_publish.rs"
@@ -6720,37 +6720,37 @@ value = 4272.0
 path = "crates/authz/src/lib.rs"
 qualified = "Action"
 metric = "wmc"
-value = 102.0
+value = 108.0
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
 qualified = "Action::as_str"
 metric = "abc"
-value = 60.0
+value = 63.0
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
 qualified = "Action::as_str"
 metric = "cyclomatic"
-value = 61.0
+value = 64.0
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
 qualified = "Action::ring"
 metric = "abc"
-value = 45.17742799230607
+value = 48.76474136094644
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
 qualified = "Action::ring"
 metric = "cyclomatic"
-value = 41.0
+value = 44.0
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
 qualified = "allows"
 metric = "abc"
-value = 136.1836994650975
+value = 140.70181235506527
 
 [[entry]]
 path = "crates/authz/src/lib.rs"
@@ -6762,7 +6762,7 @@ value = 57.0
 path = "crates/authz/src/lib.rs"
 qualified = "allows"
 metric = "cyclomatic"
-value = 90.0
+value = 93.0
 
 [[entry]]
 path = "crates/authz/src/token_tests.rs"

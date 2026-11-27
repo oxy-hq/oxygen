@@ -27,7 +27,8 @@ use crate::custom_apps_agent_built::{self as agent_built, AgentBuilt, PromoteRef
 use crate::custom_apps_environments::{self, EnvAction};
 use crate::custom_apps_promote::audit::published_entry;
 use crate::custom_apps_promote::{
-    self as promote, AuditedBy, BuildRef, MoveAudit, MoveRow, ProductionMove, PromoteError,
+    self as promote, AuditedBy, BuildRef, MoveAudit, MoveChecks, MoveRow, ProductionMove,
+    PromoteError,
 };
 use crate::custom_apps_usage_purge as usage_purge;
 use oxy_app_core::workspace_org::{WorkspaceOrgMatch, workspace_in_org};
@@ -474,6 +475,19 @@ pub async fn publish_one(
     actor: &RequestActor,
     audited_by: AuditedBy,
 ) -> Result<apps::Model, AppOpError> {
+    publish_one_asking(db, id, actor, audited_by, MoveChecks::default()).await
+}
+
+/// [`publish_one`] for a request that may carry `override_checks`
+/// (`custom_apps_promote::checks_override`): decided for the app once its
+/// row is read, carried by the move, and audited by it.
+pub async fn publish_one_asking(
+    db: &DatabaseConnection,
+    id: Uuid,
+    actor: &RequestActor,
+    audited_by: AuditedBy,
+    checks: MoveChecks<'_>,
+) -> Result<apps::Model, AppOpError> {
     let row = Apps::find_by_id(id)
         .one(db)
         .await
@@ -491,6 +505,7 @@ pub async fn publish_one(
     if draft.is_none() {
         return stamp_published(db, row, actor, audited_by).await;
     }
+    let checks = checks.ask(db, actor, &row).await?;
     // The draft is named again under the app's row lock, so a draft publish
     // landing after the read above is the build this makes live.
     let mv = ProductionMove {
@@ -502,6 +517,7 @@ pub async fn publish_one(
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
+        checks,
     };
     // The global access cache is invalidated ONCE by the caller (a batch
     // would otherwise do N full global invalidations).
@@ -682,8 +698,9 @@ pub(super) async fn promote_latest_one(
     id: Uuid,
     actor: &RequestActor,
     audited_by: AuditedBy,
+    checks: MoveChecks<'_>,
 ) -> Result<apps::Model, AppOpError> {
-    Apps::find_by_id(id)
+    let row = Apps::find_by_id(id)
         .one(db)
         .await
         .map_err(|e| {
@@ -691,6 +708,7 @@ pub(super) async fn promote_latest_one(
             AppOpError::internal()
         })?
         .ok_or_else(AppOpError::not_found)?;
+    let checks = checks.ask(db, actor, &row).await?;
     // The newest build is named under the lock too; this only reports an
     // app with none as the per-item failure it always was.
     AppBuilds::find()
@@ -712,6 +730,7 @@ pub(super) async fn promote_latest_one(
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
+        checks,
     };
     let audit = MoveAudit::of(audited_by, actor, MoveRow::Promoted);
     let moved = promote::move_production_audited(db, &mv, audit.as_ref())
@@ -950,68 +969,5 @@ fn like_escape(s: &str) -> String {
 mod refusal_tests;
 
 #[cfg(test)]
-mod oltp_guard_message_tests {
-    use super::oltp_store_blocks_message;
-    use oxy_oltp::schema::WriterRef;
-    use uuid::Uuid;
-
-    /// The guard must name a remedy the reader can actually perform.
-    ///
-    /// This started as a CLI-only message, and the Rust `oxy oltp deprovision
-    /// --writer` it named had no `--env`: it read `OXY_DATABASE_URL` and acted on
-    /// the local control plane. So every operator who hit this guard against a
-    /// cloud environment was handed a command that could not reach the
-    /// environment that refused them. That command is deleted; its replacement,
-    /// `oxyc oltp deprovision`, is a client of the route and takes `--env`.
-    ///
-    /// Asserted rather than reviewed because the failure is invisible: the
-    /// message still reads as helpful, and you only discover it is not by
-    /// running it and watching it talk to the wrong database.
-    #[test]
-    fn names_the_http_route_before_the_cli() {
-        let org = Uuid::nil();
-        let writer = WriterRef::app("store_ops").expect("valid writer");
-        let msg = oltp_store_blocks_message("deleted", org, &writer);
-
-        let route = msg
-            .find("/oltp/deprovision-writer")
-            .expect("must name the per-writer route — it is the only remote-capable remedy");
-        assert!(
-            msg.contains("app:store_ops"),
-            "must name the DERIVED writer, not the raw slug: {msg}"
-        );
-
-        // Order matters, not just presence: the route is the remedy, the CLI
-        // is its terminal spelling.
-        let cli = msg
-            .find("oxyc oltp deprovision")
-            .expect("should name the oxyc client of the route");
-        assert!(
-            route < cli,
-            "the route must come before the CLI mention: {msg}"
-        );
-        assert!(
-            msg.contains("--env <env>") && msg.contains("--writer app:store_ops --yes"),
-            "the CLI line must reach a remote environment and drop only this writer: {msg}"
-        );
-        assert!(
-            !msg.contains("`oxy oltp deprovision"),
-            "must not name the deleted Rust command, which cannot reach a remote environment: {msg}"
-        );
-        // The two doors differ: this console is `Action::PlatformApps`, the
-        // route is `Action::PlatformOltp`, and an App Operator holds the first
-        // and not the second. Without this clause the reader most likely to hit
-        // the guard is sent to a route that 403s them.
-        assert!(
-            msg.contains("platform-OLTP standing"),
-            "must name the standing the route requires: {msg}"
-        );
-
-        // It must never name the whole-tenant escape hatch: that destroys every
-        // other app's schema in the org, which is the opposite of this guard.
-        assert!(
-            !msg.contains("DELETE /api/admin/orgs"),
-            "must not point at the whole-tenant deprovision: {msg}"
-        );
-    }
-}
+#[path = "ops_oltp_guard_tests.rs"]
+mod oltp_guard_message_tests;

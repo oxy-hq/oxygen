@@ -16,9 +16,21 @@
 //! (`custom_apps_publish_attempts`). A caller refused authorization leaves
 //! none: nothing it sends is written into an app it may not publish. The app
 //! row's upsert is the first write, and is clocked as part of `store`.
+//!
+//! **The big stages are boxed** ([`boxed`]): each is built in a plain `fn`'s
+//! frame and moved to the heap, so the stage that awaits it holds a pointer.
+//! A debug build reserves an awaited `async fn`'s whole future, several times
+//! over, in the awaiting poll frame; awaited in place, `stages` and `write`
+//! had frames of 241 KB and 226 KB, every publish wrapper above held the
+//! pipeline's 30 KB future by value, and a test that publishes from a test
+//! thread ran past its 2 MiB stack. `Box::pin` at the await is not enough:
+//! the future is still built in the awaiting frame before it moves.
+
+use std::future::Future;
 
 use axum::body::Bytes;
 use entity::organizations;
+use futures::future::BoxFuture;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
@@ -37,9 +49,26 @@ use crate::app_events::subscriptions;
 use crate::custom_apps_publish_attempts::{Attempt, AttemptFacts, Failed, Stage, StageTimer};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 
+/// `make()`'s future, built in this frame and moved to the heap (module
+/// docs): the caller's poll frame keeps a pointer and nothing of the future.
+fn boxed<'a, F>(make: impl FnOnce() -> F) -> BoxFuture<'a, F::Output>
+where
+    F: Future + Send + 'a,
+{
+    Box::pin(make())
+}
+
 /// [`super::publish_to`], once the credential has been held to its target:
 /// the stages, timed, and the attempt they make recorded.
-pub(super) async fn store_and_point(
+pub(super) fn store_and_point(
+    input: PublishInput,
+    target: PublishTarget,
+    options: PublishOptions,
+) -> BoxFuture<'static, Result<PublishResult, Failed<PublishError>>> {
+    boxed(move || stored_and_pointed(input, target, options))
+}
+
+async fn stored_and_pointed(
     input: PublishInput,
     target: PublishTarget,
     options: PublishOptions,
@@ -48,8 +77,7 @@ pub(super) async fn store_and_point(
         .await
         .map_err(|e| Failed::unstaged(PublishError::Db(e.to_string())))?;
     let mut attempt = Attempt::begin(attempt_facts(&input, &target));
-    // Boxed for the reason given in `write`.
-    let published = Box::pin(stages(&db, input, &target, options, &mut attempt)).await;
+    let published = boxed(|| stages(&db, input, &target, options, &mut attempt)).await;
     attempt
         .finish(&db, published.as_ref().err().map(ToString::to_string))
         .await;
@@ -106,7 +134,7 @@ async fn stages(
         .or(admitted.sandbox_app);
     let mut inflated = attempt
         .clock
-        .run(Stage::Inflate, inflate(db, &mut input, &admitted))
+        .run(Stage::Inflate, boxed(|| inflate(db, &mut input, &admitted)))
         .await?;
     let files = std::mem::take(&mut inflated.files);
 
@@ -128,8 +156,7 @@ async fn stages(
         options,
     };
     let (build_pk, warnings, broken) =
-        // Boxed for the reason given in `write`.
-        match Box::pin(write(&ctx, &mut guard, &mut attempt.clock, files)).await {
+        match boxed(|| write(&ctx, &mut guard, &mut attempt.clock, files)).await {
             Ok(written) => written,
             Err(e) => {
                 guard.undo().await;
@@ -143,7 +170,7 @@ async fn stages(
 
     let warnings = attempt
         .clock
-        .run_infallible(Stage::After, after(&ctx, build_pk, warnings))
+        .run_infallible(Stage::After, boxed(|| after(&ctx, build_pk, warnings)))
         .await;
     Ok(target.result(
         &admitted.org.slug,
@@ -184,34 +211,28 @@ async fn write(
     clock: &mut StageTimer,
     files: Vec<(String, Vec<u8>)>,
 ) -> Result<(Uuid, Vec<String>, Vec<String>), PublishError> {
-    // Every stage future is boxed before it is awaited. Awaited in place, a
-    // debug build gives each its own slot in this fn's future, and that future
-    // is polled inside `stages` and `store_and_point` on a 2 MiB stack (a
-    // server worker's, or a test thread's): with the stages held by value this
+    // Every stage is boxed ([`boxed`], module docs): awaited in place, this
     // frame alone came to ~245 KiB and every publish test overflowed its stack.
-    // Boxed, each leaves a pointer here. Same reason as `agent_ask::boxed`.
     let stored = clock
-        .run(Stage::Store, Box::pin(store_bytes(ctx, files)))
+        .run(Stage::Store, boxed(|| store_bytes(ctx, files)))
         .await?;
     guard.bytes_stored();
     let build_pk = clock
-        .run(Stage::Record, Box::pin(record(ctx, guard, stored)))
+        .run(Stage::Record, boxed(|| record(ctx, guard, stored)))
         .await?;
-    let gate = Box::pin(production_gate::check(
-        ctx.db, ctx.app_id, build_pk, ctx.input,
-    ));
+    let gate = boxed(|| production_gate::check(ctx.db, ctx.app_id, build_pk, ctx.input));
     clock.run(Stage::Gate, gate).await?;
     // The event gate once production's blockers pass: the one refusal
     // `--break-listeners` overrides, still before any migration applies.
     let (mut warnings, broken) = clock
-        .run(Stage::Gate, Box::pin(event_gate(ctx, build_pk)))
+        .run(Stage::Gate, boxed(|| event_gate(ctx, build_pk)))
         .await?;
     clock
-        .run(Stage::Promote, Box::pin(promote(ctx, build_pk)))
+        .run(Stage::Promote, boxed(|| promote(ctx, build_pk)))
         .await?;
     warnings.extend(
         clock
-            .run(Stage::Point, Box::pin(point(ctx, build_pk)))
+            .run(Stage::Point, boxed(|| point(ctx, build_pk)))
             .await?,
     );
     Ok((build_pk, warnings, broken))
@@ -482,7 +503,45 @@ async fn after(ctx: &Publishing<'_>, build_pk: Uuid, mut warnings: Vec<String>) 
         )
         .await,
     );
+    // Staging serves the build now: its checks are queued, never awaited.
+    if matches!(
+        ctx.target,
+        PublishTarget::Channels | PublishTarget::AgentDraft
+    ) {
+        warnings.extend(
+            crate::custom_apps_build_checks::queue::after_staging_move(ctx.db, built).await,
+        );
+    }
+    // A promoting publish moved production too (through `move_locked`, which
+    // queues nothing): its check of production is queued here, like every
+    // other production move's.
+    if input.promote {
+        warnings.extend(production_check(ctx.db, app_id, build_pk).await);
+    }
     warnings
+}
+
+/// Queue production's own check of the build a promoting publish made live
+/// (`custom_apps_build_checks::queue::after_production_move`). A publish's
+/// build is new, so production served another build, or none, before it.
+async fn production_check(db: &DatabaseConnection, app_id: Uuid, build_pk: Uuid) -> Vec<String> {
+    let rows = async {
+        let app = entity::apps::Entity::find_by_id(app_id).one(db).await?;
+        let build = entity::app_builds::Entity::find_by_id(build_pk)
+            .one(db)
+            .await?;
+        Ok::<_, sea_orm::DbErr>(app.zip(build))
+    };
+    match rows.await {
+        Ok(Some((app, build))) => {
+            crate::custom_apps_build_checks::queue::after_production_move(db, &app, &build, None)
+                .await
+        }
+        Ok(None) => Vec::new(),
+        Err(e) => vec![format!(
+            "production's check of the build was not queued ({e}); the publish went on"
+        )],
+    }
 }
 
 /// Everything on the critical path of the first visit — the shell, the asset

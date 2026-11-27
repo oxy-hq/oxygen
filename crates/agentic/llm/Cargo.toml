@@ -12,6 +12,8 @@ agentic-core = { workspace = true }
 oxy-shared = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
+# Pictures travel as base64 on every provider's wire (`images`).
+base64 = { workspace = true }
 futures-core = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream"] }
 serde = { workspace = true, features = ["derive"] }
@@ -24,6 +26,9 @@ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 tracing-subscriber = { workspace = true }
+# A provider on a loopback port: the request body each one is sent for a
+# message with pictures (`images::http_tests`).
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

@@ -55,7 +55,7 @@ import {
   runWhoami
 } from "./commands/auth.js";
 import { runBootstrapPlan, runBootstrapRun, runBootstrapVerify } from "./commands/bootstrap.js";
-import { runChecks } from "./commands/checks.js";
+import { registerChecks } from "./commands/checks-cli.js";
 import { runCompile } from "./commands/compile.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
@@ -984,33 +984,7 @@ function buildProgram(): Command {
     runTokensCreate(ctx);
   });
 
-  const checks = program
-    .command("checks")
-    .description('run an app\'s checks (functions marked "check": true)');
-  withGlobals(
-    checks
-      .command("run <app>")
-      .description("run every check of <org>/<app> (or an app id) and wait for results")
-      .option("--json", "emit results as JSON")
-      .option("--timeout <seconds>", "per-check timeout", "300")
-      .option("--app-env <environment>", "run against this environment instead of production")
-      .option(
-        "--browser",
-        "also load the app in headless Chromium, in --app-env, and prove it mounted (needs Playwright)"
-      )
-      .option(
-        "--expect-selector <css>",
-        "with --browser: a selector that must be visible once the app is ready"
-      )
-  ).action(async (app: string, opts: Record<string, unknown>) => {
-    await runChecks(createContext(globals(opts)), app, {
-      json: Boolean(opts.json),
-      timeoutSeconds: Number(opts.timeout),
-      appEnv: opts.appEnv as string | undefined,
-      browser: Boolean(opts.browser),
-      expectSelector: opts.expectSelector as string | undefined
-    });
-  });
+  registerChecks(program, { withGlobals, globals });
 
   const env = program
     .command("env")
@@ -1277,6 +1251,11 @@ function buildProgram(): Command {
         "--break-listeners",
         "promote over production event listeners this build breaks; audited"
       )
+      .option(
+        "--override-checks <reason>",
+        "promote past the build's checks, saying why (10 characters or more); an org owner or admin only, audited"
+      )
+      .option("--no-wait", "do not wait for production's check after the move")
       .option("--dry-run", "print the plan and stop")
       .option("--yes", "act without asking — needed off a terminal")
       .option("--json", "emit the server's plan as JSON")
@@ -1287,7 +1266,15 @@ function buildProgram(): Command {
           "required secrets production has no value for. A blocker refuses the promote\n" +
           "(exit 6). Without --yes it asks on a terminal; off one it exits 8. The act sends\n" +
           "the plan's build back, and is refused (target_moved) if the target moved since.\n" +
-          "A sandbox build reaches production only through staging.\n"
+          "A sandbox build reaches production only through staging.\n" +
+          "\nWhere the app's org holds promotes on a build's checks, the plan lists each check\n" +
+          "(the required ones marked) and three blockers come from them: checks_not_passed,\n" +
+          "checks_running and changes_not_seen, each followed by what to do next.\n" +
+          '--override-checks "<reason>" promotes past those three and nothing else. After the\n' +
+          "move the command waits up to 5 minutes for production's own check and prints it.\n" +
+          "\nExit 0 moved (production's check passed, was not waited for, or had no verdict in\n" +
+          "time: a warning says which); 9 moved, and production's check failed; 6 a blocker,\n" +
+          "or a refused request; 8 not confirmed; 2 a bad flag (a reason under 10 characters).\n"
       )
   ).action(async (app: string, opts: Record<string, unknown>) => {
     await runPromote(createContext(globals(opts)), app, {
@@ -1295,6 +1282,9 @@ function buildProgram(): Command {
       build: opts.build as string | undefined,
       removeSchedules: opts.removeSchedule as string[] | undefined,
       breakListeners: Boolean(opts.breakListeners) || undefined,
+      overrideChecks: opts.overrideChecks as string | undefined,
+      // Commander's `--no-wait` sets `wait` to false; it is true when the flag is absent.
+      noWait: opts.wait === false,
       dryRun: Boolean(opts.dryRun),
       yes: Boolean(opts.yes),
       json: Boolean(opts.json)
@@ -2279,8 +2269,9 @@ const EXIT_CODE_HELP = `0  success
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`,
-   \`oxyc looker test\`, \`oxyc evals run --min-accuracy\`, \`oxyc validate\`)
+9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc checks show\`, \`oxyc bootstrap verify\`,
+   \`oxyc looker test\`, \`oxyc evals run --min-accuracy\`, \`oxyc validate\`; \`oxyc promote\` when production
+   moved and its check after the promote failed)
 `;
 
 /**

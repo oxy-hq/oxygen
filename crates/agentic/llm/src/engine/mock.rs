@@ -1,6 +1,7 @@
 //! The scripted provider the engine tests run against: a copy of
 //! `crate::tests::MockProvider`, extended to fail at open and to record what
-//! it was sent. Test-only, not exported.
+//! it was sent. Test-only, not exported; the image input tests script it too
+//! (`crate::images::tests`), as a provider that has no image input.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -15,20 +16,20 @@ use crate::{Chunk, ContentBlock, LlmError, LlmProvider, ResponseSchema, Thinking
 // ── MockProvider (copied from `crate::tests`, extended; not exported) ──────
 
 /// One scripted `stream` call: fail at open, or yield these chunks.
-pub(super) enum Round {
+pub(crate) enum Round {
     Open(LlmError),
     Chunks(Vec<Result<Chunk, LlmError>>),
 }
 
 #[derive(Default)]
-pub(super) struct Seen {
+pub(crate) struct Seen {
     pub messages: Vec<Vec<Value>>,
     pub max_tokens: Vec<Option<u32>>,
     pub date_suffixes: Vec<String>,
 }
 
 /// Pops one [`Round`] per `stream` call and records what it was sent.
-pub(super) struct MockProvider {
+pub(crate) struct MockProvider {
     pub rounds: Mutex<VecDeque<Round>>,
     pub seen: Arc<Mutex<Seen>>,
 }

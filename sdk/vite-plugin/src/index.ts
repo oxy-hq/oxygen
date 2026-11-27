@@ -39,7 +39,8 @@
  *      `window.__OXY_APP__` into served HTML (transformIndexHtml) so the
  *      SDK has identity in `pnpm dev` with no config file. OXY_* env vars
  *      still override any field for advanced setups. A manifest with no
- *      `orgSlug` is told exactly which flag fills the gap.
+ *      `orgSlug` is told exactly which flag fills the gap. A Vitest run
+ *      skips the lookup: no test needs a project, nor a request to oxy.
  *   6. Defaults `server.proxy["/api"]` to OXY_TARGET (or OXY_BASE_URL,
  *      default http://localhost:3000) and, when OXY_TOKEN is set,
  *      attaches it as a bearer on proxied calls (node-side only).
@@ -284,7 +285,13 @@ export default function oxyApp(opts: OxyAppPluginOptions = {}): Plugin {
     // everything window.__OXY_APP__ needs. Best-effort: a failure just
     // leaves projectId empty and the shim is skipped (with a warning).
     async buildStart() {
-      if (resolvedConfig?.command !== "serve" || !injectDevShim) return;
+      // Vitest runs Vite as a dev server as well, so without the VITEST test
+      // every scaffold's `vitest run` asks OXY_TARGET (by default a developer's
+      // own localhost:3000) for a project no test needs. VITEST, which Vitest
+      // sets before it creates the server, rather than `mode === "test"`:
+      // `vitest --mode <name>` changes the mode, and `vite --mode test` is a
+      // real dev server that wants the lookup.
+      if (resolvedConfig?.command !== "serve" || !injectDevShim || process.env.VITEST) return;
       if (!devIdentity || devIdentity.projectId || !devIdentity.appSlug) return;
       // No org, no lookup: `config` has already said which flag fills it.
       if (!devIdentity.orgSlug) return;

@@ -3,7 +3,8 @@
 //! One query per subject kind on a page: workspaces by id, runs by id (plus
 //! one for their failing streaks), Ask runs by id, Ask suspensions by run (one
 //! query for the runs, one for their suspensions), anomaly buckets by event,
-//! CLI device requests by user code. A billing episode needs no query — its id is the
+//! CLI device requests by user code, failed production checks by row (with
+//! their apps and builds). A billing episode needs no query — its id is the
 //! end of the grace period, which is the one fact the notice states — and a
 //! test notice needs one only to name the token that sent it.
 
@@ -18,8 +19,8 @@ use uuid::Uuid;
 
 use super::kinds::{
     SUBJECT_AIRWAY_RUN, SUBJECT_ANALYTICS_RUN, SUBJECT_ANALYTICS_SUSPENSION, SUBJECT_ANOMALY,
-    SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST, SUBJECT_TEST,
-    SUBJECT_WORKSPACE,
+    SUBJECT_APP_BUILD_CHECK, SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST,
+    SUBJECT_TEST, SUBJECT_WORKSPACE,
 };
 use super::render::About;
 use super::run_streak::Streak;
@@ -55,6 +56,8 @@ pub enum Record {
     Ask(super::ask_finished::AskRecord),
     /// One suspension of an Ask run someone asked to hear about.
     AskWaiting(super::ask_waiting::AskWaitingRecord),
+    /// A custom app's failed production check.
+    ProductionCheck(super::production_check::ProductionCheckRecord),
 }
 
 /// A failed automation or Airway run.
@@ -168,6 +171,16 @@ pub async fn load(
     for (id, record) in anomalies_by_event(db, ids(SUBJECT_ANOMALY)).await? {
         out.insert((SUBJECT_ANOMALY, id), Record::Anomaly(record));
     }
+    load_by_module(db, &ids, &mut out).await?;
+    Ok(out)
+}
+
+/// The subjects whose own module loads them, each filed under its kind.
+async fn load_by_module(
+    db: &DatabaseConnection,
+    ids: &impl Fn(&str) -> Vec<String>,
+    out: &mut HashMap<(&'static str, String), Record>,
+) -> Result<(), DbErr> {
     for (id, record) in super::cli_approval::load(db, ids(SUBJECT_CLI_DEVICE_REQUEST)).await? {
         out.insert((SUBJECT_CLI_DEVICE_REQUEST, id), record);
     }
@@ -180,7 +193,10 @@ pub async fn load(
     for (id, record) in super::ask_waiting::load(db, ids(SUBJECT_ANALYTICS_SUSPENSION)).await? {
         out.insert((SUBJECT_ANALYTICS_SUSPENSION, id), record);
     }
-    Ok(out)
+    for (id, record) in super::production_check::load(db, ids(SUBJECT_APP_BUILD_CHECK)).await? {
+        out.insert((SUBJECT_APP_BUILD_CHECK, id), record);
+    }
+    Ok(())
 }
 
 fn uuids(ids: &[String]) -> Vec<Uuid> {

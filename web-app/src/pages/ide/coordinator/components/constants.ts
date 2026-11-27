@@ -209,7 +209,8 @@ export const sourceTypeToJobType = (source: string | null | undefined): JobType 
 /** Run source_types that are internal daemons, not user-scheduled jobs.
  *  `app_events_relay` moves an org's published custom-app events onto the
  *  queue: platform plumbing, filed in one of the org's app workspaces. Must
- *  match the backend's `SYSTEM_SOURCE_TYPES` (agentic runtime `queries.rs`). */
+ *  match the backend's `SYSTEM_SOURCE_TYPES` (agentic runtime
+ *  `lifecycle/crud/system_sources.rs`). */
 const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "preagg_cycle",
   "preview_analyze",
@@ -226,6 +227,9 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "app_events_relay",
   "app_table_watch",
   "oltp_changes_relay",
+  "custom_app_build_checks",
+  "custom_app_production_check_failed",
+  "custom_app_build_checks_ai",
   "react_memory_merge"
 ];
 

@@ -79,8 +79,12 @@ const EMPTY: SeriesGeometry = {
   y: () => 0
 };
 
+/** How far in from the box's edges the points sit: one pad for every edge, or the left and right
+ *  (`x`) apart from the top and bottom (`y`), for bars, whose points are their centres. */
+export type SeriesPad = number | { x: number; y: number };
+
 /**
- * The two series as SVG paths in a `width` x `height` box, `pad` in from every edge, on one
+ * The two series as SVG paths in a `width` x `height` box, `pad` in from the edges, on one
  * y-scale: `domain` when given, else both series' own extent. A point with no comparison is a gap
  * in the comparison's line (none at all: no line). `at`, given, places each point by its own key
  * (a timestamp) across the width, rather than evenly by index.
@@ -89,16 +93,18 @@ export function seriesGeometry(
   points: readonly SparkPoint[],
   width: number,
   height: number,
-  pad = 2,
+  pad: SeriesPad = 2,
   domain?: readonly [number, number],
   at?: readonly number[]
 ): SeriesGeometry {
   if (points.length === 0) return EMPTY;
+  const padX = typeof pad === "number" ? pad : pad.x;
+  const padY = typeof pad === "number" ? pad : pad.y;
   const values = points.flatMap((p) => (hasPeer(p) ? [p.observedPct, p.peerPct] : [p.observedPct]));
   const min = domain ? domain[0] : Math.min(...values);
   const max = domain ? domain[1] : Math.max(...values);
   const range = max - min;
-  const innerH = height - pad * 2;
+  const innerH = height - padY * 2;
   const keyed = at && at.length === points.length ? at : null;
   const k0 = keyed ? Math.min(...keyed) : 0;
   const k1 = keyed ? Math.max(...keyed) : 0;
@@ -106,11 +112,12 @@ export function seriesGeometry(
     keyed
       ? k1 === k0
         ? width / 2
-        : pad + ((keyed[i] - k0) * (width - pad * 2)) / (k1 - k0)
+        : padX + ((keyed[i] - k0) * (width - padX * 2)) / (k1 - k0)
       : points.length === 1
         ? width / 2
-        : pad + (i * (width - pad * 2)) / (points.length - 1);
-  const y = (v: number) => (range === 0 ? height / 2 : pad + innerH - ((v - min) / range) * innerH);
+        : padX + (i * (width - padX * 2)) / (points.length - 1);
+  const y = (v: number) =>
+    range === 0 ? height / 2 : padY + innerH - ((v - min) / range) * innerH;
   const xy = (i: number, v: number) => ({ x: x(i), y: y(v) });
   const move = (p: XY) => `M${p.x.toFixed(2)},${p.y.toFixed(2)}`;
   const line = (p: XY) => `L${p.x.toFixed(2)},${p.y.toFixed(2)}`;

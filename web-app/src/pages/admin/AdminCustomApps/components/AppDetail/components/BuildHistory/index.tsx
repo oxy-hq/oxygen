@@ -1,4 +1,6 @@
+import { ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/shadcn/badge";
+import { Button } from "@/components/ui/shadcn/button";
 import { useAppBuilds } from "@/hooks/api/customApps/useAppBuilds";
 import { useAppPublishAttempts } from "@/hooks/api/customApps/useAppPublishAttempts";
 import { cn } from "@/libs/shadcn/utils";
@@ -42,7 +44,14 @@ function timeAgo(iso: string): string {
  * verbs now ("Promote to production", "Roll back to…"), and this is the ledger they choose
  * from. Empty for legacy rows never published via `oxyc publish`.
  */
-export const BuildHistory = ({ appId }: { appId: string }) => {
+export const BuildHistory = ({
+  appId,
+  onOpenChecks
+}: {
+  appId: string;
+  /** When given, each build offers "Checks", which shows that build's checks. */
+  onOpenChecks?: (build: AppBuild) => void;
+}) => {
   const { data, isLoading, error } = useAppBuilds(appId);
   const builds = data?.builds;
   // Each build's stage timings, from the attempt that landed it. A build older than
@@ -115,6 +124,18 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
                 testId={`admin-app-build-${shortBuildId(b.build_id)}-stages`}
               />
             </div>
+            {onOpenChecks && (
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-6 shrink-0 gap-1 self-start px-2 text-muted-foreground text-xs'
+                onClick={() => onOpenChecks(b)}
+                data-testid={`admin-app-build-${shortBuildId(b.build_id)}-checks`}
+              >
+                <ListChecks className='size-3' />
+                Checks
+              </Button>
+            )}
           </li>
         ))}
       </ul>

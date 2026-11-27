@@ -4,9 +4,10 @@ import { usePublishApp, useUnpublishApp } from "@/hooks/api/customApps/useCustom
 import { useMoveProduction } from "@/hooks/api/customApps/useProductionMove";
 import { errMessage } from "@/hooks/api/errMessage";
 import { useSetAppPublished } from "@/hooks/api/partners";
-import type { MovePlan, MoveTarget } from "@/types/appPromote";
+import type { MoveOverride, MovePlan, MoveTarget } from "@/types/appPromote";
 import type { AppBuild } from "@/types/apps";
 import { shortBuildId } from "./lifecycleCopy";
+import { overrideRefusal } from "./planChecks";
 
 /**
  * What a surface can *do* to an app's lifecycle. The card renders a control for each
@@ -18,8 +19,9 @@ import { shortBuildId } from "./lifecycleCopy";
  * success and stay open (with the error toasted) on failure.
  */
 export interface LifecycleActions {
-  /** Point the live channel at the draft build (`POST /customer-apps/{id}/publish`). */
-  promoteDraft?: () => Promise<void>;
+  /** Point the live channel at the draft build (`POST /customer-apps/{id}/publish`).
+   *  `override` promotes past the build's checks with a written reason. */
+  promoteDraft?: (override?: MoveOverride) => Promise<void>;
   /** First publish; same endpoint, read differently by an app with nothing live. */
   publish?: () => Promise<void>;
   /** Move the live pointer to a retained build. Only its `app_builds.id` is read, so
@@ -55,7 +57,12 @@ export function useAdminLifecycleActions(appId: string, planned?: PlannedMove): 
   const plannedRef = useRef(planned);
   plannedRef.current = planned;
 
-  const act = async (act: MoveTarget["act"], buildId: string | null, failure: string) => {
+  const act = async (
+    act: MoveTarget["act"],
+    buildId: string | null,
+    failure: string,
+    override?: MoveOverride
+  ) => {
     const planned = plannedRef.current;
     const matches =
       planned?.target.act === act && (buildId === null || planned.target.buildId === buildId);
@@ -64,17 +71,18 @@ export function useAdminLifecycleActions(appId: string, planned?: PlannedMove): 
       throw new Error("no plan for this move");
     }
     try {
-      await move.mutateAsync(planned);
+      await move.mutateAsync(override ? { ...planned, override } : planned);
       toast.success(`Build ${shortBuildId(planned.plan.build.build_id)} is now live.`);
     } catch (err) {
-      toast.error(errMessage(err, failure));
+      // A refused override is said under the reason it was written with, not toasted.
+      if (overrideRefusal(err) === null) toast.error(errMessage(err, failure));
       throw err;
     }
   };
 
   return {
     // The draft the confirm planned, whichever it was: the card names no build here.
-    promoteDraft: () => act("promote", null, "Couldn't promote the draft"),
+    promoteDraft: (override) => act("promote", null, "Couldn't promote the draft", override),
     publish: async () => {
       await publish.mutateAsync(appId);
     },

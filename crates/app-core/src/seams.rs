@@ -561,7 +561,7 @@ pub struct SurfaceSeams {
 /// process whose seams lack the executor refuses to start, rather than fail
 /// every ask as an unknown kind; `agentic-pipeline`'s recovery and the chat
 /// executor name the same string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 10] = [
+pub const CUSTOM_APP_TASK_KINDS: [&str; 13] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
@@ -579,6 +579,21 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 10] = [
     // The table tracker: queued by a host write's nudge and by its sweep, so
     // a process without its executor would leave every table change unread.
     "app_table_watch",
+    // A build's promote checks: queued by every move that makes staging serve
+    // a build. Its executor starts the checks' runner, so a process without
+    // it would leave every staging build unchecked until someone ran its
+    // checks by hand.
+    "custom_app_build_checks",
+    // What follows a failed production check: the notice, and the automatic
+    // rollback where an app asks for one. Queued by the report that stored
+    // the failure, so a process without its executor would leave a broken
+    // production unannounced and never rolled back.
+    "custom_app_production_check_failed",
+    // The advisory notes a workspace's own model writes on a build's checks:
+    // queued when a staging attempt settles, where the org's gate is on. A
+    // process without its executor would fail every one as an unknown kind,
+    // and no build would get its notes.
+    "custom_app_build_checks_ai",
 ];
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
@@ -775,7 +790,7 @@ mod tests {
     /// The persisted task-queue contract: these strings are in
     /// `agentic_task_queue` rows, so a change here strands queued work.
     #[test]
-    fn the_required_task_kinds_are_the_nine_the_fleet_knows() {
+    fn the_required_task_kinds_are_the_ones_the_fleet_knows() {
         assert_eq!(
             CUSTOM_APP_TASK_KINDS,
             [
@@ -789,6 +804,9 @@ mod tests {
                 "custom_app_procedure_run",
                 "app_events_relay",
                 "app_table_watch",
+                "custom_app_build_checks",
+                "custom_app_production_check_failed",
+                "custom_app_build_checks_ai",
             ]
         );
     }

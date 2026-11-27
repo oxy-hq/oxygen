@@ -41,6 +41,19 @@ pub async fn check_custom_app_gates(
         .map_err(|e| gate_error_response(&e))
 }
 
+/// [`check_custom_app_gates`] for the reads that also admit the platform
+/// checker on an app's staging and its production (`/query`,
+/// `/semantic-query`, `shell-context`):
+/// `oxy_custom_apps::gate::check_custom_app_read_gates`.
+pub async fn check_custom_app_read_gates(
+    headers: &HeaderMap,
+    project_id: Uuid,
+) -> Result<CustomAppContext, Response> {
+    oxy_custom_apps::gate::check_custom_app_read_gates(headers, project_id)
+        .await
+        .map_err(|e| gate_error_response(&e))
+}
+
 /// What [`CustomAppContext`] needs from the workspace runtime: the project
 /// context built from the gate's answer (`CustomAppContext::gated`, the one
 /// place that answer is built). It is a trait because the type lives below

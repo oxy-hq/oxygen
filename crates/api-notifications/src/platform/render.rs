@@ -19,9 +19,10 @@ use uuid::Uuid;
 
 use super::kinds::{
     self, ANOMALY, ASK_FAILED, ASK_FINISHED, ASK_WAITING, BILLING_PAST_DUE, CLI_APPROVAL,
-    RUN_FAILED, SUBJECT_AIRWAY_RUN, SUBJECT_ANALYTICS_RUN, SUBJECT_ANALYTICS_SUSPENSION,
-    SUBJECT_ANOMALY, SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST,
-    SUBJECT_TEST, SUBJECT_WORKSPACE, TEST, WORKSPACE_READY,
+    PRODUCTION_CHECK_FAILED, RUN_FAILED, SUBJECT_AIRWAY_RUN, SUBJECT_ANALYTICS_RUN,
+    SUBJECT_ANALYTICS_SUSPENSION, SUBJECT_ANOMALY, SUBJECT_APP_BUILD_CHECK, SUBJECT_AUTOMATION_RUN,
+    SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST, SUBJECT_TEST, SUBJECT_WORKSPACE, TEST,
+    WORKSPACE_READY,
 };
 use super::subjects;
 
@@ -135,6 +136,7 @@ pub fn fallback(kind: &str) -> Rendered {
         TEST => super::self_test::TITLE,
         ASK_FINISHED | ASK_FAILED => super::ask_finished::title(kind),
         ASK_WAITING => super::ask_waiting::TITLE,
+        PRODUCTION_CHECK_FAILED => "An app shows new errors on production",
         _ => "Oxygen notice",
     };
     Rendered {
@@ -217,6 +219,9 @@ fn words(about: &About, org: Option<&OrgNames>, record: &subjects::Record) -> Op
         }
         (SUBJECT_ANALYTICS_SUSPENSION, Record::AskWaiting(w)) => {
             Some(super::ask_waiting::words(w, slug))
+        }
+        (SUBJECT_APP_BUILD_CHECK, Record::ProductionCheck(check)) => {
+            Some(super::production_check::words(check, slug))
         }
         _ => None,
     }

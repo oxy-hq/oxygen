@@ -87,6 +87,37 @@ schema, the two server name rules (`isValidSlug`, `isValidFunctionName`) and
 `@oxy-hq/vite-plugin` and this SDK's own loader all run. An unknown field is
 a warning from it, never a refusal.
 
+### Screens for the promote checks (`checks.screens`)
+
+The platform's promote checks open every screen of a build on staging
+(**Every screen opens**, and **What changed**, which compares each with
+production). `checks.screens` says which screens the app has:
+
+```json
+{
+  "schemaVersion": 2,
+  "slug": "store-pulse",
+  "checks": { "screens": ["", "stores", "reorder/plans"] }
+}
+```
+
+| Rule | |
+| --- | --- |
+| An entry | A path relative to the app's root; `""` is the root itself. An app that picks its screen by a query declares the query: `"?module=waste"`, `"stores?tab=open"`. |
+| Refused in an entry | A leading slash (`/stores`), a hash (`stores#top`), `..` in the path, a scheme (`https://…`, `mailto:…`), an empty query (`stores?`) or one with a space in it, more than 256 characters, anything that is not a string. |
+| The list | At most 30 entries, each listed once. |
+
+`checks` and `checks.screens` are both optional. With none declared, the
+checker reads the root page's links to other pages of the app and clicks
+nothing, so a screen reached only by a button or a tab is not found: declare
+it. A screen that needs a record to exist should be declared with a path that
+exists on staging and on production, or left out.
+
+`validateOxyAppManifest` refuses a bad entry by its position
+(`checks.screens.1`), and `@oxy-hq/sdk/manifest` exports the rule:
+`isValidScreenPath`, `SCREEN_PATH_PATTERN`, `SCREEN_PATH_MAX_LEN`,
+`SCREENS_MAX`.
+
 When oxy serves the bundle it injects the authoritative identity as
 `window.__OXY_APP__`; `OxyAppProvider` reads injection first and the manifest
 second. There is **no API key in the bundle** — requests are authorized by the
@@ -788,6 +819,23 @@ Give it file names and let it read them. Vitest hands a test an empty string for
 CSS import, `?raw` included, so `checkThemeCss` fed from
 `import.meta.glob("…", { query: "?raw" })` checks nothing; pass the glob's keys (the
 paths) instead.
+
+That is the guard on an app's **source** CSS. `checkThemeCss(sources, { built: true })`
+reads an app's **built** CSS instead (Vite + Tailwind v4 output, with the SDK's own
+stylesheets bundled in), which is what the platform's design-system check holds. Four
+readings are added: a rule inside `@layer theme` (what Tailwind compiles `@theme` into)
+is read as inside `@theme`; so is an unlayered rule whose selector is exactly
+`:root, :host`, which is where Tailwind writes its compiled `@theme` when
+`@oxy-hq/sdk/tailwind.css` is imported before `tailwindcss`; a rule that is one of the
+SDK's own is skipped, for its selector and for each declaration the SDK makes there;
+and selectors are read with their CSS escapes, so `.dark\:bg-card` is no `.dark` and
+the `:is(.dark *)` a `dark:` utility carries is allowed. Same rules, same messages; an
+app's own `@theme` alias (`--color-card: var(--card)`), allowed as source, is not
+reported once built. `@oxy-hq/sdk/theme-guard` exports the guard alone
+(`checkThemeCss`, `formatThemeFindings`, `SDK_THEME_NAMES`) for a Node tool that
+wants it without the rest of `@oxy-hq/sdk/testing`. The SDK's own rules come from
+`src/testing/themeGuardSdkRules.gen.json`, generated from the SDK's stylesheets
+(`pnpm gen:theme-guard-rules`, pinned by a test).
 
 ### The no-copy guard (`checkSdkUiCopies`, `@oxy-hq/sdk/testing`)
 

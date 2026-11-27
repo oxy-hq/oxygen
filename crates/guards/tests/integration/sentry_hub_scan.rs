@@ -420,6 +420,9 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// any of them *is* the custom-app identity ([`mark_custom_app_surface`]),
 /// so a file whose production code calls one is on the data plane and the
 /// walk below reads it. `check_custom_app_gates` is the gate;
+/// `check_custom_app_read_gates` is the same gate for the two read endpoints
+/// (`/query`, `/semantic-query`), which also admit the platform checker on
+/// staging, and is the only name those two handlers call;
 /// `mark_custom_app_surface` is what it tags the hub with; and
 /// `enter_semantic_boundary` wraps the gate for the semantic-analysis
 /// surfaces (metric tree, cohort, world model, projection), whose handlers
@@ -435,8 +438,9 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// how the metric-tree baseline and the cohort read shipped their warehouse
 /// queries on bare `spawn_blocking`s. `gate_entry_points_are_complete`
 /// derives that set from the source and fails on an unlisted one.
-const GATE_ENTRY_POINTS: [&str; 4] = [
+const GATE_ENTRY_POINTS: [&str; 5] = [
     "check_custom_app_gates",
+    "check_custom_app_read_gates",
     "mark_custom_app_surface",
     "enter_semantic_boundary",
     "open_semantic_boundary",

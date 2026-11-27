@@ -44,7 +44,7 @@ fn the_sandbox_and_relay_task_kinds_are_platform_daemons_in_every_list() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for (file, list) in [
         (
-            "../agentic/runtime/src/lifecycle/crud/queries.rs",
+            "../agentic/runtime/src/lifecycle/crud/system_sources.rs",
             "pub const SYSTEM_SOURCE_TYPES: &[&str] = &[",
         ),
         (

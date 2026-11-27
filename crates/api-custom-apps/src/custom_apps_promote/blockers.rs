@@ -9,6 +9,7 @@
 //! | `required_secrets_unset` | a production **promote** to a build declaring a `required` key production has no value for. A rollback, the emergency path, only warns |
 //! | `schedule_removal_unconfirmed` | production's move would retire a registered schedule the request did not name in `confirm_schedule_removals` — a rollback too |
 //! | `same_person_promote` | a production **promote** by the identity that published the build, while the app requires a second person (`second_person`). A rollback, the emergency path, is exempt when production served its target before — every `oxyc rollback` target did; the console's rollback to a build production never served is refused by the production move itself |
+//! | `checks_not_passed`, `checks_running`, `changes_not_seen` | a production **promote** while the checks the app requires hold it (`checks_gate`), where the org's `promote_checks_gate` flag is on. A rollback is exempt; an accepted override (`checks_override`) clears these three and no other |
 //!
 //! A promoting publish (`oxyc publish --promote`) meets the same table as a
 //! promote, before anything of it lands (`custom_apps_publish::production_gate`).
@@ -18,6 +19,7 @@ use super::error::{
     STAGING_NEVER_SERVED, VALIDATION_NOT_PASSED,
 };
 
+use super::checks_gate::Checks;
 use crate::custom_apps_build_state::{PromoteRefusal, Validation};
 
 /// Which verb is planned.
@@ -55,6 +57,11 @@ pub struct ProductionFacts<'a> {
     /// Whoever moves production is the identity that published the build
     /// (`second_person::Identity::is`).
     pub mover_published: bool,
+    /// Where the build stands against the checks the app requires
+    /// (`checks_gate::read`); `None` where the promote checks gate is off.
+    pub checks: Option<&'a Checks>,
+    /// The request carried an accepted `override_checks` (`checks_override`).
+    pub checks_overridden: bool,
 }
 
 /// The blockers of a production move, in the order of the table above, and
@@ -102,6 +109,14 @@ pub fn evaluate(facts: ProductionFacts<'_>) -> (Vec<Blocker>, Vec<String>) {
     }
     if facts.act == Act::Promote && facts.second_person_required && facts.mover_published {
         blockers.push(same_person_promote(facts.build_label));
+    }
+    // The checks hold a promote only: a rollback is the emergency path. An
+    // override clears these three and nothing above.
+    if let Some(checks) = facts.checks
+        && facts.act == Act::Promote
+        && !facts.checks_overridden
+    {
+        blockers.extend(checks.blockers(facts.build_label));
     }
     (blockers, warnings)
 }
@@ -169,6 +184,8 @@ mod tests {
             confirmed_removals: &[],
             second_person_required: false,
             mover_published: false,
+            checks: None,
+            checks_overridden: false,
         }
     }
 
@@ -278,6 +295,41 @@ mod tests {
             ..facts(Act::Rollback)
         });
         assert!(blockers.is_empty() && warnings.is_empty());
+    }
+
+    /// The promote checks hold a promote, after every other blocker; a
+    /// rollback is exempt; an override clears them and nothing else.
+    #[test]
+    fn the_checks_hold_a_promote_only_and_an_override_clears_only_them() {
+        use super::super::checks_gate;
+        use super::super::error::{CHANGES_NOT_SEEN, CHECKS_NOT_PASSED};
+        use crate::custom_apps_build_checks::settings::Settings;
+
+        // A build never checked, in an app that also asks for a person's look.
+        let asking = Settings {
+            seen_required: true,
+            ..Settings::default()
+        };
+        let unchecked = checks_gate::evaluate(&asking, Vec::new(), chrono::Utc::now());
+        let held = |act, overridden| {
+            let (blockers, _) = evaluate(ProductionFacts {
+                validation: &Validation::of("failed"),
+                checks: Some(&unchecked),
+                checks_overridden: overridden,
+                ..facts(act)
+            });
+            codes(&blockers)
+        };
+        assert_eq!(
+            held(Act::Promote, false),
+            vec![VALIDATION_NOT_PASSED, CHECKS_NOT_PASSED, CHANGES_NOT_SEEN]
+        );
+        assert_eq!(held(Act::Promote, true), vec![VALIDATION_NOT_PASSED]);
+        assert_eq!(held(Act::Rollback, false), vec![VALIDATION_NOT_PASSED]);
+
+        // Gate off: no facts, nothing held.
+        let (blockers, _) = evaluate(facts(Act::Promote));
+        assert!(blockers.is_empty());
     }
 
     /// The sentence names the build and the way forward.

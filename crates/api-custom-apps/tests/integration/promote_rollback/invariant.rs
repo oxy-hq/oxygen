@@ -82,6 +82,7 @@ async fn the_move_asks_again_under_the_app_row_lock() {
         expect_current: Some(Some(prod)),
         refuse_same: true,
         break_listeners: false,
+        checks: Default::default(),
     };
 
     // Production moves under the lock: the plan's `expect_current` is stale.

@@ -12,7 +12,8 @@ use super::constants::DEFAULT_MODEL;
 pub(crate) const LLM_OUTPUT_PREVIEW_MAX_CHARS: usize = 2000;
 use super::genai::{self, GenAiContext, InferenceRequest};
 use super::{
-    AnthropicProvider, Chunk, LlmError, LlmProvider, OpenAiCompatProvider, ThinkingConfig, Usage,
+    AnthropicProvider, Chunk, ImageWire, LlmError, LlmProvider, OpenAiCompatProvider,
+    ThinkingConfig, Usage,
 };
 use tracing::Instrument as _;
 
@@ -40,6 +41,9 @@ pub struct LlmClient {
     provider: Arc<dyn LlmProvider>,
     /// Stamped on every inference span — see [`GenAiContext`].
     genai: Arc<GenAiContext>,
+    /// How the provider is sent pictures; `None` when it takes none
+    /// (`crate::images`).
+    image_wire: Option<ImageWire>,
 }
 
 impl LlmClient {
@@ -69,6 +73,7 @@ impl LlmClient {
     /// Create a client backed by a fully custom provider.
     pub fn with_provider(provider: impl LlmProvider + 'static) -> Self {
         Self {
+            image_wire: ImageWire::of(&provider),
             provider: Arc::new(provider),
             genai: Arc::new(GenAiContext::default()),
         }
@@ -365,6 +370,7 @@ impl LlmClient {
     }
 }
 
+mod images;
 mod tool_loop;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

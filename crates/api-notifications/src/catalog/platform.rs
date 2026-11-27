@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use super::model::{Action, Catalogue, CategoryDef, KindDef, Level};
 use super::source::{Audience, Source, SourceCatalogue};
 use crate::platform::kinds::{
-    ANOMALY, ASK_FAILED, ASK_FINISHED, ASK_WAITING, BILLING_PAST_DUE, CLI_APPROVAL, RUN_FAILED,
-    TEST, WORKSPACE_READY,
+    ANOMALY, ASK_FAILED, ASK_FINISHED, ASK_WAITING, BILLING_PAST_DUE, CLI_APPROVAL,
+    PRODUCTION_CHECK_FAILED, RUN_FAILED, TEST, WORKSPACE_READY,
 };
 use crate::platform::self_test::TITLE as TEST_TITLE;
 
@@ -26,7 +26,7 @@ use crate::platform::self_test::TITLE as TEST_TITLE;
 /// wish: `billing_past_due` is `Owners` because `api-billing` sends it to owners
 /// and nobody else, and the unit test below asserts that pairing rather than
 /// trusting this comment.
-const PLATFORM: [(&str, &str, &str, &str, Level, Audience); 8] = [
+const PLATFORM: [(&str, &str, &str, &str, Level, Audience); 9] = [
     (
         BILLING_PAST_DUE,
         "Payment past due",
@@ -105,6 +105,18 @@ const PLATFORM: [(&str, &str, &str, &str, Level, Audience); 8] = [
         Level::Active,
         Audience::Addressed,
     ),
+    // A build that just went live shows new errors on production: the first
+    // kind of an app's own health. `Addressed`, because it goes to named
+    // people (whoever moved production, and the org's owners and admins) and
+    // the mover need not be an officer: a standing would hide it from them.
+    (
+        PRODUCTION_CHECK_FAILED,
+        "Production check failed",
+        APPS,
+        "App health",
+        Level::TimeSensitive,
+        Audience::Addressed,
+    ),
 ];
 
 /// The category a custom app's own health will be told in; see [`oxygen`].
@@ -145,11 +157,10 @@ pub fn oxygen() -> SourceCatalogue {
         );
         audiences.insert(kind.to_string(), audience);
     }
-    // Reserved for a custom app's own health — a dead-lettered function, a
-    // failed deployment — which Oxygen does not tell anyone about yet. A
-    // category with no kinds draws nothing (`tree::shape` keeps only the paths
-    // its kinds are in), so declaring the label now costs nothing and spares the
-    // first such kind from having to choose where it goes.
+    // A custom app's own health. Its first kind is the production check's
+    // notice (in `PLATFORM`); a dead-lettered function and a failed deployment
+    // are not told to anyone yet. The label is declared here as well so the
+    // category reads the same whichever kind names it.
     categories.insert(
         APPS.to_string(),
         CategoryDef {
@@ -192,7 +203,7 @@ mod tests {
     /// draft of the design classified billing as "owners and admins" when
     /// `api-billing` sends it to owners alone, and nothing would have caught
     /// it. Changing a row means going and reading the named file first.
-    const RECIPIENTS: [(&str, Audience, &str); 9] = [
+    const RECIPIENTS: [(&str, Audience, &str); 10] = [
         (
             BILLING_PAST_DUE,
             Audience::Owners,
@@ -243,6 +254,13 @@ mod tests {
             "platform/self_test.rs: the person who pressed the button, and it \
              must work for anyone",
         ),
+        (
+            PRODUCTION_CHECK_FAILED,
+            Audience::Addressed,
+            "api-custom-apps' custom_apps_build_checks/production/followup.rs \
+             recipients(): whoever moved production, by id, and the org's \
+             owners and admins; the mover need not be an officer",
+        ),
     ];
 
     #[test]
@@ -273,15 +291,20 @@ mod tests {
     }
 
     #[test]
-    fn the_reserved_app_health_category_is_labelled_and_holds_nothing_yet() {
+    fn the_app_health_category_is_labelled_and_holds_the_production_check_alone() {
         let c = oxygen();
         assert_eq!(c.label_of(APPS), "App health");
-        assert!(
-            !c.catalogue
-                .kinds
-                .values()
-                .any(|k| k.category.as_deref() == Some(APPS)),
-            "a kind would have to pick an audience; none exists yet"
+        let in_it: Vec<&str> = c
+            .catalogue
+            .kinds
+            .iter()
+            .filter(|(_, k)| k.category.as_deref() == Some(APPS))
+            .map(|(kind, _)| kind.as_str())
+            .collect();
+        assert_eq!(
+            in_it,
+            [PRODUCTION_CHECK_FAILED],
+            "a new kind of app health picks an audience in RECIPIENTS first"
         );
     }
 
@@ -342,6 +365,18 @@ mod tests {
                 "{kind}"
             );
         }
+        let failed = c.describe(PRODUCTION_CHECK_FAILED);
+        assert_eq!(
+            (
+                failed.label.as_str(),
+                failed.category.as_str(),
+                failed.level
+            ),
+            ("Production check failed", "apps", Level::TimeSensitive)
+        );
+        assert_eq!(failed.category_labels, vec!["App health"]);
+        assert_eq!(failed.channels, vec!["push", "email", "slack"]);
+        assert!(failed.mutable && failed.has_switch());
         let newer = c.describe("oxy.something_new");
         assert_eq!(
             (newer.category.as_str(), newer.label.as_str()),

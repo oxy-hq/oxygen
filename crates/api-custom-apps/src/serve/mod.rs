@@ -66,7 +66,7 @@ pub(crate) mod rewrite;
 mod sources;
 
 use headers::*;
-use resolve::{AppRequest, Refusal, resolve_app_request};
+use resolve::{AppRequest, Refusal, resolve_page_request};
 use sources::*;
 
 pub(crate) use sources::serve_from_s3_build;
@@ -130,15 +130,10 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
     let uri = parts.uri;
     let method = parts.method;
 
-    // A sandbox agent token reaches two shapes on this tree, on the product
-    // host and naming a `dev-*` sandbox or `staging`: `/fn`, and its sandbox's
-    // page. Asked first, before any authentication, so nothing below has to
-    // remember the kind exists. It is refused only for presenting the token,
-    // so the refusal is in the token's one body: the `404` that `/fn` answers
-    // for an app or a sandbox that is not its own.
-    if oxy_custom_apps::sandbox_reach::serve_tree_refuses(&method, &headers, &path) {
-        return oxy_app_core::agent_body::Refusal::not_found().into_response();
+    if let Some(refused) = refused_by_credential(&method, &headers, &path) {
+        return refused;
     }
+    let checker = oxy_auth::token::presents_app_checker(&headers);
 
     // Strip the leading slash that axum hands us for a `{*path}` capture
     // when the URL is `/customer-apps/`. Split lazily into the first two
@@ -237,6 +232,7 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
         headers,
         uri,
         custom_domain,
+        checker,
     };
     serve_pretty(first, app_slug, rest, request, body).await
 }
@@ -248,6 +244,12 @@ pub(crate) struct ServeRequest {
     pub(crate) uri: Uri,
     /// `Some` when the request arrived on a verified custom domain.
     pub(crate) custom_domain: Option<CustomDomainCtx>,
+    /// The request presents the platform checker's service token
+    /// (`oxy_auth::token::presents_app_checker`). **Its visits are not
+    /// usage**: on any environment a checker's request records no serve
+    /// event, no view, no session cookie, and its beacon no row
+    /// ([`ServeContext::records_usage`]).
+    pub(crate) checker: bool,
 }
 
 /// The custom-app serve path, phase by phase.
@@ -319,6 +321,8 @@ struct ServeContext {
     /// The app's own origin (a platform subdomain or a custom domain), where
     /// the app owns `/`, as opposed to the product host's subpath.
     on_app_host: bool,
+    /// The platform checker is the caller ([`ServeRequest::checker`]).
+    checker: bool,
 }
 
 impl ServeContext {
@@ -336,6 +340,7 @@ impl ServeContext {
             headers,
             uri,
             custom_domain,
+            checker,
         } = serve_request;
         let started = std::time::Instant::now();
         // 0. Which environment of the app this request addresses: the host
@@ -348,7 +353,9 @@ impl ServeContext {
         //    the caller has a valid session, so an unauthenticated probe can't
         //    distinguish a real registered (org, app) pair (302 redirect) from
         //    a fake one (404).
-        let request = resolve_app_request(
+        // The page's own resolver: the one door on this tree that also admits
+        // the platform checker to production (`Action::AppCheckProduction`).
+        let request = resolve_page_request(
             &headers,
             org_slug,
             app_slug,
@@ -367,6 +374,7 @@ impl ServeContext {
                 headers: &headers,
                 uri: &uri,
                 custom_domain: custom_domain.as_ref(),
+                checker,
             };
             refuse(refusal, at, started)
         })?;
@@ -383,8 +391,10 @@ impl ServeContext {
         //    for why those rows are not migrated.
         if let Err(e) = oxy_custom_apps::source::AppSource::from_model(&request.app) {
             tracing::error!("Bad source config for custom app {}: {e}", request.app.id);
-            EarlyExit::new(&request.app, request.user.id, &headers, &rest, started)
-                .record(StatusCode::INTERNAL_SERVER_ERROR);
+            if !checker {
+                EarlyExit::new(&request.app, request.user.id, &headers, &rest, started)
+                    .record(StatusCode::INTERNAL_SERVER_ERROR);
+            }
             return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response());
         }
         let runtime = AppRuntimeConfig::from_app(
@@ -404,7 +414,19 @@ impl ServeContext {
             uri,
             runtime,
             on_app_host,
+            checker,
         })
+    }
+
+    /// Whether this request counts as the app being used. Not the platform
+    /// checker's: its page loads, asset reads and beacons are the platform
+    /// looking at a build, on staging and on production alike, so they write
+    /// **nothing** the app's usage, Activity or availability is read from: no
+    /// serve event and no request metric, no `custom_app_view_event` row and
+    /// no tracking cookie, no `custom_app_events` row, no client-error or
+    /// client-event record.
+    fn records_usage(&self) -> bool {
+        !self.checker
     }
 
     /// Stage 3a: the platform-reserved `__oxy/` namespace, answered by us
@@ -441,6 +463,9 @@ impl ServeContext {
                 )
                 .await
             }
+            // The checker's beacon is how its page says it is ready, read by
+            // the runner in its own browser. Taken and dropped: no row.
+            Reserved::Beacon if !self.records_usage() => StatusCode::NO_CONTENT.into_response(),
             Reserved::Beacon => {
                 let origin = crate::beacon::BeaconOrigin {
                     app_id: app.id,
@@ -549,7 +574,8 @@ impl ServeContext {
     /// traffic indistinguishable from real load — and mint a session id at
     /// hover time that the real navigation would then inherit.
     fn record(self, mut response: Response) -> Response {
-        if is_speculative_request(&self.headers) {
+        // A checker's visit is not usage, and a hover is not an open.
+        if !self.records_usage() || is_speculative_request(&self.headers) {
             return response;
         }
         let status = response.status();
@@ -660,6 +686,8 @@ struct RefusedAt<'a> {
     headers: &'a HeaderMap,
     uri: &'a Uri,
     custom_domain: Option<&'a CustomDomainCtx>,
+    /// The platform checker is the caller: nothing of its request is recorded.
+    checker: bool,
 }
 
 impl RefusedAt<'_> {
@@ -679,6 +707,39 @@ impl RefusedAt<'_> {
             None => redirect_to_login(self.headers, self.uri).into_response(),
         }
     }
+}
+
+/// What this tree refuses for the credential alone, asked first, before any
+/// authentication, so nothing after it has to remember either kind exists.
+///
+/// A sandbox agent token reaches two shapes on this tree, on the product
+/// host and naming a `dev-*` sandbox or `staging`: `/fn`, and its sandbox's
+/// page. It is refused only for presenting the token, so the refusal is in
+/// the token's one body: the `404` that `/fn` answers for an app or a sandbox
+/// that is not its own.
+///
+/// The platform checker (`oxy_custom_apps::app_check`) reads a page: the
+/// document and its assets, and the runtime's ready beacon. No form post, no
+/// `/fn` call, whatever the environment (staging and production alike):
+/// `403`, before anything runs.
+fn refused_by_credential(
+    method: &axum::http::Method,
+    headers: &HeaderMap,
+    path: &str,
+) -> Option<Response> {
+    if oxy_custom_apps::sandbox_reach::serve_tree_refuses(method, headers, path) {
+        return Some(oxy_app_core::agent_body::Refusal::not_found().into_response());
+    }
+    let checker = oxy_auth::token::presents_app_checker(headers);
+    (checker && !checker_may(method, path)).then(|| StatusCode::FORBIDDEN.into_response())
+}
+
+/// What the platform checker may send on the serve tree: a read (`GET`,
+/// `HEAD`), and the runtime's beacon, which is how a page says it is ready.
+fn checker_may(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    matches!(*method, Method::GET | Method::HEAD)
+        || (*method == Method::POST && path.ends_with("/__oxy/beacon"))
 }
 
 fn refuse(refusal: Refusal, at: RefusedAt<'_>, started: std::time::Instant) -> Response {
@@ -737,9 +798,12 @@ fn refuse(refusal: Refusal, at: RefusedAt<'_>, started: std::time::Instant) -> R
             // A 403 is not an app fault and does not dent the SLI (see
             // `is_app_fault`), but it is still traffic this app served and an
             // operator asking "who is being turned away" has nowhere else to
-            // look.
-            let exit = EarlyExit::new(&denied.app, denied.user_id, headers, rest, started);
-            exit.record(StatusCode::FORBIDDEN);
+            // look. Never the platform checker's: its requests are not the
+            // app's traffic, refused or served.
+            if !at.checker {
+                let exit = EarlyExit::new(&denied.app, denied.user_id, headers, rest, started);
+                exit.record(StatusCode::FORBIDDEN);
+            }
             (
                 StatusCode::FORBIDDEN,
                 "You don't have access to this custom app.",
@@ -750,7 +814,9 @@ fn refuse(refusal: Refusal, at: RefusedAt<'_>, started: std::time::Instant) -> R
             // A 500 the PLATFORM produced, against the app when the chain had
             // already resolved one: the SLI built to catch platform failure
             // must see the platform's own failures.
-            if let (Some(app), Some(user_id)) = (failure.app.as_ref(), failure.user_id) {
+            if let (Some(app), Some(user_id)) = (failure.app.as_ref(), failure.user_id)
+                && !at.checker
+            {
                 EarlyExit::new(app, user_id, headers, rest, started)
                     .record(StatusCode::INTERNAL_SERVER_ERROR);
             }
@@ -1204,124 +1270,7 @@ fn on_custom_app_subdomain(headers: &HeaderMap) -> bool {
 }
 
 #[cfg(test)]
-mod reserved_tests {
-    use super::*;
-
-    /// The monogram must be classified, not fall through to the bundle — the
-    /// whole point of the reserved namespace.
-    #[test]
-    fn monogram_is_a_classified_reserved_path() {
-        assert!(matches!(
-            classify_reserved("icon.svg", &axum::http::Method::GET),
-            Reserved::MonogramIcon
-        ));
-        assert!(matches!(
-            classify_reserved("icon.svg", &axum::http::Method::POST),
-            Reserved::Unknown
-        ));
-    }
-
-    /// The fallback exists to fit a home-screen label. Falling back to the slug
-    /// did not: `"Store Operations"` and `"store-operations"` are both 16.
-    #[test]
-    fn short_name_actually_shortens() {
-        assert_eq!(short_name_for("Store Ops"), "Store Ops");
-        assert_eq!(short_name_for("Store Operations"), "Store");
-        assert_eq!(short_name_for("Poke House Store Ops"), "Poke House");
-        // One long word has no boundary to cut on, so cut anyway rather than
-        // returning something that overflows.
-        assert_eq!(short_name_for("Supercalifragilistic").chars().count(), 12);
-        for name in [
-            "Store Operations",
-            "Poke House Store Ops",
-            "Supercalifragilistic",
-        ] {
-            assert!(
-                short_name_for(name).chars().count() <= 12,
-                "{name} produced a label that is still too long"
-            );
-        }
-    }
-
-    #[test]
-    fn recognises_the_reserved_namespace_and_nothing_adjacent() {
-        assert_eq!(reserved_platform_path("__oxy/sw.js"), Some("sw.js"));
-        assert_eq!(reserved_platform_path("/__oxy/beacon"), Some("beacon"));
-        // Case-insensitive prefix, case-preserving tail.
-        assert_eq!(reserved_platform_path("__OXY/sw.js"), Some("sw.js"));
-        assert_eq!(reserved_platform_path("__oxy/"), Some(""));
-
-        // An app's own files must never be captured by the prefix.
-        assert_eq!(reserved_platform_path("assets/__oxy/x.js"), None);
-        assert_eq!(reserved_platform_path("__oxygen/x.js"), None);
-        assert_eq!(reserved_platform_path("index.html"), None);
-        assert_eq!(reserved_platform_path(""), None);
-        // Shorter than the prefix — the split must not panic.
-        assert_eq!(reserved_platform_path("__ox"), None);
-    }
-
-    use axum::http::Method;
-
-    #[test]
-    fn classifies_the_platform_endpoints_by_name_and_method() {
-        assert_eq!(
-            classify_reserved("sw.js", &Method::GET),
-            Reserved::ServiceWorker
-        );
-        assert_eq!(classify_reserved("beacon", &Method::POST), Reserved::Beacon);
-        assert_eq!(
-            classify_reserved("asset-manifest.json", &Method::GET),
-            Reserved::BuildObject
-        );
-    }
-
-    /// The live-build probe is a GET-only platform endpoint. A POST is an
-    /// unknown resource like any other wrong verb, never a fall-through.
-    #[test]
-    fn the_live_build_probe_is_get_only() {
-        assert_eq!(
-            classify_reserved("build", &Method::GET),
-            Reserved::LiveBuild
-        );
-        assert_eq!(classify_reserved("build", &Method::POST), Reserved::Unknown);
-        // Not a prefix match: an app path that merely starts with the name is
-        // not the probe.
-        assert_eq!(classify_reserved("builds", &Method::GET), Reserved::Unknown);
-    }
-
-    /// The manifest is written into the build prefix at publish, so it must
-    /// reach the ordinary dispatch rather than being answered here. Getting this
-    /// wrong 404s the document the service worker's whole precache depends on —
-    /// and does it silently, because a worker with no manifest simply installs
-    /// and caches nothing.
-    #[test]
-    fn the_asset_manifest_falls_through_to_the_build() {
-        assert_eq!(
-            classify_reserved("asset-manifest.json", &Method::GET),
-            Reserved::BuildObject,
-            "the manifest is an object in the build, not a synthesised response"
-        );
-    }
-
-    /// A wrong method is an unknown resource, not a 405: answering differently
-    /// would advertise which verbs each platform path takes.
-    #[test]
-    fn a_wrong_method_or_unknown_name_is_simply_not_found() {
-        assert_eq!(classify_reserved("sw.js", &Method::POST), Reserved::Unknown);
-        assert_eq!(classify_reserved("beacon", &Method::GET), Reserved::Unknown);
-        assert_eq!(classify_reserved("", &Method::GET), Reserved::Unknown);
-        assert_eq!(
-            classify_reserved("not-a-thing", &Method::GET),
-            Reserved::Unknown
-        );
-        // An app's own file under the prefix cannot be reached either — publish
-        // strips them, and this is the serve-side half of the same rule.
-        assert_eq!(
-            classify_reserved("secrets.json", &Method::GET),
-            Reserved::Unknown
-        );
-    }
-}
+mod reserved_tests;
 
 /// Test-only view of the origin's cache policy, so
 /// `custom_apps_asset_manifest` can assert that the set of paths its service

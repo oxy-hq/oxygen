@@ -150,6 +150,14 @@ const TABLES: &[(&str, Placement)] = &[
     ("app_admin_scope_orgs", Control("platform grant org scope")),
     ("app_admins", Control("platform staff grants")),
     (
+        "app_build_checks",
+        Control(
+            "promote-check verdicts on a custom-app build: statuses, a one-line summary and \
+             capped findings (a CSS line, a page error, a check's error); no answer bodies or \
+             page content",
+        ),
+    ),
+    (
         "app_builds",
         Control("custom-app build pointers; bundles live in S3"),
     ),

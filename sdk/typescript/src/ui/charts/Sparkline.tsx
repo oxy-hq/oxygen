@@ -52,6 +52,7 @@ import type { StatusTone } from "../tone";
 import { PointMark, type PointShape } from "./marks";
 import {
   type SeriesGeometry,
+  type SeriesPad,
   type SeriesShape,
   type SparkPoint,
   seriesColour,
@@ -138,6 +139,23 @@ function useWidth(ref: RefObject<Element | null>, on: boolean): number | null {
   return width;
 }
 
+/**
+ * The series' points for a shape. A bar takes one `step` of the box's width, its point at the
+ * step's centre: the points run half a step in from the 2px pad, so the first and last bars stay
+ * inside the box at any width (a line's points run out to the pad itself). The end mark, the
+ * readout and a reference's start read the same points, so they stay on the bars.
+ */
+function shapeGeometry<P extends SparkPoint>(
+  points: readonly P[],
+  box: { width: number; height: number; step: number },
+  shape: SeriesShape,
+  domain?: readonly [number, number],
+  x?: (point: P) => number
+): SeriesGeometry {
+  const pad: SeriesPad = shape === "bars" ? { x: 2 + box.step / 2, y: 2 } : 2;
+  return seriesGeometry(points, box.width, box.height, pad, domain, x ? points.map(x) : undefined);
+}
+
 /** A series under two points: a dash, named and titled with why. */
 function EmptySpark({
   label,
@@ -211,8 +229,8 @@ export function Sparkline<P extends SparkPoint = TrendPoint>({
   const Wd = fluid ? (measured ?? width) : width;
   const colour = color ?? seriesColour(tone);
   const top = areaOpacity ?? (tone ? (AREA[tone] ?? 0.16) : 0.16);
-  const g = seriesGeometry(points, Wd, height, 2, guides.domain, x ? points.map(x) : undefined);
   const step = (Wd - 4) / points.length;
+  const g = shapeGeometry(points, { width: Wd, height, step }, shape, guides.domain, x);
   const last = points.length - 1;
   const shown = readout && at !== null ? Math.min(at, last) : null;
 

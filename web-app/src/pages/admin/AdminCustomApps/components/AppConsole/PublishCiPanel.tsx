@@ -5,8 +5,10 @@ import ROUTES from "@/libs/utils/routes";
 import { CommandSnippet } from "@/pages/admin/components/CommandSnippet";
 import type { CustomApp } from "@/types/apps";
 import { ConsolePanel, PanelRow } from "../ConsolePanel";
+import { PromotionChecksSettings } from "./PromotionChecksSettings";
 import { PromotionRule } from "./PromotionRule";
 import { gateLine, productionGates } from "./productionGates";
+import { promotionGate } from "./promotionChecksModel";
 
 /**
  * How a repo gets to publish this app — Q6.
@@ -35,7 +37,10 @@ import { gateLine, productionGates } from "./productionGates";
 export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
   const tokens = usePublishTokens();
   const active = tokens.data?.length ?? null;
-  const gates = productionGates(app.require_second_person_to_promote ?? false);
+  const gates = productionGates(
+    app.require_second_person_to_promote ?? false,
+    promotionGate(app.promotion_checks)
+  );
 
   return (
     <ConsolePanel
@@ -94,6 +99,7 @@ export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
         </details>
 
         <PromotionRule app={app} />
+        <PromotionChecksSettings app={app} />
       </div>
     </ConsolePanel>
   );

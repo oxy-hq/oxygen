@@ -10,7 +10,7 @@ manages customer workspace repos.
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Your workspace's repository** — `workspace clone`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
-- **Checks** — `checks run`
+- **Checks** — `checks run`, `checks show`
 - **Sandboxes** — `env`, `fn dev`, `fn call`, `invocations`, `logs`
 - **Workspace previews** — `preview`
 - **The CI compile gate** — `compile`
@@ -1261,7 +1261,7 @@ oxyc bootstrap verify poke-house --env dev --json \
 
 ```bash
 oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint] [--app-env <dev-handle>]
-oxyc promote <app> [--from staging|dev-<handle>] [--build <id>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
+oxyc promote <app> [--from staging|dev-<handle>] [--build <id>] [--remove-schedule <fn>]… [--override-checks "<reason>"] [--no-wait] [--dry-run] [--yes] [--json]
 oxyc rollback <app> --app-env staging|production [--to <build>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
 oxyc init-ci [--app <org>/<app>] [--environment <name>] [--promote] [--force] [--no-register] [--setup-action] [--browser | --no-browser [--approver <email>] [--no-wait]]
 oxyc proxy [--app <org>/<app> --app-env staging|dev-<handle>] [--port <n>] [--allow-writes] [--allow-events] [--yes]
@@ -1301,7 +1301,10 @@ publish to staging and have someone else promote.
 - **Kit versions**: an app whose `@oxy-hq/sdk` or `@oxy-hq/vite-plugin` is more
   than one minor behind the versions this `oxyc` was built beside gets one
   warning per package before the build, naming the `pnpm add`. Read from the
-  app's `package.json` (the installed copy when there is one); no network.
+  app's `package.json` (the installed copy when there is one); no network. The
+  same read is sent as the upload's `sdk_version` field (the installed
+  version, else the declared range's floor; left out when the app does not
+  depend on the SDK), which the build's design-system check reads.
 - **`--dir`** publishes a pre-built directory instead of building; functions are
   still bundled into it. **`--build-only`** stops after building and bundling —
   no credential, no network unless the org must come from `--project`.
@@ -1436,6 +1439,67 @@ app requires a second person to promote, and you published the build; a
 rollback to a build production served before is exempt). `--build` names an older build the
 source served (publish id or UUID). Promoting the build already served is
 `409 already_serving`.
+
+**Where the app's org holds promotes on a build's checks**, a promote to
+production does three more things. (An org without that gate sees none of
+this: the plan carries no `checks`, and nothing below prints or waits.)
+
+1. **The plan lists the build's checks**, in the dry run and before it asks:
+   one line per check of the build's newest staging attempt, the required ones
+   marked, then how many screens differ from production and whether a person
+   has seen them, and the summary a model wrote, marked as a model's.
+
+   ```text
+     checks (attempt 2): failed
+       ✓           Builds and validates       bundle valid
+       ✓ required  Its checks pass            3 of 3 passed
+       ✓ required  It loads, desk and phone   ready in 0.9s desk, 1.1s phone
+       ✗ required  Follows the design system  assets/index.css:68 restates --card
+       ✓ required  Every screen opens         14 screens, 0 errors
+       ✓           What changed               4 of 28 screens differ
+       4 of 28 screens differ · not seen by a person yet
+   ```
+
+2. **Three blockers come from the checks**, each followed by what to do next
+   (and refused before any act, exit `6`, like every blocker):
+   - `checks_not_passed`: a required check failed, could not run, or the build
+     was never checked. Fix what it found and publish again (`oxyc checks show
+     <app> --build <id>` prints each finding), or run the checks again from the
+     app's Builds page.
+   - `checks_running`: a required check has no verdict yet. `oxyc checks show
+     <app> --build <id> --wait`, then promote again.
+   - `changes_not_seen`: the app needs a person to look at the changed screens
+     first. Open the app's Builds page, look, mark them seen, promote again.
+
+   **`--override-checks "<reason>"`** promotes past those three and nothing
+   else. It is for an owner or admin of the app's org (or Oxy staff acting in
+   an assume session); a publish token, a CI token and a service account are
+   answered `403 override_not_allowed`. The reason is kept in the audit log, so
+   one under 10 characters is refused before any request (exit `2`), and the
+   plan then shows `overridden` with it. The checks themselves stay as they
+   are. The override is offered in the "next" line only when the plan says the
+   caller may use it. A rollback is exempt from all three and takes no such
+   flag.
+
+3. **After the move it waits for production's own check.** The platform checks
+   production once it serves the build ("Production opens after promote": every
+   screen opened, against what production showed before). The command reads
+   that attempt (`GET …/builds/{build}/checks?environment=production`) every
+   5 s for up to 5 minutes, prints it as `checks show` would, and **exits `9`
+   when it failed**, naming `oxyc rollback <app> --app-env production`. The
+   move has happened either way: `9` says production serves the build and its
+   check failed. `--no-wait` skips the wait. If no production check was
+   started within 30 s (the app has it turned off), or none had a verdict in
+   time, a warning says which and the exit is `0`. With `--json` the plan is
+   printed once, after the wait, with `production_check: { state, attempt }`
+   added (`state` is `passed`, `failed`, `running`, `none` or `unreadable`).
+
+**Exit codes of `promote`:** `0` the move happened (and production's check
+passed, was not waited for, or had no verdict in time), or `--dry-run`
+printed the plan; `9` the move happened and production's check failed; `6` a
+blocker, or a request the server refused (`target_moved`, `already_serving`);
+`8` not confirmed; `4` not authenticated, or an override this caller may not
+use; `2` a bad flag, including a reason under 10 characters.
 
 **`rollback`** moves `--app-env` (staging or production; never a sandbox) back
 to the build it served before its current one — twice swaps back — or `--to`
@@ -1731,6 +1795,340 @@ missing one); `2` a bad
 `--timeout`, or a slug where the credential needs a UUID; `7` (`UNAVAILABLE`)
 the deployment answered the OIDC exchange without an `app_id`, meaning it
 predates trusted checks.
+
+### A build's promote checks: `checks run --build`
+
+```bash
+oxyc checks run <app-id> --build <build> --attempt <n> --report --env dev
+oxyc checks run acme/store --build 9087d7b --report --json   # a person, by hand: the newest attempt
+oxyc checks run <app-id> --build <build> --attempt <n> --environment production --report   # after a promote
+```
+
+Every build that reaches an app's staging gets its checks (the ones `checks
+show` prints, below): four of them everywhere, and two more where the app's
+org holds promotes on its checks. The platform keeps the rows and the console;
+a runner drives them with this one command. The platform starts that runner
+itself, a GitHub Actions run per attempt
+(`.github/workflows/custom-app-build-checks.yaml`), and a person may run the
+same command by hand. The command runs **only what the claim leaves open**, so
+an attempt with four checks is driven exactly as before.
+
+`--build` is the build's row id or its `build_id`; `--attempt` is which attempt
+of its checks, the newest when absent. **`--report` is required**: this mode
+writes verdicts to the platform, and without the flag it refuses before any
+request (`checks show --build` is the way to read them).
+**`--environment`** is `staging` (the default) or `production`: a build has
+staging attempts, and, once a promote moved production to it, production
+attempts with one check of their own (below). What a staging attempt does:
+
+1. **Claims** the attempt (`POST …/builds/{build}/checks/claim`), naming the
+   runner: the GitHub Actions run and its link, or "run by hand". The platform
+   keeps that name only from its own checker; anyone else's run is stored as
+   "<who>, by hand" from who the platform knows them to be, and each of their
+   reports is audited. The platform
+   then writes **Builds and validates** and starts the build's `"check": true`
+   functions. An attempt whose every check already has a verdict answers `409
+   attempt_closed`: the command says nothing is left to check and exits `0`.
+2. **Its checks pass** is the platform's verdict. The command asks for it every
+   2 s (`POST …/checks/functions/settle`), for at most 6 minutes, while it
+   does the next step.
+3. **It loads, desk and phone**: headless Chromium opens the build's staging
+   page at 1440x900 and 390x844, one fresh context each, and waits up to 30 s
+   for the runtime's `oxy-app-ready` beacon. It fails on a navigation error, a
+   page served by another environment or another build, no beacon, or an
+   uncaught page error; a failed request, or one the check refused to send
+   (below), is a warning. The verdict is written at once (`POST
+   …/checks/report`).
+4. **Follows the design system**: the build's `index.html` and CSS (`GET
+   …/checks/stylesheets`) go through the SDK's theme guard, the one
+   `@oxy-hq/sdk/testing` gives an app's own tests, read as built CSS. Any
+   finding fails the build, and so does an SDK below the platform's floor; a
+   build with no recorded SDK version and a clean guard is `skipped`. Written
+   at once too, so the console fills in as each check finishes.
+5. **Every screen opens** (`smoke`, where the attempt has it): each screen of
+   the build at 1440x900 and 390x844, held to the rule step 3 holds the root
+   to. The screens are the ones the build declares (`checks.screens` in
+   `oxy-app.json`, app-relative paths, `""` the root, each with the query it
+   was declared with: `?module=waste` is opened as written and named so in
+   the detail and in its files); a build that declares
+   none has its root page's links read once it is ready: every same-app `<a
+   href>` target, each once, query and hash dropped, the root first, at most
+   the claim's `limits.screens` (30). **Nothing is clicked**, a link that
+   downloads or points at a file is no screen, and a `fn/` path is never
+   opened. One browser for the check, one fresh context per viewport, the two
+   viewports side by side. The summary reads `14 screens, 0 errors` or `2 of
+   14 screens have errors`; the detail says whether the list was `discovered`
+   and how many screens the cap left out. Each opened screen's links are read
+   at desk width too, and the detail names the screens of the app they point
+   to that the list does not hold (`screens_unlisted`, the first 50, and
+   `screens_unlisted_total`): none of them is opened, and `oxyc checks show`
+   and the app's Builds page say how many, so "every screen" is never read as
+   more than the list. Reported as soon as staging has been opened, before
+   production is.
+6. **What changed** (`changes`, where the attempt has it): each of those
+   screens is pictured on staging and on production (the full page, cut at
+   4,000 px tall, animations off, once its requests have gone quiet and its
+   fonts have loaded), and the two pictures are compared pixel by pixel
+   **inside that browser** (a canvas in a blank page; no image library). A
+   pixel differs when a channel differs by more than 3 of 255; `ratio` is the
+   share of differing pixels, and a screen is `changed` past `0.001`, or when
+   the two pictures' sizes differ. The check **passes whenever it ran** (it
+   informs; `4 of 28 screens differ`) and is `skipped` when production serves
+   nothing, or this same build. The staging pictures are the ones taken in
+   step 5: staging is opened once.
+
+   The evidence is kept **on the platform** (`PUT …/checks/files/{name}`),
+   never on the runner's disk and never in its log:
+   `shot-<environment>-<slug>-<viewport>.png` for both pictures of every
+   screen, `diff-<slug>-<viewport>.png` where it changed, and for a changed
+   screen `text-<environment>-<slug>-<viewport>.json` (`{"text": …}`, the
+   page's visible text, at most 4,000 characters), which the platform's
+   advisory notes read. `<slug>` is the path with `/` as `--` and the root as
+   `root`, lower-cased, any other character as `-`. Once per attempt,
+   `css-digest.json`: the declarations of the build's CSS that set a literal
+   colour or a font size (`{"rules": [{"file", "selector", "within"?,
+   "declarations": ["color: #1a1a1a"]}], "omitted": n}`, at most 64 KB; the
+   SDK theme's own names, Tailwind's palette and the SDK's `.oxy-…` rules are
+   left out). A file over the claim's `limits.file_bytes`, one past
+   `limits.files`, or one the platform would not take is **a warning in the
+   detail, not a failed check**; its name is then `null` in its row.
+
+**A production attempt** (`--environment production`) has one check,
+**Production opens after promote** (`production_smoke`), which the platform
+queues when a promote or a rollback moves production:
+
+1. The claim names `"environment": "production"`. A deployment that answers a
+   staging attempt instead is refused (exit `1`): it predates production
+   checks.
+2. **It waits until production serves the build**: the root page is re-read in
+   a fresh browser context every 5 s, each signed read asking for an uncached
+   copy, until `window.__OXY_APP__.buildId` is the attempt's build. A page of
+   the build before, still cached somewhere, is never judged. Three minutes
+   without it is `error`.
+3. Every screen is opened as in step 5 above, and compared with the claim's
+   `baseline` (what the build's **What changed** run saw on production before
+   the move). It is `failed` when a screen has an error the baseline did not
+   have for that screen and viewport, or was ready in the baseline and is not
+   now. With no baseline (a promoting publish moves staging and production
+   together, so **What changed** never ran; or a build was promoted before it
+   did) nothing can be called new: production's errors are listed as warnings
+   and the check is `skipped` (`3 errors on 2 of 14 screens, and no baseline
+   from before the move to tell new ones apart`), so an error production
+   already had neither tells anyone nor rolls production back. **The same
+   holds screen by screen**: an error is called new only against the
+   baseline's own entry for that screen and viewport. Where the baseline has
+   none (its pass ran out of time before that screen, or production links to
+   other screens now), what the screen shows is a warning (`… (not in the
+   baseline: not called new)`), and a check with no new error but some of
+   those is `skipped` (`2 errors on 1 of 14 screens the baseline from before
+   the move cannot tell apart: not called new`), never `failed`. A baseline
+   keeps at most ten errors a screen and viewport, so against an entry whose
+   list is full an uncaught error it does not hold is not called new either
+   (`… (the baseline's list of errors is full: not called new)`); a document
+   that fails now, and a screen that was ready and is not, still are. A failed
+   request or a refused one never fails it. The summary reads `14 screens, no
+   new errors` or `2 new errors on 1 of 14 screens`, and `new_errors` lists
+   each as `{path, viewport, error}`. No picture is taken and no file is kept.
+
+On production **no environment header is sent** (production is what the URL
+serves unnamed), and the requests that carry the credential are exactly the
+ones a staging attempt signs. Every other rule below is the same on both.
+
+**The page is opened as a reader.** The credential and `X-Oxy-App-Env: staging`
+go only to reads under the app's base path, the ready beacon, and the app's own
+data reads (`/api/projects/<its workspace>/query` and `/semantic-query`, which
+also name the app). Any other read on the deployment's origin goes unsigned,
+as an anonymous visitor's would. **A write the page attempts is never sent**:
+a `/fn` call, a form post, an `/api` write. Each is recorded as a warning
+(`write-refused`, `refused_writes` in the viewport's detail), and a page that
+needed one to mount fails on the beacon, not silently. So a screen that loads
+its data through a function shows that call refused: a warning, never a
+failure by itself.
+
+**The page reaches the deployment's own origin and nothing else.** It can read
+the app's data as the checker, so it is given nowhere to send what it read: a
+request to any other origin is never sent, whatever its method and whatever
+it is for (a script, a font, an image, a `fetch`, a beacon, a frame, a popup,
+a navigation), on staging and on production alike. Each is recorded as a
+warning (`off-origin-refused`, `refused_off_origin` in the viewport's detail)
+and never fails a check by itself. A loopback, private or internal-only
+address is refused by a rule of its own. **So an app that loads a font, a
+script or a tag from another host is checked without it.** A font falls back,
+on staging and on production alike, so **What changed** compares the two
+fallbacks. An app that cannot mount without a script from another host fails
+**It loads** and **Every screen opens**, and the failure names what was not
+sent (`…; not sent: GET https://cdn.example.com/lib.js (another origin)`):
+serve it from the app's own bundle. A document redirected to another origin
+(a sign-in on another host) is not followed, and is named as that.
+
+Nothing a page showed reaches the job log or the runner's disk: no trace, no
+response body, only statuses, URLs and the first line of an error. The
+pictures and text of **What changed** are held in memory and sent to the
+platform, where the app console shows them to people who may open that app's
+staging.
+
+**The page is a tenant's code, and the checker's token can read every org's
+staging**, so five more things hold in this mode:
+
+- **Chromium's sandbox is on.** Playwright starts Chromium without it unless
+  told. A browser that cannot have one (on Linux it needs unprivileged user
+  namespaces, and a user that is not root) makes each check that needs the
+  browser an `error` that names the sandbox. It is never started without one.
+- **The browser's environment holds no credential.** It is started with only
+  what a browser needs (`PATH`, `HOME`, the temp directories, the display and
+  locale variables, fonts and certificates, Playwright's own settings, a
+  proxy's address without a password). `OXY_API_KEY`, `OXY_TOKEN`, whatever
+  `--api-key-env` or `--token-env` named, and a CI's own tokens are not passed
+  on.
+- **A redirect never carries the credential, and its next hop is judged
+  first.** Every request the check sends, signed or passed, is sent once, from
+  outside the page, with redirects off, and its answer is handed to the
+  browser whole. A `3xx` goes back as a `3xx`, and the browser follows it as
+  its own request with none of the checker's headers. Before it is handed
+  over, its next hop is held to the rules above: a hop to another origin or a
+  private address, or one that would repeat a write (a `307` or `308` of a
+  `POST`), is refused and recorded, and the page's request fails instead. So
+  a sign-in redirect on the deployment is unsigned, and so is a hop that lands
+  under the app's base again. The hops after that one are the browser's own:
+  they are reads, and the browser can find no host for them but the
+  deployment's (below).
+- **No socket is opened.** A `WebSocket` a page or a frame constructs is
+  handed to the check, which ends it (close code `1008`) before anything is
+  sent, on the deployment's own origin too, and records it like any other
+  refused request (`WS /api/live`, or `WS wss://… (another origin)`). That
+  needs Playwright 1.48 or later; with an older one no page is opened, and
+  each check that needs the browser is an `error` that says so.
+  `WebSocketStream`, the other way to the same socket, is switched off in the
+  browser. One socket is left: a worker's own `WebSocket` to the deployment's
+  origin, which Playwright does not hand over. It reaches the platform as an
+  anonymous visitor's would, and no other host.
+- **The browser cannot find another host.** Not every way a page reaches the
+  network is a request the check is shown: Chromium follows a redirect, opens
+  a WebSocket from a worker or a WebTransport session, and acts on a
+  speculation rule, a `preconnect` or a `dns-prefetch` without asking. Each
+  needs an address, so Chromium is started with a resolver that answers only
+  for the deployment's own host and port (`--host-resolver-rules`, and
+  `--no-proxy-server` so that no proxy resolves in its place). An IP literal
+  goes through the same resolver and fails the same way, as does the same
+  host on another port. A peer connection (WebRTC) needs no name: its
+  constructors are taken out of every frame before the page's code runs, and
+  UDP that is not proxied is off
+  (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`). The browser
+  uses no system or environment proxy.
+
+A check that throws here is written as `error` with why, so a row is never left
+open by a crash. A request the platform could not take (the network, a 5xx, a
+429) is sent again up to three times, 1 s, 2 s and 4 s apart (a file, once).
+
+**How long it takes.** Each pass over the screens stops opening them after
+2.5 minutes and says how far it got: a screen it never opened is not called
+fine (`smoke` is then `error` unless a screen it did open failed). A staging
+attempt's own waits end inside 9 minutes, a production attempt's inside 6.5.
+
+Human mode prints one line per check to stderr as it lands; `--json` prints one
+summary object to stdout (`checks[]` with each check's `kind`, `by`
+(`platform` or `runner`), `status`, `summary` and, for a runner's check,
+whether it was `reported`; then the platform's `state` and what is still
+`open`). `--timeout`, `--app-env`, `--browser` and `--expect-selector` belong
+to the other mode; the last three are refused with `--build`.
+
+**Auth.** The platform's checker: its service token in `OXY_API_KEY`, sent as
+`X-API-Key` when no bearer resolves (the workflow passes `--token-env` a
+variable that is never set, so none does). Or a person who may open the app's
+staging, on their own login. With an app id there is no lookup at all, which
+is what lets the checker run it: that token may not list apps. `<org>/<app>`
+is resolved by the app listing, so it needs a person. A sandbox agent token is
+refused before any request. Playwright is resolved from the working directory,
+as for `--browser`.
+
+**Exit codes:** `0` every check has a verdict and none failed, or the attempt
+was already closed; `9` (`CHECK_FAILED`) a check's verdict is `failed` or
+`error`; `2` `--build` without `--report`, `--report`, `--attempt` or
+`--environment` without `--build`, a bad `--attempt`, or an `--environment`
+that is neither `staging` nor `production`; `4`, `5`, `6` a refused request (no or a
+rejected credential, an unknown app, build or attempt, a malformed request);
+`7` the platform was unreachable, a verdict could not be written after the
+repeats, or the check functions had no verdict within 6 minutes. A verdict
+that could not be written outranks `9`: the run broke, whatever the checks say.
+
+### What the checks found on a build: `checks show`
+
+```bash
+oxyc checks show <org-slug>/<app-slug>           # the build staging serves
+oxyc checks show acme/store --build 9087d7b      # a build by its build_id (or row id)
+oxyc checks show acme/store --attempt 1          # an earlier attempt of the checks
+oxyc checks show acme/store --wait --timeout 900 # poll until nothing is queued or running
+oxyc checks show acme/store --environment production   # the check that followed a promote
+```
+
+Every build that reaches an app's staging is checked, and the results stay on
+the build: **Builds and validates**, **Its checks pass** (the
+`"check": true` functions), **It loads, desk and phone**, and **Follows the
+design system** (the theme guard over the bundle's CSS, and the SDK version
+`oxyc publish` recorded). A runner the platform starts drives them (`checks run
+--build`, above). `checks show` reads them back from
+`GET /api/customer-apps/{id}/builds/{build}/checks`; without `--build` the build
+is the one staging serves (the `is_draft` row of `GET …/builds`). It prints who
+ran the checks (with the link to the run when there is one), one line per
+check, the findings under one that failed or could not run, and the result:
+
+```text
+acme/store · build 9087d7b · staging · attempt 2
+  run by GitHub Actions run #1482 · https://github.com/…/actions/runs/123
+  ✓ Builds and validates       bundle valid
+  ✓ Its checks pass            3 of 3 passed
+  ✓ It loads, desk and phone   desk 1.2s · phone 1.4s
+  ✗ Follows the design system  src/index.css:68 restates --card
+      src/index.css:68  restates --card, which theme.css defines; remove it
+failed · 1 failed, 3 passed
+```
+
+`✓` passed, `✗` failed, `!` the check could not run (error), `-` skipped, `…`
+queued or running. Where the app's org holds promotes on its checks, the list
+also has **Every screen opens** and **What changed**, and rows a model wrote:
+
+```text
+  ✓ Every screen opens         14 screens, 0 errors
+  ✓ What changed               4 of 28 screens differ · not seen by a person yet (advisory)
+      note by a model (claude-…):
+        Looks intended: /reorder.
+        Look here first: /stores at phone.
+  summary by a model (claude-…): Adds a reorder screen; the stores table moved a column.
+```
+
+**What changed** says how many screens differ from production and whether a
+person has seen them (`seen by <who>` once someone marked them in the app
+console). A **note** is a model's advice under a check, and the build's
+summary is a model's too: each is marked as one, and neither is a verdict.
+`checks show` does not say which checks hold a promote: that is the plan's to
+say, `oxyc promote <app> --dry-run`.
+
+**`--environment production`** reads the attempts that follow a promote
+instead: one check, **Production opens after promote**, on the build
+production serves (the `is_published` row of `GET …/builds`) unless `--build`
+names one. The request adds `environment=production`.
+
+When no runner picked an attempt up, or one stopped before it finished, the
+platform closes its open checks as errors and `checks show` says so in one
+line: `! the runner did not answer (…): run the checks again from the app's
+Builds page`.
+`--json` prints the server's body as it came, one object on stdout.
+`--wait` re-reads the same build every few seconds while any check is queued or
+running, up to `--timeout` seconds (default 600), and prints only the final
+answer.
+
+**Auth.** The checks are a staging build's evidence, so the server answers
+only a caller who may open the app's staging (Oxy staff holding `develop_apps`
+over its org): a person's login, or a token carrying that standing. A publish
+token is answered not-found (exit 5), as when it reads back a run queued in
+staging; a sandbox agent token is refused before any request.
+
+**Exit codes:** `0` the checks passed, are still running, or none have run; `9`
+(`CHECK_FAILED`) they failed; `7` with `--wait`, `--timeout` passed with checks
+still running (they carry on server-side); `5` the app or build was not found,
+or the environment serves no build; `2` a bad `--attempt`, `--timeout` or
+`--environment`, or a slug where the credential needs a UUID; `4` no
+credential, or the API rejected it.
 
 ## Sandboxes
 
@@ -2241,8 +2639,7 @@ written in `skills/` here; see `internal-docs/platform-skills.md`.
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and failed or timed out (`oxyc checks run`, `oxyc looker test`,
-   `oxyc validate`)
+9  a check ran and the answer was no (`oxyc checks run`, `oxyc checks show`, `oxyc bootstrap verify`, `oxyc looker test`, `oxyc evals run --min-accuracy`, `oxyc validate`; `oxyc promote` when production moved and its check after the promote failed)
 ```
 
 `4` almost always means the wrong `--env`. A person logs in again. An agent on
@@ -2255,7 +2652,7 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC. `from-proxy`: an egress proxy adds it, so none is sent ([A token the proxy adds](#a-token-the-proxy-adds)) |
-| `OXY_API_KEY` | — | an API token, for the `/external/api` surface and for `checks run` (the name is historical: it held a legacy API key until those were removed) |
+| `OXY_API_KEY` | — | an API token, for the `/external/api` surface and for `checks run`; with `checks run --build`, the platform checker's service token (the name is historical: it held a legacy API key until those were removed) |
 | `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a trusted-access exchange acts as (`--service-account`); never `<org>/<name>` |
 | `OXY_OIDC_TOKEN_FILE` | — | a file holding a token from an OIDC issuer the org registered, traded at the exchange instead of GitHub's ([A service on another platform without a stored secret](#a-service-on-another-platform-without-a-stored-secret)) |
 | `OXY_AGENT` | detected | the name of the agent driving `oxyc`, sent in the user agent — see below |

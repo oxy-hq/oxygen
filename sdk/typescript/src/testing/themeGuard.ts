@@ -19,10 +19,36 @@
 // what sits between `{` (or `;`) and `;` (or `}`) inside a rule, so a selector such as
 // `.btn--primary:focus-visible` is never read as a declaration of `--primary`. Comments and
 // string contents are blanked first, keeping lines. Node only (it reads files).
+//
+// `{ built: true }` reads an app's BUILT CSS (Vite + Tailwind v4 output, minified, with the SDK's
+// own stylesheets bundled inside it), which is what the platform's design-system check holds.
+// Four readings are added, each a no-op on source CSS that has none of their shapes:
+//
+//   - a rule inside `@layer theme` (what Tailwind compiles `@theme` into) is read as inside
+//     `@theme`: its custom properties restate nothing. Tailwind's default palette lives there
+//     too, as literals (`--color-red-500: oklch(…)`), and an app's compiled `@theme` cannot be
+//     told from it, so no literal colour is reported there either: only a real `@theme` block
+//     reports one. Its selectors are still read (Tailwind writes only `:root, :host` there; a
+//     hand-written `.dark .x` in that layer gets no pass)
+//   - an unlayered rule whose prelude is exactly `:root, :host` is read the same way. Tailwind
+//     writes its compiled `@theme` there, outside every layer, when the first `@theme` it meets
+//     is unlayered, which is the case for an app that imports `@oxy-hq/sdk/tailwind.css` before
+//     `tailwindcss`, as that file says to. Without this an app's own `@theme` alias
+//     (`--color-card: var(--card)`), which the source reading allows, would be reported once
+//     built. A hand-written `:root, :host` rule cannot be told from Tailwind's; `:root` alone,
+//     `:root, :host, .x`, and the same rule inside any other layer get no pass
+//   - a rule whose prelude is one of the SDK's own is skipped: its selector, and each
+//     declaration the SDK makes there (themeGuardSdkRules.gen.json, from the SDK's stylesheets)
+//   - a selector is read with its CSS escapes, so `.dark\:bg-card` is no `.dark`, and the
+//     `:is(.dark *)` a Tailwind variant class carries is the compiled
+//     `@custom-variant dark (&:is(.dark *))`, which is allowed (themeGuardSelectors.ts)
 
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import contractJson from "../theme/contract/contract.json";
+import { blankComments, blankStrings, preludeKey, propertyKey, walk } from "./themeGuardScan";
+import sdkRulesJson from "./themeGuardSdkRules.gen.json";
+import { BUILT_SELECTORS, SOURCE_SELECTORS } from "./themeGuardSelectors";
 
 export type ThemeGuardRule =
   | "restates-sdk-token"
@@ -55,6 +81,13 @@ export interface CheckThemeCssOptions {
   cwd?: string;
   /** The names the SDK theme owns. Default: every name in the theme contract. */
   names?: Iterable<string>;
+  /**
+   * Read the sources as an app's built CSS (Vite + Tailwind v4 output, with the SDK's own CSS
+   * bundled in) instead of its source: `@layer theme` and an unlayered `:root, :host` rule read
+   * as `@theme`, the SDK's own rules are skipped, and selectors are read with their CSS escapes.
+   * Default: false.
+   */
+  built?: boolean;
 }
 
 /** Every custom property theme.css (and motion.css, for the motion names) defines. */
@@ -64,49 +97,34 @@ export const SDK_THEME_NAMES: ReadonlySet<string> = new Set(
 
 const COLOUR =
   /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(|(?<![\w-])(?:white|black)(?![\w-])/i;
-const MODE_CLASS = /\.(dark|light)(?![\w-])/g;
 const ROOT_COMPOUND = /^(?::root|html)(?![\w-])/i;
 
-/** Comments and the insides of strings and unquoted url()s replaced by spaces, lines kept. */
-function blank(css: string): string {
-  const keepLines = (s: string) => s.replace(/[^\n]/g, " ");
-  return css
-    .replace(/\/\*[\s\S]*?\*\//g, keepLines)
-    .replace(/(["'])(?:\\.|(?!\1)[^\\\n])*\1/g, (m) => `${m[0]}${keepLines(m.slice(1, -1))}${m[0]}`)
-    .replace(/url\(\s*([^"')\s][^)]*)\)/gi, (m, inner: string) =>
-      m.replace(inner, keepLines(inner))
+/**
+ * The properties the SDK declares under each of its own preludes (as `preludeKey`), for every
+ * style rule in theme.css, motion.css, shell.css and ui.css. Generated, and pinned to those
+ * stylesheets by themeGuardBuilt.test.ts: `pnpm gen:theme-guard-rules`.
+ */
+let sdkRules: Map<string, ReadonlySet<string>> | undefined;
+
+/** The properties the SDK declares under this prelude (as `preludeKey`), when it has a rule with it. */
+function sdkRule(key: string): ReadonlySet<string> | undefined {
+  if (!sdkRules) {
+    sdkRules = new Map(
+      Object.entries(sdkRulesJson as Record<string, string[]>).map(([k, v]) => [k, new Set(v)])
     );
+  }
+  return sdkRules.get(key);
 }
 
-/** The selectors of a selector list, split at top-level commas. */
-function selectorList(prelude: string): { text: string; offset: number }[] {
-  const out: { text: string; offset: number }[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i <= prelude.length; i += 1) {
-    const c = prelude[i];
-    if (c === "(" || c === "[") depth += 1;
-    else if (c === ")" || c === "]") depth -= 1;
-    if ((c === "," && depth === 0) || i === prelude.length) {
-      out.push({ text: prelude.slice(start, i), offset: start });
-      start = i + 1;
-    }
-  }
-  return out;
-}
+/** The rule Tailwind writes its compiled `@theme` in, `:root, :host`, as a `preludeKey`. */
+const COMPILED_THEME_RULE = ":root,:host";
 
-/** The compound selector that holds position `at` (walking out of any `:not(…)` it sits in). */
-function compoundAt(selector: string, at: number): string {
-  let depth = 0;
-  let i = at - 1;
-  for (; i >= 0; i -= 1) {
-    const c = selector[i];
-    if (c === ")" || c === "]") depth += 1;
-    else if (c === "(" || c === "[") {
-      if (depth > 0) depth -= 1;
-    } else if (depth === 0 && /[\s>+~]/.test(c)) break;
-  }
-  return selector.slice(i + 1).trimStart();
+/** What an open block is in built CSS, beside its prelude. Empty when the source is read. */
+interface BuiltFrame {
+  /** The SDK's own rule: the properties the SDK declares there. */
+  sdk?: ReadonlySet<string>;
+  /** Tailwind's compiled `@theme` outside every layer: a `:root, :host` rule, unlayered. */
+  compiledTheme?: boolean;
 }
 
 interface Scan {
@@ -116,8 +134,11 @@ interface Scan {
   text: string;
 }
 
-function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void {
-  const text = blank(src.text);
+function scan(src: Scan, names: ReadonlySet<string>, built: boolean, out: ThemeFinding[]): void {
+  // `comments` keeps the strings `text` blanks, at the same offsets: an SDK prelude is matched
+  // on them (`[data-oxy-mode="dark"]`).
+  const comments = blankComments(src.text);
+  const text = blankStrings(comments);
   const lineStarts = [0];
   for (let i = 0; i < text.length; i += 1) if (text[i] === "\n") lineStarts.push(i + 1);
   const lineOf = (at: number) => {
@@ -136,21 +157,21 @@ function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void 
   };
 
   const stack: string[] = [];
-  let start = 0;
+  /** Beside `stack`: what each open block is in built CSS. */
+  const builtStack: BuiltFrame[] = [];
+  const selectors = built ? BUILT_SELECTORS : SOURCE_SELECTORS;
   const inTheme = () => stack.some((p) => /^@theme\b/.test(p));
+  /** Built CSS only: where Tailwind compiles `@theme` to, `@layer theme` or its unlayered rule. */
+  const inCompiledTheme = () =>
+    built &&
+    (stack.some((p) => /^@layer\s+theme$/.test(p)) ||
+      builtStack[builtStack.length - 1]?.compiledTheme === true);
   const inCustomVariant = () => stack.some((p) => /^@custom-variant\b/.test(p));
 
-  const declaration = (segment: string, at: number) => {
-    const colon = segment.indexOf(":");
-    if (colon < 0 || stack.length === 0) return;
-    const name = segment.slice(0, colon).trim();
-    const where = at + segment.indexOf(name);
-    if (name.toLowerCase() === "color-scheme") {
-      add("own-color-scheme", where, name, "sets color-scheme; the theme sets it per mode");
-    }
-    if (!name.startsWith("--")) return;
+  /** A custom property: a literal colour pinned in `@theme`, or an SDK token restated outside it. */
+  const customProperty = (name: string, value: string, where: number) => {
     if (inTheme()) {
-      const colour = COLOUR.exec(segment.slice(colon + 1));
+      const colour = COLOUR.exec(value);
       if (colour)
         add(
           "literal-colour-in-theme",
@@ -158,7 +179,7 @@ function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void 
           name,
           `${name} pins the literal colour ${colour[0]} in @theme; point it at a theme token (var(--…))`
         );
-    } else if (names.has(name)) {
+    } else if (names.has(name) && !inCompiledTheme()) {
       add(
         "restates-sdk-token",
         where,
@@ -167,6 +188,28 @@ function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void 
       );
     }
   };
+
+  const declaration = (segment: string, at: number) => {
+    const colon = segment.indexOf(":");
+    if (colon < 0 || stack.length === 0) return;
+    const name = segment.slice(0, colon).trim();
+    if (builtStack[builtStack.length - 1]?.sdk?.has(propertyKey(name))) return;
+    const where = at + segment.indexOf(name);
+    if (name.toLowerCase() === "color-scheme") {
+      add("own-color-scheme", where, name, "sets color-scheme; the theme sets it per mode");
+    }
+    if (name.startsWith("--")) customProperty(name, segment.slice(colon + 1), where);
+  };
+
+  /** A selector's mode classes that are neither keyed on the root nor a Tailwind variant class's own. */
+  const bareModeClasses = (sel: string) =>
+    selectors
+      .modeClasses(sel)
+      .filter(
+        (m) =>
+          !ROOT_COMPOUND.test(selectors.compoundAt(sel, m.index)) &&
+          !selectors.isVariantClass(sel, m.index, m.mode)
+      );
 
   const selector = (prelude: string, at: number) => {
     if (inCustomVariant()) return;
@@ -177,26 +220,21 @@ function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void 
         prelude.trim(),
         "keys on its own mode attribute; the SDK owns light and dark (follow `.dark` on :root)"
       );
-    for (const sel of selectorList(prelude)) {
-      for (const m of sel.text.matchAll(MODE_CLASS)) {
-        const compound = compoundAt(sel.text, m.index ?? 0);
-        if (ROOT_COMPOUND.test(compound)) continue;
+    for (const sel of selectors.list(prelude)) {
+      for (const m of bareModeClasses(sel.text)) {
         add(
           "bare-mode-class",
-          at + sel.offset + (m.index ?? 0),
+          at + sel.offset + m.index,
           sel.text.trim(),
-          `.${m[1]} is not keyed on :root or html, so any .${m[1]} ancestor matches`
+          `.${m.mode} is not keyed on :root or html, so any .${m.mode} ancestor matches`
         );
       }
     }
   };
 
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i];
-    if (c === "{") {
-      const raw = text.slice(start, i);
-      const prelude = raw.trim();
-      const at = start + raw.indexOf(prelude);
+  walk(text, {
+    open(prelude, at) {
+      const frame: BuiltFrame = {};
       if (prelude.startsWith("@")) {
         if (/^@media\b/i.test(prelude) && /prefers-color-scheme/i.test(prelude))
           add(
@@ -205,17 +243,25 @@ function scan(src: Scan, names: ReadonlySet<string>, out: ThemeFinding[]): void 
             prelude,
             "decides light and dark itself; the SDK owns the mode"
           );
-      } else if (!inTheme()) {
-        selector(prelude, at);
+      } else {
+        if (built) {
+          const key = preludeKey(comments.slice(at, at + prelude.length));
+          frame.sdk = sdkRule(key);
+          // Top level only: Tailwind writes it under no at-rule at all, so the same
+          // rule inside a layer, an `@media` or an `@supports` is the app's own.
+          frame.compiledTheme = key === COMPILED_THEME_RULE && stack.length === 0;
+        }
+        if (!frame.sdk && !inTheme()) selector(prelude, at);
       }
       stack.push(prelude);
-      start = i + 1;
-    } else if (c === "}" || c === ";") {
-      declaration(text.slice(start, i), start);
-      if (c === "}") stack.pop();
-      start = i + 1;
+      builtStack.push(frame);
+    },
+    segment: declaration,
+    close() {
+      stack.pop();
+      builtStack.pop();
     }
-  }
+  });
 }
 
 /** The `<style>` blocks of an HTML file, each with the line it starts on. */
@@ -234,6 +280,10 @@ function styleBlocks(file: string, html: string): Scan[] {
  * `index.html`:
  *
  *   expect(checkThemeCss(["src/index.css", "index.html"])).toEqual([]);
+ *
+ * For an app's built CSS (a bundle's `index.html` and its `assets/*.css`), pass `built`:
+ *
+ *   checkThemeCss([{ file: "assets/index-abc.css", css }], { built: true });
  */
 export function checkThemeCss(
   files: Iterable<string | ThemeCssSource>,
@@ -247,7 +297,7 @@ export function checkThemeCss(
     const text =
       typeof f === "string" ? readFileSync(isAbsolute(f) ? f : resolve(cwd, f), "utf8") : f.css;
     const scans = /\.html?$/i.test(file) ? styleBlocks(file, text) : [{ file, firstLine: 1, text }];
-    for (const s of scans) scan(s, names, out);
+    for (const s of scans) scan(s, names, options.built === true, out);
   }
   return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }

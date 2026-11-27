@@ -1,4 +1,25 @@
-import { defineConfig } from "tsdown";
+import { defineConfig, type Rolldown } from "tsdown";
+
+/** A declaration file or its source map: all the `.d.cts` pass may write. */
+const DECLARATION = /\.d\.[cm]?ts(\.map)?$/;
+
+/**
+ * Drops the JavaScript of tsdown's `.d.cts` pass. For `format: "cjs"` with `dts`, tsdown runs a
+ * second build in ESM format for the declarations and asks rolldown-plugin-dts to emit nothing
+ * else (`dtsOnly`). The workspace pins that plugin to 0.27 (`pnpm-workspace.yaml`, for TypeScript
+ * 7), which knows the flag only as `emitDtsOnly`, so the pass also wrote its ESM JavaScript under
+ * the `.cjs` names: every entry the CommonJS pass had written was replaced, and `require()` of the
+ * package threw "Cannot use import statement outside a module" (2.35.0 shipped that way). With a
+ * plugin that reads `dtsOnly`, there is nothing left here to drop. `scripts/check-dist.mjs`
+ * checks the result after every build.
+ */
+const declarationsOnly: Rolldown.Plugin = {
+  name: "oxy:cjs-declarations-only",
+  generateBundle(_options, bundle) {
+    for (const fileName of Object.keys(bundle))
+      if (!DECLARATION.test(fileName)) delete bundle[fileName];
+  }
+};
 
 export default defineConfig({
   // Multi-entry: shared modules (the OxyAppProvider context, logger, …)
@@ -27,6 +48,10 @@ export default defineConfig({
     // attribute and .dark class, the preview gate, the pre-paint script).
     // Pure TS, no React; its own entry so a vite.config can import it alone.
     theme: "src/theme/index.ts",
+    // `@oxy-hq/sdk/theme-guard` — `checkThemeCss` alone, for a Node tool (`oxyc`
+    // runs it on an app's built CSS for the design-system promote check). Pure
+    // TS, no React, no DOM, and none of the rest of `@oxy-hq/sdk/testing`.
+    "theme-guard": "src/theme-guard.ts",
     // `@oxy-hq/sdk/events` — `onEvent` and `NonRetryableError` for an event
     // listener function. Pure TS, no React; its own entry so a listener
     // bundle carries nothing else.
@@ -45,6 +70,8 @@ export default defineConfig({
   },
   format: ["cjs", "esm"],
   dts: true,
+  inputOptions: (options, _format, { cjsDts }) =>
+    cjsDts ? { ...options, plugins: [options.plugins, declarationsOnly] } : options,
   css: {
     splitting: false
   },

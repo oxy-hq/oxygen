@@ -116,6 +116,7 @@ fn moved_by(action: EnvAction, actor: Option<Uuid>, via: Option<&str>) -> Produc
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
+        checks: Default::default(),
     }
 }
 

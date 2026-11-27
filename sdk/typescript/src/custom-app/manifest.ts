@@ -27,6 +27,7 @@ export type {
   OxyAppAskManifest,
   OxyAppBuildManifest,
   OxyAppCacheManifest,
+  OxyAppChecksManifest,
   OxyAppEmailCapability,
   OxyAppEnabledCapability,
   OxyAppEnvDeclaration,

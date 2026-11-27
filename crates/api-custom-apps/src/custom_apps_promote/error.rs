@@ -28,6 +28,11 @@ pub const REQUIRED_SECRETS_UNSET: &str = "required_secrets_unset";
 pub const SCHEDULE_REMOVAL_UNCONFIRMED: &str = "schedule_removal_unconfirmed";
 pub const SAME_PERSON_PROMOTE: &str = "same_person_promote";
 pub const EVENT_LISTENERS_BROKEN: &str = "event_listeners_broken";
+/// The promote checks gate's three (`checks_gate`): the only blockers an
+/// override (`checks_override`) clears.
+pub const CHECKS_NOT_PASSED: &str = "checks_not_passed";
+pub const CHECKS_RUNNING: &str = "checks_running";
+pub const CHANGES_NOT_SEEN: &str = "changes_not_seen";
 
 /// The code a failed migration is answered with, whatever its status.
 pub const MIGRATION_FAILED: &str = "migration_failed";
@@ -85,6 +90,19 @@ pub enum PromoteError {
     /// per listener (`app_events::gate`).
     #[error("refused: {}", .0.join("; "))]
     EventListenersBroken(Vec<String>),
+    /// `override_checks` without a reason of ten characters once trimmed.
+    #[error(
+        "override_checks needs a reason of at least 10 characters: say why this build goes to \
+         production past its checks"
+    )]
+    OverrideReasonRequired,
+    /// `override_checks` from a caller who may not (`Action::AppPromoteOverride`).
+    #[error(
+        "overriding this app's promote checks is for an owner or admin of its org, or Oxy staff \
+         who manage its apps, signed in as a person: never a publish token, a CI token or a \
+         service account"
+    )]
+    OverrideNotAllowed,
     #[error("{0}")]
     Migration(MigrationError),
     #[error("internal error")]
@@ -105,10 +123,13 @@ impl PromoteError {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::InvalidEnvironment(_) | Self::PathRefused { .. } | Self::NotRollbackable(_) => {
-                StatusCode::BAD_REQUEST
+            Self::InvalidEnvironment(_)
+            | Self::PathRefused { .. }
+            | Self::NotRollbackable(_)
+            | Self::OverrideReasonRequired => StatusCode::BAD_REQUEST,
+            Self::PublishToken | Self::NonProduction | Self::OverrideNotAllowed => {
+                StatusCode::FORBIDDEN
             }
-            Self::PublishToken | Self::NonProduction => StatusCode::FORBIDDEN,
             Self::AppNotFound | Self::EnvironmentNotFound(_) | Self::BuildNotFound(_) => {
                 StatusCode::NOT_FOUND
             }
@@ -143,6 +164,8 @@ impl PromoteError {
             Self::Blocked(blockers) => blockers.first().map_or("blocked", |b| b.code),
             Self::EventListenersBroken(_) => EVENT_LISTENERS_BROKEN,
             Self::AgentBuilt(_) => crate::custom_apps_agent_built::PROMOTE_REFUSED,
+            Self::OverrideReasonRequired => "override_reason_required",
+            Self::OverrideNotAllowed => "override_not_allowed",
             Self::Migration(_) => MIGRATION_FAILED,
             Self::Internal(_) => "internal",
         }
@@ -231,6 +254,16 @@ mod tests {
             ),
             (PromoteError::PublishToken, 403, "publish_token_refused"),
             (PromoteError::NonProduction, 403, "non_production_refused"),
+            (
+                PromoteError::OverrideReasonRequired,
+                400,
+                "override_reason_required",
+            ),
+            (
+                PromoteError::OverrideNotAllowed,
+                403,
+                "override_not_allowed",
+            ),
             (PromoteError::AppNotFound, 404, "app_not_found"),
             (
                 PromoteError::BuildNotFound("b".into()),

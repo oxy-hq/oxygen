@@ -140,6 +140,20 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
+        key: super::PROMOTE_CHECKS_GATE,
+        description: "Promote checks gate for an org: a custom app's promote to production \
+                      waits for the staging checks the app requires, unless overridden with \
+                      a reason.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // Read with the app's org wherever checks are queued or a move is decided.
+        per_org: true,
+        client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
         key: super::REACT_MEMORY,
         description: "Give react runs per-user memory: the user's notes for the workspace in \
                       the prompt, and a reflection turn that may save new ones (one extra \
@@ -294,6 +308,15 @@ mod tests {
             "the pilot is off until an org is opted in"
         );
         assert!(!flag.client, "server-only");
+    }
+
+    #[test]
+    fn promote_checks_gate_is_registered_per_org_and_off() {
+        let flag = get(super::super::PROMOTE_CHECKS_GATE).expect("the gate is declared");
+        assert_eq!(flag.key, "promote_checks_gate");
+        assert!(flag.per_org, "read with the app's org");
+        assert!(!flag.default_enabled, "off until an org is opted in");
+        assert!(!flag.client, "the console reads it on the app's response");
     }
 
     #[test]

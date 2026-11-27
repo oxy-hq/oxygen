@@ -64,10 +64,22 @@ describe("a refused promoting publish", () => {
       "schedule_removal_unconfirmed",
       "same_person_promote",
       "validation_not_passed",
-      "staging_never_served"
+      "staging_never_served",
+      "checks_not_passed",
+      "checks_running",
+      "changes_not_seen"
     ]) {
       expect(remedyFor(code, "acme/sales"), code).toBeTruthy();
     }
     expect(remedyFor("something_new", "acme/sales")).toBeUndefined();
+  });
+
+  it("sends a publish held by the build's checks through staging, where they run", () => {
+    for (const code of ["checks_not_passed", "checks_running"]) {
+      expect(remedyFor(code, "acme/sales"), code).toContain(
+        "publish without --promote, wait for them (`oxyc checks show acme/sales --wait`), then `oxyc promote acme/sales`"
+      );
+    }
+    expect(remedyFor("changes_not_seen", "acme/sales")).toContain("mark them seen");
   });
 });

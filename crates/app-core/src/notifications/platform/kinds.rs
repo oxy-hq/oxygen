@@ -28,9 +28,13 @@ pub const ASK_FAILED: &str = "oxy.ask_failed";
 /// An Ask run someone asked to hear about stopped to ask them a clarifying
 /// question (`ask_waiting`).
 pub const ASK_WAITING: &str = "oxy.ask_waiting";
+/// A custom app's production shows new errors after a build went live: its
+/// `production_smoke` promote check failed (`oxy-api-custom-apps`
+/// `custom_apps_build_checks::production`).
+pub const PRODUCTION_CHECK_FAILED: &str = "oxy.production_check_failed";
 
 /// Every kind the platform sends.
-pub const KINDS: [&str; 9] = [
+pub const KINDS: [&str; 10] = [
     BILLING_PAST_DUE,
     WORKSPACE_READY,
     RUN_FAILED,
@@ -40,6 +44,7 @@ pub const KINDS: [&str; 9] = [
     ASK_FINISHED,
     ASK_FAILED,
     ASK_WAITING,
+    PRODUCTION_CHECK_FAILED,
 ];
 
 /// Whether `kind` is one the platform sends.
@@ -74,13 +79,15 @@ pub fn is_mutable(kind: &str) -> bool {
 /// for (a monitor's own `slack_channel` post is the broadcast; this is the
 /// named person). A CLI approval asks for all three channels: the person is
 /// away from the terminal that is waiting on them, so push, email and Slack
-/// are each a way to reach their phone. A ready workspace is news its creator is looking at. A test
+/// are each a way to reach their phone. So does a failed production check: a
+/// build that just went live is showing errors to the app's users, and the
+/// person who shipped it may have closed the tab. A ready workspace is news its creator is looking at. A test
 /// notice tests push and the inbox, nothing else. A finished or failed Ask
 /// answer, and an Ask run waiting on the person, were asked for from the phone
 /// that left them, so push only.
 pub fn channels(kind: &str) -> &'static [&'static str] {
     match kind {
-        RUN_FAILED | CLI_APPROVAL => &["push", "email", "slack"],
+        RUN_FAILED | CLI_APPROVAL | PRODUCTION_CHECK_FAILED => &["push", "email", "slack"],
         BILLING_PAST_DUE | ANOMALY => &["push", "slack"],
         _ => &["push"],
     }
@@ -110,6 +117,9 @@ pub const SUBJECT_TEST: &str = "test";
 pub const SUBJECT_ANALYTICS_RUN: &str = "analytics_run";
 /// One suspension of an analytics run: its id is a [`SuspensionSubject`].
 pub const SUBJECT_ANALYTICS_SUSPENSION: &str = "analytics_suspension";
+/// One check of one attempt of a custom-app build's promote checks, by its
+/// row id (`app_build_checks.id`).
+pub const SUBJECT_APP_BUILD_CHECK: &str = "app_build_check";
 
 /// The subject kind as stored, mapped back to its `'static` name. `None` for
 /// a name this binary does not know.
@@ -124,6 +134,7 @@ pub fn subject_kind(stored: &str) -> Option<&'static str> {
         SUBJECT_TEST,
         SUBJECT_ANALYTICS_RUN,
         SUBJECT_ANALYTICS_SUSPENSION,
+        SUBJECT_APP_BUILD_CHECK,
     ]
     .into_iter()
     .find(|k| *k == stored)
@@ -235,6 +246,18 @@ pub enum PlatformNotice {
         workspace_id: Uuid,
         suspension: SuspensionSubject,
     },
+    /// A custom app's production shows new errors after a build went live:
+    /// the failed `production_smoke` row of one production attempt. The row
+    /// names the app and the build, and holds the errors, the build before it
+    /// and whether production was rolled back, so the notice says all of it
+    /// from that one record. One per attempt.
+    ProductionCheckFailed {
+        org_id: Uuid,
+        /// The app's workspace.
+        workspace_id: Uuid,
+        /// `app_build_checks.id` of the failed check.
+        check_id: Uuid,
+    },
 }
 
 impl PlatformNotice {
@@ -249,6 +272,7 @@ impl PlatformNotice {
             Self::AskFinished { .. } => ASK_FINISHED,
             Self::AskFailed { .. } => ASK_FAILED,
             Self::AskWaiting { .. } => ASK_WAITING,
+            Self::ProductionCheckFailed { .. } => PRODUCTION_CHECK_FAILED,
         }
     }
 
@@ -263,7 +287,8 @@ impl PlatformNotice {
             | Self::Test { org_id, .. }
             | Self::AskFinished { org_id, .. }
             | Self::AskFailed { org_id, .. }
-            | Self::AskWaiting { org_id, .. } => *org_id,
+            | Self::AskWaiting { org_id, .. }
+            | Self::ProductionCheckFailed { org_id, .. } => *org_id,
         }
     }
 
@@ -278,7 +303,8 @@ impl PlatformNotice {
             | Self::Anomaly { workspace_id, .. }
             | Self::AskFinished { workspace_id, .. }
             | Self::AskFailed { workspace_id, .. }
-            | Self::AskWaiting { workspace_id, .. } => Some(*workspace_id),
+            | Self::AskWaiting { workspace_id, .. }
+            | Self::ProductionCheckFailed { workspace_id, .. } => Some(*workspace_id),
         }
     }
 
@@ -322,6 +348,10 @@ impl PlatformNotice {
                 kind: SUBJECT_ANALYTICS_SUSPENSION,
                 id: suspension.id(),
             },
+            Self::ProductionCheckFailed { check_id, .. } => Subject {
+                kind: SUBJECT_APP_BUILD_CHECK,
+                id: check_id.to_string(),
+            },
         }
     }
 
@@ -356,11 +386,12 @@ mod tests {
     }
 
     #[test]
-    fn only_a_failed_run_and_a_cli_approval_are_emailed_and_only_news_and_the_test_skip_slack() {
+    fn only_what_a_person_must_act_on_is_emailed_and_only_news_and_the_test_skip_slack() {
         for kind in KINDS {
             let ch = channels(kind);
             assert_eq!(ch[0], "push", "{kind}");
-            let emailed = kind == RUN_FAILED || kind == CLI_APPROVAL;
+            let emailed =
+                kind == RUN_FAILED || kind == CLI_APPROVAL || kind == PRODUCTION_CHECK_FAILED;
             assert_eq!(ch.contains(&"email"), emailed, "{kind}");
             // A ready workspace is news in the product; a test notice tests push
             // and the inbox, nothing else; a finished answer was asked for on
@@ -379,6 +410,41 @@ mod tests {
         };
         assert!(run.emailed());
         assert!(run.slacked());
+    }
+
+    #[test]
+    fn a_failed_production_check_reaches_every_channel_and_is_keyed_by_its_check_row() {
+        let (org, ws, check) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let notice = PlatformNotice::ProductionCheckFailed {
+            org_id: org,
+            workspace_id: ws,
+            check_id: check,
+        };
+        assert_eq!(notice.kind(), "oxy.production_check_failed");
+        assert!(is_platform_kind(PRODUCTION_CHECK_FAILED));
+        assert_eq!(
+            channels(PRODUCTION_CHECK_FAILED),
+            &["push", "email", "slack"]
+        );
+        assert!(notice.emailed() && notice.slacked() && !notice.critical());
+        assert!(is_mutable(PRODUCTION_CHECK_FAILED));
+        assert_eq!((notice.org_id(), notice.workspace_id()), (org, Some(ws)));
+        let subject = notice.subject();
+        assert_eq!(
+            (subject.kind, subject.id.as_str()),
+            (SUBJECT_APP_BUILD_CHECK, check.to_string().as_str())
+        );
+        assert_eq!(
+            subject_kind("app_build_check"),
+            Some(SUBJECT_APP_BUILD_CHECK)
+        );
+        // Another attempt's check is another subject: told again.
+        let other = PlatformNotice::ProductionCheckFailed {
+            org_id: org,
+            workspace_id: ws,
+            check_id: Uuid::new_v4(),
+        };
+        assert_ne!(subject, other.subject());
     }
 
     #[test]

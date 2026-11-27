@@ -40,6 +40,10 @@ export default defineConfig({
     // `oxyc fn dev` runs a handler on the SDK's testing context, bundled the same way.
     "@oxy-hq/sdk/testing": fileURLToPath(
       new URL("../typescript/src/testing/index.ts", import.meta.url)
+    ),
+    // `oxyc checks run --build` runs the SDK's theme guard on a build's CSS, bundled the same way.
+    "@oxy-hq/sdk/theme-guard": fileURLToPath(
+      new URL("../typescript/src/theme-guard.ts", import.meta.url)
     )
   },
   // `npx @oxy-hq/cli` and a global install both exec this file directly.

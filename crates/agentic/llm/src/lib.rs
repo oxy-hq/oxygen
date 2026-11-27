@@ -30,6 +30,12 @@ pub use error::LlmError;
 mod types;
 pub use types::*;
 
+mod images;
+pub use images::{
+    ImageCompletionError, ImageInput, ImageLimits, ImageMediaType, ImageRequest, ImageWire,
+    ManyImages, Patches,
+};
+
 mod provider;
 pub use provider::LlmProvider;
 

@@ -121,7 +121,30 @@ export interface CustomApp {
    * server predating it, which reads as off.
    */
   require_second_person_to_promote?: boolean;
+  /**
+   * Which checks hold Promote, and what happens after one. `enabled` is the org's
+   * `promote_checks_gate` flag: off (or absent, from a server predating it), nothing
+   * holds Promote and the console shows none of this.
+   */
+  promotion_checks?: PromotionChecks | null;
 }
+
+export interface PromotionChecks {
+  enabled: boolean;
+  /** The kinds the app chose, or `null` for the defaults. */
+  required: string[] | null;
+  /** What `required` comes to. */
+  effective_required: string[];
+  /** Screens that differ from production need one look before a promote. */
+  seen_required: boolean;
+  /** Open the same screens on production once it serves the build. */
+  production_smoke: boolean;
+  /** Roll production back when that smoke fails. */
+  auto_rollback: boolean;
+}
+
+/** `PUT /customer-apps/{id}/promotion-checks`. */
+export type PromotionChecksUpdate = Omit<PromotionChecks, "enabled" | "effective_required">;
 
 /**
  * Per-app outcome in a batch publish / unpublish / delete response.

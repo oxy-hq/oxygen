@@ -48,6 +48,7 @@
 use uuid::Uuid;
 
 mod app_access;
+mod app_check;
 mod sandbox_agent;
 mod token;
 pub use app_access::{AppActionGrant, AppReach};
@@ -55,7 +56,13 @@ pub use sandbox_agent::{EnvFacet, SandboxAgentReach, SandboxApp};
 pub use token::{RoleCeiling, TokenGrant, TokenReach};
 
 #[cfg(test)]
+mod app_checker_tests;
+#[cfg(test)]
 mod compile_check_tests;
+#[cfg(test)]
+mod delegation_tests;
+#[cfg(test)]
+mod promote_override_tests;
 #[cfg(test)]
 mod service_account_tests;
 
@@ -306,6 +313,86 @@ pub enum Action {
     /// not run their apps' plumbing), and not a partner. Membership neither
     /// grants nor blocks it: this is a staff tool.
     AppEventsManage,
+    /// Check a build on a custom app's **staging**, as the promote checks' runner
+    /// does (`custom_apps_build_checks`, driven by `oxyc checks run --report` on a
+    /// GitHub Actions runner). Two things and no more:
+    ///
+    /// - **read** staging: its pages and assets, the runtime's ready beacon, and
+    ///   the app's own data-plane READ calls (`/query`, `/semantic-query`). Never
+    ///   a `/fn` call and never a write: the serve tree refuses the checker
+    ///   everything but a `GET`/`HEAD` and the beacon, so a page that calls a
+    ///   function as it mounts sees that call refused;
+    /// - **record what the build's checks found**, through the four runner routes
+    ///   (`POST …/checks/claim`, `POST …/checks/functions/settle`, `GET
+    ///   …/checks/stylesheets`, `POST …/checks/report`) and no other write. A
+    ///   claim also starts the build's own `"check": true` functions on staging,
+    ///   which the platform runs itself; the checker never calls one.
+    ///
+    /// Oxy staff holding [`Cap::CheckApps`] over the app's org — in practice the
+    /// `app_checker` service token, [`PlatformRole::AppChecker`] — and only when
+    /// the decision names [`EnvFacet::Staging`]: never production, a sandbox, or a
+    /// decision that names no environment.
+    ///
+    /// Deliberately NOT [`Action::AppNonProduction`]. That action is asked by every
+    /// non-production staff tool — an environment's secrets, tail, logs, schedules,
+    /// held writes, promote — none of which a checker may reach, and its holders
+    /// (staff with `develop_apps`) read every environment. A call site that admits
+    /// the checker asks this action BESIDE `AppNonProduction`; every other call site
+    /// never names it, which is what keeps the checker out of them. No tenant
+    /// standing reaches it, and no partner: it is the platform checking a build.
+    AppCheck,
+    /// Check a custom app's **production**, read-only, as the promote checks'
+    /// runner does after a production move (`production_smoke`) and while it
+    /// compares a staging build with what production serves (`changes`). The
+    /// same reach [`Action::AppCheck`] has on staging, on production, and stated
+    /// apart so the model says it:
+    ///
+    /// - **read** production: its pages and assets, the runtime's ready beacon,
+    ///   and the app's own data-plane READ calls (`/query`, `/semantic-query`).
+    ///   Never a `/fn` call and never a write: the serve tree's fence is the
+    ///   same on every environment. Its visits write no usage (no view event,
+    ///   no pageview or beacon row, no serve event);
+    /// - **record what a production attempt found**, through the runner routes
+    ///   of an attempt whose environment is production, and no other write.
+    ///
+    /// Oxy staff holding [`Cap::CheckApps`] over the app's org (in practice the
+    /// `app_checker` service token) and only when the decision names
+    /// [`EnvFacet::Production`]: never staging (that is [`Action::AppCheck`]), a
+    /// sandbox, or a decision that names no environment.
+    ///
+    /// Deliberately NOT [`Action::AppAccess`], which every production door asks
+    /// of a viewer: the function route, logs, health and debug ask it too, and
+    /// none of them is the checker's. A call site that admits the checker on
+    /// production asks this action BESIDE what production already asks, and
+    /// only at the page, the two data-plane reads and the runner routes. No
+    /// tenant standing reaches it, and no partner.
+    AppCheckProduction,
+    /// Promote a custom app's build to production **past its promote checks**
+    /// (`override_checks` on a production move, `custom_apps_promote::checks_override`):
+    /// clear `checks_not_passed`, `checks_running` and `changes_not_seen` with a
+    /// reason, which is audited. It clears nothing else, and it is asked BESIDE
+    /// whatever the move itself needs: this decides who may wave the checks, not
+    /// who may promote.
+    ///
+    /// Two ways in, and only two:
+    ///
+    /// - **An owner or admin of the app's org**: a person whose `org_members` role
+    ///   is owner or admin. A token carries it only at an admin ceiling over the
+    ///   app's workspace.
+    /// - **Oxy staff standing in as one**, the operator override every org ring
+    ///   has (what an assume session gives staff), here asking for
+    ///   [`Cap::ManageApps`] over the app's org: the capability a promote already
+    ///   needs. Like every override it is conditioned on NOT being a member: a
+    ///   staff member who is a plain member of the org is a plain member there.
+    ///
+    /// Deliberately NOT: the org's **service account**, admin or not (so not a CI
+    /// run token either, which acts as one); an `app_members` admin; a plain
+    /// member; a partner, whatever its capabilities; a sandbox agent token; an
+    /// app's own credential. Shipping a build nothing vouched for is a person's
+    /// decision, taken by someone answerable for the org or for the platform.
+    /// (A legacy publish token is its minter with no narrowing fact, so the call
+    /// site refuses it by its marker before asking.)
+    AppPromoteOverride,
     /// Rename a workspace (`ensure_org_admin_or_workspace_creator`): an org
     /// owner/admin, OR the plain member who CREATED that workspace. The creator half
     /// is the only place a `created_by` self-claim grants a workspace action, so it
@@ -507,7 +594,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 60] = [
+    pub const ALL: [Action; 63] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -539,6 +626,9 @@ impl Action {
         Action::AppAccessManage,
         Action::AppNonProduction,
         Action::AppEventsManage,
+        Action::AppCheck,
+        Action::AppCheckProduction,
+        Action::AppPromoteOverride,
         Action::WorkspaceRename,
         Action::NamespaceDelete,
         Action::WorkspaceOxyAccess,
@@ -606,6 +696,9 @@ impl Action {
             Action::AppAccessManage => "app_access_manage",
             Action::AppNonProduction => "app_non_production",
             Action::AppEventsManage => "app_events_manage",
+            Action::AppCheck => "app_check",
+            Action::AppCheckProduction => "app_check_production",
+            Action::AppPromoteOverride => "app_promote_override",
             Action::WorkspaceRename => "workspace_rename",
             Action::NamespaceDelete => "namespace_delete",
             Action::WorkspaceOxyAccess => "workspace_oxy_access",
@@ -672,6 +765,9 @@ impl Action {
             Action::AppAccessManage => Ring::AppGrant,
             Action::AppNonProduction => Ring::StaffReach(Cap::DevelopApps),
             Action::AppEventsManage => Ring::StaffReach(Cap::ManageApps),
+            Action::AppCheck => Ring::StagingCheck(Cap::CheckApps),
+            Action::AppCheckProduction => Ring::ProductionCheck(Cap::CheckApps),
+            Action::AppPromoteOverride => Ring::PromoteOverride,
             Action::WorkspaceRename | Action::NamespaceDelete => Ring::OrgAdminOrCreator,
             Action::WorkspaceOxyAccess => Ring::WorkspaceAdminStrict,
             Action::WorkspacePreview | Action::WorkspaceProvision => {
@@ -762,12 +858,20 @@ pub enum Cap {
     /// Gating the door on it and nothing else would still be a hole — the guard sees a
     /// verb, not the target row. Both halves are required; see [`Action::PlatformGrants`].
     ManagePlatformGrants,
+    /// Check a custom app's build: read its **staging** and record what its
+    /// checks found ([`Action::AppCheck`]), and read its **production** the same
+    /// way for the checks that look at production
+    /// ([`Action::AppCheckProduction`]). The platform checker's one capability,
+    /// and the whole of [`PlatformRole::AppChecker`]. No data-plane reach beyond
+    /// an app's own two read calls on those two environments, no lifecycle
+    /// power, nothing on the platform tier.
+    CheckApps,
 }
 
 impl Cap {
     /// Every capability — the full platform ceiling. The partner ceiling is the first
     /// eight; see `PartnerCapability::ALL`, which stays at eight on purpose.
-    pub const ALL: [Cap; 12] = [
+    pub const ALL: [Cap; 13] = [
         Cap::ManageMembers,
         Cap::ManageApps,
         Cap::DevelopApps,
@@ -780,6 +884,7 @@ impl Cap {
         Cap::ManagePartners,
         Cap::OperatePlatform,
         Cap::ManagePlatformGrants,
+        Cap::CheckApps,
     ];
 
     /// Stable id, and a wire contract: it lands in the `authz` tracing output and is
@@ -804,6 +909,7 @@ impl Cap {
             Cap::ManagePartners => "manage_partners",
             Cap::OperatePlatform => "operate_platform",
             Cap::ManagePlatformGrants => "manage_platform_grants",
+            Cap::CheckApps => "check_apps",
         }
     }
 
@@ -880,10 +986,20 @@ pub enum PlatformRole {
     /// own infrastructure — so every tenant ring that isn't about apps evaluates to
     /// `false` for them, including org deletion.
     AppOperator,
+    /// The promote checks' runner (`custom_apps_build_checks`): reads a custom
+    /// app's staging and production and records what the build's checks found,
+    /// and nothing else: one capability, [`Cap::CheckApps`]. Held by a **service token**
+    /// (`OXY_SERVICE_TOKENS`), never by a person: the platform-grant API refuses
+    /// to write it ([`Self::is_grantable`]).
+    AppChecker,
 }
 
 impl PlatformRole {
-    pub const ALL: [PlatformRole; 2] = [PlatformRole::GlobalAdmin, PlatformRole::AppOperator];
+    pub const ALL: [PlatformRole; 3] = [
+        PlatformRole::GlobalAdmin,
+        PlatformRole::AppOperator,
+        PlatformRole::AppChecker,
+    ];
 
     /// The capabilities the role expands to.
     pub fn caps(self) -> Vec<Cap> {
@@ -898,6 +1014,8 @@ impl PlatformRole {
                 .collect(),
             // The whole role, and the whole point: two capabilities.
             PlatformRole::AppOperator => vec![Cap::ManageApps, Cap::DevelopApps],
+            // One capability: check a build on staging.
+            PlatformRole::AppChecker => vec![Cap::CheckApps],
         }
     }
 
@@ -914,6 +1032,7 @@ impl PlatformRole {
     /// construction and [`may_delegate`] short-circuits on it before any rank is read.
     pub fn rank(self) -> u8 {
         match self {
+            PlatformRole::AppChecker => 0,
             PlatformRole::AppOperator => 1,
             PlatformRole::GlobalAdmin => 2,
         }
@@ -924,6 +1043,7 @@ impl PlatformRole {
         match self {
             PlatformRole::GlobalAdmin => "global_admin",
             PlatformRole::AppOperator => "app_operator",
+            PlatformRole::AppChecker => "app_checker",
         }
     }
 
@@ -1244,6 +1364,32 @@ enum Ring {
     /// are therefore conditioned on NOT being a member. A staff-only tool has no
     /// tenant role to out-rank, so neither membership nor its absence moves it.
     StaffReach(Cap),
+    /// Oxy staff holding `cap` over the resource's org, on a custom app's **staging**
+    /// and nowhere else ([`Action::AppCheck`]): the resource must be an app whose
+    /// decision names [`EnvFacet::Staging`]. It records the checks' verdicts as
+    /// well as reading, so a token carries it only at an admin ceiling, as it does
+    /// [`Self::StaffReach`]. Not `StaffReach` with a facet bolted on at the call
+    /// site: the model states where it reaches, so no call site can widen it to
+    /// production.
+    StagingCheck(Cap),
+    /// Oxy staff holding `cap` over the resource's org, on a custom app's
+    /// **production** and nowhere else ([`Action::AppCheckProduction`]): the
+    /// resource must be an app whose decision names [`EnvFacet::Production`].
+    /// The twin of [`Self::StagingCheck`], and a ring of its own for the same
+    /// reason: the model states where the checker reaches, one environment per
+    /// ring, so admitting it to production is an action a call site names and
+    /// never a facet it passes. A token carries it only at an admin ceiling.
+    ProductionCheck(Cap),
+    /// [`Action::AppPromoteOverride`]: a **real** owner or admin of the app's org (a
+    /// person), or Oxy staff reaching in through the operator override with
+    /// [`Cap::ManageApps`]. An `App` resource only.
+    ///
+    /// Its own ring because none says exactly this. [`Self::OrgAdmin`] and
+    /// [`Self::AppGrant`] admit the org's admin service account and a partner;
+    /// [`Self::AppAdmin`] adds an `app_members` admin; [`Self::OrgAdminStrict`]
+    /// bars staff. This is the officer term of the strict ring beside the staff
+    /// term of the override rings, and nothing else.
+    PromoteOverride,
     /// The Factory ([`Action::FactoryUse`]): Oxy staff holding `OperatePlatform` over
     /// the resource's org — exactly [`Self::StaffReach`] — OR an owner or admin of
     /// that org (a person, at an admin ceiling) OR a real member of that org holding
@@ -1886,6 +2032,23 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
                 && at_least(RoleCeiling::Admin)
                 && facts.platform_grants(cap, resource.org_id)
         }
+        // The platform checker, one environment per ring (`app_check`).
+        Ring::StagingCheck(cap) => {
+            app_check::checker_on(facts, resource, cap, EnvFacet::Staging, ceiling)
+        }
+        Ring::ProductionCheck(cap) => {
+            app_check::checker_on(facts, resource, cap, EnvFacet::Production, ceiling)
+        }
+        // Promoting past the checks. `officer_here` is a PERSON who is an owner or
+        // admin of the org at an admin ceiling, so the org's service account (and a
+        // CI run token, which acts as one) never holds it. The staff term is the
+        // operator override with the capability a promote needs: not a member, the
+        // grant reaching this org. No partner term and no `app_members` term.
+        Ring::PromoteOverride => app_check::promote_override(
+            resource,
+            officer_here,
+            staff(Cap::ManageApps, RoleCeiling::Admin),
+        ),
         // The Factory: staff reach into this org, an owner or admin of this org, or a
         // member Oxy granted THIS workspace to. Authoring writes the tenant's
         // workspace, so the token ceiling is the member's — the lowest that edits a
@@ -1957,7 +2120,8 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         // and the handler narrows the rows (`PrincipalFacts::platform_scope`). That
         // split is deliberate and is the one thing to get right when adding a surface:
         // capabilities gate verbs, scope filters rows.
-        Ring::PlatformAny => is_platform && facts.is_staff(),
+        // The platform checker is staff for one action and holds no console section.
+        Ring::PlatformAny => is_platform && facts.is_console_staff(),
         Ring::PlatformCap(cap) => is_platform && facts.platform_holds(cap),
         Ring::GlobalOwnerOnly => is_platform && facts.is_root(),
     }
@@ -2065,7 +2229,7 @@ pub fn authorize(
 mod policy_tests {
     use super::*;
 
-    fn org() -> Uuid {
+    pub(super) fn org() -> Uuid {
         Uuid::from_u128(1)
     }
     fn other_org() -> Uuid {
@@ -2088,7 +2252,7 @@ mod policy_tests {
         Uuid::from_u128(900)
     }
 
-    fn facts() -> PrincipalFacts {
+    pub(super) fn facts() -> PrincipalFacts {
         PrincipalFacts {
             user_id: user(),
             ..Default::default()
@@ -2098,7 +2262,7 @@ mod policy_tests {
     /// An unscoped Global Admin — the standing that replaced `is_global_admin: true`.
     /// Every assertion written against the old boolean holds unchanged against this,
     /// which is the property that makes the capability split non-breaking.
-    fn global_admin_standing() -> Option<PlatformStanding> {
+    pub(super) fn global_admin_standing() -> Option<PlatformStanding> {
         Some(PlatformStanding::from_role(
             PlatformRole::GlobalAdmin,
             Scope::All,
@@ -3065,6 +3229,7 @@ mod policy_tests {
             Ring::StaffReach(Cap::OperatePlatform),
             Ring::Factory,
             Ring::CompileCheck,
+            Ring::PromoteOverride,
         ] {
             assert!(
                 Action::ALL.iter().any(|a| a.ring() == ring),
@@ -3419,7 +3584,8 @@ mod policy_tests {
                 Cap::ViewTenants
                 | Cap::ManagePartners
                 | Cap::OperatePlatform
-                | Cap::ManagePlatformGrants => continue,
+                | Cap::ManagePlatformGrants
+                | Cap::CheckApps => continue,
             };
             assert!(
                 !allows(&no_ceiling, action, &as_a),
@@ -4087,12 +4253,8 @@ mod policy_tests {
         assert_eq!(PlatformRole::GlobalAdmin.caps().len(), Cap::ALL.len() - 1);
     }
 
-    // The delegation bound. Every assertion below is written so that deleting ONE
-    // guard in `may_delegate` reddens at least one of them — the file-wide
-    // `contains("may_delegate")` style of check is what let three earlier defects
-    // through on this branch.
-
-    fn admin_over(scope: Scope) -> PrincipalFacts {
+    /// A Global Admin bounded to `scope`.
+    pub(super) fn admin_over(scope: Scope) -> PrincipalFacts {
         PrincipalFacts {
             platform: Some(PlatformStanding::from_role(
                 PlatformRole::GlobalAdmin,
@@ -4100,173 +4262,5 @@ mod policy_tests {
             )),
             ..facts()
         }
-    }
-
-    #[test]
-    fn owner_may_delegate_anything_including_a_peer_tier_grant() {
-        let go = PrincipalFacts {
-            is_global_owner: true,
-            ..facts()
-        };
-        // Root, and holding no row: the short-circuit is load-bearing, because a rank
-        // lookup for the owner finds nothing.
-        assert_eq!(
-            may_delegate(&go, PlatformRole::GlobalAdmin, &Scope::All),
-            Ok(())
-        );
-        assert_eq!(
-            may_delegate(&go, PlatformRole::AppOperator, &Scope::All),
-            Ok(())
-        );
-        assert_eq!(
-            may_delegate(&go, PlatformRole::AppOperator, &Scope::Orgs(vec![org()])),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn unbounded_admin_may_issue_app_operators_at_any_scope() {
-        let ga = admin_over(Scope::All);
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::All),
-            Ok(())
-        );
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::Orgs(vec![org()])),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn admin_may_not_mint_or_touch_a_peer() {
-        let ga = admin_over(Scope::All);
-        // Pins the `>=` in the rank comparison. A `>` would let a Global Admin create
-        // another Global Admin, and — since delete reads the target row — delete one.
-        // That is peer minting and peer removal, and it is the Owner's call.
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::GlobalAdmin, &Scope::All),
-            Err(DelegationDenial::RoleNotBelow)
-        );
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::GlobalAdmin, &Scope::Orgs(vec![org()])),
-            Err(DelegationDenial::RoleNotBelow),
-            "narrowing the scope must not buy a peer-tier grant"
-        );
-    }
-
-    #[test]
-    fn self_edit_is_refused_structurally() {
-        // The actor IS a `global_admin`, so their own row's role is `global_admin`,
-        // which is never strictly below itself. No identity comparison is involved
-        // and none is needed — this is why the rule is one sentence and not three.
-        let bounded = admin_over(Scope::Orgs(vec![org()]));
-        assert_eq!(
-            may_delegate(&bounded, PlatformRole::GlobalAdmin, &Scope::All),
-            Err(DelegationDenial::RoleNotBelow),
-            "a bounded admin widening their own row to scope_all is THE escalation \
-             this bound exists to stop"
-        );
-    }
-
-    #[test]
-    fn bounded_admin_may_not_issue_beyond_its_own_orgs() {
-        let a = org();
-        let b = Uuid::from_u128(0xBEEF);
-        let ga = admin_over(Scope::Orgs(vec![a]));
-
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::Orgs(vec![a])),
-            Ok(())
-        );
-        // Pins `Scope::contains`'s (Orgs, All) => false arm. Without it a bounded
-        // operator launders itself unbounded through a second account.
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::All),
-            Err(DelegationDenial::ScopeNotContained)
-        );
-        // Pins the subset test rather than mere non-emptiness.
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::Orgs(vec![b])),
-            Err(DelegationDenial::ScopeNotContained)
-        );
-        assert_eq!(
-            may_delegate(&ga, PlatformRole::AppOperator, &Scope::Orgs(vec![a, b])),
-            Err(DelegationDenial::ScopeNotContained),
-            "a superset containing one permitted org is still a superset"
-        );
-    }
-
-    #[test]
-    fn app_operator_and_non_staff_may_not_delegate_at_all() {
-        let op = PrincipalFacts {
-            platform: Some(PlatformStanding::from_role(
-                PlatformRole::AppOperator,
-                Scope::All,
-            )),
-            ..facts()
-        };
-        // Capability, not rank, is what stops this — an App Operator has no
-        // `ManagePlatformGrants`, so it fails before any comparison.
-        assert_eq!(
-            may_delegate(&op, PlatformRole::AppOperator, &Scope::All),
-            Err(DelegationDenial::NoCapability)
-        );
-        assert_eq!(
-            may_delegate(&facts(), PlatformRole::AppOperator, &Scope::All),
-            Err(DelegationDenial::NotStaff)
-        );
-    }
-
-    #[test]
-    fn scope_contains_is_a_subset_test_not_an_overlap_test() {
-        let a = org();
-        let b = Uuid::from_u128(0xBEEF);
-        assert!(Scope::All.contains(&Scope::All));
-        assert!(Scope::All.contains(&Scope::Orgs(vec![a])));
-        assert!(!Scope::Orgs(vec![a]).contains(&Scope::All));
-        assert!(Scope::Orgs(vec![a, b]).contains(&Scope::Orgs(vec![a])));
-        assert!(!Scope::Orgs(vec![a]).contains(&Scope::Orgs(vec![a, b])));
-        // An empty target reaches nothing, so every scope contains it. Harmless, and
-        // stated so a reader does not mistake it for a hole.
-        assert!(Scope::Orgs(vec![]).contains(&Scope::Orgs(vec![])));
-    }
-
-    #[test]
-    fn manage_platform_grants_is_an_admin_capability_only() {
-        assert!(
-            PlatformRole::GlobalAdmin
-                .caps()
-                .contains(&Cap::ManagePlatformGrants)
-        );
-        assert!(
-            !PlatformRole::AppOperator
-                .caps()
-                .contains(&Cap::ManagePlatformGrants)
-        );
-        // The door and the fence are different questions; both must exist. Asserted
-        // through `allows` rather than by comparing rings: `Ring` is private on purpose
-        // (a public ring lets a call site pick its own authority level), and asserting
-        // the decision is the stronger claim anyway.
-        let p = Resource::platform();
-        let ga = PrincipalFacts {
-            platform: global_admin_standing(),
-            ..facts()
-        };
-        let op = PrincipalFacts {
-            platform: Some(PlatformStanding::from_role(
-                PlatformRole::AppOperator,
-                Scope::All,
-            )),
-            ..facts()
-        };
-        assert!(allows(&ga, Action::PlatformGrants, &p));
-        assert!(
-            !allows(&op, Action::PlatformGrants, &p),
-            "an App Operator must not reach the grant console at all"
-        );
-        assert!(
-            !allows(&facts(), Action::PlatformGrants, &p),
-            "a non-staff principal must not reach the grant console"
-        );
     }
 }

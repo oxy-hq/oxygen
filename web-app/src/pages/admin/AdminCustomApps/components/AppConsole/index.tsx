@@ -2,6 +2,7 @@ import { CircleSlash } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
+import { useAppBuilds } from "@/hooks/api/customApps/useAppBuilds";
 import { useAppLifecycle } from "@/hooks/api/customApps/useAppLifecycle";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { PRODUCTION } from "@/types/appEnvironments";
@@ -51,6 +52,9 @@ export const AppConsole = ({ app, railed = false }: { app: CustomApp; railed?: b
   // The header's verdict and the lifecycle card's are one read: same hook, same cache
   // entries, so the pill beside the name can never disagree with the card below it.
   const { verdict } = useAppLifecycle(app);
+  // A publish from CI or a terminal moves staging with nothing on this page to say
+  // so: keep the builds every panel reads fresh while the console is open.
+  useAppBuilds(app.id, { watch: true });
   // Same URL-backed binding the dossier window and the preview stage use, so `?fn=`
   // and `?env=` name the same things across all three surfaces.
   const { view, patch } = useAppViewState(app.published_at ? "published" : "draft");

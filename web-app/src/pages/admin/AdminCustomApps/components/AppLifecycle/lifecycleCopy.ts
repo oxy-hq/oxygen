@@ -14,8 +14,17 @@ export interface ConfirmCopy {
   confirm: string;
 }
 
-/** Git-sha-style short id; leaves already-short ids untouched. */
-export const shortBuildId = (s: string) => (s.length > 10 ? s.slice(0, 7) : s);
+/** An id that starts as a commit does (12 or more hex digits): the random id `oxyc`
+ *  makes, and a CI id, `<sha>-<run>.<attempt>`. */
+const COMMIT_LIKE = /^[0-9a-f]{12}/i;
+
+/**
+ * A build id as the console shows it: a commit-style id cut to its first 7 digits,
+ * the way git shows a commit, and any other id as it was written. An id a person
+ * chose (`storefront-1.2.0`, `pulse-r5-02df9f7c9926`) was cut to `storefr` and
+ * `pulse-r`, which named no build.
+ */
+export const shortBuildId = (s: string) => (COMMIT_LIKE.test(s) ? s.slice(0, 7) : s);
 
 export const LIFECYCLE_COPY = {
   /** Point production at the build staging is serving. */

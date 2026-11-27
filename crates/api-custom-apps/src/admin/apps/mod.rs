@@ -25,7 +25,8 @@ pub mod environment_scope;
 pub mod fleet_health;
 /// Failed production invocations across every app in scope, in a time window.
 pub mod function_failures;
-mod function_run;
+/// One function-job run read back; the promote checks poll theirs through it.
+pub(crate) mod function_run;
 pub mod functions;
 pub mod handlers;
 /// The held-write read-back of one non-production invocation.
@@ -41,6 +42,8 @@ pub mod issues;
 /// `POST …/oltp-changes/resync`: re-baseline an app's captured tables.
 pub mod oltp_changes;
 mod ops;
+/// Which promote checks hold the app's promote to production.
+pub mod promotion_checks;
 /// The app's four-eyes rule: who may promote its builds.
 pub mod promotion_rule;
 /// `GET /{id}/publishes`: every publish attempt, failed ones included, with
@@ -110,6 +113,7 @@ where
 pub(crate) fn router() -> Router<AppState> {
     core_routes()
         .merge(console_routes())
+        .merge(checks_routes())
         // Staff only, and off a publish token's allow-list.
         .merge(oltp_changes::routes())
         .merge(data_flow_routes())
@@ -252,6 +256,50 @@ fn core_routes() -> Router<AppState> {
         .route(
             "/{id}/notification-test",
             post(test_notification::send_test_notification),
+        )
+}
+
+/// The promote checks' console routes (`custom_apps_build_checks`): the app's
+/// gate settings, and one build's checks, their next attempt, a kept file and
+/// the seen mark. The runner's own routes are not here: they sit outside this
+/// tree's guard stack (`crate::routes`).
+fn checks_routes() -> Router<AppState> {
+    Router::new()
+        // The promote checks gate's settings for the app
+        // (`custom_apps_build_checks::settings`): one row write and an audit
+        // row — FleetOk with the nest. The handler also refuses a sandbox
+        // agent token and a publish token.
+        .route(
+            "/{id}/promotion-checks",
+            axum::routing::put(promotion_checks::set_promotion_checks),
+        )
+        // Promote checks, phase 1 (`custom_apps_build_checks`): one build's
+        // checks, and the next attempt of them. Postgres reads and a queued
+        // task — FleetOk with the nest. Each handler also refuses a sandbox
+        // agent token, and answers not-found to a caller without
+        // non-production reach (a publish token included): the rows are a
+        // staging build's evidence.
+        .route(
+            "/{id}/builds/{build}/checks",
+            get(crate::custom_apps_build_checks::handlers::show),
+        )
+        .route(
+            "/{id}/builds/{build}/checks/rerun",
+            post(crate::custom_apps_build_checks::handlers::rerun),
+        )
+        // One file an attempt's runner kept (a screen's picture, a diff, a
+        // changed screen's text): read from the build store, FleetOk with the
+        // nest, the same door as the checks themselves. The checker uploads
+        // them on its own route and cannot read one back here.
+        .route(
+            "/{id}/builds/{build}/checks/files/{name}",
+            get(crate::custom_apps_build_checks::files::get),
+        )
+        // A person marks the screens a build changes as seen: one row write
+        // and an audit row.
+        .route(
+            "/{id}/builds/{build}/checks/changes/seen",
+            post(crate::custom_apps_build_checks::seen::mark),
         )
 }
 

@@ -28,9 +28,10 @@ pub(crate) use super::ops::validate_display_name;
 pub(crate) use oxy_server_authz::staff::org_filter::{scope_org_filter, scope_org_filter_checked};
 // `pub`: the extracted `oxy-api-partner-console` surface publishes/unpublishes a
 // client's app through these.
-pub use super::ops::{publish_one, unpublish_one};
+pub use super::ops::{publish_one, publish_one_asking, unpublish_one};
 // `pub`, beside `publish_one`: whoever calls it says who records the audit row.
 pub use crate::custom_apps_promote::AuditedBy;
+use crate::custom_apps_promote::MoveChecks;
 use crate::custom_apps_promote::audit::{deleted_entry, published_entry, unpublished_entry};
 // `pub`, beside `publish_one`: whoever promotes through it answers what it
 // refuses with — the coded `409` for a build a sandbox agent token published,
@@ -299,6 +300,7 @@ async fn create_app_unscoped(
         // explicitly restricted later.
         visibility: sea_orm::ActiveValue::NotSet,
         require_second_person_to_promote: sea_orm::ActiveValue::NotSet,
+        promotion_checks: sea_orm::ActiveValue::NotSet,
         id: ActiveValue::Set(id),
         slug: ActiveValue::Set(slug),
         name: ActiveValue::Set(req.name),
@@ -874,18 +876,32 @@ pub async fn update_app(
 /// Publish: point the published channel at the current draft build (see
 /// [`publish_one`]) and stamp `published_at = now()` so the customer-facing
 /// auth gate flips and the workspace sidebar picks up the entry.
+///
+/// The body is optional: `{"override_checks": {"reason": "…"}}` makes the draft
+/// live past the promote checks gate (`custom_apps_promote::checks_override`).
 pub async fn publish_app(
     _: oxy_app_core::agent_refusal::RefuseSandboxAgent,
     user: oxy_app_core::audit::RequestActor,
+    marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     Path(id): Path<Uuid>,
+    body: axum::body::Bytes,
 ) -> Result<Json<PromoteResponse>, PromoteRefusal> {
+    let asked = MakeLiveRequest::of(&body).map_err(|message| PromoteRefusal::Coded {
+        status: StatusCode::BAD_REQUEST,
+        code: "invalid_body",
+        message,
+    })?;
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("publish_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let checks = MoveChecks {
+        override_checks: asked.override_checks.as_ref(),
+        publish_token: marker.is_some(),
+    };
     // A bare status, as always — but for a draft a sandbox agent token
     // published, which is `409 draft_published_by_agent` with who and what to do.
-    let updated = publish_one(&db, id, &user, AuditedBy::Caller).await?;
+    let updated = publish_one_asking(&db, id, &user, AuditedBy::Caller, checks).await?;
     crate::custom_apps_auth::invalidate_access_cache();
     let org = load_org(&db, updated.org_id).await?;
 
@@ -1273,6 +1289,17 @@ pub async fn rollback_app(
                 "this app has no build with that id; it may have been retired by retention",
             )
         })?;
+    // A build production never served is held by the promote checks like a
+    // promote; the request may carry the override. A publish token never
+    // reaches this route.
+    let checks = MoveChecks {
+        override_checks: req.override_checks.as_ref(),
+        publish_token: false,
+    };
+    let checks = checks
+        .ask(&db, &actor, &row)
+        .await
+        .map_err(|e| PromoteRefusal::from(AppOpError::from(e)))?;
     let mv = crate::custom_apps_promote::ProductionMove {
         app_id: id,
         build: build.id.into(),
@@ -1282,6 +1309,7 @@ pub async fn rollback_app(
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
+        checks,
     };
     let moved = crate::custom_apps_promote::move_production(&db, &mv)
         .await
@@ -1387,8 +1415,13 @@ pub async fn batch_publish_apps(
     let (ids, mut results) = split_by_scope(&db, &actor.user, req.ids)
         .await
         .map_err(|s| api_err(s, "Could not verify grant scope."))?;
+    let checks = MoveChecks {
+        override_checks: req.override_checks.as_ref(),
+        publish_token: false,
+    };
     for id in ids {
-        results.push(match publish_one(&db, id, &actor, AuditedBy::Move).await {
+        let published = publish_one_asking(&db, id, &actor, AuditedBy::Move, checks).await;
+        results.push(match published {
             Ok(_) => BatchItemResult::ok(id),
             Err(e) => BatchItemResult::refused(id, e),
         });
@@ -1417,13 +1450,16 @@ pub async fn batch_promote_latest_apps(
     let (ids, mut results) = split_by_scope(&db, &actor.user, req.ids)
         .await
         .map_err(|s| api_err(s, "Could not verify grant scope."))?;
+    let checks = MoveChecks {
+        override_checks: req.override_checks.as_ref(),
+        publish_token: false,
+    };
     for id in ids {
-        results.push(
-            match promote_latest_one(&db, id, &actor, AuditedBy::Move).await {
-                Ok(_) => BatchItemResult::ok(id),
-                Err(e) => BatchItemResult::refused(id, e),
-            },
-        );
+        let promoted = promote_latest_one(&db, id, &actor, AuditedBy::Move, checks).await;
+        results.push(match promoted {
+            Ok(_) => BatchItemResult::ok(id),
+            Err(e) => BatchItemResult::refused(id, e),
+        });
     }
     if results.iter().any(|r| r.ok) {
         crate::custom_apps_auth::invalidate_access_cache();
@@ -1483,180 +1519,5 @@ pub async fn batch_delete_apps(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn marker(app_id: Option<Uuid>) -> oxy_auth::types::AppPublishTokenAuth {
-        oxy_auth::types::AppPublishTokenAuth {
-            token_id: Uuid::new_v4(),
-            app_id,
-            machine_identity: None,
-        }
-    }
-
-    #[test]
-    fn a_live_build_published_via_trusted_publishing_is_ci() {
-        // The OIDC path records its workflow identity and NO user — the machine
-        // principal has no `users` row, so `published_by` stays NULL.
-        let live = LivePublisher {
-            by: None,
-            via: Some("github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production".into()),
-        };
-        assert_eq!(live_published_via(Some(&live)), Some("ci"));
-    }
-
-    #[test]
-    fn a_live_build_published_by_a_user_is_a_person() {
-        // A session publish and a long-lived-token CI job both land here: the
-        // token records the human who minted it.
-        let live = LivePublisher {
-            by: Some(Uuid::new_v4()),
-            via: None,
-        };
-        assert_eq!(live_published_via(Some(&live)), Some("person"));
-    }
-
-    #[test]
-    fn nothing_live_or_no_publisher_says_nothing() {
-        // No live build: a draft serves nobody, so there is no path to judge.
-        assert_eq!(live_published_via(None), None);
-        // A live build that predates both columns: unknown is not "person".
-        assert_eq!(live_published_via(Some(&LivePublisher::default())), None);
-    }
-
-    #[test]
-    fn an_app_scoped_token_names_its_own_app_and_no_other() {
-        let mine = Uuid::new_v4();
-        let theirs = Uuid::new_v4();
-        assert!(token_names_app(&marker(Some(mine)), mine));
-        // The whole point of the route being on the allow-list: publishing to
-        // an app already lets a token cause anything that app can cause, and
-        // that argument covers exactly the app the token may publish to.
-        assert!(!token_names_app(&marker(Some(mine)), theirs));
-    }
-
-    #[test]
-    fn an_unscoped_token_is_bounded_by_the_allow_list_alone() {
-        // A staff token carries no app id; nothing here narrows it, and the
-        // scope middleware is what keeps it to publish + checks.
-        assert!(token_names_app(&marker(None), Uuid::new_v4()));
-    }
-
-    #[test]
-    fn validate_template_id_accepts_vite() {
-        assert_eq!(validate_template_id(Some("vite")).unwrap(), "vite");
-    }
-
-    #[test]
-    fn validate_template_id_defaults_to_vite_when_none() {
-        assert_eq!(validate_template_id(None).unwrap(), "vite");
-    }
-
-    #[test]
-    fn validate_template_id_rejects_unknown() {
-        assert!(validate_template_id(Some("does-not-exist")).is_err());
-    }
-
-    #[test]
-    fn validate_display_name_accepts_typical_names() {
-        assert!(validate_display_name("Acme Analytics").is_ok());
-        assert!(validate_display_name("Store Pulse — v2 (beta)").is_ok());
-        assert!(validate_display_name("数据看板").is_ok()); // unicode is fine
-    }
-
-    #[test]
-    fn validate_display_name_rejects_empty_or_whitespace_only() {
-        assert!(validate_display_name("").is_err());
-        assert!(validate_display_name("   ").is_err());
-    }
-
-    #[test]
-    fn validate_display_name_rejects_json_breaking_chars() {
-        // Each of these would corrupt the rendered oxy-app.json /
-        // package.json scaffolds when blindly substituted.
-        assert!(validate_display_name("My \"App\"").is_err()); // double quote
-        assert!(validate_display_name("path\\to").is_err()); // backslash
-        assert!(validate_display_name("line\nbreak").is_err()); // newline
-        assert!(validate_display_name("tab\there").is_err()); // tab
-    }
-
-    #[test]
-    fn validate_display_name_rejects_jsx_breaking_chars() {
-        // The dashboard template's `<h1>{{APP_DISPLAY_NAME}}</h1>`
-        // would break (or worse, render unintended markup) if these
-        // landed there post-substitution.
-        assert!(validate_display_name("<script>").is_err());
-        assert!(validate_display_name("name>x").is_err());
-        assert!(validate_display_name("name{x").is_err());
-        assert!(validate_display_name("name}x").is_err());
-    }
-
-    #[test]
-    fn validate_display_name_rejects_overlong() {
-        let s = "a".repeat(129);
-        assert!(validate_display_name(&s).is_err());
-        let s = "a".repeat(128);
-        assert!(validate_display_name(&s).is_ok());
-    }
-
-    #[test]
-    fn validate_display_name_counts_chars_not_bytes() {
-        // CJK names: 128 chars at 3 bytes each = 384 bytes. The old
-        // byte-count check rejected at 43 chars (129 bytes).
-        let cjk_128 = "数".repeat(128);
-        assert!(validate_display_name(&cjk_128).is_ok());
-        let cjk_129 = "数".repeat(129);
-        assert!(validate_display_name(&cjk_129).is_err());
-    }
-
-    #[test]
-    fn is_valid_slug_accepts_lower_kebab() {
-        assert!(is_valid_slug("acme"));
-        assert!(is_valid_slug("acme-analytics"));
-        assert!(is_valid_slug("a"));
-        assert!(is_valid_slug("acme-2"));
-        assert!(is_valid_slug(&"a".repeat(63)));
-    }
-
-    /// `events` would shadow the app's slug routes: `/customer-apps/{org}/events/…`
-    /// are the org's app events endpoints (`app_events::api`), so an app slugged
-    /// `events` would lose `/customer-apps/{org}/events/{health,logs,…}`.
-    #[test]
-    fn is_valid_slug_refuses_a_reserved_slug() {
-        assert!(!is_valid_slug("events"));
-        assert!(is_valid_slug("events-2"), "only the exact slug is reserved");
-        assert!(is_valid_slug("app-events"));
-    }
-
-    #[test]
-    fn is_valid_slug_rejects_bad_shapes() {
-        assert!(!is_valid_slug(""));
-        assert!(!is_valid_slug("Acme")); // uppercase
-        assert!(!is_valid_slug("acme--analytics")); // consecutive dashes
-        assert!(!is_valid_slug("-acme")); // leading dash
-        assert!(!is_valid_slug("acme-")); // trailing dash
-        assert!(!is_valid_slug("acme.analytics")); // dot
-        assert!(!is_valid_slug("acme/x")); // slash
-        assert!(!is_valid_slug(&"a".repeat(64))); // too long
-    }
-
-    #[test]
-    fn batch_response_counts_ok_and_failed() {
-        let resp = BatchResponse::from_results(vec![
-            BatchItemResult::ok(Uuid::nil()),
-            BatchItemResult::failed(Uuid::nil(), "App not found.".into()),
-            BatchItemResult::ok(Uuid::nil()),
-        ]);
-        assert_eq!(resp.succeeded, 2);
-        assert_eq!(resp.failed, 1);
-        assert_eq!(resp.results.len(), 3);
-    }
-
-    #[test]
-    fn validate_batch_rejects_empty_and_oversized() {
-        assert!(validate_batch(&[]).is_err());
-        let too_many = vec![Uuid::nil(); MAX_BATCH_IDS + 1];
-        assert!(validate_batch(&too_many).is_err());
-        assert!(validate_batch(&[Uuid::nil()]).is_ok());
-    }
-}
+#[path = "handlers_tests.rs"]
+mod tests;

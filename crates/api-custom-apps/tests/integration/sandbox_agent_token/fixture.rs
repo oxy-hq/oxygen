@@ -357,6 +357,27 @@ pub(crate) async fn send(
     answer(api_router().oneshot(request).await.expect("oneshot")).await
 }
 
+/// One request with a raw body to the flat `/api` tree, answered with its
+/// status, headers and bytes: for a body, or an answer, that is not JSON.
+pub(crate) async fn send_raw(
+    method: &str,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: Vec<u8>,
+) -> (StatusCode, HeaderMap, Vec<u8>) {
+    let mut request = Request::builder().method(method).uri(uri);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let request = request.body(Body::from(body)).expect("request");
+    let response = api_router().oneshot(request).await.expect("oneshot");
+    let (status, headers) = (response.status(), response.headers().clone());
+    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .expect("read the body");
+    (status, headers, bytes.to_vec())
+}
+
 impl Agent {
     pub(crate) fn bearer(&self) -> String {
         format!("Bearer {}", self.secret)

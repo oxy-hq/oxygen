@@ -834,6 +834,39 @@ export interface OxyAppManifest {
    * through the dev-time manifest fetch.
    */
   widgets?: Record<string, OxyAppWidget>;
+  /**
+   * What the platform's promote checks are told about this app: today, which
+   * screens it has (`screens`). Read from the manifest stored with the build,
+   * so it is documented here but not round-tripped through the dev-time
+   * manifest fetch.
+   */
+  checks?: OxyAppChecksManifest;
+}
+
+/** The `checks` block of `oxy-app.json`: what the promote checks are told about the app. */
+export interface OxyAppChecksManifest {
+  /**
+   * The app's screens, for the promote checks that open every one (**Every
+   * screen opens**, **What changed**): paths relative to the app's root, `""`
+   * for the root itself.
+   *
+   * ```json
+   * "checks": { "screens": ["", "stores", "reorder/plans"] }
+   * ```
+   *
+   * An app that picks its screen by a query declares the query: `"?module=waste"`,
+   * `"stores?tab=open"`. Each entry has no leading slash, no hash, no `..` in
+   * its path and no scheme, and is at most 256 characters; at most 30 entries,
+   * each listed once
+   * (`SCREEN_PATH_PATTERN`, `SCREEN_PATH_MAX_LEN` and `SCREENS_MAX` in
+   * `manifest-rules.ts`).
+   *
+   * Omitted: the checker reads the root page's links to other pages of the app
+   * and clicks nothing, so a screen reached only by a button or a tab is not
+   * found. Declare those here. A screen that needs a record to exist should be
+   * declared with a path that exists on staging and on production, or left out.
+   */
+  screens?: string[];
 }
 
 /** The `build` block of `oxy-app.json`: what `oxyc publish` runs. */

@@ -44,6 +44,7 @@ fn move_to(agent: &Agent, build: BuildRef) -> ProductionMove {
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
+        checks: Default::default(),
     }
 }
 

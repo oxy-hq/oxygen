@@ -22,10 +22,12 @@ use oxy_api_custom_apps::admin::app_publish_tokens as publish_tokens;
 use oxy_api_custom_apps::admin::apps::access::set_app_access;
 use oxy_api_custom_apps::admin::apps::handlers as admin;
 use oxy_api_custom_apps::admin::apps::oltp_changes;
+use oxy_api_custom_apps::admin::apps::promotion_checks::set_promotion_checks;
 use oxy_api_custom_apps::admin::apps::promotion_rule::set_promotion_rule;
 use oxy_api_custom_apps::admin::apps::storage;
 use oxy_api_custom_apps::admin::apps::test_notification;
 use oxy_api_custom_apps::custom_apps_agent_refusal::REFUSED_WRITES;
+use oxy_api_custom_apps::custom_apps_build_checks::runner::handlers as build_checks_runner;
 use oxy_api_custom_apps::custom_apps_env_schedules::handlers as env_schedules;
 use oxy_api_custom_apps::custom_apps_promote::handlers as promote;
 use oxy_api_custom_apps::custom_apps_publish_oidc::{delete_publisher, register_publisher};
@@ -75,6 +77,11 @@ fn fixed_state_writes() -> Vec<Write> {
             put(set_promotion_rule),
         ),
         write(
+            "PUT",
+            "/customer-apps/{id}/promotion-checks",
+            put(set_promotion_checks),
+        ),
+        write(
             "POST",
             "/customer-apps/{id}/rollback",
             post(admin::rollback_app),
@@ -83,6 +90,36 @@ fn fixed_state_writes() -> Vec<Write> {
             "POST",
             "/customer-apps/{id}/environments/{name}/promote",
             post(promote::promote),
+        ),
+        write(
+            "POST",
+            "/customer-apps/{id}/builds/{build}/checks/rerun",
+            post(oxy_api_custom_apps::custom_apps_build_checks::handlers::rerun),
+        ),
+        write(
+            "POST",
+            "/customer-apps/{id}/builds/{build}/checks/claim",
+            post(build_checks_runner::claim),
+        ),
+        write(
+            "POST",
+            "/customer-apps/{id}/builds/{build}/checks/functions/settle",
+            post(build_checks_runner::settle),
+        ),
+        write(
+            "POST",
+            "/customer-apps/{id}/builds/{build}/checks/report",
+            post(build_checks_runner::report),
+        ),
+        write(
+            "PUT",
+            "/customer-apps/{id}/builds/{build}/checks/files/{name}",
+            put(oxy_api_custom_apps::custom_apps_build_checks::files::put),
+        ),
+        write(
+            "POST",
+            "/customer-apps/{id}/builds/{build}/checks/changes/seen",
+            post(oxy_api_custom_apps::custom_apps_build_checks::seen::mark),
         ),
         write(
             "POST",
@@ -201,6 +238,7 @@ fn fixed_body(path: &str) -> Option<Value> {
             "workflow_ref": ".github/workflows/oxy-publish.yml", "environment": "production",
         }),
         "/customer-apps/{id}/promotion-rule" => json!({ "require_second_person_to_promote": true }),
+        "/customer-apps/{id}/promotion-checks" => json!({ "required": [] }),
         "/customer-apps/{id}/access" => json!({ "visibility": "restricted" }),
         "/customer-apps/{id}/notification-test" => json!({ "kind": "list_overdue" }),
         "/customer-apps/{id}/environments/{name}/schedules" => json!({ "enabled": true }),
@@ -235,6 +273,7 @@ fn request(
         .replace("{id}", &agent.app.id.to_string())
         .replace("{name}", environment_for(write.path))
         .replace("{publisher_id}", &Uuid::new_v4().to_string())
+        .replace("{build}", &Uuid::new_v4().to_string())
         .replace("{domain_id}", &Uuid::new_v4().to_string());
     let request = Request::builder()
         .method(write.method)
@@ -297,6 +336,7 @@ async fn fixed_state(agent: &Agent) -> Value {
         "published": serving.production, "draft": serving.staging,
         "published_at": app.published_at.map(|at| at.to_rfc3339()),
         "require_second_person_to_promote": app.require_second_person_to_promote,
+        "promotion_checks": app.promotion_checks,
         "builds": builds, "environments": environments, "apps": apps,
         "publishers": publishers, "publish_tokens": publish_tokens,
         "notification_sends": notification_sends, "custom_domains": custom_domains,

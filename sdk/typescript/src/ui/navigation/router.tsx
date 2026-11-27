@@ -58,7 +58,8 @@ export type RouterLinkProps<R> = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "
 
 export interface Router<R> {
   navigate(route: R, opts?: NavigateOptions): void;
-  /** The current route. Re-renders on push, replace, Back and Forward. */
+  /** The current route. Re-renders on push, replace, Back and Forward, including one that changes
+   *  only the query. */
   useRoute(): R;
   /** The absolute href for a route, under the app's base path. */
   hrefFor(route: R, search?: string): string;
@@ -105,7 +106,17 @@ function subscribe(onChange: () => void) {
 }
 
 const currentPath = () => appPath();
-const serverPath = () => "/";
+
+/** What the store follows: the app-relative path and the query, so `navigate` or a `Link` that
+ *  changes only the query (`reports?range=week` to `?range=month`) still re-renders the screen
+ *  that reads it. Not the hash, which no route reads, so a change of the hash alone re-renders
+ *  nothing, as before. */
+const currentLocation = () => `${appPath()}${window.location.search}`;
+const serverLocation = () => "/";
+
+/** A location's path, the part the route table reads. A pathname holds no `?` (it is escaped as
+ *  `%3F`), so the first one starts the query. */
+const pathOf = (location: string) => location.split("?", 1)[0];
 
 /** The href for an app-relative path under the current base. */
 function hrefOf(path: string, search?: string): string {
@@ -132,8 +143,8 @@ export function createRouter<R>(table: RouteTable<R>): Router<R> {
 
   // biome-ignore lint/correctness/noComponentHookFactories: called once, at module level, by the app's routes file; the hook keeps one identity for the page's life.
   function useRoute(): R {
-    const path = useSyncExternalStore(subscribe, currentPath, serverPath);
-    const route = table.parse(path);
+    const here = useSyncExternalStore(subscribe, currentLocation, serverLocation);
+    const route = table.parse(pathOf(here));
     if (table.title && typeof document !== "undefined") {
       const title = table.title(route);
       if (document.title !== title) document.title = title;

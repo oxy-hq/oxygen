@@ -900,88 +900,6 @@ fn app_non_production_ring_matches_the_staff_draft_preview_gate() {
 }
 
 #[test]
-fn app_events_manage_ring_is_staff_with_manage_apps_over_the_org() {
-    // A new surface (the staff endpoints behind `oxyc events`: redeliver,
-    // replay, discard, purge, the events switch) with no shipped check, so the
-    // oracle is the rule as stated: the global owner, or a grant holding
-    // `manage_apps` whose scope reaches the org. No tenant standing: not an
-    // officer, an app admin, a member, a partner or a frontline worker.
-    for restricted in [false, true] {
-        assert_app_ring(Action::AppEventsManage, restricted, |s| s.is_staff);
-    }
-
-    let other = Uuid::from_u128(2);
-    let scoped = |role, scope| Some(PlatformStanding::from_role(role, scope));
-    let shapes: Vec<(&str, bool, Option<PlatformStanding>, bool)> = vec![
-        ("global owner", true, None, false),
-        (
-            "app operator scoped to this org",
-            false,
-            scoped(PlatformRole::AppOperator, Scope::Orgs(vec![org()])),
-            false,
-        ),
-        (
-            "app operator scoped to another org",
-            false,
-            scoped(PlatformRole::AppOperator, Scope::Orgs(vec![other])),
-            false,
-        ),
-        (
-            "app operator scoped to another org who is a member here",
-            false,
-            scoped(PlatformRole::AppOperator, Scope::Orgs(vec![other])),
-            true,
-        ),
-        (
-            "staff without manage_apps",
-            false,
-            Some(PlatformStanding {
-                role: PlatformRole::AppOperator,
-                caps: vec![Cap::DevelopApps],
-                scope: Scope::All,
-            }),
-            false,
-        ),
-        ("a member, not staff", false, None, true),
-        ("nobody", false, None, false),
-    ];
-    for resource in [Resource::org(org()), Resource::app(app_id(), org())] {
-        for (name, is_global_owner, platform, is_member) in shapes.clone() {
-            let expected = is_global_owner
-                || platform
-                    .as_ref()
-                    .is_some_and(|g| g.grants(Cap::ManageApps, org()));
-            let facts = PrincipalFacts {
-                user_id: user(),
-                is_global_owner,
-                platform,
-                member_orgs: if is_member { vec![org()] } else { vec![] },
-                ..Default::default()
-            };
-            assert_eq!(
-                allows(&facts, Action::AppEventsManage, &resource),
-                expected,
-                "ring drift for AppEventsManage — scenario {name:?} on {:?}",
-                resource.kind
-            );
-        }
-    }
-    // A customer's own org owner is refused: tenant standing is not staff.
-    let owner = PrincipalFacts {
-        user_id: user(),
-        owned_orgs: vec![org()],
-        admin_orgs: vec![org()],
-        member_orgs: vec![org()],
-        ..Default::default()
-    };
-    assert!(!allows(
-        &owner,
-        Action::AppEventsManage,
-        &Resource::org(org())
-    ));
-}
-
-#[test]
 fn app_admin_ring_matches_the_shipped_role_resolution() {
     // Oracle = `custom_apps_auth::resolve_app_role`'s "admin" verdict: any org
     // officer (owner/admin), an app-admin row, or staff. NOT a plain org member,
@@ -1301,6 +1219,10 @@ fn provision_hint_admits_only_the_staff_the_ring_admits() {
     let reachable = crate::provisionable(&scoped, &[here, elsewhere]);
     assert_eq!(reachable, std::collections::HashSet::from([here]));
 }
+
+// The app actions staff standing decides, against the rule each states.
+#[path = "differential_app_staff.rs"]
+mod app_staff;
 
 // The sandbox agent token against the same gates, over the same caller shapes.
 #[path = "differential_sandbox.rs"]

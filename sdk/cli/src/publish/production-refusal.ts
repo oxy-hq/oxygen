@@ -4,7 +4,8 @@
  * The server answers `409` in the body a refused `oxyc promote` answers —
  * `{code, error, message, blockers: [{code, message}]}` — with every blocker
  * the promote's plan would list: an unset required secret, a schedule
- * retirement nobody confirmed, the app's four-eyes rule. Nothing of the
+ * retirement nobody confirmed, the app's four-eyes rule, the build's checks
+ * where the org holds promotes on them. Nothing of the
  * publish landed, staging included. This turns that body into an error that
  * names each blocker and says, for each, what to set or which flag to pass.
  */
@@ -48,6 +49,12 @@ export function remedyFor(code: string, app: string): string | undefined {
       return "publish a build that passes validation";
     case "staging_never_served":
       return `publish without --promote so staging serves the build, then \`oxyc promote ${app}\``;
+    // The build's checks run once staging serves it, so a promoting publish never has them.
+    case "checks_not_passed":
+    case "checks_running":
+      return `this app's promotes wait on the build's checks, which run once staging serves it: publish without --promote, wait for them (\`oxyc checks show ${app} --wait\`), then \`oxyc promote ${app}\``;
+    case "changes_not_seen":
+      return `publish without --promote, look at the screens that differ on the app's Builds page and mark them seen, then \`oxyc promote ${app}\``;
     default:
       return undefined;
   }

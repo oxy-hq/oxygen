@@ -29,6 +29,9 @@ pub struct PublishForm {
     pub manifest: Option<serde_json::Value>,
     pub source_repo: Option<String>,
     pub commit_sha: Option<String>,
+    /// The `@oxy-hq/sdk` version the bundle was built with (`oxyc publish`
+    /// sends it; an older `oxyc` does not). Recorded on the build.
+    pub sdk_version: Option<String>,
     pub semantic_revision_id: Option<Uuid>,
     /// A sandbox to publish to (`dev-<handle>`); absent or empty is the
     /// publish this route always made.
@@ -58,6 +61,7 @@ struct RawFields {
     tarball: Option<Vec<u8>>,
     source_repo: Option<String>,
     commit_sha: Option<String>,
+    sdk_version: Option<String>,
     semantic_revision_id: Option<Uuid>,
     semantic_revision_invalid: Option<String>,
     environment: Option<String>,
@@ -71,6 +75,24 @@ fn bad_request(message: String) -> PublishRefusal {
 
 fn non_empty(val: String) -> Option<String> {
     Some(val).filter(|s| !s.is_empty())
+}
+
+/// A flag field that is on: `true` or `1`, as `oxyc` and a form send it.
+fn is_on(val: &str) -> bool {
+    val == "true" || val == "1"
+}
+
+/// The `sdk_version` field: a version as `oxyc` read it, trimmed and capped.
+/// Anything that is not a short dotted version is dropped rather than stored:
+/// the field is advisory, and a malformed one must not refuse a publish.
+fn sdk_version(val: String) -> Option<String> {
+    let v = val.trim();
+    let shaped = !v.is_empty()
+        && v.len() <= 64
+        && v.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
+    shaped.then(|| v.to_string())
 }
 
 impl RawFields {
@@ -88,14 +110,13 @@ impl RawFields {
             "name" => self.name = non_empty(val),
             "source_repo" => self.source_repo = non_empty(val),
             "commit_sha" => self.commit_sha = non_empty(val),
+            "sdk_version" => self.sdk_version = sdk_version(val),
             "environment" => self.environment = Some(val),
             // Repeated, one function each, as `oxyc promote` sends the list.
             "confirm_schedule_removals" => self.confirm_schedule_removals.extend(non_empty(val)),
             "channel" => self.promote = val == "published",
-            "promote" => self.promote = val == "true" || val == "1",
-            "break_listeners" | "breakListeners" => {
-                self.break_listeners = val == "true" || val == "1"
-            }
+            "promote" => self.promote = is_on(&val),
+            "break_listeners" | "breakListeners" => self.break_listeners = is_on(&val),
             // Staging pin (`--semantic-branch`). Not `branch`, which is the
             // app's SOURCE branch.
             "semantic_revision_id" => self.take_semantic_revision(val),
@@ -228,6 +249,7 @@ impl PublishForm {
             manifest: raw.manifest,
             source_repo: raw.source_repo,
             commit_sha: raw.commit_sha,
+            sdk_version: raw.sdk_version,
             semantic_revision_id: raw.semantic_revision_id,
             environment: raw.environment,
             confirm_schedule_removals: raw.confirm_schedule_removals,
@@ -256,6 +278,7 @@ impl PublishForm {
             published_via: publisher.published_via,
             semantic_revision_id: self.semantic_revision_id,
             confirm_schedule_removals: self.confirm_schedule_removals,
+            sdk_version: self.sdk_version,
         }
     }
 }

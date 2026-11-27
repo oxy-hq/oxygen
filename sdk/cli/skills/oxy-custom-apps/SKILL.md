@@ -848,6 +848,32 @@ first and refuse on a blocker: `staging_never_served`, `required_secrets_unset`
 `oxyc publish --promote` still works and warns that it is deprecated: it shows
 nobody the plan.
 
+**An org can hold Promote on a build's checks** (Oxy turns this on per org).
+The plan then lists each check of the build, the required ones marked, and
+three more blockers can refuse a promote to production:
+
+- `checks_not_passed`: a required check failed, could not run, or never ran.
+  By default the required ones are: its `"check": true` functions pass, it
+  loads on desk and phone, it follows the design system, and every screen
+  opens. Fix what the check found and publish again; `oxyc checks show <app>
+  --build <id>` prints each finding.
+- `checks_running`: a required check has no verdict yet. `oxyc checks show
+  <app> --build <id> --wait`, then promote again.
+- `changes_not_seen`: the app is set to need a person to look at the screens
+  that changed. They mark them seen on the app's Builds page.
+
+To promote past a failed check, an owner or admin of the app's org passes
+`--override-checks "<why>"` (10 characters or more; it is audited, and it
+clears those three blockers only). A publish token, a CI token and a service
+account cannot. **As an agent, never pass `--override-checks` on your own**:
+report the failed check and let a person decide. A rollback is never held by
+the checks.
+
+After a promote that is checked, `oxyc promote` waits up to 5 minutes while
+the platform opens every screen on production, and **exits `9` if that found
+something the move broke** (production has moved; `oxyc rollback <app>
+--app-env production` moves it back). `--no-wait` skips the wait.
+
 - **Identity**, for each half, is `--app` / `--org`, then `OXY_APP` /
   `OXY_ORG`, then the manifest's `slug` + `orgSlug`, then an
   `apps/<org>/<app>/` working directory. `--org` takes a slug or a UUID; pass
@@ -1093,6 +1119,71 @@ promote <app>`.
 Staff only (needs `develop_apps` + `manage_apps`) — or a sandbox agent token
 such staff approved; a publish token is refused on every sandbox operation,
 so CI cannot use one.
+
+**What the checks found on staging's build.** Every build that reaches
+staging is checked: it builds and validates, its `"check": true` functions
+pass, it loads on desk and phone, it follows the design system. The platform
+starts a GitHub Actions run that does it and keeps the results on the build.
+The page is opened as a reader: a `/fn` call or any other write it makes while
+it mounts does not go through and shows as a warning, so the first screen has
+to mount without one. **It is also given nothing from another host**: a font,
+a script, an image or a tag another origin serves is not loaded while the
+build is checked, and no WebSocket is opened (each a warning). So ship fonts
+and libraries in the app's own bundle, and load anything optional from
+elsewhere so that its absence throws nothing: an app that cannot mount
+without a script from a CDN fails the check, and the failure names what was
+not sent. `oxyc checks show <app> --env dev` prints the
+results: who ran them, then one line per check with the findings (`file:line
+message`) under any that failed; `--build <id>` reads another build, `--wait`
+polls until none is running, and `--json` gives the server's body. Exit `9`
+means they failed, `0` passed, running or none run. If it says the runner did
+not answer, run the checks again from the app's Builds page. It needs a
+person's login: a sandbox agent token is refused, here and on `oxyc checks run
+--build`, which is the command that run executes. Whether a promote waits on
+them is the org's setting (above): `oxyc promote <app> --dry-run` says which
+checks are required.
+
+**Every screen, and what changed.** Where the org holds Promote on the checks,
+two more run on staging's build. **Every screen opens**: each screen at desk
+(1440x900) and phone (390x844) width has to render and throw nothing. **What
+changed**: each screen is pictured on staging and on production and the two
+are compared, so a person sees which screens differ before promoting (it
+informs, and never fails a build). The same reader opens them, so every
+screen has to render **without a write, without a `/fn` call, and without
+anything from another host**. `useQuery`
+and `useSemanticQuery` go through; a screen that loads its data through an Oxy
+Function sees that call refused (a warning, not a failure), so it must still
+render and throw nothing: an empty or error state is enough.
+
+- **Which screens.** Declare them in `oxy-app.json`: `"checks": { "screens":
+  ["", "stores", "reorder/plans"] }`, app-relative paths, `""` for the root.
+  With none declared, the checker reads the ready root page's `<a href>`
+  links to other screens of the app (at most 30) and **clicks nothing**: a
+  screen reached only by a button or a tab is not found, so declare its path.
+  **An app that picks its screen by a query declares the query**:
+  `"?module=waste"`, `"stores?tab=open"`. Without it the checker opens such
+  an app's root and nothing else, because a link's query is dropped when the
+  screens are read off the root page. A screen that exists only as a hash
+  route (`#/plans`) cannot be declared and is not opened: the checker drops
+  the hash.
+- **Keep `checks.screens` in step with the router, in the same change.** When
+  you add, rename or remove a route, open the app's route table and rewrite
+  the list from it: every static path, the root first, then the order of the
+  navigation, at most 30. Do it without being asked: a screen missing from
+  the list is a screen no check opens, and nothing fails to tell anyone.
+  Leave out a route that only redirects, and say in your summary which
+  routes you left out and why.
+- **A screen that needs data to exist** (a detail page for one record) should
+  be declared with a path that exists on staging and on production, or left
+  out. Never invent a record id: ask the person for one that exists in both,
+  or leave the route out and say so.
+- **What the list misses is reported.** The checker reads the links of every
+  screen it opens, and `oxyc checks show <app>` prints, under **Every screen
+  opens**, `! 3 linked screens not opened: /plans, …` (the app's Builds page
+  says the same; `--json` has them as `detail.screens_unlisted`). Declare the
+  ones that matter and publish again.
+- **`oxyc checks show <app> --environment production`** prints the check that
+  ran on production after a promote.
 
 **An agent runs this loop on its own sandbox agent token**, never a person's
 login, with `--token-env OXY_TOKEN` on every command — up to the page:

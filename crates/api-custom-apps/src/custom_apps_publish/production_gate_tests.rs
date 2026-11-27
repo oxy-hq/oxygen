@@ -50,6 +50,7 @@ fn refused(
         required_unset: unset,
         schedule_removals: removals,
         confirmed_removals: confirmed,
+        checks: None,
     })
 }
 
@@ -91,6 +92,39 @@ fn the_four_eyes_rule_refuses_every_promoting_publish_while_it_is_on() {
         codes(&refused(true, &unset, &[], &[])),
         vec![REQUIRED_SECRETS_UNSET, SAME_PERSON_PROMOTE]
     );
+}
+
+/// With the promote checks gate on, the build a promoting publish just made
+/// has no staging attempt, so every check the app requires is unmet; an app
+/// that requires none is not held.
+#[test]
+fn the_promote_checks_gate_refuses_a_promoting_publish_of_an_unchecked_build() {
+    use crate::custom_apps_build_checks::settings::Settings;
+    use crate::custom_apps_promote::error::CHECKS_NOT_PASSED;
+
+    let refused_with = |settings: &Settings| {
+        let checks = checks_gate::evaluate(settings, Vec::new(), chrono::Utc::now());
+        refused_by(Facts {
+            app: &app(false),
+            build: &build(),
+            required_unset: &[],
+            schedule_removals: &[],
+            confirmed_removals: &[],
+            checks: Some(&checks),
+        })
+    };
+    let blockers = refused_with(&Settings::default());
+    assert_eq!(codes(&blockers), vec![CHECKS_NOT_PASSED]);
+    assert!(
+        blockers[0].message.contains("Every screen opens (not run)"),
+        "{}",
+        blockers[0].message
+    );
+    let nothing_required = Settings {
+        required: Some(Vec::new()),
+        ..Settings::default()
+    };
+    assert!(refused_with(&nothing_required).is_empty());
 }
 
 /// The sentence says nothing landed and carries every blocker's own.

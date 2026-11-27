@@ -27,6 +27,8 @@ import {
   FUNCTION_NAME_RULE,
   isValidFunctionName,
   isValidSlug,
+  SCREEN_PATH_PATTERN,
+  SCREEN_PATH_RULE,
   SLUG_RULE
 } from "./manifest-rules";
 import { type ManifestSchemaNode, OXY_APP_SCHEMA } from "./manifest-schema";
@@ -230,28 +232,40 @@ function eventsRule(raw: Record<string, unknown>): ManifestIssue[] {
     });
     const on = Array.isArray(fn.on) ? fn.on : fn.on === undefined ? [] : [fn.on];
     on.forEach((entry, i) => {
-      if (isRecord(entry)) {
-        const spec = entry.table;
-        if (typeof spec === "string" && !ON_TABLE.test(spec)) {
-          const at = Array.isArray(fn.on) ? `on.${i}.table` : "on.table";
-          out.push({
-            level: "error",
-            path: `functions.${name}.${at}`,
-            message: `function ${JSON.stringify(name)} watches table ${JSON.stringify(spec)}; write <database>:<schema>.<table> (the database may be left out for the app's own app_<writer> schema)`
-          });
-        }
-        return;
-      }
-      if (typeof entry !== "string" || ON_REF.test(entry)) return;
-      const at = typeof fn.on === "string" ? "on" : `on.${i}`;
-      out.push({
-        level: "error",
-        path: `functions.${name}.${at}`,
-        message: `function ${JSON.stringify(name)} \`${at}\` ${JSON.stringify(entry)} must be <app-slug>/<event-name> and match ${ON_REF.source}`
-      });
+      out.push(...onEntryIssues(name, fn.on, entry, i));
     });
   }
   return out;
+}
+
+/**
+ * What is wrong with entry `i` of function `name`'s `on`, if anything: a table
+ * that is not `[<database>:]<schema>.<table>`, or an event that is not
+ * `<app-slug>/<event-name>`. `on` is the field as written, one entry or a
+ * list, which decides the path the issue names.
+ */
+function onEntryIssues(name: string, on: unknown, entry: unknown, i: number): ManifestIssue[] {
+  if (isRecord(entry)) {
+    const spec = entry.table;
+    if (typeof spec !== "string" || ON_TABLE.test(spec)) return [];
+    const at = Array.isArray(on) ? `on.${i}.table` : "on.table";
+    return [
+      {
+        level: "error",
+        path: `functions.${name}.${at}`,
+        message: `function ${JSON.stringify(name)} watches table ${JSON.stringify(spec)}; write <database>:<schema>.<table> (the database may be left out for the app's own app_<writer> schema)`
+      }
+    ];
+  }
+  if (typeof entry !== "string" || ON_REF.test(entry)) return [];
+  const at = typeof on === "string" ? "on" : `on.${i}`;
+  return [
+    {
+      level: "error",
+      path: `functions.${name}.${at}`,
+      message: `function ${JSON.stringify(name)} \`${at}\` ${JSON.stringify(entry)} must be <app-slug>/<event-name> and match ${ON_REF.source}`
+    }
+  ];
 }
 
 /**
@@ -426,6 +440,8 @@ type ViolationKind =
   | "minLength"
   | "maxLength"
   | "range"
+  | "maxItems"
+  | "uniqueItems"
   | "propertyName"
   | "anyOf";
 
@@ -518,11 +534,7 @@ function walk(raw: ManifestSchemaNode, value: unknown, path: string[], out: Viol
     return;
   }
   if (Array.isArray(value)) {
-    if (node.items !== undefined) {
-      value.forEach((item, i) =>
-        walk(node.items as ManifestSchemaNode, item, [...path, String(i)], out)
-      );
-    }
+    walkList(node, value, path, out);
     return;
   }
   if (!isRecord(value)) return;
@@ -548,6 +560,48 @@ function walk(raw: ManifestSchemaNode, value: unknown, path: string[], out: Viol
     if (extra === false) fail("unknown", at);
     else if (isRecord(extra)) walk(extra as ManifestSchemaNode, member, at, out);
   }
+}
+
+/**
+ * A list against its (resolved) node: `maxItems` on the list itself, then each
+ * entry against `items`, then `uniqueItems`.
+ */
+function walkList(
+  node: ManifestSchemaNode,
+  list: unknown[],
+  path: string[],
+  out: Violation[]
+): void {
+  if (node.maxItems !== undefined && list.length > node.maxItems) {
+    out.push({ kind: "maxItems", path, node, value: list });
+  }
+  if (node.items !== undefined) {
+    list.forEach((item, i) => {
+      walk(node.items as ManifestSchemaNode, item, [...path, String(i)], out);
+    });
+  }
+  if (node.uniqueItems === true) repeats(node, list, path, out);
+}
+
+/**
+ * `uniqueItems`: one violation per entry that repeats an earlier one, at the
+ * repeat. Entries are compared as their JSON, which is exact for the strings
+ * the schema lists.
+ */
+function repeats(
+  node: ManifestSchemaNode,
+  items: unknown[],
+  path: string[],
+  out: Violation[]
+): void {
+  const seen = new Set<string>();
+  items.forEach((item, i) => {
+    const key = String(JSON.stringify(item));
+    if (seen.has(key)) {
+      out.push({ kind: "uniqueItems", path: [...path, String(i)], node, value: item });
+    }
+    seen.add(key);
+  });
 }
 
 // ── Sentences ───────────────────────────────────────────────────────────────
@@ -604,6 +658,32 @@ function oneOf(values: unknown[]): string {
   return `${quoted.slice(0, -1).join(", ")} or ${quoted[quoted.length - 1]}`;
 }
 
+/**
+ * A string that fails its pattern. A screen path says its whole rule, as a
+ * slug does: the regex alone does not tell an author that "/stores" is
+ * written "stores".
+ */
+function patternSentence(who: string, v: Violation): string {
+  const pattern = v.node.pattern;
+  if (pattern === SCREEN_PATH_PATTERN.source) {
+    return `${who} ${JSON.stringify(v.value)} must be ${SCREEN_PATH_RULE}`;
+  }
+  return pattern === "\\S"
+    ? `${who} must be a non-empty string`
+    : `${who} must match ${pattern ?? ""}`;
+}
+
+/** A list with too many entries, or an entry that repeats an earlier one. */
+function listSentence(who: string, kind: "maxItems" | "uniqueItems", v: Violation): string {
+  if (kind === "uniqueItems") {
+    return `${who} repeats ${JSON.stringify(v.value)}: list each entry once`;
+  }
+  return (
+    `${who} must list at most ${v.node.maxItems} entries` +
+    (Array.isArray(v.value) ? ` (it lists ${v.value.length})` : "")
+  );
+}
+
 function describe(v: Violation): string {
   const at = v.path.join(".");
   const who = label(v.path);
@@ -642,15 +722,16 @@ function describe(v: Violation): string {
     case "const":
       return `${who} must be ${JSON.stringify(v.node.const)}`;
     case "pattern":
-      return v.node.pattern === "\\S"
-        ? `${who} must be a non-empty string`
-        : `${who} must match ${v.node.pattern ?? ""}`;
+      return patternSentence(who, v);
     case "minLength":
       return v.node.minLength === 1
         ? `${who} must be a non-empty string`
         : `${who} must be at least ${v.node.minLength} characters`;
     case "maxLength":
       return `${who} must be at most ${v.node.maxLength} characters`;
+    case "maxItems":
+    case "uniqueItems":
+      return listSentence(who, v.kind, v);
     case "anyOf":
       return `${who} does not match any shape the schema allows`;
     default: {

@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { CustomAppsService } from "@/services/api/customApps";
 import type { MovePlan } from "@/types/appPromote";
-import { hardBlockers, useMoveProduction } from "./useProductionMove";
+import { checkBlockers, hardBlockers, useMoveProduction } from "./useProductionMove";
 
 vi.mock("@/services/api/customApps", () => ({ CustomAppsService: { moveProduction: vi.fn() } }));
 
@@ -34,6 +34,46 @@ describe("useMoveProduction", () => {
       expect_current: "live",
       confirm_schedule_removals: ["nightly"]
     });
+  });
+});
+
+describe("useMoveProduction — past the checks", () => {
+  it("adds the trimmed reason as override_checks, and nothing else changes", async () => {
+    vi.mocked(CustomAppsService.moveProduction).mockClear();
+    vi.mocked(CustomAppsService.moveProduction).mockResolvedValue({ moved: true } as MovePlan);
+    const { result } = renderHook(() => useMoveProduction("app-1"), { wrapper });
+    const target = { act: "promote", buildId: "draft" } as const;
+    await result.current.mutateAsync({
+      target,
+      plan,
+      override: { reason: "  Hotfix for the kiosk \n" }
+    });
+    expect(CustomAppsService.moveProduction).toHaveBeenCalledWith("app-1", target, {
+      expect_current: "live",
+      confirm_schedule_removals: ["nightly"],
+      override_checks: { reason: "Hotfix for the kiosk" }
+    });
+  });
+});
+
+describe("checkBlockers", () => {
+  it("picks out the three a written reason clears", () => {
+    const blocked = {
+      blockers: [
+        { code: "checks_not_passed", message: "" },
+        { code: "required_secrets_unset", message: "" },
+        { code: "checks_running", message: "" },
+        { code: "changes_not_seen", message: "" },
+        { code: "schedule_removal_unconfirmed", message: "" }
+      ]
+    } as unknown as MovePlan;
+    expect(checkBlockers(blocked).map((b) => b.code)).toEqual([
+      "checks_not_passed",
+      "checks_running",
+      "changes_not_seen"
+    ]);
+    expect(checkBlockers(plan)).toEqual([]);
+    expect(checkBlockers(undefined)).toEqual([]);
   });
 });
 

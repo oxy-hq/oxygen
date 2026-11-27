@@ -126,6 +126,19 @@ impl Refusal {
     }
 }
 
+/// Which door a request is resolved for: what decides, beside the
+/// environment, whether the platform checker (`app_check`) is asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Door {
+    /// The bundle path: an environment's page, its assets and its reserved
+    /// `__oxy/` names. The checker opens staging's and production's.
+    Page,
+    /// Every other app-keyed surface: the function route, logs, health,
+    /// debug, availability, the events door, the custom-domain handoff. The
+    /// checker is never asked for production here.
+    Surface,
+}
+
 /// Resolve `(org_slug, app_slug)` for the caller behind `headers`, for the
 /// `environment` the request addresses (production decides access by the
 /// customer rule, anything else by the staff rule).
@@ -138,6 +151,46 @@ pub async fn resolve_app_request(
     app_slug: &str,
     sandbox_agent: SandboxAgent,
     environment: &AppEnvironment,
+) -> Result<AppRequest, Refusal> {
+    resolve(
+        headers,
+        (org_slug, app_slug),
+        sandbox_agent,
+        environment,
+        Door::Surface,
+    )
+    .await
+}
+
+/// [`resolve_app_request`] for the bundle path alone (`serve_pretty`): the
+/// one resolver that also admits the platform checker to **production's**
+/// page, its assets and the beacon (`Action::AppCheckProduction`), beside what
+/// production already asks of a viewer. Everything else that resolves an app
+/// takes [`resolve_app_request`], so the checker's production reach on this
+/// tree is the page and nothing more.
+pub async fn resolve_page_request(
+    headers: &HeaderMap,
+    org_slug: &str,
+    app_slug: &str,
+    sandbox_agent: SandboxAgent,
+    environment: &AppEnvironment,
+) -> Result<AppRequest, Refusal> {
+    resolve(
+        headers,
+        (org_slug, app_slug),
+        sandbox_agent,
+        environment,
+        Door::Page,
+    )
+    .await
+}
+
+async fn resolve(
+    headers: &HeaderMap,
+    (org_slug, app_slug): (&str, &str),
+    sandbox_agent: SandboxAgent,
+    environment: &AppEnvironment,
+    door: Door,
 ) -> Result<AppRequest, Refusal> {
     let (identity, credential) = authenticate(headers, sandbox_agent).await?;
     let user = principal(&identity, credential).await?;
@@ -165,7 +218,7 @@ pub async fn resolve_app_request(
         return Err(Refusal::NotFound);
     }
 
-    if !authorize(&db, &caller, &app, environment).await? {
+    if !authorize(&db, &caller, &app, environment, door).await? {
         return Err(Refusal::Forbidden(Box::new(Denied {
             user_id: user.id,
             app,
@@ -325,19 +378,35 @@ async fn resolve_rows(
 /// production for every caller and decides the environment it runs in at
 /// `environment_gate`; the page path, which resolves at the environment it
 /// serves, refuses the token at production itself (`ServeContext::prepare`).
+///
+/// **The platform checker** (`app_check`) is asked beside both arms: staging's
+/// check wherever staging is resolved (only the bundle path resolves it), and
+/// production's check at the bundle path alone ([`Door::Page`]), and only
+/// after the ordinary rule said no, so a viewer's request never pays for it.
 async fn authorize(
     db: &DatabaseConnection,
     caller: &Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
+    door: Door,
 ) -> Result<bool, Refusal> {
     let access = async {
         if *environment == AppEnvironment::Production {
-            user_can_access_app(db, caller, app).await
+            // The checker opens production's page, assets and beacon and
+            // nothing else; the serve tree's fence keeps it to reads.
+            match user_can_access_app(db, caller, app).await {
+                Ok(false) if door == Door::Page => {
+                    Ok(crate::app_check::may_check(db, caller, app, environment).await)
+                }
+                decided => decided,
+            }
         } else {
             // For every caller but a sandbox agent token this is
-            // `may_open_non_production`, unchanged.
-            Ok(may_open_environment(db, caller, app, environment).await)
+            // `may_open_non_production`, unchanged. The platform checker opens
+            // staging's page, assets and beacon and nothing else
+            // (`app_check`); the serve tree's fence keeps it to reads.
+            Ok(may_open_environment(db, caller, app, environment).await
+                || crate::app_check::may_check_staging(db, caller, app, environment).await)
         }
     };
     access

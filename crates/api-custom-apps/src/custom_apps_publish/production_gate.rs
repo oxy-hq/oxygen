@@ -25,6 +25,13 @@
 //! **The four-eyes rule refuses every promoting publish while it is on**:
 //! the identity promoting the build is, by construction, the one that just
 //! published it.
+//!
+//! **So does the promote checks gate** (`custom_apps_promote::checks_gate`),
+//! where the app's org has the `promote_checks_gate` flag on and the app
+//! requires any check: the build this publish just made has no staging
+//! attempt, so every required check is unmet (`checks_not_passed`). A
+//! promoting publish carries no override; publish to staging, let the checks
+//! run, then `oxyc promote`.
 
 use entity::{app_builds, apps};
 use sea_orm::{DatabaseConnection, EntityTrait};
@@ -33,6 +40,7 @@ use uuid::Uuid;
 use super::{PublishError, PublishInput};
 use crate::custom_apps_build_state::BuildState;
 use crate::custom_apps_promote::blockers::{self, Act, ProductionFacts};
+use crate::custom_apps_promote::checks_gate::{self, Checks};
 use crate::custom_apps_promote::schedules;
 use crate::custom_apps_promote::{Blocker, PromoteError};
 use crate::custom_apps_secrets::required;
@@ -56,12 +64,14 @@ pub(super) async fn check(
         .await
         .map_err(unread)?
         .removed_functions();
+    let checks = checks_gate::read(db, &app, &build).await.map_err(unread)?;
     let blockers = refused_by(Facts {
         app: &app,
         build: &build,
         required_unset: &required_unset,
         schedule_removals: &removals,
         confirmed_removals: &input.confirm_schedule_removals,
+        checks: checks.as_ref(),
     });
     if blockers.is_empty() {
         Ok(())
@@ -77,6 +87,9 @@ struct Facts<'a> {
     required_unset: &'a [String],
     schedule_removals: &'a [String],
     confirmed_removals: &'a [String],
+    /// Where the build stands against the checks the app requires; `None`
+    /// where the promote checks gate is off.
+    checks: Option<&'a Checks>,
 }
 
 /// The pure half: the blockers of a promote by the build's own publisher.
@@ -93,6 +106,9 @@ fn refused_by(facts: Facts<'_>) -> Vec<Blocker> {
         second_person_required: facts.app.require_second_person_to_promote,
         // This request published the build it promotes.
         mover_published: true,
+        checks: facts.checks,
+        // A promoting publish carries no override.
+        checks_overridden: false,
     });
     blockers
 }

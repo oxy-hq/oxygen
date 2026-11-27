@@ -10,6 +10,7 @@ import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { $, click, fire, render } from "../ui.harness";
 import { appBase, appPath, createRouter } from "./router";
+import { readUrlParam } from "./urlState";
 
 type Route = { name: "home" } | { name: "flags" } | { name: "store"; id: string };
 
@@ -40,6 +41,26 @@ function Screen() {
       </router.Link>
     </>
   );
+}
+
+/** A screen that reads its query string, as a report's range does. */
+function Report() {
+  seen.push(router.useRoute());
+  return (
+    <>
+      <output>{readUrlParam("range") ?? "none"}</output>
+      <router.Link to={{ name: "flags" }} search='range=month' data-testid='month'>
+        Month
+      </router.Link>
+    </>
+  );
+}
+
+/** A screen that only counts its renders. */
+function Counted({ onRender }: { onRender: () => void }) {
+  router.useRoute();
+  onRender();
+  return null;
 }
 
 const shown = () => $("output")?.textContent;
@@ -134,6 +155,46 @@ describe("createRouter", () => {
     );
     expect(shown()).toBe("flags");
     expect(document.title).toBe("Bookings: flags");
+  });
+
+  it("re-renders when only the query changes: navigate, a Link, Back and Forward", async () => {
+    serveAt("/a/bookings/flags?range=week", { orgSlug: "acme", slug: "bookings" });
+    await render(<Report />);
+    expect(shown()).toBe("week");
+    await step(() => router.navigate({ name: "flags" }, { search: "range=day" }));
+    expect(window.location.search).toBe("?range=day");
+    expect(shown()).toBe("day");
+    // The same screen, so the Link replaces the entry (as a re-click does), and still re-renders.
+    await click($('[data-testid="month"]'));
+    expect(window.location.search).toBe("?range=month");
+    expect(shown()).toBe("month");
+    await go(-1);
+    expect(window.location.search).toBe("?range=week");
+    expect(shown()).toBe("week");
+    await go(1);
+    expect(shown()).toBe("month");
+  });
+
+  it("does not re-render when only the hash changes, as before", async () => {
+    serveAt("/a/bookings/flags?range=week", { orgSlug: "acme", slug: "bookings" });
+    // Its own count: the screens of earlier tests are still mounted (their containers are only
+    // detached) and re-render into `seen` when they read a URL other than their last.
+    let renders = 0;
+    const page = await render(
+      <Counted
+        onRender={() => {
+          renders += 1;
+        }}
+      />
+    );
+    expect(renders).toBe(1);
+    await step(() => {
+      window.history.pushState(null, "", "#notes");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.hash).toBe("#notes");
+    expect(renders).toBe(1);
+    await page.unmount();
   });
 
   it("gives real hrefs under the base, so ⌘-click and a copied link open the screen", () => {

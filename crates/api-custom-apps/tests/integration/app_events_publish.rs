@@ -424,6 +424,7 @@ async fn publish_app(t: &Tenant, slug: &str, workspace: Uuid) -> Uuid {
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     })
     .await
     .unwrap_or_else(|e| panic!("publish {slug}: {e}"))
@@ -1388,6 +1389,32 @@ async fn a_tx_publish_ignores_an_id_and_a_type_in_its_options() {
     .await;
 }
 
+/// Publish `body` on a handle, beside the app's own write in the same
+/// transaction (`notes` row 9): granted again and retried there, and the
+/// app's transaction then commits, not poisoned.
+async fn publish_on_a_handle(host: &dyn FunctionHost, body: Value) {
+    let tx = host
+        .tx("begin_oltp".into(), json!({}))
+        .await
+        .expect("begin")["id"]
+        .as_u64()
+        .expect("a handle id");
+    host.tx(
+        "exec".into(),
+        json!({ "id": tx, "sql": "insert into notes (id) values (9)" }),
+    )
+    .await
+    .expect("the app's write");
+    let mut on_handle = body;
+    on_handle["id"] = json!(tx);
+    host.tx("publish".into(), on_handle)
+        .await
+        .expect("granted again and retried on the handle");
+    host.tx("commit".into(), json!({ "id": tx }))
+        .await
+        .expect("the app's transaction was not poisoned");
+}
+
 /// R11: a grant this process remembers but the store no longer holds (a
 /// re-minted role, say) is granted again and the publish retried once — in
 /// its own transaction, and on a handle, where the failure must not poison
@@ -1416,26 +1443,7 @@ async fn a_stale_grant_is_granted_again_and_the_publish_retried() {
             .expect("granted again and retried");
 
         owner.batch_execute(&revoke).await.expect("revoke again");
-        let tx = host
-            .tx("begin_oltp".into(), json!({}))
-            .await
-            .expect("begin")["id"]
-            .as_u64()
-            .expect("a handle id");
-        host.tx(
-            "exec".into(),
-            json!({ "id": tx, "sql": "insert into notes (id) values (9)" }),
-        )
-        .await
-        .expect("the app's write");
-        let mut on_handle = publish("third");
-        on_handle["id"] = json!(tx);
-        host.tx("publish".into(), on_handle)
-            .await
-            .expect("granted again and retried on the handle");
-        host.tx("commit".into(), json!({ "id": tx }))
-            .await
-            .expect("the app's transaction was not poisoned");
+        publish_on_a_handle(host.as_ref(), publish("third")).await;
 
         let keys: BTreeSet<String> = p.outbox().await.into_iter().map(|r| r.key).collect();
         assert_eq!(

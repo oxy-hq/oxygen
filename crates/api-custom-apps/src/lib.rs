@@ -77,6 +77,8 @@ pub mod custom_apps_activity;
 pub mod custom_apps_agent_built;
 pub mod custom_apps_agent_refusal;
 pub mod custom_apps_availability;
+/// Promote checks: every build that reaches staging is checked, results on the build.
+pub mod custom_apps_build_checks;
 pub mod custom_apps_build_history;
 pub mod custom_apps_debug;
 pub mod custom_apps_env_branch;
@@ -260,21 +262,7 @@ pub fn routes() -> Router<AppState> {
             "/customer-apps",
             admin::apps::guarded(
                 admin::apps::router()
-                    // Activity (usage tracking) — see `custom_apps_activity`.
-                    // Reads usage through `oxy_custom_apps::usage_reads` to
-                    // power the AppDetail "Activity" tab.
-                    .route(
-                        "/{id}/activity/summary",
-                        get(custom_apps_activity::get_summary),
-                    )
-                    .route(
-                        "/{id}/activity/visitors",
-                        get(custom_apps_activity::get_visitors),
-                    )
-                    .route(
-                        "/{id}/activity/events",
-                        get(custom_apps_activity::get_events),
-                    )
+                    .merge(activity_routes())
                     // What the caller's own staging requests held, newest first —
                     // the console's staging banner. 404 unless oxy-authz lets the
                     // caller open the app's staging. See `custom_apps_staging_held`.
@@ -428,7 +416,40 @@ pub fn routes() -> Router<AppState> {
                 "/publish",
                 post(custom_apps_publish::publish_handler)
                     .layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
-            ),
+            )
+            // The promote checks' five runner routes
+            // (`custom_apps_build_checks::runner`: claim, functions/settle,
+            // stylesheets, report, and a file of the attempt's evidence).
+            // Also registered AFTER the layers above: their caller is the
+            // platform checker's service token, which holds no console
+            // standing (`Action::PlatformApps` refuses it, and rightly). Each
+            // handler decides for itself, through oxy-authz: the checker on
+            // the environment the attempt names (`Action::AppCheck` on
+            // staging, `Action::AppCheckProduction` on production) or a
+            // caller with non-production reach; a publish token and a sandbox
+            // agent token are refused. Postgres, the build store and queued
+            // tasks — FleetOk.
+            .merge(custom_apps_build_checks::runner::routes()),
+        )
+}
+
+/// The AppDetail "Activity" tab's reads, under [`routes`]' guard stack.
+fn activity_routes() -> Router<AppState> {
+    Router::new()
+        // Activity (usage tracking) — see `custom_apps_activity`.
+        // Reads usage through `oxy_custom_apps::usage_reads` to
+        // power the AppDetail "Activity" tab.
+        .route(
+            "/{id}/activity/summary",
+            get(custom_apps_activity::get_summary),
+        )
+        .route(
+            "/{id}/activity/visitors",
+            get(custom_apps_activity::get_visitors),
+        )
+        .route(
+            "/{id}/activity/events",
+            get(custom_apps_activity::get_events),
         )
 }
 

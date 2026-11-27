@@ -92,6 +92,10 @@ pub struct CustomAppContext {
     /// result-cache partition (`staging_pin_scope::scope_for`), so only the
     /// gate writes it (and, in tests, [`Self::with_staging_pin`]).
     staging_pin: Option<Uuid>,
+    /// The caller was admitted as the platform checker
+    /// ([`check_custom_app_read_gates`]), not as a reader of the workspace: no
+    /// person stands behind the request, so nothing about a viewer applies.
+    pub as_checker: bool,
     /// Proof the gate chain ran. Private, so no code outside this module can
     /// build a `CustomAppContext` by hand: one comes only from
     /// [`check_custom_app_gates`] (or, in tests, from a fixture below). The
@@ -285,6 +289,64 @@ pub async fn check_custom_app_gates(
     headers: &http::HeaderMap,
     project_id: Uuid,
 ) -> Result<CustomAppContext, GateError> {
+    gates(headers, project_id, Readers::Workspace).await
+}
+
+/// Who a data-plane endpoint admits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Readers {
+    /// The workspace's own readers: every endpoint.
+    Workspace,
+    /// Those, and the platform checker on the staging or the production of
+    /// an app published from this workspace (`app_check`): the two READ
+    /// endpoints and the shell's bootstrap alone.
+    WorkspaceAndChecker,
+}
+
+/// [`check_custom_app_gates`] for the data plane's two **read** endpoints,
+/// `POST /api/projects/:id/query` (SELECT/WITH only) and `/semantic-query`,
+/// and for the shell's bootstrap, `GET /api/projects/:id/shell-context`, which
+/// answers the checker without a viewer (so its pictures carry the app's
+/// chrome, as people see it): also admits the platform checker (`app_check`), when the request names an
+/// app published from this workspace (`x-oxy-app`, else the `Referer`) and is
+/// addressed to that app's staging (`X-Oxy-App-Env` beside its token,
+/// `Action::AppCheck`) or to its production (no environment named,
+/// `Action::AppCheckProduction`). Never a sandbox, and never the ask, the
+/// automation run, the chat history or the metric tree, which call
+/// [`check_custom_app_gates`] and so never admit it.
+pub async fn check_custom_app_read_gates(
+    headers: &http::HeaderMap,
+    project_id: Uuid,
+) -> Result<CustomAppContext, GateError> {
+    gates(headers, project_id, Readers::WorkspaceAndChecker).await
+}
+
+/// Whether the platform checker may make this read: an app of this workspace,
+/// and the check of the environment the request addresses on that app
+/// (`app_check::may_check`: staging's or production's, never a sandbox's).
+async fn checker_reads(
+    db: &DatabaseConnection,
+    headers: &http::HeaderMap,
+    caller: &authz::Caller,
+    project_id: Uuid,
+) -> bool {
+    let Ok(addressed) = oxy_app_core::custom_app_env_request::request_environment(headers) else {
+        return false;
+    };
+    let Some(named) = crate::staging_pin::request::app_ref(headers) else {
+        return false;
+    };
+    let Some(app) = crate::staging_pin::request::find_app(db, &named).await else {
+        return false;
+    };
+    app.project_id == project_id && crate::app_check::may_check(db, caller, &app, &addressed).await
+}
+
+async fn gates(
+    headers: &http::HeaderMap,
+    project_id: Uuid,
+    readers: Readers,
+) -> Result<CustomAppContext, GateError> {
     // ── 0. Sentry, barrier 2: this request is a custom app's ──────────
     //
     // Entering this gate IS the identity. Every route behind it is a
@@ -351,7 +413,11 @@ pub async fn check_custom_app_gates(
 
     // ── 5. Workspace + access: the row and the gate fresh, the term cached ─
     let verdict = gate_verdict(&db, &caller, project_id).await?;
-    if !verdict.allowed {
+    let as_checker = !verdict.allowed;
+    if as_checker
+        && !(readers == Readers::WorkspaceAndChecker
+            && checker_reads(&db, headers, &caller, project_id).await)
+    {
         return Err(GateError::NotAMember);
     }
 
@@ -376,6 +442,7 @@ pub async fn check_custom_app_gates(
         org_id: verdict.org_id,
         db,
         staging_pin,
+        as_checker,
         _gate_ran: (),
     })
 }
@@ -778,6 +845,7 @@ mod tests {
             workspace,
             db: DatabaseConnection::default(),
             staging_pin,
+            as_checker: false,
             _gate_ran: (),
         }
     }

@@ -24,6 +24,17 @@
 //! (a browser-cached copy would replay one viewer's identity to the next
 //! account on the same browser; see `oxy-customer-apps-perf`).
 //!
+//! **The platform checker** reads it too (the read gate,
+//! `check_custom_app_read_gates`, on the staging or the production of the app
+//! the request names), so the pictures the promote checks take carry the
+//! app's chrome as people see it. No person stands behind that request, so
+//! it is answered with no `user` and no `mode`: the bundle shows no account
+//! and keeps its own mode, the same on every attempt. Its rail lists the app
+//! being checked alone (the one its runner names, `x-oxy-app`) and no logo:
+//! the checker reads nothing of another app, not even an icon, and the logo
+//! route would refuse it.
+
+//!
 //! What IS cached is the server side of the prelude: the gate chain
 //! (user, workspace, access — `custom_apps_gates`) and the owning org row
 //! both come from the 60 s process caches, so a boot costs the per-viewer
@@ -40,7 +51,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::custom_apps_cache::{cached_org, set_cached_org};
-use crate::custom_apps_gates::{CustomAppContext, check_custom_app_gates};
+use crate::custom_apps_gates::{CustomAppContext, check_custom_app_read_gates};
 use crate::workspace_custom_apps::published_app_summaries;
 use oxy_app_core::custom_apps_host_dispatch::{admin_base_url, parse_subdomain};
 
@@ -204,15 +215,64 @@ async fn viewer_mode(ctx: &CustomAppContext) -> Option<Option<&'static str>> {
     }
 }
 
+/// The checker's rail: the app its runner names (`x-oxy-app`, which the read
+/// gate held to an app of this workspace the checker may check) and no other.
+fn only_the_checked_app(
+    summaries: Vec<crate::workspace_custom_apps::CustomAppSummary>,
+    headers: &HeaderMap,
+) -> Vec<crate::workspace_custom_apps::CustomAppSummary> {
+    let named = headers
+        .get("x-oxy-app")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<Uuid>().ok());
+    summaries
+        .into_iter()
+        .filter(|s| Some(s.id) == named)
+        .collect()
+}
+
+/// The viewer's part of the answer: who they are, with their display reach,
+/// and their mode. None of it for the platform checker, behind whose request
+/// no person stands: a service principal read as a person would show the
+/// bundle a crew member (it has no address) and an account row of its own.
+async fn viewer_part(
+    ctx: &CustomAppContext,
+    project_id: Uuid,
+    app: Option<Uuid>,
+) -> (Option<ShellUser>, Option<Option<&'static str>>) {
+    if ctx.as_checker {
+        return (None, None);
+    }
+    let reach =
+        oxy_custom_apps::reach::reach_for_viewer(&ctx.db, ctx.org_id, &ctx.user, project_id, app)
+            .await;
+    let user = ShellUser {
+        name: ctx.user.name.clone(),
+        // The address itself, or empty: `useIdentity()` reads an empty
+        // address as the crew signal, the way a function reads `null`.
+        email: ctx.user.email.clone().unwrap_or_default(),
+        picture: ctx.user.picture.clone(),
+        id: ctx.user.id,
+        kind: if ctx.user.email.is_some() {
+            "member"
+        } else {
+            "frontline"
+        },
+        reach,
+    };
+    (Some(user), viewer_mode(ctx).await)
+}
+
 pub async fn get_shell_context(
     Path(project_id): Path<Uuid>,
     axum::extract::Query(query): axum::extract::Query<ShellContextQuery>,
     on_domain: Option<axum::Extension<oxy_app_core::custom_domain_host::CustomDomainCtx>>,
     headers: HeaderMap,
 ) -> Response {
-    // Gates first — same chain as /query. Nothing below runs (and nothing
-    // is cached) for callers who can't access the project.
-    let ctx = match check_custom_app_gates(&headers, project_id).await {
+    // Gates first — the same chain as /query, which also admits the checker
+    // on the app it names. Nothing below runs (and nothing is cached) for
+    // callers who can't access the project.
+    let ctx = match check_custom_app_read_gates(&headers, project_id).await {
         Ok(c) => c,
         Err(r) => return r,
     };
@@ -233,6 +293,12 @@ pub async fn get_shell_context(
         }
     };
 
+    let summaries = if ctx.as_checker {
+        only_the_checked_app(summaries, &headers)
+    } else {
+        summaries
+    };
+
     let base = product_url_base(&headers, on_domain.is_some());
     let apps = summaries
         .into_iter()
@@ -248,15 +314,7 @@ pub async fn get_shell_context(
         .collect();
 
     let ws_root = format!("{base}/{}/workspaces/{}", org.slug, project_id);
-    let reach = oxy_custom_apps::reach::reach_for_viewer(
-        &ctx.db,
-        ctx.org_id,
-        &ctx.user,
-        project_id,
-        query.app_id(),
-    )
-    .await;
-    let mode = viewer_mode(&ctx).await;
+    let (user, mode) = viewer_part(&ctx, project_id, query.app_id()).await;
     let body = ShellContextResponse {
         workspace: ShellWorkspace {
             id: ctx.workspace.id,
@@ -269,11 +327,13 @@ pub async fn get_shell_context(
         },
         // `/api/*` is host-agnostic (served same-origin on every scheme),
         // so the logo stays relative even when product links are absolute.
-        logo_url: Some(format!(
-            "/api/{}/logo?v={}",
-            project_id,
-            urlencoding::encode(&org.updated_at.to_rfc3339())
-        )),
+        logo_url: (!ctx.as_checker).then(|| {
+            format!(
+                "/api/{}/logo?v={}",
+                project_id,
+                urlencoding::encode(&org.updated_at.to_rfc3339())
+            )
+        }),
         apps,
         links: ShellLinks {
             home: format!("{ws_root}/home"),
@@ -289,20 +349,7 @@ pub async fn get_shell_context(
                 None => format!("{base}/login"),
             },
         },
-        user: Some(ShellUser {
-            name: ctx.user.name.clone(),
-            // The address itself, or empty: `useIdentity()` reads an empty
-            // address as the crew signal, the way a function reads `null`.
-            email: ctx.user.email.clone().unwrap_or_default(),
-            picture: ctx.user.picture.clone(),
-            id: ctx.user.id,
-            kind: if ctx.user.email.is_some() {
-                "member"
-            } else {
-                "frontline"
-            },
-            reach,
-        }),
+        user,
         mode,
     };
 

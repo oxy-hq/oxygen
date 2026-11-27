@@ -21,6 +21,8 @@ export interface ManifestSchemaNode {
   additionalProperties?: boolean | ManifestSchemaNode;
   propertyNames?: { pattern?: string };
   items?: ManifestSchemaNode;
+  maxItems?: number;
+  uniqueItems?: boolean;
   enum?: unknown[];
   const?: unknown;
   anyOf?: ManifestSchemaNode[];

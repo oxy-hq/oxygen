@@ -13,11 +13,11 @@ export const DEFAULT_RELEASE_WINDOW: ReleaseWindow = 7;
  * it. A minute of stale time: each read runs percentiles over the window, and a
  * window focus should not re-run them.
  */
-export function useAppReleases(appId: string, days: ReleaseWindow) {
+export function useAppReleases(appId: string, days: ReleaseWindow, enabled = true) {
   return useQuery({
     queryKey: queryKeys.customApps.releases(appId, days),
     queryFn: () => AppReleasesService.list(appId, days),
-    enabled: !!appId,
+    enabled: enabled && !!appId,
     staleTime: 60_000
   });
 }

@@ -68,6 +68,12 @@ pub struct Model {
     /// environment serves it. NULL for a build published before the column
     /// whose events name no publish (m20261015_000001).
     pub published_to: Option<String>,
+    /// The `@oxy-hq/sdk` version the bundle was built with, as `oxyc publish`
+    /// read it from the app (the installed copy, else its declared range's
+    /// floor). NULL for a build published by an older `oxyc`, straight
+    /// through the API, or by an app that does not use the SDK. Read by the
+    /// promote checks' design-system check (m20261120_000100).
+    pub sdk_version: Option<String>,
     #[sea_orm(
         belongs_to,
         from = "app_id",

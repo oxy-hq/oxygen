@@ -20,7 +20,8 @@ export interface RequestOptions {
   /** Already normalised and placeholder-substituted. */
   path: string;
   method: string;
-  body?: string;
+  /** Text, or the bytes of a file (a picture `oxyc checks run` uploads); bytes are never cached. */
+  body?: string | Uint8Array;
   headers?: Record<string, string>;
   bearer?: string;
   apiKey?: string;
@@ -85,6 +86,11 @@ export function authHeaders(opts: RequestOptions): Record<string, string> {
   return headers;
 }
 
+/** The body's part of the cache key: text only, since bytes are never cached. */
+function textBody(body: RequestOptions["body"]): string | undefined {
+  return typeof body === "string" ? body : undefined;
+}
+
 /**
  * Make the request. Returns the response whatever its status — turning a 4xx
  * into an error is the *caller's* decision, because `--include` and
@@ -94,7 +100,7 @@ export async function request(opts: RequestOptions): Promise<ApiResponse> {
   const url = buildUrl(opts.target, opts.path);
   const method = opts.method.toUpperCase();
 
-  const key = cacheKey(method, url, opts.body, opts.bearer);
+  const key = cacheKey(method, url, textBody(opts.body), opts.bearer);
   if (opts.cacheMs && opts.cacheMs > 0) {
     const hit = readCache(key, opts.cacheMs);
     if (hit) {

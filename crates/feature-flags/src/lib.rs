@@ -80,6 +80,14 @@ pub const OLTP_CHANGES: &str = "oltp_changes";
 /// FSM, with no pull request needed.
 pub const REACT_RUNTIME: &str = "react_runtime";
 
+/// The promote checks gate, per org (`internal-docs/custom-app-sandboxes.md`
+/// section 5.9): where this serves `on`, a staging attempt also has `smoke` and
+/// `changes`, and the checks an app requires hold a promote to production
+/// (`checks_not_passed`, `checks_running`, `changes_not_seen`). Read with
+/// [`is_enabled_for`] and the app's org; off, a build is checked as in phase 1
+/// and no check holds a move.
+pub const PROMOTE_CHECKS_GATE: &str = "promote_checks_gate";
+
 /// Per-user memory for react runs, per org: a served react run reads the
 /// requesting user's notes for the workspace and may save new ones in a
 /// reflection turn, only where this serves `on` (and [`REACT_RUNTIME`] put

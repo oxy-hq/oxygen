@@ -81,6 +81,7 @@ async fn publish_mapping(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     })
     .await
     .map(|_| ())

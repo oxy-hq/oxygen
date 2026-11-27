@@ -123,7 +123,7 @@ export function headersFor(
 export function deniedCallOf(
   responseUrl: string,
   status: number,
-  target: BrowserTarget
+  target: Pick<BrowserTarget, "origin" | "basePath">
 ): string | undefined {
   if (status !== 401 && status !== 403) return undefined;
   let url: URL;

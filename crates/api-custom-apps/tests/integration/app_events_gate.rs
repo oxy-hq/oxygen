@@ -82,6 +82,7 @@ async fn ship(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     };
     publish_with(input, PublishTarget::Channels, options).await
 }

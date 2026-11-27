@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import type { AppLifecycle as Lifecycle } from "@/hooks/api/customApps/deriveLifecycle";
 import { useAppLifecycle } from "@/hooks/api/customApps/useAppLifecycle";
 import { useMissingSecretsForBuild } from "@/hooks/api/customApps/useAppSecrets";
 import { useMovePlan } from "@/hooks/api/customApps/useProductionMove";
+import { type PromoteGate, usePromoteGate } from "@/hooks/api/customApps/usePromoteGate";
 import type { AppAccessSummary } from "@/types/appAccess";
 import type { MoveTarget } from "@/types/appPromote";
-import type { CustomApp } from "@/types/apps";
+import type { AppBuild, CustomApp } from "@/types/apps";
 import { lifecycleVerdict } from "../../appStatus";
 import { MissingSecretsWarning } from "../AppDetail/components/MissingSecretsWarning";
 import { useAdminLifecycleActions, usePartnerLifecycleActions } from "./actions";
 import {
   LifecycleCard,
   type LifecyclePreflight,
+  type LifecycleSmoke,
   type LifecycleTarget,
   type LifecycleVariant
 } from "./LifecycleCard";
@@ -33,17 +35,29 @@ export { PlannedMoveConfirm } from "./PlannedMoveConfirm";
  * as it refuses `oxyc promote`, and a schedule the plan retires is named in the
  * confirm and confirmed by it. A first publish still says only which `required`
  * secrets production lacks (`GET …/secrets?build=`), and waits for that answer.
+ *
+ * With the org's promote-checks gate on (`app.promotion_checks.enabled`), Promote
+ * waits while a required check is open, and a Smoke row says how production's own
+ * smoke of the live build went. With it off the card is what it was.
  */
 export const AppLifecycle = ({
   app,
   variant = "full",
-  className
+  className,
+  stagingChecks,
+  smokeTo
 }: {
   app: CustomApp;
   variant?: LifecycleVariant;
   className?: string;
+  /** The Checks row for the build staging serves; the console passes it, other
+   *  surfaces show no row. */
+  stagingChecks?: (staging: AppBuild) => ReactNode;
+  /** Where the production smoke's evidence is, for the build production serves. */
+  smokeTo?: (live: AppBuild) => string;
 }) => {
   const lifecycle = useAppLifecycle(app);
+  const gate = usePromoteGate(app, lifecycle);
   const [target, setTarget] = useState<LifecycleTarget | null>(null);
   const move: MoveTarget | null =
     target && target.act !== "publish" ? { act: target.act, buildId: target.buildId } : null;
@@ -77,9 +91,32 @@ export const AppLifecycle = ({
       className={className}
       onTargetChange={setTarget}
       preflight={preflightFor(app.id, target, plan, secretsCheck.isLoading)}
+      checks={checksRowFor(stagingChecks, lifecycle.draftBuild)}
+      promoteWaits={gate.promoteWaits}
+      smoke={smokeRowFor(gate.smoke, smokeTo, lifecycle.liveBuild)}
     />
   );
 };
+
+/** The card's Checks row: what the surface says about the build staging serves, when
+ *  it says anything and staging serves one. */
+function checksRowFor(
+  stagingChecks: ((staging: AppBuild) => ReactNode) | undefined,
+  staging: AppBuild | null
+): ReactNode {
+  return stagingChecks && staging ? stagingChecks(staging) : undefined;
+}
+
+/** The card's Smoke row: the gate's reading of production's smoke, with where its
+ *  evidence is when the surface knows and production serves a build. */
+function smokeRowFor(
+  smoke: PromoteGate["smoke"],
+  smokeTo: ((live: AppBuild) => string) | undefined,
+  live: AppBuild | null
+): LifecycleSmoke | undefined {
+  if (!smoke) return undefined;
+  return { ...smoke, to: smokeTo && live ? smokeTo(live) : undefined };
+}
 
 /** What the open confirm says, and whether its verb waits. */
 function preflightFor(

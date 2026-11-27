@@ -1,21 +1,18 @@
-import { ArrowUpCircle, ChevronDown, EyeOff, History, Send } from "lucide-react";
-import { type ReactNode, useState } from "react";
-import { DESIGN_REFERENCE } from "@/components/ui/reference/tokens";
+import { EyeOff, Send } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/shadcn/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "@/components/ui/shadcn/dropdown-menu";
 import type { AppLifecycle } from "@/hooks/api/customApps/deriveLifecycle";
 import { cn } from "@/libs/shadcn/utils";
 import type { AppBuild } from "@/types/apps";
-import { relativeTime } from "../AppDetail/components/Activity/relativeTime";
+import type { SmokeLine } from "../AppConsole/BuildChecks/promoteGate";
 import type { LifecycleActions } from "./actions";
-import { LifecycleConfirm } from "./LifecycleConfirm";
+import { LifecycleCardConfirm } from "./LifecycleCardConfirm";
+import { BuildLine, ChecksRow, RollbackMenu, SmokeRow } from "./LifecycleCardParts";
+import { PromoteButton, RollbackBeforeButton } from "./LifecycleCardVerbs";
 import { LifecycleVerdictPill } from "./LifecycleVerdictPill";
-import { type ConfirmCopy, LIFECYCLE_COPY, shortBuildId } from "./lifecycleCopy";
+import { LIFECYCLE_COPY } from "./lifecycleCopy";
+import type { OverrideOffer } from "./planChecks";
+import { type ConfirmedRun, useLifecycleConfirm } from "./useLifecycleConfirm";
 
 /**
  * What a surface asks the card to show. `full` is the console and the dossier: the
@@ -32,10 +29,33 @@ export interface LifecycleTarget {
 }
 
 /** What a surface checked about the target, said inside the confirm. `hold` keeps
- *  the verb disabled until the check has answered. */
+ *  the verb disabled until the check has answered. `override` is the offer to promote
+ *  past the build's checks with a written reason, when the plan makes one. */
 export interface LifecyclePreflight {
   notice: ReactNode;
   hold: boolean;
+  override?: OverrideOffer;
+}
+
+/** Production's own smoke after a move, as a surface that reads it says it. */
+export interface LifecycleSmoke {
+  line: SmokeLine;
+  /** Where its evidence is; absent, the chip is not a link. */
+  to?: string;
+  /** The build production served before, when the smoke failed and a rollback can
+   *  still choose it. */
+  rollback?: AppBuild | null;
+}
+
+/**
+ * What a failed production smoke changes about the verbs: going back is the first
+ * thing to offer, to the build production served before (`before`) when that is
+ * known, else through the menu of every retained build (`menuFirst`).
+ */
+function rollbackAfterSmoke(smoke: LifecycleSmoke | undefined, canRollback: boolean | undefined) {
+  const smokeFailed = smoke?.line.state === "failed" && !!canRollback;
+  const before = smokeFailed ? (smoke?.rollback ?? null) : null;
+  return { smokeFailed, before, menuFirst: smokeFailed && !before };
 }
 
 /**
@@ -58,7 +78,10 @@ export const LifecycleCard = ({
   variant = "full",
   className,
   onTargetChange,
-  preflight
+  preflight,
+  checks,
+  promoteWaits,
+  smoke
 }: {
   lifecycle: AppLifecycle;
   actions: LifecycleActions;
@@ -71,31 +94,27 @@ export const LifecycleCard = ({
    *  missing-secrets warning) and hand the answer back as `preflight`. */
   onTargetChange?: (target: LifecycleTarget | null) => void;
   preflight?: LifecyclePreflight;
+  /** The staging build's checks, as a surface that reads them says it (the admin
+   *  console's Checks row). Absent, the card has no Checks row. */
+  checks?: ReactNode;
+  /** A check the app requires is still open on the staging build: Promote waits. */
+  promoteWaits?: boolean;
+  /** Absent, the card has no Smoke row. */
+  smoke?: LifecycleSmoke;
 }) => {
-  // One piece of state: what is about to happen. `null` is "nothing".
-  const [pending, setPending] = useState<{ copy: ConfirmCopy; run: () => Promise<void> } | null>(
-    null
-  );
+  // The card's state: what is about to happen, and why a promote past the checks was
+  // refused.
+  const confirming = useLifecycleConfirm(onTargetChange);
+  const { ask } = confirming;
   const { liveBuild, draftBuild, draftAhead, published, verdict, heldCount, builds } = lifecycle;
   const liveId = liveBuild?.build_id ?? null;
 
-  const ask = (copy: ConfirmCopy, run: () => Promise<void>, target?: LifecycleTarget) => {
-    setPending({ copy, run });
-    onTargetChange?.(target ?? null);
-  };
-  const close = () => {
-    setPending(null);
-    onTargetChange?.(null);
-  };
-  const confirm = async () => {
-    if (!pending) return;
-    try {
-      await pending.run();
-      close();
-    } catch {
-      // The verb toasted its own failure; the dialog stays so the operator can retry.
-    }
-  };
+  const askRollback = (b: AppBuild) =>
+    ask(
+      LIFECYCLE_COPY.rollback(b.build_id, liveId),
+      () => (actions.rollbackTo as (b: AppBuild) => Promise<void>)(b),
+      { buildId: b.id, act: "rollback" }
+    );
 
   // Which verbs apply, from the lifecycle alone. A verb the surface did not provide
   // (no `actions.rollbackTo` on the partner console) renders nothing.
@@ -106,26 +125,26 @@ export const LifecycleCard = ({
   const rollbackTargets = builds.filter((b) => !b.is_published);
   const canRollback = published && actions.rollbackTo && rollbackTargets.length > 0;
   const canUnpublish = published && actions.unpublish;
+  const { smokeFailed, before, menuFirst } = rollbackAfterSmoke(smoke, canRollback);
 
   const controls = (
     <div className='flex flex-wrap items-center gap-1.5' data-testid='app-lifecycle-actions'>
+      {before && (
+        <RollbackBeforeButton build={before} disabled={actions.pending} onPick={askRollback} />
+      )}
       {canPromote && draftBuild && (
-        <Button
-          size='sm'
-          className='h-7 gap-1.5 text-xs'
+        <PromoteButton
+          waits={promoteWaits}
+          secondary={smokeFailed}
           disabled={actions.pending}
           onClick={() =>
             ask(
               LIFECYCLE_COPY.promote(draftBuild.build_id, liveId),
-              actions.promoteDraft as () => Promise<void>,
+              actions.promoteDraft as ConfirmedRun,
               { buildId: draftBuild.id, act: "promote" }
             )
           }
-          data-testid='app-lifecycle-promote'
-        >
-          <ArrowUpCircle className='size-3.5' />
-          Promote to production
-        </Button>
+        />
       )}
       {canPublish && (
         <Button
@@ -150,13 +169,8 @@ export const LifecycleCard = ({
         <RollbackMenu
           targets={rollbackTargets}
           disabled={actions.pending}
-          onPick={(b) =>
-            ask(
-              LIFECYCLE_COPY.rollback(b.build_id, liveId),
-              () => (actions.rollbackTo as (b: AppBuild) => Promise<void>)(b),
-              { buildId: b.id, act: "rollback" }
-            )
-          }
+          primary={menuFirst}
+          onPick={askRollback}
         />
       )}
       {canUnpublish && (
@@ -176,14 +190,7 @@ export const LifecycleCard = ({
   );
 
   const dialog = (
-    <LifecycleConfirm
-      copy={pending?.copy ?? null}
-      pending={actions.pending}
-      onConfirm={confirm}
-      onCancel={close}
-      notice={pending ? preflight?.notice : undefined}
-      hold={!!pending && !!preflight?.hold}
-    />
+    <LifecycleCardConfirm confirming={confirming} busy={actions.pending} preflight={preflight} />
   );
 
   if (variant === "row") {
@@ -227,6 +234,8 @@ export const LifecycleCard = ({
           )}
         </dd>
 
+        <SmokeRow smoke={smoke} />
+
         <dt className='text-muted-foreground'>Staging</dt>
         <dd className='min-w-0 truncate' data-testid='app-lifecycle-draft'>
           {draftAhead && draftBuild ? (
@@ -242,6 +251,8 @@ export const LifecycleCard = ({
           )}
         </dd>
 
+        <ChecksRow checks={checks} />
+
         {heldCount !== null && (
           <>
             <dt className='text-muted-foreground'>Held</dt>
@@ -256,71 +267,3 @@ export const LifecycleCard = ({
     </div>
   );
 };
-
-/** `0123456 · 3h ago · who@x`, with the promotion line when the build is the live one. */
-const BuildLine = ({
-  build,
-  promoted
-}: {
-  build: AppBuild;
-  promoted?: { at: string | null; byEmail: string | null };
-}) => (
-  <span className='inline-flex min-w-0 flex-wrap items-baseline gap-x-1.5'>
-    <span className='font-mono' title={build.build_id}>
-      {shortBuildId(build.build_id)}
-    </span>
-    <span className='text-muted-foreground' title={new Date(build.created_at).toLocaleString()}>
-      built {relativeTime(build.created_at)}
-      {build.published_by_email ? ` by ${build.published_by_email}` : ""}
-    </span>
-    {promoted?.at && (
-      <span className='text-muted-foreground' title={new Date(promoted.at).toLocaleString()}>
-        · promoted {relativeTime(promoted.at)}
-        {promoted.byEmail ? ` by ${promoted.byEmail}` : ""}
-      </span>
-    )}
-  </span>
-);
-
-/** "Roll back to…" — every retained build that is not live, newest first. */
-const RollbackMenu = ({
-  targets,
-  disabled,
-  onPick
-}: {
-  targets: AppBuild[];
-  disabled: boolean;
-  onPick: (b: AppBuild) => void;
-}) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <Button
-        size='sm'
-        variant='outline'
-        className='h-7 gap-1.5 text-xs'
-        disabled={disabled}
-        data-testid='app-lifecycle-rollback'
-      >
-        <History className='size-3.5' />
-        Roll back to…
-        <ChevronDown className='size-3' />
-      </Button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align='end' className={`${DESIGN_REFERENCE} max-h-80 overflow-auto`}>
-      {targets.map((b) => (
-        <DropdownMenuItem
-          key={b.id}
-          onSelect={() => onPick(b)}
-          className='flex items-baseline gap-2 text-xs'
-          data-testid={`app-lifecycle-rollback-${shortBuildId(b.build_id)}`}
-        >
-          <span className='font-mono'>{shortBuildId(b.build_id)}</span>
-          <span className='text-muted-foreground'>
-            {relativeTime(b.created_at)}
-            {b.is_draft ? " · draft" : ""}
-          </span>
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  </DropdownMenu>
-);

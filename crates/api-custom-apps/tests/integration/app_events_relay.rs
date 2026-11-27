@@ -598,6 +598,7 @@ pub(crate) async fn publish_app(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     })
     .await
     .unwrap_or_else(|e| panic!("publish {slug}: {e}"))

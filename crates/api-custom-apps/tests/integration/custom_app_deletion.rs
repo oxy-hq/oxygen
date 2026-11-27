@@ -332,7 +332,7 @@ fn the_purge_kind_is_handed_to_the_fleet_and_is_a_platform_daemon() {
 
     for (file, list) in [
         (
-            "../agentic/runtime/src/lifecycle/crud/queries.rs",
+            "../agentic/runtime/src/lifecycle/crud/system_sources.rs",
             "pub const SYSTEM_SOURCE_TYPES: &[&str] = &[",
         ),
         (

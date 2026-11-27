@@ -52,6 +52,9 @@
 //! | `nonprod_function_uploads` | a staging or sandbox function's `ctx.fetch` PUT to the upload URL its own invocation minted is sent, and is not in its held row; every other mutating fetch is still held — production's silo, another environment's, another app's, another host, a traversal, another bucket or query, another method, a URL an earlier invocation minted; production sends what it always sent. No V8: the real host, driven from Rust |
 //! | `staging_storage_limits` | a staging silo has its own cap, and its bytes never count toward the org quota that gates production's writes |
 //! | `custom_app_staging_held` | the console's held list returns a staging invoker its own `app.staging.held` rows (app and actor stamped), `[]` to another developer who may open staging, 404 to a caller who may not; production adds none; a row from before `app_id` was stamped is found by slug within the org |
+//! | `app_checker` | the platform checker (an `app_checker` service token in `x-api-key`): a staging page opens to it and production's does not; a `/fn` call, a form post or a `PUT` on the serve tree is refused before it runs; the app's own staging data read passes the read gate, while the ordinary gate, a production read and another workspace refuse it; through the served `/api` tree it claims, settles, reads the stylesheets of and reports a build's checks, each answer in the contract's shape, and is refused the console (the checks' own `show` and `rerun` included); it checks staging and no other environment; a sandbox agent token is refused the runner routes by the allow-list, by the handler's extractor and by the model |
+//! | `build_checks` | promote checks, phase 1: a staging publish queues one checks task with its four `queued` rows before it answers, once per build; a staging rollback queues them through the promote path; the registered executor only starts the runner (one workflow dispatch to a fake GitHub, no verdict written), leaves the checks queued where no runner is configured, and closes the attempt as `error` when GitHub refuses; a person with non-production reach drives the four runner routes, a caller without it and a publish token get the bare not-found; a claim starts the build's check functions once and a settle writes their verdict; a claim after staging moved skips what needs staging; a verdict already written is never overwritten; an attempt nobody answers reads `failed` (`no_runner`, `runner_stopped`) and a rerun closes it and starts the next at once; the task kind is a platform daemon in every list and handed to the fleet |
+//! | `promote_checks_production` | promote checks, phases 2 and 3: a production attempt (one kind, `production_smoke`) is claimed, reported and read back with the baseline of the build's own `changes` run; a staging claim answers the screens the manifest declares, what production serves and the limits; an attempt settles once and is handed on once, only with the flag on; the checker opens production's page, assets and beacon and makes the app's two reads, is refused everything else there, and its visits write no usage on any environment; an attempt's files round-trip on the filesystem build store, each refusal says why, the console reads them and the checker cannot, and they go with the build's row and with the app; a person marks changed screens seen once, audited; every move of production to another build queues a production attempt whose task dispatches `environment: production`, and the flag or the setting off queues nothing; a failed `production_smoke` tells the mover and the org's owners and admins and, with `auto_rollback`, rolls production back once, never again for the attempt and never after a rollback |
 //! | `ask_wait` | an ask's `wait_seconds` (`agent_ask::wait`) against a real run table: what counts as settled, a NOTIFY ring ends the wait as soon as the run does, and a wait that runs out says so (moved from `oxy-app`'s platform group with the handler, 2026-11-14) |
 //! | `custom_app_stream_wake` | the agent-run stream (`agent_run_stream::run_events`) wakes on the run-events NOTIFY, not a timer: an event or a row-only terminal write reaches the client on its ring, and a ring with nothing terminal leaves the stream open (moved from `oxy-app`'s platform group with the handler, 2026-11-14) |
 //! | `staging_agent_ask` | a staging-host agent ask (staff only, else 404 `EnvironmentRefused`) builds its platform inside the hold: held from the drive's spawned task, DDL through its connector is refused and listed in `…/staging/held` as `agent`, the run is stamped with the app and startup recovery retires it; production asks are unchanged (no hold, no stamp) |
@@ -146,6 +149,7 @@ mod oltp_fx;
 mod admin_app_workspace_in_org;
 mod airhouse_overlay;
 mod app_calls;
+mod app_checker;
 mod app_environments;
 mod app_environments_phase_1b;
 mod app_events_api;
@@ -166,6 +170,7 @@ mod app_role_memo;
 mod app_scoped_secrets;
 mod appearance;
 mod ask_wait;
+mod build_checks;
 mod canary_coverage;
 mod custom_app_access_control;
 mod custom_app_activity_roles;
@@ -226,6 +231,8 @@ mod oxygen_access;
 mod platform_facts;
 mod preview_automation_run_handlers;
 mod preview_read_only_session;
+mod promote_checks_gate;
+mod promote_checks_production;
 mod promote_rollback;
 mod public_routes;
 mod publish_attempts;

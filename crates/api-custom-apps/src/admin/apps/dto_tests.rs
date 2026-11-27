@@ -1,4 +1,5 @@
-//! `AppResponse::staging_url` / `staging_url_for` — see `dto.rs`.
+//! `AppResponse::staging_url` / `staging_url_for`, and Make Live's optional
+//! body — see `dto.rs`.
 //!
 //! `OXY_API_URL` is process-global, so every test here serializes on
 //! `env_lock()` — a mutex local to this module (the var is also mutated by
@@ -13,7 +14,7 @@ use std::sync::{Mutex, OnceLock};
 
 use uuid::Uuid;
 
-use super::staging_url_for;
+use super::{MakeLiveRequest, staging_url_for};
 use crate::custom_apps_env_resolve::EnvironmentBuilds;
 
 const ORG: &str = "acme";
@@ -121,4 +122,25 @@ fn the_list_query_takes_an_optional_app_id() {
     assert_eq!(one.id, Some(id));
     let all: ListAppsQuery = serde_json::from_value(serde_json::json!({})).unwrap();
     assert_eq!((all.id, all.limit, all.offset), (None, 50, 0));
+}
+
+/// Make Live has always been a POST with no body: none, an empty one and
+/// `null` ask nothing; an object may carry the override; anything else is
+/// said to be wrong, never dropped.
+#[test]
+fn make_live_reads_an_optional_body() {
+    for nothing in ["", "  \n", "null", "{}"] {
+        let asked = MakeLiveRequest::of(nothing.as_bytes()).expect(nothing);
+        assert!(asked.override_checks.is_none(), "{nothing:?}");
+    }
+    let body = br#"{"override_checks": {"reason": "outage: shipping the fix"}}"#;
+    let asked = MakeLiveRequest::of(body).expect("an override");
+    assert_eq!(
+        asked.override_checks.expect("the override").reason,
+        "outage: shipping the fix"
+    );
+    for wrong in ["[]", "true", "{\"override_checks\": \"yes\"}", "{"] {
+        let refused = MakeLiveRequest::of(wrong.as_bytes()).expect_err(wrong);
+        assert!(refused.contains("override_checks"), "{wrong:?}: {refused}");
+    }
 }

@@ -40,7 +40,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::query::{QueryResponse, json_objects_to_table};
-use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_gates};
+use crate::custom_apps_gates::{CustomAppContextExt, check_custom_app_read_gates};
 use oxy_app_core::AppState;
 use oxy_workspace_runtime::custom_apps_gates::parse_versioned_body;
 use oxy_workspace_runtime::result_cache;
@@ -166,7 +166,7 @@ pub async fn run_semantic_query(
     body: axum::body::Bytes,
 ) -> Response {
     // 1. Shared gates.
-    let ctx = match check_custom_app_gates(&headers, project_id).await {
+    let ctx = match check_custom_app_read_gates(&headers, project_id).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };

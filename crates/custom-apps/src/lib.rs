@@ -66,6 +66,9 @@
 
 pub mod agent;
 pub mod agent_built;
+/// The platform checker on a custom app's staging (`Action::AppCheck`) and
+/// its production (`Action::AppCheckProduction`).
+pub mod app_check;
 pub mod asset_manifest;
 pub mod automation_run;
 pub use oxy_app_core::audience;

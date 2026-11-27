@@ -34,7 +34,7 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 ## Vocabulary
 
-- **`Action`** (60) — the closed vocabulary of things a caller can do. This is what call
+- **`Action`** (63) — the closed vocabulary of things a caller can do. This is what call
   sites name.
 - **`Ring`** — the authority level that gates an action. **Private on purpose:** a
   ring is how the model is *stated*, not a menu callers pick from. Public, it would let a
@@ -42,17 +42,24 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 - **`PrincipalFacts`** — the whole input surface. Empty = denied everything (fail closed).
 - **`Resource`** — what's being acted on: `org_id`, `kind`, optional `owner`, optional
   acting `partner`.
-- **`Cap`** (12) — a capability. **One vocabulary, two tiers:** the first eight are the
+- **`Cap`** (13) — a capability. **One vocabulary, two tiers:** the first eight are the
   partner ceiling (one-to-one with `PartnerCapability`); `ViewTenants` / `ManagePartners` /
-  `OperatePlatform` / `ManagePlatformGrants` are platform-only and have no partner
-  analogue, deliberately.
+  `OperatePlatform` / `ManagePlatformGrants` / `CheckApps` are platform-only and have no
+  partner analogue, deliberately.
 - **`Scope`** — `All` or `Orgs(..)`. Where a grant reaches.
 - **`PlatformStanding`** / **`PlatformRole`** — Oxy-staff standing as `(caps × scope)`, and
-  the presets (`GlobalAdmin`, `AppOperator`) that name common ones.
+  the presets (`GlobalAdmin`, `AppOperator`, `AppChecker`) that name common ones.
+  `AppChecker` is `CheckApps` alone: the promote checks' service token. It reads an app's
+  **staging** (`Action::AppCheck`, `Ring::StagingCheck`) and its **production**
+  (`Action::AppCheckProduction`, `Ring::ProductionCheck`): pages and the app's own data
+  reads, never `/fn`, never a write on the app. And it records what the build's checks
+  found, through the five runner routes and no other write, a token at an admin ceiling.
+  It is not grantable to a person (`PlatformRole::is_grantable`) and not staff at the
+  console door (`PrincipalFacts::checks_apps_only`).
 
 Rings, briefly: `Read` · `MemberStrict` · `OrgAdmin` · `OrgAdminStrict` · `OwnerOnly` ·
 `OrgAdminOrCreator` · `WorkspaceAdmin` · `WorkspaceAdminStrict` · `WorkspaceEdit` ·
-`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `Factory` · `CompileCheck` · `PlatformAny` ·
+`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `StagingCheck` · `ProductionCheck` · `PromoteOverride` · `Factory` · `CompileCheck` · `PlatformAny` ·
 `PlatformCap` · `GlobalOwnerOnly`. `StaffReach` is `PlatformCap` on a *tenant* resource: a staff-only
 tool used inside one org (non-production app hosts, workspace previews), so the grant's scope is
 consulted.
@@ -72,6 +79,30 @@ the org's service account acting through a **CI run token**, read from the fact
 `TokenReach::ci_run`, at any ceiling over the workspace (`viewer` included). It is also the
 Factory gate's one exception, on two exact routes. Routes, guard and trust policy:
 `internal-docs/roles-and-authorization.md` § The one exception: checking a compile.
+
+`ProductionCheck` (`Action::AppCheckProduction`, decided 2026-11-22) is the checker on a
+custom app's **production**: staff holding `CheckApps` over the app's org, and only when
+the decision names `EnvFacet::Production`. It is `StagingCheck`'s twin and a ring of its
+own for the same reason: the model states where the checker reaches, one environment per
+ring, so admitting it to production is an action a call site names, never a facet it
+passes. It is asked BESIDE what production already asks, at three doors only
+(`oxy_custom_apps::app_check`): the bundle path's resolver (`resolve_page_request`: the
+page, its assets, the beacon), the data plane's read gate (`/query`, `/semantic-query`),
+and the runner routes of a production attempt. Production's other doors share
+`resolve_app_request` and never ask it, so holding it opens no function call, log, health
+or debug read. No tenant standing reaches it, and no partner.
+
+`PromoteOverride` (`Action::AppPromoteOverride`, decided 2026-11-22) is who may promote a
+custom app's build past its promote checks (`override_checks`, with a reason that is
+audited): a **real** owner or admin of the app's org, or Oxy staff reaching in through the
+operator override with `ManageApps`, the capability a promote already needs. It is the
+officer term of `OrgAdminStrict` beside the staff term of the override rings, which no
+other ring states: `OrgAdmin` and `AppGrant` admit the org's admin service account and a
+partner, `AppAdmin` an `app_members` admin. So a service account (and a CI run token,
+which acts as one), a partner and an app's own admin never hold it, and a staff member who
+is a plain member of the org does not either. A legacy publish token carries no narrowing
+fact, so the call site (`custom_apps_promote::checks_override`) refuses it by its marker.
+Contract: `internal-docs/custom-app-sandboxes.md` section 5.9.
 
 ## Staff standing is a grant, not a flag
 

@@ -41,6 +41,7 @@ fn app(workspace: Uuid) -> apps::Model {
         last_promoted_at: None,
         visibility: "org".into(),
         require_second_person_to_promote: false,
+        promotion_checks: None,
         created_at: now,
         updated_at: now,
     }

@@ -17,6 +17,11 @@
 //!    `validation_not_passed`; a promote by the build's own publisher, while
 //!    the app requires a second person, is `same_person_promote` — and so is
 //!    their rollback to a build production never served (`second_person`).
+//!    Where the org's `promote_checks_gate` flag is on, a promote the checks
+//!    the app requires hold is `checks_not_passed`, `checks_running` or
+//!    `changes_not_seen` unless the move carries an accepted override
+//!    (`checks_gate`, `checks_override`); a rollback to a build production
+//!    served before is exempt.
 //!    Then the event gate ([`event_gate`], `app_events::gate`), once per
 //!    move: a promote that breaks a production listener is `409
 //!    event_listeners_broken` unless `break_listeners`; a rollback only warns.
@@ -34,6 +39,11 @@
 //!    (`second_person`), read from the locked row — then production's pointer
 //!    moves (`custom_apps_environments::record_move`, the one writer of it)
 //!    with the app's `published_at` and promotion stamps.
+//! 4. **After the commit**, where the app's org has the `promote_checks_gate`
+//!    flag on and the app checks production: a production attempt of the
+//!    build's checks is queued (`custom_apps_build_checks::queue`), for every
+//!    move to another build, a rollback included. A promoting publish, which
+//!    moves through [`move_locked`], queues its own once it has committed.
 
 use chrono::Utc;
 use entity::{app_builds, apps};
@@ -48,11 +58,14 @@ use uuid::Uuid;
 
 use super::audit::{MoveAudit, MoveRow, promoted_entry, published_entry};
 use super::blockers::{Act, staging_never_served, validation_not_passed};
+use super::checks_gate::{self, Checks};
+use super::checks_override::{self, AcceptedOverride, ChecksAsk};
 use super::error::PromoteError;
 use super::second_person;
 use super::target::BuildRef;
 use crate::app_events::gate::{self, GateScope};
 use crate::custom_apps_agent_built::AgentBuilt;
+use crate::custom_apps_build_checks::queue as build_checks;
 use crate::custom_apps_build_state::{BuildState, PromoteRefusal};
 use crate::custom_apps_environments::{self, EnvAction};
 use crate::oltp_changes::install::{InstallSummary, install_on_promote};
@@ -90,6 +103,10 @@ pub struct ProductionMove {
     /// callers (the promoting publish, the seed) gate with [`event_gate`]
     /// themselves before they apply anything, and leave it `false`.
     pub break_listeners: bool,
+    /// How the promote checks gate applies ([`admissible`]): held by it (the
+    /// default), or carrying a request's accepted override
+    /// (`checks_override::ask`), which the move audits.
+    pub checks: ChecksAsk,
 }
 
 /// The files a production move applied, per store.
@@ -109,6 +126,10 @@ pub struct Moved {
     pub warnings: Vec<String>,
     /// The production listeners this move broke because `break_listeners` said to.
     pub broken_listeners: Vec<String>,
+    /// What could not be done after the move, which stands: production's own
+    /// check of the build was not queued
+    /// (`custom_apps_build_checks::queue::after_production_move`).
+    pub after: Vec<String>,
 }
 
 /// How many times a move starts over for a build its name came to mean
@@ -146,7 +167,7 @@ pub async fn move_production_audited(
             .ok_or(PromoteError::AppNotFound)?;
         let build = mv.build.resolve(db, &app).await?;
         let previous = check_pointer(db, &app, &build, mv).await?;
-        admissible(db, &build).await?;
+        admissible(db, &app, &build, mv, previous).await?;
         second_person::refuse_same_person(db, &app, &build, mv, previous).await?;
         // Last of the unlocked checks: the one refusal `break_listeners`
         // overrides, still before any migration applies.
@@ -163,16 +184,20 @@ pub async fn move_production_audited(
             last = Some((build.id, named.id));
             continue;
         }
-        let app = move_resolved(&txn, row, mv, named, audit).await?;
+        let (app, previous) = move_resolved(&txn, row, mv, named, audit).await?;
         txn.commit()
             .await
             .map_err(|e| PromoteError::internal("commit the move", e))?;
         custom_apps_cache::invalidate_app_resolution_cache();
+        // Production serves the build now: where the app's org holds promotes
+        // on its checks, production is checked too (never awaited).
+        let after = build_checks::after_production_move(db, &app, &build, previous).await;
         return Ok(Moved {
             app,
             applied,
             warnings,
             broken_listeners,
+            after,
         });
     }
     let (expected, actual) = last.unwrap_or_default();
@@ -234,19 +259,21 @@ pub(crate) async fn move_locked<C: ConnectionTrait>(
     mv: &ProductionMove,
 ) -> Result<apps::Model, PromoteError> {
     let build = mv.build.resolve(conn, &row).await?;
-    move_resolved(conn, row, mv, build, None).await
+    let (app, _) = move_resolved(conn, row, mv, build, None).await?;
+    Ok(app)
 }
 
-/// [`move_locked`] once the locked `row` has named its `build`.
+/// [`move_locked`] once the locked `row` has named its `build`. Answers the
+/// app's row as it now is, and the build production served before the move.
 async fn move_resolved<C: ConnectionTrait>(
     conn: &C,
     row: apps::Model,
     mv: &ProductionMove,
     build: app_builds::Model,
     audit: Option<&MoveAudit<'_>>,
-) -> Result<apps::Model, PromoteError> {
+) -> Result<(apps::Model, Option<Uuid>), PromoteError> {
     let previous = check_pointer(conn, &row, &build, mv).await?;
-    admissible(conn, &build).await?;
+    let overridden = admissible(conn, &row, &build, mv, previous).await?;
     second_person::refuse_same_person(conn, &row, &build, mv, previous).await?;
     let now = Utc::now().fixed_offset();
     let mut active: apps::ActiveModel = row.into();
@@ -284,7 +311,14 @@ async fn move_resolved<C: ConnectionTrait>(
             .await
             .map_err(|e| PromoteError::internal("record the audit row", e))?;
     }
-    Ok(updated)
+    // An override that cleared a check blocker is recorded with the move.
+    if let Some((accepted, checks)) = overridden {
+        let entry = checks_override::entry(&accepted, &updated, &build, &checks);
+        oxy_app_core::audit::record_in_txn(conn, entry)
+            .await
+            .map_err(|e| PromoteError::internal("record the override", e))?;
+    }
+    Ok((updated, previous))
 }
 
 /// The build `build_pk` of `app_id`; another app's build is no build of this one.
@@ -337,13 +371,19 @@ pub fn describe(pointer: Option<Uuid>) -> String {
     pointer.map_or_else(|| "nothing".to_string(), |b| b.to_string())
 }
 
-/// May production serve `build` at all: not a build a sandbox agent token
+/// May `mv` make production serve `build`: not a build a sandbox agent token
 /// published, and — every blocker it fails, listed — one staging has served
-/// whose validation passed.
+/// whose validation passed and, where the promote checks gate is on, whose
+/// required checks do not hold the move (`checks_gate::at_move`; `previous`
+/// is what production serves before it). Answers the override that cleared
+/// the checks, for the move's audit row.
 pub async fn admissible<C: ConnectionTrait>(
     conn: &C,
+    row: &apps::Model,
     build: &app_builds::Model,
-) -> Result<(), PromoteError> {
+    mv: &ProductionMove,
+    previous: Option<Uuid>,
+) -> Result<Option<(AcceptedOverride, Checks)>, PromoteError> {
     let unvalidated = match BuildState::of(build).promotable() {
         Ok(()) => None,
         Err(PromoteRefusal::AgentBuilt { token_id }) => {
@@ -362,8 +402,10 @@ pub async fn admissible<C: ConnectionTrait>(
     if let Some(status) = unvalidated {
         blockers.push(validation_not_passed(&build.build_id, &status));
     }
+    let gate = checks_gate::at_move(conn, row, build, mv, previous).await?;
+    blockers.extend(gate.blockers);
     if blockers.is_empty() {
-        Ok(())
+        Ok(gate.overridden)
     } else {
         Err(PromoteError::Blocked(blockers))
     }

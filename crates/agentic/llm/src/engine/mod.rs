@@ -41,7 +41,7 @@ mod call;
 mod fold;
 mod ids;
 #[cfg(test)]
-mod mock;
+pub(crate) mod mock;
 mod render;
 #[cfg(test)]
 mod tests;

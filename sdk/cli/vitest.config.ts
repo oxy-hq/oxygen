@@ -13,6 +13,10 @@ export default defineConfig({
       // `oxyc fn dev`'s testing context, from source for the same reason.
       "@oxy-hq/sdk/testing": fileURLToPath(
         new URL("../typescript/src/testing/index.ts", import.meta.url)
+      ),
+      // The theme guard `oxyc checks run --build` runs, from source for the same reason.
+      "@oxy-hq/sdk/theme-guard": fileURLToPath(
+        new URL("../typescript/src/theme-guard.ts", import.meta.url)
       )
     }
   }

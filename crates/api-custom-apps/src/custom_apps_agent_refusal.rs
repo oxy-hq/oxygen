@@ -22,7 +22,30 @@ pub const REFUSED_WRITES: &[(&str, &str)] = &[
     ("POST", "/customer-apps/{id}/publish"),
     ("DELETE", "/customer-apps/{id}/publish"),
     ("PUT", "/customer-apps/{id}/promotion-rule"),
+    ("PUT", "/customer-apps/{id}/promotion-checks"),
     ("POST", "/customer-apps/{id}/rollback"),
+    // A build's promote checks, run again (`custom_apps_build_checks::handlers`).
+    ("POST", "/customer-apps/{id}/builds/{build}/checks/rerun"),
+    // The promote checks' runner routes (`custom_apps_build_checks::runner`):
+    // the platform checker's, or staff's with reach over staging. A sandbox
+    // agent token checks its own sandbox, never a build on staging.
+    ("POST", "/customer-apps/{id}/builds/{build}/checks/claim"),
+    (
+        "POST",
+        "/customer-apps/{id}/builds/{build}/checks/functions/settle",
+    ),
+    ("POST", "/customer-apps/{id}/builds/{build}/checks/report"),
+    // A file of an attempt's evidence, kept by its runner.
+    (
+        "PUT",
+        "/customer-apps/{id}/builds/{build}/checks/files/{name}",
+    ),
+    // A person marking the screens a build changes as seen: it can clear a
+    // promote's `changes_not_seen`, which is never a token's to clear.
+    (
+        "POST",
+        "/customer-apps/{id}/builds/{build}/checks/changes/seen",
+    ),
     ("POST", "/customer-apps/{id}/environments/{name}/promote"),
     ("POST", "/customer-apps/{id}/environments/{name}/rollback"),
     ("POST", "/customer-apps/{id}/oltp-changes/resync"),

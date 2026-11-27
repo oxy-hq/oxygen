@@ -38,7 +38,12 @@ import { refuseMachineBrowser, runBrowserStep } from "../checks/browser-step.js"
 import type { Context } from "../context/resolve.js";
 import { err } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
-import { APPS_API, resolveCredentials, UUID_RE } from "./checks-credentials.js";
+import {
+  APPS_API,
+  type AppByCredential,
+  appForCredentials,
+  resolveCredentials
+} from "./checks-credentials.js";
 
 /** The `--json` report: one object on stdout. */
 export interface ChecksReport {
@@ -149,31 +154,14 @@ export async function runChecksCore(
     machine: machine.machine
   };
 
-  // `resolveApp` pages `/api/customer-apps`, which a machine token may not list:
-  // sending it there would 403 on a route the caller cannot be given. A token
-  // that names its own app (the publisher exchange's `app_id`, a service
-  // account's `app_publish` grant) never gets here; one that does not needs
-  // the UUID.
-  if (!machine.appId && creds.machine && !UUID_RE.test(app)) {
-    throw usageError(
-      "this token cannot resolve <org>/<app> — pass the app UUID",
-      "resolving a slug means listing every app, which a publish or service-account token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
-    );
-  }
   // `--browser` needs the slugs for the page's URL. A sandbox agent token's
   // app came off its own list (`machine.appId`, no slugs), and `resolveApp`
-  // reads the same remembered list — no listing, no request.
+  // reads the same remembered list — no listing, no request. Every other case
+  // is `appForCredentials`, which keeps a machine token off the app listing.
   const needsSlugs = opts.browser && isSandboxAgentToken(machine.bearer);
-  const resolved: ResolvedApp | { appId: string; label: string } = needsSlugs
+  const resolved: ResolvedApp | AppByCredential = needsSlugs
     ? await resolveApp(creds, app)
-    : machine.appId
-      ? { appId: machine.appId, label: app }
-      : creds.machine && UUID_RE.test(app)
-        ? // Never touch `/api/customer-apps/{id}` with a machine token — it is
-          // refused there just as the listing is, and the id already names the
-          // app, so there is nothing left for `resolveApp` to add.
-          { appId: app, label: app }
-        : await resolveApp(creds, app);
+    : await appForCredentials(creds, machine, app);
   const { appId, label } = resolved;
   const checks = await listChecks(creds, appId, appEnv);
   // With `--browser` the page is itself a check, so an app with no check
@@ -196,7 +184,7 @@ export async function runChecksCore(
     // agent token was resolved by `resolveApp` above, so the app carries its
     // slugs. Should a new path skip that, say so rather than report a run with
     // no browser check.
-    if (!("orgSlug" in resolved)) {
+    if (resolved.orgSlug === undefined) {
       throw new CliError(`cannot load ${label} in a browser: its slugs were not resolved`, {
         code: ExitCode.USAGE,
         hint: "--browser needs a user credential: oxyc login, OXY_TOKEN set to a user token, or an API key"

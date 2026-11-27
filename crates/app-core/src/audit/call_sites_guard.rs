@@ -50,6 +50,12 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
          through `for_request`",
     ),
     (
+        "api-custom-apps/src/custom_apps_promote/unattended_audit.rs",
+        "production rolled back by the promote checks' automatic rollback, a queued \
+         task on the worker fleet: no request, so the actor is the system; a person's \
+         promote or rollback goes through `for_request`",
+    ),
+    (
         "api-identity/src/oidc_exchange/reject.rs",
         "a refused OIDC exchange: nothing authenticated, so there is no user and no \
          credential to build a request actor from",

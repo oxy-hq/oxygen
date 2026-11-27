@@ -9,6 +9,8 @@ use entity::apps;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::custom_apps_build_checks::settings::{self as checks_settings, SettingsDto};
+use crate::custom_apps_promote::OverrideRequest;
 use crate::custom_apps_source::SourceSpec;
 
 use oxy_shared::utils::custom_app_url::build_pretty_url;
@@ -228,11 +230,18 @@ pub struct AppResponse {
     /// published the build (`custom_apps_promote::second_person`). Set by `PUT
     /// /customer-apps/{id}/promotion-rule`; on every response.
     pub require_second_person_to_promote: bool,
+    /// The promote checks gate for this app: `enabled` is the org's
+    /// `promote_checks_gate` flag, the rest what the app asks of it
+    /// (`custom_apps_build_checks::settings`). Set by `PUT
+    /// /customer-apps/{id}/promotion-checks`; on every response.
+    pub promotion_checks: SettingsDto,
 }
 
 impl AppResponse {
     pub(super) fn from_model_with_org(m: apps::Model, org_slug: &str) -> Self {
         let url = build_pretty_url(org_slug, &m.slug);
+        let promotion_checks =
+            checks_settings::Settings::of(&m).dto(checks_settings::enabled_for(m.org_id));
         // `subdomain_url_for` returns None when the cluster's admin host
         // doesn't fit the auto-derivation convention (local dev /
         // custom-branded host), which is the only case where the row
@@ -275,6 +284,7 @@ impl AppResponse {
             verdict: None,
             availability: None,
             require_second_person_to_promote: m.require_second_person_to_promote,
+            promotion_checks,
         }
     }
 }
@@ -426,12 +436,53 @@ pub struct BuildHistoryResponse {
 pub struct RollbackRequest {
     /// `app_builds.id` (from `GET .../builds`) to make live.
     pub build_id: Uuid,
+    /// Make it live past the promote checks gate, with a reason
+    /// (`custom_apps_promote::checks_override`). Only a build production
+    /// never served is held; ignored where the org's gate is off.
+    #[serde(default)]
+    pub override_checks: Option<OverrideRequest>,
+}
+
+/// `POST /{id}/publish`'s optional body. The route has always taken none, so
+/// no body, an empty one and `null` all ask nothing.
+#[derive(Debug, Default, Deserialize)]
+pub struct MakeLiveRequest {
+    /// Make the draft live past the promote checks gate, with a reason.
+    #[serde(default)]
+    pub override_checks: Option<OverrideRequest>,
+}
+
+impl MakeLiveRequest {
+    /// The request a body carries; `Err` is the sentence of a `400`.
+    pub fn of(body: &[u8]) -> Result<Self, String> {
+        let wrong = |why: String| {
+            format!(
+                "the body is not JSON of the shape {{\"override_checks\": {{\"reason\": \"...\"}}}}: \
+                 {why}"
+            )
+        };
+        if body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Self::default());
+        }
+        match serde_json::from_slice(body).map_err(|e| wrong(e.to_string()))? {
+            serde_json::Value::Null => Ok(Self::default()),
+            object @ serde_json::Value::Object(_) => {
+                serde_json::from_value(object).map_err(|e| wrong(e.to_string()))
+            }
+            _ => Err(wrong("it is not an object".to_string())),
+        }
+    }
 }
 
 /// Request body for every batch endpoint: the app ids to act on.
 #[derive(Debug, Deserialize)]
 pub struct BatchIdsRequest {
     pub ids: Vec<Uuid>,
+    /// Batch publish and promote latest only: move each app past the promote
+    /// checks gate, with one reason. Decided and audited per app; an app
+    /// whose caller may not is that app's failed row.
+    #[serde(default)]
+    pub override_checks: Option<OverrideRequest>,
 }
 
 /// One app's outcome in a batch response. `ok = false` carries a short reason

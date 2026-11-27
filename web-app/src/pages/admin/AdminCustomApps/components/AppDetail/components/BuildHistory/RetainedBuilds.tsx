@@ -5,6 +5,7 @@ import {
   CollapsibleTrigger
 } from "@/components/ui/shadcn/collapsible";
 import { useAppPublishAttempts } from "@/hooks/api/customApps/useAppPublishAttempts";
+import type { AppBuild } from "@/types/apps";
 import { FailedPublishes } from "./FailedPublishes";
 import { BuildHistory } from "./index";
 
@@ -17,7 +18,14 @@ import { BuildHistory } from "./index";
  * left no build for the ledger to list, and is the one thing here that means
  * something is wrong.
  */
-export const RetainedBuilds = ({ appId }: { appId: string }) => {
+export const RetainedBuilds = ({
+  appId,
+  onOpenChecks
+}: {
+  appId: string;
+  /** Offered per build where the surface can show a build's checks. */
+  onOpenChecks?: (build: AppBuild) => void;
+}) => {
   const attempts = useAppPublishAttempts(appId);
   return (
     <>
@@ -28,7 +36,7 @@ export const RetainedBuilds = ({ appId }: { appId: string }) => {
           All retained builds
         </CollapsibleTrigger>
         <CollapsibleContent className='pt-2'>
-          <BuildHistory appId={appId} />
+          <BuildHistory appId={appId} onOpenChecks={onOpenChecks} />
         </CollapsibleContent>
       </Collapsible>
     </>

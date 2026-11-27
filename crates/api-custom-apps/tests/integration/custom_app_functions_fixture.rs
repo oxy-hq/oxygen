@@ -226,6 +226,7 @@ pub(crate) async fn publish_app(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     })
     .await
     .expect("a bundle carrying every declared function publishes and promotes")
@@ -298,6 +299,7 @@ pub(crate) async fn publish_build(
         published_via: None,
         semantic_revision_id: None,
         confirm_schedule_removals: Vec::new(),
+        sdk_version: None,
     })
     .await
     .expect("the bundle publishes")

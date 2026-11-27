@@ -21,12 +21,16 @@
 //!   own push, `POST /api/notifications/test`), [`ask_finished`] (an Ask
 //!   answer someone asked to hear about; installed into `agentic-runtime` as a
 //!   run-done observer), and [`ask_waiting`] (that run stopping to ask them
-//!   something; installed as the run-suspended observer).
+//!   something; installed as the run-suspended observer). A custom app's
+//!   failed production check is raised by `oxy-api-custom-apps`
+//!   (`custom_apps_build_checks::production`) and worded by
+//!   [`production_check`].
 
 pub mod ask_finished;
 pub mod ask_waiting;
 pub mod cli_approval;
 pub mod preferences;
+pub mod production_check;
 pub mod render;
 pub mod run_failed;
 pub mod run_streak;

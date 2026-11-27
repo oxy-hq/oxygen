@@ -15,6 +15,11 @@
 //! `app_builds.s3_prefix` and interpreted as an S3 key or an FS subpath
 //! depending on the active backend. The serve path goes through this module,
 //! so local serve "just works" off the filesystem.
+//!
+//! One more branch sits beside `builds/` under the app's prefix:
+//! `customer-apps/<app_id>/checks/…`, the files a build's promote checks keep
+//! ([`check_files`]). Never under a build's own prefix: a build's file set is
+//! fixed, and the bundle cache caches absences on that.
 
 use std::path::PathBuf;
 
@@ -25,6 +30,7 @@ use bytes::Bytes;
 use futures::stream::{StreamExt, TryStreamExt};
 use uuid::Uuid;
 
+pub mod check_files;
 mod list;
 pub use list::files_under;
 

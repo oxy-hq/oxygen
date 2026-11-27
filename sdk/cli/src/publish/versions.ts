@@ -87,3 +87,22 @@ export function staleKitWarnings(
   }
   return out;
 }
+
+/** The SDK an app's design-system check is held to. */
+export const SDK_PACKAGE = "@oxy-hq/sdk";
+
+/**
+ * The `@oxy-hq/sdk` version the app builds against, for `oxyc publish`'s
+ * `sdk_version` field: the server stores it on the build, and the design-system
+ * check holds it to the SDK floor. The installed copy's own version when there
+ * is one, else the floor of the declared range (`^2.30.0` → `2.30.0`).
+ * Undefined when the app does not depend on the SDK, or declares it in a form
+ * with no version in it (`workspace:*` with nothing installed): the field is
+ * then left out, which is not the same as claiming a version.
+ */
+export function sdkVersion(appDir: string): string | undefined {
+  const found = appVersion(appDir, SDK_PACKAGE);
+  if (!found) return undefined;
+  if (found.installed) return found.spec;
+  return versionFloor(found.spec)?.join(".");
+}

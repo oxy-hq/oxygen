@@ -273,7 +273,9 @@ mod m20261118_000100_workspaces_one_per_org;
 mod m20261119_000010_oidc_issuer_trust_policies;
 mod m20261119_000100_custom_app_usage_purges;
 mod m20261119_000200_app_events_invoker;
+mod m20261120_000100_app_build_checks;
 mod m20261121_000001_create_eval_test_definitions;
+mod m20261122_000100_apps_promotion_checks;
 mod m20261124_000001_oltp_change_relays;
 mod m20261125_000001_oltp_change_relays_wake_at;
 mod m20261126_000010_oltp_change_generations;
@@ -572,7 +574,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20261119_000010_oidc_issuer_trust_policies::Migration),
             Box::new(m20261119_000100_custom_app_usage_purges::Migration),
             Box::new(m20261119_000200_app_events_invoker::Migration),
+            Box::new(m20261120_000100_app_build_checks::Migration),
             Box::new(m20261121_000001_create_eval_test_definitions::Migration),
+            Box::new(m20261122_000100_apps_promotion_checks::Migration),
             Box::new(m20261124_000001_oltp_change_relays::Migration),
             Box::new(m20261125_000001_oltp_change_relays_wake_at::Migration),
             Box::new(m20261126_000010_oltp_change_generations::Migration),

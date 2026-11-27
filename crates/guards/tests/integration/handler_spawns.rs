@@ -372,6 +372,19 @@ const ALLOWED: &[(&str, &str)] = &[
          claim unsent, it goes stale and the next failure sends it",
     ),
     (
+        "api-custom-apps/src/custom_apps_build_checks/executor.rs",
+        "a queue executor's own task: `BuildChecksExecutor::execute`",
+    ),
+    (
+        "api-custom-apps/src/custom_apps_build_checks/production/followup.rs",
+        "a queue executor's own task: `ProductionFailedExecutor::execute`",
+    ),
+    (
+        "api-custom-apps/src/custom_apps_build_checks/ai/executor.rs",
+        "a queue executor's own task: `BuildChecksAiExecutor::execute`, bound to the \
+         custom-app Sentry hub",
+    ),
+    (
         "api-custom-apps/src/custom_apps_functions/host/held_log.rs",
         "detached write of a staging invocation's held side effects, so the record \
          lands even when the caller's future is dropped mid-await. Sub-second, one row",

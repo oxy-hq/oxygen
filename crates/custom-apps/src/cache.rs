@@ -357,6 +357,7 @@ mod tests {
             last_promoted_by: None,
             last_promoted_at: None,
             require_second_person_to_promote: false,
+            promotion_checks: None,
             created_at: now,
             updated_at: now,
         }

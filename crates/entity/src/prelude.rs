@@ -6,6 +6,7 @@ pub use super::api_token_grants::Entity as ApiTokenGrants;
 pub use super::api_token_usage_daily::Entity as ApiTokenUsageDaily;
 pub use super::api_tokens::Entity as ApiTokens;
 pub use super::app_admins::Entity as AppAdmins;
+pub use super::app_build_checks::Entity as AppBuildChecks;
 pub use super::app_builds::Entity as AppBuilds;
 pub use super::app_custom_domains::Entity as AppCustomDomains;
 pub use super::app_environment_events::Entity as AppEnvironmentEvents;

@@ -132,6 +132,46 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
                 })
             },
         },
+        // A build's promote checks, queued by every move that makes staging
+        // serve it (`custom_apps_build_checks`). The task only starts the
+        // runner (one GitHub workflow dispatch): no check runs on the worker.
+        TaskSeam {
+            kind: oxy_api_custom_apps::custom_apps_build_checks::BUILD_CHECKS_KIND,
+            build: |deps| {
+                Arc::new(
+                    oxy_api_custom_apps::custom_apps_build_checks::executor::BuildChecksExecutor {
+                        db: deps.db.clone(),
+                    },
+                )
+            },
+        },
+        // What follows a failed production check of a build
+        // (`custom_apps_build_checks::production`): the automatic rollback
+        // where the app asks for one, then the notice. Queued by the report
+        // that stored the failure.
+        TaskSeam {
+            kind: oxy_api_custom_apps::custom_apps_build_checks::PRODUCTION_FAILED_KIND,
+            build: |deps| {
+                Arc::new(
+                    oxy_api_custom_apps::custom_apps_build_checks::production::followup::ProductionFailedExecutor {
+                        db: deps.db.clone(),
+                    },
+                )
+            },
+        },
+        // The advisory notes the workspace's own model writes on a settled
+        // staging attempt (`custom_apps_build_checks::ai`): queued once the
+        // attempt's last verdict is stored, where the org's gate is on.
+        TaskSeam {
+            kind: oxy_api_custom_apps::custom_apps_build_checks::BUILD_CHECKS_AI_KIND,
+            build: |deps| {
+                Arc::new(
+                    oxy_api_custom_apps::custom_apps_build_checks::ai::executor::BuildChecksAiExecutor {
+                        db: deps.db.clone(),
+                    },
+                )
+            },
+        },
         // A sandbox (`dev-<handle>`) torn down after a delete or an expiry.
         TaskSeam {
             kind: teardown::SANDBOX_TEARDOWN_KIND,
@@ -502,11 +542,13 @@ mod tests {
     /// The task kinds the fleet knew before this list was handed in, plus the
     /// usage backfill, the queued ask and the automation run (both registered
     /// in `oxy-app` until their executors moved to `oxy-api-custom-apps`,
-    /// 2026-11-14), the app events relay and the OLTP change stream relay. A kind added here, or dropped,
-    /// is a change to what a worker can run, so it is spelled out rather than
-    /// derived from the constants it is built from.
+    /// 2026-11-14), the app events relay, the OLTP change stream relay, a
+    /// build's promote checks (2026-11-20), what follows a failed production
+    /// check and the checks' advisory notes (both 2026-11-22). A kind added
+    /// here, or dropped, is a change to what a worker can run, so it is spelled
+    /// out rather than derived from the constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_thirteen() {
+    fn the_task_kinds_are_exactly_these_sixteen() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
@@ -516,8 +558,11 @@ mod tests {
                 "app_function",
                 "app_table_watch",
                 "custom_app_agent_ask",
+                "custom_app_build_checks",
+                "custom_app_build_checks_ai",
                 "custom_app_env_oltp_branch",
                 "custom_app_procedure_run",
+                "custom_app_production_check_failed",
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",
                 "custom_app_sandbox_teardown",

@@ -8,9 +8,9 @@ import { PRODUCTION } from "@/types/appEnvironments";
 import type { CustomApp } from "@/types/apps";
 import { Issues, IssuesBadge } from "../../AppDetail/components/Issues";
 import { liveIssueCount } from "../../AppDetail/components/Issues/issueBrief";
-import { AppLifecycle } from "../../AppLifecycle";
 import { ConsolePanel } from "../../ConsolePanel";
 import { formatBytes } from "../../StorageTab/utils";
+import { ConsoleLifecycle } from "../ConsoleLifecycle";
 import { type ConsolePageId, consolePagePath } from "../consolePages";
 import { eventsView } from "../Events/eventsView";
 import { PreviewCard } from "../PreviewCard";
@@ -128,7 +128,7 @@ export const OverviewPage = ({
             title='Live build'
             info='What production serves, and the moves that change it: promote, roll back, unpublish. Release history and retained builds are on Releases.'
           >
-            <AppLifecycle app={app} />
+            <ConsoleLifecycle app={app} />
           </ConsolePanel>
           <PreviewCard app={app} servedAt={servedAt} />
         </div>

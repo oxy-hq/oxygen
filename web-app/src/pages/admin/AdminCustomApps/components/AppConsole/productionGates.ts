@@ -13,7 +13,14 @@
  * to it only when its target is a build production never served (the console's
  * rollback takes any build staging served, which would otherwise be a promote by
  * another name).
+ *
+ * With the org's `promote_checks_gate` flag on, a build's checks hold a promote too:
+ * three more rows, from which a rollback is exempt outright, and which a written
+ * reason clears (`override_checks`). Their words for the promote confirm live here as
+ * well, so the panel's list and the confirm's callouts say one thing.
  */
+
+import { CHANGES_NOT_SEEN, CHECKS_NOT_PASSED, CHECKS_RUNNING } from "@/types/appPromote";
 
 export type ProductionPath = "promote" | "promoting_publish" | "rollback";
 
@@ -26,13 +33,24 @@ export interface ProductionGate {
   refusesOn: ProductionPath[];
   /** Paths where it is only a warning, said beside the row. */
   warnsOn?: ProductionPath[];
+  /** A rollback never meets it, whichever build it goes back to. */
+  rollbackExempt?: boolean;
+}
+
+/** The app's checks gate, as far as this list reads it. */
+export interface ChecksGate {
+  seen_required: boolean;
 }
 
 const EVERY_PATH: ProductionPath[] = ["promote", "promoting_publish", "rollback"];
 const PROMOTES: ProductionPath[] = ["promote", "promoting_publish"];
 
-/** Every gate, in the order the server lists its blockers; the second-person one only while the app's rule is on. */
-export function productionGates(requireSecondPerson: boolean): ProductionGate[] {
+/** Every gate, in the order the server lists its blockers; the second-person one only while the
+ *  app's rule is on, the checks' only while the org's gate is (`checks` not null). */
+export function productionGates(
+  requireSecondPerson: boolean,
+  checks: ChecksGate | null = null
+): ProductionGate[] {
   const gates: ProductionGate[] = [
     {
       code: "staging_never_served",
@@ -59,18 +77,39 @@ export function productionGates(requireSecondPerson: boolean): ProductionGate[] 
       refusesOn: PROMOTES
     });
   }
+  if (checks) {
+    const held = { refusesOn: PROMOTES, rollbackExempt: true };
+    gates.push({
+      code: CHECKS_NOT_PASSED,
+      refuses: "has a required check that did not pass",
+      ...held
+    });
+    gates.push({ code: CHECKS_RUNNING, refuses: "has a required check still running", ...held });
+    if (checks.seen_required) {
+      gates.push({
+        code: CHANGES_NOT_SEEN,
+        refuses: "changes screens nobody has marked seen",
+        ...held
+      });
+    }
+  }
   return gates;
 }
 
 /** The codes that refuse a move along `path`. */
-export function gatesFor(path: ProductionPath, requireSecondPerson: boolean): string[] {
-  return productionGates(requireSecondPerson)
+export function gatesFor(
+  path: ProductionPath,
+  requireSecondPerson: boolean,
+  checks: ChecksGate | null = null
+): string[] {
+  return productionGates(requireSecondPerson, checks)
     .filter((gate) => gate.refusesOn.includes(path))
     .map((gate) => gate.code);
 }
 
 /** One list item: the gate, and where it does not refuse. */
 export function gateLine(gate: ProductionGate): string {
+  if (gate.rollbackExempt) return `${gate.refuses} (a rollback is exempt)`;
   if (gate.warnsOn?.includes("rollback")) return `${gate.refuses} (a rollback only warns)`;
   if (!gate.refusesOn.includes("rollback")) {
     return `${gate.refuses} (a rollback only to a build production never served)`;
@@ -83,4 +122,33 @@ export function secondPersonConsequence(on: boolean): string {
   return on
     ? "On: production refuses a promote by whoever published the build. A promoting publish (--promote) is refused every time — CI publishes to staging and someone else promotes. A rollback to a build production served before stays open to anyone, for emergencies; its publisher's rollback to one production never served is refused like a promote."
     : "Off: whoever published a build may promote it, and oxyc publish --promote moves production straight from CI. Turn on to have a second person promote every build.";
+}
+
+const several = (names: readonly string[], one: string, many: string) =>
+  names.length > 1 ? many : one;
+
+/**
+ * A check blocker in the promote confirm: a few words, then what they are about (the
+ * checks by label, or how many screens changed). `null` for any other code, which the
+ * confirm says in the server's own words.
+ */
+export function checkBlockerLine(code: string, about: readonly string[]): string | null {
+  const tail = about.length ? `: ${about.join(", ")}` : "";
+  switch (code) {
+    case CHECKS_NOT_PASSED:
+      return `${several(about, "Required check", "Required checks")} did not pass${tail}`;
+    case CHECKS_RUNNING:
+      return `${several(about, "Required check", "Required checks")} still running${tail}`;
+    case CHANGES_NOT_SEEN:
+      return `Nobody has seen what changed${tail}`;
+    default:
+      return null;
+  }
+}
+
+/** The title of the step that promotes past them, by the gravest blocker standing. */
+export function overrideTitle(codes: readonly string[]): string {
+  if (codes.includes(CHECKS_NOT_PASSED)) return "Promote past a failed check";
+  if (codes.includes(CHECKS_RUNNING)) return "Promote past a running check";
+  return "Promote past unseen changes";
 }

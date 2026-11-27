@@ -25,6 +25,7 @@
 //! can name it and the lenient path can fall back to the old behaviour.
 
 pub mod airhouse_pool;
+pub mod app_checks;
 pub mod hosts;
 pub mod metering;
 pub mod retention;
@@ -33,6 +34,7 @@ pub mod role;
 use std::sync::{Arc, OnceLock};
 
 pub use airhouse_pool::AirhousePoolConfig;
+pub use app_checks::AppChecksConfig;
 pub use hosts::HostsConfig;
 pub use metering::MeteringConfig;
 pub use retention::RunRetentionSetting;
@@ -73,6 +75,10 @@ pub struct BootConfig {
     /// What the Airhouse connection pool may hold open. Permissive: an
     /// unconfigured deployment gets a conservative ceiling rather than none.
     pub airhouse_pool: AirhousePoolConfig,
+    /// How the promote checks' runner is started: the GitHub Actions workflow
+    /// dispatched for every build that reaches staging. Permissive: unset, no
+    /// runner starts and the checks stay queued.
+    pub app_checks: AppChecksConfig,
 }
 
 static BOOT: OnceLock<Arc<BootConfig>> = OnceLock::new();
@@ -92,6 +98,7 @@ impl BootConfig {
             run_retention: RunRetentionSetting::parse(var("OXY_RUN_RETENTION_DAYS")),
             metering: MeteringConfig::parse(var),
             airhouse_pool: AirhousePoolConfig::parse(var),
+            app_checks: AppChecksConfig::parse(var),
         }
     }
 

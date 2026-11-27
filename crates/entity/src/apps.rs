@@ -84,6 +84,14 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     #[serde(default)]
     pub require_second_person_to_promote: bool,
+    /// Which promote checks hold this app's promote to production, and what
+    /// happens after one: `{required, seen_required, production_smoke,
+    /// auto_rollback}` (`custom_apps_build_checks::settings`). NULL is the
+    /// defaults. The platform's own configuration of the app, like the rule
+    /// above; read only where the org's `promote_checks_gate` flag is on.
+    /// `serde(default)` so a payload from before the column still deserializes.
+    #[serde(default)]
+    pub promotion_checks: Option<Json>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     #[sea_orm(
@@ -148,6 +156,7 @@ mod tests {
             last_promoted_at: None,
             visibility: "org".into(),
             require_second_person_to_promote: false,
+            promotion_checks: None,
             created_at: Default::default(),
             updated_at: Default::default(),
         };

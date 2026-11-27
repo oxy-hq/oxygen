@@ -82,6 +82,16 @@
       }
     },
     "./theme.css": "./dist/theme.css",
+    "./theme-guard": {
+      "import": {
+        "types": "./dist/theme-guard.d.mts",
+        "default": "./dist/theme-guard.mjs"
+      },
+      "require": {
+        "types": "./dist/theme-guard.d.cts",
+        "default": "./dist/theme-guard.cjs"
+      }
+    },
     "./email": {
       "import": {
         "types": "./dist/email.d.mts",
@@ -135,7 +145,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/check-dist.mjs",
+    "check:dist": "node scripts/check-dist.mjs",
     "build:theme": "node scripts/build-theme.mjs",
     "check:theme": "node scripts/build-theme.mjs --check",
     "build:ui-css": "node scripts/build-ui-css.mjs",
@@ -149,7 +160,8 @@
     "prepublishOnly": "pnpm build",
     "publish:beta": "npm publish --tag beta",
     "publish:latest": "npm publish --tag latest",
-    "gen:manifest-schema": "node scripts/gen-manifest-schema.mjs && pnpm -w exec biome format --write sdk/typescript/schema/oxy-app.schema.json"
+    "gen:manifest-schema": "node scripts/gen-manifest-schema.mjs && pnpm -w exec biome format --write sdk/typescript/schema/oxy-app.schema.json",
+    "gen:theme-guard-rules": "node scripts/gen-theme-guard-rules.mjs && pnpm -w exec biome format --write sdk/typescript/src/testing/themeGuardSdkRules.gen.json"
   },
   "keywords": [
     "oxy",

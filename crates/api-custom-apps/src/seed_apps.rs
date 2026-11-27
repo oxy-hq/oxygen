@@ -474,6 +474,22 @@ async fn upsert_build(
         &Uuid::NAMESPACE_DNS,
         format!("oxy.app-seed.build.{app_id}.{build_id}").as_bytes(),
     );
+    seeded_build(id, app_id, build_id, prefix, manifest)
+        .insert(conn)
+        .await
+        .map_err(|e| OxyError::DBError(format!("insert app_build {build_id}: {e}")))?;
+    Ok(id)
+}
+
+/// The `app_builds` row of a seeded build, as a channel publish of a bundle
+/// this simple would record it.
+fn seeded_build(
+    id: Uuid,
+    app_id: Uuid,
+    build_id: &str,
+    prefix: &str,
+    manifest: Option<serde_json::Value>,
+) -> app_builds::ActiveModel {
     app_builds::ActiveModel {
         id: ActiveValue::Set(id),
         app_id: ActiveValue::Set(app_id),
@@ -495,11 +511,8 @@ async fn upsert_build(
         published_token_id: ActiveValue::Set(None),
         // Seeded as a channel publish would be: both channels serve it.
         published_to: ActiveValue::Set(Some("staging".to_string())),
+        sdk_version: ActiveValue::Set(None),
     }
-    .insert(conn)
-    .await
-    .map_err(|e| OxyError::DBError(format!("insert app_build {build_id}: {e}")))?;
-    Ok(id)
 }
 
 /// The `apps` row, without channel pointers — those are set by
@@ -531,6 +544,7 @@ async fn ensure_app(conn: &Conn, target: &AppTarget, app_id: Uuid) -> Result<(),
         // explicitly restricted later.
         visibility: sea_orm::ActiveValue::NotSet,
         require_second_person_to_promote: sea_orm::ActiveValue::NotSet,
+        promotion_checks: sea_orm::ActiveValue::NotSet,
         id: ActiveValue::Set(app_id),
         slug: ActiveValue::Set(target.slug.clone()),
         name: ActiveValue::Set(target.name.clone()),
@@ -628,7 +642,18 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
     )
     .await
     .map_err(|e| db_err("point staging at the build", &e))?;
-    let promote = ProductionMove {
+    move_locked(&txn, row, &seed_promote(app_id, build_pk))
+        .await
+        .map_err(|e| db_err("make the build live", &e))?;
+    txn.commit()
+        .await
+        .map_err(|e| db_err("commit pointer move", &e))?;
+    Ok(())
+}
+
+/// The seed's move of production to `build_pk`: a promote by nobody.
+fn seed_promote(app_id: Uuid, build_pk: Uuid) -> ProductionMove {
+    ProductionMove {
         app_id,
         build: build_pk.into(),
         action: crate::custom_apps_environments::EnvAction::Promote,
@@ -637,14 +662,10 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
         expect_current: None,
         refuse_same: false,
         break_listeners: false,
-    };
-    move_locked(&txn, row, &promote)
-        .await
-        .map_err(|e| db_err("make the build live", &e))?;
-    txn.commit()
-        .await
-        .map_err(|e| db_err("commit pointer move", &e))?;
-    Ok(())
+        // The platform's own example app: nobody promotes it and no runner
+        // checks it, so the promote checks gate does not hold it.
+        checks: crate::custom_apps_promote::ChecksAsk::fixture(),
+    }
 }
 
 /// Every app **this seed** created: one of the two seeded slugs, each carrying

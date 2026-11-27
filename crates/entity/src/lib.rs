@@ -85,6 +85,7 @@ pub mod api_token_usage_daily;
 pub mod api_tokens;
 pub mod app_admin_scope_orgs;
 pub mod app_admins;
+pub mod app_build_checks;
 pub mod app_builds;
 pub mod app_custom_domains;
 pub mod app_email_sends;

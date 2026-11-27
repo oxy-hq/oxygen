@@ -99,6 +99,41 @@ upstream rename is a deliberate edit here.
   (defaults: `"custom"`, none); the three real providers map their host to the
   semconv value (`api.openai.com` → `openai`, `*.openai.azure.com` → `azure.ai.openai`).
 
+## Image input (one-shot only)
+
+`LlmClient::complete_with_images(&ImageRequest)` sends one user message that
+carries pictures and then text, and returns the assistant's text. No tool
+loop, no history. Nothing else in the crate changed for it: `LlmProvider`,
+the three providers and the tool loop are as they were. Which wire a
+provider's pictures travel on (`ImageWire`) is decided from the provider's
+type when the client is built; a provider this crate does not know has none
+unless the builder names one (`LlmClient::with_image_wire`).
+
+| Provider | Picture on the wire | Bounds (`images/limits.rs`, each with its page) |
+| --- | --- | --- |
+| Anthropic | `{"type":"image","source":{"type":"base64","media_type","data"}}` | first-party: 100 a request (the page's figure for a 200k-token model; others take 600, and the model's window is not known here), 8000 px a side, 3000 px a side past 20 pictures, 10 MB base64 each, 128 MB a request; any other host: 5 MB each, 20 MB a request |
+| OpenAI (Responses) | `{"type":"input_image","image_url":"data:…;base64,…"}` | 1,500 a request, 512 MB a request, 30,000 patches of 32 px a picture |
+| OpenAI-compatible (Chat Completions) | `{"type":"image_url","image_url":{"url":"data:…"}}` | OpenAI's; on an Azure host 10 a request and 20 MB each |
+
+- **Never a silent drop.** A provider with no wire, and a provider that
+  answers a request that carried pictures with a `4xx`
+  that is not auth or a rate limit, both come back as
+  `ImageCompletionError::ImagesNotSupported`. The caller decides whether to
+  ask again in words.
+- **The only bounds are the provider's documented ones.** A request past one
+  is not sent (`LimitExceeded`); `ImageLimits::can_carry` is how a caller
+  fills one request and starts the next. Nothing downscales: the workspace
+  has no image decoder.
+- **A picture is never recorded.** The inference span names each picture by
+  type, size and label. `ImageRequest::private` also keeps the prompt and the
+  answer off the span (timing, usage and error class stay).
+- With no pictures it is a plain completion on any provider, so a caller
+  that wants a private one-shot uses it for text too.
+
+`agentic-pipeline` exposes it on a prepared one-shot
+(`OneShotCompleter::complete_with_images`, `one_shot::images`), which is how a
+host crate that may not import this one reaches it.
+
 ## Rules
 
 - Infrastructure crate — may be imported by any domain.

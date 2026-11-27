@@ -391,6 +391,7 @@ dependencies = [
  "agentic-core",
  "async-stream",
  "async-trait",
+ "base64 0.23.1",
  "futures-core",
  "oxy-shared",
  "reqwest 0.13.5",
@@ -400,6 +401,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "wiremock",
  "workspace-hack",
 ]
 
@@ -436,6 +438,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "wiremock",
  "workspace-hack",
 ]
 

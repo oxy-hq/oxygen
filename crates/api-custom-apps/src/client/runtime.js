@@ -380,25 +380,24 @@
     } catch (e) {}
   };
 
-  /** Has anything with layout rendered? Bounded scan: it returns on the first
-   *  laid-out element, so a mounted app costs a handful of iterations, and an
-   *  unmounted one has almost no DOM to walk. The cap is for the pathological
-   *  middle — a huge DOM of zero-height nodes — where this must not become the
-   *  jank it is measuring. */
+  /** Has anything rendered? The first laid-out element holding a child, text, a picture, canvas,
+   *  frame, field or open shadow root: height alone counted the empty, viewport-sized `#root`
+   *  every template ships (a blank screen). The cap keeps a huge empty DOM from becoming the jank
+   *  this measures. Declarations only: the launch screen asks while this script is still starting. */
   function looksMounted() {
-    var root = document.body;
-    if (!root) return false;
-    var kids = root.querySelectorAll("*");
-    var limit = Math.min(kids.length, 200);
-    for (var i = 0; i < limit; i++) {
+    var kids = document.body ? document.body.querySelectorAll("*") : [];
+    for (var i = 0; i < Math.min(kids.length, 200); i++) {
       var el = kids[i];
-      var tag = el.tagName;
-      if (tag === "SCRIPT" || tag === "STYLE" || tag === "LINK" || tag === "NOSCRIPT") continue;
+      if (/^(SCRIPT|STYLE|LINK|NOSCRIPT)$/.test(el.tagName) || !holdsSomething(el)) continue;
       try {
         if (el.getBoundingClientRect().height > 0) return true;
       } catch (e) {}
     }
     return false;
+  }
+  function holdsSomething(el) {
+    if (/^(img|svg|canvas|video|iframe|input|object|embed)$/i.test(el.tagName)) return true;
+    return el.childElementCount > 0 || !!el.shadowRoot || (el.textContent || "").trim() !== "";
   }
 
   // Polled rather than observed: MutationObserver fires on the first DOM write,

@@ -29,6 +29,18 @@ describe("sourceTypeToJobType", () => {
     expect(isSystemSource("oltp_changes_relay")).toBe(true);
   });
 
+  // A build's checks, what follows a failed production check, and the
+  // model's notes on the checks are the platform's work on a custom app.
+  it("treats the promote checks' three tasks as system daemons", () => {
+    for (const kind of [
+      "custom_app_build_checks",
+      "custom_app_production_check_failed",
+      "custom_app_build_checks_ai"
+    ]) {
+      expect(isSystemSource(kind), kind).toBe(true);
+    }
+  });
+
   it("files a chunked backfill's drive under ELT with the runs it seeds", () => {
     expect(sourceTypeToJobType("airway_backfill_range")).toBe("elt");
     expect(isSystemSource("airway_backfill_range")).toBe(false);

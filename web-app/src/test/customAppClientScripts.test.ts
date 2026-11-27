@@ -759,12 +759,28 @@ describe("runtime.js — finishes the launch the home started", () => {
     bootRuntime();
     const root = document.createElement("div");
     root.getBoundingClientRect = () => ({ height: 40 }) as DOMRect;
+    root.textContent = "Overview";
     document.body.appendChild(root);
     vi.advanceTimersByTime(60);
     expect(html.getAttribute("data-oxy-launch-state")).toBe("out");
     vi.advanceTimersByTime(250);
     expect(html.hasAttribute("data-oxy-launch")).toBe(false);
     expect(html.style.getPropertyValue("--oxy-launch-bg")).toBe("");
+  });
+
+  // Every template ships its mount node empty and sized to the viewport: a box with
+  // height and nothing in it is not the app having drawn itself.
+  it("holds it over the empty mount node, until the app draws into it", () => {
+    window.sessionStorage.setItem("oxy.launch", note());
+    bootRuntime();
+    const root = document.createElement("div");
+    root.getBoundingClientRect = () => ({ height: 900 }) as DOMRect;
+    document.body.appendChild(root);
+    vi.advanceTimersByTime(500);
+    expect(html.getAttribute("data-oxy-launch-state")).toBeNull();
+    root.appendChild(document.createElement("main"));
+    vi.advanceTimersByTime(60);
+    expect(html.getAttribute("data-oxy-launch-state")).toBe("out");
   });
 
   it("never outstays an app that draws nothing", () => {

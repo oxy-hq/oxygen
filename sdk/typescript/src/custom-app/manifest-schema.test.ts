@@ -7,7 +7,14 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { renderManifestSchema, SCHEMA_PATH } from "../../scripts/gen-manifest-schema.mjs";
-import { FUNCTION_NAME_PATTERN, SLUG_MAX_LEN, SLUG_PATTERN } from "./manifest-rules";
+import {
+  FUNCTION_NAME_PATTERN,
+  SCREEN_PATH_MAX_LEN,
+  SCREEN_PATH_PATTERN,
+  SCREENS_MAX,
+  SLUG_MAX_LEN,
+  SLUG_PATTERN
+} from "./manifest-rules";
 import { OXY_APP_SCHEMA, OXY_APP_SCHEMA_URL } from "./manifest-schema";
 
 /**
@@ -23,6 +30,8 @@ const WALKED = new Set([
   "additionalProperties",
   "propertyNames",
   "items",
+  "maxItems",
+  "uniqueItems",
   "enum",
   "const",
   "anyOf",
@@ -90,6 +99,25 @@ describe("oxy-app.schema.json", () => {
     });
   });
 
+  it("carries the screen-path rule on `checks.screens`", () => {
+    const root = OXY_APP_SCHEMA.definitions.OxyAppManifest;
+    expect(root?.properties?.checks?.$ref).toBe("#/definitions/OxyAppChecksManifest");
+    expect(root?.required).not.toContain("checks");
+    const checks = OXY_APP_SCHEMA.definitions.OxyAppChecksManifest;
+    expect(checks?.additionalProperties).toBe(false);
+    expect(checks?.required).toBeUndefined();
+    expect(checks?.properties?.screens).toMatchObject({
+      type: "array",
+      maxItems: SCREENS_MAX,
+      uniqueItems: true,
+      items: {
+        type: "string",
+        maxLength: SCREEN_PATH_MAX_LEN,
+        pattern: SCREEN_PATH_PATTERN.source
+      }
+    });
+  });
+
   it("names every field the server honours", () => {
     const fn = OXY_APP_SCHEMA.definitions.OxyAppFunctionManifest?.properties ?? {};
     for (const field of [
@@ -114,6 +142,7 @@ describe("oxy-app.schema.json", () => {
       "environments",
       "events",
       "calls",
+      "checks",
       "$schema"
     ]) {
       expect(app[field], field).toBeDefined();

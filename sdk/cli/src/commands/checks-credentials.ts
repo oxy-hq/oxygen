@@ -22,7 +22,7 @@
  */
 
 import { isProduction } from "../apps/environment.js";
-import { UUID_RE } from "../apps/resolve.js";
+import { type Creds, type ResolvedApp, resolveApp, UUID_RE } from "../apps/resolve.js";
 import { requireOwnSandbox, resolveSandboxApp } from "../apps/sandbox-token.js";
 import { fallsBackToPublisher, githubOidcAvailable, OidcExchangeError } from "../auth/oidc.js";
 import { introspectToken } from "../auth/token-api.js";
@@ -210,4 +210,38 @@ export async function resolveCredentials(
   // Throws — nothing resolved and nothing can be minted.
   await ctx.bearer();
   return { machine: false };
+}
+
+/** An app the credential named without a lookup: no slugs, which only the lookup learns. */
+export interface AppByCredential {
+  appId: string;
+  label: string;
+  orgSlug?: undefined;
+  appSlug?: undefined;
+}
+
+/**
+ * The app `app` names, for the credential `resolveCredentials` returned.
+ *
+ * `resolveApp` pages `/api/customer-apps`, which a machine token may not list:
+ * sending it there would 403 on a route the caller cannot be given. A token
+ * that names its own app (the publisher exchange's `app_id`, a service
+ * account's `app_publish` grant, a sandbox agent token's list) never gets
+ * there; a machine token that does not needs the UUID — and is never sent to
+ * `GET /api/customer-apps/{id}` either, which refuses it just as the listing
+ * does and would add nothing the id does not already say. Only the lookup
+ * learns the slugs, so only a user credential's answer carries them.
+ */
+export async function appForCredentials(
+  creds: Creds,
+  resolved: ResolvedCredentials,
+  app: string
+): Promise<ResolvedApp | AppByCredential> {
+  if (resolved.appId) return { appId: resolved.appId, label: app };
+  if (!resolved.machine) return resolveApp(creds, app);
+  if (UUID_RE.test(app)) return { appId: app, label: app };
+  throw usageError(
+    "this token cannot resolve <org>/<app> — pass the app UUID",
+    "resolving a slug means listing every app, which a publish or service-account token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
+  );
 }

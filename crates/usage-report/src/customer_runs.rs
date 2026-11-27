@@ -47,8 +47,15 @@
 /// history to its Airhouse, nor `custom_app_usage_purge`, the platform deleting a
 /// deleted app's usage facts from it, nor `app_events_relay`, the platform moving an org's
 /// published events onto the queue, filed in whichever of the org's app
-/// workspaces it picked. Nor does `react_memory_merge`, the platform
-/// shortening a user's agent notes after their chat.
+/// workspaces it picked. Nor does `custom_app_build_checks`, the platform
+/// checking a build staging serves: a failed check is the build's, not the
+/// workspace's. Nor `custom_app_production_check_failed`, what the platform
+/// does after production's own check of a build failed (a notice, a rollback).
+/// Nor `custom_app_build_checks_ai`, the advisory notes written on a build's
+/// checks: staff's review of a build, and a note that could not be written
+/// says so on the build.
+/// Nor `react_memory_merge`, the platform shortening a user's agent notes
+/// after their chat.
 const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "health_eval_workspace",
     "preagg_cycle",
@@ -66,6 +73,9 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "app_events_relay",
     "app_table_watch",
     "oltp_changes_relay",
+    "custom_app_build_checks",
+    "custom_app_production_check_failed",
+    "custom_app_build_checks_ai",
     "react_memory_merge",
 ];
 

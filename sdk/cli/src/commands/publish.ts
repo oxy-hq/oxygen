@@ -75,7 +75,7 @@ import {
 } from "../publish/server.js";
 import { formatStages } from "../publish/stages.js";
 import { tarGzDir } from "../publish/tarball.js";
-import { staleKitWarnings } from "../publish/versions.js";
+import { sdkVersion, staleKitWarnings } from "../publish/versions.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -356,6 +356,43 @@ function resolveProvenance(cwd: string, flags: PublishFlags): Provenance {
   return provenance;
 }
 
+/** What the upload's fields are read from. */
+interface UploadFieldsFrom {
+  identity: Identity;
+  project: string | undefined;
+  buildId: string;
+  channel: string;
+  provenance: Provenance;
+  semanticRevision: string | undefined;
+  flags: PublishFlags;
+  /** The app's directory, for the SDK version it builds against. */
+  appDir: string;
+}
+
+/** The upload's text fields, in the order they are sent; one with no value is left out. */
+function uploadFields(from: UploadFieldsFrom): Array<[string, string | undefined]> {
+  const { identity, provenance, flags } = from;
+  return [
+    ["app", identity.app],
+    ["project", from.project],
+    ["build_id", from.buildId],
+    ["channel", from.channel],
+    // Optional: a pre-built bundle pinned to a project lets the server infer it.
+    ["org", identity.org],
+    ["name", flags.name],
+    ["source_repo", provenance.repo],
+    ["commit_sha", provenance.commit],
+    ["branch", provenance.branch],
+    // The design-system check's SDK floor reads it off the build; absent
+    // when the app does not depend on the SDK.
+    ["sdk_version", sdkVersion(from.appDir)],
+    ["semantic_revision_id", from.semanticRevision],
+    ["environment", flags.appEnv],
+    ...scheduleConfirmations(flags),
+    ["breakListeners", flags.breakListeners ? "true" : undefined]
+  ];
+}
+
 /** The credential for the upload itself — the OIDC exchange happens here, last. */
 async function uploadToken(
   ctx: Context,
@@ -630,22 +667,16 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
       target,
       token,
       tarball,
-      fields: [
-        ["app", identity.app],
-        ["project", project],
-        ["build_id", buildId],
-        ["channel", channel],
-        // Optional: a pre-built bundle pinned to a project lets the server infer it.
-        ["org", identity.org],
-        ["name", flags.name],
-        ["source_repo", provenance.repo],
-        ["commit_sha", provenance.commit],
-        ["branch", provenance.branch],
-        ["semantic_revision_id", semanticRevision],
-        ["environment", flags.appEnv],
-        ...scheduleConfirmations(flags),
-        ["breakListeners", flags.breakListeners ? "true" : undefined]
-      ]
+      fields: uploadFields({
+        identity,
+        project,
+        buildId,
+        channel,
+        provenance,
+        semanticRevision,
+        flags,
+        appDir: ctx.cwd
+      })
     });
   } catch (cause) {
     if (

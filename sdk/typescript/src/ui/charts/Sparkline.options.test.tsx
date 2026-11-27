@@ -111,6 +111,44 @@ describe("Sparkline options", () => {
     expect(d("observed")).toBe("M2.00,34.00 L238.00,2.00");
   });
 
+  it("bars: every bar inside the box, evenly spaced, the end mark on the last", async () => {
+    const twelve = sparkPoints([3, 5, 4, 6, 8, 7, 9, 6, 5, 7, 8, 10]);
+    const cases = [
+      { name: "fluid in a wide panel", width: 600, points: ONE_SERIES, fluid: true },
+      { name: "the default box", width: 104, points: TWO, fluid: false },
+      { name: "twelve in the default box", width: 104, points: twelve, fluid: false }
+    ];
+    for (const c of cases) {
+      vi.spyOn(SVGElement.prototype, "getBoundingClientRect").mockReturnValue(box(c.width));
+      const page = await render(
+        <Sparkline points={c.points} label='x' shape='bars' fluid={c.fluid} />
+      );
+      expect(svg().getAttribute("viewBox"), c.name).toBe(`0 0 ${c.width} 44`);
+      const bars = $$("rect[data-mark='bar']").map((r) => ({
+        x: Number(r.getAttribute("x")),
+        w: Number(r.getAttribute("width"))
+      }));
+      expect(bars, c.name).toHaveLength(c.points.length);
+      for (const b of bars) {
+        expect(b.x, c.name).toBeGreaterThanOrEqual(0);
+        expect(b.x + b.w, c.name).toBeLessThanOrEqual(c.width);
+      }
+      // Evenly spaced: one width, one gap, and the same margin at both ends.
+      const first = bars[0];
+      const lastBar = bars[bars.length - 1];
+      const gap = bars[1].x - (first.x + first.w);
+      bars.forEach((b, i) => {
+        expect(b.w, c.name).toBeCloseTo(first.w, 6);
+        if (i > 0) expect(b.x - (bars[i - 1].x + bars[i - 1].w), c.name).toBeCloseTo(gap, 6);
+      });
+      expect(c.width - (lastBar.x + lastBar.w), c.name).toBeCloseTo(first.x, 6);
+      const ring = $("[data-mark='ring']") as HTMLElement;
+      expect(Number(ring.getAttribute("cx")), c.name).toBeCloseTo(lastBar.x + lastBar.w / 2, 6);
+      await page.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("readout: a Tab stop named with every value; focus shows the last reading", async () => {
     await render(
       <Sparkline

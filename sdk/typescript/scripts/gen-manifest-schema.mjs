@@ -9,7 +9,8 @@
 //
 // The two name rules the server enforces (`manifest-rules.ts`) are written into
 // the schema here rather than as JSDoc tags on the type, so the regex is spelled
-// once: `slug.pattern` and `functions.propertyNames.pattern`.
+// once: `slug.pattern` and `functions.propertyNames.pattern`. The screen-path
+// rule is written the same way, onto `checks.screens`.
 //
 //   node sdk/typescript/scripts/gen-manifest-schema.mjs          write it
 //   node sdk/typescript/scripts/gen-manifest-schema.mjs --check  exit 1 if stale
@@ -20,6 +21,9 @@ import { fileURLToPath } from "node:url";
 import { createGenerator } from "ts-json-schema-generator";
 import {
   FUNCTION_NAME_PATTERN,
+  SCREEN_PATH_MAX_LEN,
+  SCREEN_PATH_PATTERN,
+  SCREENS_MAX,
   SLUG_MAX_LEN,
   SLUG_PATTERN
 } from "../src/custom-app/manifest-rules.ts";
@@ -71,13 +75,30 @@ export function generateManifestSchema() {
 
   // `calls`: slug keys, lists of function names. The rest (non-empty, no
   // duplicates, 64 pairs in total) is `callsRule` in manifest-validate.ts: the
-  // schema validator walks no `minItems` / `uniqueItems` / `maxProperties`.
+  // schema validator walks no `minItems` / `maxProperties`, and the rule says a
+  // duplicate in its own words.
   root.properties.calls = {
     ...root.properties.calls,
     propertyNames: { pattern: SLUG_PATTERN.source, maxLength: SLUG_MAX_LEN },
     additionalProperties: {
       type: "array",
       items: { type: "string", pattern: FUNCTION_NAME_PATTERN.source }
+    }
+  };
+
+  // `checks.screens`: app-relative paths, each once, at most `SCREENS_MAX`.
+  const checks = generated.definitions?.OxyAppChecksManifest;
+  if (!checks || typeof checks !== "object" || !checks.properties?.screens) {
+    throw new Error("the generator produced no OxyAppChecksManifest.screens");
+  }
+  checks.properties.screens = {
+    ...checks.properties.screens,
+    maxItems: SCREENS_MAX,
+    uniqueItems: true,
+    items: {
+      type: "string",
+      maxLength: SCREEN_PATH_MAX_LEN,
+      pattern: SCREEN_PATH_PATTERN.source
     }
   };
 

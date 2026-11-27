@@ -92,8 +92,26 @@ pub struct ServeEvent<'a> {
     pub environment: &'a str,
 }
 
+/// How many records this process has been handed, of every kind below (a
+/// served request, a client event, a batch of client errors), whether or not a
+/// sink is installed to keep them.
+static HANDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn count_handed() {
+    HANDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The records handed to this module since the process started. Counted
+/// before the sink gate, so it reads the same with no store configured: what
+/// a test compares before and after a request that must record nothing (the
+/// platform checker's page loads and beacons).
+pub fn handed_total() -> u64 {
+    HANDED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Record one served request (HTML shell or bundle asset).
 pub fn record_serve(event: ServeEvent<'_>) {
+    count_handed();
     // Metrics first, and deliberately **outside** the sink gate below. That
     // gate asks whether the tenant-facing ClickHouse store is configured
     // (`OXY_CLICKHOUSE_*`), which has no default in any mode — so on a
@@ -445,6 +463,7 @@ pub struct ClientEvent<'a> {
 /// served shell with no `app-ready` behind it is a white screen, and no status
 /// code anywhere can say so.
 pub fn record_client_event(event: ClientEvent<'_>) {
+    count_handed();
     if !custom_app_sink::is_enabled() {
         return;
     }
@@ -521,6 +540,7 @@ pub fn record_client_errors(
     headers: &http::HeaderMap,
     environment: &str,
 ) {
+    count_handed();
     if !custom_app_sink::is_enabled() {
         return;
     }

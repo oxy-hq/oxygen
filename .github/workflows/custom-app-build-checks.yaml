@@ -1,0 +1,334 @@
+name: Custom app build checks
+
+# Runs one attempt of one custom-app build's promote checks. The platform
+# keeps the rows and the console; this job drives them with ONE command:
+#
+#   oxyc checks run <app id> --build <build> --attempt <n> --environment <e> --report
+#
+# `environment: staging` (the default) is the checks every build gets when it
+# reaches an app's staging: it builds and validates, its check functions pass,
+# it loads at desk and phone width, it follows the design system; and, where
+# the app's org holds promotes on its checks, every screen opens and what
+# changed against production. `environment: production` is the one check the
+# platform queues when a promote moves production: once production serves the
+# build, every screen is opened and compared with what it showed before.
+#
+# The platform dispatches this workflow itself, once per attempt (a staging
+# move, a production move, or "Run again" in the app console). A person may
+# dispatch it too, or run the same command by hand with their own login.
+#
+# NOTHING A PAGE SHOWED LEAVES THE PLATFORM. A staging or production page can
+# show a customer's data. So this workflow uploads NO artifact: no screenshot,
+# no trace, no video, no Playwright report. The pictures and page text the
+# command takes to say what changed are held in memory and sent to the
+# platform only, never written to the runner's disk or its log. Do not add an
+# `upload-artifact` step here, and do not turn Playwright tracing on to debug
+# a run. For the same reason the job log carries each check's STATUS only: a
+# check's summary and findings can quote a page error or a request URL, and
+# they stay on the platform, where the app console and `oxyc checks show`
+# print them to people who may open that app's staging.
+#
+# THE TARGET IS NEVER AN INPUT. The deployment's URL is read from
+# `.github/custom-app-checks.json` by the `deployment` input, which is a
+# choice of three. An input URL would let anyone who can dispatch this
+# workflow send the checker's token to a host of their choosing.
+#
+# Secrets and setup. The job runs in the GitHub environment
+# `custom-app-checks-<deployment>`, the ones the scheduled checks
+# (`custom-app-checks.yaml`) use. Not the plain `staging` environment, which
+# belongs to something else.
+#
+#   OXY_APP_CHECKS_TOKEN   environment secret, set in that environment: the
+#                          deployment's checker service token (platform role
+#                          `app_checker`). The deployment holds only its hash.
+#                          It reaches a build's checks routes and reads an
+#                          app's staging and production pages as a reader,
+#                          nothing else, and is passed to the command as
+#                          OXY_API_KEY.
+#
+#   `custom-app-checks-staging` and `custom-app-checks-prod` exist.
+#   `custom-app-checks-dev` does not: create it, with its token, BEFORE a dev
+#   deployment dispatches this workflow. A job that names an environment that
+#   does not exist makes GitHub create an empty one, and the first step then
+#   fails on the missing token.
+#
+#   NONE OF THESE ENVIRONMENTS RESTRICTS BRANCHES TODAY. A dispatch names the
+#   ref it runs from, and a ref carries its own copy of this file and of the
+#   JSON above. So until a person restricts each environment to `main`
+#   ("Deployment branches and tags" in the environment's settings), whoever
+#   may dispatch a workflow from a branch can run that branch's version of
+#   this job with the environment's token. That is a setting a person turns
+#   on; nothing in this file can, and nothing here checks that it is on.
+#
+# THE BROWSER. The page runs a tenant's JavaScript, and the token can read
+# every org's staging and production. The command starts Chromium with its
+# sandbox ON and with an environment that holds no credential, and reports a
+# check that needs the browser as an error rather than start it any other
+# way. It sends no write and calls no function, on either environment, and
+# the page reaches nothing off the app's own origin: every request to another
+# host is refused (redirects, sockets and WebRTC included; the browser is
+# started resolving no other host), so what the page reads as the checker
+# cannot be sent anywhere else. The "Allow Chromium's sandbox" step is what
+# that sandbox needs on the runner.
+#
+# Exit codes of the command (`oxyc exit-codes`), and what this job does:
+#
+#   0   every check has a verdict and none failed, or the attempt was already
+#       closed: green.
+#   9   a check's verdict is `failed` or `error`. That is an answer, written
+#       to the platform, not a broken run: green, with a notice.
+#   else the runner itself broke (no credential, an unknown build, a verdict
+#       that could not be written, the platform unreachable): red. The
+#       platform closes an attempt whose runner never answered, and "Run
+#       again" starts a new one.
+#
+# Only a newer run of the same build AND environment (a rerun's next attempt)
+# cancels this one. Runs of different builds never cancel each other: the
+# dispatches of a burst of publishes can arrive in any order, so cancelling by
+# app let an older build's run cancel the newest one, whose attempt then sat
+# open until the platform closed it as stalled. A run of a build that staging
+# (or production) has since moved past is not wasted either: its claim closes
+# the checks that would judge another build as not checked, and it ends.
+
+run-name: >-
+  Build checks (${{ inputs.environment || 'staging' }}): ${{ inputs.app || inputs.app_id }} ·
+  build ${{ inputs.build }} · attempt ${{ inputs.attempt }} (${{ inputs.deployment }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: The deployment whose build is checked.
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        required: true
+      app_id:
+        description: The app's id (a UUID).
+        type: string
+        required: true
+      app:
+        description: The app as <org>/<app>. For the run's name only; nothing reads it.
+        type: string
+        required: false
+        default: ""
+      build:
+        description: The build's row id (a UUID).
+        type: string
+        required: true
+      attempt:
+        description: Which attempt of the build's checks (a positive whole number).
+        type: string
+        required: true
+      environment:
+        description: >-
+          Which of the build's attempts: staging (its own checks), or production
+          (the check after a promote).
+        type: choice
+        options:
+          - staging
+          - production
+        required: false
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: custom-app-build-checks-${{ inputs.deployment }}-${{ inputs.app_id }}-${{ inputs.build }}-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Build checks (${{ inputs.environment || 'staging' }}, ${{ inputs.deployment }})
+    # oxygen-internal only: the environments and their secrets exist only here,
+    # so a copy of this file anywhere else (the public mirror) must not run.
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+    # The whole job: setup, then a command whose own waits end inside ten
+    # minutes. On staging: six for the check functions, with the page loads
+    # alongside (two and a half for the root, then at most six and a half for
+    # every screen on staging and production). On production: three for
+    # production to serve the build, then at most three and a half for its
+    # screens. No step has a timeout of its own; a hung one is cut here, well
+    # inside the thirty minutes the platform leaves a claimed attempt open.
+    timeout-minutes: 20
+    environment: custom-app-checks-${{ inputs.deployment }}
+    steps:
+      # First, before any install: a wrong dispatch or an environment with no
+      # token fails in seconds, and says why. Every input reaches a script
+      # through `env:` and is checked for its shape before anything uses it.
+      - name: Check the inputs and require the token
+        env:
+          DEPLOYMENT: ${{ inputs.deployment }}
+          APP_ID: ${{ inputs.app_id }}
+          BUILD: ${{ inputs.build }}
+          ATTEMPT: ${{ inputs.attempt }}
+          CHECK_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+          OXY_API_KEY: ${{ secrets.OXY_APP_CHECKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          uuid='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          problems=0
+          case "$DEPLOYMENT" in
+            dev | staging | prod) ;;
+            *)
+              echo "::error::deployment must be dev, staging or prod"
+              problems=1
+              ;;
+          esac
+          case "$CHECK_ENVIRONMENT" in
+            staging | production) ;;
+            *)
+              echo "::error::environment must be staging or production"
+              problems=1
+              ;;
+          esac
+          if [[ ! "$APP_ID" =~ $uuid ]]; then
+            echo "::error::app_id is not a UUID"
+            problems=1
+          fi
+          if [[ ! "$BUILD" =~ $uuid ]]; then
+            echo "::error::build is not a UUID (the build's row id)"
+            problems=1
+          fi
+          if [[ ! "$ATTEMPT" =~ ^[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::attempt is not a positive whole number"
+            problems=1
+          fi
+          if (( problems )); then
+            exit 1
+          fi
+          if [[ -z "${OXY_API_KEY:-}" ]]; then
+            echo "::error::secret OXY_APP_CHECKS_TOKEN is not set in environment custom-app-checks-${DEPLOYMENT}: it is that deployment's checker service token"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up pnpm, Node, and Playwright
+        uses: ./.github/actions/setup-web-app-test-env
+        with:
+          install-playwright: "true"
+
+      - name: Build oxyc
+        run: pnpm --filter @oxy-hq/cli build
+
+      # The URL comes from the repository, by the deployment's name. Never
+      # from an input: see the header.
+      - name: Resolve the deployment's URL
+        id: target
+        env:
+          DEPLOYMENT: ${{ inputs.deployment }}
+        run: |
+          set -euo pipefail
+          CONFIG=.github/custom-app-checks.json
+          if ! BASE_URL=$(jq -er --arg env "$DEPLOYMENT" '.[$env].baseUrl | strings' "$CONFIG"); then
+            echo "::error::${CONFIG} has no baseUrl for ${DEPLOYMENT}"
+            exit 1
+          fi
+          if [[ ! "$BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+            echo "::error::${CONFIG} baseUrl for ${DEPLOYMENT} is not an https origin"
+            exit 1
+          fi
+          echo "base_url=${BASE_URL%/}" >> "$GITHUB_OUTPUT"
+
+      # Chromium's sandbox is built on unprivileged user namespaces, and on
+      # Ubuntu 23.10 and later AppArmor denies those to a program without a
+      # profile unless this switch is off. The command starts Chromium with
+      # the sandbox on and never without it, so without this step `loads`
+      # would be an error on such a runner. A no-op where the kernel has no
+      # such switch (older Ubuntu, other distributions) or it is already off.
+      # If it cannot be changed, say so and go on: the command then reports
+      # `loads` as an error that names the sandbox, and still runs the check
+      # that needs no browser.
+      - name: Allow Chromium's sandbox
+        run: |
+          set -euo pipefail
+          KEY=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [[ ! -e "$KEY" ]]; then
+            echo "this runner has no ${KEY}: nothing to change"
+            exit 0
+          fi
+          if [[ "$(cat "$KEY")" == "0" ]]; then
+            echo "unprivileged user namespaces are already allowed"
+            exit 0
+          fi
+          if sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; then
+            echo "allowed unprivileged user namespaces for this job"
+          else
+            echo "::warning::could not set kernel.apparmor_restrict_unprivileged_userns=0: Chromium's sandbox may not start, and the loads check will then say so"
+          fi
+
+      # From `web-app`, where Playwright is installed: the command resolves it
+      # from the working directory. API key only: `--token-env` names a
+      # variable that is never set, and a runner has no `oxyc login` cache, so
+      # no bearer resolves and the command sends X-API-Key as the checker.
+      #
+      # `--quiet --json`: the summary goes to a file under RUNNER_TEMP, which
+      # is deleted with the runner and uploaded nowhere, and only each check's
+      # kind and status are printed from it (see the header).
+      - name: Run the build's checks
+        working-directory: web-app
+        env:
+          BASE_URL: ${{ steps.target.outputs.base_url }}
+          APP_ID: ${{ inputs.app_id }}
+          BUILD: ${{ inputs.build }}
+          ATTEMPT: ${{ inputs.attempt }}
+          CHECK_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+          DEPLOYMENT: ${{ inputs.deployment }}
+          OXY_API_KEY: ${{ secrets.OXY_APP_CHECKS_TOKEN }}
+        run: |
+          # No `-e`: the exit code is read, not obeyed.
+          set -uo pipefail
+          unset OXY_CHECKS_NO_BEARER
+          SUMMARY="${RUNNER_TEMP}/build-checks-summary.json"
+          node ../sdk/cli/dist/main.mjs checks run "$APP_ID" \
+            --build "$BUILD" \
+            --attempt "$ATTEMPT" \
+            --environment "$CHECK_ENVIRONMENT" \
+            --report \
+            --target "$BASE_URL" \
+            --api-key-env OXY_API_KEY \
+            --token-env OXY_CHECKS_NO_BEARER \
+            --quiet --json > "$SUMMARY"
+          rc=$?
+          # Kind and status only; a summary can quote what a page printed.
+          if jq -e 'type == "object"' "$SUMMARY" > /dev/null 2>&1; then
+            if [[ "$(jq -r '.closed' "$SUMMARY")" == "true" ]]; then
+              echo "every check of this attempt already has a verdict: nothing was left to check"
+            fi
+            jq -r '.checks[] | "\(.kind): \(.status)\(if .reported == false then " (verdict not written)" else "" end)"' "$SUMMARY"
+          fi
+          case "$rc" in
+            0)
+              echo "every check has a verdict and none failed"
+              ;;
+            9)
+              echo "::notice::a check's verdict is failed or error on ${DEPLOYMENT}; the app's Builds page and \`oxyc checks show ${APP_ID} --build ${BUILD} --environment ${CHECK_ENVIRONMENT}\` say which and why"
+              exit 0
+              ;;
+            4)
+              echo "::error::oxyc exited 4: the platform rejected the checker's token (or none resolved); rotate OXY_APP_CHECKS_TOKEN in environment custom-app-checks-${DEPLOYMENT}"
+              exit "$rc"
+              ;;
+            5)
+              echo "::error::oxyc exited 5: ${DEPLOYMENT} has no such app, build or attempt, or the token may not check it"
+              exit "$rc"
+              ;;
+            7)
+              echo "::error::oxyc exited 7: ${DEPLOYMENT} was unreachable or answered 5xx, a verdict could not be written, or the build's check functions had no verdict in time"
+              exit "$rc"
+              ;;
+            *)
+              echo "::error::oxyc exited ${rc}: the runner broke before every check had a verdict (see \`oxyc exit-codes\`)"
+              exit "$rc"
+              ;;
+          esac

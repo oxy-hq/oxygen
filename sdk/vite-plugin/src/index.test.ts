@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConfigEnv, UserConfig } from "vite";
+import type { ConfigEnv, ResolvedConfig, UserConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import oxyApp, { manifestWarnings, resolveBase, validateManifest } from "./index.js";
 
@@ -253,5 +253,64 @@ describe("the notification catalogue", () => {
     test("still links the migration guide for a v1 manifest", () => {
       expect(configure({ schemaVersion: 1, slug: "x" }, "build")).toThrow(/Migration guide/);
     });
+  });
+});
+
+// `buildStart` looks the app's project up on the Oxy server. Vitest drives Vite
+// as a dev server too (`command: "serve"`), so a scaffold's `vitest run` reached
+// whatever answered on the default target — a developer's local server.
+describe("the dev project lookup", () => {
+  const TARGET = "http://127.0.0.1:46200";
+  let dir = "";
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "oxy-vite-plugin-"));
+    writeFileSync(
+      join(dir, "oxy-app.json"),
+      JSON.stringify({ schemaVersion: 2, slug: "storefront", orgSlug: "local" })
+    );
+    // A shell that already names the project would skip the lookup for its own reason.
+    for (const key of ["OXY_ORG", "OXY_APP", "OXY_PROJECT"]) vi.stubEnv(key, "");
+    fetchMock = vi.fn(async () => Response.json({ project_id: "p-1", branch: "main" }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const startServer = async (mode: string) => {
+    const plugin = oxyApp({ devProxyTarget: TARGET });
+    (plugin.config as (c: UserConfig, e: ConfigEnv) => UserConfig)(
+      { root: dir },
+      { command: "serve", mode }
+    );
+    (plugin.configResolved as (c: ResolvedConfig) => void)({
+      command: "serve",
+      mode
+    } as ResolvedConfig);
+    await (plugin.buildStart as () => Promise<void>)();
+  };
+
+  test("a test run makes no request", async () => {
+    vi.stubEnv("VITEST", "true");
+    await startServer("test");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a test run under another --mode makes no request either", async () => {
+    vi.stubEnv("VITEST", "true");
+    await startServer("staging");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a dev server still resolves the project", async () => {
+    vi.stubEnv("VITEST", undefined);
+    await startServer("development");
+    expect(fetchMock).toHaveBeenCalledWith(`${TARGET}/api/apps/local/storefront/build-config`);
   });
 });

@@ -5,12 +5,20 @@ import { errMessage } from "@/hooks/api/errMessage";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { MoveCadence, MovePlan } from "@/types/appPromote";
+import { CheckNote } from "../AppConsole/BuildChecks/components/CheckNote";
+import { PlanChecksLine } from "./PlanChecksLine";
+import { checkBlockerText, planChecks } from "./planChecks";
 
 /**
  * What a production move will do, said inside its confirm: the dry-run plan `oxyc
  * promote` prints. Blockers first — while one stands the verb stays disabled —
  * then the schedules it registers, changes or retires, the migrations applied before
  * the pointer moves, and the functions it adds, removes or changes.
+ *
+ * A plan that carries `checks` (the org's promote-checks gate is on, and the move is
+ * not a rollback) also gets the required checks in one line, each with its status,
+ * and the build's summary when a model wrote one, marked as a note. Its three check
+ * blockers are drawn like the others, in the words of `productionGates`.
  */
 export const MovePlanSummary = ({
   plan,
@@ -38,11 +46,12 @@ export const MovePlanSummary = ({
   }
   const blockers = hardBlockers(plan);
   const lines = planLines(plan);
+  const checks = planChecks(plan);
   return (
     <div className='flex flex-col gap-2' data-testid='app-lifecycle-plan'>
       {blockers.map((b) => (
         <Callout key={b.code} tone='danger' testId={`app-lifecycle-plan-blocker-${b.code}`}>
-          {b.message}
+          {checkBlockerText(b.code, checks) ?? b.message}
         </Callout>
       ))}
       {plan.warnings.map((w) => (
@@ -50,6 +59,10 @@ export const MovePlanSummary = ({
           {w}
         </Callout>
       ))}
+      {checks && <PlanChecksLine checks={checks} />}
+      {checks?.summary && (
+        <CheckNote note={checks.summary} data-testid='app-lifecycle-plan-summary' />
+      )}
       {lines.length === 0 ? (
         <p className='text-muted-foreground text-xs'>No function, schedule or migration changes.</p>
       ) : (

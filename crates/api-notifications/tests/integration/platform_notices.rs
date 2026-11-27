@@ -30,6 +30,7 @@ use fixture::{people, push_outcome, seed_org, seed_user, seed_workspace, sorted,
 mod anomaly;
 mod ask_finished;
 mod ask_waiting;
+mod production_check;
 mod run_failed_streak;
 
 /// The first workspace anyone can open is news for every member; a later one

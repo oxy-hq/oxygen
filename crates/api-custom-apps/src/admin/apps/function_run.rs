@@ -13,6 +13,9 @@
 //!    not-found, exactly as for a run id that does not exist: holding an id
 //!    confirms nothing, not even which environment it ran in. A production
 //!    run asks no such question.
+//!
+//! The platform's own read of a run it queued, which asks neither, is
+//! [`platform`].
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
@@ -22,6 +25,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::environment_scope::{self, Caller, RouteError};
+
+mod platform;
+pub(crate) use platform::{PlatformRunReading, read_for_platform};
 
 #[derive(Debug, Serialize)]
 pub struct FunctionRunDetail {
