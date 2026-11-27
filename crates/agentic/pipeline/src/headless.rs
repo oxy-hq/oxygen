@@ -337,6 +337,9 @@ async fn build_context(
         .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
         .await;
     ctx.timezone = platform.timezone();
+    // The platform's rollups, as a served chat forwards them (`start_analytics`),
+    // so an eval can be answered from a pre-aggregation.
+    ctx.preagg = platform.preagg_context();
 
     let (effective_databases, connectors) = if runs_react {
         platform::react_connectors(platform, config, base_dir).await
