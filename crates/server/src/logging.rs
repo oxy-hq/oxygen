@@ -143,7 +143,7 @@ pub fn init(observability_enabled: bool, otel: &OtelConfig, server_command: bool
     // sentry-tracing's per-surface layers here would put a second decision point
     // beside `sentry_disposition`, one a unit test there cannot see. The `WARN` bound stays, so this layer neither widens
     // what Sentry receives nor enables INFO/DEBUG callsites. Traces are pinned
-    // off in `oxy::sentry_config`, which also holds barrier 2.
+    // off in `oxy_telemetry::sentry_config`, which also holds barrier 2.
     layers.push(Box::new(
         sentry_tracing_layer().with_filter(LevelFilter::WARN),
     ));

@@ -46,7 +46,7 @@ pub async fn run(group: DevGroup, seams: SurfaceSeams) -> RunResult {
     let DevGroup::Dev(command) = group;
     match command {
         DevCommand::Seed(seed_args) => {
-            ::oxy::sentry_config::add_operation_context("seed", None);
+            ::oxy_telemetry::sentry_config::add_operation_context("seed", None);
             seed::handle_seed_command(seed_args, seams.example_apps).await?;
             Ok(())
         }

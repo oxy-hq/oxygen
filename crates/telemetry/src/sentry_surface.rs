@@ -1,5 +1,5 @@
 //! Sentry, barrier 2: tag every event captured while serving a custom app, so
-//! `oxy::sentry_config`'s `before_send` drops it ([`crate::sentry_filter::drop_event`]).
+//! [`crate::sentry_config`]'s `before_send` drops it ([`crate::sentry_filter::drop_event`]).
 //! Barrier 1 only sees `tracing` targets; this also covers callees outside
 //! `custom_apps_*`, `OxyError::capture_to_sentry`, and panics.
 //!

@@ -112,7 +112,7 @@ pub fn init_sentry(build_sha: &str) -> Option<sentry::ClientInitGuard> {
 ///
 /// 1. **Barrier 2.** Drop an event a custom-app surface tagged, or one whose
 ///    request is a custom-app request
-///    (`oxy_telemetry::sentry_filter::drop_event`; the tag comes from
+///    (`crate::sentry_filter::drop_event`; the tag comes from
 ///    `oxy-app`'s `sentry_surface`). It runs FIRST and returns `None` — an
 ///    event that must not leave the process is not worth shaping, and nothing
 ///    downstream may resurrect it.
@@ -127,7 +127,7 @@ fn filter_event(
         .as_ref()
         .and_then(|request| request.url.as_ref())
         .map(|url| url.as_str());
-    if oxy_telemetry::sentry_filter::drop_event(&event.tags, request_url) {
+    if crate::sentry_filter::drop_event(&event.tags, request_url) {
         return None;
     }
     normalize_tracing_event(&mut event);
@@ -151,20 +151,20 @@ fn filter_event(
 ///
 /// Judged on the emitting module path, which is what a `Log` carries; the
 /// custom-app surface tag is not on it. Two rules, both held and documented in
-/// `oxy_telemetry::sentry_filter`: `drop_log` drops a custom-app module's line
+/// `crate::sentry_filter`: `drop_log` drops a custom-app module's line
 /// outright, and `is_data_plane_module` / `keep_log_shape_only` strip a
 /// query-running platform module's line to its shape, since its text is the
 /// warehouse's and the request it served cannot be told here.
 fn filter_log(mut log: sentry::protocol::Log) -> Option<sentry::protocol::Log> {
     let module = log
         .attributes
-        .get(oxy_telemetry::sentry_filter::LOG_MODULE_ATTRIBUTE)
+        .get(crate::sentry_filter::LOG_MODULE_ATTRIBUTE)
         .and_then(|attribute| attribute.0.as_str());
-    if oxy_telemetry::sentry_filter::drop_log(module) {
+    if crate::sentry_filter::drop_log(module) {
         return None;
     }
-    if module.is_some_and(oxy_telemetry::sentry_filter::is_data_plane_module) {
-        oxy_telemetry::sentry_filter::keep_log_shape_only(&mut log);
+    if module.is_some_and(crate::sentry_filter::is_data_plane_module) {
+        crate::sentry_filter::keep_log_shape_only(&mut log);
     }
     Some(log)
 }
@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn filter_event_drops_what_a_custom_app_surface_tagged() {
-        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+        use crate::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
 
         let mut tagged = sentry::protocol::Event::default();
         tagged.tags.insert(
@@ -524,7 +524,7 @@ mod tests {
     /// fails open: every custom-app event reaches Sentry.
     #[test]
     fn init_installs_the_custom_app_filter_as_before_send() {
-        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+        use crate::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
 
         let before_send = client_options("test".to_string(), "oxy@test".to_string())
             .before_send
@@ -557,7 +557,7 @@ mod tests {
         };
         if let Some(module) = module {
             log.attributes.insert(
-                oxy_telemetry::sentry_filter::LOG_MODULE_ATTRIBUTE.to_string(),
+                crate::sentry_filter::LOG_MODULE_ATTRIBUTE.to_string(),
                 sentry::protocol::LogAttribute(module.into()),
             );
         }
@@ -632,10 +632,10 @@ mod tests {
     ///
     /// `init_sentry`'s `sentry::init` also stamps `server.address` and `os.*`
     /// through `apply_defaults`; the test client skips those defaults, so they
-    /// are pinned on the keep-list in `oxy_telemetry::sentry_filter` instead.
+    /// are pinned on the keep-list in `crate::sentry_filter` instead.
     #[test]
     fn a_data_plane_log_leaves_with_its_shape_only() {
-        use oxy_telemetry::sentry_filter::{LOG_BODY_WITHHELD, LOG_MODULE_ATTRIBUTE};
+        use crate::sentry_filter::{LOG_BODY_WITHHELD, LOG_MODULE_ATTRIBUTE};
         use sentry::protocol::{EnvelopeItem, ItemContainer};
 
         let envelopes = sentry::test::with_captured_envelopes_options(
@@ -723,7 +723,7 @@ mod tests {
     /// the tag rule.
     #[test]
     fn a_scope_tag_does_not_reach_a_log() {
-        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+        use crate::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
 
         let mut scope = sentry::Scope::default();
         scope.set_tag(CUSTOM_APP_SURFACE_TAG, CUSTOM_APP_SURFACE);

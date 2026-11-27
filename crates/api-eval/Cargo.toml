@@ -18,6 +18,7 @@ oxy-app-core = { workspace = true }        # AppState
 oxy = { workspace = true }
 oxy-auth = { workspace = true }            # AuthenticatedUserExtractor
 oxy-shared = { workspace = true }
+oxy-telemetry = { workspace = true }      # `sentry_config::add_operation_context`
 entity = { workspace = true }              # WorkspaceRole on the queued payload
 agentic-analytics = { workspace = true }
 agentic-connector = { workspace = true }

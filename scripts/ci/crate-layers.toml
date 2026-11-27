@@ -111,7 +111,6 @@ allowed = [
   "oxy -> oxy-observability",
   "oxy -> oxy-platform",
   "oxy -> oxy-semantic",
-  "oxy -> oxy-telemetry",
   "oxy-api-airway -> oxy-workspace-runtime",
   "oxy-api-automations -> agentic-http",
   "oxy-api-automations -> oxy-workspace-runtime",

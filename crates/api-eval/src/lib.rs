@@ -106,7 +106,7 @@ pub enum Command {
 pub async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         Command::Test(test_args) => {
-            oxy::sentry_config::add_operation_context("test", test_args.file.as_deref());
+            oxy_telemetry::sentry_config::add_operation_context("test", test_args.file.as_deref());
             test_command::handle_test_command(test_args).await?;
         }
     }

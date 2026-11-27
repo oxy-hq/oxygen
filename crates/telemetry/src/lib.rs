@@ -22,6 +22,7 @@
 //! | [`http_metrics`] | RED metrics per request, sharing `http_trace`'s route source |
 //! | [`propagation`] | `traceparent` injection for the internal serve → ide hop               |
 //! | [`stderr_capture`] | Every stray stderr line (dependencies, C libs, panics) as JSON, repeats collapsed |
+//! | [`sentry_config`] | The Sentry client: its options, `init_sentry`, and the `before_send` / `before_send_log` that apply [`sentry_filter`] |
 //! | [`sentry_filter`] | What reaches Sentry: `error` an event, `warn` a breadcrumb, custom-app targets and surfaces nothing |
 //! | [`sentry_layer`] | The Sentry `tracing` layer: per-surface layers behind one `sentry_disposition` call, spans refused |
 //! | [`sentry_surface`] | The custom-app surface tag on a request's hub, and the stream that carries a hub across polls |
@@ -52,6 +53,7 @@ pub mod metrics;
 pub mod otel;
 pub mod propagation;
 pub mod resource;
+pub mod sentry_config;
 pub mod sentry_filter;
 // The per-surface Sentry layers behind `sentry_filter::sentry_tracing_layer`,
 // kept out of the over-budget `sentry_filter.rs`.

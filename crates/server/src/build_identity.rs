@@ -63,7 +63,7 @@ pub fn build_info() -> BuildInfo {
         build_profile: env!("BUILD_PROFILE").to_string(),
         commit_url,
         workflow_url,
-        sentry_release: oxy::sentry_config::release_for(env!("GIT_HASH")),
+        sentry_release: oxy_telemetry::sentry_config::release_for(env!("GIT_HASH")),
     }
 }
 
@@ -75,7 +75,7 @@ mod tests {
     fn build_info_reports_the_sentry_release_the_process_uses() {
         assert_eq!(
             build_info().sentry_release,
-            oxy::sentry_config::release_for(env!("GIT_HASH"))
+            oxy_telemetry::sentry_config::release_for(env!("GIT_HASH"))
         );
     }
 }

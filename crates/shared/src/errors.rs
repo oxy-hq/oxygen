@@ -272,7 +272,7 @@ impl From<std::io::Error> for OxyError {
 /// against the quota. It also looked new every release: nothing pins the
 /// fingerprint of a `capture_error` event, which keeps the stack
 /// `attach_stacktrace` gives it at send time, and
-/// `oxy::sentry_config::normalize_tracing_event` deliberately leaves an event
+/// `oxy_telemetry::sentry_config::normalize_tracing_event` deliberately leaves an event
 /// carrying an exception alone.
 ///
 /// `/external/api` has always avoided this: its refusal answers through

@@ -14,10 +14,10 @@ use std::process::exit;
 use dotenv::dotenv;
 use human_panic::Metadata;
 use human_panic::setup_panic;
-use oxy::sentry_config;
 use oxy::theme::StyledText;
 use oxy_server::{cli_owners, init_logging, shutdown_observability, surface_seams};
 use oxy_telemetry::otel::OtelConfig;
+use oxy_telemetry::sentry_config;
 use std::env;
 
 /// The long-lived server command this invocation runs, if any. Read before

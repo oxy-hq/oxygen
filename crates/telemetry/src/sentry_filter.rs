@@ -403,7 +403,7 @@ pub const LOG_MODULE_ATTRIBUTE: &str = "code.module.name";
 /// copies only `trace_id`, `parent_span_id` and `user.{id,name,email}` onto it;
 /// it never copies `scope.tags`. So [`CUSTOM_APP_SURFACE_TAG`] — the signal
 /// [`drop_event`] relies on — **is not reachable here**, and this rule cannot be
-/// the tag rule. `a_scope_tag_does_not_reach_a_log` in `oxy::sentry_config` pins
+/// the tag rule. `a_scope_tag_does_not_reach_a_log` in [`crate::sentry_config`] pins
 /// that SDK behaviour, so an upgrade that starts copying tags surfaces as a
 /// failing test rather than a missed opportunity.
 ///
@@ -1384,7 +1384,7 @@ mod tests {
     }
 
     /// [`LOG_MODULE_ATTRIBUTE`] is a key the SDK chooses, not one we define, and
-    /// every other test of the log rule — here and in `oxy::sentry_config` —
+    /// every other test of the log rule — here and in [`crate::sentry_config`] —
     /// builds its fixture from this same constant. So a key sentry-tracing does
     /// not actually write would leave `before_send_log` reading `None` on every
     /// real log, `drop_log(None)` answering `false` by design, and all of those
