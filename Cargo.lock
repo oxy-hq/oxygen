@@ -10633,7 +10633,6 @@ name = "oxy-compile-runtime"
 version = "0.5.162"
 dependencies = [
  "agentic-core",
- "agentic-pipeline",
  "agentic-runtime",
  "async-trait",
  "chrono",

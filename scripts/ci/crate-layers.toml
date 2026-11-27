@@ -146,7 +146,6 @@ allowed = [
   "oxy-app-core -> oxy-oltp",
   "oxy-app-core -> oxy-server-authz",
   "oxy-app-core -> oxy-telemetry",
-  "oxy-compile-runtime -> agentic-pipeline",
   "oxy-custom-apps -> agentic-pipeline",
   "oxy-custom-apps -> oxy-cameras",
   "oxy-custom-apps -> oxy-server-authz",

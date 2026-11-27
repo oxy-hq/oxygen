@@ -143,7 +143,7 @@ pub async fn nudge_after_promote(
         return;
     }
 
-    match agentic_pipeline::scheduler::enqueue_preagg_cycle_for_promote(db, workspace_id).await {
+    match agentic_runtime::schedules::enqueue_preagg_cycle_for_promote(db, workspace_id).await {
         Ok(Some(run_id)) => tracing::info!(
             target: "preagg",
             %workspace_id,

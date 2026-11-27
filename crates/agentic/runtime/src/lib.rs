@@ -41,6 +41,7 @@ pub mod lifecycle;
 pub mod migration;
 pub mod orchestrator;
 pub mod react;
+pub mod schedules;
 
 // ── Back-compat top-level paths ────────────────────────────────────────────
 //

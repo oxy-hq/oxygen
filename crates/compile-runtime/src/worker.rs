@@ -531,7 +531,7 @@ pub async fn reconcile_health_from_compiled(
     if let Some((cause, remedy)) = opt_in.inert_reconcile_warning() {
         warn_if_reconcile_goes_inert(workspace_id, revision_id, cause, remedy).await;
     }
-    if let Err(e) = agentic_pipeline::scheduler::reconcile_health_schedule(
+    if let Err(e) = agentic_runtime::schedules::reconcile_health_schedule(
         db,
         workspace_id,
         interval,
@@ -674,7 +674,7 @@ pub async fn reconcile_preagg_from_compiled(
         };
     };
     if let Err(e) =
-        agentic_pipeline::scheduler::reconcile_preagg_schedule(db, workspace_id, interval, enabled)
+        agentic_runtime::schedules::reconcile_preagg_schedule(db, workspace_id, interval, enabled)
             .await
     {
         tracing::warn!(

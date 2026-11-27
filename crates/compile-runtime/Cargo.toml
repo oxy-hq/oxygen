@@ -10,10 +10,9 @@ edition.workspace = true
 [dependencies]
 # `TaskSpec` and its retry policy: a commit compile is a queued task.
 agentic-core = { workspace = true }
-# `worker`: the health and pre-aggregation schedule reconciles after a promote,
-# and `preagg_promote`'s post-promote cycle enqueue.
-agentic-pipeline = { workspace = true }
 # `COMPILE_GIT_SOURCE_TYPE` and `TaskScope`: the task's run stamp and scope.
+# `schedules`: the health and pre-aggregation schedule reconciles after a
+# promote (`worker`), and `preagg_promote`'s post-promote cycle enqueue.
 agentic-runtime = { workspace = true }
 entity = { workspace = true }
 # The strict `Config` type the gate deserialises, and the GitHub client.

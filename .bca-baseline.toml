@@ -2012,12 +2012,6 @@ value = 45.18849411078001
 
 [[entry]]
 path = "crates/agentic/pipeline/src/scheduler.rs"
-qualified = "start_preagg_cycle_run"
-metric = "nargs"
-value = 6.0
-
-[[entry]]
-path = "crates/agentic/pipeline/src/scheduler.rs"
 qualified = "tick_monitor_schedules"
 metric = "abc"
 value = 61.326992425847855
@@ -2403,6 +2397,12 @@ value = 6.0
 [[entry]]
 path = "crates/agentic/runtime/src/react/resume.rs"
 qualified = "resume_loop"
+metric = "nargs"
+value = 6.0
+
+[[entry]]
+path = "crates/agentic/runtime/src/schedules.rs"
+qualified = "start_preagg_cycle_run"
 metric = "nargs"
 value = 6.0
 
