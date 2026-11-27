@@ -181,9 +181,12 @@ cases:
       chart: false
 
   # ── 5. Asking the user to clarify ───────────────────────────────────────
-  # Which region? The model has several region dimensions and no default.
+  # Whose region? Nothing in the workspace says which region the asker
+  # covers, so only they can answer. "Sales in the region" (the first wording)
+  # let a run answer with every region instead, and both runtimes did so on
+  # some runs: one sample could not tell an ask from a guess.
   - name: clarify-which-region
-    prompt: "What were sales in the region?"
+    prompt: "What were sales in my region in 2025?"
     tags: [parity, clarify]
     expect:
       asks_user: true
