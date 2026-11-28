@@ -26,7 +26,10 @@ use super::{Fixture, call, legacy_key, seed_org, seed_workspace_in};
 fn inventory_api() -> Router {
     let workspace = Router::new()
         .route("/api-tokens", get(list_workspace_tokens))
-        .layer(middleware::from_fn(workspace_access_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ));
     oxy_server::router::api_auth_layers(Router::new().nest("/{workspace_id}", workspace))
 }
 

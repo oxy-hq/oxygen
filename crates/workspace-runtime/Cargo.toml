@@ -32,6 +32,12 @@ entity = { workspace = true }
 oxy = { workspace = true }
 # `config::airhouse_pool`: the live-connection ceiling's one source of truth.
 oxy-app-core = { workspace = true }
+# `request`: the authorization port the workspace middleware enforces through
+# (`AuthzEnforcer`, the caller it carries, the token-ceiling caps and
+# `EffectiveWorkspaceRole`), held on `AppState.authz` (C4b, 2026-11-28).
+contracts-authz = { workspace = true }
+# `request::factory_access`: the Factory decision (`oxy_authz::factory`).
+oxy-authz = { workspace = true }
 # `request::workspace_context`: the authenticated caller the workspace
 # middleware authorizes, and the credential it arrived with.
 oxy-auth = { workspace = true }
@@ -60,9 +66,6 @@ oxy-preagg = { workspace = true }
 oxy-previews = { workspace = true }
 # `metric_tree_exec`: the metric tree a projection validates against.
 oxy-semantic = { workspace = true }
-# `request`: the caller's workspace role and token ceiling
-# (`workspace_context`), and the Factory decision (`factory_access`).
-oxy-server-authz = { workspace = true }
 oxy-shared = { workspace = true }
 # `metric_tree_exec`: the world model's instance-scope rule.
 oxy-world-model = { workspace = true }
@@ -165,9 +168,14 @@ oxy-billing = { workspace = true }
 # is `oxy-compile-runtime`'s).
 flate2 = { workspace = true }
 tar = { workspace = true }
-# R-d: `authz_loader_differential` checks the loaded facts against the model
-# (`allows`, `PrincipalFacts`, `TokenGrant`).
-oxy-authz = { workspace = true }
+# (`oxy-authz`, which `authz_loader_differential` checks the loaded facts
+# against: a normal dependency since C4b.)
+#
+# Enforcement itself, for the tests only (C4b, 2026-11-28: `src/` enforces
+# through `contracts-authz`). `authz_loader_differential` drives `loader` and
+# the wrapper `Caller`, `admin_staff_scope` drives `staff::scope`, and
+# `factory_access`'s unit tests hand the gate the shipped enforcer.
+oxy-server-authz = { workspace = true }
 # (`frontline_app_grant`, which drove the gate's frontline decision and needed
 # `oxy-custom-apps` and `oxy-tenancy`, moved to `oxy-api-custom-apps`' group
 # beside the gate it tests: D6, 2026-11-27.)

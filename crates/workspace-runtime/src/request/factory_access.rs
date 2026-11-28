@@ -10,7 +10,7 @@
 //!
 //! - [`routes`] — the list of which workspace routes are the Factory's and which are
 //!   a customer's, with a test that fails when a route is on neither.
-//! - [`may_use_factory`](oxy_server_authz::factory::may_use_factory) — the decision:
+//! - [`may_use_factory`](oxy_authz::factory::may_use_factory) — the decision:
 //!   `Action::FactoryUse`: staff over the org, an owner or admin of the org, or a
 //!   member holding the workspace's grant.
 //! - [`gate`] — runs inside `workspace_middleware`, so every Factory route asks the
@@ -18,7 +18,7 @@
 //!   to the response the rail reads. **One exception, stated by the model:** on the
 //!   two routes that check a compile ([`routes::COMPILE_CHECK`]) the gate also lets
 //!   through a caller `Action::CompileCheck` admits
-//!   ([`may_check_compile`](oxy_server_authz::factory::may_check_compile)) — no person
+//!   ([`may_check_compile`](oxy_authz::factory::may_check_compile)) — no person
 //!   the Factory refuses, and the org's service account through a CI run token (the
 //!   customer CI compile gate).
 //!
@@ -30,15 +30,17 @@
 pub mod routes;
 
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{FromRequestParts, OriginalUri};
+use axum::extract::{FromRef, FromRequestParts, OriginalUri};
 use axum::http::request::Parts;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
+use contracts_authz::AuthzEnforcer;
 use entity::workspaces;
-use oxy_server_authz::factory::{may_check_compile, may_use_factory};
-use oxy_server_authz::request_facts;
+use oxy_app_core::AppState;
+use oxy_authz::factory::{may_check_compile, may_use_factory};
 
 pub use routes::{Resolution, Surface, resolve, surface_of};
 
@@ -98,6 +100,8 @@ fn workspace_of(parts: &Parts) -> Option<(workspaces::Model, uuid::Uuid)> {
 /// workspace and attached the workspace row. `Ok` hands the request back untouched
 /// but for the caller's facts, memoized in its extensions where the role guards
 /// read them (`request_facts`), so a Factory route pays for them once, not twice.
+/// The facts are read through `authz`, the host's enforcer (`AppState.authz`):
+/// `AuthzEnforcer::request_facts` is `oxy_server_authz::request_facts`'s body.
 ///
 /// Returns at once, reading nothing, for the external API and for any route on the
 /// customer list. A route on neither list, or whose entries
@@ -115,11 +119,15 @@ fn workspace_of(parts: &Parts) -> Option<(workspaces::Model, uuid::Uuid)> {
 /// ClickHouse `sql/query` past the 2 MiB worker stack in the custom-app canary.
 pub fn gate(
     request: Request<Body>,
+    authz: &Arc<dyn AuthzEnforcer>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Request<Body>, Response>> + Send>> {
-    Box::pin(decide(request))
+    Box::pin(decide(request, authz.clone()))
 }
 
-async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
+async fn decide(
+    request: Request<Body>,
+    authz: Arc<dyn AuthzEnforcer>,
+) -> Result<Request<Body>, Response> {
     let (mut parts, body) = request.into_parts();
     if is_external(&parts)
         || surface_of(parts.method.as_str(), parts.uri.path()) == Surface::Customer
@@ -136,7 +144,7 @@ async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
         return Err(unavailable());
     };
     let checks_a_compile = routes::checks_a_compile(parts.method.as_str(), parts.uri.path());
-    match request_facts(&mut parts).await {
+    match authz.request_facts(&mut parts.extensions).await {
         Some(facts) if may_use_factory(&facts, workspace.id, org_id) => {
             Ok(Request::from_parts(parts, body))
         }
@@ -166,19 +174,29 @@ async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
 ///
 /// An unreadable standing answers `true`: the rail is not access control, the gate
 /// is, and a database blip must not hide the Factory from the staff who run it.
+///
+/// The facts are read through the host's enforcer (`AppState.authz`), so the
+/// router's state must give an `AppState`.
 pub struct FactoryAccess(pub bool);
 
-impl<S: Send + Sync> FromRequestParts<S> for FactoryAccess {
+impl<S> FromRequestParts<S> for FactoryAccess
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
     type Rejection = Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Infallible> {
         let Some((workspace, org_id)) = workspace_of(parts) else {
             return Ok(Self(true));
         };
-        Ok(Self(match request_facts(parts).await {
-            Some(facts) => may_use_factory(&facts, workspace.id, org_id),
-            None => true,
-        }))
+        let authz = AppState::from_ref(state).authz;
+        Ok(Self(
+            match authz.request_facts(&mut parts.extensions).await {
+                Some(facts) => may_use_factory(&facts, workspace.id, org_id),
+                None => true,
+            },
+        ))
     }
 }
 
@@ -249,8 +267,8 @@ mod tests {
 
     /// The org's service account through a token holding `viewer` on `WS`;
     /// `ci_run` says whether that token is a CI run's.
-    fn account(ci_run: bool) -> oxy_server_authz::PrincipalFacts {
-        use oxy_server_authz::{
+    fn account(ci_run: bool) -> oxy_authz::PrincipalFacts {
+        use oxy_authz::{
             PrincipalFacts, RoleCeiling, ServiceAccountStanding, TokenGrant, TokenReach,
         };
         PrincipalFacts {
@@ -279,7 +297,7 @@ mod tests {
     /// The gate's answer for `method path`, with the facts pre-inserted where
     /// `request_facts` memoizes them, so no database is read.
     async fn gate_status(
-        facts: oxy_server_authz::PrincipalFacts,
+        facts: oxy_authz::PrincipalFacts,
         method: &str,
         path: &str,
     ) -> Option<StatusCode> {
@@ -290,7 +308,11 @@ mod tests {
             .unwrap();
         request.extensions_mut().insert(workspace());
         request.extensions_mut().insert(facts);
-        decide(request).await.err().map(|refusal| refusal.status())
+        // The shipped enforcer: it answers from the memoized facts above.
+        decide(request, oxy_server_authz::enforcer())
+            .await
+            .err()
+            .map(|refusal| refusal.status())
     }
 
     /// The gate's one exception, end to end: the CI account passes the two compile
@@ -324,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_accounts_own_token_and_a_plain_member_are_refused_the_compile_check() {
-        let member = oxy_server_authz::PrincipalFacts {
+        let member = oxy_authz::PrincipalFacts {
             member_orgs: vec![ORG],
             ..Default::default()
         };

@@ -70,7 +70,12 @@ pub(super) fn build_protected_routes(
     // Beside the workspace tree, not in it: see `oxy_api_previews::routes`.
     let previews = RoleRouter::new(app_state.clone())
         .merge_declared(preview_routes, &preview_decls)
-        .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
+        .map_router(|r| {
+            r.layer(middleware::from_fn_with_state(
+                app_state.clone(),
+                workspace_access_middleware,
+            ))
+        });
     let extra_workspace_routes = with_agentic_state(extra_workspace_routes, &agentic_state);
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, false)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)

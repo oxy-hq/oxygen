@@ -51,6 +51,11 @@ const DOORS: &[Door] = &[
             // `oxy_server_authz::Caller::of`: the request's caller, from
             // `oxy_auth::caller_parts`.
             "../server-authz/src/caller.rs",
+            // `request_caller`, the workspace middleware's caller: the same
+            // projection of the request's user and credential, carrying the
+            // host's enforcer (`AppState.authz`), so workspace-runtime
+            // enforces through the port without `oxy-server-authz` (C4b).
+            "../workspace-runtime/src/request/authz_port.rs",
         ],
     },
     Door {

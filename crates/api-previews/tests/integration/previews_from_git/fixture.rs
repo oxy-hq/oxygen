@@ -211,14 +211,20 @@ fn api(user: AuthenticatedUser) -> Router {
         )
         .route("/refresh", post(previews::refresh_preview))
         .route("/checks", get(previews::get_checks))
-        .layer(middleware::from_fn(workspace_access_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ));
     let compile = Router::new()
         .route("/compile/staging", post(staging::enqueue_staging_compile))
         .route(
             "/compile/staging/status",
             get(staging::staging_compile_status),
         )
-        .layer(middleware::from_fn(workspace_access_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ));
     Router::new()
         .nest("/api/{workspace_id}/previews", previews)
         .nest("/api/{workspace_id}", compile)

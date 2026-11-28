@@ -277,25 +277,9 @@ async fn database_names(
 /// handlers and middleware; `/databases` is the page (a FleetOk read every
 /// page load makes, here [`database_names`]) and its POST the write.
 fn app(user: AuthenticatedUser) -> Router {
-    use oxy_api_previews::handlers as p;
-    use oxy_workspace_runtime::request::workspace_context::{
-        workspace_access_middleware, workspace_middleware,
-    };
+    use oxy_workspace_runtime::request::workspace_context::workspace_middleware;
     let state = oxy_app_core::app_state::bare_app_state();
-    let previews: Router = Router::<oxy_app_core::pods::IdeState>::new()
-        .route(
-            "/",
-            post(p::create_preview)
-                .get(p::list_previews)
-                .delete(p::delete_preview),
-        )
-        .route("/refresh", post(p::refresh_preview))
-        .route("/checks", get(p::get_checks))
-        .route("/runs", post(p::start_run).get(p::list_runs))
-        .route("/runs/{run_id}", get(p::get_run))
-        .route("/sources", get(p::list_sources).put(p::put_source))
-        .with_state(oxy_app_core::pods::IdeState(state.clone()))
-        .layer(middleware::from_fn(workspace_access_middleware));
+    let previews = previews_tree(&state);
     let databases = get(database_names).with_state(oxy_app_core::pods::FleetState(state.clone()));
     // A write the preview refuses before any handler runs: the stub answers
     // only if the read-only check let it through.
@@ -309,6 +293,30 @@ fn app(user: AuthenticatedUser) -> Router {
         .nest("/{workspace_id}", workspace)
         .nest("/{workspace_id}/previews", previews)
         .layer(Extension(user))
+}
+
+/// The previews tree, behind the access check alone, as `build_protected_routes`
+/// mounts it beside the workspace tree.
+fn previews_tree(state: &oxy_app_core::AppState) -> Router {
+    use oxy_api_previews::handlers as p;
+    use oxy_workspace_runtime::request::workspace_context::workspace_access_middleware;
+    Router::<oxy_app_core::pods::IdeState>::new()
+        .route(
+            "/",
+            post(p::create_preview)
+                .get(p::list_previews)
+                .delete(p::delete_preview),
+        )
+        .route("/refresh", post(p::refresh_preview))
+        .route("/checks", get(p::get_checks))
+        .route("/runs", post(p::start_run).get(p::list_runs))
+        .route("/runs/{run_id}", get(p::get_run))
+        .route("/sources", get(p::list_sources).put(p::put_source))
+        .with_state(oxy_app_core::pods::IdeState(state.clone()))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            workspace_access_middleware,
+        ))
 }
 
 pub(super) struct Reply {

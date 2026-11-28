@@ -118,7 +118,10 @@ fn workspace_tree() -> Router {
             "/manage",
             post(|_: WorkspaceAdmin| async { StatusCode::NO_CONTENT }),
         )
-        .layer(middleware::from_fn(workspace_access_middleware))
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ))
 }
 
 pub(crate) fn workspace_api() -> Router {

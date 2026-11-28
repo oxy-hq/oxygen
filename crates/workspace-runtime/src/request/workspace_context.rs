@@ -272,14 +272,13 @@ where
     }
 }
 
-// `EffectiveWorkspaceRole` and its extension-reading extractors moved to
-// `oxy-server-authz` (state-agnostic authz context, consumed by the workspace
-// role guards that also moved). The workspace middleware below still resolves
-// and inserts it; re-exported here so the original
-// `middlewares::workspace_context::EffectiveWorkspaceRole` path keeps resolving
-// (oxy-server's tests import `oxy_server_authz::workspace_role` since decompose
-// RPT, 2026-11-24, when the `oxy_app::api` alias went).
-pub use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
+// `EffectiveWorkspaceRole` and its extension-reading extractors live in the
+// authorization port (`contracts_authz::workspace_role`, since C3a; also
+// re-exported at `oxy_server_authz::workspace_role`, one type either way). The
+// workspace middleware below still resolves and inserts it; re-exported here so
+// the original `middlewares::workspace_context::EffectiveWorkspaceRole` path
+// keeps resolving.
+pub use contracts_authz::EffectiveWorkspaceRole;
 
 /// Moved to `oxy-app-core` so the custom-app serve path, which sits above this
 /// crate, can name it; the old path stays so no call site changes.
@@ -569,12 +568,12 @@ pub async fn workspace_middleware(
 
     // Authorize before choosing the revision: a preview pin depends on who is
     // asking. Reads no compiled data, so it needs no pin of its own.
-    let workspace_row = authorize_workspace(workspace_id, &user, &mut request).await?;
+    let workspace_row = authorize_workspace(workspace_id, &user, &app_state, &mut request).await?;
 
     // The Factory's routes are for Oxy staff, the org's owners and admins, and the
     // members an operator granted this workspace to. A no-op for every route a customer
     // reaches — see `server::factory_access`.
-    request = match super::factory_access::gate(request).await {
+    request = match super::factory_access::gate(request, &app_state.authz).await {
         Ok(request) => request,
         Err(refusal) => return Ok(refusal),
     };
@@ -583,8 +582,13 @@ pub async fn workspace_middleware(
     // staging revision of this workspace, reads that revision. Every other
     // request — the IDE on the same branch included, which sends no header — is
     // untouched. See `server::previews::pin`.
-    let (mut request, preview) =
-        super::preview_pin::for_request(workspace_id, query.branch.as_deref(), request).await;
+    let (mut request, preview) = super::preview_pin::for_request(
+        workspace_id,
+        query.branch.as_deref(),
+        request,
+        &app_state.authz,
+    )
+    .await;
     // There is no working copy to read: the request is served from the
     // compiled revision whatever branch it names.
     let working_copy_branch: Option<String> = None;
@@ -727,6 +731,7 @@ async fn forward_with_original_uri(
 /// (the previews API) that decide who may act on a workspace but read neither
 /// its config nor its files.
 pub async fn workspace_access_middleware(
+    State(app_state): State<AppState>,
     Path(WorkspacePath { workspace_id }): Path<WorkspacePath>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     mut request: Request<axum::body::Body>,
@@ -735,7 +740,7 @@ pub async fn workspace_access_middleware(
     if workspace_id == Uuid::nil() {
         return Err(StatusCode::NOT_FOUND.into());
     }
-    authorize_workspace(workspace_id, &user, &mut request).await?;
+    authorize_workspace(workspace_id, &user, &app_state, &mut request).await?;
     Ok(next.run(request).await)
 }
 
@@ -750,6 +755,7 @@ pub async fn workspace_access_middleware(
 async fn authorize_workspace(
     workspace_id: Uuid,
     user: &oxy_auth::types::AuthenticatedUser,
+    app_state: &AppState,
     request: &mut Request<axum::body::Body>,
 ) -> Result<Option<entity::workspaces::Model>, WorkspaceAccessError> {
     use entity::prelude::Workspaces;
@@ -757,12 +763,7 @@ async fn authorize_workspace(
     // The user AND the credential the request arrived with: an API token's
     // grants decide below whether this workspace is reachable at all, and at
     // what ceiling. `/api` and `/external/api` both come through here.
-    let caller = oxy_server_authz::Caller::of(
-        user,
-        request
-            .extensions()
-            .get::<oxy_auth::token::CredentialContext>(),
-    );
+    let caller = super::authz_port::request_caller(user, request.extensions(), &app_state.authz);
 
     let db = establish_connection().await.map_err(|e| {
         tracing::error!(
@@ -841,7 +842,7 @@ pub async fn resolve_effective_role(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
     org_id: Uuid,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
 ) -> Result<(entity::org_members::Model, WorkspaceRole, bool), WorkspaceAccessError> {
     use entity::org_members::Column as OrgMemberCol;
     use entity::prelude::{OrgMembers, WorkspaceMembers};
@@ -911,19 +912,14 @@ pub async fn resolve_effective_role(
             // an assigned client with `develop_apps`. Building a client's app means
             // opening their workspace, so this is exactly where the data-plane
             // capability has to be honoured.
-            use oxy_app_core::assume;
-            // Capability is independent of an active session — `may_act_as` reads
-            // platform standing / partner scope only. Compute it FIRST so the
-            // refusal can be shaped for the population that can actually act on
-            // it: a plain non-member must stay opaque (naming the org to anyone
-            // who guesses a workspace id is disclosure), while staff and partners
-            // get the explanation and the way through.
             //
-            // Both reads take the CALLER: standing is what the credential carries,
-            // and a session belongs to the credential that opened it — a
-            // new-format token does not inherit the browser's.
-            let authority = assume::may_act_as(db, caller, org_id).await;
-            let live = authority.is_some() && assume::is_session_live(db, caller, org_id).await;
+            // Capability is read first, whatever the session (`assume_authority`,
+            // through the port the caller carries), so the refusal can be shaped
+            // for the population that can actually act on it: a plain non-member
+            // must stay opaque (naming the org to anyone who guesses a workspace
+            // id is disclosure), while staff and partners get the explanation and
+            // the way through.
+            let (authority, live) = super::authz_port::assume_authority(db, caller, org_id).await;
 
             if let (Some(authority), true) = (authority, live) {
                 let now = Utc::now().into();
@@ -1022,9 +1018,9 @@ pub async fn resolve_effective_role(
 
     // The token's ceiling, applied last so it caps whatever the role came from:
     // the org role, a workspace elevation, or an assumed one.
-    let effective_role = oxy_server_authz::cap_workspace_role(effective_role, ceiling);
+    let effective_role = contracts_authz::cap_workspace_role(effective_role, ceiling);
     let org_membership = entity::org_members::Model {
-        role: oxy_server_authz::cap_org_role(org_membership.role, ceiling),
+        role: contracts_authz::cap_org_role(org_membership.role, ceiling),
         ..org_membership
     };
 

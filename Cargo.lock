@@ -11494,6 +11494,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "chrono-tz 0.10.4",
+ "contracts-authz",
  "duckdb",
  "entity",
  "flate2",

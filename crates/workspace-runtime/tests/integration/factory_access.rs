@@ -172,8 +172,7 @@ async fn meta(FactoryAccess(factory_access): FactoryAccess) -> Json<Value> {
 /// behind the real middleware — nested at `prefix` the way the main API
 /// (`/api`) and the external API (`/external/api`) are.
 fn app(user: &AuthenticatedUser, prefix: &str) -> Router {
-    let state = oxy_app_core::app_state::bare_app_state();
-    let inner = Router::new()
+    let inner = Router::<oxy_app_core::AppState>::new()
         // The Factory's.
         .route("/files/{pathb64}", post(stub))
         .route("/files", get(stub))
@@ -199,11 +198,25 @@ fn app(user: &AuthenticatedUser, prefix: &str) -> Router {
         .route("/git-state", get(stub))
         .route("/status", get(stub))
         .route("/onboarding-readiness", get(stub))
-        .route("/onboarding/github-setup", get(stub))
-        .layer(middleware::from_fn_with_state(state, workspace_middleware));
+        .route("/onboarding/github-setup", get(stub));
     Router::new()
-        .nest(prefix, Router::new().nest("/{workspace_id}", inner))
+        .nest(
+            prefix,
+            Router::new().nest("/{workspace_id}", behind_middleware(inner)),
+        )
         .layer(Extension(user.clone()))
+}
+
+/// `inner` behind the real `workspace_middleware`, on an `AppState`: the
+/// `FactoryAccess` extractor (in `meta`) reads the enforcer from it.
+fn behind_middleware(inner: Router<oxy_app_core::AppState>) -> Router {
+    let state = oxy_app_core::app_state::bare_app_state();
+    inner
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            workspace_middleware,
+        ))
+        .with_state(state)
 }
 
 struct Reply {

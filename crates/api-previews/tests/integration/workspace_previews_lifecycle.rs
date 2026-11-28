@@ -178,7 +178,10 @@ fn api(user: AuthenticatedUser) -> Router {
                 .delete(h::delete_preview),
         )
         .route("/refresh", post(h::refresh_preview))
-        .layer(middleware::from_fn(workspace_access_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ));
     Router::new()
         .nest("/{workspace_id}/previews", previews)
         .layer(Extension(user))

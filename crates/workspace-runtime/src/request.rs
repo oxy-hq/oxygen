@@ -17,6 +17,7 @@
 //! * `preview_pin` — the preview pin as the middleware applies it, with the
 //!   staff check it hands `oxy_previews::pin::for_request`.
 
+mod authz_port;
 pub mod factory_access;
 mod preview_pin;
 pub mod preview_read_only;

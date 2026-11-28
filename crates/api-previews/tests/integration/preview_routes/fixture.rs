@@ -262,7 +262,10 @@ pub(crate) fn api(user: AuthenticatedUser) -> Router {
         .route("/runs", axum::routing::post(h::start_run).get(h::list_runs))
         .route("/runs/{run_id}", get(h::get_run))
         .route("/sources", get(h::list_sources).put(h::put_source))
-        .layer(middleware::from_fn(workspace_access_middleware));
+        .layer(middleware::from_fn_with_state(
+            oxy_app_core::app_state::bare_app_state(),
+            workspace_access_middleware,
+        ));
     Router::new()
         .nest("/{workspace_id}/previews", previews)
         .layer(Extension(user))
