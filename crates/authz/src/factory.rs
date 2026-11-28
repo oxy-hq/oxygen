@@ -6,12 +6,17 @@
 //! workspace response carries for the rail — goes through [`may_use_factory`], so the
 //! two cannot disagree about who is let in.
 //!
-//! The rule itself is `Action::FactoryUse` / `Ring::Factory` in `oxy-authz`. This is
+//! The rule itself is `Action::FactoryUse` / `Ring::Factory` in this crate. This is
 //! the call that names it for a workspace, and nothing more: it adds no term of its
 //! own, and an empty fact set is refused like any other decision.
+//!
+//! Moved here from `oxy-server-authz` (C3a, 2026-11-28): the checks are pure over
+//! facts, so `oxy-workspace-runtime`'s Factory gate can name them without the
+//! enforcement crate. `oxy_server_authz::factory` re-exports this module.
 
-use oxy_authz::{Action, PrincipalFacts, Resource, allows};
 use uuid::Uuid;
+
+use crate::{Action, PrincipalFacts, Resource, allows};
 
 /// Whether `facts` may use the Factory in the workspace `workspace_id`, which belongs
 /// to the org `org_id`.
@@ -56,7 +61,7 @@ pub fn may_check_compile(facts: &PrincipalFacts, workspace_id: Uuid, org_id: Uui
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxy_authz::{
+    use crate::{
         PlatformRole, PlatformStanding, RoleCeiling, Scope, ServiceAccountStanding, TokenGrant,
         TokenReach,
     };

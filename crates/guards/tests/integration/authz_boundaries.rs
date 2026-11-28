@@ -121,6 +121,16 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     // ---- Deliberate non-merges. Different question, not a duplicated answer. ----
     (
+        // Moved, not added (C3a, 2026-11-28): `cap_org_role` was in
+        // `server-authz/src/caller.rs`, under the `server-authz/src/` entry above, and
+        // moved to the port crate so `oxy-custom-apps` and `oxy-workspace-runtime` can cap
+        // a role without `oxy-server-authz`. Its body is unchanged.
+        "contracts-authz/src/role_cap.rs",
+        "a token-ceiling transform of a role a membership row already gave, not a decision: \
+         `cap_org_role`'s Admin-ceiling arm caps the set {Owner, Admin} to Admin. The needle \
+         matches that set, not the OrgAdmin ring — nothing here says who may do what",
+    ),
+    (
         "app-core/src/member_authz.rs",
         "the escalation guardrail, and it reads the *target's* role, not the principal's: \
          `matches!(target_role, Owner | Admin) && actor_role != Owner` says 'making someone an \

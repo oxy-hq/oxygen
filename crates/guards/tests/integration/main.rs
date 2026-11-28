@@ -25,6 +25,7 @@ use std::path::PathBuf;
 
 mod app_scope_boundary;
 mod authz_boundaries;
+mod caller_has_pinned_constructors;
 mod compiled_reader_is_not_a_back_door;
 mod config_write_routes;
 mod document_write_guards;

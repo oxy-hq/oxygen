@@ -17,8 +17,8 @@
 //! A **service account** is the one caller that is not a person. Its standing
 //! is not in `org_members` or any email-keyed table but on its own row, which
 //! authentication reads on every request; the caller carries it
-//! ([`Caller::account_role_in`]), and the facts loader and the two role
-//! resolutions take their service-account branch from it (§3.3).
+//! ([`contracts_authz::Caller::account_role_in`]), and the facts loader and the
+//! two role resolutions take their service-account branch from it (§3.3).
 
 use std::future::Future;
 use std::ops::Deref;
@@ -26,21 +26,19 @@ use std::ops::Deref;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::{Extensions, StatusCode};
-use entity::org_members::OrgRole;
-use entity::workspace_members::WorkspaceRole;
-use oxy_auth::token::{CredentialContext, StoredKind};
+use oxy_auth::token::CredentialContext;
 use oxy_auth::types::AuthenticatedUser;
-use oxy_authz::RoleCeiling;
 use uuid::Uuid;
 
 /// The principal behind a request, as its credential presents them.
 ///
-/// The values and every pure read of them (ceilings, `carries_*`, the service
-/// account and sandbox agent branches) are [`contracts_authz::Caller`]'s, reached
-/// through `Deref`, so a domain that enforces through the port reads the same
-/// answers from the same code. This wrapper keeps what needs `oxy-auth`, axum or a
-/// clock: the projection from the authenticated request, the extractor, and the
-/// two reads that answer an entity row or a `chrono` time.
+/// The values and every read of them (ceilings, `carries_*`, the service account
+/// and sandbox agent branches, `account_membership`, `token_expires_at`) are
+/// [`contracts_authz::Caller`]'s, reached through `Deref`, so a domain that
+/// enforces through the port reads the same answers from the same code. This
+/// wrapper keeps what needs axum or the request: building it from the
+/// authenticated request (over [`oxy_auth::caller_parts`]), the extractor, and the
+/// caller shared in the request's extensions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Caller(contracts_authz::Caller);
 
@@ -75,43 +73,13 @@ impl Caller {
     /// site has it in hand; otherwise the one the user carries is used — they
     /// are the same value, set together by the auth entry points.
     ///
-    /// **This is the projection to the port's plain [`contracts_authz::Caller`]**:
-    /// the token's expiry becomes a [`contracts_authz::UnixTime`], and a
-    /// configured service's standing is read from its entry here, once.
+    /// **The projection is authentication's** ([`oxy_auth::caller_parts`]);
+    /// this is that projection made into the port's plain
+    /// [`contracts_authz::Caller`], and wrapped.
     pub fn of(user: &AuthenticatedUser, credential: Option<&CredentialContext>) -> Self {
-        let credential = credential.or(user.credential.as_ref());
-        let token = credential.and_then(|c| {
-            c.reach().map(|reach| contracts_authz::CallerToken {
-                id: c.token_id,
-                reach,
-                expires_at: c.expires_at.map(|at| contracts_authz::UnixTime {
-                    secs: at.timestamp(),
-                    subsec_nanos: at.timestamp_subsec_nanos(),
-                }),
-            })
-        });
-        let account =
-            credential
-                .filter(|c| c.is_service_account())
-                .map(|c| contracts_authz::CallerAccount {
-                    standing: c.service_account,
-                });
-        let app_publish = credential
-            .map(|c| c.app_publish.clone())
-            .unwrap_or_default();
-        let service = credential
-            .filter(|c| c.kind == StoredKind::Service)
-            .and_then(|c| oxy_auth::token::service::standing_of(c.token_id));
-        Self(contracts_authz::Caller::from_parts(
-            contracts_authz::CallerParts {
-                user_id: user.id,
-                email: user.email.clone().unwrap_or_default(),
-                token,
-                account,
-                app_publish,
-                service,
-            },
-        ))
+        Self(contracts_authz::Caller::from_parts(oxy_auth::caller_parts(
+            user, credential,
+        )))
     }
 
     /// The caller a request's user is: the user, with the key or token they
@@ -175,47 +143,6 @@ impl Caller {
     pub fn as_contract(&self) -> &contracts_authz::Caller {
         &self.0
     }
-
-    /// The role a service account holds in `org_id`, from its own row: Admin
-    /// or Member in its org, `None` anywhere else. **Never Owner.** `None` for
-    /// a person, whose role is their `org_members` row.
-    pub fn account_role_in(&self, org_id: Uuid) -> Option<OrgRole> {
-        let standing = self.account_standing().filter(|s| s.org_id == org_id)?;
-        Some(if standing.admin {
-            OrgRole::Admin
-        } else {
-            OrgRole::Member
-        })
-    }
-
-    /// The org membership a service account stands in for in `org_id` — a
-    /// synthesized row (nil id) carrying [`Self::account_role_in`], for the two
-    /// role resolutions that hand an `org_members` row to everything after
-    /// them. `None` for a person, and for an account outside its org.
-    ///
-    /// It is never written anywhere: a service account has no `org_members`
-    /// row, which is what keeps it out of seats, member lists and audiences.
-    pub fn account_membership(&self, org_id: Uuid) -> Option<entity::org_members::Model> {
-        let role = self.account_role_in(org_id)?;
-        let now = chrono::Utc::now().into();
-        Some(entity::org_members::Model {
-            id: Uuid::nil(),
-            org_id,
-            user_id: self.user_id,
-            role,
-            created_at: now,
-            updated_at: now,
-        })
-    }
-
-    /// When the token this caller arrived with ends: `None` for a token that
-    /// never expires, and for a login session or a configured service, which
-    /// have none to report. The same instant `CredentialContext::expires_at`
-    /// held: [`contracts_authz::UnixTime`] keeps the nanoseconds.
-    pub fn token_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.token_expires_at_unix()
-            .and_then(|at| chrono::DateTime::from_timestamp(at.secs, at.subsec_nanos))
-    }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Caller {
@@ -230,26 +157,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
     }
 }
 
-/// `min(role, ceiling)` for a workspace role.
-pub fn cap_workspace_role(role: WorkspaceRole, ceiling: RoleCeiling) -> WorkspaceRole {
-    let cap = match ceiling {
-        RoleCeiling::Viewer => WorkspaceRole::Viewer,
-        RoleCeiling::Member => WorkspaceRole::Member,
-        RoleCeiling::Admin => WorkspaceRole::Admin,
-        RoleCeiling::Owner => WorkspaceRole::Owner,
-    };
-    std::cmp::min(role, cap)
-}
-
-/// An org role under a ceiling: Owner and Admin are capped at the ceiling, and
-/// anything below admin is Member — an org has no lower role (design §3.2).
-pub fn cap_org_role(role: OrgRole, ceiling: RoleCeiling) -> OrgRole {
-    match (role, ceiling) {
-        (role, RoleCeiling::Owner) => role,
-        (OrgRole::Owner | OrgRole::Admin, RoleCeiling::Admin) => OrgRole::Admin,
-        _ => OrgRole::Member,
-    }
-}
+/// The two role caps, moved to the port crate in C3a so a domain caps a role
+/// without this crate. Named here so `oxy_server_authz::cap_org_role` and
+/// `cap_workspace_role` keep resolving.
+pub use contracts_authz::{cap_org_role, cap_workspace_role};
 
 #[cfg(test)]
 #[path = "caller_tests.rs"]

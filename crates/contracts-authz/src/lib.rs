@@ -14,9 +14,14 @@
 //!
 //! * [`Caller`]: the authenticated principal as plain values, with the pure
 //!   reads of what its credential carries (ceilings, `carries_*`, the service
-//!   account and sandbox agent branches). `oxy_server_authz::Caller` wraps it
-//!   and keeps the projection from `oxy_auth`'s `AuthenticatedUser` and
-//!   `CredentialContext`, which this crate never names.
+//!   account and sandbox agent branches, the synthesized service-account
+//!   membership, the token's expiry). It is built from [`CallerParts`], which
+//!   `oxy_auth::caller_parts` projects from `oxy_auth`'s `AuthenticatedUser`
+//!   and `CredentialContext`; this crate never names either.
+//!   `oxy_server_authz::Caller` wraps it and keeps the extractor and the
+//!   request-extension plumbing.
+//! * [`cap_org_role`] and [`cap_workspace_role`]: a tenant role under the
+//!   token's ceiling (moved from `oxy_server_authz` in C3a).
 //! * [`AuthzEnforcer`]: the driver trait, one method per enforcement read a
 //!   domain makes, assume-role included. `oxy-server-authz` implements it by
 //!   delegating to its existing functions, and the host keeps the one
@@ -24,9 +29,10 @@
 //! * The values those reads answer: [`PlatformFlags`] and [`Checked`],
 //!   [`ActingAs`] and [`AuthzError`].
 //!
-//! It depends on `oxy-authz`, `entity` (the org role `ActingAs` answers), `sea-orm` (the
-//! caller's database handle), `uuid`, `async-trait` and `thiserror`, and on no
-//! web framework.
+//! It depends on `oxy-authz`, `entity` (the org and workspace roles it answers and
+//! caps), `sea-orm` (the caller's database handle), `chrono` (a token's expiry and
+//! a synthesized membership's timestamps), `uuid`, `async-trait` and `thiserror`,
+//! and on no web framework.
 
 mod assume;
 mod caller;
@@ -34,10 +40,16 @@ mod enforcer;
 mod error;
 mod grant_memo;
 mod platform;
+mod role_cap;
 
 pub use assume::ActingAs;
-pub use caller::{Caller, CallerAccount, CallerParts, CallerToken, UnixTime};
+pub use caller::Caller;
 pub use enforcer::{AuthzEnforcer, Enforce};
 pub use error::AuthzError;
 pub use grant_memo::GrantMemo;
+/// The parts a [`Caller`] is made of. `oxy_authz`'s since C3a, so that the
+/// projection that fills them in can live in `oxy-auth`; named here at the
+/// paths C2 gave them.
+pub use oxy_authz::{CallerAccount, CallerParts, CallerToken, UnixTime};
 pub use platform::{Checked, PlatformFlags};
+pub use role_cap::{cap_org_role, cap_workspace_role};

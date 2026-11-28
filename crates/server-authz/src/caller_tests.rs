@@ -1,8 +1,9 @@
-//! Unit tests for [`Caller`] and the two role caps.
+//! Unit tests for [`Caller`]. The two role caps' tests moved with them to
+//! `contracts-authz` (`role_cap.rs`) in C3a.
 
 use super::*;
 use oxy_auth::token::StoredKind;
-use oxy_authz::TokenGrant;
+use oxy_authz::{RoleCeiling, TokenGrant};
 
 fn user() -> AuthenticatedUser {
     AuthenticatedUser {
@@ -100,28 +101,19 @@ fn a_new_format_token_narrows_and_owns_its_assume_sessions() {
     );
 }
 
+/// The old paths still name the caps that moved.
 #[test]
-fn a_workspace_role_is_capped_at_the_ceiling() {
-    use WorkspaceRole::*;
-    assert_eq!(cap_workspace_role(Owner, RoleCeiling::Owner), Owner);
-    assert_eq!(cap_workspace_role(Owner, RoleCeiling::Admin), Admin);
-    assert_eq!(cap_workspace_role(Admin, RoleCeiling::Member), Member);
-    assert_eq!(cap_workspace_role(Member, RoleCeiling::Viewer), Viewer);
-    // A ceiling never raises a role.
-    assert_eq!(cap_workspace_role(Member, RoleCeiling::Owner), Member);
-    assert_eq!(cap_workspace_role(Viewer, RoleCeiling::Admin), Viewer);
-}
-
-#[test]
-fn an_org_role_is_admin_or_owner_only_under_that_ceiling() {
-    use OrgRole::*;
-    assert_eq!(cap_org_role(Owner, RoleCeiling::Owner), Owner);
-    assert_eq!(cap_org_role(Owner, RoleCeiling::Admin), Admin);
-    assert_eq!(cap_org_role(Admin, RoleCeiling::Admin), Admin);
-    assert_eq!(cap_org_role(Owner, RoleCeiling::Member), Member);
-    assert_eq!(cap_org_role(Admin, RoleCeiling::Viewer), Member);
-    assert_eq!(cap_org_role(Member, RoleCeiling::Owner), Member);
-    assert_eq!(cap_org_role(Member, RoleCeiling::Admin), Member);
+fn the_role_caps_resolve_at_their_old_path() {
+    use entity::org_members::OrgRole;
+    use entity::workspace_members::WorkspaceRole;
+    assert_eq!(
+        cap_org_role(OrgRole::Owner, RoleCeiling::Admin),
+        OrgRole::Admin
+    );
+    assert_eq!(
+        crate::cap_workspace_role(WorkspaceRole::Owner, RoleCeiling::Member),
+        WorkspaceRole::Member
+    );
 }
 
 /// What code acting for a person again outside the request reads: a login

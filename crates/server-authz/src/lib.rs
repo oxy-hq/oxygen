@@ -23,12 +23,16 @@ pub use oxy_authz::*;
 /// dependency on this crate, not over a new T1 → T1 one (until D5 re-tiers it).
 pub use contracts_authz as contract;
 
+/// The pure Factory checks (`may_use_factory`, `may_check_compile`,
+/// `may_use_factory_in_org`), moved to the model crate in C3a. Named here so
+/// `oxy_server_authz::factory::..` keeps resolving.
+pub use oxy_authz::factory;
+
 pub mod assume_authority;
 pub mod assume_liveness;
 pub mod caller;
 mod compile_check_guard;
 mod enforcement;
-pub mod factory;
 pub mod globals;
 pub mod loader;
 pub mod org_context;

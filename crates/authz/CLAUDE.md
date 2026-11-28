@@ -52,6 +52,12 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
   moved from `oxy-auth` so a contract crate can name them from the kernel. Building them
   from rows stays in `oxy-auth`, and so do `CredentialContext` (it holds a `chrono`
   expiry) and `AuthenticatedUser` (it holds an `entity` status).
+- **Caller parts** (`src/caller_parts.rs`) — `CallerParts`, `CallerToken`, `CallerAccount`,
+  `UnixTime`: the plain values `contracts_authz::Caller` is built from. Data only; the
+  projection that fills them is `oxy_auth::caller_parts` (C3a).
+- **`factory`** — `may_use_factory`, `may_check_compile`, `may_use_factory_in_org`: the
+  Factory checks named for a workspace, pure over facts (moved from `oxy-server-authz` in
+  C3a, re-exported there).
 - **`PlatformStanding`** / **`PlatformRole`** — Oxy-staff standing as `(caps × scope)`, and
   the presets (`GlobalAdmin`, `AppOperator`, `AppChecker`) that name common ones.
   `AppChecker` is `CheckApps` alone: the promote checks' service token. It reads an app's

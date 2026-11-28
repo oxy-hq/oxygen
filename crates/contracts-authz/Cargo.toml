@@ -12,10 +12,13 @@ edition.workspace = true
 # the port speaks in.
 oxy-authz = { workspace = true }
 
-# `ActingAs::org_role` answers the org role enum; the port's reads take the
-# caller's own database handle.
+# `ActingAs::org_role` answers the org role enum, the role caps cap the org and
+# workspace roles, and `Caller::account_membership` synthesizes an `org_members`
+# row; the port's reads take the caller's own database handle.
 entity = { workspace = true }
 sea-orm = { workspace = true }
+# `Caller::token_expires_at` and the synthesized membership's timestamps.
+chrono = { workspace = true }
 
 uuid = { workspace = true }
 async-trait = { workspace = true }

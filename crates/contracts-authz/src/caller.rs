@@ -19,63 +19,24 @@
 //! resolutions take their service-account branch from it (§3.3).
 //!
 //! **Built by authentication, never by hand.** The request's caller comes from
-//! `oxy_server_authz::Caller::of` (and its extractor), which projects
-//! `oxy_auth`'s `AuthenticatedUser` and `CredentialContext` into these values.
-//! [`Caller::from_parts`] is public only because that projection lives in
-//! another crate: a caller built from invented parts holds whatever standing
-//! the parts claim, as a [`Caller::without_credential`] built for someone else
-//! always could. Never build one to stand in for a requester.
+//! `oxy_auth::caller_parts`, which projects `oxy_auth`'s `AuthenticatedUser`
+//! and `CredentialContext` into [`CallerParts`] (`oxy_authz`'s, re-exported
+//! here), and [`Caller::from_parts`]; `oxy_server_authz::Caller::of` and its
+//! extractor do exactly that. `from_parts` is public only because that
+//! projection lives in another crate: a caller built from invented parts holds
+//! whatever standing the parts claim, as a [`Caller::without_credential`] built
+//! for someone else always could. Never build one to stand in for a requester.
+//! `crates/guards/tests/integration/caller_has_pinned_constructors.rs` pins
+//! the files that call it.
 
+use entity::org_members::OrgRole;
 use oxy_authz::{
-    AccountStanding, AppPublishGrant, PlatformStanding, PrincipalFacts, RoleCeiling,
-    SandboxAgentReach, TokenReach,
+    AccountStanding, AppPublishGrant, CallerAccount, CallerParts, CallerToken, PlatformStanding,
+    PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach, UnixTime,
 };
 use uuid::Uuid;
 
 use crate::grant_memo::GrantMemo;
-
-/// When a credential ends, as a Unix time: whole seconds and the nanoseconds
-/// past them, so it converts back to the timestamp it came from exactly.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UnixTime {
-    pub secs: i64,
-    pub subsec_nanos: u32,
-}
-
-/// The new-format token a request authenticated with.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CallerToken {
-    /// `api_tokens.id`, or a configured service's id.
-    pub id: Uuid,
-    pub reach: TokenReach,
-    /// When the credential ends; `None` for never.
-    pub expires_at: Option<UnixTime>,
-}
-
-/// The service account a request acts as. `standing` is `None` only if the
-/// credential named an account without one, which reads as an account with
-/// no standing anywhere, never as a person.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CallerAccount {
-    pub standing: Option<AccountStanding>,
-}
-
-/// Everything a [`Caller`] is made of: what the projection from the
-/// authenticated request fills in.
-#[derive(Clone, Debug, Default)]
-pub struct CallerParts {
-    pub user_id: Uuid,
-    /// `""` for a user with no address.
-    pub email: String,
-    /// `None` for a browser session and for a legacy key.
-    pub token: Option<CallerToken>,
-    /// Set when the request acts as a service account.
-    pub account: Option<CallerAccount>,
-    /// The apps the credential's `app_publish` grants name.
-    pub app_publish: Vec<AppPublishGrant>,
-    /// The standing a configured service's (`oxysvc_`) entry gives it.
-    pub service: Option<PlatformStanding>,
-}
 
 /// The principal behind a request, as its credential presents them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,6 +235,46 @@ impl Caller {
             return None;
         }
         self.token.as_ref().and_then(|t| t.expires_at)
+    }
+
+    /// [`Self::token_expires_at_unix`] as the timestamp the credential held:
+    /// [`UnixTime`] keeps the nanoseconds, so it is the same instant
+    /// `CredentialContext::expires_at` held.
+    pub fn token_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.token_expires_at_unix()
+            .and_then(|at| chrono::DateTime::from_timestamp(at.secs, at.subsec_nanos))
+    }
+
+    /// The role a service account holds in `org_id`, from its own row: Admin
+    /// or Member in its org, `None` anywhere else. **Never Owner.** `None` for
+    /// a person, whose role is their `org_members` row.
+    pub fn account_role_in(&self, org_id: Uuid) -> Option<OrgRole> {
+        let standing = self.account_standing().filter(|s| s.org_id == org_id)?;
+        Some(if standing.admin {
+            OrgRole::Admin
+        } else {
+            OrgRole::Member
+        })
+    }
+
+    /// The org membership a service account stands in for in `org_id` — a
+    /// synthesized row (nil id) carrying [`Self::account_role_in`], for the two
+    /// role resolutions that hand an `org_members` row to everything after
+    /// them. `None` for a person, and for an account outside its org.
+    ///
+    /// It is never written anywhere: a service account has no `org_members`
+    /// row, which is what keeps it out of seats, member lists and audiences.
+    pub fn account_membership(&self, org_id: Uuid) -> Option<entity::org_members::Model> {
+        let role = self.account_role_in(org_id)?;
+        let now = chrono::Utc::now().into();
+        Some(entity::org_members::Model {
+            id: Uuid::nil(),
+            org_id,
+            user_id: self.user_id,
+            role,
+            created_at: now,
+            updated_at: now,
+        })
     }
 
     /// The assume-role sessions this credential may use: `Some(id)` = only the
