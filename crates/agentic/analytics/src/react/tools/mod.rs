@@ -1,5 +1,6 @@
 //! Tools the react analytics agent calls.
 
+mod anomaly;
 mod chart;
 mod metric_tree;
 mod query;
@@ -8,6 +9,7 @@ mod rollup;
 mod search;
 mod semantic;
 
+pub use anomaly::{AnomalyPorts, AnomalyTool};
 pub use chart::{ChartKind, ChartSpec, ChartTool, MAX_CHART_ROWS, check as check_chart};
 #[cfg(test)]
 pub(crate) use metric_tree::tree_reply;

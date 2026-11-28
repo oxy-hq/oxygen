@@ -16,7 +16,8 @@ use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
 use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
 use super::tools::{
-    ChartTool, MetricTreeTool, QueryDeps, QueryTool, ReadTool, Rollups, SearchTool,
+    AnomalyPorts, AnomalyTool, ChartTool, MetricTreeTool, QueryDeps, QueryTool, ReadTool, Rollups,
+    SearchTool,
 };
 use super::verified::VerifiedQueries;
 use crate::events::AnalyticsEvent;
@@ -70,6 +71,15 @@ const METRIC_TREE_RULE: &str = "The metric-tree tools work on the measures the s
     - For where a measure can grow, call `find_opportunities`. For what drives a measure, \
     call `metric_sensitivity`. For what a change to a measure would do, call \
     `predict_impact`.\n\
+    - You may state the numbers these tools return, as you state query results. They have \
+    no result id to cite.";
+
+/// Added with the anomaly tools: which one to call first, and that their
+/// numbers count, as the metric-tree rule says for the tree.
+const ANOMALY_RULE: &str = "The anomaly tools find unusual buckets of a measure over time:\n\
+    - For whether a measure had anomalies in a period, call `list_anomalies` first. When it \
+    returns none, you may call `detect_anomalies`; say which one your answer comes from.\n\
+    - For why an anomaly happened, call `explain_anomaly` with the `id` one of them returned.\n\
     - You may state the numbers these tools return, as you state query results. They have \
     no result id to cite.";
 
@@ -135,6 +145,17 @@ impl ReactAnalytics {
         (self.toolset.tools).extend(MetricTreeTool::all(runner));
         self.toolset.system_prompt.push_str("\n\n");
         self.toolset.system_prompt.push_str(METRIC_TREE_RULE);
+        self
+    }
+
+    /// Adds the anomaly tools over `ports` ([`AnomalyTool::all`]) and the
+    /// prompt rule that says when to use them. A host calls this only when it
+    /// has both an anomaly store and a metric-tree runner (the FSM's executor
+    /// needs both), so a run without them has neither, as on the FSM.
+    pub fn with_anomalies(mut self, ports: AnomalyPorts) -> Self {
+        (self.toolset.tools).extend(AnomalyTool::all(ports));
+        self.toolset.system_prompt.push_str("\n\n");
+        self.toolset.system_prompt.push_str(ANOMALY_RULE);
         self
     }
 

@@ -264,8 +264,10 @@ pub trait ProjectContext: Send + Sync {
     }
 
     /// Optional anomaly store powering the `list_anomalies` / `detect_anomalies` /
-    /// `explain_anomaly` tools in the `RootCause` inquiry loop. When `None` those
-    /// tools are not exposed to the LLM. Default impl returns `None`.
+    /// `explain_anomaly` tools: in the FSM's `RootCause` inquiry loop, and on
+    /// react. Both runtimes offer them only with a [`Self::metric_tree_runner`]
+    /// too, which their executor reads through. When `None` those tools are
+    /// not exposed to the LLM. Default impl returns `None`.
     fn anomaly_store(&self) -> Option<Arc<dyn agentic_analytics::anomaly_store::AnomalyStore>> {
         None
     }

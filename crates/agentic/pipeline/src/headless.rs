@@ -363,8 +363,8 @@ async fn build_context(
 /// gets the runner because it carries the caller's subject and role, and a
 /// Workspace Health probe, which carries no subject, does not.
 ///
-/// FSM only. The react runtime has no metric-tree or anomaly tool
-/// (`agentic_analytics::react::ReactInputs`), so a react run is given none.
+/// FSM only. A react run gets the same tools from the same ports where it is
+/// built (`react_run::build_react_run`), for every react host.
 ///
 /// The served chat's metric sink is not here: it records the measures a run
 /// touched for the agent's Metrics tab, keyed by the run's `analytics.run`

@@ -17,6 +17,7 @@ use agentic_analytics::config::{AgentConfig, AgentRuntime, BuildContext, ConfigE
 use agentic_analytics::react::run::{
     AnswerFinisher, ReactAnalytics, ReactInputs, emit_runtime_selected,
 };
+use agentic_analytics::react::tools::AnomalyPorts;
 use agentic_analytics::react::{WorkspaceFiles, date_hint};
 use agentic_core::events::{CoreEvent, Event};
 use agentic_core::hub_task::spawn_with_hub;
@@ -163,7 +164,7 @@ pub(crate) async fn build_react_run(
         advisor: config.llm.advisor.is_some(),
         preagg: ctx.preagg,
     });
-    let analytics = with_metric_tree(analytics, platform);
+    let analytics = with_platform_tools(analytics, platform);
     Ok(ReactRun {
         engine,
         system: analytics.toolset.system_prompt.clone(),
@@ -172,13 +173,29 @@ pub(crate) async fn build_react_run(
     })
 }
 
-/// `analytics` with the metric-tree tools when the platform has a runner
+/// `analytics` with the tools the platform's ports power, else unchanged:
+/// the metric-tree tools when it has a runner
 /// (`PlatformContext::metric_tree_runner`, the one the FSM's served chat
-/// attaches), else unchanged. Every react host builds here, so a served start,
-/// a resume and a headless run get the same tools.
-fn with_metric_tree(analytics: ReactAnalytics, platform: &dyn PlatformContext) -> ReactAnalytics {
-    match platform.metric_tree_runner() {
-        Some(runner) => analytics.with_metric_tree(runner),
+/// attaches), and the anomaly tools when it has that runner and an anomaly
+/// store (`PlatformContext::anomaly_store`), scoped to its workspace. The
+/// anomaly tools need the runner too: the FSM's executor reads series and runs
+/// explains through it, and the FSM offers them only beside the tree tools.
+/// Every react host builds here, so a served start, a resume and a headless
+/// run get the same tools.
+fn with_platform_tools(
+    analytics: ReactAnalytics,
+    platform: &dyn PlatformContext,
+) -> ReactAnalytics {
+    let Some(runner) = platform.metric_tree_runner() else {
+        return analytics;
+    };
+    let analytics = analytics.with_metric_tree(runner.clone());
+    match platform.anomaly_store() {
+        Some(store) => analytics.with_anomalies(AnomalyPorts {
+            store,
+            runner,
+            workspace_id: platform.workspace_id(),
+        }),
         None => analytics,
     }
 }
@@ -394,3 +411,7 @@ pub(crate) mod tests;
 #[cfg(test)]
 #[path = "react_metric_tree_tests.rs"]
 mod metric_tree_tests;
+
+#[cfg(test)]
+#[path = "react_anomaly_tests.rs"]
+mod anomaly_tests;

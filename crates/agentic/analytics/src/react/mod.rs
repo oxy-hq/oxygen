@@ -4,7 +4,10 @@
 //! globs is reachable. The read-only gate is the write boundary: `query` runs
 //! one read statement. With a host's metric-tree runner, the metric-tree tools
 //! (`tools::MetricTreeTool`) also query, but only with SQL airlayer generates
-//! over the compiled semantic model, as on the FSM.
+//! over the compiled semantic model, as on the FSM. With a host's anomaly store
+//! as well, the anomaly tools (`tools::AnomalyTool`) read the same way, and
+//! write only to that store (detected anomalies, the explain cache), never to
+//! a warehouse.
 
 pub mod citations;
 pub mod files;
@@ -28,6 +31,8 @@ pub fn date_hint(tz: Option<chrono_tz::Tz>) -> String {
     crate::solver::AnalyticsSolver::current_date_hint(tz)
 }
 
+#[cfg(test)]
+mod anomaly_tests;
 #[cfg(test)]
 mod chart_tests;
 #[cfg(test)]

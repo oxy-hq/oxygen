@@ -1,11 +1,13 @@
 //! The metric-tree tools on both react hosts: a served build and a headless
 //! run offer them exactly when the platform has a metric-tree runner, and a
 //! headless call reaches the runner. A scripted engine stands in for the
-//! model.
+//! model. The host here also serves the anomaly tests
+//! (`react_anomaly_tests.rs`), which give it a store.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use agentic_analytics::anomaly_store::AnomalyStore;
 use agentic_analytics::config::{AgentConfig, BuildContext};
 use agentic_analytics::{AnalyticsEvent, MetricTreeRunner, MetricTreeRunnerError};
 use agentic_connector::DatabaseConnector;
@@ -122,21 +124,37 @@ impl Engine for Recording {
     }
 }
 
-/// A platform with (or without) a metric-tree runner, whose react engine is
-/// a [`Recording`] of `script`.
-struct TreeHost {
+/// The workspace a [`TreeHost`] answers for.
+pub(super) const WORKSPACE: uuid::Uuid = uuid::Uuid::from_u128(0x7ee);
+
+/// A platform with (or without) a metric-tree runner and an anomaly store,
+/// whose react engine is a [`Recording`] of `script`.
+pub(super) struct TreeHost {
     runner: Option<Arc<dyn MetricTreeRunner>>,
+    store: Option<Arc<dyn AnomalyStore>>,
     script: Mutex<Vec<Decision>>,
     offered: Arc<Mutex<Vec<&'static str>>>,
 }
 
 impl TreeHost {
-    fn new(with_runner: bool, script: Vec<Decision>) -> Self {
+    pub(super) fn new(with_runner: bool, script: Vec<Decision>) -> Self {
         Self {
             runner: with_runner.then(|| Arc::new(ProfitTree) as Arc<dyn MetricTreeRunner>),
+            store: None,
             script: Mutex::new(script),
             offered: Arc::default(),
         }
+    }
+
+    /// This host with `store` as its anomaly store.
+    pub(super) fn with_store(mut self, store: Arc<dyn AnomalyStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// Every tool name the engine was offered on its first turn.
+    pub(super) fn offered(&self) -> Vec<&'static str> {
+        self.offered.lock().unwrap().clone()
     }
 
     /// The metric-tree tools the engine was offered.
@@ -165,8 +183,14 @@ impl crate::platform::ProjectContext for TreeHost {
     async fn resolve_secret(&self, _: &str) -> Option<String> {
         None
     }
+    fn workspace_id(&self) -> uuid::Uuid {
+        WORKSPACE
+    }
     fn metric_tree_runner(&self) -> Option<Arc<dyn MetricTreeRunner>> {
         self.runner.clone()
+    }
+    fn anomaly_store(&self) -> Option<Arc<dyn AnomalyStore>> {
+        self.store.clone()
     }
     fn react_engine(&self) -> Option<Box<dyn Engine>> {
         let script = std::mem::take(&mut *self.script.lock().unwrap());
@@ -218,30 +242,29 @@ fn tree_tools_in(run: &ReactRun) -> Vec<&'static str> {
     tools.filter(|n| TREE_TOOLS.contains(n)).collect()
 }
 
-/// A served build (start and resume both build here) offers the four tools,
-/// and says when to use them, exactly when the platform has a runner.
+/// The run a served build (start and resume both build here) makes on `host`.
+pub(super) async fn served(host: TreeHost) -> ReactRun {
+    let dir = tempfile::tempdir().unwrap();
+    let inputs = ServedInputs {
+        agent_id: "a".into(),
+        workspace_id: uuid::Uuid::nil(),
+        connectors: warehouse(),
+        databases: vec!["wh".into()],
+        project_model: None,
+        domain_docs: None,
+        thinking_mode: ThinkingMode::Auto,
+    };
+    // Memory is off on this host, so the build never reads the database.
+    let db = sea_orm::DatabaseConnection::default();
+    build_served(&host, &db, &react_config(), inputs, dir.path())
+        .await
+        .expect("the run builds")
+}
+
+/// A served build offers the four tools, and says when to use them, exactly
+/// when the platform has a runner.
 #[tokio::test]
 async fn a_served_react_run_gets_the_tree_tools_only_with_a_runner() {
-    let dir = tempfile::tempdir().unwrap();
-    let served = |host: TreeHost| {
-        let dir = dir.path().to_path_buf();
-        async move {
-            let inputs = ServedInputs {
-                agent_id: "a".into(),
-                workspace_id: uuid::Uuid::nil(),
-                connectors: warehouse(),
-                databases: vec!["wh".into()],
-                project_model: None,
-                domain_docs: None,
-                thinking_mode: ThinkingMode::Auto,
-            };
-            // Memory is off on this host, so the build never reads the database.
-            let db = sea_orm::DatabaseConnection::default();
-            build_served(&host, &db, &react_config(), inputs, &dir)
-                .await
-                .expect("the run builds")
-        }
-    };
     let with = served(TreeHost::new(true, vec![])).await;
     assert_eq!(tree_tools_in(&with), TREE_TOOLS);
     assert!(with.system.contains("explain_metric"), "{}", with.system);
@@ -258,8 +281,24 @@ async fn a_served_react_run_gets_the_tree_tools_only_with_a_runner() {
 /// Runs `script` headless on a host with or without a runner, returning the
 /// answer and every forwarded event.
 async fn headless(with_runner: bool, script: Vec<Decision>) -> Headless {
-    let dir = tempfile::tempdir().unwrap();
     let host = TreeHost::new(with_runner, script);
+    let (answer, events) = headless_on(&host).await;
+    Headless {
+        answer,
+        events,
+        offered: host.offered_tree_tools(),
+    }
+}
+
+/// Runs `host`'s script headless (evals, the CLI), returning the answer and
+/// every forwarded event.
+pub(super) async fn headless_on(
+    host: &TreeHost,
+) -> (
+    Result<String, crate::headless::HeadlessError>,
+    Vec<Event<AnalyticsEvent>>,
+) {
+    let dir = tempfile::tempdir().unwrap();
     let ctx = BuildContext {
         extra_connectors: warehouse(),
         ..BuildContext::default()
@@ -271,16 +310,12 @@ async fn headless(with_runner: bool, script: Vec<Decision>) -> Headless {
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let run = ("a.agentic.yml", dir.path(), &memory);
     let destination = EventDestination::Forward(tx);
-    let answer = run_headless(&host, &react_config(), ctx, run, "q".into(), destination).await;
+    let answer = run_headless(host, &react_config(), ctx, run, "q".into(), destination).await;
     let mut events = Vec::new();
     while let Ok(ev) = rx.try_recv() {
         events.push(ev);
     }
-    Headless {
-        answer,
-        events,
-        offered: host.offered_tree_tools(),
-    }
+    (answer, events)
 }
 
 /// What a headless run returned, forwarded, and offered the model.
@@ -290,7 +325,7 @@ struct Headless {
     offered: Vec<&'static str>,
 }
 
-fn tool_calls(events: &[Event<AnalyticsEvent>]) -> Vec<&str> {
+pub(super) fn tool_calls(events: &[Event<AnalyticsEvent>]) -> Vec<&str> {
     let names = events.iter().filter_map(|e| match e {
         Event::Core(CoreEvent::ToolCall { name, .. }) => Some(name.as_str()),
         _ => None,
