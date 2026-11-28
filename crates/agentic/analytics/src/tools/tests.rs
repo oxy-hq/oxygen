@@ -756,7 +756,7 @@ fn anomaly_tools_not_in_solving_tools() {
 #[tokio::test]
 async fn list_anomalies_returns_empty_for_null_store() {
     use crate::anomaly_store::{
-        AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult,
+        AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult, DetectRequest,
     };
     use crate::metric_tree_runner::MetricTreeRunnerError;
     use crate::tools::{AnomalyToolContext, execute_anomaly_tool};
@@ -786,15 +786,13 @@ async fn list_anomalies_returns_empty_for_null_store() {
         async fn detect_and_upsert(
             &self,
             _: uuid::Uuid,
-            _: &str,
-            _: &str,
-            _: &str,
-            _: Vec<(String, f64)>,
+            _: DetectRequest,
         ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
             Ok(DetectAndUpsertResult {
                 anomalies: vec![],
                 total_observations: 0,
                 message: None,
+                missing_periods: vec![],
             })
         }
         async fn get_explain_cache(
@@ -891,7 +889,7 @@ async fn list_anomalies_returns_empty_for_null_store() {
 #[tokio::test]
 async fn detect_anomalies_returns_message_when_insufficient_data() {
     use crate::anomaly_store::{
-        AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult,
+        AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult, DetectRequest,
     };
     use crate::metric_tree_runner::MetricTreeRunnerError;
     use crate::tools::{AnomalyToolContext, execute_anomaly_tool};
@@ -921,16 +919,14 @@ async fn detect_anomalies_returns_message_when_insufficient_data() {
         async fn detect_and_upsert(
             &self,
             _: uuid::Uuid,
-            _: &str,
-            _: &str,
-            _: &str,
-            _: Vec<(String, f64)>,
+            _: DetectRequest,
         ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
             // Simulate "not enough data" — return empty with a message.
             Ok(DetectAndUpsertResult {
                 anomalies: vec![],
                 total_observations: 3,
                 message: Some("Not enough data: 3 observations, need at least 8".into()),
+                missing_periods: vec![],
             })
         }
         async fn get_explain_cache(

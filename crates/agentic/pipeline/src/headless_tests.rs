@@ -288,6 +288,7 @@ mod fakes {
     use agentic_analytics::MetricTreeRunnerError;
     use agentic_analytics::anomaly_store::{
         AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError, DetectAndUpsertResult,
+        DetectRequest,
     };
     use oxy_airlayer_compat::engine::metric_tree_ops::{
         BenchmarkStatistic, ExplainConfig, ExplainResult, OpportunityResult,
@@ -373,10 +374,7 @@ mod fakes {
         async fn detect_and_upsert(
             &self,
             _: uuid::Uuid,
-            _: &str,
-            _: &str,
-            _: &str,
-            _: Vec<(String, f64)>,
+            _: DetectRequest,
         ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
             Err(AnomalyStoreError::Detection(
                 "not called in these tests".into(),

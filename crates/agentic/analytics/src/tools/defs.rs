@@ -746,9 +746,9 @@ pub fn anomaly_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "detect_anomalies",
-            description: "Fetch time-series data from the semantic model and run anomaly \
-                          detection. Use when the inbox is empty or when the user asks \
-                          about a period not yet scanned. Results are persisted to the inbox.",
+            description: "Run anomaly detection on every bucket from period_start to period_end; the tool \
+                          fetches the history before it. Use when the inbox is empty or the period is not yet \
+                          scanned. Results go to the inbox. Report each bucket listed in missing_periods.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -759,8 +759,8 @@ pub fn anomaly_tools() -> Vec<ToolDef> {
                         "enum": ["day", "week", "month", "quarter"],
                         "description": "Time granularity"
                     },
-                    "period_start": { "type": "string", "description": "ISO 8601 date" },
-                    "period_end": { "type": "string", "description": "ISO 8601 date" }
+                    "period_start": { "type": "string", "description": "First bucket to score, YYYY-MM-DD" },
+                    "period_end": { "type": "string", "description": "Last bucket to score, YYYY-MM-DD" }
                 },
                 "required": ["measure", "time_dimension", "granularity", "period_start", "period_end"],
                 "additionalProperties": false

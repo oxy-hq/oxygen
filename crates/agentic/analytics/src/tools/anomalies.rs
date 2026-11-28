@@ -2,7 +2,9 @@ use agentic_core::tools::ToolError;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::anomaly_store::{AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError};
+use crate::anomaly_store::{
+    AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError, DetectRequest,
+};
 use crate::metric_tree_runner::MetricTreeRunner;
 
 use super::{emit_tool_error, emit_tool_input, emit_tool_output};
@@ -83,13 +85,17 @@ async fn detect_anomalies(params: Value, ctx: &AnomalyToolContext<'_>) -> Result
     let period_start = string_param(&params, "period_start")?;
     let period_end = string_param(&params, "period_end")?;
 
+    // The detector scores every bucket of the asked period against the
+    // history before it, so fetch that history too.
+    let fetch_start =
+        history_start(&period_start, &granularity).unwrap_or_else(|| period_start.clone());
     let observations = ctx
         .runner
         .run_time_series(
             measure.clone(),
             time_dimension.clone(),
             granularity.clone(),
-            (period_start, period_end),
+            (fetch_start, period_end.clone()),
             vec![],
             // None = the runner's configured default, which OxyMetricTreeRunner
             // resolves from the workspace's `.monitor.yml` (see Task 5) so
@@ -103,10 +109,13 @@ async fn detect_anomalies(params: Value, ctx: &AnomalyToolContext<'_>) -> Result
         .store
         .detect_and_upsert(
             ctx.workspace_id,
-            &measure,
-            &time_dimension,
-            &granularity,
-            observations,
+            DetectRequest {
+                measure,
+                time_dimension,
+                granularity,
+                observations,
+                period: (period_start, period_end),
+            },
         )
         .await
         .map_err(|e| ToolError::Execution(e.to_string()))?;
@@ -116,10 +125,49 @@ async fn detect_anomalies(params: Value, ctx: &AnomalyToolContext<'_>) -> Result
         "total_observations": result.total_observations,
         "anomalies": result.anomalies.iter().map(record_to_json).collect::<Vec<_>>(),
     });
+    if !result.missing_periods.is_empty() {
+        out["missing_periods"] = json!(result.missing_periods);
+        out["missing_periods_note"] = json!(MISSING_NOTE);
+    }
     if let Some(msg) = result.message {
         out["message"] = json!(msg);
     }
     Ok(out)
+}
+
+/// What the model is told about `missing_periods`.
+const MISSING_NOTE: &str = "These buckets returned no row at all, so they were not \
+    scored. A bucket with no row may mean no activity (for example a day with no orders) \
+    or missing data. Report each one; do not call it a drop to zero without checking.";
+
+/// How many buckets of history to fetch before the asked period. Each is a
+/// little above the store's floor for that granularity (8 weekly cycles of
+/// days, 8 cycles of weeks, 2 years of months, 12 quarters; see
+/// `metric_monitoring::gates::min_history_buckets`), so a series with a few
+/// missing rows still has enough.
+fn history_buckets(granularity: &str) -> Option<(i64, &'static str)> {
+    match granularity {
+        "day" => Some((90, "day")),
+        "week" => Some((40, "week")),
+        "month" => Some((30, "month")),
+        "quarter" => Some((48, "month")),
+        _ => None,
+    }
+}
+
+/// The first day to fetch: `period_start` minus [`history_buckets`]. `None`
+/// when the start does not parse or the granularity is unknown; the caller
+/// then fetches the period alone, as before.
+fn history_start(period_start: &str, granularity: &str) -> Option<String> {
+    use chrono::{Duration, Months, NaiveDate};
+    let start = NaiveDate::parse_from_str(period_start.get(..10)?, "%Y-%m-%d").ok()?;
+    let (n, unit) = history_buckets(granularity)?;
+    let from = match unit {
+        "day" => start - Duration::days(n),
+        "week" => start - Duration::weeks(n),
+        _ => start.checked_sub_months(Months::new(u32::try_from(n).ok()?))?,
+    };
+    Some(from.format("%Y-%m-%d").to_string())
 }
 
 // ── explain_anomaly ─────────────────────────────────────────────────────────
@@ -224,4 +272,39 @@ fn previous_period_for(record: &AnomalyRecord) -> Option<(String, String)> {
         record.seasonal_period,
     );
     Some((prev_start.to_rfc3339(), prev_end.to_rfc3339()))
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::history_start;
+
+    #[test]
+    fn the_history_before_the_period_is_fetched() {
+        assert_eq!(
+            history_start("2026-06-01", "day").as_deref(),
+            Some("2026-03-03")
+        );
+        assert_eq!(
+            history_start("2026-06-01", "week").as_deref(),
+            Some("2025-08-25")
+        );
+        assert_eq!(
+            history_start("2026-06-01", "month").as_deref(),
+            Some("2023-12-01")
+        );
+        assert_eq!(
+            history_start("2026-07-01", "quarter").as_deref(),
+            Some("2022-07-01")
+        );
+        assert_eq!(
+            history_start("2026-06-01T00:00:00Z", "day").as_deref(),
+            Some("2026-03-03")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_start_or_granularity_fetches_the_period_alone() {
+        assert_eq!(history_start("June 2026", "day"), None);
+        assert_eq!(history_start("2026-06-01", "hour"), None);
+    }
 }

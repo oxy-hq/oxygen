@@ -20,6 +20,7 @@ use super::run::{ReactAnalytics, ReactInputs};
 use super::tools::AnomalyPorts;
 use crate::anomaly_store::{
     AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError, DetectAndUpsertResult,
+    DetectRequest,
 };
 use crate::metric_tree_runner::{MetricTreeRunner, MetricTreeRunnerError};
 
@@ -142,12 +143,9 @@ impl AnomalyStore for OneAnomaly {
     async fn detect_and_upsert(
         &self,
         workspace_id: Uuid,
-        _: &str,
-        _: &str,
-        _: &str,
-        observations: Vec<(String, f64)>,
+        request: DetectRequest,
     ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
-        let total = observations.len();
+        let total = request.observations.len();
         self.detected.lock().unwrap().push((workspace_id, total));
         Ok(DetectAndUpsertResult {
             anomalies: vec![],
@@ -155,6 +153,7 @@ impl AnomalyStore for OneAnomaly {
             message: Some(format!(
                 "Not enough data: {total} observations, need at least 56"
             )),
+            missing_periods: vec![],
         })
     }
     async fn get_explain_cache(
@@ -250,7 +249,8 @@ fn the_anomaly_tools_are_described_for_react() {
     }
     let detect = tool(&with, "detect_anomalies").def();
     assert!(
-        detect.description.contains("eight seasonal cycles"),
+        detect.description.contains("scores every bucket")
+            && detect.description.contains("`missing_periods`"),
         "{}",
         detect.description
     );

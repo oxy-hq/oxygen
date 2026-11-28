@@ -55,6 +55,7 @@ pub mod preview;
 pub mod service;
 pub mod store;
 pub mod tick;
+mod tool_series;
 
 // The scenario fit end to end against `example_new`'s committed CSVs through
 // DuckDB, from `oxy-app`'s `tests/platform/` (decompose T-small, 2026-11-24).

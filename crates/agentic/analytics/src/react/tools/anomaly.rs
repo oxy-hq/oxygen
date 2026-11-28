@@ -39,13 +39,13 @@ const LIST_DESC: &str = "List the anomalies already found for a measure in a per
     bucket starts in that period. An empty list means nothing was stored for that period, \
     not that the period was normal.";
 
-const DETECT_DESC: &str = "Check one bucket of a measure for an anomaly now, and store what \
-    it finds. Use it when `list_anomalies` returns nothing for a period you must answer \
-    about. It reads the measure's series from `period_start` to `period_end` and scores \
-    only the last bucket against the buckets before it, so the period must end at the \
-    bucket you ask about and hold at least eight seasonal cycles before it (for a daily \
-    measure, about two months of days). With fewer, it returns a message that there is not \
-    enough data.";
+const DETECT_DESC: &str = "Check a measure for anomalies now, and store what it finds. \
+    Use it when `list_anomalies` returns nothing for a period you must answer about. It \
+    scores every bucket from `period_start` to `period_end` against the history before \
+    `period_start`, which it fetches itself, so give the period the question asks about. \
+    When the history is too short, it returns a message that there is not enough data. \
+    Buckets with no row at all are not scored: they come back in `missing_periods`, and \
+    the answer must name them.";
 
 const EXPLAIN_DESC: &str = "Explain what caused one anomaly: which parts of the measure and \
     which segments moved, compared with the same bucket one seasonal cycle earlier. Give as \

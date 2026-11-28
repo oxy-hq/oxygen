@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use agentic_analytics::anomaly_store::{
-    AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult,
+    AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult, DetectRequest,
 };
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
 use entity::metric_anomalies::{self, Entity as AnomaliesEntity};
@@ -12,9 +12,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::config::{Granularity, Sensitivity};
-use crate::detect::{DetectInputs, Observation, Severity, detect};
+use crate::config::Granularity;
+use crate::detect::Severity;
 use crate::gates::min_history_buckets;
+use crate::tool_series;
 
 pub struct OxyAnomalyStore {
     pub db: Arc<DatabaseConnection>,
@@ -156,6 +157,18 @@ fn period_conditions(filter: &AnomalyFilter) -> Result<Vec<PeriodCondition>, Ano
         });
     }
     Ok(out)
+}
+
+/// The measured buckets the AI-tool path needs before the period it scores.
+/// Two floors, both of which must hold. The algebraic one is detect()'s own,
+/// (max_period*2).max(10) buckets ahead of the test window, so detect() cannot
+/// return SeriesTooShort or BadTestWindow on a series that passed. The
+/// statistical one is the trust threshold `scan_one` applies, so the AI-tool
+/// path and the scheduled scan agree on what counts as enough history.
+fn history_floor(granularity: &str, seasonal: &[usize]) -> usize {
+    let max_period = seasonal.iter().copied().max().unwrap_or(7);
+    min_history_buckets(granularity_for_history(granularity), seasonal)
+        .max((max_period * 2).max(10))
 }
 
 fn seasonal_periods(granularity: &str) -> Vec<usize> {
@@ -305,58 +318,44 @@ impl agentic_analytics::anomaly_store::AnomalyStore for OxyAnomalyStore {
     async fn detect_and_upsert(
         &self,
         workspace_id: Uuid,
-        measure: &str,
-        time_dimension: &str,
-        granularity: &str,
-        observations: Vec<(String, f64)>,
+        request: DetectRequest,
     ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
-        let series: Vec<Observation> = observations
-            .iter()
-            .filter_map(|(ts, val)| {
-                // Caller-supplied series: every point is a real reading, and
-                // this path does no gap-filling of its own.
-                parse_utc(ts).map(|timestamp| Observation::measured(timestamp, *val))
-            })
-            .collect();
-
+        let DetectRequest {
+            measure,
+            time_dimension,
+            granularity,
+            observations,
+            period,
+        } = request;
+        let (measure, time_dimension, granularity) = (
+            measure.as_str(),
+            time_dimension.as_str(),
+            granularity.as_str(),
+        );
         let seasonal = seasonal_periods(granularity);
         // Nearest seasonal cycle, snapshotted onto the row so explain aligns
         // its comparison window to the same phase one cycle back.
         let seasonal_period = seasonal.iter().copied().min().map(|p| p as i32);
-        let max_period = seasonal.iter().copied().max().unwrap_or(7);
-        // Two floors, both of which must hold. The algebraic one mirrors
-        // detect()'s formula exactly — (max_period*2).max(10) + test_window,
-        // with test_window hardcoded to 1 below — so detect() cannot return
-        // SeriesTooShort on a series that passed this guard. The statistical one
-        // is the same trust threshold `scan_one` applies, so the AI-tool path
-        // and the scheduled scan agree on what counts as enough history.
-        let min_obs = min_history_buckets(granularity_for_history(granularity), &seasonal)
-            .max((max_period * 2).max(10) + 1);
+        let min_history = history_floor(granularity, &seasonal);
 
-        if series.len() < min_obs {
-            return Ok(DetectAndUpsertResult {
-                anomalies: vec![],
-                total_observations: series.len(),
-                message: Some(format!(
-                    "Not enough data: {} observations, need at least {}",
-                    series.len(),
-                    min_obs
-                )),
-            });
-        }
-
-        let inputs = DetectInputs {
-            series: &series,
-            seasonal_periods: seasonal,
-            test_window: 1,
-            sensitivity: Sensitivity::Medium,
-            interval_level: 0.95,
-            // The AI-tool path scores a single bucket from a caller-supplied
-            // series and has no segment context to look events up by.
-            continuation: None,
+        // Parse the warehouse's bucket text, fill missing buckets, and score
+        // the whole asked period: see `tool_series`.
+        let prepared =
+            tool_series::prepare(&observations, granularity, &period, Utc::now().date_naive());
+        let total = prepared.series.len();
+        let scored = tool_series::score(&prepared, &seasonal, min_history, granularity, &period)
+            .map_err(|e| AnomalyStoreError::Detection(e.to_string()))?;
+        let detected = match scored {
+            tool_series::Scored::Flagged(detected) => detected,
+            tool_series::Scored::NotEnough(message) => {
+                return Ok(DetectAndUpsertResult {
+                    anomalies: vec![],
+                    total_observations: total,
+                    message: Some(message),
+                    missing_periods: prepared.missing,
+                });
+            }
         };
-        let detected = detect(inputs).map_err(|e| AnomalyStoreError::Detection(e.to_string()))?;
-        let total = series.len();
         let now = Utc::now();
         let mut records = Vec::with_capacity(detected.len());
 
@@ -443,6 +442,7 @@ impl agentic_analytics::anomaly_store::AnomalyStore for OxyAnomalyStore {
             anomalies: records,
             total_observations: total,
             message: None,
+            missing_periods: prepared.missing,
         })
     }
 

@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use agentic_analytics::anomaly_store::{
     AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError, DetectAndUpsertResult,
+    DetectRequest,
 };
 use agentic_core::react::Decision;
 use serde_json::{Value, json};
@@ -41,10 +42,7 @@ impl AnomalyStore for Inbox {
     async fn detect_and_upsert(
         &self,
         _: Uuid,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: Vec<(String, f64)>,
+        _: DetectRequest,
     ) -> Result<DetectAndUpsertResult, AnomalyStoreError> {
         Err(AnomalyStoreError::Detection(
             "not called in these tests".into(),

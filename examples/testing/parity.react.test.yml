@@ -229,10 +229,12 @@ cases:
   # examples/.monitor.yml's "Daily order revenue" monitor:
   # orders.total_order_value by orders.order_date, day grain. The seeded
   # orders.csv has no orders on 2026-06-16 and 238-298 on every other June
-  # day, so an answer must find that day, not only call the tool.
+  # day, so an answer must find that day, not only call the tool. A missing
+  # row may be missing data, so naming the day as having no orders or no
+  # data both pass: detect_anomalies returns it in missing_periods unscored.
   - name: anomaly-daily-revenue
     prompt: "Were there any anomalies in daily order revenue in June 2026?"
-    expected: "Yes: June 16, 2026 had no orders and $0 revenue, against roughly 240-300 orders a day on the other June days"
+    expected: "Names June 16, 2026 as a day with no orders or no data, and flags no other June day as anomalous"
     tags: [parity, anomalies]
     expect:
       tools: [list_anomalies]

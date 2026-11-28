@@ -82,12 +82,30 @@ pub struct AnomalyFilter {
     pub period_end_lte: Option<String>,
 }
 
+/// One `detect_and_upsert` call: a measure's series and the period to score.
+#[derive(Debug, Clone)]
+pub struct DetectRequest {
+    pub measure: String,
+    pub time_dimension: String,
+    pub granularity: String,
+    /// `(bucket, value)` rows as the warehouse returned them: the history
+    /// before `period`, then `period` itself.
+    pub observations: Vec<(String, f64)>,
+    /// The `(start, end)` the caller asked about, both inclusive. Every
+    /// bucket in it is scored; the buckets before it are history.
+    pub period: (String, String),
+}
+
 #[derive(Debug, Clone)]
 pub struct DetectAndUpsertResult {
     pub anomalies: Vec<AnomalyRecord>,
     pub total_observations: usize,
     /// Set when there are not enough observations to run detection.
     pub message: Option<String>,
+    /// Buckets inside the period with no row at all (`YYYY-MM-DD`), such as
+    /// a day with no orders. The detector does not score them, because a
+    /// missing row may be missing data, so the caller must report them.
+    pub missing_periods: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -118,16 +136,13 @@ pub trait AnomalyStore: Send + Sync {
         workspace_id: Uuid,
     ) -> Result<Option<AnomalyRecord>, AnomalyStoreError>;
 
-    /// Run anomaly detection on raw `(timestamp, value)` observations, persist
+    /// Run anomaly detection on raw `(bucket, value)` observations, persist
     /// any flagged anomalies, and return them. The implementation calls
     /// `metric_monitoring::detect::detect()` internally.
     async fn detect_and_upsert(
         &self,
         workspace_id: Uuid,
-        measure: &str,
-        time_dimension: &str,
-        granularity: &str,
-        observations: Vec<(String, f64)>,
+        request: DetectRequest,
     ) -> Result<DetectAndUpsertResult, AnomalyStoreError>;
 
     async fn get_explain_cache(
