@@ -2,20 +2,52 @@
 //! had in `oxy-app`. Moved from `oxy-app`'s `admin::tests::
 //! airway_config_is_mounted_on_the_real_router` with the section.
 //!
-//! No auth setup: every handler here takes an `AuthenticatedUserExtractor`,
-//! which rejects before the handler body runs, so a mounted route answers
-//! something other than 404 and an unmounted path answers axum's 404. That is
-//! the discriminator, and the bogus sibling path at the end is the control
+//! **No handler body runs here, and that is load-bearing.** A route layer
+//! answers every *matched* request with [`ROUTED`] before its handler is
+//! called, and an unmatched path still falls through to axum's 404. That pair
+//! is the discriminator, and the bogus sibling path at the end is the control
 //! that proves it discriminates.
+//!
+//! The test used to send each request to the real handler, on the premise that
+//! every one takes an `AuthenticatedUserExtractor` and so rejects before its
+//! body. Five do not: the global-row and deployment-config handlers rely on the
+//! section's `PlatformOperate` guard, which `oxy-server` layers on and this
+//! bare router does not. The two `PUT`s were saved by their `Json` extractor
+//! refusing the empty body, and the `GET` only reads, but the two `DELETE`s
+//! take nothing that can refuse. So `DELETE /admin/airway/config/toast` really
+//! ran `delete_global` against `OXY_DATABASE_URL`, and
+//! `DELETE /admin/airway/deployment-config` really deleted the singleton
+//! deployment row: in CI, the same shared Postgres that
+//! `admin::handlers::tests` and `admin::deployment::tests` serialize on with an
+//! advisory lock this test never took. A `handlers::tests` case that wrote the
+//! global `toast` row and read it back between those two moments found it gone
+//! (`upsert_replaces_rather_than_duplicating_the_global_row`: 0 rows, not 1).
 
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use axum::middleware::{self, Next};
 use tower::ServiceExt;
+
+/// What a matched route answers here instead of running its handler. Not a
+/// status any airway handler or extractor returns, so seeing it means the
+/// router matched the path. Only the path: axum wraps a route's
+/// method-not-allowed fallback in the same layer, so this is no stronger on
+/// methods than the `!= 404` check it replaced, and no weaker.
+const ROUTED: StatusCode = StatusCode::IM_A_TEAPOT;
+
+/// Stops a matched request before its handler, so the handler cannot reach
+/// the database. Never calls `next`.
+async fn stop_before_the_handler(_req: Request<Body>, _next: Next) -> StatusCode {
+    ROUTED
+}
 
 fn admin_tree() -> Router {
     Router::new()
         .nest("/admin", oxy_api_airway::admin_routes())
+        // `route_layer`, not `layer`: it wraps matched routes only, so an
+        // unregistered path still reaches the router's own 404.
+        .route_layer(middleware::from_fn(stop_before_the_handler))
         .with_state(oxy_app_core::app_state::bare_app_state())
 }
 
@@ -46,10 +78,9 @@ async fn every_airway_admin_route_is_mounted() {
             .body(Body::empty())
             .unwrap();
         let status = router.clone().oneshot(req).await.unwrap().status();
-        assert_ne!(
-            status,
-            StatusCode::NOT_FOUND,
-            "{method} {path} must be mounted by `admin_routes()` — got 404"
+        assert_eq!(
+            status, ROUTED,
+            "{method} {path} must be mounted by `admin_routes()` — got {status}"
         );
     }
 
