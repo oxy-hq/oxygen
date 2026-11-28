@@ -16,7 +16,7 @@
 
 use entity::prelude::Users;
 use entity::{api_tokens, organizations};
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::token::StoredKind;
 use oxy_auth::token::org_grants::{self, OrgRevoke};
 use sea_orm::{DatabaseConnection, EntityTrait, TransactionTrait};
@@ -62,7 +62,7 @@ async fn record(
             }),
             change: None,
         }
-        .record(&txn, actor)
+        .record(&TxnAuditSink::request(&txn, actor))
         .await?;
     }
     txn.commit().await?;

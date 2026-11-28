@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, FixedOffset, Utc};
 use entity::{api_token_grants, api_tokens};
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::ExtendTo;
 use oxy_auth::token::StoredKind;
 use oxy_auth::token::access::{
@@ -168,7 +168,10 @@ pub(super) async fn mint_personal(
         detail: Value::Object(detail),
         change: None,
     }
-    .record_with(&txn, actor, access_audit::created(&access))
+    .record_with(
+        &TxnAuditSink::request(&txn, actor),
+        access_audit::created(&access),
+    )
     .await?;
     txn.commit().await?;
     Ok(Minted {
@@ -269,7 +272,10 @@ async fn apply_edit(
             detail: json!({}),
             change: None,
         }
-        .record_with(&txn, actor, access_audit::changed(&before, &after))
+        .record_with(
+            &TxnAuditSink::request(&txn, actor),
+            access_audit::changed(&before, &after),
+        )
         .await?;
     }
     txn.commit().await?;
@@ -315,7 +321,7 @@ pub(super) async fn extend(
         detail,
         change,
     }
-    .record(&txn, actor)
+    .record(&TxnAuditSink::request(&txn, actor))
     .await?;
     txn.commit().await?;
     invalidate(updated.id);
@@ -346,7 +352,7 @@ pub(super) async fn regenerate(
         detail: json!({}),
         change: None,
     }
-    .record(&txn, actor)
+    .record(&TxnAuditSink::request(&txn, actor))
     .await?;
     txn.commit().await?;
     invalidate(minted.row.id);
@@ -376,7 +382,7 @@ pub(super) async fn revoke(
             detail: json!({ "reason": reason }),
             change: None,
         }
-        .record(&txn, actor)
+        .record(&TxnAuditSink::request(&txn, actor))
         .await?;
     }
     txn.commit().await?;

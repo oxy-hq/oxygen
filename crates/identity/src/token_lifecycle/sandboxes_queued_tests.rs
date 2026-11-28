@@ -66,18 +66,16 @@ fn queued(org_n: u128, handle: &str) -> QueuedSandbox {
     }
 }
 
-fn rows(
+fn rows_of(
     token: &api_tokens::Model,
     grants: &[api_token_grants::Model],
     queued: &[QueuedSandbox],
-) -> Vec<AuditEntry> {
-    let context = AuditContext::default();
-    let base = || system_entry(EXPIRED_SANDBOXES_QUEUED, &context);
-    entries(token, at(9), grants, queued, base)
+) -> Vec<AuditRow> {
+    rows(token, at(9), grants, queued)
 }
 
 /// The whole row as it could be read: every field, metadata included.
-fn serialised(row: &AuditEntry) -> String {
+fn serialised(row: &AuditRow) -> String {
     format!("{row:?} {}", row.metadata)
 }
 
@@ -106,7 +104,7 @@ fn a_row_names_only_the_sandboxes_of_its_own_org() {
         grant(api_token_grants::KIND_APP_SANDBOX, 2),
     ];
     let left = [queued(1, "alpha"), queued(2, "bravo"), queued(2, "charlie")];
-    let rows = rows(&token(17, Some(9)), &grants, &left);
+    let rows = rows_of(&token(17, Some(9)), &grants, &left);
     assert_eq!(rows.len(), 2);
     assert_eq!(
         rows[0].metadata["event_id"], rows[1].metadata["event_id"],
@@ -159,7 +157,7 @@ fn an_org_with_no_sandbox_left_gets_a_row_with_an_empty_list() {
         grant(api_token_grants::KIND_APP_SANDBOX, 2),
     ];
     let left = [queued(2, "bravo")];
-    let rows = rows(&token(9, None), &grants, &left);
+    let rows = rows_of(&token(9, None), &grants, &left);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].org_id, Some(org(1)));
     assert_eq!(rows[0].metadata["sandboxes"], json!([]));
@@ -173,16 +171,17 @@ fn an_org_with_no_sandbox_left_gets_a_row_with_an_empty_list() {
     );
 }
 
-/// Every row says which of the two ended the token and when, and is the
-/// system's; what it says of a sandbox is the app, the name and the run.
+/// Every row says which of the two ended the token and when; what it says of
+/// a sandbox is the app, the name and the run. That the row is the system's is
+/// the sink's to say (`oxy-app-core`'s `audit/sink_tests.rs`), and
+/// `token_ended` hands in the system sink.
 #[test]
 fn the_detail_names_what_ended_the_token_and_each_sandbox() {
     let grants = [grant(api_token_grants::KIND_APP_SANDBOX, 2)];
-    let rows = rows(&token(17, Some(9)), &grants, &[queued(2, "a")]);
+    let rows = rows_of(&token(17, Some(9)), &grants, &[queued(2, "a")]);
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     assert_eq!(row.action, "token.expired_sandboxes_queued");
-    assert_eq!(row.actor_email, "system");
     assert_eq!(row.target_id, Some(Uuid::from_u128(0x70).to_string()));
     let body = &row.metadata;
     assert_eq!(body["token_kind"], "sandbox_agent");

@@ -27,6 +27,7 @@
 
 use chrono::{DateTime, Utc};
 use entity::{api_tokens, apps};
+use oxy_app_core::audit::{AuditContext, TxnAuditSink};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait, Statement,
@@ -174,7 +175,10 @@ async fn delete_sandboxes_of(
         return Ok(0);
     }
     let named: Vec<QueuedSandbox> = queued.iter().map(Queued::named).collect();
-    sandboxes_queued::record(&txn, &token, ended, &named)
+    // The system wrote it, on the global worker's tick, in this transaction.
+    let context = AuditContext::default();
+    let sink = TxnAuditSink::system(&txn, &context);
+    sandboxes_queued::record(&txn, &sink, &token, ended, &named)
         .await
         .map_err(|e| SandboxError::db("record the ended token's sandboxes", format!("{e:?}")))?;
     txn.commit()

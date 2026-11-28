@@ -10845,7 +10845,6 @@ version = "0.5.162"
 dependencies = [
  "chrono",
  "entity",
- "oxy-app-core",
  "oxy-auth",
  "oxy-shared",
  "sea-orm",

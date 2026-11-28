@@ -12,7 +12,7 @@ use axum::http::HeaderMap;
 use chrono::Utc;
 use entity::prelude::Users;
 use entity::users::UserStatus;
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::github_oidc::{ClaimReject, GithubOidcClaims};
 use oxy_auth::token::ci_mint::{self, PolicyMint};
 use oxy_auth::token::trust_policy::Candidate;
@@ -80,7 +80,7 @@ pub(super) async fn mint(
         detail: exchange_detail(candidate, &recorded, expires_at),
         change: None,
     }
-    .record(&txn, &actor)
+    .record(&TxnAuditSink::request(&txn, &actor))
     .await
     .map_err(|e| Failure::Internal(format!("{e:?}")))?;
     txn.commit().await?;

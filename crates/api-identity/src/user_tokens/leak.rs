@@ -24,7 +24,7 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use entity::api_tokens;
 use oxy::database::client::establish_connection;
-use oxy_app_core::audit::{self, AuditContext};
+use oxy_app_core::audit::{self, AuditContext, TxnAuditSink};
 use oxy_auth::token::format::display_prefix;
 use oxy_auth::token::leak::{self, Decision, LeakStatus, MAX_REPORTS, Presented};
 use sea_orm::{DatabaseConnection, TransactionTrait};
@@ -107,7 +107,7 @@ async fn revoke(
         }),
         change: None,
     }
-    .record_as_system(&txn, &context(headers))
+    .record(&TxnAuditSink::system(&txn, &context(headers)))
     .await?;
     txn.commit().await?;
     oxy_auth::token::cache::invalidate_token(revoked.id);

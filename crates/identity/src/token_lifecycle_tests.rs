@@ -1,6 +1,8 @@
 use super::*;
 use chrono::Utc;
-use oxy_app_core::audit::AuditContext;
+use std::sync::Mutex;
+
+use entity::audit_sink::RecordFuture;
 
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -139,9 +141,8 @@ fn a_legacy_rows_event_names_the_key_it_mirrors() {
     assert_eq!(metadata["api_key_id"], json!(id(1)));
 }
 
-fn rows(event: &Event<'_>, own: impl Fn(Option<Uuid>) -> Own) -> Vec<AuditEntry> {
-    let context = AuditContext::default();
-    event.entries_with(|| system_entry(event.action, &context), own)
+fn rows(event: &Event<'_>, own: impl Fn(Option<Uuid>) -> Own) -> Vec<AuditRow> {
+    event.rows_with(own)
 }
 
 /// What `own` answers for a row is on that row and on no other: its detail
@@ -191,4 +192,102 @@ fn an_expiry_is_rfc3339_or_null() {
     assert_eq!(rfc3339(None), Value::Null);
     let at = Utc::now().fixed_offset();
     assert_eq!(rfc3339(Some(at)), json!(at.to_rfc3339()));
+}
+
+/// Every row names the event's action and the token as its target, and an
+/// event with no org is one row with none.
+#[test]
+fn every_row_is_the_events_action_on_the_token() {
+    let token = token(false);
+    let rows = event(&token, vec![id(10), id(20)]).rows();
+    assert_eq!(rows.len(), 2);
+    for (row, org) in rows.iter().zip([id(10), id(20)]) {
+        assert_eq!(row.action, CREATED);
+        assert_eq!(row.org_id, Some(org));
+        assert_eq!(row.target_type.as_deref(), Some(TOKEN_TARGET_TYPE));
+        assert_eq!(row.target_id, Some(id(1).to_string()));
+        assert_eq!(row.target_label.as_deref(), Some("deploy"));
+    }
+    let unscoped = event(&token, vec![]).rows();
+    assert_eq!(unscoped.len(), 1);
+    assert_eq!(unscoped[0].org_id, None);
+}
+
+/// A sink that keeps what it is given, and fails the write numbered
+/// `fail_at` (0-based), if any.
+struct Recording {
+    rows: Mutex<Vec<AuditRow>>,
+    fail_at: Option<usize>,
+}
+
+impl Recording {
+    fn new(fail_at: Option<usize>) -> Self {
+        Self {
+            rows: Mutex::new(Vec::new()),
+            fail_at,
+        }
+    }
+
+    fn written(&self) -> Vec<AuditRow> {
+        self.rows.lock().expect("rows").clone()
+    }
+}
+
+impl AuditSink for Recording {
+    fn record(&self, row: AuditRow) -> RecordFuture<'_> {
+        let mut rows = self.rows.lock().expect("rows");
+        let result = if Some(rows.len()) == self.fail_at {
+            Err(DbErr::Custom("write refused".into()))
+        } else {
+            rows.push(row);
+            Ok(())
+        };
+        Box::pin(std::future::ready(result))
+    }
+}
+
+fn run<F: std::future::Future>(future: F) -> F::Output {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut future = std::pin::pin!(future);
+    loop {
+        if let std::task::Poll::Ready(out) = future.as_mut().poll(&mut cx) {
+            return out;
+        }
+    }
+}
+
+/// `record` hands every row of the event to the sink, in order, and each one
+/// carries the row's own detail.
+#[test]
+fn record_writes_every_row_through_the_sink_in_order() {
+    let token = token(false);
+    let event = event(&token, vec![id(10), id(20), id(30)]);
+    let sink = Recording::new(None);
+    run(event.record_with(&sink, |org| {
+        Own::detail(json!({ "mine": org.map(|o| o.to_string()) }))
+    }))
+    .expect("every write succeeds");
+    let written = sink.written();
+    let orgs: Vec<Option<Uuid>> = written.iter().map(|row| row.org_id).collect();
+    assert_eq!(orgs, vec![Some(id(10)), Some(id(20)), Some(id(30))]);
+    for row in &written {
+        assert_eq!(
+            row.metadata["mine"],
+            json!(row.org_id.map(|o| o.to_string()))
+        );
+    }
+}
+
+/// A write the sink refuses fails the event: the error comes back, and no
+/// row after it is written. Nothing is dropped quietly.
+#[test]
+fn a_refused_write_fails_the_event_and_stops_it() {
+    let token = token(false);
+    let event = event(&token, vec![id(10), id(20), id(30)]);
+    let sink = Recording::new(Some(1));
+    let err = run(event.record(&sink)).expect_err("the second write is refused");
+    assert!(err.to_string().contains("write refused"), "{err}");
+    let written = sink.written();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0].org_id, Some(id(10)));
 }

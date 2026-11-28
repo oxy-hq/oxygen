@@ -4,7 +4,8 @@
 //!
 //! One event per token, written with the system as its actor in the
 //! transaction that marks the sandboxes (`oxy-api-custom-apps`'
-//! `custom_apps_sandboxes::token_ended`).
+//! `custom_apps_sandboxes::token_ended`, which hands in the sink bound to
+//! both: `TxnAuditSink::system`).
 //! Like every lifecycle event it gets one row per org that concerns it, here
 //! the org of each app the token was granted, and the rows share one
 //! `event_id`.
@@ -17,6 +18,7 @@
 //! no sandbox left still gets its row, with an empty list.
 
 use chrono::{DateTime, Utc};
+use entity::audit_sink::{AuditRow, AuditSink};
 use entity::{api_token_grants, api_tokens};
 use oxy_auth::token::personal;
 use oxy_shared::errors::OxyError;
@@ -24,8 +26,7 @@ use sea_orm::ConnectionTrait;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{EXPIRED_SANDBOXES_QUEUED, Event, Own, system_entry};
-use oxy_app_core::audit::{AuditContext, AuditEntry, record_in_txn};
+use super::{EXPIRED_SANDBOXES_QUEUED, Event, Own, write};
 
 /// `metadata.reason`, and the teardown's reason.
 const REASON: &str = "token_ended";
@@ -89,14 +90,13 @@ fn own_detail(org: Option<Uuid>, queued: &[QueuedSandbox]) -> Own {
     Own::detail(json!({ "sandboxes": sandboxes }))
 }
 
-/// The event's rows, one per concerned org, each started from `base`.
-fn entries(
+/// The event's rows, one per concerned org.
+fn rows(
     token: &api_tokens::Model,
     ended_at: DateTime<Utc>,
     grants: &[api_token_grants::Model],
     queued: &[QueuedSandbox],
-    base: impl Fn() -> AuditEntry,
-) -> Vec<AuditEntry> {
+) -> Vec<AuditRow> {
     Event {
         action: EXPIRED_SANDBOXES_QUEUED,
         token,
@@ -104,25 +104,23 @@ fn entries(
         detail: shared_detail(token, ended_at),
         change: None,
     }
-    .entries_with(base, |org| own_detail(org, queued))
+    .rows_with(|org| own_detail(org, queued))
 }
 
-/// Write the event for `token`, which ended at `ended_at`, in `txn`.
+/// Write the event for `token`, which ended at `ended_at`: its grants are
+/// read in `txn`, and its rows written through `sink`, which the caller binds
+/// to that same transaction and to the system as the actor.
 pub async fn record<C: ConnectionTrait>(
     txn: &C,
+    sink: &dyn AuditSink,
     token: &api_tokens::Model,
     ended_at: DateTime<Utc>,
     queued: &[QueuedSandbox],
 ) -> Result<(), OxyError> {
     let grants = personal::grants_for(txn, &[token.id]).await?;
-    let context = AuditContext::default();
-    let base = || system_entry(EXPIRED_SANDBOXES_QUEUED, &context);
-    for entry in entries(token, ended_at, &grants, queued, base) {
-        record_in_txn(txn, entry)
-            .await
-            .map_err(|e| OxyError::DBError(e.to_string()))?;
-    }
-    Ok(())
+    write(sink, rows(token, ended_at, &grants, queued))
+        .await
+        .map_err(|e| OxyError::DBError(e.to_string()))
 }
 
 #[cfg(test)]

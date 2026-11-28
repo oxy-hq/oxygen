@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use entity::prelude::Workspaces;
 use entity::{api_tokens, service_accounts, workspaces};
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::ExtendTo;
 use oxy_auth::token::StoredKind;
 use oxy_auth::token::account_access::{AccountRole, CreateAccountTokenBody};
@@ -105,7 +105,7 @@ async fn record<C: ConnectionTrait>(
         detail: with(account_detail(account), extra),
         change,
     }
-    .record(txn, actor)
+    .record(&TxnAuditSink::request(txn, actor))
     .await?;
     Ok(())
 }

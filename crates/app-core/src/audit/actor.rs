@@ -27,6 +27,11 @@ use uuid::Uuid;
 use super::{ActorType, AuditContext, AuditEntry};
 use crate::forwarded::client_ip;
 
+// The kernel audit port's implementation: who acted, added to a domain's row.
+#[path = "sink.rs"]
+mod sink;
+pub use sink::TxnAuditSink;
+
 /// The request-id header the outermost middleware stamps (`oxy-shared`'s
 /// `request_id::HEADER`; spelled here because this crate does not depend on it).
 const REQUEST_ID_HEADER: &str = "x-oxy-request-id";

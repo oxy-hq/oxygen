@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use entity::api_tokens;
-use oxy_app_core::audit::AuditContext;
+use oxy_app_core::audit::{AuditContext, TxnAuditSink};
 use oxy_auth::token::hygiene::{self, UNUSED_DAYS, UNUSED_REASON};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde_json::json;
@@ -136,7 +136,7 @@ async fn expire_one(
         }),
         change: Some((json!({ "expires_at": old }), json!({ "expires_at": new }))),
     }
-    .record_as_system(&txn, &AuditContext::default())
+    .record(&TxnAuditSink::system(&txn, &AuditContext::default()))
     .await?;
     txn.commit().await?;
     oxy_auth::token::cache::invalidate_token(row.id);

@@ -74,6 +74,10 @@ pub mod filters;
 // production implementation is `oxy_platform::ProcessPlatformDb`.
 pub mod platform_db;
 
+// The kernel driven port for audit rows; the production implementation is
+// `oxy_app_core::audit::TxnAuditSink`.
+pub mod audit_sink;
+
 #[cfg(test)]
 mod typed_column_guard;
 

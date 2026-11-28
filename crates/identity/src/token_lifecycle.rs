@@ -18,8 +18,11 @@
 //! truncated and how many orgs the token reaches. A token that reaches no org
 //! at all still gets one row, with no org.
 //!
-//! Written with `record_in_txn`, in the transaction that changes the token: the
-//! change and the row that says who made it commit together. Rows name the
+//! Written through an [`AuditSink`] (the kernel port; `oxy_app_core::audit::
+//! TxnAuditSink` in production) that the caller binds to the transaction that
+//! changes the token and to who acted: the change and the row that says who
+//! made it commit together. The sink is a required argument, so a write with
+//! none does not compile, and a failed write fails the event. Rows name the
 //! token by id and non-secret prefix — **never the secret**.
 //!
 //! **A row holds nothing of another org.** What is about the token alone (its
@@ -30,9 +33,8 @@
 //! one for a token's grants.
 //!
 //! Rows no request wrote (a leak report, the token sweeper, the sandbox sweep)
-//! are written as the system: [`system_entry`], [`Event::record_as_system`],
-//! both in `system.rs`, the one file `call_sites_guard` lets build an entry
-//! without `AuditEntry::for_request`.
+//! are written as the system: the caller hands in the sink's system actor
+//! (`TxnAuditSink::system`). Who acted is never this crate's to say.
 
 use chrono::{DateTime, FixedOffset};
 use entity::prelude::OrgMembers;
@@ -42,12 +44,9 @@ use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use oxy_app_core::audit::{AuditEntry, RequestActor, TOKEN_TARGET_TYPE, record_in_txn};
+use entity::audit_sink::{AuditRow, AuditSink, TOKEN_TARGET_TYPE};
 
 pub mod sandboxes_queued;
-mod system;
-
-pub use system::system_entry;
 
 /// The most orgs one lifecycle event is written to. A user in more orgs than
 /// this is staff-shaped, and fifty chained inserts is already a long
@@ -181,22 +180,16 @@ impl Event<'_> {
             .collect()
     }
 
-    /// The event's rows, each started from `base` — the request's actor, or
-    /// for a row no request wrote, the system ([`system_entry`]).
-    pub fn entries_from(&self, base: impl Fn() -> AuditEntry) -> Vec<AuditEntry> {
-        self.entries_with(base, |_| Own::default())
+    /// The event's rows. Who acted is not on them: the sink adds it.
+    pub fn rows(&self) -> Vec<AuditRow> {
+        self.rows_with(|_| Own::default())
     }
 
-    /// [`Self::entries_from`], with what `own` answers for a row's org on that
-    /// row alone: its detail merged over the row's metadata, its change as
-    /// the row's before and after. The rows still share one `event_id`. An
-    /// `own` that answers nothing leaves the row as [`Self::entries_from`]
-    /// writes it.
-    pub fn entries_with(
-        &self,
-        base: impl Fn() -> AuditEntry,
-        own: impl Fn(Option<Uuid>) -> Own,
-    ) -> Vec<AuditEntry> {
+    /// [`Self::rows`], with what `own` answers for a row's org on that row
+    /// alone: its detail merged over the row's metadata, its change as the
+    /// row's before and after. The rows still share one `event_id`. An `own`
+    /// that answers nothing leaves the row as [`Self::rows`] writes it.
+    pub fn rows_with(&self, own: impl Fn(Option<Uuid>) -> Own) -> Vec<AuditRow> {
         let shared = self.metadata(Uuid::new_v4());
         self.row_orgs()
             .into_iter()
@@ -206,48 +199,50 @@ impl Event<'_> {
                 if let (Value::Object(row), Value::Object(detail)) = (&mut metadata, detail) {
                     row.extend(detail);
                 }
-                let mut entry = base()
-                    .target(
-                        TOKEN_TARGET_TYPE,
-                        self.token.id.to_string(),
-                        self.token.name.clone(),
-                    )
-                    .metadata(metadata);
-                if let Some((before, after)) = change.or_else(|| self.change.clone()) {
-                    entry = entry.change(before, after);
-                }
-                match org {
-                    Some(org) => entry.org(org),
-                    None => entry,
+                let (before, after) = match change.or_else(|| self.change.clone()) {
+                    Some((before, after)) => (Some(before), Some(after)),
+                    None => (None, None),
+                };
+                AuditRow {
+                    action: self.action,
+                    org_id: org,
+                    target_type: Some(TOKEN_TARGET_TYPE.to_string()),
+                    target_id: Some(self.token.id.to_string()),
+                    target_label: Some(self.token.name.clone()),
+                    metadata,
+                    before,
+                    after,
                 }
             })
             .collect()
     }
 
-    /// Write the event's rows in `txn`. A failed write fails the request: the
-    /// token never changes without the row that says who changed it.
-    pub async fn record<C: ConnectionTrait>(
-        &self,
-        txn: &C,
-        actor: &RequestActor,
-    ) -> Result<(), DbErr> {
-        self.record_with(txn, actor, |_| Own::default()).await
+    /// Write the event's rows through `sink`, which the caller bound to the
+    /// transaction that changes the token and to who acted. A failed write
+    /// fails the request: the token never changes without the row that says
+    /// who changed it.
+    pub async fn record(&self, sink: &dyn AuditSink) -> Result<(), DbErr> {
+        self.record_with(sink, |_| Own::default()).await
     }
 
     /// [`Self::record`], for an event that says something of one org: `own`
-    /// answers what each org's row alone holds ([`Self::entries_with`]).
-    pub async fn record_with<C: ConnectionTrait>(
+    /// answers what each org's row alone holds ([`Self::rows_with`]).
+    pub async fn record_with(
         &self,
-        txn: &C,
-        actor: &RequestActor,
+        sink: &dyn AuditSink,
         own: impl Fn(Option<Uuid>) -> Own,
     ) -> Result<(), DbErr> {
-        let base = || AuditEntry::for_request(actor, self.action);
-        for entry in self.entries_with(base, own) {
-            record_in_txn(txn, entry).await?;
-        }
-        Ok(())
+        write(sink, self.rows_with(own)).await
     }
+}
+
+/// Write `rows` through `sink` in order; the first failed write stops the
+/// event and is returned.
+async fn write(sink: &dyn AuditSink, rows: Vec<AuditRow>) -> Result<(), DbErr> {
+    for row in rows {
+        sink.record(row).await?;
+    }
+    Ok(())
 }
 
 /// Every org `user_id` belongs to — an all-access token's reach.

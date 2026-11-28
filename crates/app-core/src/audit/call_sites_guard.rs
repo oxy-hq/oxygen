@@ -38,10 +38,12 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
          app itself (a schedule, a webhook, a queued run), not the HTTP request",
     ),
     (
-        "identity/src/token_lifecycle/system.rs",
-        "token lifecycle rows no request wrote: a leak report (public, nothing \
+        "app-core/src/audit/sink.rs",
+        "`TxnAuditSink::system`, the system actor of the kernel audit port: the \
+         token lifecycle rows no request wrote, a leak report (public, nothing \
          authenticated), the token sweeper on the global worker's tick, and the \
-         sandbox maintenance loop ending a dead token's sandboxes",
+         sandbox maintenance loop ending a dead token's sandboxes; its request \
+         actor goes through `for_request`",
     ),
     (
         "api-custom-apps/src/custom_apps_sandboxes/expiry_audit.rs",
@@ -59,6 +61,29 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
         "api-identity/src/oidc_exchange/reject.rs",
         "a refused OIDC exchange: nothing authenticated, so there is no user and no \
          credential to build a request actor from",
+    ),
+];
+
+/// The system actor of the kernel audit port: a row it writes reads as no
+/// user and no token, exactly as a bare `AuditEntry::new` does.
+const SYSTEM_SINK: &str = "TxnAuditSink::system(";
+
+/// Files allowed `TxnAuditSink::system`, relative to `crates/`, each with the
+/// reason no request actor exists there. Same contract as [`NO_REQUEST_ACTOR`]:
+/// not a backlog to grow, and an entry whose file stops calling it fails.
+const SYSTEM_SINK_CALLERS: &[(&str, &str)] = &[
+    (
+        "api-identity/src/user_tokens/leak.rs",
+        "a leak report revoking a token: public, nothing authenticated",
+    ),
+    (
+        "api-identity/src/user_tokens/hygiene.rs",
+        "the token sweeper expiring an unused token, on the global worker's tick",
+    ),
+    (
+        "api-custom-apps/src/custom_apps_sandboxes/token_ended.rs",
+        "the sandbox maintenance loop ending a dead token's sandboxes, on the \
+         global worker's tick",
     ),
 ];
 
@@ -268,6 +293,52 @@ fn scan() -> Scan {
     }
     s.offenders.sort();
     s
+}
+
+/// Every non-test file whose code calls [`SYSTEM_SINK`], sorted.
+fn system_sink_callers() -> Vec<String> {
+    let root = crates_root();
+    let mut files = Vec::new();
+    rust_sources(&root, &mut files);
+    let mut callers: Vec<String> = files
+        .iter()
+        .map(|path| (relative(&root, path), path))
+        .filter(|(rel, _)| !is_test_file(rel))
+        .filter(|(_, path)| {
+            std::fs::read_to_string(path).is_ok_and(|src| code_only(&src).contains(SYSTEM_SINK))
+        })
+        .map(|(rel, _)| rel)
+        .collect();
+    callers.sort();
+    callers
+}
+
+/// A request handler writing through the system sink would record a person's
+/// action, made with a key or token, as the system's. Only the named loops
+/// may, and the list cannot go stale.
+#[test]
+fn only_the_named_system_loops_write_through_the_system_sink() {
+    let callers = system_sink_callers();
+    let allowed = |rel: &String| SYSTEM_SINK_CALLERS.iter().any(|(f, _)| f == rel);
+    let offenders: Vec<&String> = callers.iter().filter(|rel| !allowed(rel)).collect();
+    assert!(
+        offenders.is_empty(),
+        "these files write audit rows as the system (`TxnAuditSink::system`): {offenders:?}\n\
+         A request handler takes the `RequestActor` and uses `TxnAuditSink::request`. If \
+         there is genuinely no request, add the file to SYSTEM_SINK_CALLERS in \
+         crates/app-core/src/audit/call_sites_guard.rs with the reason."
+    );
+    for (file, reason) in SYSTEM_SINK_CALLERS {
+        assert!(
+            callers.iter().any(|rel| rel == file),
+            "{file} is in SYSTEM_SINK_CALLERS but no longer calls `TxnAuditSink::system`. \
+             Remove the entry."
+        );
+        assert!(
+            !reason.trim().is_empty(),
+            "{file}: an exemption needs a reason"
+        );
+    }
 }
 
 #[test]

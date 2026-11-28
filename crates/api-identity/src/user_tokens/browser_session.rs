@@ -35,7 +35,7 @@ use entity::prelude::{ApiTokens, Users};
 use entity::users::UserStatus;
 use entity::{api_tokens, users};
 use oxy::database::client::establish_connection;
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::token::browser_session::{self, SESSION_TTL_SECS, Session};
 use oxy_auth::token::{
     CredentialContext, StoredKind, authenticate_browser_session, presents_api_token,
@@ -203,7 +203,7 @@ async fn record_opened(
         detail: json!({ "session_expires_at": session.expires_at.to_rfc3339() }),
         change: None,
     }
-    .record(db, &actor)
+    .record(&TxnAuditSink::request(db, &actor))
     .await?;
     Ok(())
 }

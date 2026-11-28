@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use entity::prelude::{Apps, Organizations};
 use entity::{api_tokens, apps, organizations};
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::token::StoredKind;
 use oxy_auth::token::sandbox::{self as mint, GrantedApp, MintRequest, NewSandboxToken};
 use oxy_authz::{Cap, Scope};
@@ -240,7 +240,9 @@ pub(super) async fn create(
         detail,
         change: None,
     }
-    .record_with(&txn, actor, |org| mint_in(&access, &granted, org))
+    .record_with(&TxnAuditSink::request(&txn, actor), |org| {
+        mint_in(&access, &granted, org)
+    })
     .await?;
     txn.commit().await?;
     Ok(Minted {

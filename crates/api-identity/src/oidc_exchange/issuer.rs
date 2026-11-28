@@ -29,6 +29,7 @@
 
 use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
+use oxy_app_core::audit::TxnAuditSink;
 use oxy_auth::github_oidc::{ClaimReject, OidcError, jti};
 use oxy_auth::token::issuer_trust_mint::{self, IssuerMint};
 use oxy_auth::token::issuer_trust_policy::{self, IssuerCandidate};
@@ -175,7 +176,7 @@ async fn mint(
         detail: exchange_detail(candidate, &recorded, expires_at),
         change: None,
     }
-    .record(&txn, &actor)
+    .record(&TxnAuditSink::request(&txn, &actor))
     .await
     .map_err(|e| Failure::Internal(format!("{e:?}")))?;
     txn.commit().await?;

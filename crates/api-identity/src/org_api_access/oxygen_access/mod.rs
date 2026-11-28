@@ -41,7 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use entity::apps;
 use entity::prelude::Apps;
-use oxy_app_core::audit::{self, AuditEntry, RequestActor};
+use oxy_app_core::audit::{self, AuditEntry, RequestActor, TxnAuditSink};
 use oxy_auth::token::app_access::{self as store, Approved, ApprovedAction};
 use oxy_authz::Action;
 use oxy_custom_apps::platform_access::{Asked, declared};
@@ -213,7 +213,7 @@ async fn record_approval(
             detail: approval_detail(app, &account.name, added),
             change: None,
         }
-        .record(txn, actor)
+        .record(&TxnAuditSink::request(txn, actor))
         .await?;
     }
     Ok(())
@@ -257,7 +257,7 @@ pub(super) async fn revoke(
         }),
         change: None,
     }
-    .record(&txn, actor)
+    .record(&TxnAuditSink::request(&txn, actor))
     .await?;
     txn.commit().await?;
     dto(db, &app).await

@@ -74,7 +74,7 @@ use chrono::Utc;
 use entity::prelude::Users;
 use entity::users::UserStatus;
 use oxy::database::client::establish_connection;
-use oxy_app_core::audit::RequestActor;
+use oxy_app_core::audit::{RequestActor, TxnAuditSink};
 use oxy_auth::extractor::SessionOnly;
 use oxy_auth::token::agent as agent_mint;
 use oxy_auth::token::cli_login::{self, Redeemed};
@@ -453,7 +453,10 @@ async fn mint(
         ),
         change: None,
     }
-    .record_with(&txn, actor, access_audit::created(&access))
+    .record_with(
+        &TxnAuditSink::request(&txn, actor),
+        access_audit::created(&access),
+    )
     .await?;
     txn.commit().await?;
 
@@ -486,7 +489,7 @@ async fn retire_earlier<C: ConnectionTrait>(
             detail: json!({ "reason": SUPERSEDED }),
             change: None,
         }
-        .record(txn, actor)
+        .record(&TxnAuditSink::request(txn, actor))
         .await?;
         retired.push(token.id);
     }

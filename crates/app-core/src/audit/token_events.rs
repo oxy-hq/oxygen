@@ -22,8 +22,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-/// The `target_type` every token lifecycle event carries.
-pub const TOKEN_TARGET_TYPE: &str = "api_token";
+/// The `target_type` every token lifecycle event carries. Defined beside the
+/// audit row vocabulary in the kernel, where the writers name it.
+pub use entity::audit_sink::TOKEN_TARGET_TYPE;
 
 /// Rows that are about `token_id`, either way.
 pub(super) fn about_token(token_id: Uuid) -> Condition {

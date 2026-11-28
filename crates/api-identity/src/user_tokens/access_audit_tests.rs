@@ -4,10 +4,9 @@
 //! `crates/server/tests/integration/token_auth/audit_per_org.rs`.
 
 use chrono::Utc;
-use oxy_app_core::audit::{AuditContext, AuditEntry};
+use entity::audit_sink::AuditRow;
 
 use super::*;
-use crate::user_tokens::audit::system_entry;
 use crate::user_tokens::audit::{CREATED, Event, GRANTS_CHANGED};
 
 fn org(n: u128) -> Uuid {
@@ -72,8 +71,7 @@ fn rows(
     token: &api_tokens::Model,
     orgs: &[u128],
     own: impl Fn(Option<Uuid>) -> Own,
-) -> Vec<AuditEntry> {
-    let context = AuditContext::default();
+) -> Vec<AuditRow> {
     Event {
         action,
         token,
@@ -81,11 +79,11 @@ fn rows(
         detail: json!({ "expires_at": null }),
         change: None,
     }
-    .entries_with(|| system_entry(action, &context), own)
+    .rows_with(own)
 }
 
 /// Everything a row holds: every field, its metadata, its before and after.
-fn serialised(row: &AuditEntry) -> String {
+fn serialised(row: &AuditRow) -> String {
     format!("{row:?}")
 }
 

@@ -101,7 +101,6 @@ fn a_mints_row_names_only_the_apps_of_its_own_org() {
         })
         .collect();
     let access = Access::of(&token, &stored);
-    let context = oxy_app_core::audit::AuditContext::default();
     let rows = Event {
         action: audit::CREATED,
         token: &token,
@@ -109,10 +108,7 @@ fn a_mints_row_names_only_the_apps_of_its_own_org() {
         detail: json!({ "expires_at": "soon", "hostname": "build-box" }),
         change: None,
     }
-    .entries_with(
-        || audit::system_entry(audit::CREATED, &context),
-        |org| mint_in(&access, &granted, org),
-    );
+    .rows_with(|org| mint_in(&access, &granted, org));
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].metadata["event_id"], rows[1].metadata["event_id"]);
 
