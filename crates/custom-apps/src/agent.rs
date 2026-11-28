@@ -104,7 +104,10 @@ async fn agent_app_role(
         oxy_authz::Resource::app_with_visibility(app.id, app.org_id, app.is_restricted())
             .published_from(app.project_id)
             .in_environment(facet);
-    let admin = match oxy_server_authz::loader::load_principal_facts_scoped(db, caller, false).await
+    let admin = match caller
+        .authz()
+        .load_principal_facts_scoped(db, caller, false)
+        .await
     {
         Some(facts) => oxy_authz::allows(&facts, oxy_authz::Action::AppAdmin, &resource),
         // Facts unknown (a DB blip) → not admin. Fail closed.

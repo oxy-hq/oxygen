@@ -22,8 +22,6 @@ use entity::prelude::{OrgMembers, PartnerPublishConsent};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use oxy_server_authz::partner_authz::{PartnerCapability, partner_for_org, resolve_scope};
-
 /// Who is trying to publish, reduced to what the decision needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PublishActor {
@@ -152,13 +150,10 @@ pub async fn resolve_actor(
     // silently voids scope on the one verb an App Operator exists to perform. There is no
     // `enforce` conjunction here to catch it the way `custom_apps_gates` has: this
     // function resolves WHICH actor you are, and the answer decides the rest.
-    if oxy_server_authz::globals::platform_reaches(
-        db,
-        caller,
-        oxy_authz::Cap::ManageApps,
-        target_org_id,
-    )
-    .await
+    if caller
+        .authz()
+        .platform_reaches(db, caller, oxy_authz::Cap::ManageApps, target_org_id)
+        .await
     {
         return PublishActor::Staff;
     }
@@ -170,17 +165,21 @@ pub async fn resolve_actor(
         .one(db)
         .await
     {
-        return PublishActor::OrgMember(oxy_server_authz::cap_org_role(m.role, ceiling));
+        return PublishActor::OrgMember(contracts_authz::cap_org_role(m.role, ceiling));
     }
 
     // A partner of the target org: does a partner manage it, and does THIS user
     // hold a role there that (a) grants manage_apps and (b) is assigned this client?
-    if let Some(partner_org_id) = partner_for_org(db, target_org_id).await
-        && let Some(scope) = resolve_scope(db, partner_org_id, caller).await
+    // The partner's ceiling only, with no token term (`partner_reach`); `None` is
+    // "no partner manages it, or the caller resolves no scope there": an outsider.
+    if let Some(reach) = caller
+        .authz()
+        .partner_reach(db, caller, target_org_id, oxy_authz::Cap::ManageApps)
+        .await
     {
         return PublishActor::Partner {
-            manages_target: scope.org_ids.contains(&target_org_id),
-            can_manage_apps: scope.allows(PartnerCapability::ManageApps),
+            manages_target: reach.manages_target,
+            can_manage_apps: reach.holds_cap,
         };
     }
 

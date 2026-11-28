@@ -129,14 +129,13 @@ async fn decide_checked(
     } else {
         None
     };
-    let existing_allow = oxy_server_authz::globals::platform_reaches_checked(
-        db,
-        caller,
-        oxy_authz::Cap::DevelopApps,
-        app.org_id,
-    )
-    .await?;
-    let facts = oxy_server_authz::loader::load_principal_facts(db, caller)
+    let existing_allow = caller
+        .authz()
+        .platform_reaches_checked(db, caller, oxy_authz::Cap::DevelopApps, app.org_id)
+        .await?;
+    let facts = caller
+        .authz()
+        .load_principal_facts(db, caller)
         .await
         .ok_or_else(|| DbErr::Custom("the caller's facts could not be read".into()))?;
     Ok(oxy_authz::enforce(
@@ -220,22 +219,17 @@ async fn decide_in(
     facet: Option<oxy_authz::EnvFacet>,
 ) -> bool {
     let resource = resource_in(app, facet);
-    let existing_allow = oxy_server_authz::globals::platform_reaches(
-        db,
-        caller,
-        oxy_authz::Cap::DevelopApps,
-        app.org_id,
-    )
-    .await;
-    oxy_server_authz::enforce_for(
-        db,
-        caller,
-        "custom_app_non_production",
-        oxy_authz::Action::AppNonProduction,
+    let existing_allow = caller
+        .authz()
+        .platform_reaches(db, caller, oxy_authz::Cap::DevelopApps, app.org_id)
+        .await;
+    let ask = contracts_authz::Enforce {
+        label: "custom_app_non_production",
+        action: oxy_authz::Action::AppNonProduction,
         resource,
         existing_allow,
-    )
-    .await
+    };
+    caller.authz().enforce_for(db, caller, ask).await
 }
 
 #[cfg(test)]

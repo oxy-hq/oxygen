@@ -19,6 +19,9 @@ agentic-connector = { workspace = true }
 # run and queue rows `automation_run::settle`'s orphan reconcile reads.
 agentic-runtime = { workspace = true }
 airhouse = { workspace = true, features = ["connector", "tenant"] }
+# The enforcement port: every authorization read this crate makes goes through
+# the caller's enforcer (`caller.authz()`), and the role caps (C3b).
+contracts-authz = { workspace = true }
 entity = { workspace = true }
 oxy = { workspace = true }
 oxy-app-core = { workspace = true }

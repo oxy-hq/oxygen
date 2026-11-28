@@ -121,13 +121,10 @@ pub async fn user_can_access_app(
     // taken for "not staff". It decides nothing the customer path settles on its
     // own, so a member is still admitted; only when that path refuses too does
     // the failure surface, as an `Err` for the caller to retry or refuse.
-    let staff = oxy_server_authz::globals::platform_reaches_checked(
-        db,
-        caller,
-        oxy_authz::Cap::DevelopApps,
-        app.org_id,
-    )
-    .await;
+    let staff = caller
+        .authz()
+        .platform_reaches_checked(db, caller, oxy_authz::Cap::DevelopApps, app.org_id)
+        .await;
     let staff_allowed = match staff {
         Ok(true) => !is_oxy_locked_down(db, app.project_id).await?,
         Ok(false) | Err(_) => false,
@@ -177,7 +174,8 @@ pub async fn user_can_access_app(
     // Refused without knowing whether the caller is staff: that is no verdict,
     // so it is neither answered nor cached.
     if !allowed && let Err(e) = staff {
-        return Err(e);
+        // The port's `AuthzError` carries the `DbErr` unchanged.
+        return Err(e.into());
     }
 
     if cacheable {
@@ -294,15 +292,18 @@ pub async fn resolve_app_role(
     let resource =
         oxy_authz::Resource::app_with_visibility(app.id, app.org_id, app.is_restricted())
             .published_from(app.project_id);
-    let (is_admin, facts_loaded) =
-        match oxy_server_authz::loader::load_principal_facts_scoped(db, caller, false).await {
-            Some(facts) => (
-                oxy_authz::allows(&facts, oxy_authz::Action::AppAdmin, &resource),
-                true,
-            ),
-            // Facts unknown (a DB blip) → not admin. Fail closed.
-            None => (false, false),
-        };
+    let (is_admin, facts_loaded) = match caller
+        .authz()
+        .load_principal_facts_scoped(db, caller, false)
+        .await
+    {
+        Some(facts) => (
+            oxy_authz::allows(&facts, oxy_authz::Action::AppAdmin, &resource),
+            true,
+        ),
+        // Facts unknown (a DB blip) → not admin. Fail closed.
+        None => (false, false),
+    };
     if is_admin {
         return Ok(Some(app_members::ROLE_ADMIN));
     }
@@ -349,8 +350,7 @@ async fn memo_eligibility(
     db: &DatabaseConnection,
     caller: &oxy_server_authz::Caller,
 ) -> MemoEligibility {
-    let Some(standing) = oxy_server_authz::globals::platform_standing_checked(db, caller).await
-    else {
+    let Some(standing) = caller.authz().platform_standing_checked(db, caller).await else {
         return MemoEligibility::Unknown;
     };
     if standing.flags.is_staff() {
@@ -621,7 +621,10 @@ fn legacy_only_emails(legacy: Option<&str>, current: Option<&str>) -> Vec<String
 /// deployment still setting only that one would otherwise seed nobody and
 /// discover it as "the admin UI is empty", so its presence is called out at
 /// startup — see [`warn_on_removed_legacy_admins_env`].
-pub async fn bootstrap_app_admins_from_env(db: &DatabaseConnection) -> Result<(), DbErr> {
+pub async fn bootstrap_app_admins_from_env(
+    db: &DatabaseConnection,
+    authz: &dyn contracts_authz::AuthzEnforcer,
+) -> Result<(), DbErr> {
     warn_on_removed_legacy_admins_env();
     let Ok(raw) = std::env::var("OXY_GLOBAL_ADMINS") else {
         return Ok(());
@@ -673,7 +676,7 @@ pub async fn bootstrap_app_admins_from_env(db: &DatabaseConnection) -> Result<()
 
     let count = to_insert.len();
     AppAdmins::insert_many(to_insert).exec(db).await?;
-    oxy_server_authz::globals::invalidate_admin_cache();
+    authz.invalidate_admin_cache();
     tracing::info!(
         count,
         "bootstrap_app_admins: seeded {count} global admin(s) from env"

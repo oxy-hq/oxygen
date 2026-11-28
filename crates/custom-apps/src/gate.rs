@@ -32,10 +32,10 @@
 //! viewer is over-refuse for up to a minute after a grant is added; it can
 //! never keep admitting one after a membership, a frontline grant, a partner
 //! ceiling, a lockdown or the workspace's org changed. Staff reach is read
-//! through `oxy_server_authz::globals`, which its own writers invalidate on
-//! the writing replica and which ages out in 60 s elsewhere — the bound
-//! every guard in the product already has. A token that narrows its bearer
-//! reads and writes no term.
+//! through the caller's enforcer (`oxy_server_authz::globals`), which its own
+//! writers invalidate on the writing replica and which ages out in 60 s
+//! elsewhere — the bound every guard in the product already has. A token that
+//! narrows its bearer reads and writes no term.
 //!
 //! What that costs on a warm replica, before the handler's own work: an org
 //! member pays two primary-key-shaped queries (the workspace row,
@@ -559,7 +559,8 @@ async fn load_workspace(
 /// Granularity is deliberately org-wide (a developing partner works across the
 /// client's workspaces) and the grant is the ceiling itself (staff-set), so the
 /// data plane is not separately consent-gated the way publishing is. See
-/// `partner_authz::partner_grants_app_access` (called below).
+/// `partner_authz::partner_grants_app_access` (called below, through the
+/// caller's enforcer).
 ///
 /// The staff term is the SAME call `user_can_access_app` makes — reach named
 /// by capability and org, then the workspace's lockdown switch. It used to be
@@ -587,10 +588,15 @@ async fn shipped_workspace_access(
         Ok(true) => Ok(true),
         Ok(false) => Ok(
             frontline_worker_with_app_grant(db, org_id, caller.user_id, project_id).await
-                || (authz::globals::platform_reaches(db, caller, authz::Cap::DevelopApps, org_id)
+                || (caller
+                    .authz()
+                    .platform_reaches(db, caller, oxy_authz::Cap::DevelopApps, org_id)
                     .await
                     && !is_oxy_locked_down(db, project_id).await.unwrap_or(true))
-                || authz::partner_authz::partner_grants_app_access(db, caller, org_id).await,
+                || caller
+                    .authz()
+                    .partner_grants_app_access(db, caller, org_id)
+                    .await,
         ),
         Err(e) => {
             let failure = DbFailure::classify(&e);
@@ -640,14 +646,16 @@ async fn model_term(
     if cacheable && let Some(term) = cached_model_term(caller.user_id, project_id, org_id) {
         return term;
     }
-    let action = authz::Action::WorkspaceDataAccess;
-    let resource = authz::Resource::workspace(project_id, org_id);
-    let term = authz::loader::load_principal_facts_scoped(db, caller, false)
+    let action = oxy_authz::Action::WorkspaceDataAccess;
+    let resource = oxy_authz::Resource::workspace(project_id, org_id);
+    let term = caller
+        .authz()
+        .load_principal_facts_scoped(db, caller, false)
         .await
         .map(|facts| {
             // `enforce` is the warn-on-disagreement; its verdict is
             // `shipped && allows`, which the caller restates with the term.
-            authz::enforce("gate.custom_app", &facts, action, &resource, shipped);
+            oxy_authz::enforce("gate.custom_app", &facts, action, &resource, shipped);
             oxy_authz::allows(&facts, action, &resource)
         });
     if cacheable {

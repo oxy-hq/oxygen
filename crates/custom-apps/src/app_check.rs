@@ -73,13 +73,10 @@ pub async fn may_check(
     let Some((action, facet)) = asked_for(environment) else {
         return false;
     };
-    let existing_allow = match oxy_server_authz::globals::platform_reaches_checked(
-        db,
-        caller,
-        oxy_authz::Cap::CheckApps,
-        app.org_id,
-    )
-    .await
+    let existing_allow = match caller
+        .authz()
+        .platform_reaches_checked(db, caller, oxy_authz::Cap::CheckApps, app.org_id)
+        .await
     {
         Ok(reaches) => reaches,
         Err(e) => {
@@ -106,7 +103,7 @@ pub async fn may_check(
     if locked {
         return false;
     }
-    let Some(facts) = oxy_server_authz::loader::load_principal_facts(db, caller).await else {
+    let Some(facts) = caller.authz().load_principal_facts(db, caller).await else {
         return false;
     };
     let resource = oxy_authz::Resource::app(app.id, app.org_id).in_environment(facet);

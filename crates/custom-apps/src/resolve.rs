@@ -228,13 +228,10 @@ async fn resolve(
     // Literally the same call, capability and scope, as the access check's
     // staff term — the two drifting apart is a staff viewer silently losing
     // draft previews.
-    let is_staff = oxy_server_authz::globals::platform_reaches(
-        &db,
-        &caller,
-        oxy_authz::Cap::DevelopApps,
-        app.org_id,
-    )
-    .await;
+    let is_staff = caller
+        .authz()
+        .platform_reaches(&db, &caller, oxy_authz::Cap::DevelopApps, app.org_id)
+        .await;
 
     Ok(AppRequest {
         user,
