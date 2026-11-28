@@ -31,11 +31,9 @@
 # through the draining node's pre-aggregation cache, as a served chat does:
 # `just up`'s `oxy serve` has one; a standalone `oxy worker` does not.
 #
-# Five items, a few cases each. Each case checks the one behaviour its item is
+# Six items, a few cases each. Each case checks the one behaviour its item is
 # about (`expect:`), plus an `expected` answer where the numbers are known.
-# Metric tree and anomalies are not here yet. React has the metric-tree tools
-# (named as the FSM names them), but a headless FSM run gets no metric-tree
-# runner until #4556, so the FSM would fail a metric-tree case in an eval.
+# Anomalies are not here yet: react has no anomaly tools.
 #
 #   verified-*  the answer runs a verified query (example_sql/*.sql) as-is.
 #               Prompts repeat each file's `embed:` text.
@@ -46,6 +44,9 @@
 #               otherwise the FSM falls back to the warehouse and fails too.
 #   chart-*     the run draws a chart (an FSM table does not count).
 #   clarify-*   the run stops to ask the user what they mean.
+#   tree-*      the run explains a change with the metric tree (`explain_metric`;
+#               both runtimes use the FSM's tool names). The Demo tree is
+#               orders.net_revenue over order_items; May and June 2026 are complete.
 #
 # Nothing here is expected to fail on react by design. React runs verified
 # queries as written and reads a covering live rollup for a semantic query
@@ -213,3 +214,9 @@ cases:
     tags: [parity, clarify, control]
     expect:
       asks_user: false
+
+  - name: tree-explain-revenue-change
+    prompt: "Why did order revenue change between May 2026 and June 2026?"
+    tags: [parity, metric-tree]
+    expect:
+      tools: [explain_metric]
