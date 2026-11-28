@@ -2,7 +2,7 @@ use agentic_core::tools::ToolError;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::anomaly_store::{AnomalyFilter, AnomalyRecord, AnomalyStore};
+use crate::anomaly_store::{AnomalyFilter, AnomalyRecord, AnomalyStore, AnomalyStoreError};
 use crate::metric_tree_runner::MetricTreeRunner;
 
 use super::{emit_tool_error, emit_tool_input, emit_tool_output};
@@ -61,7 +61,12 @@ async fn list_anomalies(params: Value, ctx: &AnomalyToolContext<'_>) -> Result<V
         .store
         .list(ctx.workspace_id, filter)
         .await
-        .map_err(|e| ToolError::Execution(e.to_string()))?;
+        .map_err(|e| match e {
+            // A bound the store cannot read is the caller's to fix; the
+            // message names the accepted formats.
+            AnomalyStoreError::InvalidFilter(msg) => ToolError::BadParams(msg),
+            e => ToolError::Execution(e.to_string()),
+        })?;
 
     Ok(json!({
         "count": anomalies.len(),

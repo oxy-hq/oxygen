@@ -736,8 +736,8 @@ pub fn anomaly_tools() -> Vec<ToolDef> {
                         "enum": ["day", "week", "month", "quarter"],
                         "description": "Time granularity"
                     },
-                    "period_start": { "type": "string", "description": "ISO 8601 date, e.g. 2024-01-01" },
-                    "period_end": { "type": "string", "description": "ISO 8601 date, e.g. 2024-01-31" }
+                    "period_start": { "type": "string", "description": "First day of the period, YYYY-MM-DD (UTC), e.g. 2024-01-01" },
+                    "period_end": { "type": "string", "description": "Last day of the period, included, YYYY-MM-DD (UTC), e.g. 2024-01-31" }
                 },
                 "required": ["measure", "time_dimension", "granularity", "period_start", "period_end"],
                 "additionalProperties": false

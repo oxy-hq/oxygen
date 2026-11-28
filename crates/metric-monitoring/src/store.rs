@@ -3,7 +3,7 @@ use std::sync::Arc;
 use agentic_analytics::anomaly_store::{
     AnomalyFilter, AnomalyRecord, AnomalyStoreError, DetectAndUpsertResult,
 };
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
 use entity::metric_anomalies::{self, Entity as AnomaliesEntity};
 use sea_orm::ActiveValue::Set;
 use sea_orm::{
@@ -24,6 +24,138 @@ fn parse_utc(s: &str) -> Option<DateTime<Utc>> {
     s.parse::<DateTime<FixedOffset>>()
         .ok()
         .map(|d| d.with_timezone(&Utc))
+}
+
+/// The formats a `period_start` / `period_end` filter bound accepts, named in
+/// the error a caller (and through the tool, the model) sees for any other.
+const BOUND_FORMATS: &str = "a date (YYYY-MM-DD, e.g. 2026-06-01) or an RFC 3339 \
+    timestamp (e.g. 2026-06-01T00:00:00Z)";
+
+/// One bound of [`AnomalyFilter`]'s period, as a caller wrote it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeriodBound {
+    /// A plain `YYYY-MM-DD`: a calendar day, taken in UTC.
+    Date(NaiveDate),
+    /// An RFC 3339 timestamp, converted to UTC.
+    Instant(DateTime<Utc>),
+}
+
+fn parse_bound(field: &str, raw: &str) -> Result<PeriodBound, AnomalyStoreError> {
+    let s = raw.trim();
+    if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Ok(PeriodBound::Date(d));
+    }
+    parse_utc(s).map(PeriodBound::Instant).ok_or_else(|| {
+        AnomalyStoreError::InvalidFilter(format!("{field} {raw:?} is not {BOUND_FORMATS}"))
+    })
+}
+
+/// The row column a [`PeriodCondition`] tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeriodColumn {
+    PeriodStart,
+    PeriodEnd,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeriodCmp {
+    Gte,
+    Lt,
+    Lte,
+}
+
+/// One SQL condition the period bounds of a filter resolve to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PeriodCondition {
+    column: PeriodColumn,
+    cmp: PeriodCmp,
+    at: DateTime<Utc>,
+}
+
+impl PeriodCondition {
+    fn condition(&self) -> sea_orm::Condition {
+        let col = match self.column {
+            PeriodColumn::PeriodStart => metric_anomalies::Column::PeriodStart,
+            PeriodColumn::PeriodEnd => metric_anomalies::Column::PeriodEnd,
+        };
+        let at: DateTime<FixedOffset> = self.at.into();
+        let all = sea_orm::Condition::all();
+        match self.cmp {
+            PeriodCmp::Gte => all.add(col.gte(at)),
+            PeriodCmp::Lt => all.add(col.lt(at)),
+            PeriodCmp::Lte => all.add(col.lte(at)),
+        }
+    }
+
+    /// What [`Self::condition`] means for one row, so the semantics can be tested
+    /// without a database.
+    #[cfg(test)]
+    fn matches(&self, period_start: DateTime<Utc>, period_end: DateTime<Utc>) -> bool {
+        let v = match self.column {
+            PeriodColumn::PeriodStart => period_start,
+            PeriodColumn::PeriodEnd => period_end,
+        };
+        match self.cmp {
+            PeriodCmp::Gte => v >= self.at,
+            PeriodCmp::Lt => v < self.at,
+            PeriodCmp::Lte => v <= self.at,
+        }
+    }
+}
+
+fn utc_midnight(d: NaiveDate) -> DateTime<Utc> {
+    d.and_time(NaiveTime::MIN).and_utc()
+}
+
+/// Resolve a filter's period bounds to SQL conditions. A bound that is
+/// neither format is an error, never dropped: dropping it returned every
+/// stored anomaly for the measure, whatever period was asked.
+///
+/// A **date** bound selects buckets by the UTC date of their `period_start`,
+/// the date the Insights Inbox and the Slack notice name a bucket by: from
+/// 00:00 UTC on the start date up to, but not including, 00:00 UTC on the day
+/// after the end date, so the end date is included whole. The store keeps no
+/// timezone, so a non-UTC `datetime` monitor's day bucket (`06-30T07:00Z` to
+/// `07-01T07:00Z`) counts as 30 June, and a week or month bucket counts in the
+/// period it starts in. A `type: date` dimension is bucketed raw, so its rows
+/// start at UTC midnight and the UTC date is its local date.
+///
+/// An **RFC 3339** bound is an instant, tested against the column it names:
+/// `period_start >= start` and `period_end <= end` (`period_end` is exclusive,
+/// the start of the next bucket).
+fn period_conditions(filter: &AnomalyFilter) -> Result<Vec<PeriodCondition>, AnomalyStoreError> {
+    let mut out = Vec::with_capacity(2);
+    if let Some(raw) = &filter.period_start_gte {
+        let at = match parse_bound("period_start", raw)? {
+            PeriodBound::Date(d) => utc_midnight(d),
+            PeriodBound::Instant(t) => t,
+        };
+        out.push(PeriodCondition {
+            column: PeriodColumn::PeriodStart,
+            cmp: PeriodCmp::Gte,
+            at,
+        });
+    }
+    if let Some(raw) = &filter.period_end_lte {
+        out.push(match parse_bound("period_end", raw)? {
+            PeriodBound::Date(d) => {
+                let next = d.succ_opt().ok_or_else(|| {
+                    AnomalyStoreError::InvalidFilter(format!("period_end {raw:?} is out of range"))
+                })?;
+                PeriodCondition {
+                    column: PeriodColumn::PeriodStart,
+                    cmp: PeriodCmp::Lt,
+                    at: utc_midnight(next),
+                }
+            }
+            PeriodBound::Instant(t) => PeriodCondition {
+                column: PeriodColumn::PeriodEnd,
+                cmp: PeriodCmp::Lte,
+                at: t,
+            },
+        });
+    }
+    Ok(out)
 }
 
 fn seasonal_periods(granularity: &str) -> Vec<usize> {
@@ -116,6 +248,9 @@ impl agentic_analytics::anomaly_store::AnomalyStore for OxyAnomalyStore {
         workspace_id: Uuid,
         filter: AnomalyFilter,
     ) -> Result<Vec<AnomalyRecord>, AnomalyStoreError> {
+        // Resolved before the other fields move out of `filter`, and before
+        // any query runs, so a bad bound is refused rather than ignored.
+        let period = period_conditions(&filter)?;
         // Rank on severity (envelope headroom — the axis these are meant to be
         // triaged on), then |z| as a stable tiebreak within a band. This
         // orders the `AnomalyStore` trait's consumers — the agentic-analytics
@@ -143,17 +278,8 @@ impl agentic_analytics::anomaly_store::AnomalyStore for OxyAnomalyStore {
         if let Some(g) = filter.granularity {
             q = q.filter(metric_anomalies::Column::Granularity.eq(g));
         }
-        if let Some(ps) = filter.period_start_gte
-            && let Some(dt) = parse_utc(&ps)
-        {
-            let fdt: DateTime<FixedOffset> = dt.into();
-            q = q.filter(metric_anomalies::Column::PeriodStart.gte(fdt));
-        }
-        if let Some(pe) = filter.period_end_lte
-            && let Some(dt) = parse_utc(&pe)
-        {
-            let fdt: DateTime<FixedOffset> = dt.into();
-            q = q.filter(metric_anomalies::Column::PeriodEnd.lte(fdt));
+        for cond in &period {
+            q = q.filter(cond.condition());
         }
 
         let rows = q
@@ -354,5 +480,167 @@ impl agentic_analytics::anomaly_store::AnomalyStore for OxyAnomalyStore {
             .await
             .map_err(|e| AnomalyStoreError::Db(e.to_string()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn utc(s: &str) -> DateTime<Utc> {
+        parse_utc(s).expect("a test timestamp")
+    }
+
+    fn between(start: &str, end: &str) -> AnomalyFilter {
+        AnomalyFilter {
+            period_start_gte: Some(start.into()),
+            period_end_lte: Some(end.into()),
+            ..AnomalyFilter::default()
+        }
+    }
+
+    /// Whether a bucket starting at `start`, `granularity` long, passes every
+    /// condition the filter resolves to — what the SQL selects.
+    fn selects(filter: &AnomalyFilter, start: &str, granularity: &str) -> bool {
+        let start = utc(start);
+        let end = granularity_period_end(start, granularity);
+        period_conditions(filter)
+            .expect("the filter parses")
+            .iter()
+            .all(|c| c.matches(start, end))
+    }
+
+    fn invalid(filter: &AnomalyFilter) -> String {
+        match period_conditions(filter) {
+            Err(AnomalyStoreError::InvalidFilter(msg)) => msg,
+            other => panic!("expected InvalidFilter, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_bounds_resolve_to_no_conditions() {
+        assert!(
+            period_conditions(&AnomalyFilter::default())
+                .expect("no bounds parse")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn plain_dates_resolve_to_utc_midnights_on_period_start() {
+        let conds = period_conditions(&between("2026-06-01", "2026-06-30")).unwrap();
+        assert_eq!(
+            conds,
+            vec![
+                PeriodCondition {
+                    column: PeriodColumn::PeriodStart,
+                    cmp: PeriodCmp::Gte,
+                    at: utc("2026-06-01T00:00:00Z"),
+                },
+                PeriodCondition {
+                    column: PeriodColumn::PeriodStart,
+                    cmp: PeriodCmp::Lt,
+                    at: utc("2026-07-01T00:00:00Z"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rfc3339_bounds_keep_their_columns_and_convert_to_utc() {
+        let conds = period_conditions(&between(
+            "2026-06-01T02:00:00+02:00",
+            "2026-07-01T00:00:00Z",
+        ))
+        .unwrap();
+        assert_eq!(
+            conds,
+            vec![
+                PeriodCondition {
+                    column: PeriodColumn::PeriodStart,
+                    cmp: PeriodCmp::Gte,
+                    at: utc("2026-06-01T00:00:00Z"),
+                },
+                PeriodCondition {
+                    column: PeriodColumn::PeriodEnd,
+                    cmp: PeriodCmp::Lte,
+                    at: utc("2026-07-01T00:00:00Z"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_date_period_includes_its_first_and_last_day_buckets_only() {
+        let june = between("2026-06-01", "2026-06-30");
+        assert!(!selects(&june, "2026-05-31T00:00:00Z", "day"));
+        assert!(selects(&june, "2026-06-01T00:00:00Z", "day"));
+        assert!(selects(&june, "2026-06-15T00:00:00Z", "day"));
+        // The end date is included whole: its bucket ends 07-01T00:00Z.
+        assert!(selects(&june, "2026-06-30T00:00:00Z", "day"));
+        assert!(!selects(&june, "2026-07-01T00:00:00Z", "day"));
+    }
+
+    #[test]
+    fn a_one_day_period_selects_that_days_bucket() {
+        let day = between("2026-06-30", "2026-06-30");
+        assert!(selects(&day, "2026-06-30T00:00:00Z", "day"));
+        assert!(!selects(&day, "2026-06-29T00:00:00Z", "day"));
+        assert!(!selects(&day, "2026-07-01T00:00:00Z", "day"));
+    }
+
+    /// A non-UTC `datetime` monitor's day bucket starts at local midnight
+    /// (07:00Z in Los Angeles in June) and ends past the next UTC midnight.
+    /// It counts on the UTC date of its start, as the inbox labels it.
+    #[test]
+    fn an_offset_day_bucket_counts_on_the_utc_date_it_starts() {
+        let june = between("2026-06-01", "2026-06-30");
+        assert!(selects(&june, "2026-06-30T07:00:00Z", "day"));
+        assert!(!selects(&june, "2026-07-01T07:00:00Z", "day"));
+        assert!(selects(&june, "2026-06-01T07:00:00Z", "day"));
+    }
+
+    /// A week or month bucket counts in the period it starts in, even when it
+    /// ends after the period.
+    #[test]
+    fn a_coarser_bucket_counts_in_the_period_it_starts_in() {
+        let june = between("2026-06-01", "2026-06-30");
+        assert!(selects(&june, "2026-06-29T00:00:00Z", "week"));
+        assert!(!selects(&june, "2026-05-25T00:00:00Z", "week"));
+        assert!(selects(&june, "2026-06-01T00:00:00Z", "month"));
+        assert!(!selects(&june, "2026-07-01T00:00:00Z", "month"));
+    }
+
+    /// An RFC 3339 end is tested against the exclusive `period_end`: a bound
+    /// at the bucket's end includes it, one inside it does not.
+    #[test]
+    fn an_rfc3339_end_includes_only_buckets_that_end_by_it() {
+        let f = between("2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z");
+        assert!(selects(&f, "2026-06-30T00:00:00Z", "day"));
+        let f = between("2026-06-01T00:00:00Z", "2026-06-30T12:00:00Z");
+        assert!(!selects(&f, "2026-06-30T00:00:00Z", "day"));
+    }
+
+    #[test]
+    fn an_unreadable_bound_is_an_error_naming_the_formats() {
+        for bad in ["June 2026", "", "2026-13-01", "06/01/2026"] {
+            let msg = invalid(&AnomalyFilter {
+                period_start_gte: Some(bad.into()),
+                ..AnomalyFilter::default()
+            });
+            assert!(msg.starts_with("period_start "), "{msg}");
+            assert!(msg.contains("YYYY-MM-DD"), "{msg}");
+            assert!(msg.contains("RFC 3339"), "{msg}");
+        }
+        let msg = invalid(&between("2026-06-01", "end of June"));
+        assert!(msg.starts_with("period_end "), "{msg}");
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_ignored() {
+        assert_eq!(
+            period_conditions(&between(" 2026-06-01 ", "2026-06-30\n")).unwrap(),
+            period_conditions(&between("2026-06-01", "2026-06-30")).unwrap(),
+        );
     }
 }

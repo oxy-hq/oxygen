@@ -35,9 +35,9 @@ const LIST_DESC: &str = "List the anomalies already found for a measure in a per
     monitors' scheduled scans and earlier `detect_anomalies` calls store them. Use it first \
     for questions like \"were there any anomalies in daily revenue in June?\" or \"is order \
     count behaving unusually?\". Give the measure, its time dimension, the grain and the \
-    period as dates. Each anomaly carries its `period_start`: answer only about the ones \
-    inside the period you were asked about. An empty list means nothing was stored for \
-    that period, not that the period was normal.";
+    period as dates (`YYYY-MM-DD`, the end date included). It returns the anomalies whose \
+    bucket starts in that period. An empty list means nothing was stored for that period, \
+    not that the period was normal.";
 
 const DETECT_DESC: &str = "Check one bucket of a measure for an anomaly now, and store what \
     it finds. Use it when `list_anomalies` returns nothing for a period you must answer \

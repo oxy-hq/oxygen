@@ -89,6 +89,9 @@ impl MetricTreeRunner for TwoDays {
     }
 }
 
+/// A period bound the store refuses.
+const UNREADABLE: &str = "June 2026";
+
 /// A store holding one anomaly (`STORED`), recording the workspace and the
 /// filter of every list, and the observations of every detect.
 #[derive(Default)]
@@ -124,6 +127,12 @@ impl AnomalyStore for OneAnomaly {
         workspace_id: Uuid,
         filter: AnomalyFilter,
     ) -> Result<Vec<AnomalyRecord>, AnomalyStoreError> {
+        // As `OxyAnomalyStore` does for a bound in neither format.
+        if filter.period_start_gte.as_deref() == Some(UNREADABLE) {
+            return Err(AnomalyStoreError::InvalidFilter(format!(
+                "period_start {UNREADABLE:?} is not a date (YYYY-MM-DD) or an RFC 3339 timestamp"
+            )));
+        }
         self.lists.lock().unwrap().push((workspace_id, filter));
         Ok(vec![stored()])
     }
@@ -264,6 +273,24 @@ async fn list_anomalies_reads_the_store_in_the_hosts_workspace() {
     assert_eq!(*workspace, WORKSPACE);
     assert_eq!(filter.measure.as_deref(), Some("orders.total_order_value"));
     assert_eq!(filter.period_start_gte.as_deref(), Some("2026-06-01"));
+}
+
+/// A bound the store cannot read comes back as bad params naming the
+/// accepted formats, with the hint to fix the argument, not to try `query`.
+#[tokio::test]
+async fn an_unreadable_period_bound_is_bad_params_for_the_model() {
+    let store = Arc::new(OneAnomaly::default());
+    let with = with_anomalies(store.clone());
+    let mut args = june("orders.total_order_value");
+    args["period_start"] = json!(UNREADABLE);
+    let err = tool(&with, "list_anomalies")
+        .call(args, &cx())
+        .await
+        .expect_err("the store refuses the bound");
+    assert!(err.error.contains("bad params"), "{}", err.error);
+    assert!(err.error.contains("YYYY-MM-DD"), "{}", err.error);
+    assert!(err.hint.unwrap().contains("fix what the error names"));
+    assert!(store.lists.lock().unwrap().is_empty());
 }
 
 /// `detect_anomalies` hands the runner's series to the store, and the

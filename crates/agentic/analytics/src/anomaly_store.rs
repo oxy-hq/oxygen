@@ -70,7 +70,15 @@ pub struct AnomalyFilter {
     pub measure: Option<String>,
     pub time_dimension: Option<String>,
     pub granularity: Option<String>,
+    /// The period's first day (`YYYY-MM-DD`) or first instant (RFC 3339).
+    /// A date selects buckets whose `period_start` is on or after 00:00 UTC
+    /// that day; an instant, buckets whose `period_start` is at or after it.
     pub period_start_gte: Option<String>,
+    /// The period's last day (`YYYY-MM-DD`, included whole) or end instant
+    /// (RFC 3339). A date selects buckets whose `period_start` is before
+    /// 00:00 UTC the next day; an instant, buckets whose (exclusive)
+    /// `period_end` is at or before it. Any other format is
+    /// [`AnomalyStoreError::InvalidFilter`], never ignored.
     pub period_end_lte: Option<String>,
 }
 
@@ -90,6 +98,10 @@ pub enum AnomalyStoreError {
     Detection(String),
     #[error("not found: {0}")]
     NotFound(String),
+    /// The filter has a value the store cannot read, such as a period bound
+    /// in neither accepted format. The message says what is accepted.
+    #[error("invalid filter: {0}")]
+    InvalidFilter(String),
 }
 
 #[async_trait::async_trait]
