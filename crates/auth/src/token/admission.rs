@@ -310,7 +310,7 @@ pub fn admit(
         read_grants(grants)?
     };
     let grants = sandbox_admission::refuse_misplaced(kind, grants)?;
-    if StoredKind::expected_for(presented) != Some(kind) {
+    if super::credential::expected_for(presented) != Some(kind) {
         return Err(Refusal::KindMismatch);
     }
     if row.revoked_at.is_some() {

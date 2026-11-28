@@ -80,7 +80,7 @@ pub async fn resolve_stored(db: &DatabaseConnection, token_id: Uuid) -> Result<R
         .map_err(db_err("api token lookup"))?
         .ok_or_else(|| invalid("no token row for a stored credential"))?;
     let presented = StoredKind::parse(&row.kind)
-        .and_then(StoredKind::presented_as)
+        .and_then(super::credential::presented_as)
         .ok_or_else(|| {
             invalid(format!(
                 "a stored `{}` token is never re-admitted",

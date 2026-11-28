@@ -49,9 +49,11 @@ use uuid::Uuid;
 
 mod app_access;
 mod app_check;
+mod principal;
 mod sandbox_agent;
 mod token;
 pub use app_access::{AppActionGrant, AppReach};
+pub use principal::{AccountStanding, AppPublishGrant, AppSandboxGrant, Identity, StoredKind};
 pub use sandbox_agent::{EnvFacet, SandboxAgentReach, SandboxApp};
 pub use token::{RoleCeiling, TokenGrant, TokenReach};
 

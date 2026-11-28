@@ -1,24 +1,8 @@
 use entity::users::{self, UserStatus};
 
-// Simple identity structure for email-based identity linking
-#[derive(Debug, Clone)]
-pub struct Identity {
-    /// The user this credential names, when the credential carries an id.
-    ///
-    /// A session JWT always has one — `Claims.sub` has been the user id since
-    /// tokens were introduced — and it is the ONLY identifier that works for a
-    /// frontline worker, whose `users.email` is NULL. Resolution prefers this
-    /// and falls back to [`Self::email`], which keeps every token minted before
-    /// this field existed working unchanged.
-    ///
-    /// `None` for a provider identity (Google, Okta, magic link): at that point
-    /// the address is all we have, and collapsing it onto a row is exactly what
-    /// `get_or_create_user` is for.
-    pub user_id: Option<uuid::Uuid>,
-    pub email: String,
-    pub name: Option<String>,
-    pub picture: Option<String>,
-}
+/// Moved to `oxy-authz` (kernel vocabulary). One-release re-export: import
+/// it from `oxy_authz` instead; this path goes once the next release ships.
+pub use oxy_authz::Identity;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {

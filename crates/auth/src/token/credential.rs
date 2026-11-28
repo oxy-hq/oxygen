@@ -7,6 +7,10 @@
 use chrono::{DateTime, Utc};
 use entity::{api_tokens, service_accounts};
 use oxy_authz::{AppReach, SandboxAgentReach, SandboxApp, TokenGrant, TokenReach};
+
+/// Moved to `oxy-authz` (kernel vocabulary). One-release re-exports: import
+/// them from `oxy_authz` instead; these paths go once the next release ships.
+pub use oxy_authz::{AccountStanding, AppPublishGrant, AppSandboxGrant, StoredKind};
 use uuid::Uuid;
 
 use super::format::TokenFormat;
@@ -49,15 +53,6 @@ pub mod source {
     /// Written when an org admin approves a custom app's platform access
     /// (`super::app_access`): the app's secretless row of kind `app`.
     pub const APP_APPROVAL: &str = "app_approval";
-}
-
-/// What a token's service account is, read from its `service_accounts` row:
-/// the one org it belongs to, and whether it stands there as an admin. There
-/// is no owner — an account is never one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AccountStanding {
-    pub org_id: Uuid,
-    pub admin: bool,
 }
 
 /// The state of the `service_accounts` row behind a token's principal.
@@ -107,120 +102,38 @@ pub fn legacy_key_id(row: &api_tokens::Model) -> Uuid {
     row.legacy_api_key_id.unwrap_or(row.id)
 }
 
-/// The stored kinds this release enforces. Any other `api_tokens.kind` —
-/// `legacy_publish`, or one not invented yet — is refused, because this
-/// release implements none of their restrictions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum StoredKind {
-    /// `oxy_pat_…`
-    Personal,
-    /// `oxy_<32 hex>` — **removed**. No presented format resolves to this and
-    /// admission refuses it, but the kind stays so the rows left in
-    /// `api_tokens` can still be listed, audited and explained.
-    LegacyKey,
-    /// `oxy_sat_…` — owned by an org through a service account.
-    ServiceAccount,
-    /// `oxy_ci_…` — minted for one CI run by a trust policy, acting as the
-    /// policy's service account for 15 minutes.
-    Ci,
-    /// `oxy_sbx_…` — minted by a staff member for an agent: it reaches the
-    /// sandboxes it creates of the apps it names, as its minter, for hours.
-    SandboxAgent,
-    /// `oxysvc_…` — a service configured in `OXY_SERVICE_TOKENS`
-    /// ([`super::service`]): platform standing from its entry, no stored row.
-    Service,
-    /// A custom app's own access ([`super::app_access`]): the actions an org
-    /// admin approved for the app, acting as the app's service account. Its row
-    /// has **no secret**: no presented format resolves to it and admission
-    /// refuses it. The function host builds the credential in-process, per
-    /// host op, from the row and its live grants.
-    App,
-}
-
-impl StoredKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Personal => "personal",
-            Self::LegacyKey => "legacy_key",
-            Self::ServiceAccount => "service_account",
-            Self::Ci => "ci",
-            Self::SandboxAgent => "sandbox_agent",
-            Self::Service => "service",
-            Self::App => "app",
-        }
-    }
-
-    /// Whether a token of this kind acts as a service account rather than as
-    /// a person: its standing is the account's row, and it is always
-    /// grant-bound inside the account's org.
-    pub fn acts_as_account(self) -> bool {
-        matches!(self, Self::ServiceAccount | Self::Ci | Self::App)
-    }
-
-    /// `None` for every kind this release does not enforce.
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw {
-            "personal" => Some(Self::Personal),
-            "legacy_key" => Some(Self::LegacyKey),
-            "service_account" => Some(Self::ServiceAccount),
-            "ci" => Some(Self::Ci),
-            "sandbox_agent" => Some(Self::SandboxAgent),
-            "app" => Some(Self::App),
-            _ => None,
-        }
-    }
-
-    /// The format a token of this stored kind is presented in: what
-    /// [`Self::expected_for`] maps back to this kind. `None` for a kind no
-    /// presented format resolves to — a legacy key, a configured service,
-    /// which has no row, and an app's own credential.
-    pub(super) fn presented_as(self) -> Option<TokenFormat> {
-        match self {
-            Self::Personal => Some(TokenFormat::Personal),
-            Self::ServiceAccount => Some(TokenFormat::ServiceAccount),
-            Self::Ci => Some(TokenFormat::Ci),
-            Self::SandboxAgent => Some(TokenFormat::SandboxAgent),
-            // An app's credential is built by the host in-process and no
-            // presented token resolves to one (admission refuses it).
-            Self::LegacyKey | Self::Service | Self::App => None,
-        }
-    }
-
-    /// The stored kind a presented credential must resolve to. `None` for a
-    /// format this release has no stored kind for — including, now, anything
-    /// that would resolve to [`Self::LegacyKey`]: no presented format maps to
-    /// it any more, which is the second of the two locks on a legacy row (the
-    /// first being admission's outright refusal).
-    pub(super) fn expected_for(presented: TokenFormat) -> Option<Self> {
-        match presented {
-            TokenFormat::Personal => Some(Self::Personal),
-            TokenFormat::ServiceAccount => Some(Self::ServiceAccount),
-            TokenFormat::Ci => Some(Self::Ci),
-            TokenFormat::SandboxAgent => Some(Self::SandboxAgent),
-            TokenFormat::LegacyPublish => None,
-        }
+/// The format a token of this stored kind is presented in: what
+/// [`expected_for`] maps back to this kind. `None` for a kind no presented
+/// format resolves to — a legacy key, a configured service, which has no row,
+/// and an app's own credential.
+///
+/// A free function, not a `StoredKind` method, since the type moved to
+/// `oxy-authz` and `TokenFormat` stays here.
+pub(super) fn presented_as(kind: StoredKind) -> Option<TokenFormat> {
+    match kind {
+        StoredKind::Personal => Some(TokenFormat::Personal),
+        StoredKind::ServiceAccount => Some(TokenFormat::ServiceAccount),
+        StoredKind::Ci => Some(TokenFormat::Ci),
+        StoredKind::SandboxAgent => Some(TokenFormat::SandboxAgent),
+        // An app's credential is built by the host in-process and no
+        // presented token resolves to one (admission refuses it).
+        StoredKind::LegacyKey | StoredKind::Service | StoredKind::App => None,
     }
 }
 
-/// One live `app_publish` grant: the token may publish this app, and on the
-/// custom-apps surface reaches nothing but it (design §3.2).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AppPublishGrant {
-    pub org_id: Uuid,
-    pub app_id: Uuid,
-}
-
-/// One live `app_sandbox` grant: a sandbox agent token may run the sandbox
-/// loop on this app, in sandboxes it created itself (sandbox agent credential
-/// design §1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AppSandboxGrant {
-    pub org_id: Uuid,
-    pub app_id: Uuid,
-    /// Whether a live `app_staging` grant of the same token names this app
-    /// too: the token may also publish a draft to, and exercise, the app's
-    /// **staging** environment. `false` for a token minted without `staging`.
-    pub staging: bool,
+/// The stored kind a presented credential must resolve to. `None` for a
+/// format this release has no stored kind for — including, now, anything
+/// that would resolve to [`StoredKind::LegacyKey`]: no presented format maps
+/// to it any more, which is the second of the two locks on a legacy row (the
+/// first being admission's outright refusal).
+pub(super) fn expected_for(presented: TokenFormat) -> Option<StoredKind> {
+    match presented {
+        TokenFormat::Personal => Some(StoredKind::Personal),
+        TokenFormat::ServiceAccount => Some(StoredKind::ServiceAccount),
+        TokenFormat::Ci => Some(StoredKind::Ci),
+        TokenFormat::SandboxAgent => Some(StoredKind::SandboxAgent),
+        TokenFormat::LegacyPublish => None,
+    }
 }
 
 /// Request-extension marker: this request authenticated with an API token or

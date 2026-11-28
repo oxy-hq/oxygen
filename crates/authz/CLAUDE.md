@@ -47,6 +47,11 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
   `OperatePlatform` / `ManagePlatformGrants` / `CheckApps` are platform-only and have no
   partner analogue, deliberately.
 - **`Scope`** — `All` or `Orgs(..)`. Where a grant reaches.
+- **Principal and token vocabulary** (`src/principal.rs`) — `Identity`, `StoredKind`,
+  `AccountStanding`, `AppPublishGrant`, `AppSandboxGrant`: plain data plus pure methods,
+  moved from `oxy-auth` so a contract crate can name them from the kernel. Building them
+  from rows stays in `oxy-auth`, and so do `CredentialContext` (it holds a `chrono`
+  expiry) and `AuthenticatedUser` (it holds an `entity` status).
 - **`PlatformStanding`** / **`PlatformRole`** — Oxy-staff standing as `(caps × scope)`, and
   the presets (`GlobalAdmin`, `AppOperator`, `AppChecker`) that name common ones.
   `AppChecker` is `CheckApps` alone: the promote checks' service token. It reads an app's
