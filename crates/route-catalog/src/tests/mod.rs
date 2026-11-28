@@ -130,7 +130,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/admin/partners",
     "/api/admin/app-publish-tokens",
     // The admin split (PR 4): the OLTP and Airhouse consoles' fleet lists
-    // (`oxy-api-tenancy`, a section each). Their org- and workspace-keyed
+    // (`oxy-api-tenancy`, a section each; `oxy-api-data-plane`'s since
+    // crate-depth B2). Their org- and workspace-keyed
     // routes sit under `/api/admin/orgs` and `/api/admin/workspaces`, already
     // required, so the catalog diff against main is what proves those.
     "/api/admin/oltp",
@@ -241,17 +242,6 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     // deliberately not in the catalog — it is scraped in-cluster, carries
     // no `/api` prefix, and is not something an `oxyc` user calls.
     "crates/server/src/metrics_server.rs",
-    // `oxy-oltp`'s router, merged at the protected-tree root. Wiring it
-    // into SOURCE_DIRS needs a seed, and a seed resolves a builder by
-    // module-path SUFFIX — this crate's entry point is `api::router`,
-    // which collides with `cameras`'s (and with `airhouse`'s, until its router
-    // left for `oxy-api-data-plane`). The walker has no
-    // way to say "the one in crates/oltp", so the tree indexes and
-    // contributes nothing, which trips `every_scanned_tree_contributes_routes`
-    // instead. Listed here rather than half-wired: `oxyc routes` does
-    // not show `/api/oltp/*`, and saying so is better than a seed that
-    // silently points at the wrong crate.
-    "crates/oltp/src/api/mod.rs",
     // Test files, not route trees. They name `route_fleet` / `route_ide` in
     // assertions and fixtures, and the walker learned those markers when the
     // routers moved to `RoleRouter` — so they started looking like mounts.

@@ -122,7 +122,7 @@ export interface OltpCredentials {
   writable: boolean;
 }
 
-/** What one probe of an org's database found (`oxy_oltp::api::probe`). */
+/** What one probe of an org's database found (`oxy_api_data_plane::oltp::probe`). */
 export interface OltpConnectionTest {
   /** A session opened and `SELECT 1` answered. */
   ok: boolean;

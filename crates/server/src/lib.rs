@@ -428,6 +428,11 @@ pub fn surface_seams() -> SurfaceSeams {
         admin: oxy_api_billing::admin_sections()
             .into_iter()
             .chain(oxy_api_tenancy::admin_sections())
+            // The per-org OLTP console (`PlatformOltp`) and the Airhouse fleet
+            // (`PlatformAirhouse`): tenancy's third and fourth sections until
+            // crate-depth B2 moved them beside their handlers. Right after
+            // tenancy's, so the merge order is the one it had.
+            .chain(oxy_api_data_plane::admin_sections())
             .chain(oxy_api_workspace_health::admin_sections())
             .chain(oxy_api_airway::admin_sections())
             .chain(oxy_api_identity::admin_sections())

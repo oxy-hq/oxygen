@@ -450,8 +450,8 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         // The data-plane provisioning shims (admin split, PR 4). While they sat
         // in `oxy-app` the parse named them but never read them: their router
         // is `fn router<S>()`, which the `fn router()` split did not match.
-        "crates/api-tenancy/src/admin/oltp.rs",
-        "crates/api-tenancy/src/admin/airhouse.rs",
+        "crates/api-data-plane/src/admin/oltp.rs",
+        "crates/api-data-plane/src/admin/airhouse.rs",
         // The user directory (admin split, PR 5): parsed out of
         // `staff_surface` until it moved, now required here. Its membership
         // writes are `/users/{user_id}/org-memberships/{org_id}`.
@@ -659,7 +659,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             // `list_tenants` is absent deliberately: it is not org-keyed and
             // FILTERS by scope rather than refusing, which is the read-path
             // answer everywhere else on this console.
-            "crates/api-tenancy/src/admin/oltp.rs",
+            "crates/api-data-plane/src/admin/oltp.rs",
             &[
                 "get_status",
                 // Opens a session to the tenant's database: it names the host
@@ -695,7 +695,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             //
             // `list_fleet` is absent deliberately: it FILTERS by scope rather
             // than refusing, which is the read-path answer on this console.
-            "crates/api-tenancy/src/admin/airhouse.rs",
+            "crates/api-data-plane/src/admin/airhouse.rs",
             &["provision"],
         ),
     ];

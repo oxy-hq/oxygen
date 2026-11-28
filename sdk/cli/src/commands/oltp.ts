@@ -38,7 +38,7 @@ import {
 } from "./oltp-branch.js";
 import { call, confirm, orgPath, PROVISION_TIMEOUT_MS } from "./oltp-client.js";
 
-/** One row of `GET /admin/oltp` — `oxy_oltp::api::admin::TenantRow`. */
+/** One row of `GET /admin/oltp` — `oxy_api_data_plane::oltp::admin::TenantRow`. */
 interface TenantRow {
   org_id: string;
   org_name: string;
@@ -53,7 +53,7 @@ interface TenantRow {
   platform_drift: boolean;
 }
 
-/** `oxy_oltp::api::handlers::SchemaInfo`. */
+/** `oxy_api_data_plane::oltp::handlers::SchemaInfo`. */
 interface SchemaInfo {
   schema: string;
   kind: string;
@@ -62,7 +62,7 @@ interface SchemaInfo {
   analytics_visible: boolean;
 }
 
-/** `oxy_oltp::api::handlers::ConnectionInfoResponse` — metadata, never a credential. */
+/** `oxy_api_data_plane::oltp::handlers::ConnectionInfoResponse` — metadata, never a credential. */
 interface ConnectionInfo {
   is_provisioned: boolean;
   host: string;

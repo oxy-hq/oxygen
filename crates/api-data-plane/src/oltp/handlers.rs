@@ -5,7 +5,7 @@
 //! **No credential endpoint.** Airhouse exposes `POST /me/credentials` so a user
 //! can connect their own client. There is no counterpart here: a per-org OLTP
 //! database holds a customer's live business records, and handing a human a
-//! connection string is precisely what [`crate::schema::ANALYST_ROLE`] exists to
+//! connection string is precisely what [`oxy_oltp::schema::ANALYST_ROLE`] exists to
 //! prevent. Queries go through the IDE via `type: postgres_managed`, which
 //! resolves the read-only analyst server-side.
 //!
@@ -27,11 +27,11 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument};
 use uuid::Uuid;
 
-use crate::config::DEFAULT_PG_VERSION;
-use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles};
-use crate::entity::tenants::{self as oltp_tenants, Entity as OltpTenants, TenantStatus};
-use crate::platform::PLATFORM_SCHEMA_VERSION;
-use crate::schema::ANALYST_ROLE;
+use oxy_oltp::config::DEFAULT_PG_VERSION;
+use oxy_oltp::entity::roles::{self as oltp_roles, Entity as OltpRoles};
+use oxy_oltp::entity::tenants::{self as oltp_tenants, Entity as OltpTenants, TenantStatus};
+use oxy_oltp::platform::PLATFORM_SCHEMA_VERSION;
+use oxy_oltp::schema::ANALYST_ROLE;
 
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceQuery {
@@ -108,7 +108,7 @@ pub fn pg_version_drift(provider: &str, pg_version: i16, default: u8) -> bool {
 /// The deleted command compared to the constant because it ran in the
 /// operator's process; the server holds the real config.
 fn provisioning_pg_version() -> u8 {
-    crate::config::OltpConfig::cached()
+    oxy_oltp::config::OltpConfig::cached()
         .as_runtime()
         .map(|c| c.pg_version)
         .unwrap_or(DEFAULT_PG_VERSION)
@@ -210,13 +210,13 @@ fn response_for(
                 // One call, no second copy of the formula: `effective_visibility`
                 // reads the kind, so there is no writer name to parse and no
                 // fallible arm to write a duplicate rule into.
-                analytics_visible: crate::migrator::effective_visibility(
+                analytics_visible: oxy_oltp::migrator::effective_visibility(
                     r.analytics_visible,
                     &r.writer_kind,
                 ),
                 kind: match r.writer_kind {
-                    crate::entity::roles::WriterKind::App => "app".to_string(),
-                    crate::entity::roles::WriterKind::Pipeline => "pipeline".to_string(),
+                    oxy_oltp::entity::roles::WriterKind::App => "app".to_string(),
+                    oxy_oltp::entity::roles::WriterKind::Pipeline => "pipeline".to_string(),
                 },
                 schema: r.schema_name,
                 writer_name: r.writer_name,
@@ -226,8 +226,8 @@ fn response_for(
         .collect();
 
     // Computed before the struct moves the fields out of `tenant`.
-    let analyst_role = crate::schema::analyst_role_for(&tenant.provider, &tenant.database_name);
-    let console_url = crate::provider::console_url(&tenant.provider, &tenant.project_id);
+    let analyst_role = oxy_oltp::schema::analyst_role_for(&tenant.provider, &tenant.database_name);
+    let console_url = oxy_oltp::provider::console_url(&tenant.provider, &tenant.project_id);
     let pg_version_drift =
         pg_version_drift(&tenant.provider, tenant.pg_version, default_pg_version);
     ConnectionInfoResponse {

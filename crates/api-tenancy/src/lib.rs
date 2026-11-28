@@ -188,13 +188,11 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
 /// The second section is the partner registry (`/partners*`, the staff half of
 /// [`partner_console`]), behind `PlatformPartners`, the capability it had in
 /// `oxy-app` before the admin split (PR 2) moved `admin::partners` here.
-/// The third and fourth are the per-org data-plane provisioning fences, each
-/// behind the capability it had in `oxy-app` before the admin split (PR 4)
-/// moved `admin::{oltp, airhouse}` here: an org's OLTP database
-/// (`/oltp`, `/orgs/{org_id}/oltp*`) behind `PlatformOltp`, and a workspace's
-/// Airhouse tenant (`/airhouse`, `/workspaces/{workspace_id}/airhouse/provision`
-/// and `/rotate-sa`) behind `PlatformAirhouse`. One ring, two actions: the action name is what
-/// lands in an audit row and in the grant UI.
+/// The per-org data-plane provisioning fences (`PlatformOltp`,
+/// `PlatformAirhouse`), the third and fourth sections here from the admin
+/// split's PR 4, are `oxy_api_data_plane::admin_sections` since crate-depth
+/// B2, beside the handlers they fence; `oxy-server` chains them right after
+/// these.
 ///
 /// None declares anything: the console's `/{*rest}` FleetOk wildcard places
 /// them all, as before.
@@ -208,16 +206,6 @@ pub fn admin_sections() -> Vec<AdminSection> {
         AdminSection {
             capability: oxy_server_authz::Action::PlatformPartners,
             routes: admin_partner_routes(),
-            decls: vec![],
-        },
-        AdminSection {
-            capability: oxy_server_authz::Action::PlatformOltp,
-            routes: admin_oltp_routes(),
-            decls: vec![],
-        },
-        AdminSection {
-            capability: oxy_server_authz::Action::PlatformAirhouse,
-            routes: admin_airhouse_routes(),
             decls: vec![],
         },
     ]
@@ -235,20 +223,6 @@ pub fn admin_routes() -> Router<AppState> {
 /// [`admin_routes`], and so the route catalog can seed it.
 pub fn admin_partner_routes() -> Router<AppState> {
     Router::new().merge(admin::partners::router())
-}
-
-/// An org's OLTP database console, relative to `/admin`: the scope-fenced shim
-/// over `oxy_oltp::api::admin`, NOT that router directly. Its own section
-/// (`PlatformOltp`), and its own function so the route catalog can seed it.
-pub fn admin_oltp_routes() -> Router<AppState> {
-    Router::new().merge(admin::oltp::router())
-}
-
-/// A workspace's Airhouse tenant console, relative to `/admin`: the
-/// scope-fenced shim over `admin::airhouse::inner`. Its own section
-/// (`PlatformAirhouse`), and its own function so the route catalog can seed it.
-pub fn admin_airhouse_routes() -> Router<AppState> {
-    Router::new().merge(admin::airhouse::router())
 }
 
 /// The OpenAPI operations this crate documents, merged into the served

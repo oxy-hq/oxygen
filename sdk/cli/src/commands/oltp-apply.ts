@@ -33,7 +33,7 @@ import {
   refusalReason
 } from "./oltp-client.js";
 
-/** `oxy_oltp::api::apply::ApplyResponse`. */
+/** `oxy_api_data_plane::oltp::apply::ApplyResponse`. */
 export interface ApplyResponse {
   org_id: string;
   workspace_id: string;

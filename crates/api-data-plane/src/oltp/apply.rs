@@ -4,7 +4,7 @@
 //! This was the Rust `oxy oltp apply` (deleted 2026-11-24), which ran on an
 //! operator's laptop with the deployment's database URL and sealing key. Like
 //! [`super::confinement`], there is no router here: the route is declared by
-//! `oxy_api_tenancy::admin::oltp`, which fences it by scope and writes an
+//! `crate::admin::oltp`, which fences it by scope and writes an
 //! audit row before delegating to [`apply`] (`oltp.migrations.apply_started`)
 //! and one after (`oltp.migrations.applied`).
 //!
@@ -43,8 +43,8 @@ use uuid::Uuid;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_platform::db::establish_connection;
 
-use crate::entity::tenants::Model as TenantRow;
-use crate::migrator::{self, MigrateError, MigrateOutcome};
+use oxy_oltp::entity::tenants::Model as TenantRow;
+use oxy_oltp::migrator::{self, MigrateError, MigrateOutcome};
 
 /// How long one call may apply for. Under the router's 60-second global
 /// timeout (`finalize_router`), so the handler answers — and the shim audits —

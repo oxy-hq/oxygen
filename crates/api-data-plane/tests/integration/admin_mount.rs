@@ -2,7 +2,9 @@
 //! mounted, each behind the capability it had in `oxy-app`. Moved from
 //! `oxy-app`'s `admin::tests::{oltp_admin_routes_are_mounted_on_the_real_router,
 //! airhouse_admin_routes_are_mounted_on_the_real_router}` with the sections
-//! (admin split, PR 4). The served composition, with the staff door and the
+//! (admin split, PR 4), and from `oxy-api-tenancy`'s
+//! `admin_data_plane_mount.rs` with them again (crate-depth B2). The served
+//! composition, with the staff door and the
 //! capability layers, is driven in `oxy-server`'s `served_router_tests`.
 //!
 //! No auth setup: every handler here takes an `AuthenticatedUserExtractor`
@@ -21,7 +23,8 @@ fn admin_tree() -> Router {
     Router::new()
         .nest(
             "/admin",
-            oxy_api_tenancy::admin_oltp_routes().merge(oxy_api_tenancy::admin_airhouse_routes()),
+            oxy_api_data_plane::admin_oltp_routes()
+                .merge(oxy_api_data_plane::admin_airhouse_routes()),
         )
         .with_state(oxy_app_core::app_state::bare_app_state())
 }
@@ -156,7 +159,7 @@ async fn airhouse_admin_routes_are_mounted_on_the_real_router() {
 #[test]
 fn the_data_plane_sections_take_their_own_capabilities() {
     use oxy_server_authz::Action;
-    let sections = oxy_api_tenancy::admin_sections();
+    let sections = oxy_api_data_plane::admin_sections();
     for capability in [Action::PlatformOltp, Action::PlatformAirhouse] {
         let found: Vec<_> = sections
             .iter()

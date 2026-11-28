@@ -142,9 +142,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
     for crate_dir in [
         "../cameras/src",
         "../airhouse/src",
-        // The `/airhouse/me/*` router itself, merged undeclared at the root of
-        // both trees; it left `../airhouse/src/api` for its own crate in
-        // crate-depth B2. The client above stays scanned: the handlers call it.
+        // The `/airhouse/me/*` and `/oltp/me/*` routers themselves, merged
+        // undeclared at the root of both trees; they left `../airhouse/src/api`
+        // and `../oltp/src/api` for their own crate in crate-depth B2, and the
+        // staff OLTP and Airhouse sections followed from `../api-tenancy/src/
+        // admin`. The client above stays scanned: the handlers call it.
         "../api-data-plane/src",
         // Declared FleetOk wholesale by the `/admin` wildcard in global.rs, so a
         // route added under one inherits FleetOk without anyone deciding. Measured

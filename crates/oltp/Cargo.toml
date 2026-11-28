@@ -16,8 +16,6 @@ sea-orm-migration = { workspace = true }
 oxy-migration-tolerance = { workspace = true }
 
 async-trait = { workspace = true }
-axum = { workspace = true }
-oxy-auth = { workspace = true }
 chrono = { workspace = true }
 tokio-postgres = { workspace = true, features = ["with-uuid-1", "with-serde_json-1", "with-chrono-0_4"] }
 tokio-postgres-rustls = { workspace = true }
@@ -36,6 +34,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# The fake Neon API in `provider::neon`'s tests. The HTTP surface itself left
+# for `oxy-api-data-plane` (crate-depth B2), so this crate ships no axum.
+axum = { workspace = true }
 # Test-only: the live Neon test exercises the REAL `ctx.oltp` connection path
 # (`PostgresConnector::from_dsn` + `begin_transaction` over verified TLS). A
 # dev-dependency, so the shipped `oxy-oltp` graph stays free of `agentic-*` —

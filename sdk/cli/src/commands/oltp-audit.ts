@@ -53,7 +53,7 @@ export interface ConfinementAudit {
   clean: boolean;
 }
 
-/** `oxy_oltp::api::confinement::RotatedRole` — never a password or a DSN. */
+/** `oxy_api_data_plane::oltp::confinement::RotatedRole` — never a password or a DSN. */
 export interface RotatedRole {
   writer: string;
   role: string;

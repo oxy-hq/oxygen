@@ -65,7 +65,7 @@ pub(super) fn build_global_routes(
         // the SPA catch-all then answered it with index.html and HTTP 200, so
         // the settings panel read a missing route as "not provisioned".
         .merge_undeclared(
-            oxy_oltp::api::router::<AppState>(),
+            oxy_api_data_plane::oltp::router::<AppState>(),
             "per-org OLTP status is Postgres-only; no workspace files on any path",
         )
         .nest("/orgs/{org_id}", build_org_routes(app_state))

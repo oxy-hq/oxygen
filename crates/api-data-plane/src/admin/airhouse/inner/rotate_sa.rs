@@ -7,7 +7,7 @@
 //! call, [`TenantProvisioner::rotate_service_account`](airhouse::TenantProvisioner).
 //!
 //! Like [`super::provision`], there is no `router()` here: the route is
-//! declared by `oxy_api_tenancy::admin::airhouse`, which fences and audits it
+//! declared by [`crate::admin::airhouse`], which fences and audits it
 //! before delegating.
 //!
 //! **Revoke comes before mint.** A failure after the revoke (Airhouse down
@@ -17,8 +17,8 @@
 
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
-use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_platform::db::establish_connection;
 use serde::Serialize;
 use tracing::{info, instrument};
 use uuid::Uuid;

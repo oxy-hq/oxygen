@@ -50,7 +50,6 @@
 //!
 //! Design: `internal-docs/per-org-oltp-postgres.md`.
 
-pub mod api;
 pub mod branches;
 pub mod changes;
 pub mod config;

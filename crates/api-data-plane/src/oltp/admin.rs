@@ -10,10 +10,11 @@
 //! exactly wrong for an operator who is not a member of the org at all.
 //!
 //! **There is deliberately no `router()` here.** These handlers are mounted by
-//! `oxy_api_tenancy::admin::oltp`, which calls `scope::deny_out_of_scope`
-//! on every org-keyed one before delegating. A router in this crate cannot do
-//! that — the fence reads `app_admins` through `server::authz::globals`, which
-//! lives above this crate — so one existed and was unfenced, and the belief
+//! [`crate::admin::oltp`], which calls `scope::deny_out_of_scope`
+//! on every org-keyed one before delegating. A router beside these handlers
+//! could not do that while they sat in `oxy-oltp` — the fence reads
+//! `app_admins` through `server::authz::globals`, which lived above that
+//! crate — so one existed and was unfenced, and the belief
 //! that authorization was "a route layer, not a check in here" is what produced
 //! that gap: `cap(Action::PlatformOltp)` decides on a nil-org resource, so it
 //! lets a bounded `global_admin` through for every org on the deployment.
@@ -41,8 +42,10 @@ use super::handlers::{ConnectionInfoResponse, status_for_org};
 /// Both design docs promise 503 for this, and the difference is what keeps a
 /// monitoring alert off a normal state — an unconfigured deployment is not an
 /// Oxy bug, and the console can say so instead of "Could not provision".
-pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (StatusCode, String) {
-    use crate::provisioner::ProvisionerError as P;
+pub(crate) fn provisioner_status(
+    e: oxy_oltp::provisioner::ProvisionerError,
+) -> (StatusCode, String) {
+    use oxy_oltp::provisioner::ProvisionerError as P;
     let code = match &e {
         P::NotConfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
         P::OrgNotFound(_)
@@ -65,15 +68,17 @@ pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (St
         | P::EnvBranchStateChanged { .. }
         | P::ForkOutsideHistory(_)
         | P::EnvBranchCap(_)
-        | P::Provider(crate::provider::ProviderError::BranchParentMismatch { .. })
-        | P::Provider(crate::provider::ProviderError::BranchIsProduction(_)) => {
+        | P::Provider(oxy_oltp::provider::ProviderError::BranchParentMismatch { .. })
+        | P::Provider(oxy_oltp::provider::ProviderError::BranchIsProduction(_)) => {
             StatusCode::CONFLICT
         }
         // Also operator-actionable, and it used to fall through to 500: a
         // database sitting where this tenant's belongs is the most resolvable
         // state in this surface, and the console said "Could not provision".
-        P::Provider(crate::provider::ProviderError::ProjectNotOwned { .. })
-        | P::Provider(crate::provider::ProviderError::ProjectNameTaken(_)) => StatusCode::CONFLICT,
+        P::Provider(oxy_oltp::provider::ProviderError::ProjectNotOwned { .. })
+        | P::Provider(oxy_oltp::provider::ProviderError::ProjectNameTaken(_)) => {
+            StatusCode::CONFLICT
+        }
         // Oxy's own refusals, raised as SQLSTATEs from inside a DDL batch:
         // OXY01 (role not confined), OXY02 (schema owned by another role),
         // OXY03 (role owns objects and will not be stripped). Every one is a
@@ -87,7 +92,7 @@ pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (St
         // the statement text, and `assert_confined_sql` carries its own
         // `ERRCODE` literal in that text. `is_unconfined` learned this the
         // expensive way.
-        P::Sql(crate::sql::SqlError::Statement { source_message, .. })
+        P::Sql(oxy_oltp::sql::SqlError::Statement { source_message, .. })
             if source_message.starts_with("[OXY0") =>
         {
             StatusCode::CONFLICT
@@ -148,7 +153,7 @@ pub struct TenantSchema {
 pub async fn list_tenants(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Result<Json<Vec<TenantRow>>, StatusCode> {
-    use crate::entity::tenants::Entity as OltpTenants;
+    use oxy_oltp::entity::tenants::Entity as OltpTenants;
     use sea_orm::EntityTrait;
     use std::collections::HashMap;
 
@@ -169,20 +174,20 @@ pub async fn list_tenants(
     // provisioned orgs issued 201 queries to render one page — and the count it
     // paid for was thrown away in favour of the schema names anyway.
     let mut by_tenant: HashMap<uuid::Uuid, Vec<TenantSchema>> = HashMap::new();
-    for role in crate::entity::roles::Entity::find()
+    for role in oxy_oltp::entity::roles::Entity::find()
         .all(&db)
         .await
         .map_err(internal("list oltp roles"))?
     {
         let kind = match role.writer_kind {
-            crate::entity::roles::WriterKind::App => "app",
-            crate::entity::roles::WriterKind::Pipeline => "pipeline",
+            oxy_oltp::entity::roles::WriterKind::App => "app",
+            oxy_oltp::entity::roles::WriterKind::Pipeline => "pipeline",
         };
         by_tenant
             .entry(role.tenant_row_id)
             .or_default()
             .push(TenantSchema {
-                analytics_visible: crate::migrator::effective_visibility(
+                analytics_visible: oxy_oltp::migrator::effective_visibility(
                     role.analytics_visible,
                     &role.writer_kind,
                 ),
@@ -221,7 +226,7 @@ pub async fn list_tenants(
                     schemas,
                     analyst_ready: t.analyst_password_ciphertext.is_some(),
                     platform_drift: t.platform_schema_version
-                        != crate::platform::PLATFORM_SCHEMA_VERSION,
+                        != oxy_oltp::platform::PLATFORM_SCHEMA_VERSION,
                 }
             }
         };
@@ -292,7 +297,7 @@ pub async fn provision(
         .map(super::branches::parse_branch)
         .transpose()?;
 
-    let provisioner = crate::provisioner::from_env(db.clone())
+    let provisioner = oxy_oltp::provisioner::from_env(db.clone())
         .await
         .map_err(provisioner_status)?;
 
@@ -336,16 +341,16 @@ pub async fn provision(
 
 /// `provision`'s writer loop, split out of the handler unchanged.
 async fn ensure_writers(
-    provisioner: &crate::provisioner::OltpProvisioner,
+    provisioner: &oxy_oltp::provisioner::OltpProvisioner,
     org_id: Uuid,
-    writers: &[crate::schema::WriterRef],
+    writers: &[oxy_oltp::schema::WriterRef],
 ) -> Result<(), (StatusCode, String)> {
     for writer in writers {
         provisioner
             .ensure_writer(
                 org_id,
                 writer,
-                crate::schema::GrantLevel::ReadWrite,
+                oxy_oltp::schema::GrantLevel::ReadWrite,
                 // Claimed by no workspace: an operator provisioning ahead of an
                 // app must not lock the namespace to a workspace that has not
                 // declared it yet. `None`, not `Uuid::nil()` — nil compares as
@@ -396,7 +401,7 @@ pub async fn set_visibility(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let writer = parse_writer(&body.writer).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let provisioner = crate::provisioner::from_env(db.clone())
+    let provisioner = oxy_oltp::provisioner::from_env(db.clone())
         .await
         .map_err(provisioner_status)?;
 
@@ -429,7 +434,7 @@ pub async fn deprovision(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let provisioner = crate::provisioner::from_env(db.clone())
+    let provisioner = oxy_oltp::provisioner::from_env(db.clone())
         .await
         .map_err(provisioner_status)?;
 
@@ -496,7 +501,7 @@ pub async fn deprovision_writer(
     // hands over the DERIVED writer for exactly that reason.
     let writer = parse_writer(&body.writer).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let provisioner = crate::provisioner::from_env(db.clone())
+    let provisioner = oxy_oltp::provisioner::from_env(db.clone())
         .await
         .map_err(provisioner_status)?;
 
@@ -520,13 +525,13 @@ pub async fn deprovision_writer(
         .map_err(|s| (s, "could not read back status".to_string()))
 }
 
-pub(crate) fn parse_writer(spec: &str) -> Result<crate::schema::WriterRef, String> {
+pub(crate) fn parse_writer(spec: &str) -> Result<oxy_oltp::schema::WriterRef, String> {
     let (kind, name) = spec.split_once(':').ok_or_else(|| {
         format!("writer {spec:?} must look like `app:<slug>` or `pipeline:<src>`")
     })?;
     match kind {
-        "app" => crate::schema::WriterRef::app(name),
-        "pipeline" => crate::schema::WriterRef::pipeline(name),
+        "app" => oxy_oltp::schema::WriterRef::app(name),
+        "pipeline" => oxy_oltp::schema::WriterRef::pipeline(name),
         _ => {
             return Err(format!(
                 "writer {spec:?} must start with `app:` or `pipeline:`"
@@ -572,7 +577,7 @@ pub async fn credentials(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if body.role == "analyst" {
-        let conn = crate::resolver::resolve_analyst_connection_for_org(&db, org_id)
+        let conn = oxy_oltp::resolver::resolve_analyst_connection_for_org(&db, org_id)
             .await
             .map_err(super::resolve_status)?;
         warn!(
@@ -596,7 +601,7 @@ pub async fn credentials(
     }
 
     let writer = parse_writer(&body.role).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let conn = crate::resolver::resolve_writer_connection_for_org(&db, org_id, &writer)
+    let conn = oxy_oltp::resolver::resolve_writer_connection_for_org(&db, org_id, &writer)
         .await
         .map_err(super::resolve_status)?;
     warn!(
@@ -613,10 +618,10 @@ pub async fn credentials(
 #[cfg(test)]
 mod status_tests {
     use super::*;
-    use crate::provisioner::ProvisionerError as P;
+    use oxy_oltp::provisioner::ProvisionerError as P;
 
     fn statement_err(source_message: &str) -> P {
-        P::Sql(crate::sql::SqlError::Statement {
+        P::Sql(oxy_oltp::sql::SqlError::Statement {
             // The real shape: `assert_confined_sql` carries its own `ERRCODE`
             // literal in the statement text, which is why the arm must not
             // match on `Display`.

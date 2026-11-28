@@ -195,6 +195,23 @@ pub fn pg_detail(e: &tokio_postgres::Error) -> String {
     }
 }
 
+/// One session, one `SELECT 1`. The error names the stage that failed:
+/// `connect` (the server or the network refused the session) or `query`.
+///
+/// The staff console's connection test (`oxy_api_data_plane::oltp::probe`)
+/// is this call plus a timeout. It lives here, not beside that handler, so
+/// its tests can stand on this module's fake server.
+pub async fn probe(dsn: &str) -> Result<(), (&'static str, String)> {
+    let client = connect(dsn, "oltp probe")
+        .await
+        .map_err(|e| ("connect", pg_detail(&e)))?;
+    client
+        .simple_query("SELECT 1")
+        .await
+        .map_err(|e| ("query", pg_detail(&e)))?;
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use tokio_postgres::config::SslMode;
@@ -230,7 +247,7 @@ pub(crate) mod tests {
 
     // ── Which address's error is reported ────────────────────────────────────
 
-    use super::{connect_to_each, pg_detail};
+    use super::{connect_to_each, pg_detail, probe};
     use std::net::IpAddr;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -240,7 +257,7 @@ pub(crate) mod tests {
 
     /// A Postgres server that answers the first `refusals` startup packets with
     /// an `ErrorResponse` carrying [`QUOTA`], then accepts. Returns its port.
-    /// `api::probe`'s tests stand on it too.
+    /// [`super::probe`]'s tests stand on it too.
     pub(crate) async fn fake_server(refusals: usize) -> u16 {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -343,5 +360,36 @@ pub(crate) mod tests {
             panic!("the second attempt should have been accepted");
         };
         assert!(!client.is_closed());
+    }
+
+    // ── The console's connection test (`probe`) ─────────────────────────────
+
+    /// The 2026-10-21 refusal, as the panel would now show it: the server's
+    /// own words at the `connect` stage, not a networking fault.
+    #[tokio::test]
+    async fn a_server_that_refuses_the_session_is_reported_in_its_own_words() {
+        let port = fake_server(usize::MAX).await;
+        let (stage, error) = probe(&format!("postgres://u@127.0.0.1:{port}/d?sslmode=disable"))
+            .await
+            .expect_err("the server refuses every session");
+        assert_eq!(stage, "connect");
+        assert!(error.contains(QUOTA), "{error}");
+        assert!(error.starts_with("[XX000]"), "SQLSTATE first: {error}");
+    }
+
+    #[tokio::test]
+    async fn nothing_listening_is_reported_with_its_os_error() {
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let (stage, error) = probe(&format!("postgres://u@127.0.0.1:{port}/d?sslmode=disable"))
+            .await
+            .expect_err("nothing listens there");
+        assert_eq!(stage, "connect");
+        assert!(
+            error.starts_with("error connecting to server") && error.contains("(os error"),
+            "{error}"
+        );
     }
 }

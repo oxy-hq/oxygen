@@ -186,6 +186,11 @@ mod sentry_filter_previews_pins_tests;
 #[cfg(test)]
 mod sentry_filter_tenant_client_pins_tests;
 
+// Sentry pins for crate-depth B2's moves into `oxy-api-data-plane`, kept out
+// of the over-budget `sentry_filter.rs`.
+#[cfg(test)]
+mod sentry_filter_data_plane_surface_pins_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

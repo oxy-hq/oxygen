@@ -5,7 +5,7 @@
 //! Both were the Rust `oxy oltp audit | rotate` (deleted 2026-11-21), which ran
 //! on an operator's laptop with the deployment's database URL, sealing key and
 //! provider token. Like [`super::admin`], there is no router here: the routes
-//! are declared by `oxy_api_tenancy::admin::oltp`, which fences each one by
+//! are declared by `crate::admin::oltp`, which fences each one by
 //! scope and writes its audit row before delegating to these.
 //!
 //! **The audit answers 200 when it finds a violation.** The check ran, and the
@@ -15,7 +15,7 @@
 //!
 //! **A rotation never returns the password,** and never echoes the statement
 //! that set it: a failed `ALTER ROLE … PASSWORD` carries the new password in
-//! its statement text ([`crate::sql::SqlError::Statement`]), so the error body
+//! its statement text ([`oxy_oltp::sql::SqlError::Statement`]), so the error body
 //! is the server's reason alone ([`rotate_error`]).
 
 use axum::extract::{Json, Path};
@@ -27,7 +27,7 @@ use uuid::Uuid;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_platform::db::establish_connection;
 
-use crate::confinement_audit::{AuditError, ConfinementAudit, audit_org};
+use oxy_oltp::confinement_audit::{AuditError, ConfinementAudit, audit_org};
 
 fn audit_status(e: AuditError) -> (StatusCode, String) {
     let code = match &e {
@@ -78,10 +78,10 @@ pub struct RotatedRole {
 /// The status is [`super::admin::provisioner_status`]'s. The body is the error's
 /// text, except for a failed statement, where it is the server's reason alone —
 /// the statement is the one that set the password.
-pub(crate) fn rotate_error(e: crate::provisioner::ProvisionerError) -> (StatusCode, String) {
-    use crate::provisioner::ProvisionerError as P;
+pub(crate) fn rotate_error(e: oxy_oltp::provisioner::ProvisionerError) -> (StatusCode, String) {
+    use oxy_oltp::provisioner::ProvisionerError as P;
     let message = match &e {
-        P::Sql(crate::sql::SqlError::Statement { source_message, .. }) => {
+        P::Sql(oxy_oltp::sql::SqlError::Statement { source_message, .. }) => {
             format!("statement failed: {source_message}")
         }
         other => other.to_string(),
@@ -104,13 +104,13 @@ pub async fn rotate(
     let db = establish_connection()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let provisioner = crate::provisioner::from_env(db)
+    let provisioner = oxy_oltp::provisioner::from_env(db)
         .await
         .map_err(super::admin::provisioner_status)?;
 
     warn!(user = %user.label(), org_id = %org_id, writer = %writer, "rotating an OLTP writer's password");
     let creds = provisioner
-        .rotate_writer(org_id, &writer, crate::schema::GrantLevel::ReadWrite)
+        .rotate_writer(org_id, &writer, oxy_oltp::schema::GrantLevel::ReadWrite)
         .await
         .map_err(rotate_error)?;
     Ok(Json(RotatedRole {
@@ -123,14 +123,14 @@ pub async fn rotate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provisioner::ProvisionerError as P;
+    use oxy_oltp::provisioner::ProvisionerError as P;
 
     /// A failed `ALTER ROLE … PASSWORD` must not hand the new password back in
     /// the error body, while keeping the server's reason and the status.
     #[test]
     fn a_failed_password_statement_does_not_echo_the_password() {
         let secret = "s3cr3t-Pa55word-xyz";
-        let e = P::Sql(crate::sql::SqlError::Statement {
+        let e = P::Sql(oxy_oltp::sql::SqlError::Statement {
             statement: format!("ALTER ROLE app_a_rw WITH LOGIN PASSWORD '{secret}'"),
             source_message: "[OXY01] role app_a_rw is not confined".to_string(),
         });

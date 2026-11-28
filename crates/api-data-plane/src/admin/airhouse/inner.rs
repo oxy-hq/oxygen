@@ -5,25 +5,25 @@
 //! have one, which do not, and is anything wrong with the ones that do.
 //!
 //! **Workspace-keyed, not org-keyed** — an Airhouse tenant is one per
-//! workspace, not one per org. That is why the scope fence on the
-//! `oxy-app` side uses `deny_out_of_scope_opt`: a workspace's org is nullable,
+//! workspace, not one per org. That is why the scope fence
+//! ([`crate::admin::airhouse`]) uses `deny_out_of_scope_opt`: a workspace's org is nullable,
 //! and a null org must refuse for a bounded grant rather than pass unchecked.
 //!
 //! There is deliberately **no `router()` here**: the routes are
-//! declared by `oxy_api_tenancy::admin::airhouse`, which fences each one
+//! declared by [`crate::admin::airhouse`], which fences each one
 //! before delegating. The capability layer at the mount decides *whether you
 //! are staff*; only a handler can decide *which orgs you reach*.
 //!
 //! Was `airhouse::api::admin` until crate-depth B2 took the HTTP handlers out
 //! of the `airhouse` client (a T1 crate, which may not depend on `oxy-auth`).
-//! It lives beside its fence because the fence is its only caller: in the new
-//! `oxy-api-data-plane` it would have made this crate depend on a sibling
-//! surface, a T3 -> T3 edge.
+//! It lives beside its fence because the fence is its only caller. Both sat in
+//! `oxy-api-tenancy` for B2's first PR and moved here, with the fence, in its
+//! second, so the data-plane surface owns its staff routes too.
 
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
-use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_platform::db::establish_connection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use tracing::{error, info, instrument};

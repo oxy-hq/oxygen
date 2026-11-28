@@ -77,8 +77,9 @@ oxy-billing = { workspace = true }
 # The feature-flag cache `serve` and `worker` load at boot.
 oxy-feature-flags = { workspace = true }
 # The router assembly (`src/router`, `src/admin`, `role_manifest`,
-# `role_middleware`), up from `oxy-app` in decompose LIFT: the OLTP and
-# Airhouse mounts (`oxy-oltp`), the capability guards and `Caller`
+# `role_middleware`), up from `oxy-app` in decompose LIFT: the OLTP resolver
+# and migrator (`oxy-oltp`; its routes are `oxy-api-data-plane`'s since
+# crate-depth B2), the capability guards and `Caller`
 # (`oxy-server-authz`), local mode's refresh-key cache (`agentic-semantic`) and
 # its `/setup` writes (`oxy-project`), and the route-declaration stubs
 # (`async-trait`).
@@ -125,8 +126,10 @@ oxy-api-semantic = { path = "../api-semantic" }
 # The eval context: the eval-run routes and `eval_run` task (`oxyc evals run`),
 # in every build, and `oxy dev test`, registered only with `dev-tools` (S10).
 oxy-api-eval = { path = "../api-eval" }
-# The data-plane surface: `/airhouse/version` and `/airhouse/me/*`, merged at the
-# root of both the cloud and local trees (`router/{global,protected}.rs`).
+# The data-plane surface: `/airhouse/version`, `/airhouse/me/*` and `/oltp/me/*`,
+# merged at the root of both the cloud and local trees
+# (`router/{global,protected}.rs`), and the staff console's OLTP and Airhouse
+# sections, chained onto the admin seam in `surface_seams`.
 oxy-api-data-plane = { path = "../api-data-plane" }
 oxy-cli-shim = { path = "../cli-shim" }
 oxy = { workspace = true }

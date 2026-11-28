@@ -27,7 +27,7 @@ import { orgOrHint, resolveOrgId } from "./assume.js";
 import { parseWriter } from "./oltp.js";
 import { call, orgPath, PROVISION_TIMEOUT_MS } from "./oltp-client.js";
 
-/** `oxy_oltp::api::admin::CredentialsResponse`. */
+/** `oxy_api_data_plane::oltp::admin::CredentialsResponse`. */
 export interface Credentials {
   role: string;
   dsn: string;

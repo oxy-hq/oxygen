@@ -2,7 +2,7 @@
 //!
 //! Deliberately **not** a table editor. A Supabase-style grid means a human
 //! writing to production rows, which is exactly what
-//! [`crate::schema::ANALYST_ROLE`] exists to prevent. This shows structure and
+//! [`oxy_oltp::schema::ANALYST_ROLE`] exists to prevent. This shows structure and
 //! nothing else — every query below runs as the read-only analyst.
 //!
 //! Why this and not the generic `/databases/{name}/schema` endpoint: that one
@@ -21,9 +21,9 @@ use serde::Serialize;
 use tracing::{error, instrument};
 
 use super::handlers::{WorkspaceQuery, resolve_caller_org};
-use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles, WriterKind};
-use crate::entity::tenants::{self as oltp_tenants, Entity as OltpTenants};
-use crate::resolver::resolve_analyst_connection;
+use oxy_oltp::entity::roles::{self as oltp_roles, Entity as OltpRoles, WriterKind};
+use oxy_oltp::entity::tenants::{self as oltp_tenants, Entity as OltpTenants};
+use oxy_oltp::resolver::resolve_analyst_connection;
 
 #[derive(Debug, Serialize)]
 pub struct ErdColumn {
@@ -152,7 +152,7 @@ async fn introspect(
     dsn: &str,
     owners: &HashMap<String, (String, String)>,
 ) -> Result<(Vec<ErdSchema>, Vec<ErdRelationship>), String> {
-    // TLS comes from `crate::connect`, the single place the rustls connector is
+    // TLS comes from `oxy_oltp::connect`, the single place the rustls connector is
     // built for **tenant** DSNs — introspection, the resolver, the provisioner's
     // DDL. Whether TLS is demanded follows from the DSN's sslmode
     // (`sslmode_for`), so a local container and a managed provider both work
@@ -160,9 +160,9 @@ async fn introspect(
     // `NoTls` deliberately: that provider exists to drive a local cluster, and a
     // managed provider is reached through its REST API rather than a superuser
     // session.
-    let client = crate::connect::connect(dsn, "OLTP introspection")
+    let client = oxy_oltp::connect::connect(dsn, "OLTP introspection")
         .await
-        .map_err(|e| format!("connect: {}", crate::connect::pg_detail(&e)))?;
+        .map_err(|e| format!("connect: {}", oxy_oltp::connect::pg_detail(&e)))?;
 
     // Columns come from information_schema **on purpose**: it exposes only what
     // the connected role may SELECT, so the analyst's grants keep `oxy_meta`

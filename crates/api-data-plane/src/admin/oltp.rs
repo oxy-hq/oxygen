@@ -1,6 +1,6 @@
 //! Scope fence + audit for the admin OLTP surface.
 //!
-//! The handlers themselves live in `oxy_oltp::api::admin`. This module owns the
+//! The handlers themselves live in [`crate::oltp::admin`]. This module owns the
 //! *routes*, so every org-keyed one passes through [`scope::deny_out_of_scope`]
 //! before the handler runs.
 //!
@@ -23,14 +23,14 @@
 //! The fleet list is filtered rather than refused: a bounded operator sees
 //! their orgs, not an error.
 
+use crate::oltp::admin as inner;
 use axum::Router;
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
-use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_oltp::api::admin as inner;
+use oxy_platform::db::establish_connection;
 use uuid::Uuid;
 
 use oxy_server_authz::staff::org_filter::scope_org_filter;
@@ -129,29 +129,29 @@ pub async fn list_tenants(
 pub async fn get_status(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(org_id): Path<Uuid>,
-) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, StatusCode> {
+) -> Result<Json<crate::oltp::handlers::ConnectionInfoResponse>, StatusCode> {
     let db = conn().await?;
     scope::deny_out_of_scope(&db, &user, org_id).await?;
     inner::get_status(AuthenticatedUserExtractor(user), Path(org_id)).await
 }
 
 /// Open one session to the org's database as its analyst and report what the
-/// server answered (`oxy_oltp::api::probe`). Not audited, as `get_status` is
+/// server answered (`crate::oltp::probe`). Not audited, as `get_status` is
 /// not: it reads, and it hands the caller nothing it could not already see.
 pub async fn test_connection(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(org_id): Path<Uuid>,
-) -> Result<Json<oxy_oltp::api::probe::ConnectionTestResponse>, StatusCode> {
+) -> Result<Json<crate::oltp::probe::ConnectionTestResponse>, StatusCode> {
     let db = conn().await?;
     scope::deny_out_of_scope(&db, &user, org_id).await?;
-    oxy_oltp::api::probe::test_connection(AuthenticatedUserExtractor(user), Path(org_id)).await
+    crate::oltp::probe::test_connection(AuthenticatedUserExtractor(user), Path(org_id)).await
 }
 
 pub async fn provision(
     user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::ProvisionRequest>,
-) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
@@ -192,7 +192,7 @@ pub async fn set_visibility(
     user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::VisibilityRequest>,
-) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
@@ -223,14 +223,14 @@ pub async fn set_visibility(
 pub async fn deprovision(
     user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
-) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
         .map_err(msg)?;
     // Read the database name BEFORE the delete: afterwards the row is gone and
     // the audit entry would name nothing.
-    let label = oxy_oltp::api::handlers::status_for_org(&db, org_id)
+    let label = crate::oltp::handlers::status_for_org(&db, org_id)
         .await
         .ok()
         .map(|s| s.database)
@@ -261,7 +261,7 @@ pub async fn deprovision_writer(
     user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::DeprovisionWriterRequest>,
-) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
@@ -324,12 +324,12 @@ pub async fn credentials(
 pub async fn get_branch(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path((org_id, branch)): Path<(Uuid, String)>,
-) -> Result<Json<oxy_oltp::api::branches::BranchStatusResponse>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::branches::BranchStatusResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
         .map_err(msg)?;
-    oxy_oltp::api::branches::get_branch(AuthenticatedUserExtractor(user), Path((org_id, branch)))
+    crate::oltp::branches::get_branch(AuthenticatedUserExtractor(user), Path((org_id, branch)))
         .await
 }
 
@@ -339,8 +339,8 @@ pub async fn get_branch(
 pub async fn reset_branch(
     user: oxy_app_core::audit::RequestActor,
     Path((org_id, branch)): Path<(Uuid, String)>,
-    Json(body): Json<oxy_oltp::api::branches::ResetRequest>,
-) -> Result<(StatusCode, Json<oxy_oltp::api::branches::ResetResponse>), (StatusCode, String)> {
+    Json(body): Json<crate::oltp::branches::ResetRequest>,
+) -> Result<(StatusCode, Json<crate::oltp::branches::ResetResponse>), (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
@@ -354,7 +354,7 @@ pub async fn reset_branch(
     } else {
         serde_json::Value::Null
     };
-    let out = oxy_oltp::api::branches::reset_branch(
+    let out = crate::oltp::branches::reset_branch(
         AuthenticatedUserExtractor(user.user.clone()),
         Path((org_id, branch.clone())),
         Json(body),
@@ -386,7 +386,7 @@ pub async fn audit(
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
         .map_err(msg)?;
-    let out = oxy_oltp::api::confinement::audit(
+    let out = crate::oltp::confinement::audit(
         AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
     )
@@ -407,12 +407,12 @@ pub async fn audit(
 pub async fn rotate_role(
     user: oxy_app_core::audit::RequestActor,
     Path((org_id, role)): Path<(Uuid, String)>,
-) -> Result<Json<oxy_oltp::api::confinement::RotatedRole>, (StatusCode, String)> {
+) -> Result<Json<crate::oltp::confinement::RotatedRole>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
         .map_err(msg)?;
-    let out = oxy_oltp::api::confinement::rotate(
+    let out = crate::oltp::confinement::rotate(
         AuthenticatedUserExtractor(user.user.clone()),
         Path((org_id, role.clone())),
     )
@@ -433,7 +433,7 @@ pub async fn rotate_role(
     out
 }
 
-/// Apply the org's pending schema migrations (`oxy_oltp::api::apply`). Audited
+/// Apply the org's pending schema migrations (`crate::oltp::apply`). Audited
 /// twice, before and after: it runs DDL as the tenant's OWNER, which no later
 /// call undoes. The second row names the workspace, the revision and the files
 /// (those that committed before a failure included), and a migration that failed is a
@@ -442,8 +442,8 @@ pub async fn rotate_role(
 pub async fn apply(
     user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
-    Json(body): Json<oxy_oltp::api::apply::ApplyRequest>,
-) -> Result<Json<oxy_oltp::api::apply::ApplyResponse>, (StatusCode, String)> {
+    Json(body): Json<crate::oltp::apply::ApplyRequest>,
+) -> Result<Json<crate::oltp::apply::ApplyResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
     scope::deny_out_of_scope(&db, &user, org_id)
         .await
@@ -461,7 +461,7 @@ pub async fn apply(
         true,
     )
     .await;
-    let out = oxy_oltp::api::apply::apply(
+    let out = crate::oltp::apply::apply(
         AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
         Json(body),
@@ -495,10 +495,10 @@ async fn branch_reach(
     org_id: Uuid,
     branch: &str,
 ) -> serde_json::Value {
-    let Ok(kind) = oxy_oltp::api::branches::parse_branch(branch) else {
+    let Ok(kind) = crate::oltp::branches::parse_branch(branch) else {
         return serde_json::Value::Null;
     };
-    match oxy_oltp::api::branches::status_for(db, org_id, kind).await {
+    match crate::oltp::branches::status_for(db, org_id, kind).await {
         Ok(s) => serde_json::json!({
             "apps": s.affected_apps.iter().map(|a| a.slug.clone()).collect::<Vec<_>>(),
             "pipelines": s.affected_pipelines.iter().map(|p| p.schema.clone()).collect::<Vec<_>>(),

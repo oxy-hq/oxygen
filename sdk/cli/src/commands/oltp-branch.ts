@@ -33,7 +33,7 @@ export interface AffectedPipeline {
   schema: string;
 }
 
-/** `oxy_oltp::api::branches::BranchStatusResponse` — metadata, never a credential. */
+/** `oxy_api_data_plane::oltp::branches::BranchStatusResponse` — metadata, never a credential. */
 export interface BranchStatus {
   branch: string;
   provisioned: boolean;

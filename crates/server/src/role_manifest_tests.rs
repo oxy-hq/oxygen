@@ -1240,10 +1240,10 @@ fn the_oltp_router_is_mounted_in_both_global_and_protected_routers() {
             // the test. Both doors count: this branch mounts another crate's
             // router through `merge_undeclared`, which carries the reason the
             // merge has no declaration to hang a role on.
-            src.contains(".merge(oxy_oltp::api::router")
-                || src.contains(".merge_undeclared(\n            oxy_oltp::api::router")
-                || src.contains(".merge_undeclared(oxy_oltp::api::router"),
-            "{file} must merge oxy_oltp::api::router — a route missing from \
+            src.contains(".merge(oxy_api_data_plane::oltp::router")
+                || src.contains(".merge_undeclared(\n            oxy_api_data_plane::oltp::router")
+                || src.contains(".merge_undeclared(oxy_api_data_plane::oltp::router"),
+            "{file} must merge oxy_api_data_plane::oltp::router — a route missing from \
                  one of the two routers answers 200 + index.html, not 404"
         );
     }

@@ -58,7 +58,6 @@ web-app/src/pages/admin/                           @luong-komorebi @haitrr
 internal-docs/admin-surfaces.md                    @luong-komorebi @haitrr
 # Airhouse fleet console (override: carved out of admin/ above — Luong built the
 # console, Tay owns the Airhouse fleet it operates on)
-crates/api-tenancy/src/admin/airhouse.rs           @luong-komorebi @hotay
 web-app/src/pages/admin/AdminAirhouse/             @luong-komorebi @hotay
 # Airhouse itself — moved from Tay 2026-11-16 on the crates/platform/ precedent:
 # 25 of the 30 commits since 2026-09 are Luong's and they are features (tenant
@@ -67,16 +66,19 @@ web-app/src/pages/admin/AdminAirhouse/             @luong-komorebi @hotay
 # is July's (#2688). Tay backs up — he built the warehouse + connector, and the
 # connector (crates/agentic/connector/) stays his.
 crates/airhouse/                                   @luong-komorebi @hotay
-# The `/airhouse/me/*` routes, out of crates/airhouse/src/api (crate-depth B2).
+# The `/airhouse/me/*` and `/oltp/me/*` routes, out of crates/airhouse/src/api
+# and crates/oltp/src/api, and the staff console's Airhouse and OLTP sections
+# with the handlers they fence, out of crates/api-tenancy/src/admin (crate-depth
+# B2).
 crates/api-data-plane/                             @luong-komorebi @hotay
 internal-docs/airhouse-integration.md              @luong-komorebi @hotay
 
 # Per-org OLTP Postgres — Neon-provisioned tenant DBs behind ctx.oltp/ctx.tx,
 # writer isolation, provisioning console (new 2026-08, #2851). Tay backs up: the
 # connection underneath is his agentic/connector Postgres path.
-# (the two admin/ lines are overrides carved out of admin/ above)
+# (the admin/ line is an override carved out of admin/ above; the console's
+# routes and handlers are under crates/api-data-plane/, above)
 crates/oltp/                                       @luong-komorebi @hotay
-crates/api-tenancy/src/admin/oltp.rs               @luong-komorebi @hotay
 web-app/src/pages/admin/AdminOltp/                 @luong-komorebi @hotay
 scripts/oltp/                                      @luong-komorebi @hotay
 internal-docs/per-org-oltp-postgres.md             @luong-komorebi @hotay
@@ -219,9 +221,6 @@ internal-docs/platform-metrics.md                  @luong-komorebi @hotay
 
 # Partner distribution platform
 crates/api-tenancy/                                @luong-komorebi @NTtanh
-# The Airhouse console's handlers, out of crates/airhouse/src/api/admin
-# (crate-depth B2). After the line above, which would otherwise claim them.
-crates/api-tenancy/src/admin/airhouse/             @luong-komorebi @hotay
 web-app/src/pages/partners/                        @luong-komorebi @NTtanh
 internal-docs/partner-platform.md                  @luong-komorebi @NTtanh
 

@@ -2647,7 +2647,7 @@ metric = "nargs"
 value = 6.0
 
 [[entry]]
-path = "crates/api-tenancy/src/admin/airhouse/inner.rs"
+path = "crates/api-data-plane/src/admin/airhouse/inner.rs"
 qualified = "list_fleet"
 metric = "abc"
 value = 79.01898506055365
@@ -5889,7 +5889,7 @@ metric = "abc"
 value = 41.60528812542944
 
 [[entry]]
-path = "crates/api-tenancy/src/admin/oltp.rs"
+path = "crates/api-data-plane/src/admin/oltp.rs"
 qualified = "audit_oltp"
 metric = "nargs"
 value = 6.0
@@ -8956,13 +8956,13 @@ metric = "abc"
 value = 59.447455790807396
 
 [[entry]]
-path = "crates/oltp/src/api/admin.rs"
+path = "crates/api-data-plane/src/oltp/admin.rs"
 qualified = "list_tenants"
 metric = "abc"
 value = 50.06995106848019
 
 [[entry]]
-path = "crates/oltp/src/api/erd.rs"
+path = "crates/api-data-plane/src/oltp/erd.rs"
 qualified = "introspect"
 metric = "abc"
 value = 49.20365840057018
@@ -9811,7 +9811,7 @@ value = 51.633322573702344
 path = "crates/server/src/lib.rs"
 qualified = "surface_seams"
 metric = "abc"
-value = 162.0
+value = 164.0
 
 [[entry]]
 path = "crates/server/src/logging.rs"
@@ -10021,7 +10021,7 @@ value = 49.93996395673509
 path = "crates/server/tests/integration/token_auth/stack.rs"
 qualified = "flat_api"
 metric = "abc"
-value = 57.0350769263968
+value = 59.033888572581766
 
 [[entry]]
 path = "crates/server/tests/integration/token_auth/trusted_access.rs"

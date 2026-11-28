@@ -10,7 +10,6 @@
 #[path = "../../../test-utils/harness/mod.rs"]
 mod common;
 
-mod admin_data_plane_mount;
 mod admin_factory_access;
 mod admin_staff_scope_directories;
 mod onboarding_write_guards;

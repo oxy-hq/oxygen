@@ -304,7 +304,7 @@ describe("airhouse rotate-sa", () => {
     );
   });
 
-  // The path is the contract with `oxy_api_tenancy::admin::airhouse`'s router.
+  // The path is the contract with `oxy_api_data_plane::admin::airhouse`'s router.
   it("posts to the admin route the server mounts", () => {
     expect(rotateSaPath(WS_WITH)).toBe(`/api/admin/workspaces/${WS_WITH}/airhouse/rotate-sa`);
   });

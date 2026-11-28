@@ -5,7 +5,7 @@ authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
 # tree; see crates/route-catalog/build_route_catalog.rs) and rebuilds only
 # oxy-server, which mounts it.
-description = "The data-plane HTTP surface: a member's own Airhouse warehouse (`/airhouse/version`, `/airhouse/me/*`), mounted by oxy-server. Out of the `airhouse` crate so that T1 client no longer depends on oxy-auth (internal-docs/crate-tiers.md)"
+description = "The data-plane HTTP surface, mounted by oxy-server: a member's own Airhouse warehouse (`/airhouse/version`, `/airhouse/me/*`), the org's OLTP database (`/oltp/me/*`), and the staff console's sections over both (`/admin/oltp*`, `/admin/airhouse*`). Out of the `airhouse` and `oxy-oltp` crates so that neither depends on oxy-auth (internal-docs/crate-tiers.md)"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
@@ -13,16 +13,38 @@ edition.workspace = true
 [dependencies]
 # The client, broker, provisioner and tenants entity the handlers drive.
 airhouse = { workspace = true, features = ["admin"] }
+# The OLTP provisioner, resolver, migrator and entities the `/oltp/me/*` and
+# staff OLTP handlers drive.
+oxy-oltp = { workspace = true }
 oxy-auth = { workspace = true }      # AuthenticatedUserExtractor
 oxy-platform = { workspace = true }  # establish_connection
+# The staff sections: AppState, the admin seam (AdminSection) and the audit
+# writer (`audit::RequestActor`, `record_best_effort`).
+oxy-app-core = { workspace = true }
+# The staff sections' capabilities (`Action`) and the scope fence
+# (`staff::scope`, `staff::org_filter`).
+oxy-server-authz = { workspace = true }
 entity = { workspace = true }        # org / workspace membership rows
 axum = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }    # audit metadata
+thiserror = { workspace = true }     # the OLTP apply's error
+tokio = { workspace = true }         # the OLTP probe's and apply's time budgets
 tracing = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }      # a minted credential's expires_at
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }   # oneshot, in the mount tests
+
+# One grouped integration binary, per the workspace rule: a new top-level
+# tests/*.rs adds a whole link to every full test run.
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
 
 [lints]
 workspace = true

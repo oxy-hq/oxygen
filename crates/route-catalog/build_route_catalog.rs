@@ -366,19 +366,20 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_tenancy",
         function: "admin_partner_routes",
     },
-    // And its per-org data-plane provisioning fences, out of `oxy-app`'s
-    // `admin::{oltp, airhouse}` in the admin split (PR 4): a section each
+    // The per-org data-plane provisioning fences, out of `oxy-app`'s
+    // `admin::{oltp, airhouse}` in the admin split (PR 4), tenancy's until
+    // crate-depth B2 moved them to `oxy-api-data-plane`: a section each
     // (`PlatformOltp`, `PlatformAirhouse`), so a seed each, on the same seam.
     Seed {
         surface: "org",
         prefix: "/api/admin",
-        module: "oxy_api_tenancy",
+        module: "oxy_api_data_plane",
         function: "admin_oltp_routes",
     },
     Seed {
         surface: "org",
         prefix: "/api/admin",
-        module: "oxy_api_tenancy",
+        module: "oxy_api_data_plane",
         function: "admin_airhouse_routes",
     },
     // `oxy-api-workspace-health`: the console's health rollup, eval trigger and
@@ -777,13 +778,8 @@ pub const DOC_DIRS: &[&str] = &[
     "crates/api-workspaces/src",
     "crates/api-semantic/src",
     "crates/api-eval/src",
-    // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
-    // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
-    // the wider path would only pull ~15 unrelated modules (`provisioner`,
-    // `resolver`, `migration`, …) into the `FnDoc` pool. Free to watch —
-    // `oxy-server` already depends on this crate, so editing it recompiles
-    // `oxy-server` regardless and the marginal cost is one build-script re-run.
-    "crates/oltp/src/api",
+    // (The OLTP routes' handlers, `crates/oltp/src/api` until crate-depth B2,
+    // are `crates/api-data-plane/src/oltp` now, watched above.)
 ];
 
 /// Trees walked for `.route(...)` / `.nest(...)` / `.merge(...)` mounts.
@@ -829,13 +825,10 @@ pub const SOURCE_DIRS: &[&str] = &[
     // 2026-11-16. The one directory, not the binary's `src`: that would
     // pull `serve`'s Swagger mount and the test routers into the walk.
     "crates/server/src/core_routes",
-    // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
-    // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
-    // Missing here since #2851, so both routes were live and absent from the
-    // catalog, which is exactly what this list exists to prevent. Free to
-    // watch: `oxy-server` already depends on `oxy-oltp`, so it costs no rebuild
-    // the way the sibling API crates do.
-    "crates/oltp/src/api",
+    // `/oltp/me/connection` and `/oltp/me/erd` (`crates/oltp/src/api` until
+    // crate-depth B2) are `oxy_api_data_plane::oltp::router`, under
+    // `crates/api-data-plane/src` above; `role_manifest_tests.rs` asserts the
+    // merge.
 ];
 
 /// Ceiling on how deep an inline `Router::new()` chain may nest before the

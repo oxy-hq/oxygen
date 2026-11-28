@@ -2,7 +2,7 @@
 //! `POST /{workspace_id}/integrations/looker/{name}/test`, moved out of the
 //! Rust `oxy looker test` (2026-11-21) — which read the integration from a
 //! local checkout and the credentials from the shell — and shaped like
-//! `oxy_oltp::api::probe` (`…/oltp/test-connection`): `ok` and `stage` are the
+//! `oxy_api_data_plane::oltp::probe` (`…/oltp/test-connection`): `ok` and `stage` are the
 //! verdict, the rest is what someone needs to act on it.
 //!
 //! The check is the command's: resolve the client id and secret, build the

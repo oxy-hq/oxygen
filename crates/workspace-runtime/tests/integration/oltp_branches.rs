@@ -369,7 +369,7 @@ async fn the_status_read_names_the_apps_and_pipelines_a_reset_would_hit() {
         .expect("pipeline writer");
     n.prov.provision_branch(n.org_id, STAGING).await.unwrap();
 
-    let status = oxy_oltp::api::branches::status_for(&n.db, n.org_id, STAGING)
+    let status = oxy_api_data_plane::oltp::branches::status_for(&n.db, n.org_id, STAGING)
         .await
         .unwrap();
 

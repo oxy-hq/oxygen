@@ -1,7 +1,7 @@
 //! Staff-facing status and reset for an org's OLTP branch.
 //!
 //! Mounted, like the rest of the admin surface, by
-//! `oxy_api_tenancy::admin::oltp`, which fences every org-keyed route
+//! `crate::admin::oltp`, which fences every org-keyed route
 //! before delegating here — see `admin.rs` for why there is no router in this
 //! crate.
 //!
@@ -22,8 +22,8 @@ use uuid::Uuid;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_platform::db::establish_connection;
 
-use crate::OltpBranch;
-use crate::branches::{
+use oxy_oltp::OltpBranch;
+use oxy_oltp::branches::{
     AffectedApp, AffectedPipeline, STALE_AFTER_DAYS, affected_apps, affected_pipelines, age_of,
 };
 
@@ -84,7 +84,7 @@ pub async fn status_for(
     org_id: Uuid,
     branch: OltpBranch,
 ) -> Result<BranchStatusResponse, sea_orm::DbErr> {
-    let (tenant, row) = crate::branches::find(db, org_id, branch).await?;
+    let (tenant, row) = oxy_oltp::branches::find(db, org_id, branch).await?;
     let (apps, pipelines) = match &tenant {
         Some(t) => (
             affected_apps(db, org_id, t.id).await?,
@@ -196,7 +196,7 @@ pub async fn reset_branch(
     let before = status_for(&db, org_id, branch).await.map_err(db_error)?;
     match reset_gate(before.provisioned, body.confirm) {
         ResetGate::NoBranch => {
-            let e = crate::provisioner::ProvisionerError::BranchNotProvisioned(org_id, branch);
+            let e = oxy_oltp::provisioner::ProvisionerError::BranchNotProvisioned(org_id, branch);
             return Err((StatusCode::NOT_FOUND, e.to_string()));
         }
         ResetGate::NeedsConfirm => {
@@ -212,7 +212,7 @@ pub async fn reset_branch(
         ResetGate::Proceed => {}
     }
 
-    let provisioner = crate::provisioner::from_env(db.clone())
+    let provisioner = oxy_oltp::provisioner::from_env(db.clone())
         .await
         .map_err(super::admin::provisioner_status)?;
     warn!(

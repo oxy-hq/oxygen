@@ -4,7 +4,8 @@
 //! A fenced shim: the handlers live in [`inner`] (they were the `airhouse`
 //! crate's `api::admin`, which sat below `oxy-app` and could not read
 //! `app_admins`), so the routes are declared here and each one is fenced
-//! before delegating.
+//! before delegating. Both were `oxy-api-tenancy`'s until crate-depth B2's
+//! second PR moved them here.
 //! `cap(..)` decides on `Resource::platform()` — a nil org — so on its own it
 //! lets a `global_admin` bounded to two orgs act on every workspace on the
 //! deployment.
@@ -20,9 +21,9 @@ use axum::Router;
 use axum::extract::{Json, Path};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
-use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_platform::db::establish_connection;
 use uuid::Uuid;
 
 /// The handlers this file fences: the fleet read, provisioning and the

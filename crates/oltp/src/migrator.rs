@@ -170,10 +170,11 @@ pub struct ApplyTarget<'a> {
 
 /// The apply itself, recording each file in `outcome` as it lands.
 ///
-/// Public for the staff route (`api::apply`), which owns `outcome` OUTSIDE
-/// the future it times out: files this call committed are owner-level DDL on
-/// a customer's database, and the route has to report and audit them whether
-/// the apply finished, failed on a later file, or ran out of time.
+/// Public for the staff route (`oxy_api_data_plane::oltp::apply`), which owns
+/// `outcome` OUTSIDE the future it times out: files this call committed are
+/// owner-level DDL on a customer's database, and the route has to report and
+/// audit them whether the apply finished, failed on a later file, or ran out
+/// of time.
 #[instrument(skip(control, target, outcome), fields(org_id = %target.org_id, revision_id = %target.revision_id))]
 pub async fn apply_into(
     control: &DatabaseConnection,

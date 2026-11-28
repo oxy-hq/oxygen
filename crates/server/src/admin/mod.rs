@@ -181,8 +181,8 @@ use oxy_server_authz::platform_cap_guard;
 /// (`/app-publish-tokens*`, `PlatformApps`) `oxy-api-custom-apps`'. In PR 4:
 /// the per-org OLTP console (`/oltp`, `/orgs/{org_id}/oltp*`, `PlatformOltp`)
 /// and the Airhouse fleet (`/airhouse`, `/workspaces/{workspace_id}/airhouse/
-/// provision`, `PlatformAirhouse`) are `oxy-api-tenancy`'s, a section each.
-/// In PR 5: the user directory (`/users*`, `PlatformUsers`) is
+/// provision`, `PlatformAirhouse`) went to `oxy-api-tenancy`, a section each,
+/// and on to `oxy-api-data-plane` in crate-depth B2. In PR 5: the user directory (`/users*`, `PlatformUsers`) is
 /// `oxy-api-identity`'s.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per section (in `extracted_sections`) so only
@@ -224,9 +224,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // `oxy-api-identity` (admin split, PR 5) and arrives through
         // `extracted` above, behind the capability it had here.
         // Per-org OLTP (`PlatformOltp`) and a workspace's Airhouse tenant
-        // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4)
-        // and arrive through `extracted` above, each its own section behind the
-        // capability it had here. Provisioning creates a billable resource, so
+        // (`PlatformAirhouse`) moved to `oxy-api-tenancy` (admin split, PR 4),
+        // then to `oxy-api-data-plane` (crate-depth B2), and arrive through
+        // `extracted` above, each its own section behind the capability it had
+        // here. Provisioning creates a billable resource, so
         // an App Operator, who ships apps, must not reach either; and `cap(..)`
         // decides on a nil-org resource, so the scope-fenced shims there, not
         // the handler crates' own routers, carry the per-org fence.
@@ -507,6 +508,7 @@ mod tests {
     }
 
     // The OLTP and Airhouse mount and route-inventory tests moved to
-    // `oxy-api-tenancy` with the sections (admin split, PR 4): its
-    // `tests/integration/admin_data_plane_mount.rs` and `admin::tests`.
+    // `oxy-api-tenancy` with the sections (admin split, PR 4), and on to
+    // `oxy-api-data-plane` with them (crate-depth B2): its
+    // `tests/integration/admin_mount.rs` and `admin::tests`.
 }

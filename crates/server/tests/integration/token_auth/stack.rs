@@ -88,6 +88,9 @@ pub(crate) fn flat_api() -> Router {
         oxy_api_billing::admin_sections()
             .into_iter()
             .chain(oxy_api_tenancy::admin_sections())
+            // The OLTP and Airhouse consoles, tenancy's until crate-depth B2,
+            // in the place they had in tenancy's list.
+            .chain(oxy_api_data_plane::admin_sections())
             .chain(oxy_api_identity::admin_sections())
             .chain(oxy_api_custom_apps::admin_sections())
             // The audit log, which `publish_token_mint` and `service_tokens`

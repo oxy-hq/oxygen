@@ -215,7 +215,7 @@ pub(super) fn build_local_protected_routes(
             "airhouse provisioning is per-user and per-org, never per-workspace",
         )
         .merge_undeclared(
-            oxy_oltp::api::router::<AppState>(),
+            oxy_api_data_plane::oltp::router::<AppState>(),
             "per-org OLTP status is Postgres-only; no workspace files on any path",
         )
         .nest("/{workspace_id}", workspace)

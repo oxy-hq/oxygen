@@ -15,13 +15,13 @@
 //! compute; nothing calls it on a page load or a poll.
 //!
 //! **As the analyst, never a writer.** The analyst is the one role the console
-//! may already hand out ([`crate::resolver::resolve_analyst_connection_for_org`])
+//! may already hand out ([`oxy_oltp::resolver::resolve_analyst_connection_for_org`])
 //! and the only one that cannot write. The question is "does the database
 //! answer", and any role reaching it answers that.
 //!
-//! **What it reports is the server's text.** [`crate::connect::connect`] keeps
+//! **What it reports is the server's text.** [`oxy_oltp::connect::connect`] keeps
 //! the first address's refusal rather than the last address's io error, and
-//! [`crate::connect::pg_detail`] renders it with its SQLSTATE, so a quota
+//! [`oxy_oltp::connect::pg_detail`] renders it with its SQLSTATE, so a quota
 //! refusal reads as one here and not as networking. Credentials never appear:
 //! neither the driver's errors nor `pg_detail` carry the DSN.
 
@@ -36,8 +36,8 @@ use uuid::Uuid;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_platform::db::establish_connection;
 
-use crate::connect::{connect, pg_detail};
-use crate::resolver::{ResolveError, resolve_analyst_connection_for_org};
+use oxy_oltp::connect::probe;
+use oxy_oltp::resolver::{ResolveError, resolve_analyst_connection_for_org};
 
 /// How long the whole attempt may take. A Neon compute waking from suspend
 /// answers in a few seconds; past this the answer is the timeout itself.
@@ -107,18 +107,6 @@ pub async fn test_connection(
     )))
 }
 
-/// One session, one `SELECT 1`. The error names the stage that failed.
-async fn probe(dsn: &str) -> Result<(), (&'static str, String)> {
-    let client = connect(dsn, "oltp probe")
-        .await
-        .map_err(|e| ("connect", pg_detail(&e)))?;
-    client
-        .simple_query("SELECT 1")
-        .await
-        .map_err(|e| ("query", pg_detail(&e)))?;
-    Ok(())
-}
-
 /// The response for an outcome. `target` is the `(role, host)` dialled, when a
 /// connection could be built at all.
 fn report(
@@ -144,36 +132,9 @@ fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::connect::tests::{QUOTA, fake_server};
 
-    /// The 2026-10-21 refusal, as the panel would now show it: the server's
-    /// own words at the `connect` stage, not a networking fault.
-    #[tokio::test]
-    async fn a_server_that_refuses_the_session_is_reported_in_its_own_words() {
-        let port = fake_server(usize::MAX).await;
-        let (stage, error) = probe(&format!("postgres://u@127.0.0.1:{port}/d?sslmode=disable"))
-            .await
-            .expect_err("the server refuses every session");
-        assert_eq!(stage, "connect");
-        assert!(error.contains(QUOTA), "{error}");
-        assert!(error.starts_with("[XX000]"), "SQLSTATE first: {error}");
-    }
-
-    #[tokio::test]
-    async fn nothing_listening_is_reported_with_its_os_error() {
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
-        let (stage, error) = probe(&format!("postgres://u@127.0.0.1:{port}/d?sslmode=disable"))
-            .await
-            .expect_err("nothing listens there");
-        assert_eq!(stage, "connect");
-        assert!(
-            error.starts_with("error connecting to server") && error.contains("(os error"),
-            "{error}"
-        );
-    }
+    // What a refusing or absent server reports is `oxy_oltp::connect::probe`'s,
+    // tested there beside the fake server it stands on.
 
     #[test]
     fn a_report_carries_the_stage_and_the_target_it_had() {
