@@ -46,15 +46,16 @@
 //!
 //! The staging pin is per request by design.
 
+use contracts_authz::AuthzEnforcer;
 use entity::prelude::Workspaces;
 use oxy_auth::authenticator::Authenticator;
 use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::types::{AuthenticatedUser, Identity};
 use oxy_auth::user::UserService;
 use oxy_platform::db::DbFailure;
-use oxy_server_authz as authz;
 use oxy_shared::errors::OxyError;
 use sea_orm::{DatabaseConnection, EntityTrait};
+use std::sync::Arc;
 use tracing::error;
 use uuid::Uuid;
 
@@ -285,11 +286,15 @@ impl GateError {
 /// from the 60 s cache, the ring's term from the `(user_id, project_id, org_id)`
 /// cache, and on a production request the staging pin is answered from the
 /// headers alone.
+///
+/// `authz` is the enforcer the request's caller is built with, which the
+/// surface supplies (`ServerAuthz` in the server).
 pub async fn check_custom_app_gates(
     headers: &http::HeaderMap,
     project_id: Uuid,
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<CustomAppContext, GateError> {
-    gates(headers, project_id, Readers::Workspace).await
+    gates(headers, project_id, Readers::Workspace, authz).await
 }
 
 /// Who a data-plane endpoint admits.
@@ -317,8 +322,9 @@ enum Readers {
 pub async fn check_custom_app_read_gates(
     headers: &http::HeaderMap,
     project_id: Uuid,
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<CustomAppContext, GateError> {
-    gates(headers, project_id, Readers::WorkspaceAndChecker).await
+    gates(headers, project_id, Readers::WorkspaceAndChecker, authz).await
 }
 
 /// Whether the platform checker may make this read: an app of this workspace,
@@ -327,7 +333,7 @@ pub async fn check_custom_app_read_gates(
 async fn checker_reads(
     db: &DatabaseConnection,
     headers: &http::HeaderMap,
-    caller: &authz::Caller,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
 ) -> bool {
     let Ok(addressed) = oxy_app_core::custom_app_env_request::request_environment(headers) else {
@@ -346,6 +352,7 @@ async fn gates(
     headers: &http::HeaderMap,
     project_id: Uuid,
     readers: Readers,
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<CustomAppContext, GateError> {
     // ── 0. Sentry, barrier 2: this request is a custom app's ──────────
     //
@@ -392,7 +399,9 @@ async fn gates(
     // Attached AFTER the cache: the cached row is the user, never the
     // credential one request happened to arrive with.
     let user = gate_user(&identity).await?.with_credential(credential);
-    let caller = authz::Caller::from_user(&user);
+    // The request's caller, from what authentication projected: the user with
+    // the credential just attached, as `Caller::from_user` built it.
+    let caller = contracts_authz::Caller::from_parts(oxy_auth::caller_parts(&user, None), authz);
 
     // ── 4. DB connection ──────────────────────────────────────────────
     // No `DbErr` to classify — failing to build the pool at all is unreachable
@@ -480,7 +489,7 @@ pub async fn gate_user(identity: &Identity) -> Result<AuthenticatedUser, GateErr
 /// full: the term is a SESSION's, and the cache key does not carry the grant.
 pub async fn gate_verdict(
     db: &DatabaseConnection,
-    caller: &authz::Caller,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
 ) -> Result<GateVerdict, GateError> {
     let workspace = load_workspace(db, project_id).await?;
@@ -580,7 +589,7 @@ async fn load_workspace(
 /// of a database blip.
 async fn shipped_workspace_access(
     db: &DatabaseConnection,
-    caller: &authz::Caller,
+    caller: &contracts_authz::Caller,
     org_id: Uuid,
     project_id: Uuid,
 ) -> Result<bool, GateError> {
@@ -637,7 +646,7 @@ async fn shipped_workspace_access(
 /// deferral is this request's alone: nothing is cached on that arm.
 async fn model_term(
     db: &DatabaseConnection,
-    caller: &authz::Caller,
+    caller: &contracts_authz::Caller,
     org_id: Uuid,
     project_id: Uuid,
     shipped: bool,

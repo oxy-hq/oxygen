@@ -4,6 +4,7 @@
 //! reads: the built-in authenticator (a sandbox agent token refused), the
 //! user through the serve path's cache, the credential attached after it.
 
+use crate::custom_apps_auth::authenticate_and_authorize;
 use axum::http::HeaderMap;
 use entity::{apps, organizations};
 use oxy::database::client::establish_connection;
@@ -14,7 +15,7 @@ use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::token::SandboxAgent;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{Action, Resource};
-use oxy_custom_apps::authenticate::{authenticate_and_authorize, require_app_admin};
+use oxy_custom_apps::authenticate::require_app_admin;
 use oxy_custom_apps::env_resolve::may_open_non_production;
 use oxy_server_authz::Caller;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};

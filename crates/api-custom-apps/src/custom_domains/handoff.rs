@@ -107,10 +107,10 @@ pub async fn authorize(
     };
     let request = match resolve_app_request(
         &headers,
-        &ctx.org_slug,
-        &ctx.app_slug,
+        (ctx.org_slug.as_str(), ctx.app_slug.as_str()),
         SandboxAgent::Refuse,
         &AppEnvironment::Production,
+        oxy_server_authz::enforcer(),
     )
     .await
     {

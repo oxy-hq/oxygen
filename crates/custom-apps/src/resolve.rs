@@ -36,6 +36,7 @@
 //! answers `no_store_404` and records a 403 against the app for the SLI;
 //! `authenticate_and_authorize` maps the same refusals to bare statuses.
 
+use contracts_authz::{AuthzEnforcer, Caller};
 use entity::prelude::{Apps, Organizations};
 use entity::{apps, organizations};
 use http::HeaderMap;
@@ -45,8 +46,8 @@ use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::token::{CredentialContext, SandboxAgent};
 use oxy_auth::types::{AuthenticatedUser, Identity};
 use oxy_auth::user::UserService;
-use oxy_server_authz::Caller;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use std::sync::Arc;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -145,19 +146,22 @@ enum Door {
 ///
 /// `sandbox_agent` is the surface's answer to a sandbox agent token: `/fn`
 /// admits one, the bundle path and the operator surfaces refuse it.
+///
+/// `authz` is the enforcer the request's caller ([`AppRequest::caller`]) is
+/// built with, which the surface supplies (`ServerAuthz` in the server).
 pub async fn resolve_app_request(
     headers: &HeaderMap,
-    org_slug: &str,
-    app_slug: &str,
+    (org_slug, app_slug): (&str, &str),
     sandbox_agent: SandboxAgent,
     environment: &AppEnvironment,
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<AppRequest, Refusal> {
     resolve(
         headers,
         (org_slug, app_slug),
         sandbox_agent,
-        environment,
-        Door::Surface,
+        (environment, Door::Surface),
+        authz,
     )
     .await
 }
@@ -170,17 +174,17 @@ pub async fn resolve_app_request(
 /// tree is the page and nothing more.
 pub async fn resolve_page_request(
     headers: &HeaderMap,
-    org_slug: &str,
-    app_slug: &str,
+    (org_slug, app_slug): (&str, &str),
     sandbox_agent: SandboxAgent,
     environment: &AppEnvironment,
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<AppRequest, Refusal> {
     resolve(
         headers,
         (org_slug, app_slug),
         sandbox_agent,
-        environment,
-        Door::Page,
+        (environment, Door::Page),
+        authz,
     )
     .await
 }
@@ -189,12 +193,14 @@ async fn resolve(
     headers: &HeaderMap,
     (org_slug, app_slug): (&str, &str),
     sandbox_agent: SandboxAgent,
-    environment: &AppEnvironment,
-    door: Door,
+    (environment, door): (&AppEnvironment, Door),
+    authz: Arc<dyn AuthzEnforcer>,
 ) -> Result<AppRequest, Refusal> {
     let (identity, credential) = authenticate(headers, sandbox_agent).await?;
     let user = principal(&identity, credential).await?;
-    let caller = Caller::from_user(&user);
+    // The request's caller, from what authentication projected: the user
+    // with the credential `principal` attached, as `Caller::from_user` built it.
+    let caller = Caller::from_parts(oxy_auth::caller_parts(&user, None), authz);
 
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("DB connection failed serving custom app {org_slug}/{app_slug}: {e}");

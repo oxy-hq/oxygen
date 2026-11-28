@@ -357,13 +357,13 @@ impl ServeContext {
         // the platform checker to production (`Action::AppCheckProduction`).
         let request = resolve_page_request(
             &headers,
-            org_slug,
-            app_slug,
+            (org_slug, app_slug),
             // Admitted: `serve_dispatch` already fenced the token to its own
             // sandbox's page (`serve_tree_refuses`), and `resolve::authorize`
             // decides, per environment, whether this sandbox is its own.
             oxy_auth::token::SandboxAgent::Admit,
             &environment,
+            oxy_server_authz::enforcer(),
         )
         .await
         .map_err(|refusal| {
@@ -650,8 +650,12 @@ impl ServeContext {
         // Hand it the one already resolved (and process-cached) rather than
         // making it refetch by id — the read is free here and isn't there.
         let recorded_app = self.request.app.clone();
-        let user_id = self.request.user.id;
-        let user_email = self.request.user.email.clone();
+        // The request's user, and the enforcer its caller carries.
+        let viewer = oxy_custom_apps::tracking::Viewer {
+            user_id: self.request.user.id,
+            email: self.request.user.email.clone(),
+            authz: self.request.caller.authz().clone(),
+        };
         let source_label = if self.on_app_host {
             "subdomain"
         } else {
@@ -661,8 +665,7 @@ impl ServeContext {
         let view_environment = self.environment.name();
         oxy_custom_apps::tracking::record_view(
             recorded_app,
-            user_id,
-            user_email,
+            viewer,
             session_id,
             sanitized_referrer,
             user_agent_class,

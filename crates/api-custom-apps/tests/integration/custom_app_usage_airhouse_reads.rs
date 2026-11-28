@@ -801,8 +801,11 @@ async fn use_the_app(world: &World) -> Uuid {
     let (user, email) = world.cast.users[1].clone();
     oxy_custom_apps::tracking::record_view(
         app,
-        user,
-        Some(email.clone()),
+        oxy_custom_apps::tracking::Viewer {
+            user_id: user,
+            email: Some(email.clone()),
+            authz: oxy_server_authz::enforcer(),
+        },
         Uuid::new_v4(),
         None,
         "browser".into(),

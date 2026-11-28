@@ -1610,7 +1610,7 @@ async fn isolate_route(
         headers: sanitize_request_headers(request.headers),
         user_id: outcome.user_id,
         user_email: outcome.user_email.clone(),
-        caller: outcome.caller.clone(),
+        caller: oxy_server_authz::Caller::from(outcome.caller.clone()),
         user_name: Some(outcome.user_name.clone()),
         user_picture: outcome.user_picture.clone(),
         identity_kind: runtime::CtxIdentityKind::User,

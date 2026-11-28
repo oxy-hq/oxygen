@@ -30,7 +30,6 @@ oxy-authz = { workspace = true }
 oxy-observability = { workspace = true }
 oxy-oltp = { workspace = true }
 oxy-platform = { workspace = true }
-oxy-server-authz = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 
@@ -81,6 +80,10 @@ oxy-test-utils = { workspace = true }
 duckdb = { workspace = true }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 futures = { workspace = true }
+# Tests only: the crate names only the port (`contracts_authz`); its in-source
+# tests build callers with the wrapper (`oxy_server_authz::Caller::from_user`),
+# which carry `ServerAuthz`.
+oxy-server-authz = { workspace = true }
 tokio = { workspace = true }
 
 [lints]

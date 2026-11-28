@@ -120,16 +120,7 @@ pub async fn get_world_model_instances(
     // connection, no second workspace read. Reach only when asked, and it
     // goes into the scan rather than over the page.
     let reach = if q.scope.as_deref() == Some("reach") {
-        Some(
-            oxy_custom_apps::reach::reach_for_viewer(
-                &app.db,
-                app.org_id,
-                &app.user,
-                project_id,
-                q.app_id(),
-            )
-            .await,
-        )
+        Some(super::viewer_reach(&app, project_id, q.app_id()).await)
     } else {
         None
     };

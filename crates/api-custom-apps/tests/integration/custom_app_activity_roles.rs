@@ -23,7 +23,7 @@ use entity::{
     organizations, users, workspaces,
 };
 use oxy_api_custom_apps::custom_apps_activity::{VisitorsQuery, get_summary, get_visitors};
-use oxy_api_custom_apps::custom_apps_tracking::{queue_event, record_view};
+use oxy_api_custom_apps::custom_apps_tracking::{Viewer, queue_event, record_view};
 use oxy_api_custom_apps::custom_apps_usage_airhouse::{
     self as airhouse_sink, SinkError, UsageFact, UsageSink,
 };
@@ -34,6 +34,15 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 // ── Seeding ─────────────────────────────────────────────────────────────────
+
+/// The viewer a recorded view is for, with the server's enforcer.
+fn viewer(user_id: Uuid, email: &str) -> Viewer {
+    Viewer {
+        user_id,
+        email: Some(email.to_string()),
+        authz: oxy_server_authz::enforcer(),
+    }
+}
 
 async fn seed_user(conn: &DatabaseConnection) -> (Uuid, String) {
     let id = Uuid::new_v4();
@@ -175,8 +184,7 @@ async fn recording_a_view_snapshots_app_and_org_role_separately() {
 
     record_view(
         app.clone(),
-        user,
-        Some(email.clone()),
+        viewer(user, &email),
         Uuid::new_v4(),
         None,
         "browser".into(),
@@ -221,8 +229,7 @@ async fn a_view_with_no_standing_records_no_role_rather_than_a_default() {
 
     record_view(
         app.clone(),
-        stranger,
-        Some(email),
+        viewer(stranger, &email),
         Uuid::new_v4(),
         None,
         "browser".into(),
@@ -465,8 +472,7 @@ async fn a_staging_view_is_not_app_activity() {
     insert_view(&conn, app.id, user, &email, 30, None, None).await;
     record_view(
         app.clone(),
-        user,
-        Some(email.clone()),
+        viewer(user, &email),
         Uuid::new_v4(),
         None,
         "browser".into(),
@@ -515,8 +521,7 @@ async fn a_queued_batch_writes_the_good_rows_and_only_those() {
     let navigated_at = Utc::now();
     record_view(
         app.clone(),
-        user,
-        Some(email.clone()),
+        viewer(user, &email),
         session,
         None,
         "browser".into(),
@@ -584,8 +589,7 @@ async fn a_batch_insert_that_fails_falls_back_to_row_by_row() {
     for app in [&doomed, &survivor] {
         record_view(
             app.clone(),
-            user,
-            Some(email.clone()),
+            viewer(user, &email),
             session,
             None,
             "browser".into(),
@@ -702,8 +706,7 @@ async fn a_flushed_batch_lands_in_postgres_and_in_the_workspace_airhouse() {
 
     record_view(
         app.clone(),
-        user,
-        Some(email.clone()),
+        viewer(user, &email),
         session,
         Some("/orders".into()),
         "browser".into(),
@@ -782,8 +785,7 @@ async fn an_airhouse_failure_leaves_the_postgres_rows_intact() {
     for app in [&down, &none, &healthy] {
         record_view(
             app.clone(),
-            user,
-            Some(email.clone()),
+            viewer(user, &email),
             session,
             None,
             "browser".into(),
@@ -845,8 +847,7 @@ async fn a_view_postgres_refused_is_not_appended_to_airhouse() {
     for app in [&doomed, &survivor] {
         record_view(
             app.clone(),
-            user,
-            Some(email.clone()),
+            viewer(user, &email),
             session,
             None,
             "browser".into(),

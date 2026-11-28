@@ -70,7 +70,7 @@ pub struct AuthOutcome {
     /// The user with the credential the request arrived with — what every
     /// further authorization question about this request must be asked of, so
     /// an API token's grants and standing flags hold on the custom-app paths too.
-    pub caller: oxy_server_authz::Caller,
+    pub caller: contracts_authz::Caller,
 }
 
 /// Authenticate the request and confirm the caller has access to
@@ -93,18 +93,22 @@ pub struct AuthOutcome {
 /// `/logs` admit one; `/errors`, `/debug`, `/health` and `/availability` share
 /// this function and refuse it, which is why the answer is an argument and not
 /// a property of the function (sandbox agent credential design §3.1).
+///
+/// `authz` is the enforcer [`AuthOutcome::caller`] is built with, which the
+/// surface supplies (`ServerAuthz` in the server).
 pub async fn authenticate_and_authorize(
     headers: &http::HeaderMap,
     org_slug: &str,
     app_slug: &str,
     sandbox_agent: oxy_auth::token::SandboxAgent,
+    authz: std::sync::Arc<dyn contracts_authz::AuthzEnforcer>,
 ) -> Result<AuthOutcome, http::StatusCode> {
     let request = crate::resolve::resolve_app_request(
         headers,
-        org_slug,
-        app_slug,
+        (org_slug, app_slug),
         sandbox_agent,
         &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+        authz,
     )
     .await
     .map_err(|refusal| refusal.status())?;

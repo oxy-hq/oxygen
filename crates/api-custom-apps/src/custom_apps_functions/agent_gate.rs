@@ -24,7 +24,7 @@ use super::environment_gate::Entrance;
 use crate::custom_apps_agent::holds_staging;
 use crate::custom_apps_env_resolve::{ResolvedEnvironment, may_open_environment};
 use crate::custom_apps_sandbox_instance::own_since;
-use oxy_server_authz::Caller;
+use oxy_server_authz::contract::Caller;
 
 /// The route template a sandbox agent token's `/fn` call is counted under.
 pub(crate) const FN_ROUTE: &str = "/customer-apps/{org_slug}/{app_slug}/fn/{name}";

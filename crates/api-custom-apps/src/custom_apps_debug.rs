@@ -153,7 +153,7 @@ pub async fn get_debug(
 async fn on_staging_host(
     db: &sea_orm::DatabaseConnection,
     headers: &HeaderMap,
-    caller: &oxy_server_authz::Caller,
+    caller: &oxy_server_authz::contract::Caller,
     app: &entity::apps::Model,
 ) -> bool {
     use oxy_app_core::custom_app_environment::AppEnvironment;

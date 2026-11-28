@@ -216,10 +216,7 @@ pub async fn post_cohort(
     // A cohort baseline is computed over a population, so the population is
     // the security boundary, not just the row set. Scope it to the caller's
     // reach the way `semantic_query.rs` does.
-    let reach = oxy_custom_apps::reach::reach_for_viewer(
-        &app.db, app.org_id, &app.user, project_id, req.app,
-    )
-    .await;
+    let reach = super::viewer_reach(&app, project_id, req.app).await;
 
     // Resolve the binding BEFORE branching on `everywhere`. `apply_reach_scope`
     // refuses an unscopable query even for an everywhere caller, and for the

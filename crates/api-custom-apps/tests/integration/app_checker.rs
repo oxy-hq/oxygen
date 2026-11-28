@@ -161,25 +161,50 @@ async fn the_checker_reads_its_apps_data_through_the_read_gate_only() {
     with_checker(&t).await;
     let workspace = demo_workspace_id();
 
-    let read = check_custom_app_read_gates(&data_headers(app_id, true), workspace).await;
+    let read = check_custom_app_read_gates(
+        &data_headers(app_id, true),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     let ctx = read.unwrap_or_else(|e| panic!("the app's own staging read: {}", e.message()));
     assert_eq!(ctx.project_id, workspace);
     assert!(ctx.as_checker, "admitted as the checker, not as a reader");
 
     // Every other data-plane door (an ask, an automation run, the metric tree)
     // takes the ordinary gate, which never admits the checker.
-    let other_door = check_custom_app_gates(&data_headers(app_id, true), workspace).await;
+    let other_door = check_custom_app_gates(
+        &data_headers(app_id, true),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     assert_eq!(other_door.err().map(|e| e.status()), Some(403));
     // Production's read passes the same gate by its own action, and the
     // ordinary gate refuses the checker there as it does on staging.
-    let production = check_custom_app_read_gates(&data_headers(app_id, false), workspace).await;
+    let production = check_custom_app_read_gates(
+        &data_headers(app_id, false),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     let ctx =
         production.unwrap_or_else(|e| panic!("the app's own production read: {}", e.message()));
     assert_eq!(ctx.project_id, workspace);
-    let other_door = check_custom_app_gates(&data_headers(app_id, false), workspace).await;
+    let other_door = check_custom_app_gates(
+        &data_headers(app_id, false),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     assert_eq!(other_door.err().map(|e| e.status()), Some(403));
     // The app was not published from another workspace.
-    let elsewhere = check_custom_app_read_gates(&data_headers(app_id, true), Uuid::new_v4()).await;
+    let elsewhere = check_custom_app_read_gates(
+        &data_headers(app_id, true),
+        Uuid::new_v4(),
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     assert!(elsewhere.is_err(), "another workspace's data");
 }
 
@@ -326,7 +351,9 @@ async fn a_workspace_locked_against_oxy_is_locked_against_the_checkers_way_in() 
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", HeaderValue::from_static(token));
         headers.insert("x-oxy-app", app.to_string().parse().unwrap());
-        async move { check_custom_app_read_gates(&headers, workspace).await }
+        async move {
+            check_custom_app_read_gates(&headers, workspace, oxy_server_authz::enforcer()).await
+        }
     };
 
     // Unlocked: the checker by its own way in, the admin as staff.

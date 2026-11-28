@@ -18,6 +18,7 @@
 
 use axum::http::HeaderMap;
 use axum::response::Response;
+use oxy_app_core::operating_graph::reach::Reach;
 use oxy_custom_apps::gate::CustomAppContext;
 use oxy_workspace_runtime::semantic_boundary::{SemanticBoundary, open_semantic_boundary};
 use uuid::Uuid;
@@ -48,14 +49,33 @@ pub async fn enter_semantic_boundary(
     project_id: Uuid,
 ) -> Result<(CustomAppContext, SemanticBoundary), Response> {
     // 1. Shared gates (auth → origin → workspace → org membership).
-    let app = oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
-        .await
-        .map_err(|e| gate_error_response(&e))?;
+    let app = oxy_custom_apps::gate::check_custom_app_gates(
+        headers,
+        project_id,
+        oxy_server_authz::enforcer(),
+    )
+    .await
+    .map_err(|e| gate_error_response(&e))?;
     // 2. The project context and the scan, at the gate's caller and pin.
     //    `gated()` is the one place the gate's answer is built (it carries the
     //    staging pin that picks the result-cache partition).
     let boundary = open_semantic_boundary(app.gated()).await?;
     Ok((app, boundary))
+}
+
+/// `oxy_custom_apps::reach::reach_for_viewer` for the gate's viewer: the
+/// caller of `ctx.user`, WITH the credential the request arrived with, as the
+/// domain built it before it took a caller (`Caller::from_user`).
+pub async fn viewer_reach(ctx: &CustomAppContext, project_id: Uuid, app_id: Option<Uuid>) -> Reach {
+    let viewer = oxy_server_authz::Caller::from_user(&ctx.user);
+    oxy_custom_apps::reach::reach_for_viewer(
+        &ctx.db,
+        ctx.org_id,
+        viewer.as_contract(),
+        project_id,
+        app_id,
+    )
+    .await
 }
 
 #[cfg(test)]

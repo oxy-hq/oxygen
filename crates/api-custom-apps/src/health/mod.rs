@@ -88,8 +88,8 @@ use oxy::database::client::establish_connection;
 use sea_orm::EntityTrait;
 use uuid::Uuid;
 
+use crate::custom_apps_auth::authenticate_and_authorize;
 use oxy_app_core::custom_app_environment::AppEnvironment;
-use oxy_custom_apps::authenticate::authenticate_and_authorize;
 use oxy_custom_apps::env_resolve::{
     ResolvedEnvironment, may_open_non_production, resolve_environment,
 };

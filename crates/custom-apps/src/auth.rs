@@ -85,13 +85,13 @@ pub fn invalidate_access_cache() {
 /// skips the org-membership query, and on the unpublished check so
 /// customers don't fan out to membership for draft apps.
 ///
-/// Takes the [`oxy_server_authz::Caller`]: an API token reaches an app only
+/// Takes the [`contracts_authz::Caller`]: an API token reaches an app only
 /// when a grant covers the workspace it was published from, staff standing is
 /// what the token carries, and the officer break-glass needs an admin ceiling.
 /// Outside the grant the answer is `false` — to a token the app does not exist.
 pub async fn user_can_access_app(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
 ) -> Result<bool, DbErr> {
     let user_id = caller.user_id;
@@ -266,7 +266,7 @@ pub async fn is_org_officer(
 /// surface on it is server-enforcing, not merely hiding a tab.
 pub async fn resolve_app_role(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
 ) -> Result<Option<&'static str>, DbErr> {
     let user_id = caller.user_id;
@@ -348,7 +348,7 @@ enum MemoEligibility {
 /// answer or per minute for an ineligible user, not per call.
 async fn memo_eligibility(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
 ) -> MemoEligibility {
     let Some(standing) = caller.authz().platform_standing_checked(db, caller).await else {
         return MemoEligibility::Unknown;

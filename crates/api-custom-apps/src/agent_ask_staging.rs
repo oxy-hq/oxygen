@@ -55,7 +55,26 @@ use oxy_custom_apps::write_record::{WriteRecord, plane_for_dialect};
 use oxy_app_core::custom_app_env_request::{environment_refused, planes_unreadable};
 use oxy_app_core::sql_kind::StatementKind;
 use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
-pub(crate) use oxy_custom_apps::workspace_actions::non_production_app;
+/// `oxy_custom_apps::workspace_actions::non_production_app`, asked of
+/// `user`'s caller: the user with their credential, built here as the domain
+/// built it before it took a caller (`Caller::from_user`).
+pub(crate) async fn non_production_app(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    user: &AuthenticatedUser,
+    project_id: Uuid,
+    environment: &AppEnvironment,
+) -> Option<entity::apps::Model> {
+    let caller = oxy_server_authz::Caller::from_user(user);
+    oxy_custom_apps::workspace_actions::non_production_app(
+        db,
+        headers,
+        caller.as_contract(),
+        project_id,
+        environment,
+    )
+    .await
+}
 
 /// The mode of `environment`'s `workspace-actions` plane for app `app_id`.
 /// `Err` is the response to answer with: `409` when the plane cannot be read.

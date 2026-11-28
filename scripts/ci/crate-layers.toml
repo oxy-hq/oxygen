@@ -162,7 +162,6 @@ allowed = [
   "oxy-app-core -> oxy-oltp",
   "oxy-app-core -> oxy-server-authz",
   "oxy-app-core -> oxy-telemetry",
-  "oxy-custom-apps -> oxy-server-authz",
   "oxy-metric-monitoring -> agentic-analytics",
   "oxy-preagg -> agentic-automation",
   "oxy-semantic -> oxy-airlayer-compat",

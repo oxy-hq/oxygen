@@ -4,8 +4,8 @@
 
 use axum::http::HeaderValue;
 use entity::prelude::{CustomAppEvent, CustomAppViewEvent};
+use oxy_api_custom_apps::custom_apps_auth::authenticate_and_authorize;
 use oxy_auth::token::SandboxAgent;
-use oxy_custom_apps::authenticate::authenticate_and_authorize;
 use oxy_custom_apps::gate::{check_custom_app_gates, check_custom_app_read_gates};
 use oxy_custom_apps::{telemetry, usage_queue};
 use sea_orm::PaginatorTrait;
@@ -138,7 +138,12 @@ async fn assert_the_apps_two_reads_pass(agent: &Agent, app_id: &str, workspace: 
         !matches!(status, StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED),
         "the semantic read is past the gate: {status} {body}"
     );
-    let read = check_custom_app_read_gates(&data_headers(agent.app.id, &[]), workspace).await;
+    let read = check_custom_app_read_gates(
+        &data_headers(agent.app.id, &[]),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     let ctx = read.unwrap_or_else(|e| panic!("production's read: {}", e.message()));
     assert_eq!(ctx.project_id, workspace);
 }
@@ -157,11 +162,16 @@ async fn assert_every_other_data_door_refuses_it(agent: &Agent, app_id: &str, wo
     assert_ne!(status, StatusCode::BAD_REQUEST, "another workspace's data");
     let sandbox = data_headers(agent.app.id, &[("x-oxy-app-env", "dev-a1")]);
     assert!(
-        check_custom_app_read_gates(&sandbox, workspace)
+        check_custom_app_read_gates(&sandbox, workspace, oxy_server_authz::enforcer())
             .await
             .is_err()
     );
-    let other_door = check_custom_app_gates(&data_headers(agent.app.id, &[]), workspace).await;
+    let other_door = check_custom_app_gates(
+        &data_headers(agent.app.id, &[]),
+        workspace,
+        oxy_server_authz::enforcer(),
+    )
+    .await;
     assert_eq!(other_door.err().map(|e| e.status()), Some(403));
     for uri in [
         format!("/projects/{workspace}/procedures/nightly/runs"),

@@ -56,7 +56,7 @@ pub const APP_HEADER: &str = "x-oxy-app";
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
 ) -> Result<Option<Uuid>, PinNotReady> {
     let Some(non_production) = oxy_app_core::custom_app_env_request::request_environment(headers)
@@ -113,7 +113,7 @@ pub fn staging_app_ref(headers: &HeaderMap) -> Option<AppRef> {
 pub async fn staging_app_for(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
 ) -> Option<entity::apps::Model> {
     use crate::env_resolve::may_open_non_production;

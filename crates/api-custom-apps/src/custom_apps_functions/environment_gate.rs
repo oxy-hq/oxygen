@@ -370,7 +370,7 @@ fn oltp_home_for(branch: Option<&oxy_oltp::entity::branches::Model>) -> OltpHome
 pub(crate) async fn route_entrance(
     db: &sea_orm::DatabaseConnection,
     resolved: &ResolvedEnvironment,
-    caller: &oxy_server_authz::Caller,
+    caller: &oxy_server_authz::contract::Caller,
     app: &entity::apps::Model,
 ) -> Entrance {
     if caller.is_sandbox_agent() {

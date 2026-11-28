@@ -35,13 +35,13 @@ fn non_production_cache() -> &'static DecisionCache {
 /// (`Action::AppNonProduction`) with today's staff draft-preview gate as the
 /// `existing_allow`, so the model can only narrow it. Cached 60 s.
 ///
-/// Asked of the [`Caller`](oxy_server_authz::Caller): an API token opens a
+/// Asked of the [`Caller`](contracts_authz::Caller): an API token opens a
 /// non-production environment only with the staff standing it carries, inside
 /// the orgs it covers. The cache holds a session's verdict per (user, app), so
 /// a token that narrows its bearer neither reads it nor writes it.
 pub async fn may_open_non_production(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
 ) -> bool {
     if caller.reach().is_some_and(oxy_authz::TokenReach::narrows) {
@@ -68,7 +68,7 @@ pub async fn may_open_non_production(
 /// are refused.
 pub async fn may_open_environment(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> bool {
@@ -100,7 +100,7 @@ pub async fn may_open_environment(
 /// (`app_function_executor::sender`).
 pub async fn may_open_environment_checked(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<bool, DbErr> {
@@ -120,7 +120,7 @@ pub async fn may_open_environment_checked(
 /// [`may_open_environment_checked`]'s decision, uncached.
 async fn decide_checked(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<bool, DbErr> {
@@ -161,7 +161,7 @@ fn resource_in(app: &apps::Model, facet: Option<oxy_authz::EnvFacet>) -> oxy_aut
 /// listing an app's environments, and creating one.
 pub async fn may_open_new_sandbox(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
 ) -> bool {
     if !caller.is_sandbox_agent() {
@@ -204,7 +204,7 @@ async fn sandbox_creator<C: ConnectionTrait>(
 
 async fn decide_non_production(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
 ) -> bool {
     decide_in(db, caller, app, None).await
@@ -214,7 +214,7 @@ async fn decide_non_production(
 /// sandbox agent token is refused.
 async fn decide_in(
     db: &sea_orm::DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     facet: Option<oxy_authz::EnvFacet>,
 ) -> bool {
@@ -276,7 +276,9 @@ mod tests {
         }
     }
 
-    fn caller(id: Uuid) -> oxy_server_authz::Caller {
+    /// The wrapper's caller, carrying `ServerAuthz` (server-authz is a
+    /// dev-dependency here), as the contract type the doors take.
+    fn caller(id: Uuid) -> contracts_authz::Caller {
         oxy_server_authz::Caller::from_user(&oxy_auth::types::AuthenticatedUser {
             id,
             email: Some("ada@example.com".into()),
@@ -285,6 +287,7 @@ mod tests {
             status: entity::users::UserStatus::Active,
             credential: None,
         })
+        .into()
     }
 
     /// The AppCall door outside production answers from the route door's 60 s

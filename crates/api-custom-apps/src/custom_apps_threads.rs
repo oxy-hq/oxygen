@@ -36,6 +36,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::admin::apps::agent_scope::token_of;
+use crate::agent_ask_staging::non_production_app;
 use crate::custom_apps_gates::check_custom_app_gates;
 use crate::custom_apps_sandbox_instance::{is_of_instance, own_since};
 use crate::custom_apps_staging_pin::request::staging_app_for;
@@ -45,7 +46,7 @@ use oxy_app_core::custom_app_env_request::{environment_refused, planes_unreadabl
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_custom_apps::planes::WorkspaceActionsMode;
-use oxy_custom_apps::workspace_actions::{non_production_app, workspace_actions_mode};
+use oxy_custom_apps::workspace_actions::workspace_actions_mode;
 use sea_orm::DatabaseConnection;
 
 const HISTORY_LIMIT: u64 = 40;

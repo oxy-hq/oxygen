@@ -72,8 +72,8 @@
 //! background task exists, and waits for a batch the task has in flight.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Utc};
@@ -118,6 +118,9 @@ pub struct ViewJob {
     pub environment: String,
     /// The time of the navigation, not of the write.
     pub viewed_at: DateTime<FixedOffset>,
+    /// The enforcer the drain asks the viewer's role label of: the one the
+    /// serve path's caller carried, filled at enqueue ([`crate::tracking::record_view`]).
+    pub authz: Arc<dyn contracts_authz::AuthzEnforcer>,
 }
 
 /// A platform-beacon event to record. Validated by the drain.
@@ -683,10 +686,8 @@ async fn resolve_roles(db: &DatabaseConnection, views: &[ViewJob]) -> HashMap<(U
 /// borrowing async closure here trips "Send is not general enough").
 async fn resolve_one(db: &DatabaseConnection, v: &ViewJob) -> ((Uuid, Uuid), Roles) {
     // A label for the activity log, not a decision — see `resolve_view_roles`.
-    let viewer = oxy_server_authz::Caller::without_credential(
-        v.user_id,
-        v.user_email.as_deref().unwrap_or(""),
-    );
+    let email = v.user_email.as_deref().unwrap_or("");
+    let viewer = contracts_authz::Caller::without_credential(v.user_id, email, v.authz.clone());
     (
         (v.app.id, v.user_id),
         resolve_view_roles(db, &v.app, &viewer).await,

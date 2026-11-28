@@ -49,7 +49,7 @@ pub(super) enum Door<'a> {
     /// up, so a caller the environment refuses learns nothing about what the
     /// build holds.
     Route {
-        caller: &'a oxy_server_authz::Caller,
+        caller: &'a oxy_server_authz::contract::Caller,
         /// The app's builds from the resolution cache, for production's answer.
         cached: &'a super::super::custom_apps_env_resolve::EnvironmentBuilds,
     },

@@ -66,7 +66,7 @@ fn asked_for(environment: &AppEnvironment) -> Option<(oxy_authz::Action, oxy_aut
 /// memoised standing read below without loading facts.
 pub async fn may_check(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> bool {
@@ -121,7 +121,7 @@ pub async fn may_check(
 /// pin).
 pub async fn may_check_staging(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> bool {

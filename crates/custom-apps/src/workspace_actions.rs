@@ -24,7 +24,6 @@ use entity::apps;
 use http::HeaderMap;
 use oxy_app_core::custom_app_env_request::WorkspaceActions;
 use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
-use oxy_auth::types::AuthenticatedUser;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -55,21 +54,23 @@ pub async fn workspace_actions_mode(
 /// Staging is decided as it always was (`may_open_non_production`). A
 /// sandbox is decided by `may_open_environment`, which differs only for a
 /// sandbox agent token: it holds a sandbox it created itself, nothing else.
+///
+/// `caller` is the request's caller, built by the surface from the signed-in
+/// user (`oxy_server_authz::Caller::from_user(..)`, `as_contract()`).
 pub async fn non_production_app(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    user: &AuthenticatedUser,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
     environment: &AppEnvironment,
 ) -> Option<apps::Model> {
-    let caller = oxy_server_authz::Caller::from_user(user);
     let app = find_app(db, &staging_app_ref(headers)?).await?;
     if app.project_id != project_id {
         return None;
     }
     let allowed = match environment.kind() {
-        AppEnvironmentKind::Dev => may_open_environment(db, &caller, &app, environment).await,
-        _ => may_open_non_production(db, &caller, &app).await,
+        AppEnvironmentKind::Dev => may_open_environment(db, caller, &app, environment).await,
+        _ => may_open_non_production(db, caller, &app).await,
     };
     allowed.then_some(app)
 }

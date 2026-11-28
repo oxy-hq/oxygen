@@ -131,13 +131,13 @@ pub async fn consent_enabled(db: &DatabaseConnection, org_id: Uuid) -> bool {
 /// member somewhere should still publish with staff authority, not be narrowed to
 /// their membership.
 ///
-/// Resolved for the [`Caller`](oxy_server_authz::Caller), so an API token
+/// Resolved for the [`Caller`](contracts_authz::Caller), so an API token
 /// publishes only where it reaches: outside its grants it is an outsider, its
 /// staff and partner standing are what it carries, and a member's role is
 /// capped by the token's ceiling in the org.
 pub async fn resolve_actor(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     target_org_id: Uuid,
 ) -> PublishActor {
     let user_id = caller.user_id;
@@ -191,7 +191,7 @@ pub async fn resolve_actor(
 /// the org/staff paths pay no extra query.
 pub async fn authorize_publish_for(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     target_org_id: Uuid,
 ) -> Result<(), PublishDenied> {
     let actor = resolve_actor(db, caller, target_org_id).await;

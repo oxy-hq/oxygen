@@ -49,7 +49,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
-use oxy_custom_apps::authenticate::{authenticate_and_authorize, require_app_admin};
+use crate::custom_apps_auth::authenticate_and_authorize;
+use oxy_custom_apps::authenticate::require_app_admin;
 
 /// Widest window a single read may span, and the most rows it may return.
 /// Unbounded observability queries have taken the backend offline before (see

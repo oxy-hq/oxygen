@@ -143,17 +143,20 @@ pub fn session_id_for_serve(headers: &HeaderMap, secure: bool) -> (Uuid, String)
 /// losing a view on overload is the same accepted failure mode as losing one
 /// on a crash, and the alternative — backpressure into the HTML response — is
 /// the one outcome tracking must never cause.
-#[allow(clippy::too_many_arguments)]
 pub fn record_view(
     app: entity::apps::Model,
-    user_id: Uuid,
-    user_email: Option<String>,
+    viewer: Viewer,
     session_id: Uuid,
     referrer: Option<String>,
     user_agent_class: String,
     source: String,
     environment: String,
 ) {
+    let Viewer {
+        user_id,
+        email: user_email,
+        authz,
+    } = viewer;
     usage_queue::enqueue(usage_queue::UsageJob::View(Box::new(
         usage_queue::ViewJob {
             app,
@@ -165,8 +168,19 @@ pub fn record_view(
             source,
             environment,
             viewed_at: Utc::now().fixed_offset(),
+            authz,
         },
     )));
+}
+
+/// Who a [`record_view`] row is for: the serve path's user, and the enforcer
+/// its caller carries, which the drain asks the viewer's role label of
+/// ([`resolve_view_roles`]).
+pub struct Viewer {
+    pub user_id: Uuid,
+    /// `None` for a viewer with no address (a frontline worker).
+    pub email: Option<String>,
+    pub authz: std::sync::Arc<dyn contracts_authz::AuthzEnforcer>,
 }
 
 /// The viewer's app + org standing at view time, for the snapshot columns on
@@ -207,7 +221,7 @@ pub fn record_view(
 pub async fn resolve_view_roles(
     db: &sea_orm::DatabaseConnection,
     app: &entity::apps::Model,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
 ) -> (Option<String>, Option<String>) {
     let user_id = caller.user_id;
     let app_role = crate::auth::resolve_app_role(db, caller, app)

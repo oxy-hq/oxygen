@@ -41,6 +41,13 @@ const DOORS: &[Door] = &[
         needle: "Caller::from_parts(",
         what: "builds an authorization caller from parts",
         allowed: &[
+            // The custom-app data-plane gate (`gates`): it authenticates the
+            // request itself, so it builds the request's caller from
+            // `oxy_auth::caller_parts` with the surface's enforcer (C3b-2).
+            "../custom-apps/src/gate.rs",
+            // The custom-app serve resolver (`resolve`), for the same reason:
+            // the bundle path and every app-keyed surface authenticate here.
+            "../custom-apps/src/resolve.rs",
             // `oxy_server_authz::Caller::of`: the request's caller, from
             // `oxy_auth::caller_parts`.
             "../server-authz/src/caller.rs",

@@ -16,6 +16,7 @@
 
 use axum::http::HeaderMap;
 use axum::response::Response;
+use oxy_app_core::operating_graph::reach::Reach;
 use oxy_custom_apps::gate::GateError;
 use oxy_workspace_runtime::custom_apps_gates::GatedCallerExt;
 use oxy_workspace_runtime::project_ctx::OxyProjectContext;
@@ -36,7 +37,7 @@ pub async fn check_custom_app_gates(
     headers: &HeaderMap,
     project_id: Uuid,
 ) -> Result<CustomAppContext, Response> {
-    oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
+    oxy_custom_apps::gate::check_custom_app_gates(headers, project_id, oxy_server_authz::enforcer())
         .await
         .map_err(|e| gate_error_response(&e))
 }
@@ -49,9 +50,13 @@ pub async fn check_custom_app_read_gates(
     headers: &HeaderMap,
     project_id: Uuid,
 ) -> Result<CustomAppContext, Response> {
-    oxy_custom_apps::gate::check_custom_app_read_gates(headers, project_id)
-        .await
-        .map_err(|e| gate_error_response(&e))
+    oxy_custom_apps::gate::check_custom_app_read_gates(
+        headers,
+        project_id,
+        oxy_server_authz::enforcer(),
+    )
+    .await
+    .map_err(|e| gate_error_response(&e))
 }
 
 /// What [`CustomAppContext`] needs from the workspace runtime: the project
@@ -84,6 +89,21 @@ pub async fn enter_semantic_boundary(
     let app = check_custom_app_gates(headers, project_id).await?;
     // 2. The project context and the scan, at the gate's caller and pin.
     open_semantic_boundary(app.gated()).await
+}
+
+/// `oxy_custom_apps::reach::reach_for_viewer` for the gate's viewer: the
+/// caller of `ctx.user`, WITH the credential the request arrived with, as the
+/// domain built it before it took a caller (`Caller::from_user`).
+pub async fn viewer_reach(ctx: &CustomAppContext, project_id: Uuid, app_id: Option<Uuid>) -> Reach {
+    let viewer = oxy_server_authz::Caller::from_user(&ctx.user);
+    oxy_custom_apps::reach::reach_for_viewer(
+        &ctx.db,
+        ctx.org_id,
+        viewer.as_contract(),
+        project_id,
+        app_id,
+    )
+    .await
 }
 
 #[cfg(test)]

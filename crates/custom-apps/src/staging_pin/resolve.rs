@@ -42,7 +42,7 @@ pub enum AppRef {
 /// another model.
 pub async fn pin_for_environment(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     project_id: Uuid,
     app: &AppRef,
     environment: &AppEnvironment,
@@ -70,7 +70,7 @@ pub async fn pin_for_environment(
 /// serves against the model that build reads.
 async fn may_open(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &entity::apps::Model,
     environment: &AppEnvironment,
 ) -> bool {

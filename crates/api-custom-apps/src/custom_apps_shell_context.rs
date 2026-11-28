@@ -243,9 +243,7 @@ async fn viewer_part(
     if ctx.as_checker {
         return (None, None);
     }
-    let reach =
-        oxy_custom_apps::reach::reach_for_viewer(&ctx.db, ctx.org_id, &ctx.user, project_id, app)
-            .await;
+    let reach = crate::custom_apps_gates::viewer_reach(ctx, project_id, app).await;
     let user = ShellUser {
         name: ctx.user.name.clone(),
         // The address itself, or empty: `useIdentity()` reads an empty

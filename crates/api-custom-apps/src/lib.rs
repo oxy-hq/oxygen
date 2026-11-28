@@ -179,6 +179,25 @@ pub mod custom_apps_agent {
 pub mod custom_apps_auth {
     pub use oxy_custom_apps::auth::*;
     pub use oxy_custom_apps::authenticate::*;
+
+    /// `oxy_custom_apps::authenticate::authenticate_and_authorize`, with the
+    /// server's enforcer (`oxy_server_authz::enforcer()`, the `ServerAuthz`
+    /// `AppState.authz` holds) for the outcome's caller. Shadows the glob.
+    pub async fn authenticate_and_authorize(
+        headers: &axum::http::HeaderMap,
+        org_slug: &str,
+        app_slug: &str,
+        sandbox_agent: oxy_auth::token::SandboxAgent,
+    ) -> Result<AuthOutcome, axum::http::StatusCode> {
+        oxy_custom_apps::authenticate::authenticate_and_authorize(
+            headers,
+            org_slug,
+            app_slug,
+            sandbox_agent,
+            oxy_server_authz::enforcer(),
+        )
+        .await
+    }
 }
 
 pub mod custom_apps_gates;

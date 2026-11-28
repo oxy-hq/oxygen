@@ -38,7 +38,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxy::database::client::establish_connection;
 
-use oxy_custom_apps::authenticate::authenticate_and_authorize;
+use crate::custom_apps_auth::authenticate_and_authorize;
 
 use oxy_custom_apps::authenticate::AuthOutcome;
 use oxy_custom_apps::env_resolve::may_open_non_production;

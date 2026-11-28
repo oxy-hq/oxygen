@@ -40,7 +40,7 @@ pub fn is_agent(credential: Option<&CredentialContext>) -> bool {
 /// Whether `caller` may be answered about `app` at all. A sandbox agent token
 /// only about an app one of its grants names; everyone else, always — their
 /// own checks follow.
-pub fn admits_app(caller: &oxy_server_authz::Caller, app: &apps::Model) -> bool {
+pub fn admits_app(caller: &contracts_authz::Caller, app: &apps::Model) -> bool {
     match caller.sandbox_agent() {
         Some(reach) => reach
             .apps
@@ -54,7 +54,7 @@ pub fn admits_app(caller: &oxy_server_authz::Caller, app: &apps::Model) -> bool 
 /// staging of `app`: the `app_staging` grant beside its `app_sandbox` one, for
 /// this app in this org. Read off the credential, not asked of the model.
 /// `false` for a token minted without staging, and for every other caller.
-pub fn holds_staging(caller: &oxy_server_authz::Caller, app: &apps::Model) -> bool {
+pub fn holds_staging(caller: &contracts_authz::Caller, app: &apps::Model) -> bool {
     let this_app = (app.id, app.org_id);
     caller.sandbox_agent().is_some_and(|reach| {
         reach
@@ -80,7 +80,7 @@ pub async fn fresh_user(identity: &Identity) -> Result<Option<AuthenticatedUser>
 /// there see `appRole: admin`, and production's logs stay closed.
 pub async fn resolve_app_role_in(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<Option<&'static str>, DbErr> {
@@ -95,7 +95,7 @@ pub async fn resolve_app_role_in(
 /// The token's app role in `environment`: `admin` on a sandbox it created.
 async fn agent_app_role(
     db: &DatabaseConnection,
-    caller: &oxy_server_authz::Caller,
+    caller: &contracts_authz::Caller,
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<Option<&'static str>, DbErr> {

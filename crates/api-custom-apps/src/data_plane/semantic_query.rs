@@ -192,12 +192,7 @@ pub async fn run_semantic_query(
                     v.get("app")
                         .and_then(|a| a.as_str().and_then(|a| a.parse().ok()))
                 });
-            Some(
-                oxy_custom_apps::reach::reach_for_viewer(
-                    &ctx.db, ctx.org_id, &ctx.user, project_id, app,
-                )
-                .await,
-            )
+            Some(crate::custom_apps_gates::viewer_reach(&ctx, project_id, app).await)
         }
         Some(other) => {
             return err_with_code(
