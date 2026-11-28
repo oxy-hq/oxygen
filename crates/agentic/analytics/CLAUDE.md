@@ -57,6 +57,12 @@ read-only gate, the system prompt, answer citations and table rendering. The loo
   globs resolve (view, topic, `.sql`, `.md`; no `.test.` names, no `..` or symlink
   escapes), loaded once into `WorkspaceFiles`. That keeps eval gold SQL and notes out of
   the agent's reach; never add a tool that reads the workspace outside the snapshot.
+- **The metric-tree tools are the one exception, and return no file text.**
+  `tools::MetricTreeTool` (`explain_metric`, `find_opportunities`, `metric_sensitivity`,
+  `predict_impact`, the FSM's names) runs the FSM's executor over the host's
+  `MetricTreeRunner`, which loads the whole compiled semantic model and runs SQL airlayer
+  generates. Only the op's numbers come back. They are offered only with a runner
+  (`ReactAnalytics::with_metric_tree`), as on the FSM.
 - **Layering.** Analytics knowledge stays here. `agentic-runtime` must not learn
   anything about analytics: a tool talks to the loop only through `ToolReply` and opaque
   `Artifact { event_type, payload }` rows, and never through an analytics type.

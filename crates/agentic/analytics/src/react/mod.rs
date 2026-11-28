@@ -1,7 +1,10 @@
 //! Analytics on the react runtime: the workspace snapshot, the tools that
-//! read it, and `query`, the one path to a warehouse. The snapshot is the leak
-//! boundary: nothing outside the agent's `context:` globs is reachable. The
-//! read-only gate is the write boundary: `query` runs one read statement.
+//! read it, and `query`, the one path to a warehouse for SQL the model writes.
+//! The snapshot is the leak boundary: no file outside the agent's `context:`
+//! globs is reachable. The read-only gate is the write boundary: `query` runs
+//! one read statement. With a host's metric-tree runner, the metric-tree tools
+//! (`tools::MetricTreeTool`) also query, but only with SQL airlayer generates
+//! over the compiled semantic model, as on the FSM.
 
 pub mod citations;
 pub mod files;
@@ -27,6 +30,8 @@ pub fn date_hint(tz: Option<chrono_tz::Tz>) -> String {
 
 #[cfg(test)]
 mod chart_tests;
+#[cfg(test)]
+mod metric_tree_tests;
 #[cfg(test)]
 mod query_routing_tests;
 #[cfg(test)]

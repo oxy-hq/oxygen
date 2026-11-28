@@ -15,9 +15,12 @@ use async_trait::async_trait;
 use super::citations::{answer_result_id, parse_citations, strip_citations};
 use super::files::WorkspaceFiles;
 use super::prompt::{ADVISOR_NUDGE, PromptInput, system_prompt};
-use super::tools::{ChartTool, QueryDeps, QueryTool, ReadTool, Rollups, SearchTool};
+use super::tools::{
+    ChartTool, MetricTreeTool, QueryDeps, QueryTool, ReadTool, Rollups, SearchTool,
+};
 use super::verified::VerifiedQueries;
 use crate::events::AnalyticsEvent;
+use crate::metric_tree_runner::MetricTreeRunner;
 use crate::semantic::SemanticCatalog;
 
 pub struct ReactInputs {
@@ -56,6 +59,19 @@ pub struct ReactAnalytics {
 /// prompt cache, and refuse a call until the reflection turn.
 const MEMORY_TOOLS_RULE: &str = "Do not call `remember` or `forget` while you answer. After \
     the answer, the run may ask you for notes.";
+
+/// Added with the metric-tree tools. The answer rules say "answer from query
+/// results only"; this says a metric-tree result counts, and which tool fits
+/// which question.
+const METRIC_TREE_RULE: &str = "The metric-tree tools work on the measures the semantic model \
+    builds from other measures:\n\
+    - For why a measure changed between two periods, call `explain_metric` with both periods \
+    as dates, before you compare the periods yourself with `query`.\n\
+    - For where a measure can grow, call `find_opportunities`. For what drives a measure, \
+    call `metric_sensitivity`. For what a change to a measure would do, call \
+    `predict_impact`.\n\
+    - You may state the numbers these tools return, as you state query results. They have \
+    no result id to cite.";
 
 /// Queries after which an answer is worth a reflection turn.
 const REFLECT_AFTER_QUERIES: usize = 3;
@@ -110,6 +126,16 @@ impl ReactAnalytics {
             }),
             reflect: None,
         }
+    }
+
+    /// Adds the metric-tree tools over `runner` ([`MetricTreeTool::all`]) and
+    /// the prompt rule that says when to use them. A host with no runner does
+    /// not call this, so the run has neither, as on the FSM.
+    pub fn with_metric_tree(mut self, runner: Arc<dyn MetricTreeRunner>) -> Self {
+        (self.toolset.tools).extend(MetricTreeTool::all(runner));
+        self.toolset.system_prompt.push_str("\n\n");
+        self.toolset.system_prompt.push_str(METRIC_TREE_RULE);
+        self
     }
 
     /// Adds `memory` to this run: its notes go in the system prompt. When it

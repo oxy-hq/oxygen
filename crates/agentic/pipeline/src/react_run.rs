@@ -163,12 +163,24 @@ pub(crate) async fn build_react_run(
         advisor: config.llm.advisor.is_some(),
         preagg: ctx.preagg,
     });
+    let analytics = with_metric_tree(analytics, platform);
     Ok(ReactRun {
         engine,
         system: analytics.toolset.system_prompt.clone(),
         analytics,
         after_done: None,
     })
+}
+
+/// `analytics` with the metric-tree tools when the platform has a runner
+/// (`PlatformContext::metric_tree_runner`, the one the FSM's served chat
+/// attaches), else unchanged. Every react host builds here, so a served start,
+/// a resume and a headless run get the same tools.
+fn with_metric_tree(analytics: ReactAnalytics, platform: &dyn PlatformContext) -> ReactAnalytics {
+    match platform.metric_tree_runner() {
+        Some(runner) => analytics.with_metric_tree(runner),
+        None => analytics,
+    }
 }
 
 /// Stamps the platform's workspace on the run's GenAI attributes when the
@@ -378,3 +390,7 @@ use memory::EvalMemory;
 #[cfg(test)]
 #[path = "react_run_tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "react_metric_tree_tests.rs"]
+mod metric_tree_tests;

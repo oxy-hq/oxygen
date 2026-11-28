@@ -245,8 +245,9 @@ pub trait ProjectContext: Send + Sync {
     }
 
     /// Optional runner powering the analytics agent's metric-tree tools
-    /// (`explain`, `opportunity`, `sensitivity`, `predict`). When `None`
-    /// those tools are not exposed to the LLM. Hosts with a semantic model
+    /// (`explain_metric`, `find_opportunities`, `metric_sensitivity`,
+    /// `predict_impact`), on the FSM and on react. When `None` those tools
+    /// are not exposed to the LLM. Hosts with a semantic model
     /// + connector pool return a runner that loads the layer and executes
     /// airlayer-compiled SQL through their connectors.
     fn metric_tree_runner(&self) -> Option<Arc<dyn MetricTreeRunner>> {

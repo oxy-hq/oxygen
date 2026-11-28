@@ -33,8 +33,9 @@
 #
 # Five items, a few cases each. Each case checks the one behaviour its item is
 # about (`expect:`), plus an `expected` answer where the numbers are known.
-# Metric tree and anomalies are not here: under `oxy test` neither runtime has
-# those tools.
+# Metric tree and anomalies are not here yet. React has the metric-tree tools
+# (named as the FSM names them), but a headless FSM run gets no metric-tree
+# runner until #4556, so the FSM would fail a metric-tree case in an eval.
 #
 #   verified-*  the answer runs a verified query (example_sql/*.sql) as-is.
 #               Prompts repeat each file's `embed:` text.
