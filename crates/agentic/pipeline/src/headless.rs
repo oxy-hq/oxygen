@@ -258,7 +258,7 @@ async fn run_agentic_headless(
 
     let wire_orchestrator = matches!(destination, EventDestination::ForwardWithStates(_));
     let events = spawn_event_pump(destination);
-    let solver = solver.with_events(events.clone());
+    let solver = FsmTools::of(&*platform).equip(solver.with_events(events.clone()));
     // Same rule as the two PipelineBuilder sites: only inject a
     // automation runner when the agent's `context:` actually resolved
     // some files. An empty list would fall through to
@@ -352,6 +352,55 @@ async fn build_context(
         .cloned();
     ctx.extra_connectors = connectors;
     ctx
+}
+
+/// The tools a served FSM chat puts on its solver beyond the build context
+/// (`agentic_analytics::start_pipeline`), so a headless run of the same agent
+/// can call them too: the metric-tree tools (`explain`, `opportunity`,
+/// `sensitivity`, `predict`) and the anomaly tools (`list_anomalies`,
+/// `detect_anomalies`, `explain_anomaly`), the latter scoped to the platform's
+/// workspace. Each is present only when the platform provides it: an eval run
+/// gets the runner because it carries the caller's subject and role, and a
+/// Workspace Health probe, which carries no subject, does not.
+///
+/// FSM only. The react runtime has no metric-tree or anomaly tool
+/// (`agentic_analytics::react::ReactInputs`), so a react run is given none.
+///
+/// The served chat's metric sink is not here: it records the measures a run
+/// touched for the agent's Metrics tab, keyed by the run's `analytics.run`
+/// trace, which a headless run does not open. Forwarded, it would either skip
+/// every record or count an eval's or a probe's questions as the agent's use.
+struct FsmTools {
+    metric_tree_runner: Option<Arc<dyn agentic_analytics::MetricTreeRunner>>,
+    anomaly_store: Option<Arc<dyn agentic_analytics::anomaly_store::AnomalyStore>>,
+    workspace_id: uuid::Uuid,
+}
+
+impl FsmTools {
+    fn of(platform: &dyn PlatformContext) -> Self {
+        Self {
+            metric_tree_runner: platform.metric_tree_runner(),
+            anomaly_store: platform.anomaly_store(),
+            workspace_id: platform.workspace_id(),
+        }
+    }
+
+    /// Hands the tools to the solver. A tool the platform does not provide
+    /// stays off the solver, so the model is not offered it.
+    fn equip(
+        self,
+        solver: agentic_analytics::AnalyticsSolver,
+    ) -> agentic_analytics::AnalyticsSolver {
+        let solver = solver.with_workspace_id(self.workspace_id);
+        let solver = match self.metric_tree_runner {
+            Some(runner) => solver.with_metric_tree_runner(runner),
+            None => solver,
+        };
+        match self.anomaly_store {
+            Some(store) => solver.with_anomaly_store(store),
+            None => solver,
+        }
+    }
 }
 
 /// The solver's event stream, pumped into `destination` on its own task.

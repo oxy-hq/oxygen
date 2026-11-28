@@ -26,6 +26,7 @@ pub(super) use helpers::{
     lookup_connector, resolve_solution_connector, strip_json_fences,
 };
 
+mod equipped;
 mod fanout_worker;
 mod solver;
 pub use solver::AnalyticsSolver;
