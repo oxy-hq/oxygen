@@ -31,8 +31,12 @@ fn search(needle: Option<&str>) -> Vec<&'static GeneratedRoute> {
     catalog().search(needle)
 }
 
+/// No route table is installed in this crate's tests, so the role is the
+/// FleetOk label `classify` answered here before `describe` took the role from
+/// its caller. What `describe` reports for a classified route is
+/// `oxy-server`'s `route_catalog::describe` integration test.
 fn describe(route: &'static GeneratedRoute) -> RouteDescription {
-    catalog().describe(route)
+    catalog().describe(route, "fleet-ok")
 }
 
 /// Route groups that must survive any router refactor.

@@ -93,7 +93,7 @@ pub async fn get_catalog(
         routes: catalog
             .search(needle)
             .into_iter()
-            .map(|route| catalog.describe(route))
+            .map(|route| crate::role_manifest::describe_route(&catalog, route))
             .collect(),
         surfaces: catalog
             .surfaces

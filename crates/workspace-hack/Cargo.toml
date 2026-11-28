@@ -286,6 +286,7 @@ potential_utf = { version = "0.1", default-features = false, features = ["alloc"
 prettyplease = { version = "0.2", default-features = false, features = ["verbatim"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 prost = { version = "0.13", features = ["prost-derive"] }
+quote = { version = "1" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }

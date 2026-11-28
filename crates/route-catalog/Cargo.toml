@@ -10,8 +10,9 @@ edition.workspace = true
 [dependencies]
 # The `GeneratedRoute` / `RouteCatalog` types and the generated data live here
 # (decompose RC, 2026-11-23), the handler in oxy-server (`core_routes`).
-# oxy-app-core for `pods::role_manifest::classify` (`RouteDescription::role`).
-oxy-app-core = { workspace = true }
+# No oxy-app-core: `describe` takes each route's role from its caller
+# (`oxy_server::role_manifest::describe_route`), so the route-role registry
+# stays in oxy-app-core and this crate does not depend on it.
 serde = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -32,6 +33,9 @@ oxy-server-authz = { workspace = true }
 oxy-workspace-runtime = { workspace = true }
 # The preview guard's two lists (`read_only::{ALLOWED, REFUSED}`).
 oxy-previews = { workspace = true }
+# `fleet_role::pattern_matches`, which the factory and preview tests match
+# routes with.
+oxy-shared = { workspace = true }
 axum = { workspace = true }
 uuid = { workspace = true }
 

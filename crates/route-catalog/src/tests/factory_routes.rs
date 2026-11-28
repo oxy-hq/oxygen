@@ -23,7 +23,7 @@
 //! build the real router, which only `oxy-server` can depend on beside this
 //! table.
 
-use oxy_app_core::pods::role_manifest::pattern_matches;
+use oxy_shared::fleet_role::pattern_matches;
 use oxy_workspace_runtime::request::factory_access::routes::{
     CUSTOMER, FACTORY, Resolution, Surface, resolve, surface_of,
 };

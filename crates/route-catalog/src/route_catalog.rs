@@ -31,8 +31,6 @@
 
 use serde::Serialize;
 
-use oxy_app_core::pods::role_manifest;
-
 /// One endpoint, exactly as the router mounts it.
 pub struct GeneratedRoute {
     /// Uppercase HTTP method (`GET`, `POST`, …; `ANY` for method-agnostic mounts).
@@ -94,8 +92,11 @@ pub struct RouteDescription {
     pub handler: &'static str,
     /// `ide-only` when the handler needs the workspace working copy / `.git`,
     /// so a stateless serve replica forwards or refuses it; `worker-only` for
-    /// the queue-drainer surface; `fleet-ok` otherwise. Straight from
-    /// [`role_manifest`], the same table the server enforces.
+    /// the queue-drainer surface; `fleet-ok` otherwise. The caller supplies it
+    /// to [`RouteCatalog::describe`]: the server reads it from its own role
+    /// table (`oxy_server::role_manifest::describe_route`, over
+    /// `role_manifest::classify`), the same table it enforces, so this crate
+    /// needs no route-role registry of its own.
     pub role: &'static str,
 }
 
@@ -139,7 +140,10 @@ impl RouteCatalog {
             .collect()
     }
 
-    pub fn describe(&self, route: &'static GeneratedRoute) -> RouteDescription {
+    /// `route` rendered for machine consumption, labelled with `role`, the
+    /// fleet role the caller's route table classifies it under (see
+    /// [`RouteDescription::role`]).
+    pub fn describe(&self, route: &'static GeneratedRoute, role: &'static str) -> RouteDescription {
         RouteDescription {
             method: route.method,
             path: route.path,
@@ -154,7 +158,7 @@ impl RouteCatalog {
             description: route.description,
             note: route.note,
             handler: route.handler,
-            role: role_manifest::classify(route.method, route.path).as_str(),
+            role,
         }
     }
 }

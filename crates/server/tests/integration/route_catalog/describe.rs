@@ -8,17 +8,18 @@
 //! one-line wrappers over `catalog()` there; they are inlined here.
 
 use oxy_route_catalog::catalog;
+use oxy_server::role_manifest::describe_route;
 
 #[test]
 fn describe_reports_the_fleet_role() {
-    // `describe` asks `role_manifest::classify`, which reads the
+    // `describe_route` asks `role_manifest::classify`, which reads the
     // declarations the routers install at startup. A unit test builds no
     // server, so without this the registry is empty and every route reports
     // the FleetOk default — the assertion below would fail for the one
     // reason that says nothing about the catalog.
     //
     // No route needs the ide any more (the GitHub import was the last), so to
-    // see `describe` report one this test declares a real catalog route
+    // see `describe_route` report one this test declares a real catalog route
     // IdeOnly itself; the label is what is under test, not the route.
     oxy_server::role_manifest::install_route_declarations_for_tests_with(vec![(
         "POST",
@@ -30,12 +31,12 @@ fn describe_reports_the_fleet_role() {
         .iter()
         .find(|r| r.method == "POST" && r.path == "/api/orgs/{org_id}/onboarding/github")
         .expect("GitHub import route");
-    assert_eq!(catalog().describe(import).role, "ide-only");
+    assert_eq!(describe_route(&catalog(), import).role, "ide-only");
 
     let threads = catalog()
         .routes
         .iter()
         .find(|r| r.method == "GET" && r.path == "/api/{workspace_id}/threads")
         .expect("threads listing route");
-    assert_eq!(catalog().describe(threads).role, "fleet-ok");
+    assert_eq!(describe_route(&catalog(), threads).role, "fleet-ok");
 }

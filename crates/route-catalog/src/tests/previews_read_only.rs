@@ -1,8 +1,8 @@
 //! Moved from `oxy-app`'s `server::previews::read_only_tests`: it checks the
 //! preview guard's two lists against the generated route table.
 
-use oxy_app_core::pods::role_manifest::pattern_matches;
 use oxy_previews::read_only::{ALLOWED, REFUSED};
+use oxy_shared::fleet_role::pattern_matches;
 
 use crate::catalog;
 
