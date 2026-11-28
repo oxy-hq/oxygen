@@ -49,7 +49,7 @@ mod tests;
 use std::collections::HashMap;
 
 use airhouse::LOCAL_ORG_ID;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use entity::{app_builds, apps, custom_app_event, org_members, organizations, users, workspaces};
 use oxy::theme::StyledText;
 use oxy_app_core::seams::DemoSeedFacts;
@@ -155,6 +155,19 @@ pub async fn seed(
     compiled: bool,
     facts: DemoSeedFacts,
 ) -> Result<Outcome, FixtureError> {
+    seed_at(conn, workspace_id, compiled, facts, Utc::now()).await
+}
+
+/// [`seed`] with the seed time given: the history's calendar is cut from
+/// `now` ([`Calendar::at`]), so two seeds given the same `now` write the same
+/// fixture, row for row, whichever minute each actually runs in.
+pub async fn seed_at(
+    conn: &DatabaseConnection,
+    workspace_id: Uuid,
+    compiled: bool,
+    facts: DemoSeedFacts,
+    now: DateTime<Utc>,
+) -> Result<Outcome, FixtureError> {
     if !(facts.is_local_db)() {
         return Ok(Outcome::Skipped(
             "OXY_DATABASE_URL does not look local".into(),
@@ -193,7 +206,7 @@ pub async fn seed(
         operator: &operator,
         app_id,
     };
-    let mut built = fixture.build(&releases, compiled).await?;
+    let mut built = fixture.build(&releases, compiled, now).await?;
     built.rebuilt = rebuilt;
     Ok(Outcome::Built(built))
 }
@@ -269,8 +282,13 @@ struct Fixture<'a> {
 }
 
 impl Fixture<'_> {
-    async fn build(&self, releases: &[Release], compiled: bool) -> Result<Built, FixtureError> {
-        let cal = Calendar::at(Utc::now());
+    async fn build(
+        &self,
+        releases: &[Release],
+        compiled: bool,
+        now: DateTime<Utc>,
+    ) -> Result<Built, FixtureError> {
+        let cal = Calendar::at(now);
         self.insert_app_row().await?;
         let builds = releases::run(
             self.conn,

@@ -367,6 +367,9 @@ async fn console_test_notification_waits_out_ten_seconds_across_a_window_edge() 
             .await
             .expect("provision");
         let w = seed_world(&fx.db, fx.org_id).await;
+        // The click's time keys the send's window; the row's `created_at` is
+        // the send's own, later clock read, and can fall in the next window.
+        let clicked = Utc::now();
         let first = sent(
             send_test(
                 &fx.db,
@@ -374,7 +377,7 @@ async fn console_test_notification_waits_out_ten_seconds_across_a_window_edge() 
                 w.member,
                 &w.app,
                 "list_overdue",
-                Utc::now(),
+                clicked,
             )
             .await
             .expect("send"),
@@ -387,14 +390,19 @@ async fn console_test_notification_waits_out_ten_seconds_across_a_window_edge() 
             .created_at
             .with_timezone(&Utc);
 
-        // The next window's start, or a second after the send if that is later:
-        // in the next window either way, and under ten seconds after it.
+        // The start of the window after the one that keys the send, or a
+        // second after the send if that is later: in the next window either
+        // way, and under ten seconds after the send.
         let next_window = Utc
-            .timestamp_opt((window(at) + 1) * 10, 0)
+            .timestamp_opt((window(clicked) + 1) * 10, 0)
             .single()
             .expect("valid timestamp");
         let edge = next_window.max(at + Duration::seconds(1));
-        assert_eq!(window(edge), window(at) + 1);
+        assert_eq!(window(edge), window(clicked) + 1, "across the window edge");
+        assert!(
+            edge - at < Duration::seconds(10),
+            "under ten seconds after the send: {edge} vs {at}"
+        );
 
         let outcome = send_test(&fx.db, live_kinds(), w.member, &w.app, "list_overdue", edge)
             .await

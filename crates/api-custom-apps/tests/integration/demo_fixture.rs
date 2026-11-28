@@ -41,7 +41,14 @@ async fn seeded() -> DatabaseConnection {
 }
 
 async fn build(db: &DatabaseConnection) -> seed_fixture::Built {
-    match seed_fixture::seed(db, demo_workspace_id(), true, seed::facts())
+    build_at(db, Utc::now()).await
+}
+
+/// [`build`] at a given seed time. The history's calendar is cut from it, and
+/// how many quarter-hour `snapshot` runs a stretch holds depends on that
+/// minute, so a case comparing two seeds' rows gives both the same `now`.
+async fn build_at(db: &DatabaseConnection, now: chrono::DateTime<Utc>) -> seed_fixture::Built {
+    match seed_fixture::seed_at(db, demo_workspace_id(), true, seed::facts(), now)
         .await
         .expect("the fixture seeds")
     {
@@ -280,7 +287,9 @@ async fn demo_fixture_a_second_run_finds_it_present_and_writes_nothing() {
 #[tokio::test]
 async fn demo_fixture_a_partial_fixture_is_removed_and_rebuilt() {
     let db = seeded().await;
-    let first = build(&db).await;
+    // One seed time for both seeds: the same calendar, so the same rows.
+    let now = Utc::now();
+    let first = build_at(&db, now).await;
     let app = fixture_app_id(LOCAL_ORG_ID);
     let full = footprint(&db, app).await;
     // A crash after the publishes, before the history.
@@ -293,7 +302,7 @@ async fn demo_fixture_a_partial_fixture_is_removed_and_rebuilt() {
         .await
         .expect("drop the history");
     }
-    let rebuilt = build(&db).await;
+    let rebuilt = build_at(&db, now).await;
     assert!(rebuilt.rebuilt);
     assert_ne!(
         rebuilt.builds, first.builds,
@@ -314,7 +323,9 @@ async fn demo_fixture_a_partial_fixture_is_removed_and_rebuilt() {
 #[tokio::test]
 async fn demo_fixture_a_seed_interrupted_mid_history_is_rebuilt() {
     let db = seeded().await;
-    build(&db).await;
+    // One seed time for both seeds: the same calendar, so the same rows.
+    let now = Utc::now();
+    build_at(&db, now).await;
     let app = fixture_app_id(LOCAL_ORG_ID);
     let full = footprint(&db, app).await;
     db.execute_raw(Statement::from_sql_and_values(
@@ -332,7 +343,7 @@ async fn demo_fixture_a_seed_interrupted_mid_history_is_rebuilt() {
     ))
     .await
     .expect("drop the vitals");
-    let rebuilt = build(&db).await;
+    let rebuilt = build_at(&db, now).await;
     assert!(rebuilt.rebuilt, "a partial history is not present");
     let mut want = full.clone();
     want.insert("queued", full["queued"] * 2);
