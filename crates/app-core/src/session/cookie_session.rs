@@ -62,6 +62,14 @@ mod tests {
             fn master_key_text_for_signing(&self) -> Option<String> {
                 None
             }
+
+            fn seal(&self, _: &[u8]) -> Result<Vec<u8>, OxyError> {
+                Err(OxyError::DBError("no master key in this unit test".into()))
+            }
+
+            fn open(&self, _: &[u8]) -> Result<Vec<u8>, OxyError> {
+                Err(OxyError::DBError("no master key in this unit test".into()))
+            }
         }
 
         AuthPlatform::new(NoDatabase)

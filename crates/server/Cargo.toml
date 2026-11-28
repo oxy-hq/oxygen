@@ -146,15 +146,14 @@ agentic-pipeline = { workspace = true }
 # tenant (`src/dev/seed/seed_airhouse.rs`; oxy-app's until decompose SD).
 airhouse = { workspace = true, features = ["connector", "sql-rules", "preview-sql", "import"] }
 # `cli::commands::prepare` installs `ProcessPlatformDb` as the platform port airhouse's broker
-# and provisioner forward to (`airhouse::install_platform_db`).
+# and provisioner forward to (`airhouse::install_platform_db`), and the platform port every
+# `oxy_auth::ports::AuthPlatform` is built on.
 oxy-platform = { workspace = true }
 axum-server = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }
 mime_guess = { workspace = true }
 oxy-auth = { workspace = true }
-# `ProcessPlatformDb`: the platform port every `oxy_auth::ports::AuthPlatform` is built on.
-oxy-platform = { workspace = true }
 oxy-shared = { workspace = true }
 sea-orm = { workspace = true }
 # The health probes and route discovery (`core_routes`): their bodies, their

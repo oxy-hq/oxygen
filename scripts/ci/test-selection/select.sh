@@ -24,8 +24,16 @@ trap cleanup EXIT
 # No `--locked`: resolve the way the `cargo build` that follows will.
 toolchain=$(cd "$root" && rustup show active-toolchain | cut -d' ' -f1)
 git -C "$root" -c core.hooksPath=/dev/null worktree add --quiet --detach "$scratch/base" "$base_rev"
-(cd "$scratch/base" && RUSTUP_TOOLCHAIN=$toolchain cargo metadata --format-version 1) \
-  >"$scratch/old.json"
+# A base whose manifests do not load (a broken main, as when two merges added
+# the same dependency) has nothing to diff against. Test the whole workspace
+# then: failing here would also fail the PR that repairs the base.
+if ! (cd "$scratch/base" && RUSTUP_TOOLCHAIN=$toolchain cargo metadata --format-version 1) \
+  >"$scratch/old.json"; then
+  echo "::warning title=Test selection::the base revision's manifests do not load; testing the whole workspace" >&2
+  echo '{"mode":"all"}' >"$out"
+  cat "$out"
+  exit 0
+fi
 (cd "$root" && cargo metadata --format-version 1) >"$scratch/new.json"
 
 # Tracked changes only: the merge-commit checkout in CI has no untracked files,
