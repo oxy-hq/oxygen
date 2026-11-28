@@ -172,9 +172,12 @@ async fn person(db: &DatabaseConnection) -> (AuthenticatedUser, String) {
         .await
         .expect("query user")
         .expect("seeded");
-    let jwt = oxy_app_core::session::create_auth_token(row.clone())
-        .await
-        .expect("mint a session");
+    let jwt = oxy_app_core::session::create_auth_token(
+        &oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
+        row.clone(),
+    )
+    .await
+    .expect("mint a session");
     let user = AuthenticatedUser {
         id,
         email: row.email,

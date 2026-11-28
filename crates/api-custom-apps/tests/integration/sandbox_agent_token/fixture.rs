@@ -200,9 +200,12 @@ async fn guest_row(t: &Tenant) -> users::Model {
 
 /// A browser session for `user`, as the `Cookie` header carries it.
 pub(crate) async fn session_of(user: users::Model) -> String {
-    let jwt = oxy_app_core::session::create_auth_token(user)
-        .await
-        .expect("mint a session");
+    let jwt = oxy_app_core::session::create_auth_token(
+        &oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
+        user,
+    )
+    .await
+    .expect("mint a session");
     format!("oxy_session={jwt}")
 }
 
@@ -312,9 +315,12 @@ pub(crate) async fn revoke(db: &DatabaseConnection, token_id: Uuid, by: Uuid, re
 async fn session_user(cookie: &str) -> Uuid {
     let mut headers = HeaderMap::new();
     headers.insert(header::COOKIE, cookie.parse().expect("a cookie header"));
-    let sub = oxy_app_core::session::session_cookie_user_id(&headers)
-        .await
-        .expect("a live session");
+    let sub = oxy_app_core::session::session_cookie_user_id(
+        &oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
+        &headers,
+    )
+    .await
+    .expect("a live session");
     Uuid::parse_str(&sub).expect("a user id")
 }
 

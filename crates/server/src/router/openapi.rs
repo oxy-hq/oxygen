@@ -3,7 +3,7 @@
 
 use axum::body::Body;
 use axum::http::Request;
-use oxy::config::constants::DEFAULT_API_KEY_HEADER;
+use oxy_auth::constants::DEFAULT_API_KEY_HEADER;
 use sentry::integrations::tower::NewSentryLayer;
 use tower::ServiceBuilder;
 use utoipa::openapi::ExternalDocs;

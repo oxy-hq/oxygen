@@ -207,6 +207,12 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
     ]
 }
 
+/// The auth port every `oxy-auth` entry point in this crate is handed: this
+/// process's platform database and master key (`oxy_platform::ProcessPlatformDb`).
+pub(crate) fn auth_platform() -> oxy_auth::ports::AuthPlatform {
+    oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

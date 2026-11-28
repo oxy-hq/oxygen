@@ -147,6 +147,8 @@ clap = { workspace = true, features = ["derive", "env"] }
 include_dir = { workspace = true }
 mime_guess = { workspace = true }
 oxy-auth = { workspace = true }
+# `ProcessPlatformDb`: the platform port every `oxy_auth::ports::AuthPlatform` is built on.
+oxy-platform = { workspace = true }
 oxy-shared = { workspace = true }
 sea-orm = { workspace = true }
 # The health probes and route discovery (`core_routes`): their bodies, their

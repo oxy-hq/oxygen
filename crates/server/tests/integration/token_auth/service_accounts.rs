@@ -33,9 +33,12 @@ use super::{Fixture, audit_rows, call, fixture, seed_org, seed_user, seed_worksp
 
 /// A browser session for `user`.
 pub(crate) async fn session_of(user: &users::Model) -> String {
-    let jwt = oxy_app_core::session::create_auth_token(user.clone())
-        .await
-        .expect("mint a session");
+    let jwt = oxy_app_core::session::create_auth_token(
+        &oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
+        user.clone(),
+    )
+    .await
+    .expect("mint a session");
     format!("oxy_session={jwt}")
 }
 
@@ -743,7 +746,7 @@ async fn caller_of(fx: &Fixture, secret: &str, sa_id: Uuid) -> Caller {
     headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
     let (identity, credential) = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
     )
     .authenticate_with_credential(&headers)
     .await

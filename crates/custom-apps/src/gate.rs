@@ -373,7 +373,7 @@ async fn gates(
     // access check below exactly as they do on `/api`.
     let (identity, credential) = match BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        crate::auth_platform(),
     )
     .authenticate_with_credential(headers)
     .await

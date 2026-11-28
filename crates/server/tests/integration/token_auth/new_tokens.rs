@@ -36,7 +36,7 @@ async fn a_pat_authenticates_as_bearer_and_as_x_api_key_on_every_surface() {
     headers.insert("authorization", bearer.parse().unwrap());
     let identity = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
     )
     .authenticate(&headers)
     .await

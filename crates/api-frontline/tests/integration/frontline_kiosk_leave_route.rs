@@ -104,9 +104,12 @@ async fn admin_of_new_org(db: &DatabaseConnection) -> (Uuid, Router, String) {
     let email = format!("maya-{}@acme.test", Uuid::new_v4().simple());
     let admin = seed_user(db, Some(email)).await;
     let membership = seed_admin_membership(db, org_id, admin.id).await;
-    let jwt = oxy_app_core::session::create_auth_token(admin.clone())
-        .await
-        .expect("mint a session");
+    let jwt = oxy_app_core::session::create_auth_token(
+        &oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
+        admin.clone(),
+    )
+    .await
+    .expect("mint a session");
     let ctx = OrgContext {
         org,
         membership,

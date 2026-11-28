@@ -123,6 +123,12 @@ pub mod usage_writes;
 pub mod workspace_actions;
 pub mod write_record;
 
+/// The auth port every `oxy-auth` entry point in this crate is handed: this
+/// process's platform database and master key (`oxy_platform::ProcessPlatformDb`).
+pub(crate) fn auth_platform() -> oxy_auth::ports::AuthPlatform {
+    oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb)
+}
+
 /// The shared in-source DB harness (`oxy_test_utils::db`), so these tests migrate
 /// and lock the shared test database exactly the way `oxy-app`'s own do.
 #[cfg(test)]

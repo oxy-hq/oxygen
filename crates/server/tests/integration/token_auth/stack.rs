@@ -274,7 +274,7 @@ pub(crate) async fn custom_app_caller(fx: &Fixture, secret: &str) -> Caller {
     headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
     let (identity, credential) = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
     )
     .authenticate_with_credential(&headers)
     .await

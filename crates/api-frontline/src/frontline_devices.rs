@@ -42,7 +42,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use chrono::{Duration, Utc};
 use entity::{locations, org_kiosk_devices as devices, organizations};
 use oxy::database::client::establish_connection;
-use oxy_app_core::audit;
+use oxy_app_core::{audit, session::session_cookie_user_id};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
@@ -773,7 +773,7 @@ async fn bound_status(
     };
     // Whose session the tablet's cookie carries, read and never renewed. The
     // web app on a kiosk compares it with the account it holds a token for.
-    let session_user_id = oxy_app_core::session::session_cookie_user_id(headers).await;
+    let session_user_id = session_cookie_user_id(&crate::auth_platform(), headers).await;
     Ok(Some(bound_status_json(
         &device,
         &org,

@@ -23,6 +23,7 @@ oxy-tenancy = { workspace = true }
 oxy-custom-apps = { workspace = true }  # invalidate_access_cache
 oxy = { workspace = true }           # database client
 oxy-auth = { workspace = true }      # AuthenticatedUserExtractor + the PIN primitives
+oxy-platform = { workspace = true }  # ProcessPlatformDb, the port AuthPlatform is built on
 oxy-server-authz = { workspace = true } # Caller: the actor with the credential they used
 oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl
 entity = { workspace = true }

@@ -187,7 +187,7 @@ pub(crate) async fn signed_in_account(headers: &HeaderMap) -> Option<String> {
     extract_session_cookie(headers)?;
     let identity = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        crate::auth_platform(),
     )
     .authenticate(headers)
     .await

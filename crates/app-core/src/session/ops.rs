@@ -5,6 +5,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use entity::users;
 use jsonwebtoken::{Header, encode};
+use oxy_auth::ports::AuthPlatform;
 use oxy_auth::session_key::{self, Purpose};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use url::Url;
@@ -27,9 +28,13 @@ pub const SESSION_TTL_SECS: i64 = 30 * 24 * 60 * 60;
 /// Mint a session token with the default thirty-day window.
 ///
 /// The window is [`SESSION_TTL_SECS`], shared with the cookie that
-/// wraps this JWT so the two cannot drift.
-pub async fn create_auth_token(user: users::Model) -> Result<String, StatusCode> {
-    create_auth_token_with_ttl(user, Duration::seconds(SESSION_TTL_SECS)).await
+/// wraps this JWT so the two cannot drift. `platform` is the host's auth port
+/// the session key is read through.
+pub async fn create_auth_token(
+    platform: &AuthPlatform,
+    user: users::Model,
+) -> Result<String, StatusCode> {
+    create_auth_token_with_ttl(platform, user, Duration::seconds(SESSION_TTL_SECS)).await
 }
 
 /// Mint a session token with an explicit lifetime.
@@ -40,6 +45,7 @@ pub async fn create_auth_token(user: users::Model) -> Result<String, StatusCode>
 /// should not outlive the shift. Sharing the minting path rather than writing a
 /// second one keeps there being exactly one place a session is created.
 pub async fn create_auth_token_with_ttl(
+    platform: &AuthPlatform,
     user: users::Model,
     ttl: Duration,
 ) -> Result<String, StatusCode> {
@@ -72,7 +78,7 @@ pub async fn create_auth_token_with_ttl(
         iat: now.timestamp() as usize,
     };
 
-    let key = session_key::encoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
+    let key = session_key::encoding_key(platform, Purpose::Session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let token = encode(&Header::default(), &claims, &key).map_err(|e| {
@@ -310,13 +316,16 @@ pub fn login_response(
 /// and admin status are per-org and appear on `OrgInfo` below — not on
 /// `UserInfo` — so that callers never have to reason about a global role.
 pub async fn finalize_login(
+    platform: &AuthPlatform,
     user: users::Model,
     connection: &DatabaseConnection,
 ) -> Result<(String, UserInfo, Vec<OrgInfo>), StatusCode> {
-    let token = create_auth_token(user.clone()).await.map_err(|e| {
-        tracing::error!("Failed to create auth token: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let token = create_auth_token(platform, user.clone())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create auth token: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     // A login is a browser session being born: no key or token is involved.
     let caller =
         oxy_server_authz::Caller::without_credential(user.id, user.email.as_deref().unwrap_or(""));

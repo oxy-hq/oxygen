@@ -242,7 +242,7 @@ pub async fn get_current_user_public(
 
     let authenticator = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        crate::auth_platform(),
     );
 
     match authenticator.authenticate_with_credential(&headers).await {

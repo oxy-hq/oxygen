@@ -88,7 +88,7 @@ async fn the_token_authenticates_on_api_only_and_reaches_the_loop_only() {
     assert!(
         BuiltInAuthenticator::new(
             oxy_auth::token::SandboxAgent::Refuse,
-            oxy::database::client::auth_platform()
+            oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb)
         )
         .authenticate_with_credential(&headers)
         .await

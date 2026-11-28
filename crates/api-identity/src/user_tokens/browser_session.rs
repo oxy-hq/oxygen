@@ -173,8 +173,7 @@ async fn ticketed(
 /// regenerated since the ticket was issued opens no session, and what is
 /// handed over is known to work.
 async fn admitted(session: &Session) -> Result<CredentialContext, TokenError> {
-    match authenticate_browser_session(&oxy::database::client::auth_platform(), &session.jwt).await
-    {
+    match authenticate_browser_session(&crate::auth_platform(), &session.jwt).await {
         Ok((_, credential)) => Ok(credential),
         Err(OxyError::AuthenticationError(reason)) => {
             tracing::info!(%reason, "a ticket's token no longer opens a session");

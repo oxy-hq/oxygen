@@ -760,6 +760,7 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
     let name = user.name.clone();
 
     let token = match oxy_app_core::session::create_auth_token_with_ttl(
+        &crate::auth_platform(),
         user,
         chrono::Duration::hours(SHIFT_HOURS),
     )

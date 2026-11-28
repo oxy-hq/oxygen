@@ -46,7 +46,7 @@ async fn assert_refused_everywhere(fx: &Fixture, key: &str) {
     headers.insert("x-api-key", key.parse().unwrap());
     let refused = BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
     )
     .authenticate(&headers)
     .await;

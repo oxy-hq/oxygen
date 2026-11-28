@@ -338,7 +338,7 @@ async fn ci_publisher(
     headers.insert("authorization", bearer.parse().unwrap());
     let (_identity, credential) = oxy_auth::built_in::BuiltInAuthenticator::new(
         oxy_auth::token::SandboxAgent::Refuse,
-        oxy::database::client::auth_platform(),
+        oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
     )
     .authenticate_with_credential(&headers)
     .await

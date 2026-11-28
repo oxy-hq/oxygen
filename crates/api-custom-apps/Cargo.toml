@@ -42,6 +42,7 @@ oxy-custom-apps = { workspace = true }    # the serve resolver, build store, cac
 oxy-usage-report = { workspace = true }   # platform facts: the customer-run predicate, the token rates, the week
 oxy = { workspace = true }                # database client
 oxy-auth = { workspace = true }           # credentials and the token kinds
+oxy-platform = { workspace = true }       # ProcessPlatformDb, the port AuthPlatform is built on
 oxy-authz = { workspace = true }
 oxy-observability = { workspace = true }  # the serving SLI and the log store
 oxy-server-authz = { workspace = true }   # Caller

@@ -129,7 +129,6 @@ allowed = [
   "airhouse -> agentic-connector",
   "airhouse -> oxy-platform",
   "oxy -> oxy-airlayer-compat",
-  "oxy -> oxy-auth",
   "oxy -> oxy-compile",
   "oxy -> oxy-git",
   "oxy -> oxy-llm",

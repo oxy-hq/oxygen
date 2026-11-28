@@ -69,7 +69,7 @@ pub(crate) async fn publish(
     let router = router.layer(middleware::from_fn_with_state(
         AuthState::built_in(
             oxy_auth::token::SandboxAgent::Refuse,
-            oxy::database::client::auth_platform(),
+            oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb),
         ),
         auth_middleware,
     ));

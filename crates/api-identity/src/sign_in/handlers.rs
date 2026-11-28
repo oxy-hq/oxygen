@@ -15,8 +15,8 @@ use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_app_core::AppState;
 
 use oxy_app_core::session::{
-    AuthResponse, Claims, extract_base_url_from_headers, finalize_login, hydrate_token_session,
-    login_response, validate_return_to_url,
+    AuthResponse, Claims, extract_base_url_from_headers, hydrate_token_session, login_response,
+    validate_return_to_url,
 };
 
 use super::dto::*;
@@ -55,9 +55,9 @@ pub async fn get_session(
     // A session a token opened hydrates as itself — never into the fresh
     // thirty-day login minted below.
     if oxy_auth::token::browser_session::token_id_of(&jwt).is_some() {
-        return hydrate_token_session(&headers, jwt).await;
+        return hydrate_token_session(&crate::auth_platform(), &headers, jwt).await;
     }
-    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
+    let key = session_key::decoding_key(&crate::auth_platform(), Purpose::Session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let claims = decode::<Claims>(&jwt, &key, &Validation::default())
@@ -98,10 +98,9 @@ pub async fn issue_oauth_state() -> Result<Json<OAuthStateResponse>, StatusCode>
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
-    let key =
-        session_key::encoding_key(&oxy::database::client::auth_platform(), Purpose::OAuthState)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let key = session_key::encoding_key(&crate::auth_platform(), Purpose::OAuthState)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let token = encode(&Header::default(), &claims, &key).map_err(|e| {
         tracing::error!("Failed to sign OAuth state: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR

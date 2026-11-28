@@ -889,6 +889,12 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
 #[cfg(test)]
 pub(crate) use oxy_app_core::agent_fixture as custom_apps_agent_fixture;
 
+/// The auth port every `oxy-auth` entry point in this crate is handed: this
+/// process's platform database and master key (`oxy_platform::ProcessPlatformDb`).
+pub(crate) fn auth_platform() -> oxy_auth::ports::AuthPlatform {
+    oxy_auth::ports::AuthPlatform::new(oxy_platform::ProcessPlatformDb)
+}
+
 /// The shared in-source DB harness (`oxy_test_utils::db`), for the automation run's
 /// executor and heartbeat tests (`test_db`: the central and runtime migrators
 /// against `OXY_DATABASE_URL`, one lock key per shared row).

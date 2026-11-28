@@ -27,7 +27,7 @@ use oxy::database::errors::is_unique_violation;
 use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_shared::errors::OxyError;
 
-use oxy_app_core::session::validate_return_to_url;
+use oxy_app_core::session::{OrgInfo, UserInfo, validate_return_to_url};
 
 use super::anonymous_link::SignInLink;
 use super::dto::*;
@@ -68,12 +68,21 @@ pub(super) const OAUTH_STATE_TTL_SECS: i64 = 10 * 60;
 
 pub(super) const OAUTH_STATE_PURPOSE: &str = "oauth-state";
 
+/// [`oxy_app_core::session::finalize_login`] on this process's auth port: the
+/// token, the `UserInfo` payload and the org memberships every sign-in returns.
+pub(super) async fn finalize_login(
+    user: users::Model,
+    connection: &DatabaseConnection,
+) -> Result<(String, UserInfo, Vec<OrgInfo>), StatusCode> {
+    oxy_app_core::session::finalize_login(&crate::auth_platform(), user, connection).await
+}
+
 pub(super) async fn verify_oauth_state(state: &str) -> Result<(), StatusCode> {
     let validation = Validation::default();
     // Its own key, not the session's: a `state` can never be presented as a
     // session, and a session never as a `state`.
     let key = oxy_auth::session_key::decoding_key(
-        &oxy::database::client::auth_platform(),
+        &crate::auth_platform(),
         oxy_auth::session_key::Purpose::OAuthState,
     )
     .await

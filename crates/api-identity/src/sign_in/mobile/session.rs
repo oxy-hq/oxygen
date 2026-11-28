@@ -66,8 +66,7 @@ async fn verify(jwt: &str) -> Result<Claims, MobileAuthError> {
     if browser_session::token_id_of(jwt).is_some() {
         return Err(MobileAuthError::InvalidSession);
     }
-    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
-        .await?;
+    let key = session_key::decoding_key(&crate::auth_platform(), Purpose::Session).await?;
     let mut validation = Validation::default();
     validation.leeway = 0;
     decode::<Claims>(jwt, &key, &validation)
@@ -97,7 +96,7 @@ async fn signed_in_user(
 /// session is created. Its expiry is read back off the JWT, so what the app is
 /// told — and the cookie's expiry — is what the token says, to the second.
 pub(super) async fn mint(user: &users::Model, window: Duration) -> Result<Minted, MobileAuthError> {
-    let token = create_auth_token_with_ttl(user.clone(), window)
+    let token = create_auth_token_with_ttl(&crate::auth_platform(), user.clone(), window)
         .await
         .map_err(|status| MobileAuthError::Internal(format!("mint a session: {status}")))?;
     let claims = verify(&token)
@@ -162,7 +161,7 @@ mod tests {
     /// This process's session key, with a root fixed so no database is read.
     async fn our_key() -> [u8; 32] {
         session_key::install_root_for_tests([11; 32]);
-        session_key::key(&oxy::database::client::auth_platform(), Purpose::Session)
+        session_key::key(&crate::auth_platform(), Purpose::Session)
             .await
             .expect("a key")
     }

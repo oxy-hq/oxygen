@@ -10,6 +10,7 @@
 
 use axum::http::HeaderMap;
 use jsonwebtoken::{Validation, decode};
+use oxy_auth::ports::AuthPlatform;
 use oxy_auth::session_key::{self, Purpose};
 
 use super::dto::Claims;
@@ -22,10 +23,14 @@ use super::dto::Claims;
 ///
 /// The cookie alone. An `Authorization` header is ignored on purpose: the web
 /// app attaches its stored bearer token to every call, and the question this
-/// answers is whether the *cookie* still backs that token.
-pub async fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
+/// answers is whether the *cookie* still backs that token. The key is read
+/// through `platform`, the host's auth port.
+pub async fn session_cookie_user_id(
+    platform: &AuthPlatform,
+    headers: &HeaderMap,
+) -> Option<String> {
     let jwt = oxy_auth::built_in::extract_session_cookie(headers)?;
-    let key = session_key::decoding_key(&oxy::database::client::auth_platform(), Purpose::Session)
+    let key = session_key::decoding_key(platform, Purpose::Session)
         .await
         .ok()?;
     decode::<Claims>(&jwt, &key, &Validation::default())
@@ -38,12 +43,34 @@ mod tests {
     use super::*;
     use axum::http::HeaderValue;
     use chrono::Utc;
+    use entity::platform_db::{ConnectFuture, PlatformDb};
     use jsonwebtoken::{EncodingKey, Header, encode};
+    use oxy_shared::errors::OxyError;
+
+    /// An auth port with no database and no master key. Every test installs
+    /// the root first (`session_key_bytes`), so the port is never read.
+    fn test_platform() -> AuthPlatform {
+        struct NoDatabase;
+
+        impl PlatformDb for NoDatabase {
+            type Error = OxyError;
+
+            fn connect(&self) -> ConnectFuture<'_, OxyError> {
+                Box::pin(async { Err(OxyError::DBError("no database in this unit test".into())) })
+            }
+
+            fn master_key_text_for_signing(&self) -> Option<String> {
+                None
+            }
+        }
+
+        AuthPlatform::new(NoDatabase)
+    }
 
     /// This process's session key, with a root fixed so no database is read.
     async fn session_key_bytes() -> [u8; 32] {
         session_key::install_root_for_tests([7; 32]);
-        session_key::key(&oxy::database::client::auth_platform(), Purpose::Session)
+        session_key::key(&test_platform(), Purpose::Session)
             .await
             .expect("a key")
     }
@@ -75,7 +102,12 @@ mod tests {
     async fn a_valid_session_cookie_names_its_user() {
         let tok = jwt("user-a", &session_key_bytes().await, 3600);
         let h = headers(&[("cookie", format!("oxy_kiosk=k.s; oxy_session={tok}"))]);
-        assert_eq!(session_cookie_user_id(&h).await.as_deref(), Some("user-a"));
+        assert_eq!(
+            session_cookie_user_id(&test_platform(), &h)
+                .await
+                .as_deref(),
+            Some("user-a")
+        );
     }
 
     #[tokio::test]
@@ -84,14 +116,19 @@ mod tests {
         let tok = jwt("user-a", &key, 3600);
         // A bearer alone — the web app after `/api/logout` cleared the cookie.
         let h = headers(&[("authorization", tok.clone())]);
-        assert_eq!(session_cookie_user_id(&h).await, None);
+        assert_eq!(session_cookie_user_id(&test_platform(), &h).await, None);
         // Both, naming different people: the cookie's answer, not the bearer's.
         let other = jwt("user-b", &key, 3600);
         let h = headers(&[
             ("authorization", tok),
             ("cookie", format!("oxy_session={other}")),
         ]);
-        assert_eq!(session_cookie_user_id(&h).await.as_deref(), Some("user-b"));
+        assert_eq!(
+            session_cookie_user_id(&test_platform(), &h)
+                .await
+                .as_deref(),
+            Some("user-b")
+        );
     }
 
     #[tokio::test]
@@ -100,15 +137,24 @@ mod tests {
         let cookie = |value: String| headers(&[("cookie", format!("oxy_session={value}"))]);
 
         let expired = jwt("user-a", &key, -3600);
-        assert_eq!(session_cookie_user_id(&cookie(expired)).await, None);
+        assert_eq!(
+            session_cookie_user_id(&test_platform(), &cookie(expired)).await,
+            None
+        );
         // Signed with a key that is not this deployment's — the string every
         // session was once signed with among them.
         for not_ours in [&b"not-our-key"[..], &b"authentication_secret"[..]] {
             let forged = jwt("user-a", not_ours, 3600);
-            assert_eq!(session_cookie_user_id(&cookie(forged)).await, None);
+            assert_eq!(
+                session_cookie_user_id(&test_platform(), &cookie(forged)).await,
+                None
+            );
         }
         let empty = headers(&[("cookie", "oxy_session=; x=y".into())]);
-        assert_eq!(session_cookie_user_id(&empty).await, None);
-        assert_eq!(session_cookie_user_id(&HeaderMap::new()).await, None);
+        assert_eq!(session_cookie_user_id(&test_platform(), &empty).await, None);
+        assert_eq!(
+            session_cookie_user_id(&test_platform(), &HeaderMap::new()).await,
+            None
+        );
     }
 }

@@ -436,7 +436,7 @@ pub async fn internal_api_router(
         .merge(extra_api_routes)
         .layer(middleware::from_fn(timeout_middleware))
         .layer(middleware::from_fn_with_state(
-            oxy::database::client::auth_platform(),
+            crate::auth_platform(),
             internal_auth_middleware,
         ));
 

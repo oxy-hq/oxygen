@@ -21,6 +21,7 @@ oxy-identity = { workspace = true }  # the token lifecycle audit
 oxy-custom-apps = { workspace = true }  # GitHub's OIDC signing keys
 oxy = { workspace = true }           # database client
 oxy-auth = { workspace = true }      # the token, key and OIDC primitives
+oxy-platform = { workspace = true }  # ProcessPlatformDb, the port AuthPlatform is built on
 oxy-authz = { workspace = true }
 oxy-server-authz = { workspace = true }
 oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl
