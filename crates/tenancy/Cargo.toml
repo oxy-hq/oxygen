@@ -10,7 +10,6 @@ edition.workspace = true
 [dependencies]
 entity = { workspace = true }
 oxy-auth = { workspace = true }
-oxy-server-authz = { workspace = true }
 
 http = { workspace = true }
 sea-orm = { workspace = true }

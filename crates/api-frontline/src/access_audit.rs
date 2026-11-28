@@ -5,7 +5,7 @@
 
 use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_server_authz::org_context::OrgContext;
-use oxy_tenancy::org_teams::audit::{APP_ACCESS_CHANGED, Target};
+use oxy_tenancy::org_teams::audit::{APP_ACCESS_CHANGED, AuditActor, Target};
 use sea_orm::DatabaseConnection;
 
 /// Record one app-access change, best-effort: an audit write that fails must
@@ -16,7 +16,14 @@ pub(crate) async fn record_app_access_changed(
     actor: &RequestActor,
     target: Target,
 ) {
-    let event = oxy_tenancy::org_teams::audit::event(ctx, APP_ACCESS_CHANGED, target);
+    let event = oxy_tenancy::org_teams::audit::event(
+        AuditActor {
+            org_id: ctx.org.id,
+            is_global_override: ctx.is_global_override,
+        },
+        APP_ACCESS_CHANGED,
+        target,
+    );
     let (kind, id, label) = event.target;
     audit::record_best_effort(
         db,

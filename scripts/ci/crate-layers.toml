@@ -166,7 +166,6 @@ allowed = [
   "oxy-metric-monitoring -> agentic-analytics",
   "oxy-preagg -> agentic-automation",
   "oxy-semantic -> oxy-airlayer-compat",
-  "oxy-tenancy -> oxy-server-authz",
   "oxy-test-utils -> migration",
   "oxy-workspace-health -> oxy-usage-report",
 ]

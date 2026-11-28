@@ -22,8 +22,21 @@
 //! `access_audit::record_app_access_changed`) writes the [`AccessEvent`] it
 //! gets back (`internal-docs/crate-tiers.md`, stage A).
 
-use oxy_server_authz::org_context::OrgContext;
 use uuid::Uuid;
+
+/// The two facts of a request's org context that decide its audit row: which
+/// org's log it lands in, and which actor tier names it ([`AccessAction`]).
+///
+/// The surfaces that record one build it from their `OrgContext`
+/// (`oxy_server_authz::org_context`), which sits beside this crate, not below it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditActor {
+    /// The org whose log the row lands in (`OrgContext.org.id`).
+    pub org_id: Uuid,
+    /// A Global Owner or Global Admin acting through a synthesized Owner
+    /// membership (`OrgContext::is_global_override`).
+    pub is_global_override: bool,
+}
 
 /// The two names one change can land under.
 ///
@@ -95,15 +108,15 @@ pub struct AccessEvent {
 /// log problem becomes an outage on the control plane. The actor type is `User`
 /// on both branches, matching the admin sibling: the actor tier is carried by
 /// the action prefix, not by re-typing the actor.
-pub fn event(ctx: &OrgContext, action: AccessAction, target: Target) -> AccessEvent {
-    let name = if ctx.is_global_override {
+pub fn event(actor: AuditActor, action: AccessAction, target: Target) -> AccessEvent {
+    let name = if actor.is_global_override {
         action.staff
     } else {
         action.tenant
     };
     AccessEvent {
         name,
-        org_id: ctx.org.id,
+        org_id: actor.org_id,
         target,
     }
 }

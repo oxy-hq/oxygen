@@ -11357,7 +11357,6 @@ dependencies = [
  "entity",
  "http 1.5.0",
  "oxy-auth",
- "oxy-server-authz",
  "sea-orm",
  "serde",
  "tracing",

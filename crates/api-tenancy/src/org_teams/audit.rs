@@ -4,6 +4,7 @@
 
 use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_server_authz::org_context::OrgContext;
+use oxy_tenancy::org_teams::audit::AuditActor;
 use sea_orm::DatabaseConnection;
 
 pub use oxy_tenancy::org_teams::audit::{
@@ -20,7 +21,14 @@ pub async fn record(
     action: AccessAction,
     target: Target,
 ) {
-    let event = oxy_tenancy::org_teams::audit::event(ctx, action, target);
+    let event = oxy_tenancy::org_teams::audit::event(
+        AuditActor {
+            org_id: ctx.org.id,
+            is_global_override: ctx.is_global_override,
+        },
+        action,
+        target,
+    );
     let (kind, id, label) = event.target;
     audit::record_best_effort(
         db,
